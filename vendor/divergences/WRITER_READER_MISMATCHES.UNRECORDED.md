@@ -1594,6 +1594,47 @@ module they depend on. Guarded by
 `tests/test_documents_access_doctor_denied_row.py` (workflow
 `consent-data-handling.yml`).
 
+## A chat.db schema mismatch fails LOUD, never returns [] (walk #30, owner-knowledge 0/80) -- `ostler_fda`
+
+Tree `ostler_fda`, `vendor/ostler_fda/imessage.py`: new `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS` and `_raise_if_schema_mismatch()`. Both `extract_conversations` and `extract_messages` call the helper in their `except sqlite3.OperationalError` arm: a schema-shaped error (`no such column` / `no such table` and siblings) is re-raised as `ChatDbSchemaError` instead of being logged and returned as `[]`; any other OperationalError (a transient lock) keeps the degrade-to-empty, with `conn.close()` moved ahead of the possible raise. The same graft lands on the `imessage_source` tree (`vendor/imessage_source/reader.py`), recorded in `ASSISTANT_OWN_SENDS.UNRECORDED.md`; the two readers are kept in step.
+
+### Why
+
+Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80, because the synthetic chat.db lacked `account_login` (which both readers SELECT) and the readers swallowed `no such column: c.account_login` into `[]`. A schema-shaped OperationalError is only ever a reader/schema fault, never a benign empty (which returns zero rows with no exception), so it is refused rather than reported as 0 messages. The HR015 `ostler_fda` twin is OWED; Since CM051 #2969 this tree's grafts are recorded in `ostler_fda.patch`, so the edit is spliced into its `imessage.py` section: re-diffed against the source reconstructed by reverse-applying main's patch, and the PR tree minus the new patch reproduces that source exactly. This note is context; the patch is the record.
+
+### What a future sync must preserve
+
+`ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`.
+
+## The Doctor says when Ollama is not on Ostler's pinned version (CM051 #2977) -- `doctor`
+
+Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollama_pin` and `_ollama_pin_state_path`, the copy imports, one entry in `ALL_RULES`) and `vendor/doctor/agent/diagnostic_copy.py` (new `OLLAMA_NOT_PINNED_*` block).
+
+### Why
+
+#2977 pins Ollama to one verified release. On an existing working install a failed pin download, fingerprint check or unpack DEFERS rather than stopping the customer, and install.sh writes `~/.ostler/state/ollama-pin` (`ollama_pin=deferred`, `ollama_pin_version`, `ollama_pin_reason=pin_install_rc=N`). Archie's condition (1) on that leniency is that it must be VISIBLE. This rule turns the record into one Doctor row, "Ollama is not on Ostler's pinned version", with the reason in plain words. `installed` or a missing record give no row. The rule is read-only.
+
+### What a future sync must preserve
+
+`check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: inside
+`read_source_status`, a nested `_refused_panes` map (`fda_not_granted`, `no_fda`,
+`media_library_not_granted`) turns a `cannot_run` row into `needs_access` plus a
+`reason` ("Ostler needs <X> (System Settings > Privacy & Security > <pane>)"); the
+ongoing-tick refusal branch sets the same. `render_source_status` prints the status
+word "needs access" for such a row. The sentinel status stays `cannot_run`, so the
+writer vocabulary and CM044's reader are unchanged. Any other `cannot_run` detail
+keeps "could not look" and no reason.
+
+### What a future sync must preserve
+
+The map, the `needs_access` key, and the `status_word` choice in the renderer.
+Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (mutant:
+defaulting an unlisted reason to Full Disk Access turns six assertions red).
+
 ## doctor: the "What you like" status row is wired into the dashboard (smart-prefs, build after v1.0.108) -- `doctor`
 
 Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level

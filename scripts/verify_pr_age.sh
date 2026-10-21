@@ -139,6 +139,11 @@ exempt_entries() {
         }
         /^[[:space:]]*review_by:/ {
             review = $0; sub(/^[[:space:]]*review_by:[[:space:]]*"?/, "", review)
+            # A YAML inline comment is not part of the value. Left in, BSD
+            # `date -j -f` warns and reads the leading date (valid) while GNU
+            # `date -d` refuses the whole string (undated): one row, two
+            # verdicts by host. Measured 2026-10-18 on the #1818 row.
+            sub(/[[:space:]]+#.*$/, "", review)
             sub(/"?[[:space:]]*$/, "", review)
         }
         END { if (ref != "") print ref "\t" review }

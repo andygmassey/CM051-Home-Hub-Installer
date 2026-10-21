@@ -77,6 +77,8 @@ on:
       - 'tests/test_real_person_miss_inputs_are_printed.py'
       - 'tests/test_real_person_link_miss_classified.py'
       - 'tests/test_owner_digest_hydration_retries_5xx.py'
+      - 'tests/test_owner_digest_counts_only_meetings_that_happened.py'
+      - 'tests/test_owner_digest_preferences_count_above_the_floor.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
       - 'scripts/tests/test_walk_screens_never_land_in_the_repo.sh'
       - 'scripts/box_walk_probes/lib/real_person_choose.sh'
@@ -113,6 +115,8 @@ on:
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
+      - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
+      - 'scripts/lib_walk_cm019_bundle.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
       # its test go in the watch set together, or a PR could narrow the lib
@@ -156,6 +160,9 @@ on:
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       - 'tests/test_walk_driver_takes_owner_from_a_local_file.sh'
+      - 'scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh'
+      - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
+      - 'scripts/lib_walk_owner.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
@@ -563,9 +570,21 @@ jobs:
           fi
           exit "$rc"
 
+      - name: The walk never enables WhatsApp and declares its owner
+        if: always()
+        run: bash scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh
+
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()
         run: bash tests/test_walk_driver_takes_owner_from_a_local_file.sh
+
+      # WALK #31, 2026-10-18: a non-owner test account was installed with the
+      # operator's real identity because the owner file was staged whenever it
+      # existed. The owner identity now goes ONLY to a declared owner target,
+      # an unevaluable predicate refuses, and the record is scanned for it.
+      - name: The owner identity goes only to a declared owner target, and the record is scanned for it
+        if: always()
+        run: bash tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
 
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read
@@ -760,6 +779,12 @@ jobs:
       - name: owner_digest retries a transient 5xx inside its budget (DMG #24)
         if: always()
         run: python3 tests/test_owner_digest_hydration_retries_5xx.py
+      - name: owner_digest counts only meetings that have happened, in UTC (walk #31)
+        if: always()
+        run: python3 tests/test_owner_digest_counts_only_meetings_that_happened.py
+      - name: owner_digest counts preferences that clear the floor, not raw rows (walk 34)
+        if: always()
+        run: python3 tests/test_owner_digest_preferences_count_above_the_floor.py
 
       - name: Screens evidence never lands in the public repo checkout (DMG #23)
         if: always()
@@ -874,6 +899,10 @@ jobs:
       - name: The cm019 bundle accepts the payload root the driver passes
         if: always()
         run: /bin/bash tests/test_cm019_bundle_accepts_the_payload_root.sh
+
+      - name: ttywalk --from-dmg exports the artefact's cm019 bundle for the whole run
+        if: always()
+        run: /bin/bash tests/test_ttywalk_exports_the_cm019_bundle.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had

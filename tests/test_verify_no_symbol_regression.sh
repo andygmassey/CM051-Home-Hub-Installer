@@ -94,7 +94,7 @@ expect "incoming DELETES beta()" 1 "$TMP/a" "$TMP/b"
 # was unnamed while the guard was in fact naming it correctly. Caught by
 # reproducing the guard in isolation instead of believing the control.
 _named_out="$("$GUARD" "$TMP/a" "$TMP/b" 2>&1)"
-if printf '%s\n' "$_named_out" | grep -q 'beta'; then
+if grep -q 'beta' <<< "$_named_out"; then
     ok "names the deleted symbol (beta)"
 else
     bad "the deleted symbol is not NAMED in the output"

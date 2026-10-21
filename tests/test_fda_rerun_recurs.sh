@@ -156,8 +156,17 @@ run_guard() {
         # MUST be rewritten, so it moved to the `pathless` state below. Leaving
         # it here would have been a fixture encoding the shape the old code
         # handled, which is how control (7) reads a correct rewrite as churn.
-        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n' > "$plist" ;;
+        # 2026-10-17 (v1.0.108) widened `correct` again: fda-rerun must now run
+        # at background QoS (ProcessType=Background) so its 5-year-window ingest
+        # yields CPU to live chat during first-run settling. A plist without
+        # that key is the `unbackgrounded` state below and MUST be rewritten, so
+        # leaving it out of `modern` would make control (7) read a correct
+        # rewrite as churn -- the same trap the PATH widening sprang.
+        modern) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n<key>ProcessType</key>\n<string>Background</string>\n' > "$plist" ;;
         pathless) printf '<key>StartInterval</key>\n<integer>3600</integer>\n' > "$plist" ;;
+        # Modern schedule AND Homebrew PATH, but NOT backgrounded: the shape of
+        # every fda-rerun plist written before v1.0.108. Must be rewritten.
+        unbackgrounded) printf '<key>StartInterval</key>\n<integer>3600</integer>\n<key>EnvironmentVariables</key>\n<dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n' > "$plist" ;;
         absent) : ;;
         *) return 1 ;;
     esac
@@ -174,22 +183,22 @@ run_guard() {
 # ---------------------------------------------------------------------------
 
 # (1) THE DEFECT ITSELF. The shipped plist must schedule by interval.
-c1() { printf '%s\n' "$PLIST_BODY" | grep -q '<key>StartInterval</key>'; }
+c1() { grep -q '<key>StartInterval</key>' <<< "$PLIST_BODY"; }
 
 # (2) And must NOT reintroduce a pinned calendar date. Checked separately from
 #     (1) because a plist can legitimately carry BOTH keys, and a partially
 #     restored StartCalendarInterval would slip past (1) alone.
-c2() { ! printf '%s\n' "$PLIST_BODY" | grep -q 'StartCalendarInterval'; }
+c2() { ! grep -q 'StartCalendarInterval' <<< "$PLIST_BODY"; }
 
 # (3) No pinned Year/Month/Day survives anywhere in the heredoc. This is the
 #     axis that made the old plist one-shot -- a StartCalendarInterval with
 #     only Minute set recurs hourly and is harmless; it is the DATE that kills
 #     it. Assert the mechanism, not the key name.
-c3() { ! printf '%s\n' "$PLIST_BODY" | grep -qE '<key>(Year|Month|Day)</key>'; }
+c3() { ! grep -qE '<key>(Year|Month|Day)</key>' <<< "$PLIST_BODY"; }
 
 # (4) The interval is substituted from the tunable, not hardcoded in the plist,
 #     so a test or an operator can vary it without editing the heredoc.
-c4() { printf '%s\n' "$PLIST_BODY" | grep -q '<integer>\${OSTLER_FDA_RERUN_INTERVAL_S}</integer>'; }
+c4() { grep -q '<integer>\${OSTLER_FDA_RERUN_INTERVAL_S}</integer>' <<< "$PLIST_BODY"; }
 
 # (5) The tunable has a positive-integer default. A default of 0 or empty would
 #     make launchd reject the job, and the install would still print success.
@@ -225,7 +234,7 @@ c8() { [[ "$(run_guard absent)" == "1 0" ]]; }
 # which is the failure this control exists to prevent.
 c9() {
     local bootout_at load_at
-    printf '%s\n' "$LAUNCHCTL_BODY" | grep -q 'launchctl bootout' || return 1
+    grep -q 'launchctl bootout' <<< "$LAUNCHCTL_BODY" || return 1
     bootout_at="$(grep -n -F 'launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
     load_at="$(grep -n -F '_ostler_launchagent_load_verified "$FDA_RERUN_PLIST"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
     [ -n "$bootout_at" ] && [ -n "$load_at" ] || return 1
@@ -269,6 +278,17 @@ c11() { ! grep -qE 'FDA_RERUN_(YEAR|MONTH|DAY|HOUR|MIN)=' "$INSTALL_SH"; }
 #      same fixture and only one answer was possible.
 c12() { [[ "$(run_guard pathless)" == "1 0" ]]; }
 
+# (13) THE THIRD UPGRADE LIMB, 2026-10-17 (v1.0.108). A box carrying a plist
+#      that is modern in SCHEDULE and has the Homebrew PATH but runs at the
+#      default QoS must be rewritten, so fda-rerun's 5-year-window ingest yields
+#      CPU to live chat during first-run settling. Every fda-rerun plist written
+#      before v1.0.108 is exactly this shape, so without the limb the fix
+#      reaches fresh installs only -- the same #768/#769 shape as (6) and (12),
+#      one key over. Discriminated from (7) by the ProcessType=Background key
+#      the `modern` fixture now carries: (7) is "correct, leave alone", (13) is
+#      "modern schedule and PATH but unthrottled, rewrite".
+c13() { [[ "$(run_guard unbackgrounded)" == "1 0" ]]; }
+
 run_controls() {
     PASS=0
     FAIL=0
@@ -285,6 +305,7 @@ run_controls() {
     check "(10) success message key exists in the catalogue"         c10
     check "(11) one-shot date arithmetic is deleted"                 c11
     check "(12) PATH-less plist on disk -> rewrite, not flagged legacy" c12
+    check "(13) un-backgrounded plist on disk -> rewrite for background QoS" c13
 }
 
 # ---------------------------------------------------------------------------
@@ -313,7 +334,7 @@ if [[ "$SELF_TEST" == "1" ]]; then
             SELF_FAIL=$((SELF_FAIL + 1))
             return
         fi
-        if printf '%s\n' "$out" | grep -q "\[FAIL\] ${expect_fail}"; then
+        if grep -q "\[FAIL\] ${expect_fail}" <<< "$out"; then
             printf '  [pass] %s -> %s went RED as required\n' "$label" "$expect_fail"
         else
             printf '  [FAIL] %s -> %s stayed GREEN with the defect present\n' "$label" "$expect_fail"
@@ -338,6 +359,14 @@ if [[ "$SELF_TEST" == "1" ]]; then
     probe "no-bootout" \
         's|launchctl bootout|launchctl no_such_subcommand|' \
         "(9)"
+
+    # Defect D (v1.0.108): the background-QoS rewrite trigger removed, so every
+    # box that already carries an un-backgrounded plist keeps running fda-rerun
+    # at full priority -- the first-run chat-starvation defect, reaching fresh
+    # installs only. Same shape as Defect B, one limb over.
+    probe "no-background-trigger" \
+        's|^    elif ! grep -q .<string>Background</string>. "\$FDA_RERUN_PLIST" 2>/dev/null; then$|    elif false; then|' \
+        "(13)"
 
     echo
     if [[ "$SELF_FAIL" -gt 0 ]]; then

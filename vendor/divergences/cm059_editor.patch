@@ -57,7 +57,7 @@
          except Exception:
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -355,6 +355,23 @@
+@@ -355,6 +355,134 @@
          source="ostler:editor",
          privacy="L1",  # generic product copy; about the operator, no PII
      )
@@ -70,27 +70,182 @@
 +_HANDLE_CATEGORIES = frozenset({"instagram_creator"})
 +
 +
++import re as _re_text
++
++_ROLE_TAG = _re_text.compile(
++    r"\s*\((?:user|owner|you|other_name|user_name|other(?::[\w-]+)?)\)", _re_text.I)
++_PLACEHOLDER = _re_text.compile(r"\{[a-z][a-z0-9_]*\}")
++_ISO_STAMP = _re_text.compile(
++    r"\b(20\d\d)-([01]\d)-([0-3]\d)(?:[T ][0-2]\d:[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-]\d\d:?\d\d)?)?(?!\d)")
++_PHONE_SHAPE = _re_text.compile(r"^\+?[\d\s().\-\u00a0]{6,}$")
++_EMAIL_SHAPE = _re_text.compile(r"^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$")
++_SNAKE_KEY = _re_text.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)+$")
++_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
++           "Oct", "Nov", "Dec")
++
++
++def _human_iso(m) -> str:
++    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
++    if not 1 <= mo <= 12:
++        return m.group(0)
++    return "%d %s %d" % (d, _MONTHS[mo - 1], y)
++
++
++def clean_card_text(text) -> str:
++    """Customer-safe free text: role tags and template placeholders removed,
++    ISO dates/timestamps written as '30 Sep 2026'. Idempotent."""
++    out = _ROLE_TAG.sub("", str(text or ""))
++    out = _PLACEHOLDER.sub("", out)
++    out = _ISO_STAMP.sub(_human_iso, out)
++    return _re_text.sub(r"[ \t]{2,}", " ", out).strip()
++
++
++UNKNOWN_CONTACT = "an unknown contact"
++
++
++def person_label(name, fallback=None):
++    """The one display-name gate for card text. Returns a name a customer
++    would recognise, or None when there is none to show: a bare phone number,
++    an email address, an @handle, a snake_case key, or nothing but tags. An @handle is shown
++    only for creator/social interests (see display_subject), never for a
++    person. ``fallback`` is returned instead of None (UNKNOWN_CONTACT)."""
++    n = clean_card_text(name)
++    if not n or not any(ch.isalpha() for ch in n):
++        return fallback
++    if _PHONE_SHAPE.match(n) or _EMAIL_SHAPE.match(n) or "@" in n:
++        return fallback
++    if _SNAKE_KEY.match(n):
++        return fallback
++    return n
++
++
 +def display_subject(it: dict) -> str:
 +    """The label a customer sees for an interest: a handle-kind interest is
-+    shown as ``@handle``; every other subject is unchanged."""
++    shown as ``@handle``; a snake_case key is spoken as words; free text is
++    cleaned of tags, placeholders and ISO dates."""
 +    subject = it.get("subject") or ""
 +    if ((it.get("category") or "").lower() in _HANDLE_CATEGORIES
 +            and subject and not subject.startswith("@") and " " not in subject):
 +        return "@" + subject
++    subject = clean_card_text(subject)
++    if _SNAKE_KEY.match(subject):
++        subject = subject.replace("_", " ")
++        subject = subject[:1].upper() + subject[1:]
 +    return subject
++
++
++# The interest card's body says WHERE an interest came from, from the card's
++# own `sources` and `last_seen`, instead of one sentence on every card ("One of
++# the things Ostler reckons you're into."). Source keys measured on a walk box:
++# apple, twitter, linkedin, spotify, apple_tv, whatsapp, foursquare, uber, you.
++_SOURCE_NAMES = {
++    "apple": "Apple", "apple_music": "Apple Music", "apple_tv": "Apple TV",
++    "spotify": "Spotify", "twitter": "X", "x": "X", "instagram": "Instagram",
++    "facebook": "Facebook", "linkedin": "LinkedIn", "youtube": "YouTube",
++    "whatsapp": "WhatsApp", "foursquare": "Foursquare", "uber": "Uber",
++    "google": "Google", "netflix": "Netflix", "pinterest": "Pinterest",
++    "tiktok": "TikTok", "reddit": "Reddit", "amazon": "Amazon",
++}
++_SOCIAL_SOURCES = {"twitter", "x", "instagram", "facebook", "tiktok", "youtube", "reddit", "pinterest"}
++
++
++def _source_name(key: str, category: str) -> str:
++    k = (key or "").strip().lower()
++    if k == "apple" and category == "music":
++        return "Apple Music"
++    return _SOURCE_NAMES.get(k) or k.replace("_", " ").strip().title()
++
++
++def _join_names(names: list) -> str:
++    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
++
++
++def interest_provenance(it: dict, now: datetime) -> str:
++    """One plain sentence: what kind of signal this is and where it came from."""
++    category = (it.get("category") or "").lower()
++    keys = [s for s in (it.get("sources") or []) if isinstance(s, str) and s.strip()]
++    if any(k.lower() == "you" for k in keys):
++        return "You told Ostler about this."
++    keys = keys[:3]
++    if not keys:
++        line = "Picked up from your own data"
++    else:
++        names = list(dict.fromkeys(_source_name(k, category) for k in keys))
++        where = _join_names(names)
++        low = {k.lower() for k in keys}
++        if low == {"linkedin"}:
++            line = "On your LinkedIn profile"
++        elif category == "music":
++            line = f"From your {where} listening"
++        elif low <= _SOCIAL_SOURCES and category in ("interest", "creator", "social", "account", ""):
++            line = f"Followed on {where}"
++        elif category in ("movie", "tv", "film"):
++            line = f"Watched on {where}"
++        elif category == "place":
++            line = f"From your {where} check-ins"
++        else:
++            line = f"From your {where} data"
++    year = str(it.get("last_seen") or "")[:4]
++    if year.isdigit() and int(year) < now.year:
++        line += f", last seen in {year}"
++    return line + "."
  
  
  def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
-@@ -371,7 +388,7 @@
-     evidence = ev_list[0] if ev_list else None
+@@ -368,12 +496,12 @@
+         1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
+     # CM051 #2534: one evidence line per card, not two joined with " - ".
+     ev_list = it.get("evidence") or []
+-    evidence = ev_list[0] if ev_list else None
++    evidence = clean_card_text(ev_list[0]) if ev_list else None
      card = _make_card(
          "interest", it["id"],
 -        title=it["subject"],
 +        title=display_subject(it),
          body=("Something to avoid" if it.get("polarity") == "dislike"
-               else "One of the things Ostler reckons you're into."),
+-              else "One of the things Ostler reckons you're into."),
++              else interest_provenance(it, now)),
          now=now, domain=it.get("domain"),
-@@ -484,7 +501,7 @@
+         priority=base,
+         action={"label": "Spot on", "kind": "strengthen"},
+@@ -422,6 +550,7 @@
+     bench = [it for block in (profile.get("domains") or [])
+              for it in (block.get("interests") or [])
+              if it.get("polarity") != "dislike"
++             and _fit_for_a_card(it)
+              and it.get("id") not in chosen_ids]
+     if not bench:
+         return picked[-n:] if n else []
+@@ -449,6 +578,20 @@
+     return out or (picked[-n:] if n else [])
+ 
+ 
++# Flags that mean "this is not a clean statement of an interest": prose, a
++# bare link, nothing, or a mail/calendar subject line. The profile already
++# sinks their confidence; the hunch and rotation selectors must not surface
++# them at all (Ostler #30: a LinkedIn recommendation paragraph became "A hunch").
++_UNFIT_FOR_A_CARD_FLAGS = frozenset({
++    "too_long", "too_short", "empty", "url_only",
++    "email_reply_prefix", "email_thread", "dated_subject",
++})
++
++
++def _fit_for_a_card(it: dict) -> bool:
++    return not (_UNFIT_FOR_A_CARD_FLAGS & set(it.get("flags") or ()))
++
++
+ def exploration_pick(profile: dict, picked: list[dict],
+                      exclude_ids: set | None = None) -> dict | None:
+     """The E4 anti-filter-bubble pick: the strongest liked interest that did
+@@ -460,6 +603,7 @@
+     pool = [it for block in profile.get("domains", [])
+             for it in block.get("interests", [])
+             if it.get("polarity") != "dislike"
++            and _fit_for_a_card(it)
+             and it.get("id") not in picked_ids]
+     if not pool:
+         return None
+@@ -484,7 +628,7 @@
      created = fe or now
      card = _make_card(
          "interest", key,
@@ -99,12 +254,19 @@
          body=("A hunch, based on what Ostler already knows you're into - "
                "say if it lands."),
          now=now, domain=it.get("domain"),
-@@ -760,8 +777,83 @@
-             signals_kept += 1
-         kept.append(c)
+@@ -593,7 +737,7 @@
+             pool.append(it)
+     pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
+     for it in pool:
+-        if it.get("id") in exclude_ids:
++        if it.get("id") in exclude_ids or not _fit_for_a_card(it):
+             continue
+         dom = it.get("domain", "Other")
+         if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
+@@ -762,6 +906,83 @@
      return kept[:MAX_FEED_CARDS]
-+
-+
+ 
+ 
 +# ---------------------------------------------------------------------------
 +# What may become an interest CARD (#106c, items h and i; Andy's walk
 +# 2026-09-28). The Front Page showed a raw social hashtag, including a
@@ -116,7 +278,7 @@
 +#   * a subject that is a page title loses its site suffix.
 +# ---------------------------------------------------------------------------
 +import re as _re
- 
++
 +_SENSITIVE_STEMS = (
 +    "politic", "election", "memorial", "campaign", "protest", "maga",
 +    "democrat", "republican", "conservative party", "labour party", "tory",
@@ -127,7 +289,7 @@
 +    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
 +    "sexual", "trade union",
 +)
- 
++
 +_SITE_SUFFIX = _re.compile(
 +    r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
 +    r"welcome|site|website|web site|online|[\w.-]+\.(?:com|org|net|co\.uk|io|hk))"
@@ -152,6 +314,8 @@
 +    subject = (it.get("subject") or "").strip()
 +    if not subject or subject.startswith("#"):
 +        return False
++    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
++        return False  # a bare number or address is not a thing to be into
 +    low = subject.lower()
 +    if any(stem in low for stem in _SENSITIVE_STEMS):
 +        return False
@@ -183,7 +347,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -786,6 +878,7 @@
+@@ -786,6 +1007,7 @@
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -191,6 +355,19 @@
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
+@@ -874,6 +1096,12 @@
+     cards = drop_resting(cards)
+     cards = privacy_gate(cards)
+     cards = entitlement_gate(cards, entitled, now)
++    # A card must never appear without a working action. The app routes only
++    # open_interest_profile; the consent_grant:<key> verb a consent card
++    # carries has no route from the app to the writer (the Doctor feedback
++    # route rejects it), so the card would show with no button. Held back
++    # until the consent writer is reachable (owed). Walk #27, 2026-10-14.
++    cards = [c for c in cards if c.get("kind") != "consent"]
+     cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)
+     cards = dedup_by_id(cards)
+     cards = _apply_feed_caps(cards)
 --- a/interest_profile.py
 +++ b/interest_profile.py
 @@ -5,7 +5,7 @@
@@ -216,10 +393,12 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -409,18 +410,128 @@
+@@ -488,20 +489,130 @@
+ _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
+ # A one-off signal this old is not a current interest, regardless of shape.
  _ANCIENT_YEARS = 15
- 
- 
++
++
 +# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
 +#
 +# Found by looking at the page a person sees rather than at the counts. With
@@ -284,8 +463,8 @@
 +    if not any(ch.isalpha() for ch in s):
 +        return True
 +    return False
-+
-+
+ 
+ 
  # ---------------------------------------------------------------------------
  # Scoring layer (pure)
  # ---------------------------------------------------------------------------
@@ -346,7 +525,7 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -814,7 +925,46 @@
+@@ -920,7 +1031,46 @@
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -394,7 +573,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -834,8 +984,16 @@
+@@ -940,8 +1090,16 @@
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -411,7 +590,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -861,6 +1019,9 @@
+@@ -967,6 +1125,9 @@
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -421,7 +600,7 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -871,16 +1032,77 @@
+@@ -977,16 +1138,77 @@
  # ---------------------------------------------------------------------------
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
@@ -503,9 +682,19 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
+@@ -1012,7 +1234,8 @@
+     oxigraph_url = oxigraph_url or os.environ.get(
+         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
+     out: list[dict] = []
+-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
++    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike"),
++                                ("NeutralPreference", "neutral")):
+         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
+             out.append({
+                 "subject": row.get("subject", ""),
 --- /dev/null
 +++ b/project_preferences.py
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,423 @@
 +"""Project preference facts from Qdrant into the RDF graph.
 +
 +WHY THIS EXISTS, measured on a live v1.0.98 box 2026-09-16:
@@ -550,12 +739,34 @@
 +
 +IDEMPOTENT BY CONSTRUCTION: every node's IRI is derived from the preference's
 +own identity, so re-running replaces rather than duplicates.
++
++2026-10-15, WALK #29: THE PIPELINE NOW WRITES THE GRAPH, SO THIS MODULE MADE
++DUPLICATES. CM019's ingest pipeline writes every preference it ingests as
++``pwg:pref_<preference_id>`` (vendor/cm019_preferences/services/ingest/src/
++parsers/base.py to_turtle, sent by pipeline.py insert_triples). This module
++then copied the SAME Qdrant point again as ``urn:ostler:preference:<sha>``,
++so the graph held two nodes per preference: 138,999 Oxigraph music subjects
++against 70,667 Qdrant music points on the walk box, and every graph count
++(the wiki Topics page, interest_profile's raw_rows) read about double.
++
++It is NOT deleted, because not every writer goes through that pipeline: CM041
++places_ingest.py and ostler_fda's iMessage/bookmark rows upsert Qdrant only,
++and interest_profile still needs them in the graph. So:
++
++  * ``project`` skips a point whose ``pwg:pref_<preference_id>`` node exists
++    (``pipeline_preference_ids``): one producer per preference.
++  * ``dedupe_projected_twins`` is the one-time cleanup for installs that
++    already hold both copies. It removes a projected node ONLY when its
++    pipeline twin exists, backs the removed triples up first, and refuses to
++    delete if the backup did not land. A projected node with no twin is
++    never touched. Re-running finds nothing to do.
 +"""
 +from __future__ import annotations
 +
 +import hashlib
 +import json
 +import os
++import time
 +import urllib.error
 +import urllib.parse
 +import urllib.request
@@ -573,7 +784,8 @@
 +# module exists to fix.
 +PROJECTOR_ID = "ostler:cm059:preference-projection"
 +
-+_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference"}
++_POLARITY = {"like": "LikePreference", "dislike": "DislikePreference",
++             "neutral": "NeutralPreference"}
 +
 +
 +def _secret(env_var: str, filename: str) -> str:
@@ -708,25 +920,134 @@
 +
 +
 +
-+def _count_marked(oxi: str, headers: dict) -> int:
-+    """How many nodes currently carry this projector's marker. Used to refuse a
-+    delete that does not match what we are about to write."""
-+    q = (f"PREFIX pwg: <{PWG_NS}> SELECT (COUNT(DISTINCT ?s) AS ?n) "
-+         f"WHERE {{ ?s pwg:projectedBy {_lit(PROJECTOR_ID)} }}")
-+    h = {"Accept": "text/csv",
-+         "Content-Type": "application/x-www-form-urlencoded"}
++PIPELINE_PREFIX = PWG_NS + "pref_"
++PROJECTION_PREFIX = "urn:ostler:preference:"
++_TYPES = ", ".join(f"<{PWG_NS}{t}>" for t in sorted(set(_POLARITY.values())))
++#: Subjects per DELETE / CONSTRUCT request: keeps each request body well under
++#: a megabyte on a 140k-node graph.
++_BATCH = 500
++
++
++def _iri_for_id(preference_id: str) -> str:
++    """The projection IRI for a preference_id. MUST equal ``_iri`` for a
++    point whose payload carries that id (tested)."""
++    return f"{PROJECTION_PREFIX}{hashlib.sha256(str(preference_id).encode('utf-8')).hexdigest()[:32]}"
++
++
++def _query_json(oxi: str, sparql: str, headers: dict) -> list[dict]:
++    """SELECT -> list of {var: value}. Raises on a refused query: a store that
++    will not answer must never read as an empty one."""
++    h = {"Content-Type": "application/sparql-query",
++         "Accept": "application/sparql-results+json"}
 +    if "Authorization" in headers:
 +        h["Authorization"] = headers["Authorization"]
-+    raw = _post(oxi + "/query",
-+                urllib.parse.urlencode({"query": q}).encode("utf-8"), h)
-+    rows = raw.decode("utf-8", "replace").splitlines()
-+    try:
-+        return int(rows[1].strip().strip('"'))
-+    except Exception:
-+        return 0
++    raw = _post(oxi + "/query", sparql.encode("utf-8"), h)
++    data = json.loads(raw)
++    names = data.get("head", {}).get("vars", [])
++    return [{n: b[n]["value"] for n in names if n in b}
++            for b in data.get("results", {}).get("bindings", [])]
 +
 +
-+def project(qdrant_url: str | None = None, oxigraph_url: str | None = None) -> dict:
++def pipeline_preference_ids(oxi: str, headers: dict) -> set[str]:
++    """Every preference_id the CM019 pipeline has written as pwg:pref_<id>."""
++    q = (f"SELECT DISTINCT ?s WHERE {{ ?s a ?t . FILTER(?t IN ({_TYPES})) "
++         f'FILTER(STRSTARTS(STR(?s), "{PIPELINE_PREFIX}")) }}')
++    return {r["s"][len(PIPELINE_PREFIX):] for r in _query_json(oxi, q, headers)
++            if r.get("s", "").startswith(PIPELINE_PREFIX)}
++
++
++def projected_nodes(oxi: str, headers: dict) -> set[str]:
++    """Every node this projector wrote (it carries the marker)."""
++    q = (f"SELECT DISTINCT ?s WHERE {{ ?s <{PWG_NS}projectedBy> "
++         f"{_lit(PROJECTOR_ID)} }}")
++    return {r["s"] for r in _query_json(oxi, q, headers) if r.get("s")}
++
++
++def _backup_dir() -> str:
++    return os.environ.get(
++        "OSTLER_PREFERENCE_PROJECTION_BACKUP_DIR",
++        os.path.expanduser("~/.ostler/backups/preference-projection"),
++    )
++
++
++def _count_marked(oxi: str, headers: dict) -> int:
++    """How many nodes currently carry this projector's marker. Used to refuse a
++    delete that does not match what we are about to write. Raises on a refused
++    query: this used to return 0 on ANY failure, which disarmed the guard it
++    exists for."""
++    q = (f"PREFIX pwg: <{PWG_NS}> SELECT (COUNT(DISTINCT ?s) AS ?n) "
++         f"WHERE {{ ?s pwg:projectedBy {_lit(PROJECTOR_ID)} }}")
++    rows = _query_json(oxi, q, headers)
++    return int(rows[0]["n"]) if rows and "n" in rows[0] else 0
++
++
++def dedupe_projected_twins(oxigraph_url: str | None = None,
++                           backup_dir: str | None = None) -> dict:
++    """ONE-TIME CLEANUP: remove projected copies whose pipeline twin exists.
++
++    A projected node ``urn:ostler:preference:<sha256(id)[:32]>`` is removed
++    only when ``pwg:pref_<id>`` exists AND the node carries this projector's
++    marker. Everything removed is first written as N-Triples to
++    ``backup_dir`` and the file is read back; if it does not hold every
++    subject about to be deleted, nothing is deleted. Idempotent: a second run
++    finds no twins and writes no backup.
++    """
++    oxi = (oxigraph_url or os.environ.get("OSTLER_OXIGRAPH_URL", _OXIGRAPH_DEFAULT)).rstrip("/")
++    tok = _secret("OXIGRAPH_TOKEN", "oxigraph_token")
++    headers = {"Content-Type": "application/sparql-update"}
++    if tok:
++        headers["Authorization"] = "Bearer " + tok
++
++    projected = projected_nodes(oxi, headers)
++    if not projected:
++        return {"projected": 0, "twins": 0, "removed": 0, "backup": None}
++    pipeline = pipeline_preference_ids(oxi, headers)
++    twins = sorted(projected & {_iri_for_id(i) for i in pipeline})
++    if not twins:
++        return {"projected": len(projected), "twins": 0, "removed": 0, "backup": None}
++
++    # BACK UP FIRST. CONSTRUCT returns N-Triples; every subject must appear.
++    bdir = backup_dir or _backup_dir()
++    os.makedirs(bdir, mode=0o700, exist_ok=True)
++    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
++    path = os.path.join(bdir, f"projected-twins-{stamp}.nt")
++    h = {"Content-Type": "application/sparql-query", "Accept": "application/n-triples"}
++    if "Authorization" in headers:
++        h["Authorization"] = headers["Authorization"]
++    tmp = path + ".partial"
++    with open(tmp, "wb") as fh:
++        for i in range(0, len(twins), _BATCH):
++            vals = " ".join(f"<{t}>" for t in twins[i:i + _BATCH])
++            q = f"CONSTRUCT {{ ?s ?p ?o }} WHERE {{ VALUES ?s {{ {vals} }} ?s ?p ?o }}"
++            fh.write(_post(oxi + "/query", q.encode("utf-8"), h))
++    os.replace(tmp, path)
++    with open(path, encoding="utf-8") as fh:
++        backed = {line.split(" ", 1)[0].strip("<>") for line in fh if line.strip()}
++    missing = [t for t in twins if t not in backed]
++    if missing:
++        raise RuntimeError(
++            f"refusing to delete: the backup {path} holds {len(twins) - len(missing)} of "
++            f"{len(twins)} duplicate nodes (first missing: {missing[0]}). Nothing was deleted."
++        )
++
++    # DELETE ONLY THE TWINS, and only their marked form: the marker is part of
++    # the pattern, so a node that lost it (or never had it) cannot match.
++    for i in range(0, len(twins), _BATCH):
++        vals = " ".join(f"<{t}>" for t in twins[i:i + _BATCH])
++        upd = (f"DELETE {{ ?s ?p ?o }} WHERE {{ VALUES ?s {{ {vals} }} "
++               f"?s <{PWG_NS}projectedBy> {_lit(PROJECTOR_ID)} . ?s ?p ?o }}")
++        _post(f"{oxi}/update", upd.encode("utf-8"), headers)
++
++    left = projected_nodes(oxi, headers)
++    still = [t for t in twins if t in left]
++    if still:
++        raise RuntimeError(f"{len(still)} duplicate node(s) survived the delete; backup at {path}")
++    return {"projected": len(projected), "twins": len(twins),
++            "removed": len(twins), "backup": path}
++
++
++def project(qdrant_url: str | None = None, oxigraph_url: str | None = None,
++            pipeline_ids: set[str] | None = None) -> dict:
 +    """Read Qdrant, replace the projected preference graph in Oxigraph.
 +
 +    Writes into a NAMED GRAPH so the projection can be replaced wholesale
@@ -741,7 +1062,13 @@
 +        headers["Authorization"] = "Bearer " + tok
 +
 +    points = read_qdrant_preferences(qdrant_url)
-+    lines, skipped = to_triples(points)
++    # ONE PRODUCER PER PREFERENCE: a point the CM019 pipeline already wrote as
++    # pwg:pref_<id> is not copied again. Only Qdrant-only rows are projected.
++    already = pipeline_ids if pipeline_ids is not None else pipeline_preference_ids(oxi, headers)
++    own = [p for p in points
++           if str((p.get("payload") or {}).get("preference_id") or "") not in already]
++    in_pipeline = len(points) - len(own)
++    lines, skipped = to_triples(own)
 +
 +    # Replace only our own rows. DELETE WHERE on the marker is exact: a row
 +    # another producer wrote has no marker and is untouched.
@@ -765,11 +1092,23 @@
 +        delete + " ;\nINSERT DATA {\n" + "\n".join(lines) + "\n}")
 +    _post(f"{oxi}/update", body.encode("utf-8"), headers)
 +    return {"points": len(points), "triples": len(lines), "skipped": skipped,
++            "in_pipeline": in_pipeline,
 +            "nodes": len(lines and set(l.split(" ")[0] for l in lines) or ())}
 +
 +
 +if __name__ == "__main__":
 +    import sys
++    # The one-time twin cleanup runs FIRST: project()'s ratio guard would
++    # otherwise (correctly) refuse to replace 70k marked nodes with the few
++    # hundred Qdrant-only rows it now writes.
++    try:
++        d = dedupe_projected_twins()
++    except Exception as exc:  # loud, never a quiet zero
++        print(f"preference projection twin cleanup FAILED: {exc}", file=sys.stderr)
++        raise SystemExit(1)
++    if d["removed"]:
++        print(f"removed {d['removed']} projected duplicate(s) of pipeline preferences "
++              f"(of {d['projected']} projected nodes); backup {d['backup']}")
 +    try:
 +        r = project()
 +    except Exception as exc:  # loud, never a quiet zero
@@ -777,4 +1116,161 @@
 +        raise SystemExit(1)
 +    print(f"projected {r['nodes']} preference nodes "
 +          f"({r['triples']} triples) from {r['points']} Qdrant points; "
++          f"{r['in_pipeline']} already in the graph from the ingest pipeline; "
 +          f"{r['skipped']} skipped as unqueryable")
+--- a/render_frontpage.py
++++ b/render_frontpage.py
+@@ -625,7 +625,7 @@
+         '<div class="masthead"><h1>Your Front Page</h1>'
+         f'{date_html}</div>'
+         '<p class="lede">What Ostler thinks is worth your attention today, drawn '
+-        'from across your whole life — and ranked, not dumped.</p>')
++        'from across your whole life, and ranked, not dumped.</p>')
+ 
+ 
+ def render(feed: dict) -> str:
+@@ -633,7 +633,7 @@
+     cards = feed.get("cards", [])
+     bands = _bands_html(cards)
+     if not bands:
+-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
++        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
+                  'still settling in.</p>')
+     return (
+         '<!doctype html><html><head><meta charset="utf-8"><meta name="lang" content="en-GB">'
+@@ -651,7 +651,7 @@
+         '</div></div></div>'
+         f'<div class="fp">{_masthead(feed)}<div id="bands">{bands}</div></div>'
+         '<p class="gfoot">The Editor · compiled '
+-        f'{html.escape(str(feed.get("generated_utc", "")))} · '
++        f'{html.escape(_human_date(feed.get("generated_utc")))} · '
+         'this preview renders the same JSON the Hub and iOS apps consume.</p>'
+         f'<script>{_JS}</script>'
+         '</body></html>')
+@@ -664,7 +664,7 @@
+     cards = feed.get("cards", [])
+     bands = _bands_html(cards)
+     if not bands:
+-        bands = ('<p class="empty">Nothing on your Front Page yet — Ostler is '
++        bands = ('<p class="empty">Nothing on your Front Page yet. Ostler is '
+                  'still settling in.</p>')
+     return (f'<style>{_CSS}</style>{_ICON_DEFS}'
+             f'<div class="fp"><div id="bands">{bands}</div></div>'
+--- a/signals.py
++++ b/signals.py
+@@ -62,6 +62,19 @@
+     "reply_debt_title_many": "{count} people are waiting on you",
+     "reply_debt_body": "{names} {have} messages awaiting your reply.",
+     "reply_debt_action": "See who",
++    # A reply-debt source that could not be read is said out loud. Without
++    # this card the band simply had no reply-debt card, which reads exactly
++    # like nobody waiting (CM051 #30, studio29).
++    "reply_debt_unchecked_title": "Couldn't check who is waiting on you",
++    "reply_debt_unchecked_body": ("Ostler could not read your messages just "
++                                  "now, so this is not an all-clear. It will "
++                                  "check again shortly."),
++    # Messages was never set up as a source on this Mac (no consent, or no
++    # Messages history at install). Plain, and no promise to retry.
++    "reply_debt_not_connected_title": "Messages isn't connected",
++    "reply_debt_not_connected_body": ("Ostler isn't reading Messages on this "
++                                      "Mac, so it can't tell who is waiting "
++                                      "on a reply there."),
+     "gone_quiet_title": "You and {name} have gone quiet",
+     "gone_quiet_body": ("No contact for {span}. A short message keeps "
+                         "the thread alive."),
+@@ -379,7 +392,7 @@
+         return None
+     cid = fp.card_id("signal", "reply_debt")
+     created = _ledger_created(ledger, cid, now)
+-    shown = [n for n in (names or []) if n][:2]
++    shown = [fp.person_label(x, fp.UNKNOWN_CONTACT) for x in (names or []) if x][:2]
+     if count == 1:
+         title = _STRINGS["reply_debt_title_one"]
+     else:
+@@ -400,12 +413,50 @@
+         action={"label": _STRINGS["reply_debt_action"], "kind": "open_reply_debt"},
+         source="ostler:conversations", privacy=_card_privacy(privacy),
+         signal={"type": "reply_debt", "count": count})
++    card["created_utc"] = fp._iso(created)
++    return card
++
++
++def reply_debt_degraded(raw) -> bool:
++    """True when the reply-debt endpoint answered but said it could not look
++    (``degraded: true``). A degraded payload carries count 0, and count 0 must
++    not be read as "nobody is waiting"."""
++    return isinstance(raw, dict) and bool(raw.get("degraded"))
++
++
++# Reasons that mean "the install never set Messages up", as opposed to a
++# connected source that could not be read this time.
++_REPLY_DEBT_NOT_CONNECTED_REASONS = {"imessage_not_connected"}
++
++
++def reply_debt_not_connected(raw) -> bool:
++    return (reply_debt_degraded(raw)
++            and str(raw.get("reason") or "") in _REPLY_DEBT_NOT_CONNECTED_REASONS)
++
++
++def reply_debt_unchecked_card(now: datetime, ledger=None, not_connected=False):
++    """The "couldn't check" card, or, when Messages was never connected, the
++    plain "Messages isn't connected" card (no "will check again" promise).
++    Names nobody and quotes nothing, so it is safe at L2. No action."""
++    key = "reply_debt_not_connected" if not_connected else "reply_debt_unchecked"
++    cid = fp.card_id("signal", key)
++    created = _ledger_created(ledger, cid, now)
++    card = fp._make_card(
++        "signal", key,
++        title=_STRINGS[key + "_title"],
++        body=_STRINGS[key + "_body"], now=now,
++        domain="people",
++        priority=fp.BAND_REPLY_DEBT * (0.1 if not_connected else 0.25),
++        action=None, source="ostler:conversations", privacy="L2",
++        signal={"type": "reply_debt", "unchecked": True,
++                "not_connected": bool(not_connected)})
+     card["created_utc"] = fp._iso(created)
+     return card
+ 
+ 
+ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
+                     privacy: str = "L2"):
++    name = fp.person_label(name)
+     if not name:
+         return None
+     # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
+@@ -450,6 +501,7 @@
+ 
+ def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
+                   privacy: str = "L2"):
++    name = fp.person_label(name)
+     if not name or days_until is None:
+         return None
+     du = int(days_until)
+@@ -485,6 +537,7 @@
+     if days_until is None:
+         return None
+     du = int(days_until)
++    who = fp.person_label(who, fp.UNKNOWN_CONTACT) if who else None
+     key = f"commitment::{who or ''}::{what}"
+     cid = fp.card_id("signal", key)
+     created = _ledger_created(ledger, cid, now)
+@@ -516,10 +569,15 @@
+         return []
+     cards: list = []
+ 
+-    rd = _normalise_reply_debt(raw.get("reply_debt"))
+-    card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
+-    if card:
+-        cards.append(card)
++    if reply_debt_degraded(raw.get("reply_debt")):
++        cards.append(reply_debt_unchecked_card(
++            now, ledger=ledger,
++            not_connected=reply_debt_not_connected(raw.get("reply_debt"))))
++    else:
++        rd = _normalise_reply_debt(raw.get("reply_debt"))
++        card = reply_debt_card(rd["count"], rd["names"], now, ledger=ledger)
++        if card:
++            cards.append(card)
+ 
+     reconnect, birthdays = _normalise_suggestions(raw.get("suggestions"), now)
+     for it in reconnect:

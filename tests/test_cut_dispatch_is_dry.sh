@@ -101,7 +101,7 @@ expect() {
         printf '%s\n' "$_out" | sed 's/^/        /'
         return
     fi
-    if [ -n "$_needle" ] && ! printf '%s' "$_out" | grep -q "$_needle"; then
+    if [ -n "$_needle" ] && ! grep -q "$_needle" <<< "$_out"; then
         bad "$_label -- exit $_rc was right but the reason never mentioned '$_needle'"
         printf '%s\n' "$_out" | sed 's/^/        /'
         return

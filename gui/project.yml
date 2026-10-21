@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "10800"
-    MARKETING_VERSION: "1.0.108"
+    CURRENT_PROJECT_VERSION: "11200"
+    MARKETING_VERSION: "1.0.112"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.108"
-        CFBundleVersion: "10800"
+        CFBundleShortVersionString: "1.0.112"
+        CFBundleVersion: "11200"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -323,6 +323,24 @@ targets:
             /usr/bin/xattr -cr "${DEST}/Ostler.app" || true
           else
             echo "WARNING: OSTLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler.app." >&2
+          fi
+          # GAP3: Ostler Uninstaller.app nested inside OstlerInstaller.app/Contents/
+          # Resources so install.sh's ${SCRIPT_DIR}/Ostler Uninstaller.app copy finds
+          # it at install time and places it in /Applications. Same dynamic-path
+          # + `${VAR:-}` capture as Ostler.app above (xcodegen would otherwise
+          # substitute a bare ${UNINSTALLER_APP_PATH} at generation time).
+          # gui/Makefile's build-uninstaller target produces it and passes
+          # UNINSTALLER_APP_PATH as a build setting on the release archive.
+          # Non-fatal when absent so a Debug build (which does not build it)
+          # still succeeds; verify-dmg-contents does not require it, so a dev
+          # cut simply ships without it.
+          UNINSTALLER_APP_SRC="${UNINSTALLER_APP_PATH:-}"
+          if [ -n "$UNINSTALLER_APP_SRC" ] && [ -d "$UNINSTALLER_APP_SRC" ]; then
+            echo "Ostler Uninstaller.app: bundling $UNINSTALLER_APP_SRC into Resources/"
+            cp -R "$UNINSTALLER_APP_SRC" "${DEST}/Ostler Uninstaller.app"
+            /usr/bin/xattr -cr "${DEST}/Ostler Uninstaller.app" || true
+          else
+            echo "note: UNINSTALLER_APP_PATH not set or missing; OstlerInstaller will ship without bundled Ostler Uninstaller.app." >&2
           fi
           # Recover Ostler.app nested inside OstlerInstaller.app/Contents/
           # Resources so install.sh's SCRIPT_DIR copy finds it at install
@@ -1382,6 +1400,53 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OstlerInstaller.app/Contents/MacOS/OstlerInstaller"
         GENERATE_INFOPLIST_FILE: "YES"
 
+  # ── GAP3: the standalone Ostler Uninstaller.app ─────────────────────────────────
+  # Andy's explicit choice: a SEPARATE minimal app, not a button inside
+  # OstlerInstaller.app. It runs the installed ~/.ostler/bin/ostler-uninstall
+  # with OSTLER_GUI=1 and the chosen flags. install.sh places it in
+  # /Applications at install time so it survives the customer deleting the DMG.
+  #
+  # It shares the installer's marker decoder and line buffer verbatim (listed
+  # as individual sources below) so there is exactly one #OSTLER decoder.
+  #
+  # No postBuildScripts: it bundles nothing. It is itself nested into
+  # OstlerInstaller.app/Contents/Resources by that target's bundle phase (see
+  # the Ostler Uninstaller.app cp, gated on UNINSTALLER_APP_PATH), so it rides the
+  # existing sign / notarise-app / staple-apps machinery, with no separate cut step.
+  Ostler Uninstaller:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Uninstaller
+      - path: OstlerInstaller/ProgressProtocol.swift
+      - path: OstlerInstaller/OutputLineBuffer.swift
+    # NO `info:` BLOCK, deliberately, for the reason the Recover Ostler target
+    # below records: a second CFBundleShortVersionString key in this file is
+    # the ambiguity the installer-version-consistency gate fails on. The plist
+    # is the TRACKED Uninstaller/Info.plist, whose version keys are
+    # $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION), so this app's version
+    # tracks the installer's and cannot go stale against it.
+    entitlements:
+      path: Uninstaller/Uninstaller.entitlements
+      properties:
+        # Not sandboxed: it must spawn ~/.ostler/bin/ostler-uninstall and that
+        # script deletes files across the home directory and /Applications.
+        com.apple.security.app-sandbox: false
+        com.apple.security.cs.allow-unsigned-executable-memory: false
+        com.apple.security.cs.disable-library-validation: true
+        com.apple.security.cs.allow-jit: false
+        # Needed under hardened runtime because we set env vars (OSTLER_GUI,
+        # TERM, NO_COLOR) on the child process.
+        com.apple.security.cs.allow-dyld-environment-variables: true
+    settings:
+      base:
+        INFOPLIST_FILE: Uninstaller/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.uninstaller
+        PRODUCT_NAME: Ostler Uninstaller
+        SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        ARCHS: "$(ARCHS_STANDARD)"
+
   # ── The standalone Recover Ostler.app ────────────────────────────────
   # A frightened, non-technical customer's doorway back into their own data
   # (Andy: "why the fuck are we resorting to command line for a user to do
@@ -1462,6 +1527,18 @@ schemes:
     build:
       targets:
         Recover Ostler: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  Ostler Uninstaller:
+    build:
+      targets:
+        Ostler Uninstaller: all
     run:
       config: Debug
     profile:

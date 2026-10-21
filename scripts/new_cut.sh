@@ -216,6 +216,7 @@ fi
 # within the day, which is the argument for the drift TEST that now accompanies
 # this line rather than for more careful list-keeping.
 run_gate "BOM rows are in the pin" bash scripts/verify_bom_rows_are_in_the_pin.sh "$VERSION"
+run_gate "daemon hold in both registers" python3 scripts/verify_daemon_hold_registers_agree.py "$VERSION"
 run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
 CUT_VERSION_SOURCE=tag \
 run_gate "installer version IS the cut version" \

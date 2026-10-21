@@ -1343,6 +1343,75 @@ token. The new route is recorded against the `doctor` tree in
 `WRITER_READER_MISMATCHES.UNRECORDED.md`; no `ical-server.py` change here.
 Regenerate the contract after any sync.
 
+## Decisions tool reads the wiki Decisions store (CM051 v1.0.108, wow gate item 2)
+
+Tree `cm041/assistant_api`, same file. Matches CM041 #211, pre-merge head
+`8bb544210dcb4857da304326bb75c0affa945c07` (acked in `hold_ack_shas`; swap for
+the squash sha on merge). The ical-server.py hunks applied unchanged.
+
+`decisions_list` (GET /api/v1/decisions, what the assistant's `pwg_decisions`
+tool calls) read only Oxigraph `pwg:Decision` nodes, while the wiki Decisions
+page reads the Qdrant `conversations` collection (`type == "decision"`). Added
+`_decision_facts_from_conversations` and a merge into `decisions_list`:
+conversations rows are listed, graph rows kept, duplicates collapsed on summary,
+L3 withheld, an unreadable store reported as `conversations_unreadable`, and a
+down graph no longer blanks the answer when conversations can speak.
+
+### What a future sync must preserve
+
+`_decision_facts_from_conversations` and the two edits in `decisions_list`.
+Guarded by `vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py`
+(3 of 6 arms fail against main's ical-server). Retire by re-pinning.
+
+## coach_recent tolerates an uninitialised coach db (CM051, 2026-10-18, walk #31)
+
+Tree `cm041/assistant_api`. Files: `vendor/cm041/assistant_api/ical-server.py`,
+function `coach_recent` only, and its test
+`vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`,
+`test_zero_byte_decoy_never_masks_the_real_db` only.
+
+Walk #31 (v1.0.108): a 0-byte file at the writer's path turned
+`GET /api/v1/coach/recent` into a 500 ("no such table: observations"), and
+context-refresh then exited 3 on every tick. The graft returns a DECLARED
+empty, HTTP 200, for two more states beside the existing `db_state: "absent"`:
+a 0-byte file (`db_state: "empty"`) and a keyed db with no observations table
+(`db_state: "no_table"`). Every other read failure (wrong key, corruption,
+missing key against an encrypted file) still raises `CoachDbError` and 500s.
+The decoy test now asserts the declared `db_state` rather than a raise; the
+path-drift it was written for stays held by `test_reader_path_equals_writer_path`.
+
+- Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
+  ical-server; 3 of its reader cases fail on the pre-graft file with 500.
+- Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
+
+## A stale local store says so, and one event is one row (CM051, 2026-10-19, the Mini16 morning brief)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 main has no local-store calendar path to carry it. `build_calendar_response` and `fetch_recent_emails` already reported `local_store_age_seconds` and nothing acted on it: on 2026-10-19 the Hub served a 45-hour-old calendar (163617s) as a 200 with `degraded` unset, and the brief presented it as today's. Both now mark the body `degraded: true` and `stale: true`, with a one-line reason in `errors`, once the store is older than three writer intervals (`local_store_stale_after_s()`, three times `OSTLER_FDA_RERUN_INTERVAL_S`, default 3 hours). The events are still served; the reader decides. Dedup moved from the `(summary, start)` set to `collapse_duplicate_events`, which also folds two rows with the same start, end and calendar whose titles are two spellings of one event (a shared 4+ character token carrying a digit, or the shorter title's significant words all in the longer), keeping the longer title: one flight with two titles reached the brief as "a related event at the same time".
+
+### What a future sync must preserve
+
+`_writer_interval_s`, `local_store_stale_after_s`, `_stale_detail`, `_same_calendar_event`, `collapse_duplicate_events`, their use in `build_calendar_response` and `fetch_recent_emails`. Guarded by `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py` (five tests under "Staleness" and "Duplicates"; four fail against the pre-change server, the fresh-store one is the negative control). Retire by landing the local-store path in CM041 (`CM041 #220` covers the dedup) and re-pinning.
+
+## 2026-10-19 v1.0.111: conversation/process takes CM052's shape; privacy_level proven intact (CM041 #221, 2615d915)
+
+Tree: `cm041/assistant_api`. Pin HELD; 2615d915 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of upstream 2615d915 for this file. `_participant_slug_label` (CM052 sends participants as dicts; `str.replace` on a dict was a 500, so no CM052 conversation with participants reached CM048), and `api_conversation_process` keeping a producer's stable `conversation_id` (a changed re-post updates the bundle instead of writing a second one beside it).
+- Method: patch(1) at fuzz 0 failed the second hunk on line offset only, so both were applied by exact string replacement. Measured: the sorted multiset of changed lines equals upstream #221's (31 lines).
+- Recorded HERE, not in the patch: `regenerate_divergence_patch.sh --write` refuses this tree because upstream still carries a phone-shaped value the vendored copy has scrubbed (minus side). Recording the patch would publish it.
+- Proof: `tests/test_cm041_conversation_process_privacy_passthrough_vendored.py` (6), ported from #221's own test with three named vendored differences (the subscription gate, the `pwg-convo --help` probe, the `PWG_CONVO_BIN` argv) and the CM051 synthetic cast. 6 pass on the graft; 5 of 6 fail on the pre-graft vendor.
+- Retire: re-pin `cm041/assistant_api` past 2615d915.
+
+## 2026-10-19 v1.0.112: conversation routes refuse path traversal (CM041 #225, e2dffc09)
+
+Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all eight upstream hunks of e2dffc09 for this file: `_id_token`, `_SAFE_CONVERSATION_ID_RE`, `_valid_conversation_id`, the stricter `_safe_conversation_dir` (single segment, no symlink, not the root), its use in `_conversation_process_background`, `_resolve_fallback_conversation_id` and `api_conversation_status`, and the 400 on an invalid id in `api_conversation_process`.
+- Method: patch(1) at fuzz 0 failed 2 of 8 hunks on layout (the vendored file orders these functions differently), so all were applied by exact string replacement, each asserted to occur once. Diffstat +54/-14, equal to upstream's for this file.
+- Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
+- Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
+- Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
 ## smart-prefs (build after v1.0.108): GET /api/v1/preferences/derived, the "What you like" route (CM041 #215, head ccb66c51, NOT YET MERGED)
 
 Tree: `cm041/assistant_api`. Pin HELD at 6c2912fe. **Grafted from an OPEN pull
