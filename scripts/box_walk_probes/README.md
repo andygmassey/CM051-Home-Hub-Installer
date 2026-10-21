@@ -299,6 +299,7 @@ the system it models misses them. Both cost the same amount of trust.
 | `install_error_honesty` | does the installer's summary agree with its own log? | #270 |
 | `pair_state_agreement` | do the pairing signals agree with each other? | #265, #208 |
 | `freshness_panel_has_dates` | does every source report a date, not `unknown`? | #349, #266 |
+| `front_page_not_me_is_saved` | does a Not me tap from the Hub app's origin (`tauri://localhost`) land in `interest_corrections.json` and `card_states.json` and survive a reload? | #2470 |
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
 | `installed_bundle_seal_intact` | does the installed bundle's signature still verify **on the box**, and can the reader prove what it looked at? | #375, v1.0.46 BOM row 6 |
