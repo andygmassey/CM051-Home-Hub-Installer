@@ -70,7 +70,7 @@ def run_install_order(home, stores, install_text, monkeypatch):
     ran = []
     for kind, args in install_steps(install_text):
         if kind == "repair":
-            rc, out = sh("%s -m identity_resolver.repair_merge_consistency %s" % (pipe_py, args), pipe_cwd)
+            rc, out = sh("%s -m identity_resolver.repair_merge_consistency %s --backup-dir %s" % (pipe_py, args, home / "backups"), pipe_cwd)
         else:
             rc, out = sh("%s -c 'from ostler_fda.dedupe_merge import run; print(run())'" % fda_py, work)
         ran.append(kind)
