@@ -271,6 +271,19 @@ def build_table():
         # with `#OSTLER DONE status=cancelled` after 24 answers, and the
         # verdict said FAIL.
         ("how third-party data works",                  "Y"),
+        # THE WHATSAPP CHANNEL IS ENABLED ON THE WALK, CONFIG ONLY. These three
+        # were unanswered, so Enter took channel_choice's shown default "3"
+        # (iMessage + email, no WhatsApp) and assistant_sends_over_whatsapp_and_email
+        # read "this box's install did not enable the WhatsApp channel" and went
+        # CANNOT-RUN on v1.0.115 (walk34 log, [assistant_sends_over_whatsapp_and_email]).
+        # Choice 5 writes [channels.whatsapp] and the recipient into config.toml,
+        # which is exactly what that probe judges. It pairs NOTHING: the pair-code
+        # link happens at daemon runtime and a walk box never does it, so no
+        # dispatched send is claimed (the probe's header says as much). The
+        # recipient is inside Ofcom's reserved drama range, never a real phone.
+        ("How will your assistant reach you?",          "5"),
+        ("Enable WhatsApp messaging for your assistant?", "Y"),
+        ("Your WhatsApp phone number",                  "+447700900000"),
         ("Ready to install?",                           "INSTALL"),
         # -- deliberate answers that differ from the shown default -----------
         # Enrichment stays OFF: Andy's decision 2026-08-18 (task #397).
