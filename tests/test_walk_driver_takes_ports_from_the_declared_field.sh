@@ -70,7 +70,7 @@ make_box() {
 
 run_box() {  # run_box <driver> <home> -> "rc<TAB>output"
     local D="$1" H="$2" OUT RC
-    OUT="$( HOME="${H}" OSTLER_GUI=1 python3 "${D}" 2>&1 )"; RC=$?
+    OUT="$( HOME="${H}" OSTLER_WALK_OWNER_FILE="${H}/.walk-owner.env" OSTLER_GUI=1 python3 "${D}" 2>&1 )"; RC=$?
     printf '%s\t%s' "${RC}" "$(printf '%s' "${OUT}" | tr '\n' ' ')"
 }
 

@@ -160,6 +160,7 @@ on:
       - 'tests/test_walk_driver_requires_a_completion_marker.sh'
       - 'tests/test_walk_driver_takes_ports_from_the_declared_field.sh'
       - 'tests/test_walk_driver_takes_owner_from_a_local_file.sh'
+      - 'scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh'
       - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
       - 'scripts/lib_walk_owner.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
@@ -568,6 +569,10 @@ jobs:
             echo "::error title=CANNOT-RUN (harness, not product)::The declared-port harness could not set itself up or its mutation anchor has moved. NOTHING about the driver has been measured."
           fi
           exit "$rc"
+
+      - name: The walk never enables WhatsApp and declares its owner
+        if: always()
+        run: bash scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh
 
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()

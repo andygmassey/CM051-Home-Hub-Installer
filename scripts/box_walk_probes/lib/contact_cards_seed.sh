@@ -12,12 +12,12 @@
 #   3b. pwg_ingest.ingest_people_to_qdrant()               (the shipped reconcile: the merge
 #       survivor is sometimes the iMessage-minted node, whose URI has no vector until
 #       this runs; measured, 2 of 6 local runs)
-#      NO repair step here, on purpose: the seed follows the SHIPPED install order. install.sh
-#      does not yet run identity_resolver.repair_merge_consistency after dedupe, so when the
-#      survivor is the iMessage node the contact_syncer point on the merged-away card node
-#      stays and the read-back refuses (failed-stale-vector-1; macOS CI runner: 9 vectors for
-#      8 people). DEPENDS ON the product PR "[116]" (adds the repair after dedupe in
-#      install.sh); until it merges that order is expected RED, and the seed must show it.
+#   3c. identity_resolver.repair_merge_consistency --apply, AFTER the dedupe: this is the
+#       shipped order since the "[116]" fix (install.sh's MERGE-CONSISTENCY REPAIR, SECOND
+#       PASS, right after dedupe_merge). The seed runs its own dedupe after install, so it
+#       must run the same repair after it, exactly as install.sh does; without it the
+#       contact_syncer point on a merged-away card node stays (macOS CI runner: 9 vectors
+#       for 8 people). Backups go to the walk-seed dir, never the pipeline tree.
 #   4. read back: every cast Person has a vector, the nameless number has ONE
 #      holder, the household landline has TWO (a real collision opportunity).
 #
@@ -63,6 +63,7 @@ from ostler_fda import pwg_ingest, dedupe_merge
 r = pwg_ingest.ingest_imessage(Path(sys.argv[1])); m = dedupe_merge.run()
 q = pwg_ingest.ingest_people_to_qdrant()
 print(json.dumps({\"ingest\": r.get(\"status\"), \"merge\": m, \"vectors\": q.get(\"status\")}))' \$D >\$D/ingest.log 2>&1 || { echo failed-ingest-or-merge; exit 0; }
+cd \$PIPE && \$PY -m identity_resolver.repair_merge_consistency --oxigraph-url \"\$OXI\" --qdrant-url \"\${QDRANT_URL:-http://localhost:6333}\" --backup-dir \$D/backups --apply >\$D/repair.log 2>&1 || { cat \$D/repair.log >&2; echo failed-merge-consistency-repair; exit 0; }
 \$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1"
 }
 
