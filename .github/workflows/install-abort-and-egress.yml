@@ -94,6 +94,17 @@ jobs:
         if: always()
         run: python3 tests/test_the_egress_inventory_still_describes_the_software.py
 
+      # limactl holds the VM's container sockets (lima user-v2 usernet), so its
+      # "changing" destinations are the ledger's names, not IP ranges. This
+      # binds the ledger, the doc and the colima start flags together.
+      - name: limactl egress is attributed (self-test)
+        if: always()
+        run: python3 tests/test_limactl_egress_is_attributed.py --self-test
+
+      - name: limactl egress is attributed
+        if: always()
+        run: python3 tests/test_limactl_egress_is_attributed.py
+
       # CM041 9b88b3e1, grafted into the vendored tree. httpx reads HTTP_PROXY
       # from the environment by DEFAULT, and the pipeline talks to Oxigraph,
       # Qdrant, Ollama and the calendar API on the loopback. A customer with a
