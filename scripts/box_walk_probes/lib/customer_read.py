@@ -977,12 +977,21 @@ CUSTOMER_TITLES_JS = r"""() => {
       && !ours.test(a.hostname) && a.children.length === 0);
   return [...marked, ...links].map(e => e.innerText).filter(t => t && t.trim()); }"""
 
-# Leaf elements set in a monospace face whose text is a date (the old mono
-# styling the reskin removed). Counted per page; the text is not kept.
+# Elements set in a monospace face whose OWN text is a date (the old mono
+# styling the reskin removed), whatever their class and whatever they contain.
+# Counted per page; the text is not kept. "Own text" is the element's direct
+# text nodes, not its innerText and not a "no children" test: .pw-date,
+# .pw-deadline and .pw-mast-date each hold an icon <span>, so the old
+# `children.length === 0` leaf test skipped every one of them and scored 0 on
+# a render with 99 monospace date leaves. An ancestor whose date sits in a
+# child is not counted (it has no own text), so one date is counted once.
+# <code>/<pre>/<kbd>/<samp> are exempt: a path such as 2026-10-02/ai-01.md is
+# a filename in its proper face, not a date shown in the retired mono style.
 MONO_DATES_JS = r"""() => {
   const art = document.querySelector('article') || document.body;
   const date = /\b(\d{4}-\d{2}-\d{2}|\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*( \d{4})?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4})\b/i;
-  return [...art.querySelectorAll('*')].filter(e => e.children.length === 0 && date.test(e.innerText || '')
+  const own = e => [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.nodeValue).join(' ');
+  return [...art.querySelectorAll('*')].filter(e => date.test(own(e)) && !e.closest('code,pre,kbd,samp')
     && /mono|courier|menlo|consolas/i.test(getComputedStyle(e).fontFamily)).length;
 }"""
 
