@@ -17,6 +17,14 @@ process, not the response body. A second POST from a foreign web origin is the
 control for the route's origin gate: it must be refused and write nothing.
 
 Synthetic ids only; both are removed from the stores before the driver exits.
+Whether each store existed is recorded BEFORE the tap: a file the tap created is
+deleted again, a pre-existing file is only scrubbed of the synthetic ids (the
+owner's own entries are never touched). A cleanup that cannot finish, or that
+leaves a synthetic id behind, is a FAIL, not a quiet pass.
+
+Verdicts for the tap itself: only connection-refused is CANNOT-RUN (nothing is
+listening, so nothing was measured). A Doctor that is there but hangs up, sends
+a malformed reply or times out is FAIL: it is up and it is not saving Not me.
 """
 import json
 import os
@@ -27,6 +35,21 @@ import urllib.request
 
 APP_ORIGIN = "tauri://localhost"
 FOREIGN_ORIGIN = "https://evil.example"
+# Files the tap's own write path creates (the feedback route re-emits the Front
+# Page, which writes the feed, its html and the ledger). Only these are ever removed, and only when they
+# did not exist before the probe ran.
+STORE_NAMES = ("interest_corrections.json", "card_states.json", "card_ledger.json",
+               "front_page.json", "front_page.html")
+_SCRUBBED = ("interest_corrections.json", "card_states.json")
+TIMEOUT_S = float(os.environ.get("OSTLER_NOT_ME_TIMEOUT") or 15)
+# The Doctor is on loopback: never route it through an env proxy (a local
+# Privoxy answered every probe with a 503 on the walk box).
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _is_refused(e):
+    return isinstance(e, ConnectionRefusedError) or (
+        isinstance(e, urllib.error.URLError) and isinstance(e.reason, ConnectionRefusedError))
 
 
 def _post(url, origin, body):
@@ -37,12 +60,15 @@ def _post(url, origin, body):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with _OPENER.open(req, timeout=TIMEOUT_S) as r:
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
-    except Exception as e:  # connection refused, DNS, timeout: nothing was measured
-        return 0, "{}: {}".format(type(e).__name__, e)
+    except Exception as e:
+        if _is_refused(e):  # nothing is listening: nothing was measured
+            return 0, "{}: {}".format(type(e).__name__, e)
+        # present but disconnecting, malformed or timing out: it is up and broken
+        return -1, "{}: {}".format(type(e).__name__, e)
 
 
 def _read(path):
@@ -57,9 +83,12 @@ def _read(path):
 
 
 def _scrub(path, drop_ids, card_ids):
+    """Remove the synthetic ids from a store that held owner data before the tap."""
     st, data = _read(path)
-    if st != "ok" or not isinstance(data, dict):
+    if st == "absent":
         return
+    if st != "ok" or not isinstance(data, dict):
+        raise RuntimeError("{} is {} and cannot be scrubbed".format(os.path.basename(path), st))
     if isinstance(data.get("drop"), list):
         data["drop"] = [k for k in data["drop"] if k not in drop_ids]
     for k in card_ids:
@@ -70,6 +99,41 @@ def _scrub(path, drop_ids, card_ids):
     os.replace(tmp, path)
 
 
+def _cleanup(editor_dir, pre, dir_pre, drop_ids, card_ids):
+    """Undo the tap. Returns a list of problems; empty means the box is as found."""
+    problems = []
+    for name in STORE_NAMES:
+        path = os.path.join(editor_dir, name)
+        try:
+            if os.path.exists(path + ".walkprobe.tmp"):
+                os.remove(path + ".walkprobe.tmp")
+            if not pre[name]:
+                if os.path.exists(path):
+                    os.remove(path)  # the tap created it
+            elif name in _SCRUBBED:
+                _scrub(path, drop_ids, card_ids)
+        except Exception as e:
+            problems.append("{}: {}: {}".format(name, type(e).__name__, e))
+    if not dir_pre:
+        try:
+            os.rmdir(editor_dir)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            problems.append("editor dir: {}: {}".format(type(e).__name__, e))
+    # verify by reading back, not by trusting the calls above
+    for name in STORE_NAMES:
+        path = os.path.join(editor_dir, name)
+        if not pre[name] and os.path.exists(path):
+            problems.append("{} still exists but did not before the probe".format(name))
+    for name in ("interest_corrections.json", "card_states.json"):
+        st, val = _read(os.path.join(editor_dir, name))
+        if st == "ok" and isinstance(val, dict) and (
+                set(val.get("drop") or []) & drop_ids or set(val) & card_ids):
+            problems.append("{} still holds a synthetic id".format(name))
+    return problems
+
+
 def drive(url, editor_dir):
     stamp = str(int(time.time()))
     ok_card, ok_int = "walkprobe-notme-" + stamp, "walkprobe-interest-" + stamp
@@ -77,6 +141,8 @@ def drive(url, editor_dir):
     editor_dir = os.path.expanduser(editor_dir)
     corr = os.path.join(editor_dir, "interest_corrections.json")
     states = os.path.join(editor_dir, "card_states.json")
+    dir_pre = os.path.isdir(editor_dir)
+    pre = {n: os.path.exists(os.path.join(editor_dir, n)) for n in STORE_NAMES}
 
     code, body = _post(url, APP_ORIGIN,
                        {"card_id": ok_card, "action": "drop", "interest_id": ok_int})
@@ -97,13 +163,9 @@ def drive(url, editor_dir):
             or (s_state == "ok" and isinstance(s_val, dict) and bad_card in s_val)),
         "editor_dir": editor_dir,
     }
-    cleaned = True
-    try:
-        for p in (corr, states):
-            _scrub(p, {ok_int, bad_int}, {ok_card, bad_card})
-    except Exception:
-        cleaned = False
-    out["cleaned"] = cleaned
+    problems = _cleanup(editor_dir, pre, dir_pre, {ok_int, bad_int}, {ok_card, bad_card})
+    out["cleaned"] = not problems
+    out["cleanup_problems"] = problems
     return out
 
 
@@ -114,6 +176,9 @@ def judge(r):
     if code == 0:
         return "CANNOT_RUN the Doctor did not answer ({}); nothing was measured".format(
             r.get("post_body", "")[:120])
+    if code == -1:
+        return "FAIL the Doctor answered but not with a usable reply (hung up, malformed or timed out): {}".format(
+            r.get("post_body", "")[:160])
     if code != 200:
         return "FAIL the app's own tap (Origin tauri://localhost) got HTTP {}: {}".format(
             code, r.get("post_body", "")[:160])
@@ -133,6 +198,9 @@ def judge(r):
     if r.get("foreign_status") != 403 or r.get("foreign_leaked"):
         return ("FAIL the route's origin gate is open: a foreign web origin got HTTP {} "
                 "(leaked into the store: {})").format(r.get("foreign_status"), r.get("foreign_leaked"))
+    if r.get("cleaned") is not True:
+        return "FAIL the probe could not scrub its own synthetic ids / files from the owner's editor dir: {}".format(
+            "; ".join(r.get("cleanup_problems") or ["cleanup did not report"])[:300])
     return "PASS Not me (drop) from tauri://localhost answered recorded and both stores held it on reload; a foreign origin got 403 and wrote nothing (cleaned={})".format(
         r.get("cleaned"))
 

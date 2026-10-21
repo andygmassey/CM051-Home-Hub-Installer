@@ -54,7 +54,7 @@ run_probe() {
 # one PASS. Exits probe_fail (the healthy result); probe_pass means a control
 # did not fire.
 self_test() {
-    probe_examined 7 "synthetic Not-me results (negative control)"
+    probe_examined 9 "synthetic Not-me results (negative control)"
     local j="${_HERE}/lib/front_page_not_me.py" good bad
     good='{"post_status":200,"post_body":"{\"status\":\"recorded\"}","foreign_status":403,"corrections_state":"ok","states_state":"ok","corrections_has_interest":true,"card_state":{"state":"dismissed_forever"},"foreign_leaked":false,"cleaned":true}'
     judge() { printf '%s' "$1" | python3 "$j" judge; }
@@ -72,7 +72,11 @@ self_test() {
     case "$(judge "${bad}")" in FAIL*) : ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: a foreign origin accepted was not FAIL" ;; esac
     bad="${good/\"post_status\":200/\"post_status\":0}"
     case "$(judge "${bad}")" in CANNOT_RUN*) : ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreachable Doctor was not CANNOT-RUN" ;; esac
-    probe_fail "negative control behaved correctly on all 7 results (saved passes; no-persist, absent store, no card state, app origin refused, open origin all FAIL; no answer is CANNOT-RUN)"
+    bad="${good/\"post_status\":200/\"post_status\":-1}"
+    case "$(judge "${bad}")" in FAIL*) : ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: a Doctor that hung up or sent a bad reply was not FAIL" ;; esac
+    bad="${good/\"cleaned\":true/\"cleaned\":false}"
+    case "$(judge "${bad}")" in FAIL*) : ;; *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: a failed scrub was not FAIL" ;; esac
+    probe_fail "negative control behaved correctly on all 9 results (saved passes; no-persist, absent store, no card state, app origin refused, open origin, broken reply, failed scrub all FAIL; no listener is CANNOT-RUN)"
 }
 
 probe_main "$@"
