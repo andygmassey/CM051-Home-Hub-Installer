@@ -105,6 +105,30 @@ SKIP_REASON_NON_HUMAN = "non_human_sender"
 FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
+# A pending (not yet pushed) row whose todo is absent from a later run of
+# the SAME conversation: the conversation was updated and re-extracted,
+# and this todo is no longer in it (or is now worded differently enough
+# to be a new row). Skipping it stops the assistant pushing a reminder
+# the customer can no longer see in todos.md. A PUSHED row is never
+# touched: the reminder already exists and is the customer's.
+SKIP_REASON_SUPERSEDED = "superseded_by_update"
+
+
+def make_todo_key(conversation_id: str, owner: str, text: str) -> str:
+    """Wording-tolerant identity of a todo within one conversation.
+
+    ``todo_id`` hashes the exact text, so a re-extraction after an update
+    that only changes case, spacing or punctuation ("Send the agenda
+    tonight." vs "send the agenda tonight") produces a new id, and the
+    assistant would push the same reminder twice. The key folds those
+    differences away; a row found by key keeps its original todo_id.
+    """
+    import hashlib
+    import re
+
+    norm = re.sub(r"[\W_]+", " ", (text or "").casefold()).strip()
+    payload = f"{conversation_id}\x1f{(owner or '').strip().casefold()}\x1f{norm}"
+    return "tkey-" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +650,7 @@ def _format_push_notes(
     L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
     the partner only when they resolve to a person; never a raw handle.
     """
-    started = (bundle.started_at or "")[:10] or "unknown date"
+    started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
     if privacy_level == "L2":
         context = f"From a private conversation on {started}"
     else:
@@ -769,11 +793,18 @@ def _open_db(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(_SCHEMA)
-    # thread_key: stable person/thread id (additive; the assistant's
-    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected).
+    # Writer-owned additive columns, added in place on an existing DB. thread_key
+    # is the vendored stable person/thread id (CM051 divergence; the assistant's
+    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected);
+    # todo_key and conversation_id are upstream CM048 #93/#96 identity columns.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
-    if "thread_key" not in cols:
-        conn.execute("ALTER TABLE reminders_map ADD COLUMN thread_key TEXT")
+    for column in ("thread_key", "todo_key", "conversation_id"):
+        if column not in cols:
+            try:
+                conn.execute(f"ALTER TABLE reminders_map ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError:
+                # A concurrent opener added it between the check and here.
+                pass
     conn.commit()
     return conn
 
@@ -799,6 +830,77 @@ def _open_thread_exists(
         (user_id, thread_key, STATUS_PENDING, STATUS_PUSHED, session_id, todo_id),
     ).fetchone()
     return row is not None
+
+
+def _resolve_row_id(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    todo_id: str,
+    todo_key: str,
+) -> str:
+    """The todo_id of the row this todo already owns, else its own id."""
+    if conn.execute(
+        "SELECT 1 FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        (user_id, session_id, todo_id),
+    ).fetchone():
+        return todo_id
+    row = conn.execute(
+        "SELECT todo_id FROM reminders_map WHERE user_id=? AND source_session_id=? "
+        "AND todo_key=? ORDER BY (status='pushed') DESC LIMIT 1",
+        (user_id, session_id, todo_key),
+    ).fetchone()
+    return row[0] if row else todo_id
+
+
+def _stamp_identity(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    todo_id: str,
+    todo_key: str,
+    conversation_id: str,
+) -> None:
+    conn.execute(
+        "UPDATE reminders_map SET todo_key=?, conversation_id=? "
+        "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        (todo_key, conversation_id, user_id, session_id, todo_id),
+    )
+
+
+def _supersede_unseen_pending(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    conversation_id: str,
+    seen_ids: set,
+) -> int:
+    """Skip this conversation's pending rows that the current run lacks.
+
+    Scoped by conversation_id, not only session: a WhatsApp chat's
+    session id spans many conversations, and another conversation's
+    pending todos must never be cancelled by this one's update. Rows
+    from before the conversation_id column existed carry NULL and are
+    left alone.
+    """
+    rows = conn.execute(
+        "SELECT todo_id FROM reminders_map WHERE user_id=? AND source_session_id=? "
+        "AND conversation_id=? AND status=?",
+        (user_id, session_id, conversation_id, STATUS_PENDING),
+    ).fetchall()
+    stale = [r[0] for r in rows if r[0] not in seen_ids]
+    for todo_id in stale:
+        conn.execute(
+            "UPDATE reminders_map SET status=?, skip_reason=?, last_seen_at=? "
+            "WHERE user_id=? AND source_session_id=? AND todo_id=? AND status=?",
+            (STATUS_SKIPPED, SKIP_REASON_SUPERSEDED, _now_iso(),
+             user_id, session_id, todo_id, STATUS_PENDING),
+        )
+    conn.commit()
+    return len(stale)
 
 
 def _now_iso() -> str:
@@ -996,7 +1098,40 @@ def apply_push_status_to_todos(
     try:
         out: list = []
         session_id = bundle.source_session_id
+        # PRE-PASS. Re-bind every todo to the row it already owns (found by
+        # its exact id, else by its wording-tolerant key) so an updated
+        # conversation's re-extraction never creates a second row, and so
+        # never a second reminder, for the same todo.
+        rebound: list = []
+        seen_ids: set = set()
         for todo in todos:
+            todo_key = make_todo_key(bundle.conversation_id, todo.owner, todo.text)
+            row_id = _resolve_row_id(
+                conn, user_id=user_id, session_id=session_id,
+                todo_id=todo.id, todo_key=todo_key,
+            )
+            if row_id != todo.id:
+                todo = _replace_status(todo, todo.status, new_id=row_id)
+            seen_ids.add(todo.id)
+            rebound.append((todo, todo_key))
+        # SUPERSEDE BEFORE THE duplicate_thread GATE (CM051 v1.0.111, Archie's
+        # condition on the CM048 #93/#95/#96 re-vendor). Upstream supersedes
+        # after the loop. Here the vendored thread_key gate below would then
+        # find this conversation's OWN stale pending row for the thread, skip
+        # the updated todo as a duplicate, and supersede the stale row after:
+        # the customer would get no reminder at all. Superseding first means
+        # the gate only sees rows the current run still wants.
+        superseded = _supersede_unseen_pending(
+            conn, user_id=user_id, session_id=session_id,
+            conversation_id=bundle.conversation_id, seen_ids=seen_ids,
+        )
+        if superseded:
+            log.info(
+                "reminders_push: %d pending todo(s) of %s no longer in the "
+                "updated conversation; marked %s",
+                superseded, bundle.conversation_id, SKIP_REASON_SUPERSEDED,
+            )
+        for todo, todo_key in rebound:
             decision = decide_push(
                 todo,
                 bundle,
@@ -1012,6 +1147,12 @@ def apply_push_status_to_todos(
                     todo_id=todo.id,
                     reason=decision.skip_reason or "unknown",
                 )
+                _stamp_identity(
+                    conn, user_id=user_id, session_id=session_id,
+                    todo_id=todo.id, todo_key=todo_key,
+                    conversation_id=bundle.conversation_id,
+                )
+                conn.commit()
                 # Skipped todos retain their input status (typically
                 # "extracted"). The wiki will not show a Reminders
                 # pill on them.
@@ -1046,6 +1187,12 @@ def apply_push_status_to_todos(
                 todo_id=todo.id,
                 decision=decision,
             )
+            _stamp_identity(
+                conn, user_id=user_id, session_id=session_id,
+                todo_id=todo.id, todo_key=todo_key,
+                conversation_id=bundle.conversation_id,
+            )
+            conn.commit()
             if current_status == STATUS_PUSHED:
                 # The assistant pushed this row on a prior sweep and
                 # recorded calendar_item_identifier. Reflect that in
@@ -1091,7 +1238,7 @@ def apply_push_status_to_todos(
         conn.close()
 
 
-def _replace_status(todo: "Todo", new_status: str):
+def _replace_status(todo: "Todo", new_status: str, *, new_id: Optional[str] = None):
     """Return a new Todo with ``status`` replaced.
 
     The Todo dataclass is frozen, so we can't mutate; rebuild
@@ -1102,7 +1249,7 @@ def _replace_status(todo: "Todo", new_status: str):
     """
     from .conversation_writer import Todo
     return Todo(
-        id=todo.id,
+        id=new_id if new_id is not None else todo.id,
         text=todo.text,
         owner=todo.owner,
         deadline=todo.deadline,
@@ -1117,7 +1264,9 @@ __all__ = [
     "STATUS_PERMISSION_DENIED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+    "SKIP_REASON_SUPERSEDED",
     "apply_push_status_to_todos",
     "decide_push",
     "default_db_path",
+    "make_todo_key",
 ]

@@ -58,7 +58,9 @@ def _resolver(monkeypatch, *, existing: dict[str, set[str]], display_name=None):
         return set(existing.get(id_type, set()))
 
     monkeypatch.setattr(r, "_person_identifier_values", fake_values)
-    monkeypatch.setattr(r, "_person_display_name", lambda _uri: display_name)
+    monkeypatch.setattr(
+        r, "_person_display_names", lambda _uri: [display_name] if display_name is not None else []
+    )
     return r
 
 

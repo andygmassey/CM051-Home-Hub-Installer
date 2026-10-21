@@ -36,13 +36,13 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # The real _ts_open_url helper (4-space indent in install.sh).
 HELPER="$(awk '/^    _ts_open_url\(\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$INSTALL_SH" | sed 's/^    //')"
-printf '%s\n' "$HELPER" | grep -q 'Google Chrome' || fail "could not extract _ts_open_url from install.sh"
+grep -q 'Google Chrome' <<< "$HELPER" || fail "could not extract _ts_open_url from install.sh"
 
 # The real sign-in URL block: from the `if [[ -n "$TS_URL" ]]; then` that
 # surfaces the URL, to its matching `fi` at the same 12-space indent.
 BLOCK="$(awk '/^            if \[\[ -n "\$TS_URL" \]\]; then$/{f=1} f{print} f&&/^            fi$/{exit}' "$INSTALL_SH")"
-printf '%s\n' "$BLOCK" | grep -q 'MSG_INFO_TAILSCALE_SIGN_IN_URL' || fail "could not extract the sign-in URL block from install.sh"
-printf '%s\n' "$BLOCK" | grep -q 'open' || fail "the extracted block opens nothing; extraction is wrong"
+grep -q 'MSG_INFO_TAILSCALE_SIGN_IN_URL' <<< "$BLOCK" || fail "could not extract the sign-in URL block from install.sh"
+grep -q 'open' <<< "$BLOCK" || fail "the extracted block opens nothing; extraction is wrong"
 echo "PASS: extracted the real _ts_open_url helper and sign-in URL block"
 
 mkdir -p "$WORK/bin"

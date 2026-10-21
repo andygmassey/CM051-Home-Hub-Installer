@@ -275,6 +275,21 @@ _ps_find_bundle() {
         return 0
     done
 
+    # The payload this walk STAGED onto the box (ttywalk.sh rsyncs STAGE_SRC,
+    # the mounted DMG's Resources under --from-dmg, to ~/ostler-ttywalk, and
+    # this runner lives two levels below it). Accepted ONLY in the payload-root
+    # shape (install.sh beside cm019_preferences), which a repo checkout does
+    # not have (it keeps vendor/cm019_preferences), so a checkout is never
+    # mistaken for the artefact. Measured v1.0.112 walk33: no env, no /Volumes
+    # mount (ttywalk mounts under mktemp) -> CANNOT-RUN, seed never ran.
+    _ps_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)"
+    if [ -n "${_ps_root}" ] && [ -f "${_ps_root}/install.sh" ] \
+        && [ -d "${_ps_root}/cm019_preferences" ]; then
+        PREFERENCE_SEED_BUNDLE="${_ps_root}/cm019_preferences"
+        PREFERENCE_SEED_BUNDLE_SRC="staged payload ${_ps_root} (the artefact this walk staged)"
+        return 0
+    fi
+
     # Last, and only when asked for by name. See the comment above.
     if [ "${OSTLER_ALLOW_INSTALLED_APP_BUNDLE:-0}" = "1" ]; then
         _ps_app="/Applications/OstlerInstaller.app/Contents/Resources/cm019_preferences"

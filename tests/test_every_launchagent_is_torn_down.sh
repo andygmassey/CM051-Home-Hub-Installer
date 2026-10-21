@@ -79,7 +79,10 @@ audit() {
     [[ -n "$label" ]] || continue
     _is_ignored "$label" && continue
     checked=$((checked+1))
-    if ! printf '%s\n' "$torn" | grep -qxF "$label"; then
+    # Here-string, not printf | grep -q: under pipefail grep -q exits on the
+    # first match, printf can take SIGPIPE, and the pipe reports a false
+    # ORPHAN (CM051 #2970 CI, 2026-10-18: com.ostler.ical-server).
+    if ! grep -qxF "$label" <<< "$torn"; then
       printf '%s  ORPHAN%s %s -- written, never torn down\n' "$RED" "$OFF" "$label" >&2
       missing=$((missing+1))
     fi

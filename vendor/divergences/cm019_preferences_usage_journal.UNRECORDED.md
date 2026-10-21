@@ -291,3 +291,44 @@ Why: with `HTTP(S)_PROXY` set and no matching `NO_PROXY`, loopback writes went t
 Retired: re-pinned to 4e023299 (see the manifest note).
 
 Proof: `tests/test_cm019_local_store_ignores_proxy.py` (dead proxy in the env, real loopback server, own control, AST check of all 13 sites); fails on origin/main with 17 failures.
+
+## 2026-10-21: Facebook watched rows emit `facebook_watched` (personal-world-graph #419, 5d1cdf13)
+
+Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas` (grafted, pin held).
+
+- `services/ingest/src/parsers/meta.py`: the single upstream hunk (the movie_tv Like rows from Facebook watched history use `source="facebook_watched"`), applied by exact replacement because the vendored file carries earlier CM051 grafts. Measured: the changed lines equal upstream's for this file. The upstream test file is not in the vendored set.
+- Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
+- Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
+- Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-21: enrich consent gate, merged from personal-world-graph #421 (UNMERGED upstream, head 455fb8e1)
+
+Tree `cm019_preferences`. Pin HELD at 7fd66daf and NOT moved to the #421 head: that SHA is unmerged (a squash will rewrite it), and the branch carries the nine held smart-prefs commits as ancestors, so a pin there would make the freshness gate stop listing them while the tree still does not vendor them. Re-pin to the merge commit once #421 lands.
+
+Method: `git merge-file` three-way, base = upstream@7fd66daf, ours = the vendored file, theirs = upstream@455fb8e1, for `services/enrich/src/cli.py` (clean) and `enricher.py` (two import conflicts, both kept). `consent.py` is new, copied byte for byte. CM051's own local changes are kept, including cli.py's `--budget-seconds` and its file-only `require_public_lookup_consent()` backstop (walk #28).
+
+- `consent.py`: `public_lookup_allowed()` reads the env var if set and non-empty, else `${OSTLER_DIR}/config/.env` exactly as the install.sh gates do; exact match on `accepted`.
+- `enricher.py`: every `EnrichmentService` entry point refuses without consent; the topic skip-checks also look in the default graph.
+- `cli.py`: `normalize` runs a local offline pass without consent; `enrich` and `parallel` refuse. The upstream gate is imported as `require_enrichment_consent` because cli.py already defines a zero-argument `require_public_lookup_consent()`; importing it under the upstream name would be shadowed by that def and every `enrich` run would raise TypeError.
+
+Open tension, not resolved here: the CM051 backstop deliberately ignores the environment ("a variable left in a caller's shell is not the customer's recorded answer"); upstream consent.py lets the env var win. Both gates now run, so the stricter one decides (env accepted + file declined: refused; env declined + file accepted: refused).
+
+Retire: re-pin past the #421 merge commit.
+
+Proof: `tests/test_cm019_enrich_consent_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/consent.py`).
+
+
+## 2026-10-21 addendum: personal-world-graph #421 MERGED as 5622a763, pin moved
+
+Pin re-pinned 7fd66daf -> 5622a76360cc6ce5b91fe023295e1bb6eb8a0589 (the #421 merge commit). `consent.py` re-synced byte for byte to that commit; it supersedes the 455fb8e1 copy described above: the file must say accepted AND the environment variable, when set at all (even empty), must say accepted; the file is read as bytes and split on LF only, so a CRLF line is refused. This resolves the "open tension" above: upstream no longer lets the env var win, so the stricter-decides behaviour is now upstream's own. `enricher.py` and `cli.py` upstream are byte-identical between 455fb8e1 and the merge commit, so they are unchanged here. CM051's local changes (`--budget-seconds`, the file-only backstop, the `require_enrichment_consent` import name) are kept. The upstream tests for the gate are not vendored; `tests/test_cm019_enrich_consent_gate_vendored.py` carries arm 1b for the new rules.
+
+## 2026-10-21 smart-prefs: the derive engine is grafted at the current pin (CM051 #2954)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3074. That re-pin moved past the nine smart-prefs derive commits while holding the engine out of the vendored subset; this change brings it in.
+
+- Added, byte-identical to upstream@96ff272d and unchanged at 5622a763: `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`, `readers.yaml`, `contract/derived_preferences_response.example.json`), `services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`, `ontology/upper/pwg-derived.ttl`. Measured: `git diff --stat 96ff272d 5622a763` over those paths is empty, and `cmp` against upstream passes 17 of 17.
+- `requirements.txt` (vendor-only, its own VENDOR_ONLY row): `pyyaml`, `rdflib`, `pyshacl`.
+- NOT carried, recorded in `CM019_DIVERGENCE_REGISTRY.md`: the `services/ingest/src/filters.py` delegation to `strength.py` (aae370bc). The vendored filters.py keeps its inline copy of the same maths.
+- Manifest: the nine derive shas leave `hold_ack_shas`; 5d1cdf13 stays.
+- These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
+- Retire: nothing to retire for the engine itself. It is source at the pin.

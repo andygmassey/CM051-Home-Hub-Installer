@@ -1,0 +1,13 @@
+# On-disk Ollama manifests written by the PINNED Ollama 0.34.0 on clean pulls into
+# EMPTY scratch stores (2026-10-18/19). Copied byte for byte; each file's sha256
+# must equal the expected value below, which is also the 'ollama list' ID prefix.
+# These are public registry manifests (model digests only, no personal data).
+# install.sh OSTLER_MODEL_PINS is checked against them by
+#   scripts/model_pins_from_evidence.py --check docs/model-pins/ollama-0.34.0 install.sh
+# (tests/test_model_digest_pins.sh arm E). Source write-up: pins_0340_2026-10-19.md.
+# tag	file	sha256 of the file	where it was pulled (log in the internal evidence)
+gemma4:e2b	gemma4_e2b.json	b37049369adfe3d2b653af0ab301a062ca5cbe96ace6aa0d3f2559ee9b563fc2	q16_mini16_2026-10-18/pin034_mbp/pull_gemma4_e2b.log (7 blobs re-hashed, bad=0)
+qwen3.5:9b	qwen3.5_9b.json	56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90	q16_mini16_2026-10-18/pin034_mbp/pull_qwen3.5_9b.log (6 blobs re-hashed, bad=0)
+nomic-embed-text:latest	nomic-embed-text_latest.json	0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f	q16_mini16_2026-10-18/pin034_mini16/pull_nomic-embed-text.log (4 blobs re-hashed, bad=0)
+qwen3.6:35b-a3b	qwen3.6_35b-a3b.json	a7eb95c53bcf96b4bdd008d0fab4a5dac88047d9c1a7a9ab88ed453423fbd87c	q16_mini16_2026-10-18/pin034_studio35b/pull_qwen3.6_35b-a3b.log (Studio, empty store, 5 blobs re-hashed, bad=0)
+qwen3.5:4b	qwen3.5_4b.json	d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04	q16_mini16_2026-10-18/pin034_mbp4b/pull.log (MBP, scratch serve :11597, empty store, 2026-10-19T03:3xZ, 6 blobs re-hashed, bad=0)

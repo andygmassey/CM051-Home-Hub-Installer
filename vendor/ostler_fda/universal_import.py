@@ -833,6 +833,61 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Staging copies: plaintext, so kept only as long as a re-run needs them
+# ---------------------------------------------------------------------------
+#
+# A conversation route stages its CM048 payloads as JSON under
+# ``~/.ostler/imports/fda/`` BEFORE handing them to pwg-convo, so a crash
+# mid-persist leaves a re-runnable artefact. That file is the owner's message
+# bodies in plaintext, outside the store's own privacy handling, so:
+#
+# * it is DELETED once the persist succeeded (``persist_status == "ok"``);
+# * it is KEPT only when the persist did not finish (``no_pipeline``,
+#   ``partial``, ``error``), because then it is the only re-run input;
+# * an L3 payload (or one with no explicit level, treated as L3) is NEVER
+#   written to staging at all; it still goes to CM048, which owns L3.
+#
+# Written 0600. Counts only in the result (``staging_kept``,
+# ``staging_l3_withheld``); never a name or a body.
+
+_STAGING_KEEP_STATUSES = frozenset({"no_pipeline", "partial", "error"})
+
+
+def _payload_is_l3(payload: dict) -> bool:
+    level = ((payload or {}).get("metadata") or {}).get("privacy_level")
+    if not isinstance(level, str) or not level.strip():
+        return True  # no explicit level: treat as private
+    return level.strip().upper() == "L3"
+
+
+def _write_private_json(path: Path, data) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(data, indent=2, default=str))
+    os.chmod(str(tmp), 0o600)
+    os.replace(str(tmp), str(path))
+
+
+def _stage_then_persist(
+    payloads: List[dict], filename: str, source: str, *, output_dir: Optional[Path]
+) -> dict:
+    """Stage non-L3 payloads, persist ALL payloads via pwg-convo, then remove
+    the staging copy unless the persist left work for a re-run."""
+    out = _out_dir(output_dir)
+    staged = out / filename
+    stageable = [p for p in payloads if not _payload_is_l3(p)]
+    withheld = len(payloads) - len(stageable)
+    if stageable:
+        _write_private_json(staged, stageable)
+    persist = _persist_conversations(payloads, source=source)
+    keep = persist.get("persist_status") in _STAGING_KEEP_STATUSES and bool(stageable)
+    if not keep and staged.exists():
+        staged.unlink()
+    return {**persist, "staging_kept": keep, "staging_l3_withheld": withheld}
+
+
 def _dispatch_facebook(detection: Detection, *, output_dir: Optional[Path]) -> dict:
     try:
         from . import facebook_messenger as fbm
@@ -849,17 +904,15 @@ def _dispatch_facebook(detection: Detection, *, output_dir: Optional[Path]) -> d
         for t in threads
         if getattr(t, "tier", None) != getattr(fbm, "TIER_T3_SKIP", object())
     ]
-    out = _out_dir(output_dir)
-    (out / "facebook_messenger_conversations.json").write_text(
-        json.dumps(payloads, indent=2)
-    )
     # Persist to the real conversations store via the CM048 pipeline. The
-    # staging JSON above stays as the durable, re-runnable artefact; this
-    # additionally routes each ingestible thread through pwg-convo so the
-    # conversation actually lands in the store the product reads. Honest
-    # skip-if-absent: when pwg-convo is not installed the threads remain
-    # staged and persist_status reports "no_pipeline" (no crash, no abort).
-    persist = _persist_conversations(payloads, source="facebook_messenger")
+    # staging JSON is the re-runnable artefact ONLY while the persist has not
+    # finished: removed on success, kept on no_pipeline / partial / error
+    # (see _stage_then_persist). Honest skip-if-absent: when pwg-convo is not
+    # installed the threads stay staged and persist_status says "no_pipeline".
+    persist = _stage_then_persist(
+        payloads, "facebook_messenger_conversations.json", "facebook_messenger",
+        output_dir=output_dir,
+    )
     return {
         "status": "ok",
         "dispatched": "facebook_messenger",
@@ -1593,7 +1646,7 @@ def _persist_email_conversations(
 
     Reuse, never re-implement: groups the messages into threads, builds one
     CM048 payload per thread (explicit L2 privacy on every one), stages them as
-    the durable ``email_conversations.json`` artefact, then hands them to the
+    ``email_conversations.json`` (removed once persisted), then hands them to the
     SAME ``_persist_conversations`` -> ``pwg-convo`` path the Facebook leg uses.
     Counts only in the returned dict; no subjects, no bodies, no addresses.
     """
@@ -1610,10 +1663,9 @@ def _persist_email_conversations(
     # sink. Every email conversation is owner-searchable + demo-withheld L2.
     for p in payloads:
         p["metadata"]["privacy_level"] = _EMAIL_PRIVACY_LEVEL
-    (output_dir / "email_conversations.json").write_text(
-        json.dumps(payloads, indent=2, default=str)
+    persist = _stage_then_persist(
+        payloads, "email_conversations.json", source, output_dir=output_dir
     )
-    persist = _persist_conversations(payloads, source=source)
     return {
         "conversation_threads": len(payloads),
         "conversation_persist_status": persist.get("persist_status"),

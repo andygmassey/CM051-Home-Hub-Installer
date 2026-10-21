@@ -78,6 +78,12 @@ on:
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
       - 'tests/test_doctor_routines_are_measured_live.py'
       - 'tests/test_the_hub_reads_the_doctor_like_the_app.py'
+      # #2977: the Doctor's "Ollama is not on Ostler's pinned version" row. The
+      # test runs install.sh's pin writer (watched above) and these Doctor files.
+      - 'tests/test_doctor_says_when_ollama_is_not_pinned.sh'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_remote_access_reads_the_installers_tailscale.py'
       - 'vendor/doctor/agent/routine_status.py'
       - 'vendor/doctor/agent/remote_access.py'
@@ -85,6 +91,9 @@ on:
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_front_page_not_me_probe_end_to_end.sh'
+      - 'scripts/box_walk_probes/probes/front_page_not_me_is_saved.sh'
+      - 'scripts/box_walk_probes/lib/front_page_not_me.py'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       - 'tests/test_the_doctor_page_is_on_brand.py'
       # The four files that carry the Doctor's palette. The brand gate reads all
@@ -598,6 +607,12 @@ jobs:
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()
         run: python3 tests/test_the_hub_reads_the_doctor_like_the_app.py
+      # #2977, Archie's condition (1): a DEFERRED Ollama pin is visible. Runs the
+      # shipped install.sh writer and the shipped Doctor render_dashboard. Needs
+      # the Doctor deps installed above; exit 2 is CANNOT-RUN, not a pass.
+      - name: The Doctor says when Ollama is not on Ostler's pinned version
+        if: always()
+        run: bash tests/test_doctor_says_when_ollama_is_not_pinned.sh
 
       # #947. The pairing envelope validated hub_addr as a non-empty string and
       # encoded it verbatim into the QR the customer scans. A link-local address
@@ -615,6 +630,14 @@ jobs:
       - name: The Front Page add verb reaches the store and survives a compile
         if: always()
         run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
+
+      # CM051 #2470 (v1.0.105 walk: Not me came back on the next visit). The walk
+      # probe POSTs a Not me from Origin tauri://localhost to the REAL Doctor,
+      # re-reads both stores, and must FAIL against a no-persist server, a server
+      # that refuses the app origin, and a mutant Doctor with that origin removed.
+      - name: The Not me walk probe passes the real route and fails every broken one
+        if: always()
+        run: bash tests/test_front_page_not_me_probe_end_to_end.sh
 
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only

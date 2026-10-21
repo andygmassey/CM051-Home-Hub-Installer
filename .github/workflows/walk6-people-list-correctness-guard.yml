@@ -25,12 +25,16 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
   pull_request:
     paths:
@@ -38,12 +42,16 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_canonicalise_syncs_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_people_list_endpoint.py'
+      - 'vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py'
       - 'vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py'
       - 'vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py'
       - 'vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - '.github/workflows/walk6-people-list-correctness-guard.yml'
 
 concurrency:
@@ -118,6 +126,17 @@ jobs:
             exit 1
           fi
           python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
+      - name: The assistant's decisions tool reads the store the wiki Decisions page reads
+        if: always()
+        run: |
+          out="$(python -m pytest vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py -q 2>&1)" || true
+          echo "$out"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then exit 1; fi
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected 6 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
+            exit 1
+          fi
 
   suggestions-apply-people-list-filters:
     runs-on: ubuntu-latest
@@ -209,7 +228,31 @@ jobs:
         run: |
           python -m pip install --quiet pytest phonenumbers
           python -m pip install --quiet ./vendor/ostler_security
+      - name: CM052-shaped conversations reach CM048 with their privacy level and stable id (CM041 #221 graft)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py -v
+      - name: Conversation routes refuse path traversal, and every guard has a killed mutant (CM041 #225 graft)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm041_conversation_path_safety_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_conversation_path_safety_vendored.py -v
+          python -m pytest tests/test_cm041_conversation_path_safety_mutants_vendored.py -v
       - name: A deceased person is suggested nowhere; a living relative on the family line stays visible
+        if: always()
         run: |
           n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
                  --collect-only -q | grep -cE '::test_')" || n=0

@@ -183,6 +183,11 @@ from diagnostic_copy import (
     LAST_UPGRADE_FAILED_DETAIL,
     LAST_UPGRADE_FAILED_FIX,
     LAST_UPGRADE_FAILED_TITLE,
+    OLLAMA_NOT_PINNED_DETAIL_FMT,
+    OLLAMA_NOT_PINNED_FIX,
+    OLLAMA_NOT_PINNED_REASON_UNKNOWN,
+    OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
     LAST_UPGRADE_ROLLED_BACK_TITLE,
@@ -1712,6 +1717,46 @@ def _format_upgrade_applied(timestamp: str | None) -> str | None:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
+def _ollama_pin_state_path():
+    return _ostler_engine_root() / "state" / "ollama-pin"
+
+
+def check_ollama_pin(snapshot: Any) -> list[dict]:
+    """Ollama is not on Ostler's pinned version (CM051 #2977).
+
+    install.sh writes ``~/.ostler/state/ollama-pin`` on every pin attempt:
+    ``ollama_pin=installed`` when the tested engine went in, ``deferred``
+    when the download, fingerprint check or unpack failed on a working
+    existing install and the old engine was kept. Only ``deferred`` is a
+    row. A missing file means an install that predates the record: quiet,
+    because "no record" is not "unpinned". READ-ONLY.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    try:
+        text = _ollama_pin_state_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    kv = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            kv[k.strip()] = v.strip()
+    if kv.get("ollama_pin") != "deferred":
+        return []
+    rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
+    reason = OLLAMA_NOT_PINNED_REASONS.get(rc, OLLAMA_NOT_PINNED_REASON_UNKNOWN)
+    return [{
+        "severity": "warning",
+        "title": OLLAMA_NOT_PINNED_TITLE,
+        "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
+            version=kv.get("ollama_pin_version") or "?", reason=reason),
+        "fix": OLLAMA_NOT_PINNED_FIX,
+        "risk": "low",
+        "category": "installation",
+    }]
+
+
 def check_last_upgrade(snapshot: Any) -> list[dict]:
     """(B-lite) upgrade audit-trail Doctor row.
 
@@ -2877,6 +2922,7 @@ ALL_RULES = [
     check_backfill_progress,
     check_imessage_fda,
     check_last_upgrade,
+    check_ollama_pin,
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
     check_licence_expiry,

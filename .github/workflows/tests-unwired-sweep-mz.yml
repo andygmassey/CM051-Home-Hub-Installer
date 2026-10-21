@@ -63,6 +63,12 @@ jobs:
         if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
+      # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
+      # config digest and verified after the pull; a moved tag stops the install.
+      - name: Every pulled AI model has a pinned digest and a mismatch stops the install
+        if: always()
+        run: bash tests/test_model_digest_pins.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
         run: |
@@ -253,6 +259,14 @@ jobs:
           set -e
           python tests/test_pinterest_parser.py
           python tests/test_pref_noise_source_cap.py
+
+      - name: Plaintext import staging is removed after persist; L3 is never staged (HR015 #1171 graft)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_staging_cleanup_vendored.py -q -rs -p no:cacheprovider
+
+      - name: A paused AI conversation is never watermarked as done (CM052 #18 backport)
+        if: always()
+        run: python -m pytest tests/test_cm052_paused_conversation_is_not_watermarked.py -q -rs -p no:cacheprovider
 
       - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
         if: always()

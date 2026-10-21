@@ -442,6 +442,73 @@ count_store() {
     store_reading_from_http "$code" "$out"
 }
 
+# THE SOURCE-ABSENT READING (CM051, after the walk34 classify). A box whose
+# owner never opened Safari has no ~/Library/Safari, so the reader reports
+# safari_history status not_found and Qdrant (which only creates a collection on
+# first write) never gets one. Nothing is broken: there was nothing to ingest.
+# That box used to FAIL here, by design of the v1.0.101 rule, and a FAIL on a
+# customer whose source does not exist is an accusation with no defendant.
+#
+# The probe asks the BOX, not its own opinion: the extractor writes
+# ~/.ostler/imports/fda/extraction_summary.json on every run, and its
+# sources.safari_history.status is the one fact that separates "the source is
+# not on this Mac" from "the source was read and nothing landed". Prints one of
+#   not_found | <any other status the extractor wrote> | NO_SUMMARY |
+#   UNREADABLE_SUMMARY | NO_SAFARI_ENTRY
+# and NEVER a guess: anything but a literal not_found keeps the FAIL.
+safari_extract_status() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_safari_extract_status:-NO_SUMMARY}"
+        return
+    fi
+    local raw
+    raw="$(box_run 'f="$HOME/.ostler/imports/fda/extraction_summary.json"; if [ ! -e "$f" ]; then printf NO_SUMMARY; elif [ ! -r "$f" ]; then printf UNREADABLE_SUMMARY; else cat "$f"; fi')"
+    case "$raw" in
+        NO_SUMMARY|UNREADABLE_SUMMARY) printf '%s' "$raw"; return ;;
+        "") printf 'NO_SUMMARY'; return ;;
+    esac
+    local st
+    st="$(printf '%s' "$raw" | python3 -I -c '
+import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    e=d["sources"]["safari_history"]
+    print(e["status"] if isinstance(e,dict) and isinstance(e.get("status"),str) else "NO_SAFARI_ENTRY")
+except Exception:
+    print("UNREADABLE_SUMMARY")
+' 2>/dev/null)"
+    printf '%s' "${st:-UNREADABLE_SUMMARY}"
+}
+
+# Did the walk plant a synthetic History.db on this box (ttywalk.sh, before
+# install)? If it did, not_found is NOT absence: the reader missed a file that
+# is there, which is a fault. Prints planted | <other marker state> | NO_MARKER.
+safari_seed_state() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_safari_seed:-NO_MARKER}"
+        return
+    fi
+    local raw
+    raw="$(box_run 'f="$HOME/.walk-safari-seed-run"; [ -r "$f" ] && head -c 200 "$f"' | tr -d '\r\n')"
+    case "$raw" in
+        planted*) printf 'planted' ;;
+        "")       printf 'NO_MARKER' ;;
+        *)        printf '%s' "$raw" ;;
+    esac
+}
+
+# Verdict-time helper: every PASS in run_probe goes through this, so a
+# source-absent store can never be summarised as "all stores hold data".
+pass_unless_source_absent() {
+    if [ "${fda_blocked:-0}" -gt 0 ]; then
+        probe_cannot_run "FDA-BLOCKED:${fda_blocked_list} -- the box's own extract summary reports status no_fda for the source feeding it: macOS refused the read (Full Disk Access / TCC), so the extractor never looked and no collection was created. That is not a failure of ingest and not a pass: the source was not read. Grant Full Disk Access to the installer and re-run. ${1}"
+    fi
+    if [ "${source_absent:-0}" -gt 0 ]; then
+        probe_cannot_run "SOURCE-ABSENT:${source_absent_list} -- the box's own extract summary reports status not_found for the source feeding it, so the source is not on this Mac (never opened, no store to read) and no collection was ever created. That is not a failure of ingest and not a pass either: the source was not exercised. ${1}"
+    fi
+    probe_pass "$1"
+}
+
 read_baseline() {
     # <store>\t<count>\t<iso8601>
     [ -f "$BASELINE_FILE" ] || return 1
@@ -464,6 +531,7 @@ run_probe() {
     local total_stores=0 reachable=0 empty=0 moved=0 flat=0 reset=0
     local auth_seen=0 transport_seen=0 unparsed_seen=0
     local absent=0 absent_uncontrolled=0
+    local fda_blocked=0 fda_blocked_list="" source_absent=0 source_absent_list="" extract_status="" seed_state=""
     local unavailable_list="" empty_list="" flat_list="" moved_list=""
     local unparsed_list="" absent_list=""
     local sources_evidenced=0
@@ -556,6 +624,31 @@ run_probe() {
             age_note="$base_when"
         fi
 
+        # SOURCE-ABSENT: only safari_history, only on a CONTROLLED 404, only when
+        # the box's own extract summary literally says not_found and the walk
+        # did not plant a History.db. Everything else (status ok with a 404,
+        # no_fda, error, a missing or unreadable summary, a planted fixture the
+        # reader missed) falls through to the EMPTY FAIL below, unchanged.
+        if [ "$count" -eq 0 ] && [ "$absent_now" -eq 1 ] && [ "$s" = "safari_history" ]; then
+            extract_status="$(safari_extract_status)"
+            seed_state="$(safari_seed_state)"
+            if [ "$extract_status" = "not_found" ] && [ "$seed_state" != "planted" ]; then
+                source_absent=$((source_absent + 1)); source_absent_list="${source_absent_list} ${s}"
+                printf '%-16s %-10s %-10s %-12s %s\n' "$s" "ABSENT" "-" "-" "SOURCE-ABSENT (extract summary: not_found; no collection, nothing to ingest)"
+                continue
+            fi
+            if [ "$extract_status" = "no_fda" ]; then
+                # The extractor itself says macOS refused the read. "Could not
+                # look" is neither "looked and found none" nor a pass, so this
+                # is CANNOT-RUN (FDA), including when the walk planted a
+                # History.db the reader was not allowed to open.
+                fda_blocked=$((fda_blocked + 1)); fda_blocked_list="${fda_blocked_list} ${s}"
+                printf '%-16s %-10s %-10s %-12s %s\n' "$s" "ABSENT" "-" "-" "CANNOT-RUN (FDA: extract summary says no_fda; walk seed: ${seed_state})"
+                continue
+            fi
+            probe_note "store ${s}: collection absent (HTTP 404) and the extract summary says '${extract_status}' (walk seed: ${seed_state}), which is not a source-absent reading; kept as EMPTY"
+        fi
+
         if [ "$count" -eq 0 ]; then
             empty=$((empty + 1))
             if [ "$absent_now" -eq 1 ]; then
@@ -604,6 +697,8 @@ run_probe() {
     probe_note "sources with data evidenced : ${sources_evidenced} of 9"
     probe_note "stores EMPTY                : ${empty}${empty_list:+ --${empty_list}}"
     probe_note "collections that DO NOT EXIST: ${absent}${absent_list:+ --${absent_list}} (HTTP 404; Qdrant does not self-create, so nothing has ever been written to these)"
+    probe_note "stores FDA-BLOCKED          : ${fda_blocked}${fda_blocked_list:+ --${fda_blocked_list}} (extract summary no_fda, source not read)"
+    probe_note "stores SOURCE-ABSENT        : ${source_absent}${source_absent_list:+ --${source_absent_list}} (extract summary not_found, collection never created)"
     probe_note "stores MOVED since baseline : ${moved}${moved_list:+ --${moved_list}}"
     probe_note "stores FLAT since baseline  : ${flat}${flat_list:+ --${flat_list}}"
     case "$provenance" in
@@ -700,7 +795,7 @@ run_probe() {
                 else
                     _iv_note="StartInterval ${TOPUP_INTERVAL_S}s (not readable from launchctl print; the configured default)"
                 fi
-                probe_pass "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) and the top-up agent ${TOPUP_AGENT} has not had its first fire (${health}); ${_iv_note}; FLAT is expected inside the first interval, so it cannot be attributed to a dying top-up. The agent's health is not measured here: it has produced no exit code to read."
+                pass_unless_source_absent "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) and the top-up agent ${TOPUP_AGENT} has not had its first fire (${health}); ${_iv_note}; FLAT is expected inside the first interval, so it cannot be attributed to a dying top-up. The agent's health is not measured here: it has produced no exit code to read."
                 ;;
             DEAD:*)
                 # ⚠️ A NON-ZERO EXIT IS NOT YET A VERDICT, and this guard is why.
@@ -729,15 +824,15 @@ run_probe() {
                 probe_cannot_run "${flat} of ${total_stores} stores are FLAT since baseline (${flat_list# }) and this run could NOT read the health of ${TOPUP_AGENT} (${health#UNKNOWN:}). FLAT with unknown top-up health is exactly the state this probe cannot adjudicate -- quiet and dead are indistinguishable from a count alone, and passing here would be a guess with a customer's whole graph behind it."
                 ;;
             *)
-                probe_pass "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) and the top-up agent ${TOPUP_AGENT} is HEALTHY (last exit 0), so FLAT here means quiet, not dead."
+                pass_unless_source_absent "all ${total_stores} stores hold data. ${flat} FLAT since baseline (${flat_list# }) and the top-up agent ${TOPUP_AGENT} is HEALTHY (last exit 0), so FLAT here means quiet, not dead."
                 ;;
         esac
     fi
 
     if [ "$wiped" -eq 1 ]; then
-        probe_pass "all ${total_stores} stores hold data; the stores were wiped this run (${provenance#WIPED:}), so ${reset} of ${total_stores} read as baseline reset and no delta was measured against the previous box. ${sources_evidenced} of 9 sources evidenced."
+        pass_unless_source_absent "all ${total_stores} stores hold data; the stores were wiped this run (${provenance#WIPED:}), so ${reset} of ${total_stores} read as baseline reset and no delta was measured against the previous box. ${sources_evidenced} of 9 sources evidenced."
     fi
-    probe_pass "all ${total_stores} stores hold data and ${moved} moved since baseline. ${sources_evidenced} of 9 sources evidenced."
+    pass_unless_source_absent "all ${total_stores} stores hold data and ${moved} moved since baseline. ${sources_evidenced} of 9 sources evidenced."
 }
 
 # ---------------------------------------------------------------------------
@@ -1049,6 +1144,87 @@ self_test() {
         printf 'arm 16 OK: a status with no readable count is CANNOT-RUN and the verdict carries the HTTP code\n'
     fi
 
+    # ── ARMS 17-20: a SOURCE-ABSENT safari_history is CANNOT-RUN, nothing else is ──
+    #
+    # The box's own extract summary is the only thing that can say the source
+    # is not on this Mac (FAKE_safari_extract_status is that reading). Arm 17 is
+    # the one downgrade; arms 18-20 are the three ways the downgrade must NOT
+    # happen, because a downgrade that fires too easily re-hides the v1.0.101
+    # defect (a source reporting ok over a store holding nothing).
+    # ARM 17: 404 + not_found, no walk seed -> CANNOT-RUN (78) naming SOURCE-ABSENT.
+    # (fresh baseline each arm: earlier arms rewrite it, and a carried baseline would turn the other stores FLAT and change which verdict path is read)
+    rm -f "$_bl_none"
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=ABSENT FAKE_preferences=9025 \
+           FAKE_safari_extract_status=not_found \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 78 ] || ! grep -q 'SOURCE-ABSENT: safari_history' <<<"$out"; then
+        printf 'SELF-TEST ARM 17 BROKEN: 404 + extract status not_found returned rc=%s, expected 78 (CANNOT-RUN) naming SOURCE-ABSENT safari_history\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 17 OK: a 404 with the extract summary saying not_found is CANNOT-RUN (source absent), not FAIL\n'
+    fi
+
+    # ARM 18: 404 + status ok (the v1.0.101 shape: source read, nothing landed) -> FAIL.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=ABSENT FAKE_preferences=9025 \
+           FAKE_safari_extract_status=ok \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ] || ! grep -q 'safari_history(no such collection)' <<<"$out"; then
+        printf 'SELF-TEST ARM 18 BROKEN: 404 with the source PRESENT (status ok) returned rc=%s, expected 1 (FAIL)\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 18 OK: a 404 with the source present (status ok) stays FAIL\n'
+    fi
+
+    # ARM 19: 404 + status missing / unknown / no_fda -> FAIL. Unknown is never absent.
+    local _st19 _bad19=0
+    for _st19 in NO_SUMMARY UNREADABLE_SUMMARY NO_SAFARI_ENTRY error disabled_by_user some_new_status; do
+        out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+               FAKE_conversations=1024 FAKE_people=6889 \
+               FAKE_safari_history=ABSENT FAKE_preferences=9025 \
+               FAKE_safari_extract_status="$_st19" \
+               bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [ "$rc" -ne 1 ]; then
+            printf 'SELF-TEST ARM 19 BROKEN: 404 with extract status %s returned rc=%s, expected 1 (FAIL)\n' "$_st19" "$rc"; _bad19=1
+        fi
+    done
+    if [ "$_bad19" -ne 0 ]; then fails=$((fails+1)); else
+        printf 'arm 19 OK: a 404 with the extract status missing, unreadable, error, disabled or unknown stays FAIL\n'
+    fi
+
+    # ARM 20: 404 + not_found BUT the walk planted a History.db -> FAIL. The
+    # reader missed a file that is there; that is a reader fault, not absence.
+    rm -f "$_bl_none"
+    out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+           FAKE_conversations=1024 FAKE_people=6889 \
+           FAKE_safari_history=ABSENT FAKE_preferences=9025 \
+           FAKE_safari_extract_status=not_found FAKE_safari_seed=planted \
+           bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+    if [ "$rc" -ne 1 ]; then
+        printf 'SELF-TEST ARM 20 BROKEN: not_found with a planted History.db returned rc=%s, expected 1 (FAIL)\n' "$rc"; fails=$((fails+1))
+    else
+        printf 'arm 20 OK: not_found while the walk planted a History.db stays FAIL (reader missed a present file)\n'
+    fi
+
+    # ARM 21: 404 + no_fda -> CANNOT-RUN (78) naming FDA-BLOCKED, with or without a
+    # planted History.db. The extractor could not look; that is not a FAIL.
+    local _s21 _bad21=0
+    for _s21 in NO_MARKER planted; do
+        rm -f "$_bl_none"
+        out="$(SELF_TEST_LOCAL=1 OSTLER_INGEST_BASELINE="$_bl_none" \
+               FAKE_conversations=1024 FAKE_people=6889 \
+               FAKE_safari_history=ABSENT FAKE_preferences=9025 \
+               FAKE_safari_extract_status=no_fda FAKE_safari_seed="$_s21" \
+               bash "${BASH_SOURCE[0]}" 2>&1)"; rc=$?
+        if [ "$rc" -ne 78 ] || ! grep -q 'FDA-BLOCKED: safari_history' <<<"$out"; then
+            printf 'SELF-TEST ARM 21 BROKEN: 404 + no_fda (seed %s) returned rc=%s, expected 78 naming FDA-BLOCKED\n' "$_s21" "$rc"; _bad21=1
+        fi
+    done
+    if [ "$_bad21" -ne 0 ]; then fails=$((fails+1)); else
+        printf 'arm 21 OK: a 404 with the extract summary saying no_fda is CANNOT-RUN (FDA), planted fixture or not\n'
+    fi
+
     # THE CONVENTION IS INVERTED HERE, and it cost this probe every box walk
     # it has ever been part of.
     #
@@ -1066,8 +1242,8 @@ self_test() {
         probe_examined "$fails" "self-test arm(s) that did NOT behave as required"
         probe_pass "SELF-TEST BROKEN: ${fails} arm(s) failed. This probe cannot demonstrate a FAIL, so its real result must not be trusted."
     fi
-    probe_examined 16 "synthetic store readings (negative control)"
-    probe_fail "negative control behaved correctly on all 16 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes; FLAT + a DYING top-up agent FAILs; FLAT + UNREADABLE agent health is CANNOT-RUN carrying a reason code; FLAT + a HEALTHY agent still PASSes; a dead-looking agent with a DOWN embedder is CANNOT-RUN rather than a false accusation; launchctl 'runs = 0 / (never exited)' parses as NEVER-RAN and FLAT passes naming the interval; a ready-made NEVER-RAN passes naming the first interval; a wiped-this-run marker resets all stores and rewrites a 4-row baseline; an ABSENT marker keeps today's FAIL and says it was not read; a carried-over marker does not reset; the HTTP classifier reads 404 as ABSENT, 401 as AUTH, 000 as TRANSPORT and a countless 200 or a 500 as UNPARSED carrying the code, with a real points_count body as its control; a collection that does not exist among three populated ones FAILs and is named as absent; four 404s with no 200 anywhere is CANNOT-RUN rather than four accusations; an unreadable status is CANNOT-RUN naming its code)"
+    probe_examined 21 "synthetic store readings (negative control)"
+    probe_fail "negative control behaved correctly on all 21 arms (an empty store FAILs and is named; zero readable stores is CANNOT-RUN, not a pass; fully populated PASSes; FLAT + a DYING top-up agent FAILs; FLAT + UNREADABLE agent health is CANNOT-RUN carrying a reason code; FLAT + a HEALTHY agent still PASSes; a dead-looking agent with a DOWN embedder is CANNOT-RUN rather than a false accusation; launchctl 'runs = 0 / (never exited)' parses as NEVER-RAN and FLAT passes naming the interval; a ready-made NEVER-RAN passes naming the first interval; a wiped-this-run marker resets all stores and rewrites a 4-row baseline; an ABSENT marker keeps today's FAIL and says it was not read; a carried-over marker does not reset; the HTTP classifier reads 404 as ABSENT, 401 as AUTH, 000 as TRANSPORT and a countless 200 or a 500 as UNPARSED carrying the code, with a real points_count body as its control; a collection that does not exist among three populated ones FAILs and is named as absent; four 404s with no 200 anywhere is CANNOT-RUN rather than four accusations; an unreadable status is CANNOT-RUN naming its code; a 404 with the extract summary saying not_found is CANNOT-RUN as SOURCE-ABSENT while no_fda is CANNOT-RUN as FDA-BLOCKED and a 404 with the source present, a missing or unknown status, or a planted History.db stays FAIL)"
 }
 
 probe_main "$@"
