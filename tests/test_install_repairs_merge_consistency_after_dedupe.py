@@ -82,7 +82,6 @@ def run_install_order(home, stores, install_text, monkeypatch):
 def test_install_order_leaves_vectors_equal_to_graph_people(stores, home, monkeypatch, survivor):
     monkeypatch.setenv("CCS_CARD_ID", survivor)
     ran = run_install_order(home, stores, INSTALL.read_text(), monkeypatch)
-    assert ran[-1] == "repair" and "dedupe" in ran and ran.index("dedupe") < len(ran) - 1, ran
     live = stores.person_count()  # includes merged-away nodes; the live set is below
     live_uris = {str(r[0]) for r in stores.g.query(
         "PREFIX p:<%s> SELECT DISTINCT ?x WHERE { ?x a p:Person . FILTER NOT EXISTS { ?x p:mergedInto ?m } "
@@ -91,6 +90,7 @@ def test_install_order_leaves_vectors_equal_to_graph_people(stores, home, monkey
     assert len(stores.points) == len(vec_uris), "two vectors on one person"
     assert vec_uris <= live_uris, "vector on a merged-away or retired node: %s" % (vec_uris - live_uris)
     assert len(stores.points) == len(live_uris), (len(stores.points), len(live_uris), live)
+    assert ran[-1] == "repair" and "dedupe" in ran and ran.index("dedupe") < len(ran) - 1, ran
 
 
 def test_the_installer_has_a_repair_after_the_dedupe_and_keeps_the_first():
