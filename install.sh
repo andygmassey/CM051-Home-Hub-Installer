@@ -24322,6 +24322,24 @@ else
 # Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
 # error, so one consumer being unavailable never blocks the others.
 set -uo pipefail
+# Bounded, detached kickstart (same contract as install.sh's _ks_bounded, which
+# this generated script cannot see): a penalty-boxed job must never block the
+# caller, so the kick is backgrounded behind a 10s watchdog. Absent label: no-op.
+_ks_bounded() {
+    [ -n "${1:-}" ] || return 0
+    launchctl print "$1" >/dev/null 2>&1 || return 0
+    _ksb_cmd=(launchctl kickstart "$1")
+    (
+        "${_ksb_cmd[@]}" >/dev/null 2>&1 &
+        _ksb_pid=$!
+        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
+        _ksb_wd=$!
+        wait "$_ksb_pid" 2>/dev/null || true
+        kill -TERM "$_ksb_wd" 2>/dev/null || true
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
+}
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 CM019_DIR="${OSTLER_DIR}/services/cm019"
@@ -24542,6 +24560,18 @@ for d in "${DIRS[@]}"; do
         fi
     fi
 done
+
+# ── smart-prefs P1: an import that has finished reaches the digest NOW ─────
+# The interest-profile compile (editor-frontpage tick) is what puts
+# preferences into ~/.ostler/preferences/interest_profile.json, which is what
+# the digest and the assistant's pwg_preferences tool read. It ran only on the
+# hourly tick, so a customer who imported and asked straight away got an empty
+# answer. Kick it here. The derive agent is kicked too, so the "What you like"
+# graph (read straight from the graph by the wiki and the derived route, not
+# through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
+# a missing agent never fails an import.
+_ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
+_ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc
 IMPORTEOF
 fi

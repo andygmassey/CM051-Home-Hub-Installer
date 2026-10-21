@@ -36,6 +36,9 @@ on:
       - 'vendor/doctor/agent/derived_preferences_status.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_derive_preferences_is_scheduled.sh'
+      - 'tests/test_derived_prefs_probe_is_run_by_the_walk.sh'
+      - 'scripts/box_walk_probes/**'
+      - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - 'tests/test_derived_route_reads_what_the_engine_writes.py'
@@ -75,6 +78,22 @@ jobs:
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py
+      - name: The derived-preferences walk probe's negative controls fire
+        # Exit 0 from the judge's own self-test is "behaved"; the probe wrapper
+        # turns that into its expected FAIL verdict.
+        if: always()
+        # The self-test EXITS 1 when it behaves, so the capture must not run
+        # under the step's `bash -e`: there it aborted before printing anything.
+        run: |
+          set +e
+          out=$(bash scripts/box_walk_probes/probes/derived_preferences_reach_digest_and_tool.sh --self-test 2>&1); rc=$?
+          set -e
+          printf '%s\n' "$out"
+          # self-test contract: rc 1 and a FAIL verdict means every mutant went red.
+          [ "$rc" -eq 1 ] && grep -q '^VERDICT: FAIL -- negative control behaved' <<< "$out"
+      - name: The runner collects and invokes the derived-preferences probe (fake Hub)
+        if: always()
+        run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
       - name: The hub route serves what the engine writes
         # Arm 4 boots the REAL vendored ical-server as a subprocess, which
         # needs cryptography + httpx (the same set memory-assert-answers-under-load

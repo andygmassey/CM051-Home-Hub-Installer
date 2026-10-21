@@ -49,7 +49,7 @@ bad()  { FAIL=$((FAIL + 1)); echo "  FAIL $*"; }
 
 [ -r "$INSTALL_SH" ] || { echo "CANNOT-RUN: $INSTALL_SH unreadable"; exit 2; }
 
-SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/derive-sched.XXXXXX")" || { echo "CANNOT-RUN: mktemp"; exit 2; }
+SANDBOX="$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd)/derive-sched.XXXXXX")" || { echo "CANNOT-RUN: mktemp"; exit 2; }
 trap 'rm -rf "$SANDBOX"' EXIT
 
 FUNCS="$(grep -oE '^_install_[a-z_]*agent\(\) \{' "$INSTALL_SH" | sed 's/() {//')"
