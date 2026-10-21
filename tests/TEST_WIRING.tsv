@@ -394,6 +394,7 @@ test_followup_keys_probe.sh	WIRED	.github/workflows/followup-keys-probe.yml
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
 test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
+test_front_page_not_me_probe_end_to_end.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_triggers_wiki_recompile_on_change.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_g7_gate_copies_are_one.py	WIRED	.github/workflows/g7-gate-copies.yml
@@ -786,6 +787,7 @@ test_the_os003_pointer_cannot_rot.sh	WIRED	.github/workflows/os003-pointer.yml
 test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_permanent_manifest_is_not_optional.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_picker_offers_every_preset_source.sh	WIRED	.github/workflows/default-sources-requested.yml
+test_the_picker_persists_declined_sources.sh	WIRED	.github/workflows/default-sources-requested.yml
 test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
@@ -1056,6 +1058,7 @@ scripts/tests/test_verify_commit_parity_gate.sh	WIRED	.github/workflows/cut-gate
 scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
+scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
