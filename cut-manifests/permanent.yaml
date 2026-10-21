@@ -177,6 +177,21 @@ entries:
       hold_ack:
         reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N+1) 2026-10-19 v1.0.111 (Archie): pin hub-v0.5.23 = oa graft de05a70a; the 34 oa main commits outside the graft are 15 GRAFTED as cherry-picks (shipping bugfixes and the brief stack) and 19 HELD features (Telegram, i18n, invites, frontpage). Same adjudication as scripts/daemon_hold_ack.tsv row de05a70a."
         shas:
+          - c1d830c4bd  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 68f7517784  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - db56cfa73b  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 9a4042d6e0  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 23c03ebe75  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - b98f707ca5  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 6e669868df  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - fbf074093a  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 97d3b4783c  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - d1af961b45  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 51348ed580  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 0a57eeaa57  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - f3b5d1d784  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - 74baad511b  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - c2850018ae  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - 13d4f02986  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
           - 2ac8ecf4b1  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
           - 3d9343bc67  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
