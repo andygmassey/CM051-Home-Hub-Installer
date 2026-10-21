@@ -1451,4 +1451,5 @@ before it merges, re-graft from its final head.
   is wired in do_GET and declared in the contract; and over HTTP the REAL
   vendored ical-server serves the derived label with the service token and
   401s without it. Against the pre-graft ical-server.py: 404, 3 checks fail.
+- 2026-10-21: #215's head moved ccb66c51 -> e6c0fcce. Measured: `git diff --stat ccb66c51 e6c0fcce` touches ONLY `assistant_api/tests/test_derived_preferences_route.py` (the synthetic-owner-id scrub plus one test), which is excluded from this tree, so the three vendored files are still exactly #215's. No re-graft.
 - Retire: re-pin `cm041/assistant_api` past #215's merge commit.
