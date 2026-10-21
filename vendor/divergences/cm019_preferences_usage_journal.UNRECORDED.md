@@ -300,3 +300,20 @@ Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas
 - Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
 - Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
 - Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-21: enrich consent gate, merged from personal-world-graph #421 (UNMERGED upstream, head 455fb8e1)
+
+Tree `cm019_preferences`. Pin HELD at 7fd66daf and NOT moved to the #421 head: that SHA is unmerged (a squash will rewrite it), and the branch carries the nine held smart-prefs commits as ancestors, so a pin there would make the freshness gate stop listing them while the tree still does not vendor them. Re-pin to the merge commit once #421 lands.
+
+Method: `git merge-file` three-way, base = upstream@7fd66daf, ours = the vendored file, theirs = upstream@455fb8e1, for `services/enrich/src/cli.py` (clean) and `enricher.py` (two import conflicts, both kept). `consent.py` is new, copied byte for byte. CM051's own local changes are kept, including cli.py's `--budget-seconds` and its file-only `require_public_lookup_consent()` backstop (walk #28).
+
+- `consent.py`: `public_lookup_allowed()` reads the env var if set and non-empty, else `${OSTLER_DIR}/config/.env` exactly as the install.sh gates do; exact match on `accepted`.
+- `enricher.py`: every `EnrichmentService` entry point refuses without consent; the topic skip-checks also look in the default graph.
+- `cli.py`: `normalize` runs a local offline pass without consent; `enrich` and `parallel` refuse. The upstream gate is imported as `require_enrichment_consent` because cli.py already defines a zero-argument `require_public_lookup_consent()`; importing it under the upstream name would be shadowed by that def and every `enrich` run would raise TypeError.
+
+Open tension, not resolved here: the CM051 backstop deliberately ignores the environment ("a variable left in a caller's shell is not the customer's recorded answer"); upstream consent.py lets the env var win. Both gates now run, so the stricter one decides (env accepted + file declined: refused; env declined + file accepted: refused).
+
+Retire: re-pin past the #421 merge commit.
+
+Proof: `tests/test_cm019_enrich_consent_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/consent.py`).
+
