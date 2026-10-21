@@ -31,6 +31,11 @@
 # worth fixing, but a CANNOT-RUN here is not console-closeable either (no
 # console click grants a WhatsApp Web pairing or a live mailbox), so it is
 # not scored against a clean walk the way a TCC/GUI item is.
+#
+# THE WALK BOX NEVER ENABLES WHATSAPP (Andy, hard rule). On a box where it is off
+# the box's WhatsApp arm reads CANNOT and the verdict is CANNOT-RUN, truthfully.
+# What IS measured is install.sh's real channel writer, run off-box in a temp
+# HOME with a synthetic number and no daemon or network; that row says OFF-BOX.
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
@@ -40,12 +45,15 @@ PROBE_QUESTION="given what this box's install actually enabled, did install.sh r
 _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
-    if python3 "${_HERE}/lib/brief_channel_probe.py" --self-test; then
-        probe_examined 3 "mutated config.toml fixtures"
-        probe_fail "negative control behaved: an empty WhatsApp recipient, a bogus 'email' delivery channel, and an unreadable config each caught by their own assertion"
+    local out n
+    out="$(python3 "${_HERE}/lib/brief_channel_probe.py" --self-test)"; local rc=$?
+    n="$(printf '%s\n' "${out}" | sed -n 's/^SELF-TEST PASS: .*, \([0-9][0-9]*\) mutants caught.*/\1/p')"
+    if [ "${rc}" -eq 0 ] && [ -n "${n}" ]; then
+        probe_examined "${n}" "mutants (config.toml fixtures, _has_number inputs, and install.sh's real channel writer run off-box)"
+        probe_fail "negative control behaved: ${n} mutants each caught by their own assertion, including an LID recipient and a writer that stops emitting allowed_numbers"
     fi
-    probe_examined 3 "mutated config.toml fixtures"
-    probe_pass "SELF-TEST BROKEN: the brief-channel judge let a known-bad fixture through"
+    probe_examined 0 "mutants (the self-test did not report a count)"
+    probe_pass "SELF-TEST BROKEN: the brief-channel judge let a known-bad fixture through, or did not run"
 }
 
 run_probe() {
@@ -62,7 +70,11 @@ run_probe() {
 
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${facts}" 2>/dev/null \
         || { rm -f "${facts}"; probe_cannot_run "the box-side reader returned no facts (config.toml missing or unreadable at ${cfg_path})"; }
-    out="$(python3 "${_HERE}/lib/brief_channel_probe.py" judge "${facts}")"; rc=$?
+    # The WhatsApp WRITER is judged OFF-BOX from install.sh's own emitter
+    # (lib/gen_whatsapp_config.sh): a walk box never enables WhatsApp, because
+    # that would dial web.whatsapp.com with the number. That row is labelled
+    # off-box and never counts as the box's own WhatsApp arm.
+    out="$(python3 "${_HERE}/lib/brief_channel_probe.py" judge "${facts}" --install-sh "${_HERE}/../../install.sh")"; rc=$?
     rm -f "${facts}"
     printf '%s\n' "${out}"
     probe_note "NOT COVERED: an actual dispatched send (SMTP delivery, WhatsApp Web dispatch) -- see this file's header."
