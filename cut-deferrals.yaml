@@ -37,6 +37,34 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.116 PR-AGE EXEMPTIONS, ORM 2026-10-21: every CM051 PR over 48h or within 6h of it.
+  - ref: "CM051-Home-Hub-Installer#3017"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3022"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3025"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3026"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3027"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3028"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3029"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3030"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
+  - ref: "CM051-Home-Hub-Installer#3031"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
+    review_by: 2026-10-28
   # v1.0.115 PR-AGE EXEMPTIONS, ORM 2026-10-20: #2993 (it spent the v1.0.114 tag) and every PR within 6h of 48h.
   - ref: "CM051-Home-Hub-Installer#2993"
     reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.115: open PR on main, NOT taken by the v1.0.115 cut (the same inputs as v1.0.114, hub-v0.5.26). Not in scope; to be reviewed, merged or closed after the 21 Oct budget reset."
