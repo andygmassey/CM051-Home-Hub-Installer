@@ -45,6 +45,7 @@ Exit: 0 pass, 1 real failure, 2 cannot-run.
 
 import ast
 import asyncio
+import os
 import sys
 import types
 from datetime import datetime, timedelta
@@ -58,6 +59,10 @@ if not SRC.is_file():
     print(f"CANNOT RUN: enricher missing at {SRC}", file=sys.stderr)
     sys.exit(2)
 
+# These tests exercise enrichment LOGIC with the network stubbed; the consent
+# gate (CM019 #421) would otherwise refuse before any of it runs. The gate
+# itself is proven in tests/test_cm019_enrich_consent_gate_vendored.py.
+os.environ["OSTLER_CONSENT_ENRICHMENT_DECISION"] = "accepted"
 sys.path.insert(0, str(ENRICH))
 
 try:
