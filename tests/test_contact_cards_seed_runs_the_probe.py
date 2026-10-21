@@ -213,6 +213,27 @@ class Stores:
             "PREFIX p:<%s> SELECT DISTINCT ?x WHERE { ?x a p:Person }" % PWG)))
 
 
+# TEST-HARNESS RNG CONTROL, nothing shipped is touched. contact_syncer mints a card's Person id
+# from uuid4; dedupe_merge keeps the lexicographically first URI as survivor, and the iMessage
+# node's URI is a fixed uuid5 ("person_c525..."). So which node survives is a coin flip per run
+# (~23% the iMessage node). With CCS_CARD_ID=high the card id sorts after it, with =low before it.
+CARD_ID_SHIM = """import importlib.machinery, importlib.util, os, sys, uuid
+# chain to the NEXT sitecustomize first: Homebrew's own one is what puts its site-packages on the path
+_here = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.machinery.PathFinder.find_spec(
+    "sitecustomize", [p for p in sys.path if os.path.abspath(p or ".") != _here])
+if _spec and _spec.loader:
+    _spec.loader.exec_module(importlib.util.module_from_spec(_spec))
+_mode = os.environ.get("CCS_CARD_ID")
+if _mode:
+    _n = [0]
+    def _fake():
+        _n[0] += 1
+        return uuid.UUID(("f" if _mode == "high" else "0") + "%03x" % _n[0] + "0" * 28)
+    uuid.uuid4 = _fake
+"""
+
+
 @pytest.fixture()
 def stores():
     s = Stores()
@@ -232,11 +253,14 @@ def home(tmp_path, stores):
            "USER_ID=walkowner STATE_FILE=%s NO_PROXY=127.0.0.1,localhost PYTHONDONTWRITEBYTECODE=1 "
            "PYTHONUSERBASE=%s\n"
            % (stores.oxi, stores.qdrant, stores.embed, h / "state.json", site.getuserbase()))
+    shim = h / "pyshim"
+    shim.mkdir()
+    (shim / "sitecustomize.py").write_text(CARD_ID_SHIM)
     for rel, pp in ((".ostler/import-pipeline/.venv/bin/python", "vendor/cm041"),
                     (".ostler/services/email-ingest/.venv/bin/python", "vendor")):
         w = h / rel
         w.parent.mkdir(parents=True)
-        pyp = ":".join(str(ROOT / x) for x in (pp, "vendor/cm041"))
+        pyp = ":".join([str(shim)] + [str(ROOT / x) for x in (pp, "vendor/cm041")])
         w.write_text("#!/bin/bash\n%sexport PYTHONPATH=%s\nexec %s \"$@\"\n" % (env, pyp, sys.executable))
         w.chmod(0o755)
     # the ingest module reads OXIGRAPH_URL at import; dedupe_merge too (os.getenv). Both come from env.
@@ -246,7 +270,7 @@ def home(tmp_path, stores):
 def _box_env(home, stores):
     return dict(os.environ, HOME=str(home), OSTLER_OXIGRAPH_URL=stores.oxi + "/query",
                 OSTLER_QDRANT_URL=stores.qdrant, OSTLER_DOCTOR_PEOPLE_URL=stores.doctor + "/api/v1/hydration/status",
-                OXIGRAPH_URL=stores.oxi, OSTLER_BOX_HOST="", NO_PROXY="127.0.0.1,localhost",
+                OXIGRAPH_URL=stores.oxi, QDRANT_URL=stores.qdrant, OSTLER_BOX_HOST="", NO_PROXY="127.0.0.1,localhost",
                 PYTHONDONTWRITEBYTECODE="1")
 
 
@@ -432,6 +456,43 @@ def test_mutant_without_the_ingest_the_nameless_case_is_not_exercised_and_the_se
     assert state == "failed-handle-never-ingested", log
 
 
+# CCS_CARD_ID=high makes dedupe_merge keep the iMessage-minted node as the survivor, so the
+# contact_syncer vector on the merged-away card node is left behind (the macOS CI runner hit
+# this shape unprompted: 9 vectors for 8 people).
+
+
+def _drop_the_repair(s):
+    return re.sub(r"cd \$PIPE && \$PY -m identity_resolver\.repair_merge_consistency[^\n]*\n", "", s)
+
+
+def test_mutant_without_the_merge_consistency_repair_the_seed_refuses_a_stale_vector(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "high")
+    state, log = run_seed(home, stores, mutate=_drop_the_repair)
+    assert state == "failed-stale-vector-1", log
+    assert len(stores.points) == len(fx.CARDS) + 1, "9 vectors for 8 people"
+
+
+def test_with_the_repair_the_stale_survivor_order_seeds_clean_and_all_three_probes_pass(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "high")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert len(stores.points) == len(fx.CARDS)
+    v, text = probe("people_stores_reconcile", home, stores,
+                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
+    assert v.startswith("PASS"), text
+    knobs = {"OSTLER_PEOPLE_STABILITY_STEP_S": "1", "OSTLER_PEOPLE_STABILITY_WAIT_S": "10",
+             "OSTLER_PEOPLE_CONVERGE_WAIT_S": "0", "OSTLER_PROBE_STATE_DIR": str(home / "pstate")}
+    v, text = probe("people_count_agreement", home, stores, knobs)
+    assert v.startswith("PASS"), text
+    v, text = probe("no_person_holds_two_contact_cards", home, stores)
+    assert v.startswith("PASS") and "so the zero was earned, not vacuous" in text, text
+
+
+def test_the_other_survivor_order_seeds_clean_too(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "low")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert len(stores.points) == len(fx.CARDS)
+
+
 def test_mutant_with_a_dead_embedder_the_seed_refuses_for_want_of_vectors(stores, home):
     stores.embed_fails = True
     state, log = run_seed(home, stores)
@@ -440,12 +501,13 @@ def test_mutant_with_a_dead_embedder_the_seed_refuses_for_want_of_vectors(stores
 
 
 def test_verdict_names_every_arm():
-    ok = {"cast_persons": len(fx.CARDS), "cast_without_vector": 0, "nameless_holders": 1, "shared_holders": 2,
-          "handle_ingested": 1}
+    ok = {"cast_persons": len(fx.CARDS), "cast_without_vector": 0, "stale_vectors": 0, "nameless_holders": 1,
+          "shared_holders": 2, "handle_ingested": 1}
     assert fx.verdict(ok) == "seeded"
     assert fx.verdict(dict(ok, cast_without_vector=3)) == "failed-no-vector-3"
     assert fx.verdict(dict(ok, nameless_holders=2)) == "failed-nameless-number-held-by-2"
     assert fx.verdict(dict(ok, nameless_holders=0)) == "failed-nameless-number-held-by-0"
+    assert fx.verdict(dict(ok, stale_vectors=1)) == "failed-stale-vector-1"
     assert fx.verdict(dict(ok, handle_ingested=0)) == "failed-handle-never-ingested"
     assert fx.verdict(dict(ok, shared_holders=1)) == "failed-household-line-held-by-1"
     assert fx.verdict(dict(ok, cast_persons=2)).startswith("failed-cast-persons-2")

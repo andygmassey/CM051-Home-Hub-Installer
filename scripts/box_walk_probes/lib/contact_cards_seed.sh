@@ -12,6 +12,10 @@
 #   3b. pwg_ingest.ingest_people_to_qdrant()               (the shipped reconcile: the merge
 #       survivor is sometimes the iMessage-minted node, whose URI has no vector until
 #       this runs; measured, 2 of 6 local runs)
+#   3c. identity_resolver.repair_merge_consistency --apply (install.sh runs it too): the
+#       sweep above only prunes points it wrote itself, so when the survivor is the
+#       iMessage node the contact_syncer point on the merged-away card node stays and
+#       the vector count exceeds the graph's. Measured on the macOS CI runner: 9 vs 8.
 #   4. read back: every cast Person has a vector, the nameless number has ONE
 #      holder, the household landline has TWO (a real collision opportunity).
 #
@@ -57,6 +61,7 @@ from ostler_fda import pwg_ingest, dedupe_merge
 r = pwg_ingest.ingest_imessage(Path(sys.argv[1])); m = dedupe_merge.run()
 q = pwg_ingest.ingest_people_to_qdrant()
 print(json.dumps({\"ingest\": r.get(\"status\"), \"merge\": m, \"vectors\": q.get(\"status\")}))' \$D >\$D/ingest.log 2>&1 || { echo failed-ingest-or-merge; exit 0; }
+cd \$PIPE && \$PY -m identity_resolver.repair_merge_consistency --oxigraph-url \"\$OXI\" --qdrant-url \"\${QDRANT_URL:-http://localhost:6333}\" --backup-dir \$D/backups --apply >\$D/repair.log 2>&1 || { echo failed-merge-consistency-repair; exit 0; }
 \$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1"
 }
 

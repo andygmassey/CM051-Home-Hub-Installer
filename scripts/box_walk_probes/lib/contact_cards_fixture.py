@@ -173,6 +173,15 @@ def handle_ingested_q():
             '  ?i pwg:identifierLabel "IMESSAGE" ; pwg:identifierValue %s }' % (PWG, _lit(NAMELESS_PHONE)))
 
 
+def merged_away_q():
+    """Nodes merged INTO a cast node (the tombstoned side; a tombstone carries no
+    identifiers of its own, so it is found by what it points at)."""
+    vals = " ".join(_lit(v) for v in cast_uids() + cast_values())
+    return ("PREFIX pwg: <%s>\nSELECT DISTINCT ?node WHERE {\n"
+            "  ?node pwg:mergedInto ?t . ?t pwg:hasIdentifier ?i . ?i pwg:identifierValue ?v .\n"
+            "  VALUES ?v { %s } }" % (PWG, vals))
+
+
 def live_cast_persons_q():
     """live persons holding a cast icloud_contact_uid."""
     vals = " ".join(_lit(u) for u in cast_uids())
@@ -189,17 +198,21 @@ def verify(syncer):
                           (the guard kept them apart: a real collision opportunity).
     handle_ingested       IMESSAGE identifiers on the nameless number. Must be >= 1.
     cast_without_vector   live cast Persons with no Qdrant point. Must be 0.
+    stale_vectors         Qdrant points still keyed on a merged-away cast node. Must be 0
+                          (they would make the vector count exceed the graph's).
     """
     from qdrant_client.models import FieldCondition, Filter, MatchValue
-    persons = _bindings(syncer, live_cast_persons_q())
-    missing = 0
-    for u in persons:
+    def has_point(u):
         pts, _ = syncer.qdrant.scroll(
             collection_name=syncer.cfg.QDRANT_COLLECTION, limit=1, with_payload=False,
             scroll_filter=Filter(must=[FieldCondition(key="person_uri", match=MatchValue(value=u))]))
-        if not pts:
-            missing += 1
+        return bool(pts)
+
+    persons = _bindings(syncer, live_cast_persons_q())
+    missing = sum(1 for u in persons if not has_point(u))
+    stale = sum(1 for u in _bindings(syncer, merged_away_q()) if has_point(u))
     return {"cast_persons": len(persons), "cast_without_vector": missing,
+            "stale_vectors": stale,
             "nameless_holders": _scalar(syncer, holders_q(NAMELESS_PHONE)),
             "handle_ingested": _scalar(syncer, handle_ingested_q()),
             "shared_holders": _scalar(syncer, holders_q(HOUSEHOLD_PHONE))}
@@ -211,6 +224,8 @@ def verdict(v):
         return "failed-cast-persons-%d-of-%d" % (v["cast_persons"], len(CARDS))
     if v["cast_without_vector"]:
         return "failed-no-vector-%d" % v["cast_without_vector"]
+    if v["stale_vectors"]:
+        return "failed-stale-vector-%d" % v["stale_vectors"]
     if v["handle_ingested"] < 1:
         return "failed-handle-never-ingested"
     if v["nameless_holders"] != 1:
