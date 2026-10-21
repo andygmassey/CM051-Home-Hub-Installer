@@ -662,6 +662,7 @@ _LAST_CONTACT_CHANNELS = (
     ("lastContactWhatsApp", "WhatsApp"),
     ("lastContactEmail", "email"),
     ("lastContactCalendar", "calendar"),
+    ("lastContactCall", "calls"),
 )
 
 
