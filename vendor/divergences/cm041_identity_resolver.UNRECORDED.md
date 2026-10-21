@@ -219,8 +219,13 @@ refusal, not a pin.
 
 ## Nameless pair on one number resolves to one person (CM051 #2545, 2026-10-21)
 
-NOT UPSTREAM yet; CM041 needs the same change (CM041 `identity_resolver/resolver.py`,
-`_identifier_match_trustworthy`). Not retired by any merged upstream PR.
+NO UPSTREAM COUNTERPART (checked CM041 origin/main e2dffc0, 2026-10-21):
+`_identifier_match_trustworthy` and the BW-1 name-agreement guard exist only in this
+vendored tree (graft from CM051 #2663); upstream `resolve()` Tier 1 merges on a shared
+exact identifier after RULE 2 alone, so the nameless pair already merges there and
+there is nothing to port. Upstreaming this change means upstreaming the whole BW-1
+guard first, which reverses upstream's RULE 1 and is a decision for Andy/Archie, not
+a like-for-like port. This record stays until that decision is made.
 
 Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
 gains one early return, a new `_person_display_names` reads EVERY displayName on the
