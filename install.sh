@@ -38874,6 +38874,48 @@ else
     _hydrate_sentinel_record_cannot_run "dedupe" "email_ingest_venv_missing"
 fi
 
+# MERGE-CONSISTENCY REPAIR, SECOND PASS (CM051 #3072 / Archie, v1.0.116).
+# The pass at "Reconciling merged people across both stores" runs BEFORE the
+# dedupe_merge sweep above and nothing runs it after. When a contact also
+# messages the owner and the merge keeps the iMessage-minted node, the
+# contact_syncer vector on the merged-away card node is left behind (the
+# hourly people sync only prunes its own fda_people_index points), so the
+# vector store holds one more person than the graph and the BLOCKING probe
+# people_stores_reconcile fails. The first pass is kept (it repairs state from
+# earlier installs); this one closes what dedupe_merge just made.
+# dedupe_merge has no caller outside install.sh, so no later merge can recreate
+# the gap between installs and no recurring prune is needed.
+# Loud, not fatal: same as the first pass, a failure is logged, warned, and
+# recorded in a state file a probe can read, and the install continues.
+if [[ -d "$PIPELINE_DIR/identity_resolver" && -x "$PIPELINE_DIR/.venv/bin/python3" \
+      && -f "$PIPELINE_DIR/identity_resolver/repair_merge_consistency.py" ]]; then
+    _MCR2_LOG="${OSTLER_DIR}/logs/merge-consistency-repair.log"
+    _MCR2_STATE="${OSTLER_DIR}/state/merge_consistency_repair_post_dedupe.tsv"
+    mkdir -p "$(dirname "$_MCR2_LOG")" "$(dirname "$_MCR2_STATE")" 2>/dev/null || true
+    _MCR2_RC=0
+    (
+        cd "$PIPELINE_DIR" && \
+        OXIGRAPH_URL="${OXIGRAPH_URL:-http://localhost:7878}" \
+        QDRANT_URL="${QDRANT_URL:-http://localhost:6333}" \
+        .venv/bin/python3 -m identity_resolver.repair_merge_consistency \
+            --oxigraph-url "${OXIGRAPH_URL:-http://localhost:7878}" \
+            --qdrant-url "${QDRANT_URL:-http://localhost:6333}" \
+            --apply
+    ) >>"$_MCR2_LOG" 2>&1 || _MCR2_RC=$?
+    {
+        printf 'ran_at\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'rc\t%s\n' "$_MCR2_RC"
+        printf 'verdict\t%s\n' "$([[ "$_MCR2_RC" -eq 0 ]] && echo OK || echo FAILED)"
+        printf 'log\t%s\n' "$_MCR2_LOG"
+    } > "$_MCR2_STATE" 2>/dev/null || true
+    if [[ "$_MCR2_RC" -ne 0 ]]; then
+        warn "Merge-consistency repair after dedupe exited ${_MCR2_RC}; the two people counts may still disagree. See ${_MCR2_LOG}"  # i18n-exempt
+    fi
+    unset _MCR2_LOG _MCR2_STATE _MCR2_RC
+else
+    warn "Merge-consistency repair after dedupe skipped: identity_resolver or its venv is not present"  # i18n-exempt
+fi
+
 unset _INITIAL_HYDRATE_QDRANT _INITIAL_HYDRATE_FDA_DIR
 unset _INITIAL_HYDRATE_VENV _INITIAL_HYDRATE_PY _INITIAL_HYDRATE_LOG
 unset _INITIAL_HYDRATE_COLLECTIONS_BEFORE _INITIAL_HYDRATE_COLLECTIONS_AFTER

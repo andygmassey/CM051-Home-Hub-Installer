@@ -1627,6 +1627,7 @@ say "   Only a console walk by a human can. Never shim it to granted-and-working
 "${SSH[@]}" "cd '${REMOTE_DIR}' && \
     unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
     PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
+    OSTLER_WALK_OWNER_FILE=\"\$HOME/.walk-owner.env\" \
     OSTLER_GUI=1 nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
     echo started" >/dev/null 2>&1
 
