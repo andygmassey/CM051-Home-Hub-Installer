@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16659, both of which run
+    # Its two top-level arming calls are :8977 and :16673, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17454, where the note reads
+    # WhatsApp Web session path did it again at :17468, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17471 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17485 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16659) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16673) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19619 / :19797 / :19954 / :20399 path. There the
+    # :19633 / :19811 / :19968 / :20413 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -11974,6 +11974,8 @@ MENU
 # from the terminal works the same as before.
 PRESET="$(gui_read "$MSG_PROMPT_FDA_PRESET_TITLE" choice "recommended" "$MSG_PROMPT_FDA_PRESET_HELP" "recommended,everything,customise" "fda_preset")"
 PRESET=${PRESET:-recommended}
+# 9.5b writes sources_declined only when this picker actually ran this session.
+_SOURCES_PICKER_RAN=true
 
 # Default sets
 #
@@ -12184,21 +12186,33 @@ echo "  Enabled sources: ${OSTLER_FDA_SOURCES//,/, }"
 # message sources the owner did NOT enable. No file means nothing declined.
 # Reader: ostler-assistant crates/zeroclaw-runtime/src/brief/connected.rs.
 # Non-fatal: a failed write leaves no file, and no file never drops a fact.
-_declined_tmp="${HOME}/.ostler/config/.sources_declined.$$"
-if mkdir -p "${HOME}/.ostler/config" 2>/dev/null && {
-    for _src in calendar reminders imessage apple_mail whatsapp_history; do
-        case ",${OSTLER_FDA_SOURCES}," in
-            *",${_src},"*) ;;
-            *) printf '%s\n' "$_src" ;;
-        esac
-    done
-} > "$_declined_tmp" 2>/dev/null && mv -f "$_declined_tmp" "${HOME}/.ostler/config/sources_declined" 2>/dev/null; then
-    :
-else
-    rm -f "$_declined_tmp" 2>/dev/null || true
-    warn "Could not record your source choices for the assistant; it will assume none were declined."
+#
+# Two guards, both from review of #3078:
+#  - Path is ${CONFIG_DIR}, NOT ${HOME}/.ostler/config. On a first install
+#    CONFIG_DIR is the prelaunch staging tree, and _ostler_promote_prelaunch_tree
+#    does rm -rf ${OSTLER_FINAL_DIR}/config then moves staging's config in, so a
+#    write straight to ~/.ostler/config would be deleted by the promote.
+#  - Only when the picker ran this session (_SOURCES_PICKER_RAN, set right after
+#    the preset prompt). Otherwise OSTLER_FDA_SOURCES is unset or empty and the
+#    loop would record "everything declined"; leave any existing file untouched.
+if [[ "${_SOURCES_PICKER_RAN:-false}" == true ]]; then
+    _declined_dir="${CONFIG_DIR:-}"
+    _declined_tmp="${_declined_dir}/.sources_declined.$$"
+    if [[ -n "$_declined_dir" ]] && mkdir -p "$_declined_dir" 2>/dev/null && {
+        for _src in calendar reminders imessage apple_mail whatsapp_history; do
+            case ",${OSTLER_FDA_SOURCES}," in
+                *",${_src},"*) ;;
+                *) printf '%s\n' "$_src" ;;
+            esac
+        done
+    } > "$_declined_tmp" 2>/dev/null && mv -f "$_declined_tmp" "${_declined_dir}/sources_declined" 2>/dev/null; then
+        :
+    else
+        rm -f "$_declined_tmp" 2>/dev/null || true
+        warn "Could not record your source choices for the assistant; it will assume none were declined."
+    fi
+    unset _declined_dir _declined_tmp _src
 fi
-unset _declined_tmp _src
 
 if [[ "$HAS_APPLE_MAIL_GMAIL" == false && "$OSTLER_FDA_SOURCES" == *"apple_mail"* ]]; then
     info "$MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT"
