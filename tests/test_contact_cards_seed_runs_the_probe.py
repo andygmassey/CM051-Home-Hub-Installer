@@ -495,9 +495,6 @@ def test_shipped_order_with_the_iMessage_survivor_refuses_a_stale_vector(stores,
     assert len(stores.points) == len(fx.CARDS) + 1, "9 vectors for 8 people"
 
 
-@pytest.mark.xfail(strict=True, reason="DEPENDS ON product PR [116] (repair_merge_consistency after dedupe in "
-                   "install.sh); expected RED until it merges and the seed follows the new order. strict: "
-                   "when it goes green this must be un-marked.")
 def test_DEPENDS_ON_116_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, monkeypatch):
     monkeypatch.setenv("CCS_CARD_ID", "high")
     assert run_seed(home, stores)[0] == "seeded"
