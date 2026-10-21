@@ -98,6 +98,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib_identity_lookalike.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_identity_lookalike.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_cm019_bundle.sh"
 REMOTE_DIR="ostler-ttywalk"
 
 PASS=0; FAIL=1; CANNOT_RUN=2
@@ -425,6 +426,9 @@ if [[ -n "${FROM_DMG:-}" ]]; then
         || die "--from-dmg: ${_res} has no install.sh. That is not the payload root."
     STAGE_SRC="$_res"
     STAGE_KIND="artefact"
+    # Every probe on this run (the preference seed runs on the DRIVER) finds
+    # the artefact's cm019 bundle through this, not by guessing a path.
+    walk_export_cm019_bundle "$_res" || true
     # THE VERSION OF THE INSTALLER THAT IS ABOUT TO RUN, read from the bundle
     # this walk actually mounts.
     #
@@ -1520,6 +1524,37 @@ fi
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
     say "staged only, as asked. Not running."
     exit "$PASS"
+fi
+
+# ── SAFARI SEED: a SYNTHETIC History.db, planted BEFORE install ──────
+# A walk account that never opened Safari has no ~/Library/Safari, so the
+# reader says not_found and ingest_coverage can only grade the source absent
+# (CANNOT-RUN). Planting a synthetic History.db gives the walk real coverage of
+# the Safari path. Never overwrites a real History.db; records what happened in
+# ~/.walk-safari-seed-run on the box, which ingest_coverage reads. TCC can
+# refuse the plant or, later, the read: both are CANNOT-RUN (FDA), recorded,
+# never a pass. See scripts/lib_walk_safari_seed.sh.
+# shellcheck source=scripts/lib_walk_safari_seed.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_safari_seed.sh"
+if [[ "$(walk_safari_throwaway_decide "$EXPECT_USER")" != "plant" ]]; then
+    # Not a declared throwaway (--expect-user walk[0-9]+ or OSTLER_WALK_THROWAWAY=1):
+    # never plant synthetic browsing on a box that may be a real person's.
+    { declare -f walk_safari_seed_skip; printf 'walk_safari_seed_skip\n'; } \
+        | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
+else
+    _SAFARI_FX_LOCAL="$(mktemp -t walk-safari-fx)" || die "could not create a local scratch file for the Safari fixture."
+    if python3 -I "${REPO_ROOT}/scripts/box_walk_probes/lib/safari_history_fixture.py" "$_SAFARI_FX_LOCAL" >/dev/null; then
+        _SAFARI_FX_REMOTE="$("${SSH[@]}" 'f=$(mktemp -t walk-safari-fx) && cat > "$f" && printf "%s" "$f"' < "$_SAFARI_FX_LOCAL")" || _SAFARI_FX_REMOTE=""
+        if [[ -n "$_SAFARI_FX_REMOTE" ]]; then
+            { declare -f walk_safari_seed_apply; printf 'walk_safari_seed_apply %q\nrm -f %q\n' "$_SAFARI_FX_REMOTE" "$_SAFARI_FX_REMOTE"; } \
+                | "${SSH[@]}" 'bash -s' | sed 's/^/  /' | while IFS= read -r _l; do say "$_l"; done
+        else
+            say "safari seed: could not ship the fixture to the host; Safari will be graded SOURCE-ABSENT if the box has none"
+        fi
+    else
+        say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
+    fi
+    rm -f "$_SAFARI_FX_LOCAL"
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────

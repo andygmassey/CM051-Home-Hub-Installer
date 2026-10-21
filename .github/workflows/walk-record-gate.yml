@@ -115,6 +115,8 @@ on:
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
+      - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
+      - 'scripts/lib_walk_cm019_bundle.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
       # its test go in the watch set together, or a PR could narrow the lib
@@ -892,6 +894,10 @@ jobs:
       - name: The cm019 bundle accepts the payload root the driver passes
         if: always()
         run: /bin/bash tests/test_cm019_bundle_accepts_the_payload_root.sh
+
+      - name: ttywalk --from-dmg exports the artefact's cm019 bundle for the whole run
+        if: always()
+        run: /bin/bash tests/test_ttywalk_exports_the_cm019_bundle.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
