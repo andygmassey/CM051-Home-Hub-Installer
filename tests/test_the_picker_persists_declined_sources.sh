@@ -51,7 +51,7 @@ bash -n "$WRITER" || cannot "the lifted 9.5b writer does not parse"
 # The REAL promote and the helpers it needs, lifted by name.
 FUNCS="${WORK}/funcs.sh"
 : > "$FUNCS"
-for fn in _ostler_set_paths _ostler_lock_home_dir _ostler_promote_prelaunch_tree; do
+for fn in _ostler_set_paths _ostler_promote_prelaunch_tree; do
     awk -v f="${fn}() {" '$0 == f { p = 1 } p { print } p && /^}/ { exit }' "$INSTALL_SH" >> "$FUNCS"
 done
 [ "$(grep -c '^_ostler_promote_prelaunch_tree() {' "$FUNCS")" -eq 1 ] || cannot "could not lift the real promote"
@@ -80,6 +80,8 @@ drive() {
         ok() { :; }; warn() { printf "WARN %s\n" "$*" >&2; }; info() { :; }
         fail_with_code() { printf "FAIL_WITH_CODE %s\n" "$*" >&2; exit 9; }
         _ostler_quiesce_interval_agents() { :; }
+        # BSD stat -f in the real helper fails on a Linux runner; not under test.
+        _ostler_lock_home_dir() { chmod 700 "$1"; }
         _ostler_repair_venv_after_promote() { :; }
         _ostler_promote_venv_note() { :; }
         _ostler_verify_runtime_ready() { return 2; }
