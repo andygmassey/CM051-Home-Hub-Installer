@@ -1,6 +1,10 @@
 # cut-manifests/v1.0.116.yaml
 # OPENED 2026-10-21 BY CARRYING v1.0.115's REGISTER FORWARD IN FULL (ORM), for v1.0.116: main + cut/v1.0.115 + hub-v0.5.27
 # (oa graft on 0cfdfe23: #602 #606 #607 #608 #611 #612). Rows re-gated per Archie, 2026-10-21.
+# CUT CONTENT (Archie, 2026-10-21): b73c20c9 (main at #3074) plus named fixes only, as cherry-picks:
+#   - f4e0ae85 (#3073, resolver: a nameless pair sharing a phone or email is one person) -> d8fb7ad4 (full commit).
+#   - ab063c5b (#3081, merge-consistency repair second pass after dedupe_merge) -> 2569b455: ONLY its install.sh hunk.
+#     #3072's seed/test files and #3081's own test are NOT on the cut (harness runs from main).
 # ============================================================================
 # OPENED 2026-10-20 BY CARRYING v1.0.114's REGISTER FORWARD IN FULL (ORM), for v1.0.115: the same inputs as v1.0.114
 # (hub-v0.5.26), re-spun because the v1.0.114 tag reached no DMG (PR-age crossed between candidate and tag run).
