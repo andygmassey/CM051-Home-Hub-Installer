@@ -8283,7 +8283,7 @@ _link() {
 echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
-echo "  Ostler imports from 20 platforms. Request your data exports"
+echo "  Ostler imports 18 platform exports. Request your data exports"
 echo "  now -- they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
