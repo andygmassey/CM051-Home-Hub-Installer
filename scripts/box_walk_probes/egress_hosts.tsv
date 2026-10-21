@@ -43,6 +43,29 @@ registry.ollama.ai	installer + Doctor: `ollama pull <model>` (15 call sites)	mod
 huggingface.co	ostler_security OPF filter: fetch the pinned privacy-filter model revision (vendor/ostler_security/opf_filter.py:63)	model id and revision only. Pinned SHA, no customer data.
 cdn-lfs.huggingface.co	huggingface.co weight CDN	HTTPS GET of public model weights. No request body.
 #
+# ── ATTRIBUTED 2026-10-21: what `limactl` holds during install ────────────────
+#    `limactl` holds sockets that are NOT its own. colima starts the VM with
+#    `networks: - lima: user-v2` (read from a generated lima.yaml, colima 0.10.3
+#    / lima 2.1.2), and user-v2 is lima's userspace network: a gvisor-tap-vsock
+#    daemon that runs INSIDE a limactl process. Every TCP connection a guest
+#    container opens leaves the Mac as a socket owned by `limactl`. So the
+#    destinations seen under `limactl` are the destinations of the CONTAINERS in
+#    the VM, and they "change between samples" because (a) the compose images
+#    all come from ghcr.io, whose layer blobs sit behind a CDN, and (b) the
+#    wiki-compiler's consented public look-ups go to Wikimedia, MusicBrainz and
+#    OpenStreetMap, whose addresses are geo-DNS. 208.80.154.224 (seen under
+#    limactl 2026-08-17) is text-lb.eqiad.wikimedia.org, the same front end
+#    en.wikipedia.org resolves to from some regions (103.102.166.224 from HK
+#    2026-10-21). The probe joins by contemporaneously resolved name, so these
+#    rows are the fix: the missing names, not new IP ranges.
+#    NOT fetched by the VM at all (verified in the generated lima.yaml): no
+#    nerdctl-full or containerd archive (containerd.system/user false), no k3s
+#    (kubernetes disabled), no apt in any provision script, no docker.io or
+#    registry-1 pull (every compose image is a ghcr.io digest).
+release-assets.githubusercontent.com	installer: GitHub release asset redirect target (colima's pinned VM image, abiosoft/colima-core, fetched by colima's curl downloader and sha512-checked)	HTTPS GET of a public disk image. No request body.
+en.wikipedia.org	wiki-compiler container: Wikipedia artist and organisation summaries (CM044 compiler/music_enricher.py:27, wiki_enricher.py:25). Runs ONLY when OSTLER_PUBLIC_LOOKUPS=agreed. Egress is carried by limactl's usernet.	AN ARTIST OR ORGANISATION NAME DRAWN FROM THE CUSTOMER'S DATA, in the URL. Off unless the customer recorded a yes.
+overpass-api.de	wiki-compiler container: OpenStreetMap Overpass venue look-up (CM044 compiler/venue_enricher.py:31). Runs ONLY when OSTLER_PUBLIC_LOOKUPS=agreed. Egress is carried by limactl's usernet.	A PLACE'S COORDINATES DRAWN FROM THE CUSTOMER'S DATA. Off unless the customer recorded a yes.
+#
 # ── build-time dependency registries reached BY the installer, not by us ─────
 #    We invoke these; the customer's Mac is what makes the request. Named here
 #    because "we did not write the client" is not a reason to omit a row.
@@ -139,13 +162,13 @@ mmg.whatsapp.net	whatsapp connector: WhatsApp media endpoint	as above. Observed 
 #    [MEASURED: ...] tag taken from whether enricher.py CONSTRUCTS the client.
 query.wikidata.org	enrichment: entity lookup (clients/wikidata.py, brand.py, musicbrainz.py)	A SUBJECT DRAWN FROM THE CUSTOMER'S DATA: the name of a thing they mentioned.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
 www.wikidata.org	enrichment: entity lookup	as above.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
-musicbrainz.org	enrichment: artist and release lookup	an artist or release name drawn from the customer's listening history.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
+musicbrainz.org	enrichment: artist and release lookup; ALSO the wiki-compiler container (CM044 compiler/music_enricher.py:26, consent-gated, carried by limactl)	an artist or release name drawn from the customer's listening history.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
 openlibrary.org	enrichment: book lookup	a book title or author drawn from the customer's reading.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
 covers.openlibrary.org	enrichment: book cover images	a book identifier.  [MEASURED: LIVE on a stock install -- constructed by enricher.py]
 world.openfoodfacts.org	enrichment: food product lookup	a product name or barcode.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 api.crossref.org	enrichment: DOI and publication lookup	a paper title or DOI.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 doi.org	enrichment: DOI resolution	a DOI.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
-nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
+nominatim.openstreetmap.org	enrichment: geocoding (clients/geocoder.py) AND the wiki-compiler container's venue look-up (CM044 compiler/venue_enricher.py:30, consent-gated, carried by limactl)	A PLACE NAME OR ADDRESS DRAWN FROM THE CUSTOMER'S DATA.  [MEASURED: the host enricher client is DEAD CODE, but the wiki-compiler container's venue look-up reaches this host when the customer agreed]
 api.upcitemdb.com	enrichment: barcode lookup	a barcode or product name.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 api.upcdatabase.org	enrichment: barcode lookup	a barcode or product name.  [MEASURED: DEAD CODE -- the client ships but nothing constructs it. Ships is not runs.]
 #
