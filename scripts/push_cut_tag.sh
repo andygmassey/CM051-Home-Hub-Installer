@@ -63,6 +63,7 @@ rehearse() {
 # Tests: OSTLER_PRETAG_MODELPINS=<cmd> replaces the run (prints the gate's
 # output, exit code = the gate's); OSTLER_OS003_DIR picks the checkout;
 # OSTLER_PRETAG_NOFETCH=1 skips the fetch (fixture repos have no origin).
+# OSTLER_PRETAG_OS003_PIN=<sha> replaces the cuts/REGISTRY_PIN lookup (fixtures).
 modelpins() {
     local d="" c t rc
     for c in "${OSTLER_OS003_DIR:-}" "$HOME/Developer/OS003-Ostler-Release" "$HOME/Developer/orm/OS003" "$HOME/Developer/OS003-canonical"; do
@@ -72,11 +73,22 @@ modelpins() {
     if [ "${OSTLER_PRETAG_NOFETCH:-0}" != 1 ]; then
         git -C "$d" fetch -q origin main || { echo "CANNOT-RUN: could not fetch OS003 origin/main"; return 2; }
     fi
+    # release.toml is read at the OS003 commit THIS cut records (cuts/REGISTRY_PIN
+    # in the tree being tagged), not OS003 main: once main moves the pins for the
+    # next version, a frozen cut/ branch must still verify against its own record
+    # (ORM review of #3094). The gate SCRIPT is taken from origin/main.
+    local pin
+    pin="${OSTLER_PRETAG_OS003_PIN:-$(git -C "$root" show "$full:cuts/REGISTRY_PIN" 2>/dev/null | awk -F'\t' '$1=="os003_sha"{print $2; exit}')}"
+    if [ -z "$pin" ]; then echo "CANNOT-RUN: cuts/REGISTRY_PIN at ${full:0:8} records no os003_sha"; return 2; fi
+    if ! git -C "$d" cat-file -e "$pin^{commit}" 2>/dev/null; then echo "CANNOT-RUN: OS003 checkout lacks the recorded commit ${pin:0:8}"; return 2; fi
     t="$(mktemp -d)"; mkdir -p "$t/gates"
-    if ! git -C "$d" show origin/main:gates/verify_model_weights_pinned.sh > "$t/gates/verify_model_weights_pinned.sh" 2>/dev/null \
-       || ! git -C "$d" show origin/main:release.toml > "$t/release.toml" 2>/dev/null; then
-        rm -rf "$t"; echo "CANNOT-RUN: OS003 origin/main has no gate or release.toml"; return 2
+    if ! git -C "$d" show origin/main:gates/verify_model_weights_pinned.sh > "$t/gates/verify_model_weights_pinned.sh" 2>/dev/null; then
+        rm -rf "$t"; echo "CANNOT-RUN: OS003 origin/main has no gate"; return 2
     fi
+    if ! git -C "$d" show "$pin:release.toml" > "$t/release.toml" 2>/dev/null; then
+        rm -rf "$t"; echo "CANNOT-RUN: OS003 ${pin:0:8} (cuts/REGISTRY_PIN) has no release.toml"; return 2
+    fi
+    echo "  model pins read from OS003 ${pin:0:8} (cuts/REGISTRY_PIN), gate from origin/main"
     NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}" OSTLER_CM051_DIR="$root" OSTLER_CM051_REF="$full" \
         bash "$t/gates/verify_model_weights_pinned.sh" 2>&1 && rc=0 || rc=$?
     rm -rf "$t"; return "$rc"
