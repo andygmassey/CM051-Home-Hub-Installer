@@ -596,9 +596,10 @@ esac
 _drive "$SUMMARY_CALLS_NOFDA"
 _c="$(_cell calls "$(_render)")"
 case "$_c" in
-    "could not look|&mdash;") ok "with Full Disk Access ungranted Calls reads 'could not look' with a BLANK count" ;;
+    "needs access|&mdash;") ok "with Full Disk Access ungranted Calls reads 'needs access' (the refused pane is named) with a BLANK count" ;;
+    "could not look|&mdash;") bad "the ungranted-FDA Calls row reads 'could not look'; a refused permission is 'needs access' since the refusal map" ;;
     "")  bad "Calls vanished when Full Disk Access was ungranted; an absent row reads as fine" ;;
-    *)   bad "the ungranted-FDA Calls row reads '${_c}', expected 'could not look' with a blank count" ;;
+    *)   bad "the ungranted-FDA Calls row reads '${_c}', expected 'needs access' with a blank count" ;;
 esac
 
 _drive "$SUMMARY_CALLS_SCHEMA"
