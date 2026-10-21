@@ -69,12 +69,46 @@ DECLARED = [
 _E164 = re.compile(r"^\+[1-9][0-9]{6,14}$")
 
 
+# Total digit count (country code included) a dialable number may have, by
+# country code, for the codes a walk or a customer is likely to use. A '+' then
+# 15 digits fits the generic E.164 bound but no listed code allows it, which is
+# the shape of a WhatsApp LID. An unlisted code is capped at 14 digits: every
+# live plan we know of for a code outside the table is shorter, and 15 is the
+# LID length.
+_LEN_BY_CC = {
+    "1": (11, 11),    # NANP
+    "44": (11, 12),   # UK
+    "61": (11, 11),   # Australia
+    "49": (10, 14),   # Germany
+    "33": (11, 11),   # France
+    "34": (11, 11),   # Spain
+    "39": (10, 13),   # Italy
+    "852": (11, 11),  # Hong Kong
+    "86": (13, 13),   # China
+    "91": (12, 12),   # India
+    "81": (11, 12),   # Japan
+    "65": (10, 10),   # Singapore
+}
+_DEFAULT_LEN = (7, 14)
+
+
+def _length_ok(number):
+    digits = number[1:]
+    for cc_len in (3, 2, 1):
+        cc = digits[:cc_len]
+        if cc in _LEN_BY_CC:
+            lo, hi = _LEN_BY_CC[cc]
+            return lo <= len(digits) <= hi
+    lo, hi = _DEFAULT_LEN
+    return lo <= len(digits) <= hi
+
+
 def _has_number(v):
     """allowed_numbers is written as a one-line TOML array of quoted strings;
     true when at least one item is a strict E.164 number. A bare `[]`, `[""]`,
     digits without '+', or an '@lid' shape is not a number."""
     items = re.findall(r'"([^"]*)"', v if isinstance(v, str) else "")
-    return any(_E164.match(i) and "@" not in i for i in items)
+    return any(_E164.match(i) and "@" not in i and _length_ok(i) for i in items)
 
 
 WRITER_ROW = "install.sh's own channel writer, run off-box with answer 5 and a synthetic number (no daemon, no network): [channels.whatsapp] carries session_path and an E.164 allowed_numbers"
@@ -413,6 +447,8 @@ def self_test():
                        ("'+' LID with @lid suffix", '["+' + _LID_DIGITS + '@lid"]'),
                        ("E.164 digits without '+'", '["' + green_gb[1:] + '"]'),
                        ("too short after '+'", '["+12345"]'),
+                       ("'+' then 15 digits (LID-shaped, +1 cannot be that long)", '["+1' + "0" * 13 + '1"]'),
+                       ("'+' then 15 digits under an unlisted country code", '["+' + "7" * 15 + '"]'),
                        ("empty list", "[]"),
                        ("empty string item", '[""]')):
         if _has_number(val):
