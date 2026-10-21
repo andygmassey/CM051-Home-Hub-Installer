@@ -75,8 +75,12 @@ jobs:
         # Exit 0 from the judge's own self-test is "behaved"; the probe wrapper
         # turns that into its expected FAIL verdict.
         if: always()
+        # The self-test EXITS 1 when it behaves, so the capture must not run
+        # under the step's `bash -e`: there it aborted before printing anything.
         run: |
+          set +e
           out=$(bash scripts/box_walk_probes/probes/derived_preferences_reach_digest_and_tool.sh --self-test 2>&1); rc=$?
+          set -e
           printf '%s\n' "$out"
           # self-test contract: rc 1 and a FAIL verdict means every mutant went red.
           [ "$rc" -eq 1 ] && grep -q '^VERDICT: FAIL -- negative control behaved' <<< "$out"
