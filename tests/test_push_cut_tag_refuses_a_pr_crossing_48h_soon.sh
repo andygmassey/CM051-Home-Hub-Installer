@@ -25,7 +25,7 @@ case "\$*" in
 esac
 GH
   chmod +x "$T/bin/gh"; }
-run(){ OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_PRAGE_GH_PATH="$T/bin" OSTLER_PRETAG_PRAGE_REPOS="fixture/FixtureRepo" \
+run(){ OSTLER_PRETAG_MODELPINS='echo "[PASS] arm 6: held green"; echo "[PASS] arm 7: held green"' OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_PRAGE_GH_PATH="$T/bin" OSTLER_PRETAG_PRAGE_REPOS="fixture/FixtureRepo" \
   OSTLER_PRETAG_CANDIDATE="echo success $H https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo success $H https://example.invalid/run" \
   OSTLER_CUT_DEFERRALS="${DEFER:-$PWD/cut-deferrals.yaml}" bash "$1" v1.0.99999 "$H" 2>&1; }
 mkfake 46; out=$(run "$S"); rc=$?

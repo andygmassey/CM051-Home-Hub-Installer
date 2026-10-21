@@ -47,6 +47,49 @@ rehearse() {
     gh api "repos/$REPO_SLUG/actions/runs/$id" -q '"\(.conclusion // "none") \(.head_sha) \(.html_url)"'
 }
 
+# MODEL PINS MUST AGREE BEFORE ANY TAG (OS003 #409 arms 6 and 7).
+# The installer enforces OSTLER_MODEL_PINS at install time; OS003 release.toml
+# [models] is the estate's own record of the same weights. Arm 6 requires the
+# two to be equal AND every model install.sh can pull to have an entry; arm 7
+# recomputes each fingerprint from registry.ollama.ai. Before this, NO workflow
+# ran either arm (gates.yml runs only the offline self-test). The check lives
+# HERE because it needs this CM051 tree (read at the SHA being tagged, not
+# main) and the network, and cut.yml's preflight cannot reach it: OS003 is
+# PRIVATE and this runner's token cannot read it. The OS003 gate and manifest
+# are read from OS003 origin/main (fetched) so a working-tree edit cannot
+# stand in. CANNOT-RUN refuses too: a pin nobody verified is not a pass, and the
+# tag push is the one-per-version resource. Both arm lines must say PASS, so an
+# OS003 gate that lacks the arms (pre-#409) refuses rather than waving through.
+# Tests: OSTLER_PRETAG_MODELPINS=<cmd> replaces the run (prints the gate's
+# output, exit code = the gate's); OSTLER_OS003_DIR picks the checkout;
+# OSTLER_PRETAG_NOFETCH=1 skips the fetch (fixture repos have no origin).
+modelpins() {
+    local d="" c t rc
+    for c in "${OSTLER_OS003_DIR:-}" "$HOME/Developer/OS003-Ostler-Release" "$HOME/Developer/orm/OS003" "$HOME/Developer/OS003-canonical"; do
+        if [ -n "$c" ] && [ -e "$c/.git" ]; then d="$c"; break; fi
+    done
+    if [ -z "$d" ]; then echo "CANNOT-RUN: no OS003 checkout found (set OSTLER_OS003_DIR)"; return 2; fi
+    if [ "${OSTLER_PRETAG_NOFETCH:-0}" != 1 ]; then
+        git -C "$d" fetch -q origin main || { echo "CANNOT-RUN: could not fetch OS003 origin/main"; return 2; }
+    fi
+    t="$(mktemp -d)"; mkdir -p "$t/gates"
+    if ! git -C "$d" show origin/main:gates/verify_model_weights_pinned.sh > "$t/gates/verify_model_weights_pinned.sh" 2>/dev/null \
+       || ! git -C "$d" show origin/main:release.toml > "$t/release.toml" 2>/dev/null; then
+        rm -rf "$t"; echo "CANNOT-RUN: OS003 origin/main has no gate or release.toml"; return 2
+    fi
+    NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}" OSTLER_CM051_DIR="$root" OSTLER_CM051_REF="$full" \
+        bash "$t/gates/verify_model_weights_pinned.sh" 2>&1 && rc=0 || rc=$?
+    rm -rf "$t"; return "$rc"
+}
+echo "push_cut_tag: model pins (OS003 gate arms 6 and 7) at ${full:0:8}"
+if [ -n "${OSTLER_PRETAG_MODELPINS:-}" ]; then mpout="$(bash -c "$OSTLER_PRETAG_MODELPINS" 2>&1)" && mprc=0 || mprc=$?
+else mpout="$(modelpins)" && mprc=0 || mprc=$?; fi
+printf '%s\n' "$mpout" | grep -E 'arm [0-9]|CANNOT-RUN|pass /' | sed 's/^/    /' || true
+if [ "$mprc" -ne 0 ] || ! grep -q '\[PASS\] arm 6' <<<"$mpout" || ! grep -q '\[PASS\] arm 7' <<<"$mpout"; then
+    echo "push_cut_tag: REFUSED. The model-pin gate (OS003 verify_model_weights_pinned.sh) exited $mprc, or arm 6 / arm 7 did not both PASS, at ${full:0:8}. OSTLER_MODEL_PINS in install.sh and OS003 release.toml [models] must agree, and the registry must still serve those weights; $ver was NOT pushed." >&2; exit 1
+fi
+echo "push_cut_tag: model pins (arms 6 and 7): GREEN"
+
 # A GREEN CANDIDATE BUILD AT THIS SHA, OR NO TAG (v1.0.109, v1.0.110).
 # The rehearsal below is the tag run's PREFLIGHT only. check-manifest reads the
 # BUILT .app, so no preflight, dry run or rehearsal can reach it: only the `cut`

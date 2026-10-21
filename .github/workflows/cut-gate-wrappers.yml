@@ -60,6 +60,7 @@ on:
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
       - 'tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh'
+      - 'tests/test_push_cut_tag_refuses_a_model_pin_mismatch.sh'
       - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
       - 'scripts/verify_daemon_hold_registers_agree.py'
       - 'tests/test_daemon_hold_registers_agree.sh'
@@ -322,6 +323,12 @@ jobs:
       - name: A cut tag is not pushed while a PR will cross 48h within the lookahead
         if: always()
         run: /bin/bash tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh
+      # OS003 #409 arms 6 and 7 (model pins) ran nowhere. push_cut_tag.sh now runs
+      # the OS003 gate before any tag; this proves it refuses on red, CANNOT-RUN
+      # and a gate that reports no arms 6/7.
+      - name: A cut tag is not pushed while the model pins disagree
+        if: always()
+        run: /bin/bash tests/test_push_cut_tag_refuses_a_model_pin_mismatch.sh
 
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether

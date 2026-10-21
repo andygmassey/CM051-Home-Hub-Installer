@@ -7,7 +7,8 @@
 # cut/<version> candidate build at this SHA refuses; one at another SHA
 # refuses; one whose cut job failed refuses; a mutant ignoring the candidate's
 # conclusion is caught. The rehearsal arms all run with a green candidate.
-# The PR-age lookahead is held green here (OSTLER_PRETAG_PRAGE=true); it has
+# The model-pin gate is held green here (OSTLER_PRETAG_MODELPINS), as is the
+# PR-age lookahead (OSTLER_PRETAG_PRAGE=true); it has
 # its own test, test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -15,8 +16,8 @@ S=scripts/push_cut_tag.sh
 H=$(git rev-parse HEAD); O=$(git rev-parse HEAD~1)
 pass=0; fail=0
 ok(){ echo "  ok   $1"; pass=$((pass+1)); }; no(){ echo "  FAIL $1"; fail=$((fail+1)); }
-run(){ OSTLER_PRETAG_PRAGE=true OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_CANDIDATE="echo success $H https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo $1 https://example.invalid/run" bash "$2" v1.0.99999 "$H" 2>&1; }
-cand(){ OSTLER_PRETAG_PRAGE=true OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_CANDIDATE="echo $1 https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo success $H https://example.invalid/run" bash "$2" v1.0.99999 "$H" 2>&1; }
+run(){ OSTLER_PRETAG_MODELPINS='echo "[PASS] arm 6: held green"; echo "[PASS] arm 7: held green"' OSTLER_PRETAG_PRAGE=true OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_CANDIDATE="echo success $H https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo $1 https://example.invalid/run" bash "$2" v1.0.99999 "$H" 2>&1; }
+cand(){ OSTLER_PRETAG_MODELPINS='echo "[PASS] arm 6: held green"; echo "[PASS] arm 7: held green"' OSTLER_PRETAG_PRAGE=true OSTLER_PRETAG_DRY_RUN=1 OSTLER_PRETAG_CANDIDATE="echo $1 https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo success $H https://example.invalid/run" bash "$2" v1.0.99999 "$H" 2>&1; }
 out=$(bash "$S" v0.0.0 "$H" 2>&1); [ $? -eq 2 ] && ok "non-cut version refused" || no "non-cut version accepted"
 out=$(run "failure $H" "$S"); rc=$?
 [ $rc -ne 0 ] && grep -q REFUSED <<<"$out" && ! grep -q DRY-RUN <<<"$out" && ok "failed rehearsal refuses, pushes nothing" || no "failed rehearsal did not refuse"
