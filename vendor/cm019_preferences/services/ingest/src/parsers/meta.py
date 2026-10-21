@@ -706,7 +706,9 @@ class MetaParser(BaseParser):
                 preference_type="Like",
                 strength=0.45,  # V2: Deliberate curation = strong signal
                 compartment_level=default_compartment,
-                source="facebook",
+                # OBSERVED watch history: must not share the declared "facebook" source
+                # (CM059 treats "facebook" as owner-declared and may enrich it).
+                source="facebook_watched",
                 category="movie_tv",
                 observed_at=observed_at,
                 size=self.classify_size(title, "media"),

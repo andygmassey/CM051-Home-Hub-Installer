@@ -92,6 +92,10 @@ SOURCE_TRUST = {
     "linkedin": 0.85,
     "facebook": 0.65,
     "meta": 0.40,
+    # Observed Facebook watch history (CM019 meta.py). Observed behaviour, not a
+    # declared like, so it sits below "facebook" (0.65) and stays at the
+    # default by decision, not by fall-through.
+    "facebook_watched": 0.45,
     "csv": 0.18,        # email/recruiter import - heavily distrusted
     "email": 0.18,
     "imap": 0.18,
@@ -865,8 +869,24 @@ def _iso(value) -> str | None:
 # "from linkedin · strength 0.50 · last seen 2026-01-15". Human words only.
 _SOURCE_DISPLAY = {
     "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
+    "facebook_watched": "Facebook",
     "csv": "your imported data", "email": "your email", "imap": "your email",
     "you": "you",
+    "streaming_history": "your browsing history",
+    "netflix": "Netflix", "spotify": "Spotify", "youtube": "YouTube",
+    "youtube_music": "YouTube Music", "youtubemusic": "YouTube Music",
+    "apple_tv": "Apple TV", "appletv": "Apple TV",
+    "prime_video": "Prime Video", "amazon_video": "Prime Video",
+    "disney_plus": "Disney+", "bbc_iplayer": "BBC iPlayer", "plex": "Plex",
+    "letterboxd": "Letterboxd", "trakt": "Trakt", "lastfm": "Last.fm",
+    "last_fm": "Last.fm", "last.fm": "Last.fm", "shazam": "Shazam",
+    "apple_music": "Apple Music", "applemusic": "Apple Music",
+    "apple": "Apple", "amazon": "Amazon", "kindle": "Kindle",
+    "google_takeout": "Google", "instagram": "Instagram",
+    "twitter": "X", "twitter_personalization": "X",
+    "pinterest": "Pinterest", "tiktok": "TikTok", "reddit": "Reddit",
+    "foursquare": "Foursquare", "whatsapp": "WhatsApp",
+    "discord": "Discord", "ebay": "eBay", "uber": "Uber", "whoop": "Whoop",
 }
 
 
