@@ -566,6 +566,18 @@ entries:
       kind: box_walk_probe
       probe: "no_person_holds_two_contact_cards"
 
+  - id: box-walk-front-page-not-me-is-saved
+    title: a Not me tap from the Hub app must still be there after a reload
+    incident: >-
+      v1.0.105 walk (CM051 #2470); a Front Page card marked Not me came back on
+      the next visit because the Hub posted nothing and the route refused the
+      app's own origin, and no walk step ever tapped it. The probe POSTs from
+      tauri://localhost, re-reads interest_corrections.json and card_states.json
+      from disk, and requires a foreign origin to be refused
+    proof:
+      kind: box_walk_probe
+      probe: "front_page_not_me_is_saved"
+
   - id: box-walk-freshness-panel-has-dates
     title: every freshness-panel source must report a real date rather than 'unknown'
     incident: >-
