@@ -702,6 +702,7 @@ test_shipped_compose_usage_journal_mount.sh	WIRED	.github/workflows/usage-journa
 test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
+test_slack_export_drop_lands_rows.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrate-sentinel.yml

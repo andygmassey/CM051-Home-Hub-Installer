@@ -15,8 +15,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 52
-digest: 0db3a3efdc1fea0587affb3375ba634d1b68e5b817ca1e43ffb94b3ed5973a22
+hosts: 53
+digest: 59c9847b0e58c4ee2166a29e8a707652dd94ab347507bec9e7cca4bbee4c9c6f
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -87,6 +87,7 @@ the ledger; this is the shape.
 | ostler.ai (licence + updates) | install, then periodically | no | licence ID and machine fingerprint only |
 | Tailscale control plane, DERP relays | while the tailnet is up | yes, per feature | no, relayed payloads are end-to-end encrypted |
 | WhatsApp Web | only with the connector on | yes, off by default | it IS the customer's WhatsApp session |
+| Slack token sync (slack.com), never run by Ostler itself | only if the owner stores their own token and runs `sync` | yes, and Pro | the owner's Slack token and read-only history requests |
 | public-data enrichment (~20 hosts) | during and after ingest | no, and see below | **yes** |
 
 ## The WhatsApp connector: settled, and the consent wording is wrong

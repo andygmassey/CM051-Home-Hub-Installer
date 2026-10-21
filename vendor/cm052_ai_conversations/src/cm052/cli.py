@@ -354,7 +354,13 @@ def process_one(conv: Conversation) -> str:
     """
     result = wire.post(conv)
     if isinstance(result, dict):
-        if result.get("reason") == "privacy_level_l3":
+        # wire.post now POSTs L3 (CM048 writes the bundle, skips the gist
+        # sinks) and annotates the result with gist_level; the legacy
+        # short-circuit reason is still honoured. (CM052 #16 hunk.)
+        if (
+            result.get("reason") == "privacy_level_l3"
+            or result.get("gist_level") == "L3"
+        ):
             return "l3_skipped"
         if result.get("reason") == "subscription_inactive":
             return "paused"

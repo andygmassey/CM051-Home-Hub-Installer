@@ -123,10 +123,10 @@ index 00000000..0e07ee85
 +def adapters():
 +    return [AIConversationsAdapter()]
 diff --git a/src/cm052/cli.py b/src/cm052/cli.py
-index 5431a38f..350fc701 100644
+index 5431a38f..705073ad 100644
 --- a/src/cm052/cli.py
 +++ b/src/cm052/cli.py
-@@ -343,6 +343,24 @@ def _emit_json(counts: dict, *, enabled: bool) -> None:
+@@ -343,6 +343,30 @@ def _emit_json(counts: dict, *, enabled: bool) -> None:
          print(json.dumps(counts))
  
  
@@ -141,7 +141,13 @@ index 5431a38f..350fc701 100644
 +    """
 +    result = wire.post(conv)
 +    if isinstance(result, dict):
-+        if result.get("reason") == "privacy_level_l3":
++        # wire.post now POSTs L3 (CM048 writes the bundle, skips the gist
++        # sinks) and annotates the result with gist_level; the legacy
++        # short-circuit reason is still honoured. (CM052 #16 hunk.)
++        if (
++            result.get("reason") == "privacy_level_l3"
++            or result.get("gist_level") == "L3"
++        ):
 +            return "l3_skipped"
 +        if result.get("reason") == "subscription_inactive":
 +            return "paused"
@@ -151,7 +157,7 @@ index 5431a38f..350fc701 100644
  def run(args: argparse.Namespace) -> int:
      """Core orchestration. Returns the process exit code."""
      state_path = (
-@@ -413,6 +431,7 @@ def run(args: argparse.Namespace) -> int:
+@@ -413,6 +437,7 @@ def run(args: argparse.Namespace) -> int:
      posted = 0
      l3_skipped = 0
      errors = 0
@@ -159,7 +165,7 @@ index 5431a38f..350fc701 100644
  
      for conv in pending:
          if args.dry_run:
-@@ -424,7 +443,7 @@ def run(args: argparse.Namespace) -> int:
+@@ -424,7 +449,7 @@ def run(args: argparse.Namespace) -> int:
              )
              continue
          try:
@@ -168,7 +174,7 @@ index 5431a38f..350fc701 100644
          except Exception as exc:
              # One bad transcript must not abort the run. Log with the
              # conversation id + traceback and leave the watermark
-@@ -439,7 +458,15 @@ def run(args: argparse.Namespace) -> int:
+@@ -439,7 +464,15 @@ def run(args: argparse.Namespace) -> int:
              )
              continue
  
@@ -185,7 +191,7 @@ index 5431a38f..350fc701 100644
              l3_skipped += 1
          else:
              posted += 1
-@@ -457,10 +484,11 @@ def run(args: argparse.Namespace) -> int:
+@@ -457,10 +490,11 @@ def run(args: argparse.Namespace) -> int:
              return 1
  
      log.info(
@@ -198,7 +204,7 @@ index 5431a38f..350fc701 100644
          errors,
      )
      _emit_json(
-@@ -471,6 +499,7 @@ def run(args: argparse.Namespace) -> int:
+@@ -471,6 +505,7 @@ def run(args: argparse.Namespace) -> int:
              "ingested": posted + l3_skipped,
              "written": posted,
              "l3_skipped": l3_skipped,
@@ -206,3 +212,2016 @@ index 5431a38f..350fc701 100644
              "failed": errors,
          },
          enabled=args.json,
+diff --git b/src/cm052/first_import.py b/src/cm052/first_import.py
+new file mode 100644
+index 00000000..4ab6b440
+--- /dev/null
++++ b/src/cm052/first_import.py
+@@ -0,0 +1,149 @@
++"""The one-off import taster, next to the G7 gate.
++
++Andy + coordinator, 19 Oct: the FIRST import of an export file is free for
++each source, with or without Pro, once per source, ever. Re-imports, later
++export files for the same source, and every token or ongoing sync are Pro
++(G7, ``subscription_gate.is_active_or_grace``, the single source of Pro).
++
++PARITY NOTE. ostler_fda needs the same contract (Google Chat, Messenger,
++Instagram, Telegram exports go through it). Rule 0.5 forbids a cross-repo
++import, so this module is the reference copy and ostler_fda's must be a copy
++of it: same function names and signatures, same ledger path and JSON shape,
++same copy text. If either changes, change both. At the time of writing NO
++ostler_fda copy exists yet (searched CM051 origin/main and every recently
++pushed branch for a first-import helper: none).
++
++Contract:
++
++    entry_gate(source: str, *, export_import: bool) -> GateDecision
++        Call at the entry point, before reading the export or the API.
++        allowed + reason "pro"               Pro is active (any route)
++        allowed + reason "first_import_free" export_import and this source
++                                             has never used its free import
++        refused + reason "pro_required"      everything else
++        refused + reason "could_not_check"   the ledger could not be read.
++                                             NEVER shown as a refusal: the
++                                             caller says "Try again" (Andy).
++    mark_first_import(source: str) -> None
++        Call ONLY after a successful hand-off of a free import, so a failed
++        first try does not burn the taster.
++    pre_import_notice(source_label) / refusal_text(source_label)
++        Andy's shared copy, verbatim (CONNECTORS_BUILD_BRIEF, 19 Oct).
++
++Ledger: ``~/.ostler/state/first_imports.json``
++(``{"sources": {"<source>": {"used_at": "<ISO8601 Z>"}}}``), override with
++``OSTLER_FIRST_IMPORT_LEDGER``. Same directory as the G7 state file.
++
++KNOWN GAP (for a ruling): Andy asked that a fresh reinstall cannot loop the
++taster. A file under ``~/.ostler`` is removed by the uninstaller, so a
++reinstall resets it. Surviving a reinstall needs a location the uninstaller
++deliberately keeps (a Keychain item, for example). Not decided here.
++"""
++from __future__ import annotations
++
++import json
++import os
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++
++from .subscription_gate import is_active_or_grace
++
++
++# ONE shared exit-code contract (coordinator, 19 Oct). 4 already means bad
++# input in universal_import, and install.sh treats an unknown non-zero code
++# as a failed step, so a Pro refusal is its own code.
++EXIT_PAUSED_NOT_PRO = 5
++# "Could not check" is never a refusal and never success: it is CANNOT-RUN,
++# offer "Try again". 6, not 3: 3 already means unknown format in
++# universal_import (Archie ruling, 19 Oct).
++EXIT_COULD_NOT_CHECK = 6
++
++
++PRE_IMPORT_TEMPLATE = (
++    "Your first import from each app is free. To bring in newer history "
++    "later, or keep {source} up to date automatically, you'll need Ostler Pro."
++)
++REFUSAL_TEMPLATE = (
++    "You've already imported your {source} history once, free. Bringing in "
++    "newer exports, and keeping {source} up to date automatically, is part "
++    "of Ostler Pro.\n"
++    "Everything you've already imported stays here, and you can still "
++    "search it."
++)
++COULD_NOT_CHECK_TEXT = "Couldn't check your Pro status. Try again."
++
++
++def pre_import_notice(source_label: str) -> str:
++    return PRE_IMPORT_TEMPLATE.format(source=source_label)
++
++
++def refusal_text(source_label: str) -> str:
++    return REFUSAL_TEMPLATE.format(source=source_label)
++
++
++@dataclass(frozen=True)
++class GateDecision:
++    allowed: bool
++    reason: str  # "pro" | "first_import_free" | "pro_required" | "could_not_check"
++
++    @property
++    def is_free_import(self) -> bool:
++        return self.allowed and self.reason == "first_import_free"
++
++
++class LedgerUnreadable(Exception):
++    pass
++
++
++def ledger_path() -> Path:
++    raw = os.environ.get("OSTLER_FIRST_IMPORT_LEDGER")
++    if raw:
++        return Path(raw).expanduser()
++    return Path.home() / ".ostler" / "state" / "first_imports.json"
++
++
++def _load() -> dict:
++    path = ledger_path()
++    if not path.exists():
++        return {"sources": {}}
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, ValueError) as exc:
++        raise LedgerUnreadable(type(exc).__name__) from exc
++    if not isinstance(data, dict) or not isinstance(data.get("sources"), dict):
++        raise LedgerUnreadable("bad shape")
++    return data
++
++
++def first_import_allowed(source: str) -> bool:
++    """True when ``source`` has never used its free import. Raises
++    ``LedgerUnreadable`` rather than guessing either way."""
++    return source not in _load()["sources"]
++
++
++def mark_first_import(source: str) -> None:
++    try:
++        data = _load()
++    except LedgerUnreadable:
++        data = {"sources": {}}
++    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
++    data["sources"].setdefault(source, {"used_at": stamp})
++    path = ledger_path()
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(path.suffix + ".tmp")
++    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
++    tmp.replace(path)
++
++
++def entry_gate(source: str, *, export_import: bool) -> GateDecision:
++    if is_active_or_grace():
++        return GateDecision(True, "pro")
++    if not export_import:
++        return GateDecision(False, "pro_required")
++    try:
++        if first_import_allowed(source):
++            return GateDecision(True, "first_import_free")
++    except LedgerUnreadable:
++        return GateDecision(False, "could_not_check")
++    return GateDecision(False, "pro_required")
+diff --git a/src/cm052/schemas.py b/src/cm052/schemas.py
+index 43d8bdba..ba366b8e 100644
+--- a/src/cm052/schemas.py
++++ b/src/cm052/schemas.py
+@@ -23,7 +23,10 @@ from typing import Literal
+ from .provenance import ConversationProvenance
+ 
+ 
+-Role = Literal["user", "assistant", "system", "tool"]
++# ``participant`` is another human in a multi-party human channel (Slack,
++# 2026-10-19): not the owner, not an assistant. Such messages carry a
++# ``speaker`` display label, which the wire renders in place of the role.
++Role = Literal["user", "assistant", "system", "tool", "participant"]
+ Channel = Literal["spoken", "email", "im", "sms", "manual"]
+ 
+ 
+@@ -46,6 +49,7 @@ class Message:
+     content: str
+     timestamp: str | None = None
+     line_index: int = 0
++    speaker: str | None = None
+ 
+     def to_dict(self) -> dict:
+         return asdict(self)
+@@ -109,6 +113,7 @@ class Conversation:
+                     content=m["content"],
+                     timestamp=m.get("timestamp"),
+                     line_index=int(m.get("line_index", 0)),
++                    speaker=m.get("speaker"),
+                 )
+                 for m in data.get("messages") or []
+             ],
+diff --git b/src/cm052/slack/__init__.py b/src/cm052/slack/__init__.py
+new file mode 100644
+index 00000000..302044f6
+--- /dev/null
++++ b/src/cm052/slack/__init__.py
+@@ -0,0 +1,4 @@
++"""Slack importer: workspace export ZIP + the owner's own internal-app token.
++
++Owner-initiated and default-off. See ``cli.py`` and docs/SLACK_SETUP_DRAFT.md.
++"""
+diff --git b/src/cm052/slack/__main__.py b/src/cm052/slack/__main__.py
+new file mode 100644
+index 00000000..dd8a8c90
+--- /dev/null
++++ b/src/cm052/slack/__main__.py
+@@ -0,0 +1,5 @@
++import sys
++
++from .cli import main
++
++sys.exit(main())
+diff --git b/src/cm052/slack/api.py b/src/cm052/slack/api.py
+new file mode 100644
+index 00000000..39f55df8
+--- /dev/null
++++ b/src/cm052/slack/api.py
+@@ -0,0 +1,190 @@
++"""Route 2: the owner's own internal Slack app, user token (``xoxp-``).
++
++The owner creates a private app in their own workspace (see
++``docs/SLACK_SETUP_DRAFT.md``) and pastes its user token. There is no
++Ostler-published Slack app and no Ostler client id: the 2025 Slack API
++Terms forbid third-party apps from bulk export and persistent archives, and
++non-Marketplace distributed apps are limited to 1 request/min. Internal
++customer-built apps keep Tier 3 limits (Slack changelog 2025-05-29).
++
++Ported from the ZeroClaw Slack channel (ostler-assistant
++``crates/zeroclaw-channels/src/slack.rs``): ``parse_retry_after_value``
++(integer or fractional seconds), ``compute_exponential_backoff_delay``
++(Retry-After x 2^attempt, capped at 120 s, plus up to 500 ms jitter), and
++treating both HTTP 429 and ``{"ok": false, "error": "ratelimited"}`` as a
++rate limit. NOT ported: the channel's "retries exhausted -> proceed without
++history", which for an importer is a silent empty. Here exhaustion raises
++``SlackRateLimited`` and the caller does not advance that channel's cursor.
++
++The token travels only in the ``Authorization`` header. It is never put in
++a URL, an exception message or a log line.
++"""
++from __future__ import annotations
++
++import logging
++import random
++import time
++from collections.abc import Callable, Iterator
++from typing import Any
++
++import httpx
++
++log = logging.getLogger(__name__)
++
++API_BASE = "https://slack.com/api/"
++MAX_RETRIES = 5
++DEFAULT_RETRY_AFTER_SECS = 1.0
++MAX_BACKOFF_SECS = 120.0
++MAX_JITTER_MS = 500
++PAGE_LIMIT = 200
++CONVERSATION_TYPES = "public_channel,private_channel,mpim,im"
++
++
++class SlackApiError(Exception):
++    """Slack answered ``ok: false`` with a non-rate-limit error."""
++
++    def __init__(self, method: str, error: str, needed: str | None = None):
++        self.method = method
++        self.error = error
++        self.needed = needed
++        hint = f" (needs scope {needed})" if needed else ""
++        super().__init__(f"Slack {method} failed: {error}{hint}")
++
++
++class SlackRateLimited(Exception):
++    """Rate-limit retries exhausted. A CANNOT-RUN, never an empty result."""
++
++
++def parse_retry_after(value: str | None) -> float | None:
++    """Port of ZeroClaw ``parse_retry_after_value``: integer seconds, or the
++    whole part of a fractional value. None for empty or garbage."""
++    if value is None:
++        return None
++    value = value.strip()
++    if not value:
++        return None
++    whole = value.split(".", 1)[0]
++    return float(whole) if whole.isdigit() else None
++
++
++def backoff_delay(retry_after: float, attempt: int, jitter_ms: int) -> float:
++    """Port of ZeroClaw ``compute_exponential_backoff_delay``."""
++    return min(retry_after * (2 ** attempt), MAX_BACKOFF_SECS) + jitter_ms / 1000.0
++
++
++class SlackClient:
++    def __init__(
++        self,
++        token: str,
++        *,
++        transport: httpx.BaseTransport | None = None,
++        sleep: Callable[[float], None] = time.sleep,
++        pace_secs: float = 1.2,
++        jitter: Callable[[int], int] = lambda hi: random.randint(0, hi),
++    ):
++        self._client = httpx.Client(
++            base_url=API_BASE,
++            headers={"Authorization": f"Bearer {token}"},
++            timeout=30.0,
++            transport=transport,
++        )
++        self._sleep = sleep
++        self._pace = pace_secs  # ~50 calls/min keeps inside Tier 3 by default
++        self._jitter = jitter
++        self.calls = 0
++
++    def close(self) -> None:
++        self._client.close()
++
++    def call(self, method: str, params: dict[str, Any] | None = None) -> dict:
++        for attempt in range(MAX_RETRIES + 1):
++            if self.calls and self._pace:
++                self._sleep(self._pace)
++            self.calls += 1
++            resp = self._client.get(method, params=params or {})
++            try:
++                payload = resp.json()
++            except ValueError:
++                payload = {}
++            limited = resp.status_code == 429 or (
++                payload.get("ok") is False and payload.get("error") == "ratelimited"
++            )
++            if limited:
++                if attempt >= MAX_RETRIES:
++                    raise SlackRateLimited(
++                        f"Slack {method} still rate limited after {MAX_RETRIES} retries"
++                    )
++                base = parse_retry_after(resp.headers.get("Retry-After"))
++                wait = backoff_delay(
++                    base if base is not None else DEFAULT_RETRY_AFTER_SECS,
++                    attempt,
++                    self._jitter(MAX_JITTER_MS),
++                )
++                log.warning(
++                    "Slack %s rate limited; retry %d/%d in %.1fs",
++                    method, attempt + 1, MAX_RETRIES, wait,
++                )
++                self._sleep(wait)
++                continue
++            if resp.status_code >= 400:
++                raise SlackApiError(method, f"http_{resp.status_code}")
++            if payload.get("ok") is not True:
++                raise SlackApiError(
++                    method, str(payload.get("error") or "unknown"), payload.get("needed")
++                )
++            return payload
++        raise SlackRateLimited(f"Slack {method} rate limited")  # pragma: no cover
++
++    def paged(self, method: str, key: str, params: dict[str, Any]) -> Iterator[dict]:
++        cursor: str | None = None
++        while True:
++            p = dict(params, limit=PAGE_LIMIT)
++            if cursor:
++                p["cursor"] = cursor
++            payload = self.call(method, p)
++            for item in payload.get(key) or []:
++                if isinstance(item, dict):
++                    yield item
++            cursor = (payload.get("response_metadata") or {}).get("next_cursor") or None
++            if not cursor:
++                return
++
++    # -- endpoints -----------------------------------------------------------
++
++    def auth_test(self) -> dict:
++        return self.call("auth.test")
++
++    def users(self) -> list[dict]:
++        return list(self.paged("users.list", "members", {}))
++
++    def user_info(self, user_id: str) -> dict | None:
++        try:
++            return self.call("users.info", {"user": user_id}).get("user")
++        except SlackApiError:
++            return None
++
++    def my_conversations(self) -> list[dict]:
++        """Only conversations the owner is a member of (``users.conversations``),
++        never the whole workspace's public channels."""
++        return list(
++            self.paged(
++                "users.conversations", "channels",
++                {"types": CONVERSATION_TYPES, "exclude_archived": "false"},
++            )
++        )
++
++    def history(self, channel_id: str, oldest: str) -> list[dict]:
++        return list(
++            self.paged(
++                "conversations.history", "messages",
++                {"channel": channel_id, "oldest": oldest, "inclusive": "true"},
++            )
++        )
++
++    def replies(self, channel_id: str, thread_ts: str) -> list[dict]:
++        return list(
++            self.paged(
++                "conversations.replies", "messages",
++                {"channel": channel_id, "ts": thread_ts},
++            )
++        )
+diff --git b/src/cm052/slack/cli.py b/src/cm052/slack/cli.py
+new file mode 100644
+index 00000000..210b427a
+--- /dev/null
++++ b/src/cm052/slack/cli.py
+@@ -0,0 +1,254 @@
++"""``ostler-slack-import``: the owner-initiated Slack importer.
++
++Default-off: nothing in the installer, a LaunchAgent or the Doctor invokes
++this (UNWIRED). The owner runs it, or a future wiring PR does.
++
++    ostler-slack-import export <zip-or-folder> [--json] [--dry-run]
++    ostler-slack-import token-set            # token read from stdin, never argv
++    ostler-slack-import sync [--team T...] [--rescan-days 7] [--json] [--dry-run]
++
++Exit codes:
++    0  ran; every conversation recorded or unchanged (0 found is a true 0)
++    1  ran; at least one conversation failed or was paused (retried next
++       run), or an export day file was unreadable (skipped and counted in
++       ``bad_day_files``; the rest of the export was imported)
++    2  configuration: CM052_USER_EMAIL unset, no token stored, bad token, or
++       the export route cannot tell which account is the owner's (it
++       refuses rather than import the owner as a contact)
++    3  CANNOT-RUN: export unreadable, Slack auth/scope error, rate limit
++       exhausted. Never reported as a pass.
++    5  PAUSED, NOT PRO (``first_import.EXIT_PAUSED_NOT_PRO``, the shared
++       contract): Andy's refusal text is printed. Nothing is read or posted;
++       conversations already imported are untouched and stay readable.
++       (3 is also used when the free-import ledger cannot be read: "Try
++       again", never a refusal.)
++
++Pro gate (``first_import.entry_gate``, at the entry point, before any export
++is opened or any Slack call is made): the FIRST export import is free
++without Pro (Andy, 19 Oct) and is recorded only once it lands; re-imports
++and ``sync`` need Pro. ``token-set`` is not gated: storing a token reads and
++posts nothing.
++
++``--json`` prints one counts-only line (no names, no text, no ids).
++"""
++from __future__ import annotations
++
++import argparse
++import getpass
++import json
++import logging
++import os
++import sys
++from pathlib import Path
++
++from .. import first_import, wire
++from . import importer, keychain
++from .api import SlackApiError, SlackClient, SlackRateLimited
++from .export_zip import ExportError
++
++log = logging.getLogger("cm052.slack")
++
++
++def _emit(args, counts: dict) -> None:
++    if args.json:
++        print(json.dumps(counts, sort_keys=True))
++    else:
++        print(
++            f"conversations={counts.get('conversations', 0)} "
++            f"posted={counts.get('posted', 0)} unchanged={counts.get('unchanged', 0)} "
++            f"l3_files_only={counts.get('l3_files_only', 0)} failed={counts.get('failed', 0)} "
++            f"paused={counts.get('paused', 0)}"
++            + (f" bad_day_files={counts['bad_day_files']}" if counts.get("bad_day_files") else "")
++        )
++
++
++def _cannot_run(args, reason: str) -> int:
++    log.error("CANNOT-RUN: %s", reason)
++    if args.json:
++        print(json.dumps({"status": "cannot_run", "reason": reason}))
++    return 3
++
++
++SOURCE_LABEL = "Slack"
++EXPORT_SOURCE = "slack_export"   # the one-off free import is per source
++API_SOURCE = "slack_api"         # token sync: always Pro
++
++
++def _gate(args, *, export_import: bool):
++    """The entry gate, before anything is read. Returns (decision, rc):
++    rc is None when the run may go ahead."""
++    decision = first_import.entry_gate(
++        EXPORT_SOURCE if export_import else API_SOURCE, export_import=export_import,
++    )
++    if decision.allowed:
++        if decision.is_free_import:
++            # Andy: said before the first import, so it is never a surprise.
++            print(first_import.pre_import_notice(SOURCE_LABEL), file=sys.stderr)
++        return decision, None
++    if decision.reason == "could_not_check":
++        print(first_import.COULD_NOT_CHECK_TEXT, file=sys.stderr)
++        if args.json:
++            print(json.dumps({"status": "cannot_run", "reason": "could_not_check"}))
++        return decision, first_import.EXIT_COULD_NOT_CHECK
++    print(first_import.refusal_text(SOURCE_LABEL), file=sys.stderr)
++    if args.json:
++        print(json.dumps({"status": "paused_not_pro", "reason": "pro_required"}))
++    return decision, first_import.EXIT_PAUSED_NOT_PRO
++
++
++def _rc(counts: dict) -> int:
++    # A skipped bad day file is data the owner did not get: ran, but not clean.
++    return 1 if counts.get("failed") or counts.get("paused") or counts.get("bad_day_files") else 0
++
++
++def cmd_export(args) -> int:
++    decision, rc = _gate(args, export_import=True)
++    if rc is not None:
++        return rc
++    post_fn = (
++        (lambda conv: wire.post(conv, free_import=True))
++        if decision.is_free_import else wire.post
++    )
++    state_file = importer.state_path()
++    state = importer.load_state(state_file)
++    try:
++        counts = importer.import_export(
++            Path(args.path), self_email=os.environ.get("CM052_USER_EMAIL"),
++            state=state, dry_run=args.dry_run, post_fn=post_fn,
++            self_user_id=args.self_user_id, extra_emails=args.self_email or [],
++        )
++    except ExportError as exc:
++        return _cannot_run(args, str(exc))
++    except importer.OwnerUnknown as exc:
++        # Refuse rather than import the owner as a stranger. Nothing posted.
++        print(
++            f"Couldn't tell which Slack account is yours ({exc}). Nothing was "
++            "imported. Run again with --self-email <the email you use in "
++            "Slack>, or --self-user-id <your Slack member ID, from your Slack "
++            "profile>.",
++            file=sys.stderr,
++        )
++        if args.json:
++            print(json.dumps({"status": "config", "reason": "owner_unknown"}))
++        return 2
++    if not args.dry_run:
++        importer.save_state(state_file, state)
++        # The taster is used only by an import that actually landed: a run
++        # where something failed or paused keeps it for the retry.
++        if decision.is_free_import and not counts.get("failed") and not counts.get("paused"):
++            first_import.mark_first_import(EXPORT_SOURCE)
++    _emit(args, counts)
++    return _rc(counts)
++
++
++def _read_token() -> str:
++    if sys.stdin.isatty():
++        return getpass.getpass("Paste your Slack user token (starts xoxp-): ").strip()
++    return sys.stdin.readline().strip()
++
++
++def cmd_token_set(args) -> int:
++    token = _read_token()
++    if not keychain.valid_token(token):
++        log.error("That does not look like a Slack user token (expected xoxp-...).")
++        return 2
++    client = SlackClient(token, pace_secs=0)
++    try:
++        me = client.auth_test()
++    except (SlackApiError, SlackRateLimited) as exc:
++        return _cannot_run(args, str(exc))
++    finally:
++        client.close()
++    team = str(me.get("team_id") or "")
++    try:
++        keychain.store_token(team, token)
++    except keychain.SecretStoreError as exc:
++        log.error("%s", exc)
++        return 2
++    state_file = importer.state_path()
++    state = importer.load_state(state_file)
++    state["workspaces"][team] = {"team": me.get("team"), "user_id": me.get("user_id")}
++    importer.save_state(state_file, state)
++    print(f"Saved to Keychain for workspace {me.get('team') or team}.")
++    return 0
++
++
++def cmd_sync(args) -> int:
++    _decision, rc = _gate(args, export_import=False)
++    if rc is not None:
++        return rc
++    state_file = importer.state_path()
++    state = importer.load_state(state_file)
++    teams = args.team or sorted(state["workspaces"])
++    if not teams:
++        log.error("No Slack workspace connected. Run: ostler-slack-import token-set")
++        return 2
++    total = importer.new_counts()
++    per_team = {}
++    rc = 0
++    for team in teams:
++        token = keychain.load_token(team)
++        if not token:
++            log.error("No token in Keychain for one connected workspace.")
++            return 2
++        client = SlackClient(token)
++        try:
++            counts = importer.sync_api(
++                client, state=state, rescan_days=args.rescan_days, dry_run=args.dry_run,
++                save=lambda s: importer.save_state(state_file, s),
++            )
++        except SlackRateLimited as exc:
++            return _cannot_run(args, str(exc))
++        except SlackApiError as exc:
++            return _cannot_run(args, str(exc))
++        finally:
++            client.close()
++        per_team[team] = counts
++        for k in total:
++            total[k] += counts.get(k, 0)
++        rc = max(rc, _rc(counts))
++    if not args.dry_run:
++        importer.save_state(state_file, state)
++    total["workspaces"] = len(per_team)
++    total["route"] = "api"
++    _emit(args, total)
++    return rc
++
++
++def build_parser() -> argparse.ArgumentParser:
++    p = argparse.ArgumentParser(prog="ostler-slack-import", description="Import your own Slack history into Ostler, on this Mac.")
++    p.add_argument("-v", "--verbose", action="store_true")
++    sub = p.add_subparsers(dest="cmd", required=True)
++    e = sub.add_parser("export", help="Import a workspace export ZIP (or its unpacked folder).")
++    e.add_argument("path")
++    e.add_argument("--self-email", action="append", help="Your email in this Slack workspace, if it is not CM052_USER_EMAIL (repeatable).")
++    e.add_argument("--self-user-id", help="Your Slack member ID (U...), when the export hides emails.")
++    e.add_argument("--json", action="store_true")
++    e.add_argument("--dry-run", action="store_true")
++    e.set_defaults(fn=cmd_export)
++    t = sub.add_parser("token-set", help="Store your own Slack app's user token in the Keychain (read from stdin).")
++    t.add_argument("--json", action="store_true")
++    t.set_defaults(fn=cmd_token_set)
++    s = sub.add_parser("sync", help="Backfill, then incrementally sync, with your stored token.")
++    s.add_argument("--team", action="append")
++    s.add_argument("--rescan-days", type=int, default=7)
++    s.add_argument("--json", action="store_true")
++    s.add_argument("--dry-run", action="store_true")
++    s.set_defaults(fn=cmd_sync)
++    return p
++
++
++def main(argv: list[str] | None = None) -> int:
++    args = build_parser().parse_args(argv)
++    logging.basicConfig(
++        level=logging.DEBUG if args.verbose else logging.INFO,
++        format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr,
++    )
++    if args.cmd != "token-set" and not os.environ.get("CM052_USER_EMAIL"):
++        log.error("CM052_USER_EMAIL is not set; the wire needs it.")
++        return 2
++    return args.fn(args)
++
++
++if __name__ == "__main__":  # pragma: no cover
++    sys.exit(main())
+diff --git b/src/cm052/slack/export_zip.py b/src/cm052/slack/export_zip.py
+new file mode 100644
+index 00000000..8be64576
+--- /dev/null
++++ b/src/cm052/slack/export_zip.py
+@@ -0,0 +1,270 @@
++"""Route 1: the Slack workspace export ZIP (Owners / Admins).
++
++Read straight from the ZIP with ``zipfile``; nothing is extracted to disk,
++so a hostile member name cannot write outside anywhere. An unpacked export
++directory is also accepted (the owner may have double-clicked the ZIP).
++
++Layout, from Slack Help "Export your workspace data"
++(https://slack.com/help/articles/201658943) and community parsers. NOT yet
++checked against a real export (no real export was opened, by rule):
++
++    users.json      [{id, name, real_name, is_bot, profile: {email, display_name, real_name}}]
++    channels.json   [{id, name, members: [...]}]           public channels
++    groups.json     [{id, name, members: [...]}]           private channels (approved exports)
++    dms.json        [{id, members: [u1, u2]}]              DMs (approved exports)
++    mpims.json      [{id, name, members: [...]}]           group DMs (approved exports)
++    <folder>/YYYY-MM-DD.json   [message, ...]  one file per day
++
++Folder naming, UNVERIFIED: public/private channels by ``name``; DMs by the
++DM ``id``; MPIMs by their ``name`` (``mpdm-a--b-1``). Both the name and the
++id are tried for every container, and a folder that matches neither is
++still imported (keyed by folder name) and COUNTED in
++``unmatched_folders``, never dropped.
++
++What a Free/Pro export lacks (Slack Help): DMs and private channels. That
++absence is reported as zero containers of that kind, which is the true
++answer for those plans, not an error.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import re
++import zipfile
++import zlib
++from dataclasses import dataclass, field
++from pathlib import Path, PurePosixPath
++from typing import Any
++
++from .model import ChannelInfo
++
++log = logging.getLogger(__name__)
++
++# A single JSON member larger than this is refused (zip-bomb guard); the
++# reader streams per folder, so total export size is not bounded by RAM. A busy
++# channel's day file is kilobytes; users.json for a 10k-person org is ~30 MB.
++MAX_MEMBER_BYTES = 256 * 1024 * 1024
++
++_DAY_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}\.json$")
++_META_FILES = {
++    "channels.json": "public",
++    "groups.json": "private",
++    "dms.json": "im",
++    "mpims.json": "mpim",
++}
++
++
++class ExportError(Exception):
++    """The export could not be read at all (not a ZIP, no users.json, a
++    corrupt top-level file...). CANNOT-RUN, exit 3."""
++
++
++# Everything a single member read can raise: bad JSON, bad UTF-8, a ZIP CRC
++# or decompression error, an unreadable file, our own size cap.
++_MEMBER_ERRORS = (ValueError, zipfile.BadZipFile, zlib.error, OSError, EOFError, ExportError)
++
++
++@dataclass
++class ExportContents:
++    users: list[dict]
++    channels: dict[str, ChannelInfo]           # folder name -> container
++    messages: dict[str, list[dict]]            # folder name -> raw messages
++    unmatched_folders: int = 0
++    skipped_files: int = 0
++    bad_day_files: int = 0
++    kinds: dict[str, int] = field(default_factory=dict)
++
++
++class _Source:
++    """Uniform read access over a ZIP or an unpacked directory."""
++
++    def __init__(self, path: Path):
++        self.path = path
++        self._zip: zipfile.ZipFile | None = None
++        if path.is_dir():
++            return
++        try:
++            self._zip = zipfile.ZipFile(path)
++        except (zipfile.BadZipFile, OSError) as exc:
++            raise ExportError(f"not a readable Slack export ZIP: {exc}") from exc
++
++    def names(self) -> list[str]:
++        if self._zip is not None:
++            return [i.filename for i in self._zip.infolist() if not i.is_dir()]
++        return [
++            p.relative_to(self.path).as_posix()
++            for p in self.path.rglob("*.json")
++            if p.is_file()
++        ]
++
++    def read_json(self, name: str) -> Any:
++        if self._zip is not None:
++            info = self._zip.getinfo(name)
++            if info.file_size > MAX_MEMBER_BYTES:
++                raise ExportError(f"member too large: {info.file_size} bytes")
++            raw = self._zip.read(info)
++        else:
++            p = self.path / name
++            if p.stat().st_size > MAX_MEMBER_BYTES:
++                raise ExportError(f"file too large: {p.stat().st_size} bytes")
++            raw = p.read_bytes()
++        return json.loads(raw.decode("utf-8"))
++
++    def close(self) -> None:
++        if self._zip is not None:
++            self._zip.close()
++
++
++def _strip_root(names: list[str]) -> str:
++    """Some unzippers wrap everything in one top folder. Find the prefix
++    under which ``users.json`` sits."""
++    for n in names:
++        parts = PurePosixPath(n).parts
++        if parts and parts[-1] == "users.json" and len(parts) <= 2:
++            return "/".join(parts[:-1])
++    return ""
++
++
++def _top_level(src: "_Source", name: str) -> Any:
++    """users.json and the container lists are load-bearing: without them no
++    author or channel can be named, so a corrupt one is CANNOT-RUN."""
++    try:
++        return src.read_json(name)
++    except ExportError:
++        raise
++    except _MEMBER_ERRORS as exc:
++        raise ExportError(
++            f"{PurePosixPath(name).name} is unreadable ({type(exc).__name__})"
++        ) from exc
++
++
++class ExportReader:
++    """Streaming reader: one channel's day files in memory at a time.
++
++    Red team, 19 Oct: ``read_export`` used to hold every day file of every
++    channel before building a single conversation, so a 10 GB export needed
++    10 GB of RAM. Opening reads only the small top-level files and the member
++    NAMES; ``iter_folders`` then reads one folder, yields it, and drops it.
++    A folder is the right unit: a thread never spans two channels, so
++    grouping per folder loses nothing. Peak memory is the largest channel.
++    """
++
++    def __init__(self, path: Path):
++        self._src = _Source(Path(path).expanduser())
++        try:
++            self._open()
++        except BaseException:
++            self._src.close()
++            raise
++
++    def _open(self) -> None:
++        src = self._src
++        names = src.names()
++        root = _strip_root(names)
++        prefix = f"{root}/" if root else ""
++        if f"{prefix}users.json" not in names:
++            raise ExportError("users.json not found: this does not look like a Slack export")
++        users = _top_level(src, f"{prefix}users.json")
++        if not isinstance(users, list):
++            raise ExportError("users.json is not a list")
++        self.users: list[dict] = users
++
++        by_key: dict[str, ChannelInfo] = {}
++        self.kinds: dict[str, int] = {k: 0 for k in _META_FILES.values()}
++        for meta_name, kind in _META_FILES.items():
++            full = f"{prefix}{meta_name}"
++            if full not in names:
++                continue
++            rows = _top_level(src, full)
++            for row in rows if isinstance(rows, list) else []:
++                if not isinstance(row, dict) or not isinstance(row.get("id"), str):
++                    continue
++                members = [m for m in row.get("members") or [] if isinstance(m, str)]
++                info = ChannelInfo(
++                    channel_id=row["id"],
++                    name=str(row.get("name") or row["id"]),
++                    kind=kind,
++                    members=members if kind in ("im", "mpim") else [],
++                )
++                self.kinds[kind] += 1
++                by_key.setdefault(row["id"], info)
++                if row.get("name"):
++                    by_key.setdefault(str(row["name"]), info)
++        self._by_key = by_key
++
++        self._day_files: dict[str, list[str]] = {}
++        self.skipped_files = 0
++        for name in sorted(names):
++            if prefix and not name.startswith(prefix):
++                self.skipped_files += 1
++                continue
++            rel = PurePosixPath(name[len(prefix):])
++            if len(rel.parts) != 2:
++                if len(rel.parts) != 1:
++                    self.skipped_files += 1
++                continue
++            folder, fname = rel.parts
++            if not _DAY_FILE.match(fname):
++                self.skipped_files += 1
++                continue
++            self._day_files.setdefault(folder, []).append(name)
++        self.bad_day_files = 0
++        self.unmatched_folders = 0
++
++    def iter_folders(self):
++        """Yield ``(folder, ChannelInfo, messages)`` one folder at a time."""
++        for folder in sorted(self._day_files):
++            messages: list[dict] = []
++            read_any = False
++            for name in self._day_files[folder]:
++                try:
++                    day = self._src.read_json(name)
++                except _MEMBER_ERRORS as exc:
++                    # One bad day must not lose the rest of the workspace.
++                    # Counted and reported; the name stays out of the log
++                    # (folder names are channel or person names).
++                    self.bad_day_files += 1
++                    log.warning("slack export: skipped an unreadable day file (%s)", type(exc).__name__)
++                    continue
++                if not isinstance(day, list):
++                    self.bad_day_files += 1
++                    continue
++                read_any = True
++                messages.extend(m for m in day if isinstance(m, dict))
++            if not read_any:
++                continue
++            info = self._by_key.get(folder)
++            if info is None:
++                self.unmatched_folders += 1
++                log.warning("slack export: a folder matched no container metadata")
++                info = ChannelInfo(channel_id=f"folder:{folder}", name=folder, kind="public")
++            yield folder, info, messages
++
++    def close(self) -> None:
++        self._src.close()
++
++    def __enter__(self) -> "ExportReader":
++        return self
++
++    def __exit__(self, *exc) -> None:
++        self.close()
++
++
++def read_export(path: Path) -> ExportContents:
++    """Materialise a whole export. TESTS AND SMALL TOOLS ONLY: the importer
++    streams through ``ExportReader.iter_folders``."""
++    with ExportReader(path) as reader:
++        channels: dict[str, ChannelInfo] = {}
++        messages: dict[str, list[dict]] = {}
++        for folder, info, msgs in reader.iter_folders():
++            channels[folder] = info
++            messages[folder] = msgs
++        return ExportContents(
++            users=reader.users,
++            channels=channels,
++            messages=messages,
++            unmatched_folders=reader.unmatched_folders,
++            skipped_files=reader.skipped_files,
++            bad_day_files=reader.bad_day_files,
++            kinds=reader.kinds,
++        )
+diff --git b/src/cm052/slack/importer.py b/src/cm052/slack/importer.py
+new file mode 100644
+index 00000000..cef39724
+--- /dev/null
++++ b/src/cm052/slack/importer.py
+@@ -0,0 +1,328 @@
++"""Orchestration for both Slack routes: build conversations, post each one
++through the CM052 wire (which hands it to CM048 for the 4-artefact bundle),
++and keep the idempotency state.
++
++Idempotency: ``state["posted"]`` maps ``conversation_id -> content digest``.
++A conversation whose digest is unchanged is not posted again, so a second
++run over the same data posts 0. An edit, a new reply or reaction, or a
++change of privacy level changes the digest and re-posts the SAME id, which
++CM048 writes into the same bundle folder (no duplicate).
++
++Failure accounting (poison vs outage): a conversation that raised is
++``failed`` and is NOT recorded, so the next run retries it. ``paused``
++(subscription gate) is also not recorded. On the API route a channel's
++cursor advances only when every conversation from it was recorded.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import os
++from collections import Counter
++from collections.abc import Callable
++from datetime import datetime, timezone
++from pathlib import Path
++
++from .. import wire
++from ..schemas import Conversation
++from . import model
++from .api import SlackApiError, SlackClient
++
++log = logging.getLogger(__name__)
++
++PostFn = Callable[[Conversation], dict]
++
++# Errors after which nothing else in the workspace can be read either.
++FATAL_API_ERRORS = frozenset({
++    "invalid_auth", "not_authed", "token_revoked", "token_expired",
++    "account_inactive", "missing_scope", "no_permission", "ekm_access_denied",
++})
++
++
++def state_path() -> Path:
++    raw = os.environ.get("CM052_STATE_DIR") or "~/.pwg/cm052"
++    return Path(raw).expanduser() / "slack_state.json"
++
++
++def load_state(path: Path) -> dict:
++    empty = {"posted": {}, "cursors": {}, "workspaces": {}}
++    if not path.is_file():
++        return empty
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, ValueError):
++        log.warning("slack state unreadable; starting empty (re-post is idempotent)")
++        return empty
++    for key in empty:
++        if not isinstance(data.get(key), dict):
++            data[key] = {}
++    return data
++
++
++def save_state(path: Path, state: dict) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(".tmp")
++    tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
++    tmp.replace(path)
++
++
++def day_zone(state: dict):
++    """The zone Slack days are cut in: the owner's, fixed at first import.
++
++    Red team, 19 Oct: days were cut at UTC midnight, so for a UTC+8 owner a
++    working day was split at 8am and the morning filed under yesterday. The
++    zone is recorded in the state on first use and reused after, because a
++    day unit's id contains its date: re-deriving it on every run would mint
++    new ids (duplicate bundles) the first time the owner travelled.
++    Order: recorded; ``OSTLER_TIMEZONE``; ``TZ``; the Mac's /etc/localtime;
++    UTC.
++    """
++    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
++
++    def _zone(name):
++        try:
++            return ZoneInfo(name) if name else None
++        except (ZoneInfoNotFoundError, ValueError):
++            return None
++
++    recorded = _zone(state.get("day_tz"))
++    if recorded is not None:
++        return recorded
++    candidates = [os.environ.get("OSTLER_TIMEZONE"), os.environ.get("TZ")]
++    try:
++        target = os.path.realpath("/etc/localtime")
++        if "zoneinfo/" in target:
++            candidates.append(target.split("zoneinfo/", 1)[1])
++    except OSError:
++        pass
++    for name in candidates:
++        zone = _zone(name)
++        if zone is not None:
++            state["day_tz"] = name
++            return zone
++    state["day_tz"] = "UTC"
++    return ZoneInfo("UTC")
++
++
++def privacy_level() -> str | None:
++    return model.resolve_privacy_level(os.environ.get("OSTLER_SLACK_PRIVACY_LEVEL"))
++
++
++def new_counts() -> dict:
++    return {
++        "conversations": 0, "posted": 0, "unchanged": 0, "l3_files_only": 0,
++        "paused": 0, "failed": 0,
++    }
++
++
++def post_all(
++    convs: list[Conversation], state: dict, post_fn: PostFn, counts: dict,
++    *, dry_run: bool = False,
++) -> bool:
++    """Post new/changed conversations. Returns True when every one of them
++    is now recorded (or unchanged)."""
++    all_ok = True
++    for conv in convs:
++        counts["conversations"] += 1
++        d = model.digest(conv)
++        if state["posted"].get(conv.conversation_id) == d:
++            counts["unchanged"] += 1
++            continue
++        if dry_run:
++            counts["posted"] += 1
++            continue
++        try:
++            result = post_fn(conv) or {}
++        except Exception as exc:  # one bad conversation never aborts the run
++            log.warning("slack: post failed for %s: %s", conv.conversation_id, type(exc).__name__)
++            counts["failed"] += 1
++            all_ok = False
++            continue
++        status = result.get("status")
++        if status == "paused":
++            counts["paused"] += 1
++            all_ok = False
++            continue
++        # ``posted`` = handed to CM048. ``l3_files_only`` is the subset at L3:
++        # CM048 writes the 4-artefact bundle and skips the gist.
++        counts["posted"] += 1
++        if result.get("gist_level") == "L3" or result.get("reason") == "privacy_level_l3":
++            counts["l3_files_only"] += 1
++        state["posted"][conv.conversation_id] = d
++    return all_ok
++
++
++# ---------------------------------------------------------------------------
++# Route 1: export
++# ---------------------------------------------------------------------------
++
++
++class OwnerUnknown(Exception):
++    """The export route could not tell which Slack account is the owner's.
++
++    Red team, 19 Oct: this used to carry on with ``self_id=None``, so every
++    one of the owner's own messages was attributed to "a participant" and the
++    owner became a contact in their own People graph. Now it refuses before
++    anything is posted."""
++
++
++def resolve_export_owner(
++    users: dict, raw_users: list[dict], state: dict, *,
++    self_user_id: str | None, self_emails: list[str],
++) -> tuple[str, str]:
++    """Return ``(user_id, how)``. Order: an explicit ``--self-user-id``; the
++    user id ``token-set`` recorded for the SAME workspace (``auth.test``, an
++    authoritative answer); then an email match. Raises ``OwnerUnknown``."""
++    if self_user_id:
++        if self_user_id in users:
++            return self_user_id, "flag"
++        raise OwnerUnknown("that Slack member ID is not in this export")
++    teams = {u.get("team_id") for u in raw_users if isinstance(u, dict) and u.get("team_id")}
++    for team, ws in (state.get("workspaces") or {}).items():
++        uid = (ws or {}).get("user_id")
++        if team in teams and uid in users:
++            return uid, "token"
++    wanted = {e.strip().lower() for e in self_emails if e and e.strip()}
++    hits = [u.user_id for u in users.values() if u.email and u.email in wanted]
++    if len(hits) == 1:
++        return hits[0], "email"
++    if len(hits) > 1:
++        raise OwnerUnknown("more than one Slack account in this export uses your email")
++    raise OwnerUnknown("none of the accounts in this export uses your email")
++
++
++def import_export(
++    path: Path, *, self_email: str | None, state: dict,
++    post_fn: PostFn = wire.post, dry_run: bool = False,
++    self_user_id: str | None = None, extra_emails: list[str] | None = None,
++) -> dict:
++    from .export_zip import ExportReader
++
++    counters = model.ImportCounters()
++    counts = new_counts()
++    with ExportReader(path) as reader:
++        users = model.parse_users(reader.users)
++        self_id, how = resolve_export_owner(
++            users, reader.users, state, self_user_id=self_user_id,
++            self_emails=[self_email or "", *(extra_emails or [])],
++        )
++        ctx = model.BuildContext(
++            users=users, self_user_id=self_id, privacy_level=privacy_level(),
++            route="export", day_tz=day_zone(state),
++        )
++        # Streamed: one channel in memory at a time.
++        for _folder, info, msgs in reader.iter_folders():
++            convs = model.build_conversations(info, msgs, ctx, counters)
++            post_all(convs, state, post_fn, counts, dry_run=dry_run)
++        counts.update({
++            "route": "export",
++            "containers": dict(reader.kinds),
++            "unmatched_folders": reader.unmatched_folders,
++            "skipped_files": reader.skipped_files,
++            "bad_day_files": reader.bad_day_files,
++            "owner_found_by": how,
++            "messages": counters.to_dict(),
++        })
++    return counts
++
++
++# ---------------------------------------------------------------------------
++# Route 2: owner's internal-app user token
++# ---------------------------------------------------------------------------
++
++
++def _kind(conv: dict) -> str:
++    if conv.get("is_im"):
++        return "im"
++    if conv.get("is_mpim"):
++        return "mpim"
++    if conv.get("is_private") or conv.get("is_group"):
++        return "private"
++    return "public"
++
++
++def _day_floor(epoch: float, zone=timezone.utc) -> float:
++    d = datetime.fromtimestamp(max(epoch, 0), tz=zone)
++    return d.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
++
++
++def sync_api(
++    client: SlackClient, *, state: dict, post_fn: PostFn = wire.post,
++    rescan_days: int = 7, dry_run: bool = False,
++    save: Callable[[dict], None] | None = None,
++) -> dict:
++    """Backfill on first run (``oldest=0``), then incremental.
++
++    Each run re-reads from the start of the owner's day ``rescan_days`` before
++    the channel's cursor, so day conversations are always rebuilt whole and
++    edits/reactions/replies inside the window are picked up. A reply to a
++    thread whose root is older than the window is NOT seen (documented
++    limit; ``--rescan-days`` widens it).
++    """
++    me = client.auth_test()
++    team = str(me.get("team_id") or "")
++    self_id = me.get("user_id")
++    state["workspaces"][team] = {"team": me.get("team"), "user_id": self_id}
++    users = model.parse_users(client.users())
++    zone = day_zone(state)
++    ctx = model.BuildContext(
++        users=users, self_user_id=self_id, privacy_level=privacy_level(),
++        route="api", workspace=me.get("team"), day_tz=zone,
++    )
++    counters = model.ImportCounters()
++    counts = new_counts()
++    channel_errors: Counter = Counter()
++    channels = client.my_conversations()
++    for raw in channels:
++        cid = raw.get("id")
++        if not isinstance(cid, str):
++            continue
++        kind = _kind(raw)
++        members: list[str] = []
++        if kind == "im":
++            members = [m for m in (self_id, raw.get("user")) if isinstance(m, str)]
++        elif kind == "mpim":
++            try:
++                # An MPIM has at most 9 members: one page is the whole list.
++                payload = client.call("conversations.members", {"channel": cid, "limit": 200})
++                members = [m for m in payload.get("members") or [] if isinstance(m, str)]
++            except SlackApiError:
++                members = []
++        info = model.ChannelInfo(
++            channel_id=cid, name=str(raw.get("name") or cid), kind=kind, members=members,
++        )
++        key = f"{team}:{cid}"
++        cursor = state["cursors"].get(key)
++        oldest = "0" if cursor is None else str(
++            int(_day_floor(model.ts_float(cursor) - rescan_days * 86400, zone))
++        )
++        try:
++            msgs = client.history(cid, oldest)
++            for m in list(msgs):
++                if (m.get("reply_count") or 0) > 0 and m.get("ts"):
++                    msgs.extend(client.replies(cid, m["ts"]))
++        except SlackApiError as exc:
++            if exc.error in FATAL_API_ERRORS:
++                raise
++            channel_errors[exc.error] += 1
++            continue
++        for uid in {m.get("user") for m in msgs if isinstance(m.get("user"), str)} - set(users):
++            raw_user = client.user_info(uid)
++            parsed = model.parse_user(raw_user) if raw_user else None
++            if parsed:
++                users[uid] = parsed
++        convs = model.build_conversations(info, msgs, ctx, counters)
++        ok = post_all(convs, state, post_fn, counts, dry_run=dry_run)
++        if ok and msgs and not dry_run:
++            newest = max((str(m.get("ts")) for m in msgs if m.get("ts")), key=model.ts_float)
++            state["cursors"][key] = newest
++        if save and not dry_run:
++            save(state)
++    counts.update({
++        "route": "api",
++        "channels": len(channels),
++        "channel_errors": dict(channel_errors),
++        "api_calls": client.calls,
++        "messages": counters.to_dict(),
++    })
++    return counts
+diff --git b/src/cm052/slack/keychain.py b/src/cm052/slack/keychain.py
+new file mode 100644
+index 00000000..cce2d4cd
+--- /dev/null
++++ b/src/cm052/slack/keychain.py
+@@ -0,0 +1,83 @@
++"""Slack user token in the login Keychain, via ``/usr/bin/security``.
++
++There is no shared Python Keychain helper in the PWG repos (searched
++CM048, CM052, CM041, CM046, CM019 for ``generic-password`` / ``keyring``:
++zero hits; the only Keychain writer is install.sh's Swift helper for the
++recovery key). This module is that helper for the importers.
++
++Rules it keeps, each from an incident:
++
++- The token is NEVER on argv (install.sh v1.0.109: ``security
++  add-generic-password -w <key>`` put a secret in ``ps`` output). Writes go
++  through ``security -i``, which reads the command from STDIN.
++- ``security -i`` exits 0 even when its command fails (measured for
++  install.sh), so a write is only reported saved after a read-back returns
++  the identical value.
++- The token is validated against a strict shape before it is written, which
++  also means it cannot carry a quote or newline into the ``-i`` command line.
++- Reads use ``find-generic-password -w``: the value comes back on stdout.
++
++Known gap for review: ``security`` cannot set
++``kSecAttrAccessibleWhenUnlockedThisDeviceOnly``; the Swift helper in
++install.sh can. The item is in the login Keychain, not synchronised.
++
++Tests never touch a real Keychain: ``runner`` is injectable, and the PATH
++stub test replaces ``security`` itself.
++"""
++from __future__ import annotations
++
++import re
++import subprocess
++from collections.abc import Callable
++
++SERVICE = "Ostler Slack Token"
++SECURITY = "security"
++
++_TOKEN_SHAPE = re.compile(r"^xoxp-[A-Za-z0-9-]{20,250}$")
++_ACCOUNT_SHAPE = re.compile(r"^[TE][A-Z0-9]{2,20}$")
++
++Runner = Callable[..., subprocess.CompletedProcess]
++
++
++class SecretStoreError(Exception):
++    pass
++
++
++def valid_token(token: str) -> bool:
++    return bool(_TOKEN_SHAPE.match(token or ""))
++
++
++def _check_account(team_id: str) -> None:
++    if not _ACCOUNT_SHAPE.match(team_id or ""):
++        raise SecretStoreError("workspace id has an unexpected shape")
++
++
++def store_token(team_id: str, token: str, runner: Runner = subprocess.run) -> None:
++    if not valid_token(token):
++        # Never echo the value back, not even a prefix.
++        raise SecretStoreError(
++            "that does not look like a Slack user token (expected xoxp-...)"
++        )
++    _check_account(team_id)
++    command = (
++        f'add-generic-password -U -s "{SERVICE}" -a "{team_id}" -w "{token}"\n'
++    )
++    proc = runner(
++        [SECURITY, "-i"], input=command, capture_output=True, text=True, check=False
++    )
++    if proc.returncode != 0:
++        raise SecretStoreError("Keychain write failed")
++    if load_token(team_id, runner=runner) != token:
++        raise SecretStoreError("Keychain write could not be verified by read-back")
++
++
++def load_token(team_id: str, runner: Runner = subprocess.run) -> str | None:
++    _check_account(team_id)
++    proc = runner(
++        [SECURITY, "find-generic-password", "-s", SERVICE, "-a", team_id, "-w"],
++        capture_output=True, text=True, check=False,
++    )
++    if proc.returncode != 0:
++        return None
++    value = (proc.stdout or "").strip()
++    return value or None
+diff --git b/src/cm052/slack/model.py b/src/cm052/slack/model.py
+new file mode 100644
+index 00000000..74ed1895
+--- /dev/null
++++ b/src/cm052/slack/model.py
+@@ -0,0 +1,490 @@
++"""Shared Slack normalisation: raw Slack message objects -> ``Conversation``.
++
++Both import routes (the workspace export ZIP and the owner's own internal-app
++user token) produce the SAME raw message shape, because the export is a dump
++of the same Web API objects. Everything route-independent lives here, so the
++two routes cannot drift: the same message yields the same conversation id,
++the same transcript and the same participant rows whichever route read it
++(``tests/test_slack_routes_align.py`` proves it).
++
++Conversation units (the 4-artefact spec is written per unit by CM048):
++
++- a THREAD (root plus every reply) is one conversation, keyed by
++  ``(channel_id, thread_ts)``;
++- top-level messages with no replies are grouped into one conversation per
++  channel per day in the owner's zone (fixed at first import), keyed by
++  ``(channel_id, YYYY-MM-DD)``.
++
++Logic ported from the ZeroClaw Slack channel
++(ostler-assistant ``crates/zeroclaw-channels/src/slack.rs``): the display-name
++precedence (``extract_user_display_name``) and the supported-subtype set
++(``is_supported_message_subtype``: none, ``file_share``, ``thread_broadcast``).
++Unlike the channel, an unsupported subtype is never dropped silently: it is
++counted per subtype in ``ImportCounters.skipped_subtypes``.
++
++File handling is METADATA ONLY. Slack file objects carry ``url_private`` /
++``url_private_download`` links, and export links embed a ``?t=xoxe-...``
++token. No URL is ever copied into a transcript, metadata or log.
++"""
++from __future__ import annotations
++
++import hashlib
++import html
++import json
++import re
++from collections import Counter
++from dataclasses import dataclass, field
++from datetime import datetime, timezone, tzinfo
++from typing import Any, Iterable
++
++from ..provenance import ConversationProvenance
++from ..schemas import Conversation, Message
++
++
++SOURCE_SUBTYPE = "slack"
++_VALID_LEVELS = ("L0", "L1", "L2", "L3")
++
++# Subtypes that are a human saying something. ``me_message`` (/me) and
++# ``tombstone`` (a deleted thread root kept as a placeholder) are added to
++# the ZeroClaw set: an importer must keep a thread's shape even when its root
++# was deleted.
++_KEPT_SUBTYPES = frozenset({"", "file_share", "thread_broadcast", "me_message", "tombstone"})
++
++
++@dataclass
++class SlackUser:
++    user_id: str
++    display: str
++    email: str | None = None
++    is_bot: bool = False
++
++
++@dataclass
++class ChannelInfo:
++    """One Slack conversation container (channel, private channel, DM, MPIM)."""
++
++    channel_id: str
++    name: str
++    kind: str  # "public" | "private" | "im" | "mpim"
++    members: list[str] = field(default_factory=list)
++
++
++@dataclass
++class ImportCounters:
++    """Counts for the run summary. Counts only, never content."""
++
++    messages_seen: int = 0
++    messages_kept: int = 0
++    skipped_subtypes: Counter = field(default_factory=Counter)
++    unknown_users: int = 0
++    conversations_built: int = 0
++    malformed: int = 0
++
++    def to_dict(self) -> dict:
++        return {
++            "messages_seen": self.messages_seen,
++            "messages_kept": self.messages_kept,
++            "skipped_subtypes": dict(self.skipped_subtypes),
++            "unknown_users": self.unknown_users,
++            "conversations_built": self.conversations_built,
++            "malformed": self.malformed,
++        }
++
++
++# ---------------------------------------------------------------------------
++# Users
++# ---------------------------------------------------------------------------
++
++
++def _clean(value: Any) -> str | None:
++    if isinstance(value, str) and value.strip():
++        return value.strip()
++    return None
++
++
++def display_name(user: dict) -> str | None:
++    """Port of ZeroClaw ``extract_user_display_name`` precedence."""
++    profile = user.get("profile") if isinstance(user.get("profile"), dict) else {}
++    for candidate in (
++        profile.get("display_name"),
++        profile.get("display_name_normalized"),
++        profile.get("real_name_normalized"),
++        profile.get("real_name"),
++        user.get("real_name"),
++        user.get("name"),
++    ):
++        cleaned = _clean(candidate)
++        if cleaned:
++            return cleaned
++    return None
++
++
++def parse_user(raw: dict) -> SlackUser | None:
++    if not isinstance(raw, dict):
++        return None
++    uid = _clean(raw.get("id"))
++    if not uid:
++        return None
++    profile = raw.get("profile") if isinstance(raw.get("profile"), dict) else {}
++    email = _clean(profile.get("email"))
++    return SlackUser(
++        user_id=uid,
++        display=display_name(raw) or uid,
++        email=email.lower() if email else None,
++        is_bot=bool(raw.get("is_bot")) or uid == "USLACKBOT",
++    )
++
++
++def parse_users(raw_users: Iterable[dict]) -> dict[str, SlackUser]:
++    out: dict[str, SlackUser] = {}
++    for raw in raw_users or []:
++        user = parse_user(raw)
++        if user:
++            out[user.user_id] = user
++    return out
++
++
++# ---------------------------------------------------------------------------
++# Messages
++# ---------------------------------------------------------------------------
++
++
++@dataclass
++class NormMessage:
++    ts: str
++    thread_ts: str | None
++    user_id: str | None
++    text: str
++    reply_count: int = 0
++
++
++_USER_MENTION = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
++_CHANNEL_MENTION = re.compile(r"<#([A-Z0-9]+)(?:\|([^>]*))?>")
++_SPECIAL = re.compile(r"<!(here|channel|everyone)(?:\|[^>]*)?>")
++_SUBTEAM = re.compile(r"<!subteam\^[A-Z0-9]+(?:\|([^>]*))?>")
++_LINK = re.compile(r"<((?:https?|mailto):[^>|]+)(?:\|([^>]*))?>")
++
++
++def render_text(text: str, users: dict[str, SlackUser]) -> str:
++    """Slack mrkdwn escapes into readable text.
++
++    ``<@U1>`` -> ``@Jane Doe``; ``<#C1|general>`` -> ``#general``;
++    ``<https://x|label>`` -> ``label (https://x)``; entities unescaped last
++    (Slack escapes only ``& < >``).
++    """
++    if not text:
++        return ""
++
++    def user_sub(m: re.Match) -> str:
++        u = users.get(m.group(1))
++        return "@" + (u.display if u else m.group(1))
++
++    out = _USER_MENTION.sub(user_sub, text)
++    out = _CHANNEL_MENTION.sub(lambda m: "#" + (m.group(2) or m.group(1)), out)
++    out = _SPECIAL.sub(lambda m: "@" + m.group(1), out)
++    out = _SUBTEAM.sub(lambda m: m.group(1) or "@group", out)
++    out = _LINK.sub(lambda m: f"{m.group(2)} ({m.group(1)})" if m.group(2) else m.group(1), out)
++    return html.unescape(out).strip()
++
++
++def _file_note(f: dict) -> str:
++    # Name and type only. NEVER a url_* field (export links carry a token).
++    name = _clean(f.get("name")) or _clean(f.get("title")) or "file"
++    ftype = _clean(f.get("pretty_type")) or _clean(f.get("filetype")) or _clean(f.get("mimetype"))
++    return f"[file: {name}{' (' + ftype + ')' if ftype else ''}]"
++
++
++def _reaction_note(reactions: Any) -> str:
++    parts = []
++    for r in reactions or []:
++        if not isinstance(r, dict):
++            continue
++        name = _clean(r.get("name"))
++        if not name:
++            continue
++        count = r.get("count")
++        count = count if isinstance(count, int) and count > 0 else len(r.get("users") or []) or 1
++        parts.append(f":{name}: x{count}")
++    return f"[reactions: {', '.join(parts)}]" if parts else ""
++
++
++def normalise_message(
++    raw: dict, users: dict[str, SlackUser], counters: ImportCounters
++) -> NormMessage | None:
++    """One raw Slack message -> ``NormMessage``, or None (counted) when it is
++    not a human message."""
++    counters.messages_seen += 1
++    if not isinstance(raw, dict) or not _clean(raw.get("ts")):
++        counters.malformed += 1
++        return None
++    subtype = raw.get("subtype") or ""
++    if not isinstance(subtype, str):
++        subtype = "<non-string>"
++    if subtype not in _KEPT_SUBTYPES:
++        counters.skipped_subtypes[subtype] += 1
++        return None
++    user_id = _clean(raw.get("user"))
++    if user_id and user_id in users and users[user_id].is_bot:
++        counters.skipped_subtypes["bot_user"] += 1
++        return None
++
++    if subtype == "tombstone":
++        body = "[message deleted]"
++    else:
++        body = render_text(raw.get("text") or "", users)
++    notes = [_file_note(f) for f in raw.get("files") or [] if isinstance(f, dict)]
++    if isinstance(raw.get("edited"), dict):
++        notes.append("(edited)")
++    reaction = _reaction_note(raw.get("reactions"))
++    if reaction:
++        notes.append(reaction)
++    text = " ".join([p for p in [body, *notes] if p]).strip()
++    if not text:
++        counters.skipped_subtypes["empty"] += 1
++        return None
++    thread_ts = _clean(raw.get("thread_ts"))
++    rc = raw.get("reply_count")
++    counters.messages_kept += 1
++    return NormMessage(
++        ts=str(raw["ts"]).strip(),
++        thread_ts=thread_ts,
++        user_id=user_id,
++        text=text,
++        reply_count=rc if isinstance(rc, int) else 0,
++    )
++
++
++# ---------------------------------------------------------------------------
++# Grouping and Conversation building
++# ---------------------------------------------------------------------------
++
++
++def ts_float(ts: str) -> float:
++    try:
++        return float(ts)
++    except (TypeError, ValueError):
++        return 0.0
++
++
++def ts_iso(ts: str, tz: tzinfo = timezone.utc) -> str:
++    """ISO 8601 in the owner's day zone, with its offset. CM048 takes the
++    bundle's folder date from the first 10 characters, so this is what puts a
++    morning in Hong Kong under today's folder and not yesterday's."""
++    return datetime.fromtimestamp(ts_float(ts), tz=tz).isoformat()
++
++
++def local_day(ts: str, tz: tzinfo = timezone.utc) -> str:
++    return ts_iso(ts, tz)[:10]
++
++
++def conversation_id(channel_id: str, unit_kind: str, unit_key: str) -> str:
++    """Deterministic id. ``sk-`` prefix keeps the namespace apart from
++    ``og-`` (ChatGPT), ``cc-`` (Claude Code) and ``ch-`` (channel JSONL)."""
++    payload = f"channel:slack:{channel_id}:{unit_kind}:{unit_key}".encode()
++    return f"sk-{hashlib.sha1(payload).hexdigest()[:16]}"
++
++
++def resolve_privacy_level(raw: str | None) -> str | None:
++    """The owner's explicit level for every Slack conversation, or None.
++
++    Unset -> None: the per-unit default below applies. Any unrecognised
++    value -> L3, so a typo can never publish.
++    """
++    if raw is None or raw == "":
++        return None
++    value = raw.strip().upper()
++    return value if value in _VALID_LEVELS else "L3"
++
++
++def default_unit_level(channel: "ChannelInfo", authors: list[str], self_user_id: str | None) -> str:
++    """Default level for one unit when the owner set none.
++
++    DECISION (red team, 19 Oct: "public channels at L2, decide and justify"):
++    - DMs and group DMs: L2. They are addressed to the owner; they are the
++      owner's own conversations, like iMessage and WhatsApp (L2 there too).
++    - Channels (public AND private): L2 only for a unit the owner WROTE in;
++      a thread or day the owner never posted in is L3.
++    Why: a channel is mostly colleagues talking to each other. Mining their
++    chatter into facts about them (L2 reaches Qdrant/Oxigraph) is storing
++    third parties' words the owner never took part in. L3 still writes the
++    4-artefact bundle, so the owner can browse and search their files; it
++    only keeps it out of facts, the assistant's answers and person pages.
++    "Why was X parked" is answered from threads the owner was in, and the
++    owner can lift everything with OSTLER_SLACK_PRIVACY_LEVEL=L2.
++    """
++    if channel.kind in ("im", "mpim"):
++        return "L2"
++    if self_user_id and self_user_id in authors:
++        return "L2"
++    return "L3"
++
++
++@dataclass
++class BuildContext:
++    users: dict[str, SlackUser]
++    self_user_id: str | None
++    privacy_level: str | None  # explicit owner override, or None
++    route: str  # "export" | "api"
++    workspace: str | None = None
++    day_tz: tzinfo = timezone.utc
++
++
++def _speaker(user_id: str | None, ctx: BuildContext) -> str:
++    if not user_id:
++        return "Unknown"
++    u = ctx.users.get(user_id)
++    return u.display if u else user_id
++
++
++def _participant_rows(user_ids: list[str], ctx: BuildContext) -> tuple[list[str], list[dict]]:
++    ids: list[str] = []
++    rows: list[dict] = []
++    for uid in user_ids:
++        u = ctx.users.get(uid)
++        email = u.email if u else None
++        pid = email or f"slack:{uid}"
++        if pid in ids:
++            continue
++        ids.append(pid)
++        row = {
++            "id": pid,
++            "display": u.display if u else uid,
++            "role": "user" if uid == ctx.self_user_id else "other",
++            "slack_user_id": uid,
++        }
++        # ``handle`` is what CM048 keys the Person URI from. Only a real
++        # email is a key; a bare Slack id would mint a phantom person.
++        if email:
++            row["handle"] = email
++        rows.append(row)
++    return ids, rows
++
++
++def channel_label(channel: ChannelInfo, ctx: BuildContext) -> str:
++    """Human label, derived the same way on both routes (the export names a
++    DM folder by its id, the API by nothing at all)."""
++    if channel.kind in ("im", "mpim"):
++        others = [m for m in channel.members if m != ctx.self_user_id]
++        names = [_speaker(m, ctx) for m in others]
++        if names:
++            prefix = "DM with" if channel.kind == "im" else "Group DM with"
++            return f"{prefix} {', '.join(names)}"
++        return "Direct message"
++    return f"#{channel.name}"
++
++
++def _build(
++    channel: ChannelInfo,
++    unit_kind: str,
++    unit_key: str,
++    msgs: list[NormMessage],
++    ctx: BuildContext,
++) -> Conversation:
++    msgs = sorted(msgs, key=lambda m: ts_float(m.ts))
++    messages = [
++        Message(
++            role="user" if m.user_id and m.user_id == ctx.self_user_id else "participant",
++            content=m.text,
++            timestamp=ts_iso(m.ts, ctx.day_tz),
++            line_index=i,
++            speaker=_speaker(m.user_id, ctx),
++        )
++        for i, m in enumerate(msgs)
++    ]
++    authors = [m.user_id for m in msgs if m.user_id]
++    # DM/MPIM members are participants even if they never spoke in this unit.
++    ordered = list(dict.fromkeys(authors + list(channel.members)))
++    participants, rows = _participant_rows(ordered, ctx)
++    label = channel_label(channel, ctx)
++    if unit_kind == "thread":
++        first = msgs[0].text if msgs else ""
++        name = f"{label} thread: {first[:60]}".rstrip()
++    else:
++        name = f"{label} {unit_key}"
++    cid = conversation_id(channel.channel_id, unit_kind, unit_key)
++    metadata = {
++        "source_app": "slack",
++        "privacy_level": ctx.privacy_level or default_unit_level(channel, authors, ctx.self_user_id),
++        "participant_details": rows,
++        "slack_channel_id": channel.channel_id,
++        "slack_channel_kind": channel.kind,
++        "slack_unit": unit_kind,
++        "slack_unit_key": unit_key,
++        "import_route": ctx.route,
++    }
++    if ctx.workspace:
++        metadata["slack_workspace"] = ctx.workspace
++    return Conversation(
++        conversation_id=cid,
++        provenance=ConversationProvenance(
++            source_kind="channel",
++            source_subtype=SOURCE_SUBTYPE,
++            original_session_id=f"{channel.channel_id}:{unit_kind}:{unit_key}",
++        ),
++        channel="im",
++        participants=participants,
++        messages=messages,
++        last_activity=messages[-1].timestamp if messages else ts_iso("0", ctx.day_tz),
++        created_at=messages[0].timestamp if messages else None,
++        name=name,
++        metadata=metadata,
++    )
++
++
++def build_conversations(
++    channel: ChannelInfo,
++    raw_messages: Iterable[dict],
++    ctx: BuildContext,
++    counters: ImportCounters,
++) -> list[Conversation]:
++    """Group one channel's messages into thread and day conversations."""
++    by_ts: dict[str, NormMessage] = {}
++    for raw in raw_messages:
++        m = normalise_message(raw, ctx.users, counters)
++        if m is None:
++            continue
++        if m.user_id and m.user_id not in ctx.users:
++            counters.unknown_users += 1
++        # A thread_broadcast reply appears both in history and in replies:
++        # one ts is one message.
++        by_ts.setdefault(m.ts, m)
++
++    threads: dict[str, list[NormMessage]] = {}
++    roots_with_replies = {
++        m.thread_ts for m in by_ts.values()
++        if m.thread_ts and m.thread_ts != m.ts
++    }
++    for m in by_ts.values():
++        if m.thread_ts and m.thread_ts != m.ts:
++            threads.setdefault(m.thread_ts, []).append(m)
++        elif m.ts in roots_with_replies or m.reply_count > 0:
++            threads.setdefault(m.ts, []).append(m)
++
++    days: dict[str, list[NormMessage]] = {}
++    for m in by_ts.values():
++        in_thread = (m.thread_ts and m.thread_ts != m.ts) or m.ts in threads
++        if not in_thread:
++            days.setdefault(local_day(m.ts, ctx.day_tz), []).append(m)
++
++    out = [_build(channel, "thread", key, msgs, ctx) for key, msgs in threads.items()]
++    out += [_build(channel, "day", key, msgs, ctx) for key, msgs in days.items()]
++    counters.conversations_built += len(out)
++    return out
++
++
++# Fields that say HOW a conversation was read, not what it says. Excluded from
++# the digest so the export route and the API route agree that the same
++# conversation is unchanged (no re-post when the owner switches route).
++_ROUTE_ONLY_FIELDS = ("import_route", "slack_workspace")
++
++
++def digest(conv: Conversation) -> str:
++    """Content digest for idempotent re-import: an unchanged conversation is
++    not posted again; an edit, a new reply, a new reaction or a privacy
++    change alters it."""
++    data = conv.to_dict()
++    data["metadata"] = {
++        k: v for k, v in data["metadata"].items() if k not in _ROUTE_ONLY_FIELDS
++    }
++    blob = json.dumps(data, sort_keys=True, ensure_ascii=False)
++    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+diff --git a/src/cm052/wire.py b/src/cm052/wire.py
+index 27a6862d..797c758f 100644
+--- a/src/cm052/wire.py
++++ b/src/cm052/wire.py
+@@ -337,7 +337,7 @@ def render_episodic(conv: Conversation, *, user_display: str | None = None) -> s
+ 
+     body_lines: list[str] = [""]
+     for msg in conv.messages:
+-        speaker = _speaker_label(msg.role, user_label, assistant_label)
++        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
+         ts_suffix = f" _({msg.timestamp})_" if msg.timestamp else ""
+         body_lines.append(f"**{speaker}:**{ts_suffix} {msg.content}".rstrip())
+         body_lines.append("")
+@@ -417,7 +417,7 @@ def render_transcript(conv: Conversation, user_display: str | None = None) -> st
+ 
+     body_lines: list[str] = []
+     for msg in conv.messages:
+-        speaker = _speaker_label(msg.role, user_label, assistant_label)
++        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
+         body_lines.append(f"**{speaker}:** {msg.content}")
+         body_lines.append("")
+ 
+@@ -440,7 +440,21 @@ def render_metadata(conv: Conversation) -> dict:
+     participant_kind = (
+         "ai" if conv.provenance.source_kind == "external_llm" else "human"
+     )
+-    return {
++    meta = dict(conv.metadata) if isinstance(conv.metadata, dict) else {}
++    # Multi-party human sources (Slack, 2026-10-19) hand richer participant
++    # rows: ``{"id", "display", "role", "handle"}``. ``handle`` is the key
++    # CM048's participant-identity bridge derives the Person URI from
++    # (ingest._participant_identifier), so an author with a visible email
++    # links to the SAME Person node the contacts ingest made, and an author
++    # without one gets no handle and therefore no fabricated node.
++    details = meta.pop("participant_details", None)
++    if isinstance(details, list) and details:
++        participants = [dict(d) for d in details if isinstance(d, dict)]
++    else:
++        participants = [
++            {"id": p, "display": p, "role": "other"} for p in conv.participants
++        ]
++    out = {
+         "conversation_id": conv.conversation_id,
+         "date": (conv.created_at or conv.last_activity)[:10],
+         "source": conv.provenance.source_subtype,
+@@ -450,12 +464,17 @@ def render_metadata(conv: Conversation) -> dict:
+         # extracted facts at this level (L2 -> searchable + assistant-answerable;
+         # L3 is short-circuited before POST so it never reaches here).
+         "privacy_level": _privacy_level(conv, "gist"),
+-        "participants": [
+-            {"id": p, "display": p, "role": "other"} for p in conv.participants
+-        ],
++        "participants": participants,
+         "provenance": conv.provenance.to_dict(),
+-        "extra": dict(conv.metadata),
++        "extra": meta,
+     }
++    # CM048's channel adapters read ``source_app`` at the TOP level only
++    # (``_imessage_adapter`` defaults it to "messages" otherwise), so a Slack
++    # thread would be labelled as a Messages conversation without this.
++    source_app = meta.get("source_app")
++    if isinstance(source_app, str) and source_app.strip():
++        out["source_app"] = source_app.strip()
++    return out
+ 
+ 
+ def stage(conv: Conversation, outbox_root: Path | None = None) -> tuple[Path, Path]:
+@@ -480,6 +499,7 @@ def post(
+     endpoint: str | None = None,
+     timeout: float = 30.0,
+     episodic_root: Path | None = None,
++    free_import: bool = False,
+ ) -> dict:
+     """Stage the CM048 transcript pair, optionally persist the episodic
+     artefact, and POST the paths to CM048.
+@@ -491,8 +511,10 @@ def post(
+     the CM048 fact-extraction path -- the gist path is still the
+     reliable one downstream consumers depend on.
+ 
+-    L3 short-circuit (Lester audit lift, 2026-05-08): a conversation
+-    classified ``privacy_level: L3`` does NOT POST to CM048. CM048's
++    L3 (superseded 2026-10-19, see the comment at the gist-level check): an
++    L3 conversation IS posted, with ``privacy_level: L3`` in its metadata;
++    CM048 writes the bundle and skips the gist sinks. The 2026-05-08 text
++    below described the old short-circuit: CM048's
+     pipeline embeds extracted facts into Qdrant for vector search;
+     embedding L3 content would defeat the "private by default"
+     contract -- the only way to read back an L3 fact would still be
+@@ -522,7 +544,10 @@ def post(
+     validation, never lock the customer out on infrastructure failure
+     we cannot observe).
+     """
+-    if not is_active_or_grace():
++    # ``free_import``: the caller's entry gate (``first_import.entry_gate``)
++    # granted this run the one-off free export import. Only that decision
++    # may pass it; every other caller leaves it False and G7 applies here.
++    if not free_import and not is_active_or_grace():
+         log.info(
+             "Subscription inactive -- pausing conversation-memory "
+             "processing. New conversations will resume on "
+@@ -554,26 +579,22 @@ def post(
+                 exc,
+                 exc_info=True,
+             )
+-    # The CM048 POST embeds the *gist* (extracted facts) for vector search, so
+-    # the gist level gates it. Option A: gist defaults L2 -> POST happens. A
+-    # per-conversation L3 override (or Option B keeping gist L2) is respected
+-    # here. Episodic (the transcript artefact) still landed above regardless.
++    # L3 GOES TO CM048 TOO (Archie ruling on CM052 #16, 2026-10-19). The L3
++    # rule is "no Qdrant / Oxigraph", not "no files". This used to return here
++    # without POSTing, so an L3 human conversation got NO 4-artefact bundle at
++    # all: the customer marked it private and it vanished. CM048 is where the
++    # rule is enforced: ``privacy.infer`` honours an explicit
++    # ``metadata.privacy_level`` first, ``processor`` skips step 07 (gist
++    # sinks), name resolution and every store read for L3, and step 09 still
++    # writes summary/todos/transcript. The level travels in the POSTed
++    # metadata (``render_metadata``), and ``gist_level`` is returned so callers
++    # can still count L3 conversations.
+     gist_level = _privacy_level(conv, "gist")
+     if gist_level == "L3":
+         log.info(
+-            "L3 short-circuit: skipping CM048 POST for %s "
+-            "(episodic artefact still landed at %s)",
++            "L3: posting %s to CM048 for its bundle; CM048 skips the gist sinks",
+             conv.conversation_id,
+-            episodic_target if episodic_target else "<not external_llm>",
+         )
+-        return {
+-            "status": "skipped",
+-            "reason": "privacy_level_l3",
+-            "conversation_id": conv.conversation_id,
+-            "episodic_path": (
+-                str(episodic_target) if episodic_target else None
+-            ),
+-        }
+     # The Hub API reads ``transcript`` (text) and ``metadata`` (object); a
+     # body carrying only the paths is a 400 "Missing 'transcript' field".
+     # The paths stay alongside for any consumer that already reads them.
+@@ -591,4 +612,14 @@ def post(
+     with httpx.Client(timeout=timeout) as client:
+         response = client.post(url, json=payload, headers=headers)
+         response.raise_for_status()
+-        return response.json()
++        result = response.json()
++    # Below L3 the caller gets CM048's response untouched (existing
++    # contract). For L3 it is annotated so a caller can still count L3
++    # conversations, which it used to do from the short-circuit dict.
++    if gist_level == "L3":
++        if not isinstance(result, dict):
++            result = {"response": result}
++        result["gist_level"] = "L3"
++        if episodic_target is not None:
++            result.setdefault("episodic_path", str(episodic_target))
++    return result
