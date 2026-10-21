@@ -12,10 +12,12 @@
 #   3b. pwg_ingest.ingest_people_to_qdrant()               (the shipped reconcile: the merge
 #       survivor is sometimes the iMessage-minted node, whose URI has no vector until
 #       this runs; measured, 2 of 6 local runs)
-#   3c. identity_resolver.repair_merge_consistency --apply (install.sh runs it too): the
-#       sweep above only prunes points it wrote itself, so when the survivor is the
-#       iMessage node the contact_syncer point on the merged-away card node stays and
-#       the vector count exceeds the graph's. Measured on the macOS CI runner: 9 vs 8.
+#      NO repair step here, on purpose: the seed follows the SHIPPED install order. install.sh
+#      does not yet run identity_resolver.repair_merge_consistency after dedupe, so when the
+#      survivor is the iMessage node the contact_syncer point on the merged-away card node
+#      stays and the read-back refuses (failed-stale-vector-1; macOS CI runner: 9 vectors for
+#      8 people). DEPENDS ON the product PR "[116]" (adds the repair after dedupe in
+#      install.sh); until it merges that order is expected RED, and the seed must show it.
 #   4. read back: every cast Person has a vector, the nameless number has ONE
 #      holder, the household landline has TWO (a real collision opportunity).
 #
@@ -51,9 +53,9 @@ _ccs_apply_script() {
 cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
 real=\$(\$PY \$D/contact_cards_fixture.py guard 2>\$D/guard.err | tail -n 1)
 case \"\$real\" in ''|*[!0-9]*) echo failed-guard; exit 0 ;; 0) : ;; *) echo skipped-real-contacts; exit 0 ;; esac
-\$PY \$D/contact_cards_fixture.py stage \$D >/dev/null 2>&1 || { echo failed-stage-cards; exit 0; }
+\$PY \$D/contact_cards_fixture.py stage \$D >/dev/null || { echo failed-stage-cards; exit 0; }
 j=\$(\$PY -m contact_syncer.syncer --vcf \$D/cards.vcf --graph-endpoint \"\$OXI\" 2>\$D/syncer.log | tail -n 1)
-n=\$(printf %s \"\$j\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"imported\", -1)))' 2>/dev/null)
+n=\$(printf %s \"\$j\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"imported\", -1)))')
 case \"\$n\" in ''|*[!0-9]*|0) echo failed-syncer-imported-\${n:-nothing}; exit 0 ;; esac
 [ -x \$FDAPY ] || { echo failed-no-ingest-venv; exit 0; }
 \$FDAPY -c 'import json,sys; from pathlib import Path
@@ -61,12 +63,11 @@ from ostler_fda import pwg_ingest, dedupe_merge
 r = pwg_ingest.ingest_imessage(Path(sys.argv[1])); m = dedupe_merge.run()
 q = pwg_ingest.ingest_people_to_qdrant()
 print(json.dumps({\"ingest\": r.get(\"status\"), \"merge\": m, \"vectors\": q.get(\"status\")}))' \$D >\$D/ingest.log 2>&1 || { echo failed-ingest-or-merge; exit 0; }
-cd \$PIPE && \$PY -m identity_resolver.repair_merge_consistency --oxigraph-url \"\$OXI\" --qdrant-url \"\${QDRANT_URL:-http://localhost:6333}\" --backup-dir \$D/backups --apply >\$D/repair.log 2>&1 || { echo failed-merge-consistency-repair; exit 0; }
 \$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1"
 }
 
 _ccs_stage_and_run() {
-    _ccs_box "$(_ccs_apply_script)" 2>/dev/null | tail -1
+    _ccs_box "$(_ccs_apply_script)" | tail -1
 }
 
 contact_cards_apply() {
@@ -79,11 +80,20 @@ contact_cards_apply() {
     case "$state" in seeded|skipped-real-contacts) return 0 ;; *) return 1 ;; esac
 }
 
+# Forget: delete the cast, surface forget's stderr, then remove the whole staged
+# walk-seed/contact-cards dir (fixture, cards.vcf, logs, backups) so nothing is left behind.
+_ccs_forget_script() {
+    printf '%s\n' "$(_ccs_prelude)
+cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
+out=\$(\$PY \$D/contact_cards_fixture.py forget 2>\$D/forget.err | tail -n 1)
+cat \$D/forget.err >&2
+rm -rf \"\$D\"; rmdir \"\$O/walk-seed\" 2>/dev/null
+echo \"\$out\""
+}
+
 contact_cards_forget() {
     local out
     printf -- '--- CONTACT CARDS SEED: removing the synthetic cards ---\n'
-    out="$(_ccs_box "$(_ccs_prelude)
-cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
-\$PY \$D/contact_cards_fixture.py forget 2>\$D/forget.err | tail -n 1" 2>/dev/null | tail -1)"
+    out="$(_ccs_box "$(_ccs_forget_script)" | tail -1)"
     printf '    %s\n\n' "${out:-failed-no-answer}"
 }

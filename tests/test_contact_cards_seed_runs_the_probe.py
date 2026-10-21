@@ -234,6 +234,14 @@ if _mode:
 """
 
 
+@pytest.fixture(autouse=True)
+def _pin_survivor_order(monkeypatch):
+    """With no repair step in the seed (r3), the iMessage-survivor order is the [116]-dependent
+    RED shape. Pin the order every test runs in (low = card node survives); the high-order tests
+    set it explicitly, so nothing here is a coin flip."""
+    monkeypatch.setenv("CCS_CARD_ID", "low")
+
+
 @pytest.fixture()
 def stores():
     s = Stores()
@@ -294,12 +302,21 @@ def run_seed(home, stores, mutate=None):
     return state, r.stdout + r.stderr
 
 
-def run_forget(home, stores):
-    out = subprocess.run(
-        ["bash", "-c", 'source "%s"; _ccs_prelude; echo \'cd $PIPE; $PY $D/contact_cards_fixture.py forget | tail -n 1\'' % SEED_SH],
-        env=dict(os.environ, HOME=str(home)), capture_output=True, text=True, timeout=60)
-    script = out.stdout.rsplit("cd $PIPE", 1)[0] + "cd $PIPE; $PY $D/contact_cards_fixture.py forget | tail -n 1\n"
-    r = subprocess.run(["bash", "-c", script], env=_box_env(home, stores), capture_output=True, text=True, timeout=120)
+def forget_script(home, mutate=None):
+    out = subprocess.run(["bash", "-c", 'source "%s"; _ccs_forget_script' % SEED_SH],
+                         env=dict(os.environ, HOME=str(home)), capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    script = out.stdout
+    if mutate:
+        before = script
+        script = mutate(script)
+        assert script != before, "mutant did not change the script"
+    return script
+
+
+def run_forget(home, stores, mutate=None):
+    r = subprocess.run(["bash", "-c", forget_script(home, mutate)], env=_box_env(home, stores),
+                       capture_output=True, text=True, timeout=120)
     return (r.stdout.strip().splitlines() or ["<no output>"])[-1]
 
 
@@ -435,7 +452,10 @@ def test_forget_removes_the_cast_graph_and_vectors_and_spares_the_customer(store
     assert run_seed(home, stores)[0] == "seeded"
     # a customer point must survive too
     stores.points["cust-point"] = {"vector": [0.0] * DIM, "payload": {"person_uri": CUSTOMER}}
+    seed_dir = home / ".ostler" / "walk-seed" / "contact-cards"
+    assert seed_dir.is_dir() and (seed_dir / "cards.vcf").exists()
     assert run_forget(home, stores) == "removed"
+    assert not seed_dir.exists(), "forget left ~/.ostler/walk-seed/contact-cards behind"
     assert len(stores.g) == cust_triples, "forget left or took triples that were not the cast's"
     # the shipped reconcile also embedded the customer's own Person; both customer points stay
     assert {v["payload"]["person_uri"] for v in stores.points.values()} == {CUSTOMER}
@@ -461,21 +481,35 @@ def test_mutant_without_the_ingest_the_nameless_case_is_not_exercised_and_the_se
 # this shape unprompted: 9 vectors for 8 people).
 
 
-def _drop_the_repair(s):
-    return re.sub(r"cd \$PIPE && \$PY -m identity_resolver\.repair_merge_consistency[^\n]*\n", "", s)
+def test_seed_runs_no_repair_step_it_follows_the_shipped_install_order():
+    """r3: the seed must not paper over the install order with its own repair."""
+    assert "repair_merge_consistency" not in seed_script(Path("/nonexistent-home"))
 
 
-def test_mutant_without_the_merge_consistency_repair_the_seed_refuses_a_stale_vector(stores, home, monkeypatch):
+def test_shipped_order_with_the_iMessage_survivor_refuses_a_stale_vector(stores, home, monkeypatch):
+    """The honest state today: without [116] (repair after dedupe in install.sh) the seed
+    refuses, and says why. 9 vectors for 8 people."""
     monkeypatch.setenv("CCS_CARD_ID", "high")
-    state, log = run_seed(home, stores, mutate=_drop_the_repair)
+    state, log = run_seed(home, stores)
     assert state == "failed-stale-vector-1", log
     assert len(stores.points) == len(fx.CARDS) + 1, "9 vectors for 8 people"
 
 
-def test_with_the_repair_the_stale_survivor_order_seeds_clean_and_all_three_probes_pass(stores, home, monkeypatch):
+@pytest.mark.xfail(strict=True, reason="DEPENDS ON product PR [116] (repair_merge_consistency after dedupe in "
+                   "install.sh); expected RED until it merges and the seed follows the new order. strict: "
+                   "when it goes green this must be un-marked.")
+def test_DEPENDS_ON_116_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, monkeypatch):
     monkeypatch.setenv("CCS_CARD_ID", "high")
     assert run_seed(home, stores)[0] == "seeded"
     assert len(stores.points) == len(fx.CARDS)
+    v, text = probe("people_stores_reconcile", home, stores,
+                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
+    assert v.startswith("PASS"), text
+
+
+def test_the_survivor_order_the_probes_pass_on_today_all_three_probes_pass(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "low")
+    assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("people_stores_reconcile", home, stores,
                     {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
     assert v.startswith("PASS"), text
@@ -485,6 +519,31 @@ def test_with_the_repair_the_stale_survivor_order_seeds_clean_and_all_three_prob
     assert v.startswith("PASS"), text
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
     assert v.startswith("PASS") and "so the zero was earned, not vacuous" in text, text
+
+
+def test_stderr_is_surfaced_not_discarded():
+    """r3: stage, parse, forget and both ssh transports must not throw stderr away."""
+    sh = SEED_SH.read_text() if hasattr(SEED_SH, "read_text") else open(SEED_SH).read()
+    code = [ln for ln in sh.splitlines() if not ln.lstrip().startswith("#")]
+    for ln in code:
+        if "contact_cards_fixture.py stage" in ln or "/usr/bin/python3 -c" in ln:
+            assert "2>/dev/null" not in ln and "2>&1" not in ln, ln
+        if ln.lstrip().startswith("_ccs_box") or "_ccs_box \"" in ln:
+            assert "2>/dev/null" not in ln, ln
+
+
+def test_forget_mutant_without_the_rm_leaves_the_dir(stores, home):
+    assert run_seed(home, stores)[0] == "seeded"
+    run_forget(home, stores, mutate=lambda s: s.replace('rm -rf "$D"; ', ""))
+    assert (home / ".ostler" / "walk-seed" / "contact-cards").exists()
+
+
+def test_stage_failure_shows_its_stderr(stores, home):
+    r = subprocess.run(["bash", "-c", seed_script(home, lambda s: s.replace(
+        "contact_cards_fixture.py stage", "contact_cards_fixture.py stage-NOPE"))],
+        env=_box_env(home, stores), capture_output=True, text=True, timeout=120)
+    assert r.stdout.strip().splitlines()[-1] == "failed-stage-cards"
+    assert r.stderr.strip(), "stage stderr was swallowed"
 
 
 def test_the_other_survivor_order_seeds_clean_too(stores, home, monkeypatch):
