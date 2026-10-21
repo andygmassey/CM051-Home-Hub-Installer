@@ -23,7 +23,10 @@ from typing import Literal
 from .provenance import ConversationProvenance
 
 
-Role = Literal["user", "assistant", "system", "tool"]
+# ``participant`` is another human in a multi-party human channel (Slack,
+# 2026-10-19): not the owner, not an assistant. Such messages carry a
+# ``speaker`` display label, which the wire renders in place of the role.
+Role = Literal["user", "assistant", "system", "tool", "participant"]
 Channel = Literal["spoken", "email", "im", "sms", "manual"]
 
 
@@ -46,6 +49,7 @@ class Message:
     content: str
     timestamp: str | None = None
     line_index: int = 0
+    speaker: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -109,6 +113,7 @@ class Conversation:
                     content=m["content"],
                     timestamp=m.get("timestamp"),
                     line_index=int(m.get("line_index", 0)),
+                    speaker=m.get("speaker"),
                 )
                 for m in data.get("messages") or []
             ],

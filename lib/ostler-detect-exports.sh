@@ -142,6 +142,11 @@ SIGS=(
   $'TikTok\x1f^user_data.*\\.json$'
   $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
   $'Discord\x1f^messages\\.csv$|^activity$'
+  # Slack workspace export: channels.json + users.json sit at the root of every
+  # export (dms.json / mpims.json / integration_logs.json only on some plans).
+  # channels.json alone is not unique to Slack, so the import leg in
+  # ostler-import re-checks users.json carries a Slack team_id before it runs.
+  $'Slack\x1f^channels\\.json$|^mpims\\.json$|^integration_logs\\.json$'
 )
 
 # --- 1. Optionally unzip archives worth opening -------------------------------

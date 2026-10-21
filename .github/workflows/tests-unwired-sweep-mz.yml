@@ -335,6 +335,19 @@ jobs:
           python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
           python3 tests/test_notion_obsidian_import_runs_end_to_end.py
 
+      # Slack export wiring (2026-10-21): runs the REAL ostler-import script
+      # (extracted from install.sh) over a Downloads folder holding a synthetic
+      # Slack export, against the vendored cm052 slack importer and a stub Hub.
+      # Proves rows land, the Pro rule (first import free, then refused), L3 for
+      # a conversation the owner took no part in, and that no non-loopback
+      # connection is attempted (with a control that the guard can see one).
+      - name: a dropped Slack export lands conversations and sends nothing off the Mac
+        if: always()
+        run: |
+          set -e
+          python -m pip install --quiet httpx pyyaml
+          python3 tests/test_slack_export_drop_lands_rows.py
+
       # Consumer-half gap (2026-09-13): cli.py's _ai_adapters() excluded the
       # gateway's own sessions.db from the ONLY entrypoint production ever
       # invokes, so the customer's direct chats with their own assistant never

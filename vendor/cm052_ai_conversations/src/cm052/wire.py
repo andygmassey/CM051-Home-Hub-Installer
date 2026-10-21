@@ -337,7 +337,7 @@ def render_episodic(conv: Conversation, *, user_display: str | None = None) -> s
 
     body_lines: list[str] = [""]
     for msg in conv.messages:
-        speaker = _speaker_label(msg.role, user_label, assistant_label)
+        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
         ts_suffix = f" _({msg.timestamp})_" if msg.timestamp else ""
         body_lines.append(f"**{speaker}:**{ts_suffix} {msg.content}".rstrip())
         body_lines.append("")
@@ -417,7 +417,7 @@ def render_transcript(conv: Conversation, user_display: str | None = None) -> st
 
     body_lines: list[str] = []
     for msg in conv.messages:
-        speaker = _speaker_label(msg.role, user_label, assistant_label)
+        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
         body_lines.append(f"**{speaker}:** {msg.content}")
         body_lines.append("")
 
@@ -440,7 +440,21 @@ def render_metadata(conv: Conversation) -> dict:
     participant_kind = (
         "ai" if conv.provenance.source_kind == "external_llm" else "human"
     )
-    return {
+    meta = dict(conv.metadata) if isinstance(conv.metadata, dict) else {}
+    # Multi-party human sources (Slack, 2026-10-19) hand richer participant
+    # rows: ``{"id", "display", "role", "handle"}``. ``handle`` is the key
+    # CM048's participant-identity bridge derives the Person URI from
+    # (ingest._participant_identifier), so an author with a visible email
+    # links to the SAME Person node the contacts ingest made, and an author
+    # without one gets no handle and therefore no fabricated node.
+    details = meta.pop("participant_details", None)
+    if isinstance(details, list) and details:
+        participants = [dict(d) for d in details if isinstance(d, dict)]
+    else:
+        participants = [
+            {"id": p, "display": p, "role": "other"} for p in conv.participants
+        ]
+    out = {
         "conversation_id": conv.conversation_id,
         "date": (conv.created_at or conv.last_activity)[:10],
         "source": conv.provenance.source_subtype,
@@ -450,12 +464,17 @@ def render_metadata(conv: Conversation) -> dict:
         # extracted facts at this level (L2 -> searchable + assistant-answerable;
         # L3 is short-circuited before POST so it never reaches here).
         "privacy_level": _privacy_level(conv, "gist"),
-        "participants": [
-            {"id": p, "display": p, "role": "other"} for p in conv.participants
-        ],
+        "participants": participants,
         "provenance": conv.provenance.to_dict(),
-        "extra": dict(conv.metadata),
+        "extra": meta,
     }
+    # CM048's channel adapters read ``source_app`` at the TOP level only
+    # (``_imessage_adapter`` defaults it to "messages" otherwise), so a Slack
+    # thread would be labelled as a Messages conversation without this.
+    source_app = meta.get("source_app")
+    if isinstance(source_app, str) and source_app.strip():
+        out["source_app"] = source_app.strip()
+    return out
 
 
 def stage(conv: Conversation, outbox_root: Path | None = None) -> tuple[Path, Path]:
@@ -480,6 +499,7 @@ def post(
     endpoint: str | None = None,
     timeout: float = 30.0,
     episodic_root: Path | None = None,
+    free_import: bool = False,
 ) -> dict:
     """Stage the CM048 transcript pair, optionally persist the episodic
     artefact, and POST the paths to CM048.
@@ -491,8 +511,10 @@ def post(
     the CM048 fact-extraction path -- the gist path is still the
     reliable one downstream consumers depend on.
 
-    L3 short-circuit (Lester audit lift, 2026-05-08): a conversation
-    classified ``privacy_level: L3`` does NOT POST to CM048. CM048's
+    L3 (superseded 2026-10-19, see the comment at the gist-level check): an
+    L3 conversation IS posted, with ``privacy_level: L3`` in its metadata;
+    CM048 writes the bundle and skips the gist sinks. The 2026-05-08 text
+    below described the old short-circuit: CM048's
     pipeline embeds extracted facts into Qdrant for vector search;
     embedding L3 content would defeat the "private by default"
     contract -- the only way to read back an L3 fact would still be
@@ -522,7 +544,10 @@ def post(
     validation, never lock the customer out on infrastructure failure
     we cannot observe).
     """
-    if not is_active_or_grace():
+    # ``free_import``: the caller's entry gate (``first_import.entry_gate``)
+    # granted this run the one-off free export import. Only that decision
+    # may pass it; every other caller leaves it False and G7 applies here.
+    if not free_import and not is_active_or_grace():
         log.info(
             "Subscription inactive -- pausing conversation-memory "
             "processing. New conversations will resume on "
@@ -554,26 +579,22 @@ def post(
                 exc,
                 exc_info=True,
             )
-    # The CM048 POST embeds the *gist* (extracted facts) for vector search, so
-    # the gist level gates it. Option A: gist defaults L2 -> POST happens. A
-    # per-conversation L3 override (or Option B keeping gist L2) is respected
-    # here. Episodic (the transcript artefact) still landed above regardless.
+    # L3 GOES TO CM048 TOO (Archie ruling on CM052 #16, 2026-10-19). The L3
+    # rule is "no Qdrant / Oxigraph", not "no files". This used to return here
+    # without POSTing, so an L3 human conversation got NO 4-artefact bundle at
+    # all: the customer marked it private and it vanished. CM048 is where the
+    # rule is enforced: ``privacy.infer`` honours an explicit
+    # ``metadata.privacy_level`` first, ``processor`` skips step 07 (gist
+    # sinks), name resolution and every store read for L3, and step 09 still
+    # writes summary/todos/transcript. The level travels in the POSTed
+    # metadata (``render_metadata``), and ``gist_level`` is returned so callers
+    # can still count L3 conversations.
     gist_level = _privacy_level(conv, "gist")
     if gist_level == "L3":
         log.info(
-            "L3 short-circuit: skipping CM048 POST for %s "
-            "(episodic artefact still landed at %s)",
+            "L3: posting %s to CM048 for its bundle; CM048 skips the gist sinks",
             conv.conversation_id,
-            episodic_target if episodic_target else "<not external_llm>",
         )
-        return {
-            "status": "skipped",
-            "reason": "privacy_level_l3",
-            "conversation_id": conv.conversation_id,
-            "episodic_path": (
-                str(episodic_target) if episodic_target else None
-            ),
-        }
     # The Hub API reads ``transcript`` (text) and ``metadata`` (object); a
     # body carrying only the paths is a 400 "Missing 'transcript' field".
     # The paths stay alongside for any consumer that already reads them.
@@ -591,4 +612,14 @@ def post(
     with httpx.Client(timeout=timeout) as client:
         response = client.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+    # Below L3 the caller gets CM048's response untouched (existing
+    # contract). For L3 it is annotated so a caller can still count L3
+    # conversations, which it used to do from the short-circuit dict.
+    if gist_level == "L3":
+        if not isinstance(result, dict):
+            result = {"response": result}
+        result["gist_level"] = "L3"
+        if episodic_target is not None:
+            result.setdefault("episodic_path", str(episodic_target))
+    return result
