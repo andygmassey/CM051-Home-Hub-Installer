@@ -24,3 +24,5 @@ jobs:
         run: python3 -I l10n/ostler_l10n.py self-test
       - name: translations are drop-in for their English
         run: python3 -I l10n/ostler_l10n.py check
+      - name: legal and consent strings are identical to en-GB in every locale (Andy ruling 2026-10-22)
+        run: python3 -I tests/test_l10n_legal_strings_stay_english.py

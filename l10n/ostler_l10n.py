@@ -742,8 +742,12 @@ def is_legal(u, cfg):
             or any(p.search(u.src) for p in tpats))
 
 
-def load_reviews():
+def load_reviews(cfg=None):
     out = {}
+    # Andy's ruling (2026-10-22): legal and consent strings stay ENGLISH in every
+    # locale, so no review row can make a translation of one shippable.
+    if cfg and cfg.get("legal_english_only"):
+        return out
     if os.path.exists(_reviews_path()):
         for line in open(_reviews_path(), encoding="utf-8").read().splitlines():
             f = line.split("\t")
@@ -826,7 +830,7 @@ def survey(cfg):
     st = load_state()
     errs, stale, cov = [], [], {}
     keep = set(cfg.get("keep_english", []))
-    reviews = load_reviews()
+    reviews = load_reviews(cfg)
     for c in catalogues(cfg):
         units = {u.key: u for u in c.units()}
         for lang in cfg["languages"]:
@@ -896,7 +900,7 @@ def cmd_stale(cfg):
     for c, lang, k in stale:
         by[(c.id, lang)].add(k)
     # unreviewed legal/consent translations: park them for the reviewer
-    reviews = load_reviews()
+    reviews = load_reviews(cfg)
     parked = 0
     for c in catalogues(cfg):
         units = {u.key: u for u in c.units()}
@@ -1213,7 +1217,7 @@ def decide(cfg, ids, tr, rv):
 def apply_results(cfg, results):
     ids = results.pop("__ids__")
     st = load_state()
-    reviews = load_reviews()
+    reviews = load_reviews(cfg)
     per = collections.defaultdict(lambda: ({}, {}))
     parked = collections.defaultdict(dict)
     for sid, res in results.items():
@@ -1278,6 +1282,8 @@ def cmd_legal_approve(cfg, args):
     ap.add_argument("--by", required=True); ap.add_argument("--date", default=datetime.date.today().isoformat())
     ap.add_argument("--text")
     a = ap.parse_args(args)
+    if cfg.get("legal_english_only"):
+        raise SystemExit("legal-approve: refused, legal_english_only is set (legal and consent strings stay English in every locale)")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.date) or not a.by.strip():
         raise SystemExit("legal-approve: --by NAME and --date YYYY-MM-DD are required")
     cat_id, key = a.uid.split("::", 1)

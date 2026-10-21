@@ -49,6 +49,9 @@ keep_english:
 # one ships only with a legal_reviews.tsv row (reviewed_by + date) for its
 # current English; otherwise English ships and the translation waits in
 # l10n/legal_pending/ (`legal-list`, `legal-approve`).
+# Ruling 2026-10-22: legal and consent strings stay ENGLISH in every locale.
+# A translation of one never ships, whatever legal_reviews.tsv says.
+legal_english_only: true
 legal_patterns: [consent, verbatim, "legal/", "article 9", '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
 
 # The en-GB header asks for a human translation of these.

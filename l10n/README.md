@@ -7,6 +7,6 @@
 5. `diff` shows what a run would send and its estimated cost; `run` refuses above `budget_usd`. Local runs log cost to `~/walkdriver/API_SPEND_LOG.tsv`, CI runs to the job summary and PR body.
 6. Rules (brand names, Apple UI terms, register, "transcribing" not "recording", no em dashes): `glossary.yaml`, versioned. Languages and catalogues: `config.yaml`.
 7. `provenance.json` records which English each translation was made from. Never edit it by hand.
-8. **Legal / consent keys** (`legal_patterns` in config.yaml) ship translated ONLY with a `legal_reviews.tsv` row (reviewed_by + date) for their current English; otherwise English ships and the translation waits in `legal_pending/` (`legal-list`, then `legal-approve LANG CAT::KEY --by NAME --date YYYY-MM-DD`). Other reviewer flags: `# NEEDS REVIEW` in shell files, `REVIEW_FLAGS.<lang>.tsv` for the GUI JSON.
+8. **Legal / consent keys** (`legal_patterns` in config.yaml) stay ENGLISH in every locale (Andy ruling 2026-10-22, `legal_english_only: true`). A `legal_reviews.tsv` row cannot make a translation ship; `legal-approve` refuses. Reviewer names are never recorded here (opaque ids only, public repo); `tests/test_l10n_legal_strings_stay_english.py` enforces it.
 9. `python3 l10n/ostler_l10n.py self-test` proves the gate fails on a dropped `%@`, a lost INSTALL and a changed English string.
 10. The canonical tool and glossary live here (CM051, public, free Actions). Other repos vendor them byte-for-byte; see their `l10n/VENDORED_FROM`.

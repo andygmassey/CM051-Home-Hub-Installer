@@ -73,7 +73,7 @@ enum InstallerLanguage {
         case "pt":
             // Brazil, or no region (Apple's bare "pt" is Brazilian): pt-BR.
             // Portugal and every other region (Angola, Mozambique...) write
-            // European Portuguese: pt-PT.
+            // Portuguese as written in Portugal: pt-PT.
             if rest.isEmpty || rest.contains("br") { return "pt-BR" }
             return "pt-PT"
         default:

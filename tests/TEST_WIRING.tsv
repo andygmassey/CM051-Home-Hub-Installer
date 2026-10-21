@@ -475,6 +475,7 @@ test_junk_names_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_kinship_label_write_guard_vendored.py	WIRED	.github/workflows/kinship-label-write-guard.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_l10n_legal_strings_stay_english.py	WIRED	.github/workflows/l10n-check.yml
 test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
