@@ -1544,7 +1544,7 @@
      """
      if not local.isdigit():
          return False
-@@ -1053,7 +1084,15 @@
+@@ -1059,7 +1090,15 @@
          return 1
  
      settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1561,7 +1561,7 @@
      # ostler_security is guaranteed importable (hard-fails at module
      # load if not). The remaining branch is whether a key is set.
      if encryption_key:
-@@ -1108,7 +1147,7 @@
+@@ -1114,7 +1153,7 @@
                  json.dumps(obs.get("flags") or {}),
                  settings.user_id,
                  "private",
@@ -1570,7 +1570,7 @@
                  datetime.now(timezone.utc).isoformat(),
              ),
          )
-@@ -1150,7 +1189,56 @@
+@@ -1156,7 +1195,56 @@
      return str(uuid.uuid5(ns, seed))
  
  
