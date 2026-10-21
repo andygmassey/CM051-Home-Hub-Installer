@@ -241,6 +241,12 @@ def _normalise_chat_identifier(channel: str, raw: str) -> str:
         return ""
     raw = raw.strip()
     if channel == "whatsapp":
+        # The `@lid` suffix is WhatsApp's own statement that the local part
+        # is an opaque linked id, whatever its digits happen to validate as
+        # (CM051 #2578: "the @lid suffix, or a local part is_valid_number
+        # rejects"). Only the second half used to be checked.
+        if raw.endswith("@lid"):
+            return raw
         local = raw.split("@", 1)[0] if "@" in raw else raw
         return ("+" + local) if _whatsapp_jid_is_genuine_phone(local) else raw
     return raw
