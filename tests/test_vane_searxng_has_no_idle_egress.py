@@ -22,6 +22,7 @@ red by breaking a copy of the shipped settings one property at a time.
 Exit 0 pass, 1 fail, 2 CANNOT-RUN.
 """
 import copy
+import fnmatch
 import pathlib
 import re
 import sys
@@ -45,6 +46,12 @@ ENGINES = {
     "brave": ["search.brave.com"],
     "wikipedia": ["en.wikipedia.org"],
 }
+# The wikipedia engine and the wiki compiler follow the owner's locale, so the
+# host is `<lang>.wikipedia.org`, not only `en`. The ledger declares the family
+# as one glob row (the same shape as derp*.tailscale.com: set aside from DNS
+# resolution by shape, so it can never attribute an address). Each sample below
+# must be covered by a declared row; `xx` is a language code that does not exist.
+WIKI_FAMILY_SAMPLES = ["de", "fr", "ja", "zh", "ar", "xx"]
 # SearXNG plugins that can open a socket on their own account.
 NETWORK_PLUGINS = [
     "searx.plugins.tor_check.SXNGPlugin",
@@ -122,6 +129,10 @@ def check_tree(root_install, ledger_text):
         for h in hs:
             if h not in hosts:
                 bad.append(f"engine {eng}: host {h} is not declared in egress_hosts.tsv")
+    for lang in WIKI_FAMILY_SAMPLES:
+        h = f"{lang}.wikipedia.org"
+        if not any(fnmatch.fnmatchcase(h, d) for d in hosts if "*" in d):
+            bad.append(f"wikipedia locale host {h} is not covered by a declared glob row in egress_hosts.tsv")
     return bad
 
 
@@ -155,7 +166,10 @@ def self_test(install_text, ledger_text):
     print(f"  [{'PASS' if nomount else 'FAIL'}] tree without the compose mount goes red")
     noledger = check_tree(install_text, ledger_text.replace("search.brave.com", "x.invalid"))
     print(f"  [{'PASS' if noledger else 'FAIL'}] tree with an undeclared engine host goes red")
-    return rc or (0 if gutted and nomount and noledger else 1)
+    nowiki = check_tree(install_text, "\n".join(
+        l for l in ledger_text.splitlines() if not l.startswith("*.wikipedia.org")))
+    print(f"  [{'PASS' if nowiki else 'FAIL'}] tree without the wikipedia locale glob row goes red")
+    return rc or (0 if gutted and nomount and noledger and nowiki else 1)
 
 
 def main():

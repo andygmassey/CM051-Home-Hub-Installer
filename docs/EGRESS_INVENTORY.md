@@ -15,8 +15,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 54
-digest: 64838336bf9209cabbf155dc3508358f7d75579f09b2cc991a5cb367f019d0df
+hosts: 55
+digest: 5518ec6cc14ea3c2ede0706a2253f47484c75244813ea422789bf2df062b70ac
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -96,7 +96,8 @@ the ledger; this is the shape.
 (`vane-searxng-settings.yml`, mounted read-only over `/etc/searxng/settings.yml`)
 instead of the image's, which loaded every default engine and Google
 autocomplete. Now: three engines (`duckduckgo` to `html.duckduckgo.com`, `brave`
-to `search.brave.com`, `wikipedia` to `en.wikipedia.org`), and autocomplete,
+to `search.brave.com`, `wikipedia` to `en.wikipedia.org`, or `<lang>.wikipedia.org`
+for a non-English owner's locale, declared as the glob row `*.wikipedia.org`), and autocomplete,
 the favicon resolver, the image proxy, metrics and the tor-exit-list plugin are
 off. Each engine host is a ledger row. SearXNG and Vane run no timer or
 startup network check of their own with these engines (read from Vane v1.12.2
