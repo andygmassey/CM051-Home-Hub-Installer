@@ -33,6 +33,11 @@ _ccs_box() {
     fi
 }
 
+# PYTHONPATH=$PIPE (v1.0.116 walk34, failed-guard): the fixture runs BY PATH from
+# $D, so python puts $D on sys.path, not the cwd, and "from contact_syncer.syncer"
+# raised ModuleNotFoundError (guard.err, shown in the forget step). Not TCC, not
+# Contacts: the seed never touches the Contacts database, it feeds a synthetic vcf.
+#
 # Box-side prelude: paths, and the fixture staged from this repo. The pipeline
 # venv (contact_syncer) and the email-ingest venv (ostler_fda) are the two the
 # installer itself uses for these steps (install.sh _HYDRATE_PIPELINE_PY and
@@ -45,14 +50,15 @@ _ccs_prelude() {
 PY=\$PIPE/.venv/bin/python; FDAPY=\$O/services/email-ingest/.venv/bin/python
 OXI=\${OXIGRAPH_URL:-http://localhost:7878}
 mkdir -p \$D && printf %s '$(base64 < "${here}/contact_cards_fixture.py" | tr -d '\n')' | base64 -d > \$D/contact_cards_fixture.py || { echo failed-stage; exit 0; }
-[ -x \$PY ] || { echo failed-no-pipeline-venv; exit 0; }"
+[ -x \$PY ] || { echo failed-no-pipeline-venv; exit 0; }
+export PYTHONPATH=\$PIPE\${PYTHONPATH:+:\$PYTHONPATH}"
 }
 
 _ccs_apply_script() {
     printf '%s\n' "$(_ccs_prelude)
 cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
 real=\$(\$PY \$D/contact_cards_fixture.py guard 2>\$D/guard.err | tail -n 1)
-case \"\$real\" in ''|*[!0-9]*) echo failed-guard; exit 0 ;; 0) : ;; *) echo skipped-real-contacts; exit 0 ;; esac
+case \"\$real\" in ''|*[!0-9]*) cat \$D/guard.err >&2; echo failed-guard; exit 0 ;; 0) : ;; *) echo skipped-real-contacts; exit 0 ;; esac
 \$PY \$D/contact_cards_fixture.py stage \$D >/dev/null || { echo failed-stage-cards; exit 0; }
 j=\$(\$PY -m contact_syncer.syncer --vcf \$D/cards.vcf --graph-endpoint \"\$OXI\" 2>\$D/syncer.log | tail -n 1)
 n=\$(printf %s \"\$j\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"imported\", -1)))')
