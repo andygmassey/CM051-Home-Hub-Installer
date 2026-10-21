@@ -22471,28 +22471,6 @@ LOG_FILE="${LOGS_DIR}/derive-preferences.log"
 mkdir -p "$LOGS_DIR"
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
-# Bounded, detached kickstart (same contract as install.sh's _ks_bounded): a penalty-boxed job must never block the
-# caller, so the kick is backgrounded behind a 10s watchdog. Absent label: no-op.
-_ks_bounded() {
-    [ -n "${1:-}" ] || return 0
-    launchctl print "$1" >/dev/null 2>&1 || return 0
-    _ksb_cmd=(launchctl kickstart "$1")
-    (
-        "${_ksb_cmd[@]}" >/dev/null 2>&1 &
-        _ksb_pid=$!
-        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
-        _ksb_wd=$!
-        wait "$_ksb_pid" 2>/dev/null || true
-        kill -TERM "$_ksb_wd" 2>/dev/null || true
-    ) >/dev/null 2>&1 &
-    disown 2>/dev/null || true
-    return 0
-}
-# A pass that wrote derived preferences hands on to the interest-profile
-# compile so they reach the digest and pwg_preferences now, not at the
-# hourly tick (smart-prefs P1).
-_compile_now() { _ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"; }
-
 if [[ ! -x "$CM019_PY" ]]; then
     log "no preferences service at ${CM019_DIR}; nothing to derive"
     exit 0
@@ -22526,7 +22504,6 @@ if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
     fi
     if ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
         log "tick finished: written (see state/derived-preferences.json)"
-        _compile_now
     else
         log "tick finished: NOT written (see state/derived-preferences.json for why)"
     fi
@@ -22534,7 +22511,6 @@ if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
 fi
 if "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
     log "tick finished: written (see state/derived-preferences.json)"
-    _compile_now
 else
     log "tick finished: NOT written (see state/derived-preferences.json for why)"
 fi
@@ -24590,9 +24566,10 @@ done
 # preferences into ~/.ostler/preferences/interest_profile.json, which is what
 # the digest and the assistant's pwg_preferences tool read. It ran only on the
 # hourly tick, so a customer who imported and asked straight away got an empty
-# answer. Kick it here. The derive agent goes first-class too: when its pass
-# ends it hands on to the compile again, so derived preferences follow.
-# Both are bounded and skip-if-absent: a missing agent never fails an import.
+# answer. Kick it here. The derive agent is kicked too, so the "What you like"
+# graph (read straight from the graph by the wiki and the derived route, not
+# through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
+# a missing agent never fails an import.
 _ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
 _ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc

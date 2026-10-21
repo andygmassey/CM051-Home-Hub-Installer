@@ -21,12 +21,10 @@
 #   arm A  RED on main: after ostler-import returns, with no hourly tick, the
 #          profile holds interests, the digest has Preferences lines and the
 #          assistant tool serves them
-#   arm B  the derive agent is kicked, and the derive wrapper hands on to the
-#          compile when its pass ends (ordering: derive, then compile)
+#   arm B  the derive agent is kicked as well
 #   arm C  control: the same harness with a manual tick (the hourly path)
 #          does fill the profile, so arm A can only be red for the trigger
 #   arm D  mutant: ostler-import's compile kick removed -> arm A goes red
-#   arm E  mutant: the derive wrapper's hand-on removed -> arm B goes red
 #
 # Runs under bash 3.2.
 
@@ -53,11 +51,6 @@ trap 'rm -rf "$WORK"' EXIT
 
 awk '/cat > "\$IMPORT_SCRIPT" <<.IMPORTEOF./{f=1;next} f&&/^IMPORTEOF$/{exit} f{print}' "$INSTALL_SH" > "$WORK/ostler-import.orig"
 /usr/bin/grep -q 'services.enrich.src.cli enrich' "$WORK/ostler-import.orig" || cannot "could not extract ostler-import from install.sh"
-
-# Derive wrapper, extracted the same way.
-awk '/cat > "\$wrapper" <<.DERIVETICKEOF./{f=1;next} f&&/^DERIVETICKEOF$/{exit} f{print}' "$INSTALL_SH" > "$WORK/derive-tick.orig"
-DERIVE_PRESENT=1
-/usr/bin/grep -q 'derive_runner' "$WORK/derive-tick.orig" || DERIVE_PRESENT=0   # absent on a tree without the runner: arm B goes red, arm A still runs
 
 # One scratch box per arm: $1 = ostler-import variant file.
 build_box() {
@@ -98,17 +91,12 @@ case "\$1" in
             *${FRONTPAGE_LABEL}*)
                 ( OSTLER_DIR="$OD" OSTLER_RESOURCE_GOVERNOR=0 OSTLER_INTEREST_PROFILE="$PROFILE" \
                   PYTHONPYCACHEPREFIX="$BOX/pycache" PATH="$STUB:\$PATH" "$BOX/tick.sh" >>"$BOX/tick.log" 2>&1 ) & ;;
-            *${DERIVE_LABEL}*)
-                ( HOME="$H" OSTLER_DIR="$OD" OSTLER_INGEST_SLOT=0 OSTLER_RESOURCE_GOVERNOR=0 \
-                  PATH="$STUB:\$PATH" "$BOX/derive-tick.sh" >>"$BOX/derive.log" 2>&1 ) & ;;
         esac
         exit 0 ;;
 esac
 exit 0
 STUBEOF
     chmod +x "$STUB/launchctl"
-    sed -e 's#^exec .*##' "$WORK/derive-tick.orig" > "$BOX/derive-tick.sh"
-    chmod +x "$BOX/derive-tick.sh"
 }
 
 run_import() {  # $1 = ostler-import file
@@ -163,26 +151,11 @@ else
     bad "A: the digest was never kickstarted after the import"
 fi
 
-# ---- arm B: derive is kicked, and hands on to the compile --------------------
+# ---- arm B: the derive agent is kicked too ---------------------------------
 if /usr/bin/grep -q "kickstart .*${DERIVE_LABEL}" "$CALLS"; then
-    ok "B: ostler-import kickstarts ${DERIVE_LABEL}"
+    ok "B: ostler-import kickstarts ${DERIVE_LABEL} (the \"What you like\" graph refreshes after an import)"
 else
     bad "B: ostler-import never kickstarts ${DERIVE_LABEL}"
-fi
-build_box B
-if [ "$DERIVE_PRESENT" -ne 1 ]; then
-    bad "B: install.sh has no derive wrapper to run (the runner is not on this tree)"
-    DERIVE_SKIP=1
-else DERIVE_SKIP=0; fi
-mkdir -p "$OD/services/cm019/.venv/bin"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$OD/services/cm019/.venv/bin/python3"; chmod +x "$OD/services/cm019/.venv/bin/python3"
-mkdir -p "$OD/lib"
-[ "$DERIVE_SKIP" -eq 1 ] || ( HOME="$H" OSTLER_DIR="$OD" OSTLER_INGEST_SLOT=0 OSTLER_RESOURCE_GOVERNOR=0 PATH="$STUB:$PATH" "$BOX/derive-tick.sh" >>"$BOX/derive.log" 2>&1 )
-if [ "$DERIVE_SKIP" -eq 1 ]; then :
-elif wait_for "$PROFILE"; then
-    ok "B: a finished derive pass leaves the compile run (profile filled with no other trigger)"
-else
-    bad "B: a finished derive pass does not trigger the compile; derived preferences wait for the hourly tick"
 fi
 
 # ---- arm C: control, the hourly path fills the same profile ------------------
@@ -200,17 +173,5 @@ else
     if wait_for "$PROFILE"; then bad "D: mutant (compile kick removed) still filled the profile: arm A proves nothing"; else ok "D: mutant: with the compile kick removed the profile stays empty (arm A can go red)"; fi
 fi
 
-# ---- arm E: mutant, remove the derive wrapper's hand-on to the compile ------
-sed -e '/^ *_compile_now$/d' "$WORK/derive-tick.orig" > "$WORK/derive-tick.mut"
-if [ "$DERIVE_PRESENT" -ne 1 ] || cmp -s "$WORK/derive-tick.orig" "$WORK/derive-tick.mut"; then
-    bad "E: mutant did not apply (no _compile_now call in the derive wrapper)"
-else
-    build_box E
-    printf '#!/usr/bin/env bash\nexit 0\n' > "$OD/services/cm019/.venv/bin/python3"; chmod +x "$OD/services/cm019/.venv/bin/python3"
-    cp "$WORK/derive-tick.mut" "$BOX/derive-tick.sh"; sed -i.bak -e 's#^exec .*##' "$BOX/derive-tick.sh"
-    ( HOME="$H" OSTLER_DIR="$OD" OSTLER_INGEST_SLOT=0 OSTLER_RESOURCE_GOVERNOR=0 PATH="$STUB:$PATH" "$BOX/derive-tick.sh" >>"$BOX/derive.log" 2>&1 )
-    if wait_for "$PROFILE"; then bad "E: mutant (derive hand-on removed) still filled the profile"; else ok "E: mutant: without the derive hand-on the profile stays empty (arm B can go red)"; fi
-fi
-
-echo "  $pass passed, $fail failed (5 scratch boxes, real tick, real ostler-import, real hub reader and digest section)"
+echo "  $pass passed, $fail failed (4 scratch boxes, real tick, real ostler-import, real hub reader and digest section)"
 [ "$fail" -eq 0 ]
