@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
@@ -12,6 +13,7 @@ import re
 import httpx
 
 from .config import settings
+from .consent import public_lookup_allowed
 from .eligibility import is_eligible
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
@@ -36,6 +38,46 @@ logger = logging.getLogger(__name__)
 # proxy, so a healthy local store reads as dead and enrichment writes are
 # lost. Public API clients (clients/) keep the default on purpose.
 # Pinned by tests/test_local_store_ignores_proxy.py.
+
+
+_WIKIDATA_PENDING_TOPICS_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?topic ?label WHERE {
+    GRAPH ?g {
+        ?pref pwg:hasTopic ?topic .
+        ?topic rdfs:label ?label .
+    }
+    # Exclude topics that already have a Wikidata Q-ID
+    # Writes land in the default graph (POST /store), so look there
+    # as well as in named graphs, or every run redoes every topic.
+    FILTER NOT EXISTS {
+        { ?topic pwg:wikidataId ?qid . }
+        UNION
+        { GRAPH ?g2 { ?topic pwg:wikidataId ?qid . } }
+    }
+}
+"""
+
+_LOCAL_PENDING_TOPICS_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?topic ?label WHERE {
+    GRAPH ?g {
+        ?pref pwg:hasTopic ?topic .
+        ?topic rdfs:label ?label .
+    }
+    # Writes land in the default graph (POST /store), so look there
+    # as well as in named graphs, or every run redoes every topic.
+    FILTER NOT EXISTS {
+        { ?topic pwg:normalizedLabel ?key . }
+        UNION
+        { GRAPH ?g2 { ?topic pwg:normalizedLabel ?key . } }
+    }
+}
+"""
 
 
 @dataclass
@@ -321,6 +363,17 @@ class EnrichmentService:
             self.__google_places = PlacesClient(cache=self._cache)
         return self.__google_places
 
+    @staticmethod
+    def _consent_or_log(entry_point: str) -> bool:
+        """Fail closed: every enrichment entry point reaches public hosts."""
+        if public_lookup_allowed():
+            return True
+        logger.warning(
+            f"{entry_point} refused: owner has not accepted enrichment "
+            "(no outbound request made)"
+        )
+        return False
+
     async def _query_qdrant_preferences(
         self,
         user_id: Optional[str] = None,
@@ -559,6 +612,9 @@ INSERT DATA {{
         Returns:
             EnrichmentResult or None
         """
+        if not self._consent_or_log("enrich_preference"):
+            return None
+
         pref_id = preference.get("id", "")
         category = preference.get("category", "").lower() if preference.get("category") else ""
         subject = preference.get("subject", "")
@@ -816,6 +872,9 @@ INSERT DATA {{
         results = []
         work_at_entry = stats.attempted()
 
+        if not self._consent_or_log("enrich_batch"):
+            return results
+
         for pref in preferences:
             # The allowance is checked BEFORE each item, never during one:
             # an item that has already left the machine gets to finish and
@@ -936,6 +995,9 @@ INSERT DATA {{
             EnrichmentStats with summary
         """
         stats = EnrichmentStats()
+        if not self._consent_or_log("enrich_all"):
+            stats.completed_at = datetime.utcnow()
+            return stats
         next_offset: Optional[str] = None
         total_fetched = 0
 
@@ -1044,6 +1106,9 @@ INSERT DATA {{
             Combined EnrichmentStats
         """
         combined_stats = EnrichmentStats()
+        if not self._consent_or_log("enrich_categories"):
+            combined_stats.completed_at = datetime.utcnow()
+            return combined_stats
 
         # ONE UNREACHABLE SOURCE MUST NOT STARVE EVERY OTHER CATEGORY.
         #
@@ -1193,6 +1258,9 @@ INSERT DATA {{
                 {"category": "podcast", "limit": 200},
             ])
         """
+        if not self._consent_or_log("enrich_parallel"):
+            return {}
+
         async def enrich_single_category(config: Dict) -> tuple[str, EnrichmentStats]:
             category = config["category"]
             limit = config.get("limit", 1000)
@@ -1277,24 +1345,17 @@ INSERT DATA {{
             "topics": {},  # topic -> qid mapping
         }
 
-        # Query Oxigraph for all unique topics from enriched preferences
-        sparql_query = """
-        PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        # Fail closed: every label below goes to wikidata.org, so no owner
+        # consent means no request, whichever caller got here.
+        if not public_lookup_allowed():
+            logger.warning(
+                "Wikidata normalization skipped: owner has not accepted "
+                "enrichment (no outbound request made)"
+            )
+            return stats
 
-        SELECT DISTINCT ?topic ?label WHERE {
-            GRAPH ?g {
-                ?pref pwg:hasTopic ?topic .
-                ?topic rdfs:label ?label .
-            }
-            # Exclude topics that already have a Wikidata Q-ID
-            FILTER NOT EXISTS {
-                GRAPH ?g2 {
-                    ?topic pwg:wikidataId ?qid .
-                }
-            }
-        }
-        """
+        # Query Oxigraph for all unique topics from enriched preferences
+        sparql_query = _WIKIDATA_PENDING_TOPICS_QUERY
 
         try:
             async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
@@ -1381,6 +1442,79 @@ INSERT DATA {{
             f"{stats['failed']} failed"
         )
 
+        return stats
+
+    @staticmethod
+    def local_topic_key(label: str) -> str:
+        """Offline canonical key for a topic label (NFC, casefold, one space)."""
+        text = unicodedata.normalize("NFC", label).casefold()
+        return " ".join(text.split())
+
+    async def normalize_topics_locally(self) -> Dict[str, any]:
+        """Offline topic normalisation: no outbound request of any kind.
+
+        Used when the owner has not accepted enrichment. Stores a canonical
+        pwg:normalizedLabel for each topic that lacks one, talking only to
+        the local Oxigraph store.
+        """
+        stats = {
+            "total_topics": 0,
+            "normalized": 0,
+            "failed": 0,
+            "already_normalized": 0,
+            "topics": {},  # label -> local key
+        }
+        sparql_query = _LOCAL_PENDING_TOPICS_QUERY
+        try:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{settings.oxigraph_url}/query",
+                    content=sparql_query,
+                    headers={
+                        "Content-Type": "application/sparql-query",
+                        "Accept": "application/sparql-results+json",
+                    },
+                )
+                if response.status_code != 200:
+                    logger.error(f"Failed to query topics: {response.text}")
+                    return stats
+
+                bindings = response.json().get("results", {}).get("bindings", [])
+                topics = {}
+                for binding in bindings:
+                    topic_uri = binding.get("topic", {}).get("value", "")
+                    label = binding.get("label", {}).get("value", "")
+                    if label and topic_uri:
+                        topics[label] = topic_uri
+                stats["total_topics"] = len(topics)
+
+                for label, topic_uri in topics.items():
+                    key = self.local_topic_key(label)
+                    if not key:
+                        stats["failed"] += 1
+                        continue
+                    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+                    update_turtle = (
+                        "@prefix pwg: <https://schema.ostler.ai/enrichment/ontology#> .\n"
+                        f'<{topic_uri}> pwg:normalizedLabel "{escaped}" .\n'
+                    )
+                    try:
+                        store_response = await client.post(
+                            f"{settings.oxigraph_url}/store",
+                            content=update_turtle,
+                            headers={"Content-Type": "text/turtle"},
+                        )
+                    except Exception as e:
+                        stats["failed"] += 1
+                        logger.error(f"Error storing local key for '{label}': {e}")
+                        continue
+                    if store_response.status_code in (200, 201, 204):
+                        stats["normalized"] += 1
+                        stats["topics"][label] = key
+                    else:
+                        stats["failed"] += 1
+        except Exception as e:
+            logger.error(f"Error in local topic normalization: {e}")
         return stats
 
     async def close(self) -> None:
