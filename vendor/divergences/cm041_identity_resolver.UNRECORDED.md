@@ -223,7 +223,10 @@ NOT UPSTREAM yet; CM041 needs the same change (CM041 `identity_resolver/resolver
 `_identifier_match_trustworthy`). Not retired by any merged upstream PR.
 
 Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
-gains one early return, and the module imports `name_tier` and `NAME_TIER_HUMAN`
+gains one early return, a new `_person_display_names` reads EVERY displayName on the
+node (the old unordered LIMIT 1 let store order decide whether a node holding both a
+phone-shaped and a human name read as nameless; `_person_display_name` stays as a
+deterministic wrapper), and the module imports `name_tier` and `NAME_TIER_HUMAN`
 from `canonical_name.py` (already in the tree, nothing there touched).
 
 Why: the BW-1 guard trusted a shareable (phone/email) match only when both display
@@ -242,7 +245,8 @@ the existing name-agreement rule: different human names on one line stay two peo
 and a nameless handle beside a NAMED card still declines.
 
 Guarded by `tests/test_nameless_records_sharing_a_number_are_one_person.py` (3 red on
-the unmodified resolver, 8 green here; mutant dropping the matched-node side goes
+the unmodified resolver for the single-name cases and 3 more for the two-name node
+in every store order; all green here; mutant dropping the matched-node side goes
 red on the named-card control). Does NOT repair duplicates already in an installed
 graph: the BatchResolver exact-identifier tier requires the same full name, so
 existing nameless pairs are not collapsed by this change.

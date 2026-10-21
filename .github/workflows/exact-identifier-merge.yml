@@ -39,6 +39,7 @@ jobs:
         run: python3 -m pytest -q tests/test_exact_identifier_merge.py
       # #2545: a skip (importorskip) is not a pass, so -rs output is checked.
       - name: Nameless records sharing a number resolve to one person
+        if: always()
         run: |
           out="$(python3 -m pytest -q -rs tests/test_nameless_records_sharing_a_number_are_one_person.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"

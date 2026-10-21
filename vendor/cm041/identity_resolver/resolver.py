@@ -1004,16 +1004,23 @@ class IdentityResolver:
     def _normalise_name(name: Optional[str]) -> str:
         return " ".join((name or "").strip().lower().split())
 
-    def _person_display_name(self, person_uri: str) -> Optional[str]:
+    def _person_display_names(self, person_uri: str) -> List[str]:
+        """EVERY displayName on the node. A node can carry several (a phone-shaped
+        one and a human one); an unordered LIMIT 1 picked between them by store
+        order, so the verdict on the node changed with the ordering."""
         sparql = (
-            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }} "
-            f"LIMIT 1"
+            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }}"
         )
         results = self._sparql_query(sparql)
         bindings = results.get("results", {}).get("bindings", [])
-        if bindings:
-            return bindings[0]["name"]["value"]
-        return None
+        return [b["name"]["value"] for b in bindings if "name" in b]
+
+    def _person_display_name(self, person_uri: str) -> Optional[str]:
+        names = self._person_display_names(person_uri)
+        human = sorted(n for n in names if name_tier(n) >= NAME_TIER_HUMAN)
+        if human:
+            return human[0]
+        return sorted(names)[0] if names else None
 
     def _identifier_match_trustworthy(
         self, id_type: str, matched_uri: str, identity: PersonIdentity
@@ -1049,27 +1056,31 @@ class IdentityResolver:
 
         if id_type not in self._SHAREABLE_ID_TYPES:
             return True
-        existing_raw = self._person_display_name(matched_uri)
+        existing_names = self._person_display_names(matched_uri)
         # CM051 #2545: when NEITHER side carries a human name (both blank, or a
         # phone / email / system alias standing in for one) there is no name to
         # disagree about, and the shared number or address is the only identity
         # either record has. Declining here minted a second person for every
         # such pair, which the People list shows as two "Unknown contact" rows
-        # on one number. RULE 2 has already run above, so two different Contacts
-        # cards still never merge. A human name on EITHER side keeps the
-        # name-agreement rule below, unchanged.
+        # on one number. The node counts as nameless only if NONE of its
+        # displayName values is a human name (a node can hold several). RULE 2
+        # has already run above, so two different Contacts cards still never
+        # merge. A human name on EITHER side keeps the name-agreement rule
+        # below, which compares human names only: a phone-shaped value on both
+        # sides is not agreement.
         if (
             name_tier(identity.display_name) < NAME_TIER_HUMAN
-            and name_tier(existing_raw) < NAME_TIER_HUMAN
+            and all(name_tier(n) < NAME_TIER_HUMAN for n in existing_names)
         ):
             return True
+        if name_tier(identity.display_name) < NAME_TIER_HUMAN:
+            return False
         incoming = self._normalise_name(identity.display_name)
-        if not incoming:
-            return False
-        existing = self._normalise_name(existing_raw)
-        if not existing:
-            return False
-        return incoming == existing
+        return any(
+            self._normalise_name(n) == incoming
+            for n in existing_names
+            if name_tier(n) >= NAME_TIER_HUMAN
+        )
 
     # -- Private helpers ------------------------------------------------------
 

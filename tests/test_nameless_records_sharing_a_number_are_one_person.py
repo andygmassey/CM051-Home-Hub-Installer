@@ -140,6 +140,49 @@ def test_control_rule_2_a_second_blank_card_never_merges_into_the_first(store):
     assert m.person_uri is None, "two Contacts cards (different icloud_contact_uid) must stay two people"
 
 
+def _add_display_name(g, uri, name):
+    g.update('PREFIX pwg: <%s> INSERT DATA { <%s> pwg:displayName "%s" }' % (PWG, uri, name))
+
+
+@pytest.mark.parametrize("insert_phone_first", [True, False])
+@pytest.mark.parametrize("order", ["as_stored", "reversed", "shuffled"])
+def test_node_with_phone_and_human_displayname_is_not_nameless(
+    store, monkeypatch, insert_phone_first, order
+):
+    """A node holding BOTH a phone-shaped and a human displayName is named. The
+    old unordered LIMIT 1 read it as nameless whenever the store returned the
+    phone value first, and swallowed a nameless handle on the same number."""
+    import random
+
+    node = add_person(store, 1, PHONE if insert_phone_first else "Sam Carter",
+                      uid="CARD-1:ABPerson", phone=PHONE)
+    _add_display_name(store, node, "Sam Carter" if insert_phone_first else PHONE)
+    r = resolver(store)
+    real = r._sparql_query
+
+    def reordered(q, *a, **k):
+        res = real(q, *a, **k)
+        b = res.get("results", {}).get("bindings", [])
+        if order == "reversed":
+            b.reverse()
+        elif order == "shuffled":
+            random.Random(7).shuffle(b)
+        return res
+
+    monkeypatch.setattr(r, "_sparql_query", reordered)
+    for name in ("", PHONE):
+        m = r.resolve(PersonIdentity(display_name=name, phones=[PHONE]), use_fuzzy=False)
+        assert m.person_uri is None and m.match_type == "new", (name, order)
+    same = r.resolve(PersonIdentity(display_name="Sam Carter", phones=[PHONE]), use_fuzzy=False)
+    assert same.person_uri == node
+
+
+def test_node_with_only_nonhuman_displaynames_is_still_nameless(store):
+    node = add_person(store, 1, PHONE, uid="CARD-1:ABPerson", phone=PHONE)
+    _add_display_name(store, node, "")
+    assert resolve(store, display_name="", phones=[PHONE]).person_uri == node
+
+
 def test_syncer_write_path_one_person_for_a_card_and_its_handle(store, monkeypatch):
     """Through the shipped ContactSyncer: a blank-named card is written, then the
     same number arrives as a handle; the resolver must hand back the card's node
