@@ -4186,7 +4186,7 @@ index 8a352c8e..8c975291 100644
  
  def main() -> int:
 diff --git a/extract_all.py b/extract_all.py
-index 65da6f46..2d7509a9 100644
+index 65da6f46..f60337aa 100644
 --- a/extract_all.py
 +++ b/extract_all.py
 @@ -15,7 +15,7 @@ is OFF unless explicitly enabled – see policy §2.
@@ -4482,7 +4482,7 @@ index 65da6f46..2d7509a9 100644
              logger.warning("[warn] Reminders: %s", e)
      else:
          summary["sources"]["reminders"] = {"status": "disabled_by_user"}
-@@ -645,21 +748,51 @@ def run_all(
+@@ -645,21 +748,52 @@ def run_all(
      # present, so "not_found" surfaces as ok-with-zero-tracks.
      if "apple_music" in sources:
          try:
@@ -4514,15 +4514,16 @@ index 65da6f46..2d7509a9 100644
 +                if prev:
 +                    stats["total_tracks"] = prev
 +                    stats["reader"] = "previous_export"
-+            # ok means tracks were read. Zero tracks is "could not look" when
-+            # the Music framework refused (same word install.sh already maps
-+            # to cannot_run) and "nothing there" otherwise (maps to no_data).
-+            if stats["total_tracks"] > 0:
-+                music_status = "ok"
-+            elif stats["native_status"] == "unavailable":
-+                music_status = "media_library_not_granted"
-+            else:
-+                music_status = "not_found"
++            # The arm's contract: a refused permission or an empty library is
++            # status ok with 0 tracks, never a failure status (#3040). The
++            # reason says which, and install.sh derives the Doctor row
++            # (cannot_run vs no_data) from total_tracks plus native_status.
++            music_status = "ok"
++            if stats["total_tracks"] == 0:
++                if stats["native_status"] == "unavailable":
++                    stats["reason"] = "permission not granted"
++                else:
++                    stats["reason"] = "library empty"
              summary["sources"]["apple_music"] = {
 -                "status": "ok",
 +                "status": music_status,
@@ -4537,7 +4538,7 @@ index 65da6f46..2d7509a9 100644
              )
  
          except PermissionError:
-@@ -669,7 +802,7 @@ def run_all(
+@@ -669,7 +803,7 @@ def run_all(
              summary["sources"]["apple_music"] = {"status": "not_found"}
              logger.info("[skip] Apple Music: library XML not found")
          except Exception as e:
@@ -4546,7 +4547,7 @@ index 65da6f46..2d7509a9 100644
              logger.warning("[warn] Apple Music: %s", e)
      else:
          summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
-@@ -766,7 +899,7 @@ def run_all(
+@@ -766,7 +900,7 @@ def run_all(
              summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
              logger.info("[skip] Google Takeout: %s", e)
          except Exception as e:
@@ -4555,7 +4556,7 @@ index 65da6f46..2d7509a9 100644
              logger.warning("[warn] Google Takeout: %s", e)
      else:
          summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
-@@ -775,8 +908,45 @@ def run_all(
+@@ -775,8 +909,45 @@ def run_all(
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -4602,7 +4603,7 @@ index 65da6f46..2d7509a9 100644
              contacts = frequent_contacts(messages)
  
              (output_dir / "apple_mail.json").write_text(
-@@ -785,15 +955,37 @@ def run_all(
+@@ -785,15 +956,37 @@ def run_all(
              (output_dir / "apple_mail_contacts.json").write_text(
                  json.dumps(contacts, indent=2, default=str)
              )
@@ -4649,7 +4650,7 @@ index 65da6f46..2d7509a9 100644
  
          except PermissionError:
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
-@@ -802,11 +994,24 @@ def run_all(
+@@ -802,11 +995,24 @@ def run_all(
              summary["sources"]["apple_mail"] = {"status": "not_found"}
              logger.info("[skip] Apple Mail: not configured on this Mac")
          except Exception as e:

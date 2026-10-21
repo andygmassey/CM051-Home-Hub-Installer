@@ -1439,11 +1439,13 @@ def render_source_status() -> str:
         # unreadable, whose item_count=0 is bookkeeping, not a count.
         label = r.get("count_label")
         count = html.escape(label) if label else "&mdash;"
+        status_word = ("needs access" if r.get("needs_access")
+                       else _LABEL.get(st, st))
         body.append(
             '<tr>'
             f'<td>{html.escape({"downloads_exports": "Downloads folder"}.get(r.get("source"), str(r.get("source", "?")).replace("_", " ")))}</td>'
             f'<td><span style="color:{_COLOUR.get(st, "#5C4611")}">'
-            f'{html.escape(_LABEL.get(st, st))}</span>'
+            f'{html.escape(status_word)}</span>'
             # #30: a row that found something and did not import it says WHY,
             # in the customer's words, right under its status.
             + (f'<div class="muted" style="font-size:0.85em">'
@@ -3490,6 +3492,7 @@ def read_source_status(hydrate_dir: Path | None = None,
                                  "this, so it has not been updated. Turn on "
                                  "Full Disk Access for the Ostler assistant in "
                                  "System Settings, Privacy & Security.")
+                row["_refused_pane"] = "Full Disk Access"
         else:
             row["ongoing"] = "never"
             row["last_run_at"] = None
@@ -3582,6 +3585,27 @@ def read_source_status(hydrate_dir: Path | None = None,
         # Mac's Mail store size, recorded at extract time.
         if row["source"] == "email":
             row["item_of"] = _mail_available_total()
+        # A refused permission is a known state, not "could not look". The
+        # writer records cannot_run for a macOS refusal and for a real failure
+        # to read alike; only the refusal has a fix the customer can do, so it
+        # is told apart here by the writer's declared detail. Anything not
+        # listed stays a plain cannot_run: an unknown reason is never guessed
+        # into a pane. The sentinel status is left as written.
+        _refused_panes = {
+            "fda_not_granted": ("Full Disk Access", "Full Disk Access"),
+            "no_fda": ("Full Disk Access", "Full Disk Access"),
+            "media_library_not_granted": ("Media and Apple Music access",
+                                          "Media & Apple Music"),
+        }
+        _pane = row.pop("_refused_pane", None)
+        if row.get("status") == "cannot_run":
+            _hit = _refused_panes.get(str(row.get("detail") or "").strip())
+            if _pane:
+                _hit = (_pane, _pane)
+            if _hit:
+                row["needs_access"] = _hit[0]
+                row["reason"] = ("Ostler needs %s (System Settings > Privacy "
+                                 "& Security > %s)" % (_hit[0], _hit[1]))
         row["count_label"], row["count_kind"] = _source_count_label(row)
 
     # ── #30: THE DOWNLOADS WATCHER, AND WHY IT FOUND SOMETHING AND IMPORTED NOTHING ──

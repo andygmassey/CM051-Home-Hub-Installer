@@ -75,6 +75,41 @@ def has_consent(consent: dict | None, key: str) -> bool:
     return False
 
 
+ENRICH_DECISION_KEY = "OSTLER_CONSENT_ENRICHMENT_DECISION"
+
+
+def install_config_env_path() -> str:
+    """The installer's persisted answers: ``<OSTLER_DIR>/config/.env``
+    (OSTLER_DIR defaults to ~/.ostler)."""
+    base = os.path.expanduser(os.environ.get("OSTLER_DIR") or "~/.ostler")
+    return os.path.join(base, "config", ".env")
+
+
+def public_lookups_agreed(path: str | None = None) -> bool:
+    """Did the owner say YES to online look-ups at install (Q_ENRICH, written
+    by install.sh as ``OSTLER_CONSENT_ENRICHMENT_DECISION="accepted"``)?
+
+    Re-read from the FILE on every call, never cached and never taken from the
+    environment: a revocation lands on the next call. Same reader semantics as
+    CM051's ``_public_lookups_agreed`` / ``ostler_public_lookups_flag``: the
+    last assignment wins, optional double quotes are stripped, and ONLY the
+    word ``accepted`` is a yes. Missing, unreadable, empty or any other value
+    is a no (fail closed)."""
+    try:
+        with open(path or install_config_env_path(), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except Exception:  # noqa: BLE001 - any read failure is "no"
+        return False
+    value = ""
+    prefix = ENRICH_DECISION_KEY + "="
+    for line in lines:
+        if line.startswith(prefix):
+            value = line[len(prefix):]
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]
+    return value == "accepted"
+
+
 class Scout:
     """Interface every scout implements (spec section 5, E3).
 

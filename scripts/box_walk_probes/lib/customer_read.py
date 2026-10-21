@@ -687,12 +687,19 @@ def judge(f, declared=None):
         add(DECLARED[15], org["wiki front"] == org["Organisations page"], ", ".join("{} {}".format(k, v) for k, v in org.items()))
 
     # sources
+    # An explicit key always wins over an alias: the graph merge ("people") is
+    # only the Contacts answer when the API gave no "contacts" row of its own.
+    # ORing them let people=ok mask contacts=no_data (v1.0.115 walk, H1).
     api = {}
+    aliased = {}
     for s, st in (f.get("api") or {}).get("sources") or []:
         s2 = API_ALIASES.get(s, s)
         if s2:
             c = status_class(st)
-            api[s2] = "ok" if (api.get(s2) == "ok" or c == "ok") else c
+            dest = aliased if s in API_ALIASES else api
+            dest[s2] = "ok" if (dest.get(s2) == "ok" or c == "ok") else c
+    for s2, c in aliased.items():
+        api.setdefault(s2, c)
     wl = (wiki.get("front") or {}).get("sources")
     if wl is None:
         add(DECLARED[16], None, "NOT MEASURED: the wiki source list was not read")
@@ -1052,6 +1059,16 @@ def crawl_nav(rels, read_page, reopen, budget_s, log=None, reopens=None):
     return read, why
 
 
+def _make_saw(f, token):
+    """The request-URL tap used by collect(): counts any URL carrying the
+    bearer token into f["bearer_in_url"] (#2558). Module level so the
+    self-test can drive the REAL tap, not just the judge's reading of its count."""
+    def saw(url):
+        if token and token in url:
+            f["bearer_in_url"] += 1
+    return saw
+
+
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
     import urllib.request
     from playwright.sync_api import sync_playwright
@@ -1065,9 +1082,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         u = re.sub(r"([?&]token=)[^&]+", r"\1<redacted>", u)
         return re.sub(r"/[0-9a-f]{8}-[0-9a-f-]{27,}", "/<id>", u)
 
-    def saw(url):
-        if token and token in url:
-            f["bearer_in_url"] += 1
+    saw = _make_saw(f, token)
 
     feed_json = None
     if feed_path:
@@ -1736,6 +1751,26 @@ def self_test():
                        "does not fail ({!r}, want [False])".format(got13))
     else:
         print("  ok    a silent duplicate, absent from the duplicate-review surface, FAILS")
+
+    # #2558: the "bearer in a URL" mutant above only sets the count; it never
+    # runs the tap that is meant to produce it. Drive saw() itself: a token URL
+    # must register a hit, a clean URL must not, and an empty token never hits.
+    tok = "zc_synthetic_token_0001"
+    tap = {"bearer_in_url": 0}
+    _make_saw(tap, tok)("http://127.0.0.1:1/ws/chat?token=" + tok)
+    if tap["bearer_in_url"] != 1:
+        missed.append("saw() missed a token URL (count {}, want 1)".format(tap["bearer_in_url"]))
+    else:
+        print("  ok    saw() counts a URL carrying the token")
+    tap = {"bearer_in_url": 0}
+    saw_clean = _make_saw(tap, tok)
+    saw_clean("http://127.0.0.1:1/ws/chat?session_id=abc")
+    saw_clean("http://127.0.0.1:1/api/people")
+    _make_saw(tap, "")("http://127.0.0.1:1/ws/chat?token=")
+    if tap["bearer_in_url"] != 0:
+        missed.append("saw() flagged a clean URL (count {}, want 0)".format(tap["bearer_in_url"]))
+    else:
+        print("  ok    saw() ignores clean URLs and an empty token")
 
     # An @handle is customer data, so it must PASS the internal-values check;
     # the same token without the "@" is a stored key and must still FAIL.

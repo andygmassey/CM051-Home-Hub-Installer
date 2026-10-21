@@ -1629,3 +1629,20 @@ A new FDA source with no row in the Doctor's register is invisible: the sentinel
 ### What a future sync must preserve
 
 The four `calls` entries above. The writer side is `install.sh` (`_hydrate_fda_record_calls`, `OSTLER_FDA_SOURCE_ROWS` `call_history:calls`, `OSTLER_SENTINEL_SOURCES` `calls`); the contract is the row name `calls` and the payload key `total_calls`. Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (workflow `vendor-integrity.yml`), which drives the real recorders and the real renderer: ticked and read, Full Disk Access ungranted, unknown schema, and declined (no row, with a control in the same summary).
+
+## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: inside
+`read_source_status`, a nested `_refused_panes` map (`fda_not_granted`, `no_fda`,
+`media_library_not_granted`) turns a `cannot_run` row into `needs_access` plus a
+`reason` ("Ostler needs <X> (System Settings > Privacy & Security > <pane>)"); the
+ongoing-tick refusal branch sets the same. `render_source_status` prints the status
+word "needs access" for such a row. The sentinel status stays `cannot_run`, so the
+writer vocabulary and CM044's reader are unchanged. Any other `cannot_run` detail
+keeps "could not look" and no reason.
+
+### What a future sync must preserve
+
+The map, the `needs_access` key, and the `status_word` choice in the renderer.
+Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (mutant:
+defaulting an unlisted reason to Full Disk Access turns six assertions red).
