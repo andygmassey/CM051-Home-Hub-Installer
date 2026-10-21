@@ -50,7 +50,7 @@ echo "PASS [case-1]: bundled \${SCRIPT_DIR}/assistant_api/ path present"
 # but the FIRST candidate inspected must be the bundled path.
 # Heuristic: find the activation block, confirm the bundled path
 # appears before the dev path within it.
-ACTIVATION_BLOCK=$(awk '/Included Ostler Pro activation/,/^fi$/' "$INSTALL_SH")
+ACTIVATION_BLOCK=$(awk '/Included-months subscription activation/,/^fi$/' "$INSTALL_SH")
 if [[ -z "$ACTIVATION_BLOCK" ]]; then
     echo "FAIL [case-2]: could not isolate First-month-free activation block"
     exit 1

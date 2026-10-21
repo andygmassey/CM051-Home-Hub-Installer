@@ -59,7 +59,7 @@ fi
 echo "PASS: strings file parses"
 
 # ── Structural sanity: activation block present ─────────────────
-if ! grep -q 'Included Ostler Pro activation (G2)' "$INSTALL_SCRIPT"; then
+if ! grep -q 'Included-months subscription activation (G2)' "$INSTALL_SCRIPT"; then
     echo "FAIL [struct]: G2 activation section header not found in install.sh" >&2
     exit 1
 fi

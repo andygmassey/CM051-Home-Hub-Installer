@@ -40656,7 +40656,7 @@ else
     fi
 fi
 
-# ── Included Ostler Pro activation (G2) ───────────────────────────
+# ── Included-months subscription activation (G2) ───────────────────────────
 #
 # The GUI verified the customer's Ed25519-signed licence file before
 # exec'ing this script (see the "Licence / activation check" block
