@@ -230,6 +230,7 @@ test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/col
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_console_only_register_names_real_probes.py	WIRED	.github/workflows/walk-record-gate.yml
 test_contact_card_prefill.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_contact_cards_seed_runs_the_probe.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_contact_email_coverage_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_resync_scheduled.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contacts_and_reminders_are_reread.sh	WIRED	.github/workflows/fda-rerun-ingests.yml

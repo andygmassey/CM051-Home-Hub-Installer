@@ -73,6 +73,21 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
 
+      # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
+      # icloud_contact_uid identifiers). The walk now seeds six synthetic cards;
+      # this drives the SHIPPING probe over a real rdflib store: cold CANNOT-RUN,
+      # seeded PASS, a doubled card FAIL, forget spares customer triples.
+      # rdflib is a test dependency; a skip (importorskip) is NOT a pass, so
+      # -rs output is checked for "SKIPPED".
+      - name: contact cards seed lets no_person_holds_two_contact_cards run (rdflib store)
+        if: always()
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/ccs-venv"
+          "${RUNNER_TEMP}/ccs-venv/bin/python" -m pip install --quiet pytest rdflib
+          out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+
       - name: ingest_coverage credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
