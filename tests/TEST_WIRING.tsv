@@ -483,6 +483,7 @@ test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launc
 test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
