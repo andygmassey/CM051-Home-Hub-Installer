@@ -159,7 +159,7 @@ def forget(syncer):
 
 
 def holders_q(value):
-    """Live Persons holding exactly this identifier value."""
+    """live persons holding exactly this identifier value."""
     return ("PREFIX pwg: <%s>\nSELECT (COUNT(DISTINCT ?p) AS ?n) WHERE {\n"
             "  ?p a pwg:Person ; pwg:hasIdentifier ?i . ?i pwg:identifierValue %s .\n"
             "  FILTER NOT EXISTS { ?p pwg:mergedInto ?x } }" % (PWG, _lit(value)))
@@ -174,7 +174,7 @@ def handle_ingested_q():
 
 
 def live_cast_persons_q():
-    """Live Persons holding a cast icloud_contact_uid."""
+    """live persons holding a cast icloud_contact_uid."""
     vals = " ".join(_lit(u) for u in cast_uids())
     return ("PREFIX pwg: <%s>\nSELECT DISTINCT ?node WHERE {\n"
             "  ?node a pwg:Person ; pwg:hasIdentifier ?i . ?i pwg:identifierValue ?v .\n"

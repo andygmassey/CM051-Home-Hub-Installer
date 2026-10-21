@@ -406,7 +406,7 @@ def test_a_second_seed_is_idempotent(stores, home):
 
 def test_forget_removes_the_cast_graph_and_vectors_and_spares_the_customer(stores, home):
     stores.g.update(
-        'PREFIX pwg: <%s> INSERT DATA { <%s> a pwg:Person ; pwg:displayName "Synthetic Customer" }' % (PWG, CUSTOMER))
+        'PREFIX pwg: <%s> INSERT DATA { <%s> a pwg:Person ; pwg:displayName "Bob Jones" }' % (PWG, CUSTOMER))
     cust_triples = len(stores.g)
     assert run_seed(home, stores)[0] == "seeded"
     # a customer point must survive too
