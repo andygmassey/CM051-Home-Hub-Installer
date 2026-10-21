@@ -60,6 +60,12 @@ DECLARED = [
 ]
 
 
+def _has_number(v):
+    """allowed_numbers is written as a one-line TOML array; true when it holds
+    at least one run of digits (a bare `[]` or `[""]` is empty)."""
+    return bool(re.search(r"[0-9]{5,}", v if isinstance(v, str) else ""))
+
+
 def judge(f):
     out = []
 
@@ -83,7 +89,13 @@ def judge(f):
     else:
         email_cfg = cfg.get("channels_email")
         if not email_cfg or not email_cfg.get("enabled"):
-            add(DECLARED[0], None, "NOT MEASURED: this box's install did not enable a custom-IMAP/SMTP email channel (Apple-Mail-only, or email channel disabled) -- nothing to round-trip")
+            # NOT APPLICABLE, not "not measured": nothing was enabled, so there is
+            # no field that could have failed to round-trip. Counting this as
+            # CANNOT made the whole probe CANNOT-RUN on every box that does not
+            # use custom IMAP, i.e. every walk box (v1.0.115). The guard below
+            # (_nothing_measured) keeps a box where NOTHING was examined from
+            # passing on N/A rows alone.
+            add(DECLARED[0], NA, "N/A: this box's install did not enable a custom-IMAP/SMTP email channel (Apple-Mail-only, or email channel disabled) -- nothing to round-trip")
         elif not email_cfg.get("smtp_host"):
             add(DECLARED[0], False, "[channels.email] is enabled but smtp_host is empty -- the wizard's SMTP prompt did not reach the file")
         else:
@@ -91,14 +103,26 @@ def judge(f):
 
     wa_cfg = cfg.get("channels_whatsapp") or {}
     wa_jobs = [j for j in jobs if j.get("delivery_channel") == "whatsapp"]
+    wa_has_number = _has_number(wa_cfg.get("allowed_numbers"))
     if not wa_cfg.get("enabled"):
         add(DECLARED[1], None, "NOT MEASURED: this box's install did not enable the WhatsApp channel")
-    elif not wa_jobs:
-        add(DECLARED[1], None, "NOT MEASURED: WhatsApp is enabled but did not resolve as this box's brief-delivery channel (iMessage took priority, or no brief channel resolved at all)")
-    elif any(not j.get("delivery_to") for j in wa_jobs):
-        add(DECLARED[1], False, "WhatsApp resolved as the brief channel but at least one cron job's delivery.to is empty -- a customer who enabled WhatsApp would get silent non-delivery (#446/CX-68 shape)")
+    elif wa_jobs:
+        if any(not j.get("delivery_to") for j in wa_jobs):
+            add(DECLARED[1], False, "WhatsApp resolved as the brief channel but at least one cron job's delivery.to is empty -- a customer who enabled WhatsApp would get silent non-delivery (#446/CX-68 shape)")
+        else:
+            add(DECLARED[1], True, "{} cron job(s) resolved delivery.channel=whatsapp with a non-empty recipient; actual WhatsApp Web dispatch is NOT measured (no readiness API in this repo, no paired session on a fresh walk box)".format(len(wa_jobs)))
+    elif not wa_has_number and not jobs:
+        add(DECLARED[1], None, "NOT MEASURED: WhatsApp is enabled but no brief channel resolved at all and no recipient was written")
+    elif not wa_has_number:
+        add(DECLARED[1], False, "WhatsApp is enabled but [channels.whatsapp] carries no allowed_numbers: dm_policy defaults to allowlist, so every inbound message, including the customer's replies, would be denied")
+    elif not wa_cfg.get("session_path"):
+        add(DECLARED[1], False, "WhatsApp is enabled with a recipient but [channels.whatsapp] has no session_path: the daemon reports it 'enabled but not configured'")
     else:
-        add(DECLARED[1], True, "{} cron job(s) resolved delivery.channel=whatsapp with a non-empty recipient; actual WhatsApp Web dispatch is NOT measured (no readiness API in this repo, no paired session on a fresh walk box)".format(len(wa_jobs)))
+        # iMessage is FIRST when both are available (install.sh, "iMessage stays
+        # FIRST"), so a customer with both gets no whatsapp cron job and the
+        # WhatsApp path is configured by [channels.whatsapp] alone. Measured
+        # here: the recipient install.sh captured was WRITTEN, with a session_path.
+        add(DECLARED[1], True, "[channels.whatsapp] enabled with session_path and a non-empty allowed_numbers recipient (another channel took the brief, so no whatsapp cron job is expected); actual WhatsApp Web dispatch is NOT measured (no paired session on a fresh walk box)")
 
     names = [n for n, _, _ in out]
     missing = [x for x in DECLARED if x not in names]
@@ -236,6 +260,33 @@ enabled = true
 """
 
 
+# The shape a walk box gets when walk_drive answers channel_choice=5: iMessage
+# AND WhatsApp enabled, no custom IMAP. iMessage takes the brief, so there is
+# no whatsapp cron job; the WhatsApp path is [channels.whatsapp] alone.
+_WALK_BOX_TOML = """
+[channels.imessage]
+enabled = true
+allowed_contacts = ["PHONEPLACEHOLDER"]
+
+[channels.apple_mail]
+enabled = true
+
+[channels.whatsapp]
+enabled = true
+mode = "personal"
+session_path = "/tmp/ostler-synthetic/state/whatsapp-session.db"
+allowed_numbers = ["PHONEPLACEHOLDER"]
+
+[[cron.jobs]]
+id = "morning-brief"
+delivery = { mode = "announce", channel = "imessage", to = "PHONEPLACEHOLDER", best_effort = false }
+""".replace("PHONEPLACEHOLDER", _SYNTH_WA_NUMBER)
+
+_WALK_BOX_NO_RECIPIENT_TOML = _WALK_BOX_TOML.replace('allowed_numbers = ["' + _SYNTH_WA_NUMBER + '"]', 'allowed_numbers = []')
+_WALK_BOX_NO_SESSION_TOML = _WALK_BOX_TOML.replace('session_path = "/tmp/ostler-synthetic/state/whatsapp-session.db"\n', "")
+_WALK_BOX_WHATSAPP_OFF_TOML = _WALK_BOX_TOML.replace("[channels.whatsapp]\nenabled = true", "[channels.whatsapp]\nenabled = false")
+
+
 def self_test():
     import copy
     fails = []
@@ -274,6 +325,26 @@ def self_test():
     else:
         print("  ok    an unreadable config.toml is CANNOT-RUN for both arms, never a pass")
 
+    walk = {"config": parse_config(_WALK_BOX_TOML)}
+    if row(walk, 1) != [True] or row(walk, 0) != [NA]:
+        fails.append("the walk-box shape (iMessage first, WhatsApp configured, no custom IMAP) should be whatsapp ok + email N/A, got {} / {}".format(row(walk, 1), row(walk, 0)))
+    elif report_rc(judge(walk)) != EX_PASS:
+        fails.append("the walk-box shape should be a PASS overall")
+    else:
+        print("  ok    walk-box shape (iMessage first, WhatsApp written, no custom IMAP): PASS, email N/A")
+
+    for label, toml in (("no recipient written", _WALK_BOX_NO_RECIPIENT_TOML), ("no session_path", _WALK_BOX_NO_SESSION_TOML)):
+        if row({"config": parse_config(toml)}, 1) != [False]:
+            fails.append("walk-box mutant '{}' not caught: {}".format(label, row({"config": parse_config(toml)}, 1)))
+        else:
+            print("  ok    mutant caught: walk-box WhatsApp with {}".format(label))
+
+    off = judge({"config": parse_config(_WALK_BOX_WHATSAPP_OFF_TOML)})
+    if report_rc(off) != EX_CANNOT:
+        fails.append("a box where nothing but N/A was examined must be CANNOT-RUN, got rc {}".format(report_rc(off)))
+    else:
+        print("  ok    WhatsApp off + no custom IMAP: CANNOT-RUN (N/A rows alone are never a pass)")
+
     if [ok for n, ok, _ in judge({"config": None}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")
     if fails:
@@ -283,6 +354,17 @@ def self_test():
     return EX_PASS
 
 
+def report_rc(rows):
+    fails = [n for n, ok, _ in rows if ok is False]
+    cannot = [n for n, ok, _ in rows if ok is None]
+    measured = [n for n, ok, _ in rows if ok is True and n in DECLARED]
+    # N/A rows are not evidence. A box where no declared assertion held, and none
+    # failed, examined nothing: that is CANNOT-RUN, never a pass on N/A alone.
+    if not fails and not measured:
+        return EX_CANNOT
+    return EX_FAIL if fails else (EX_CANNOT if cannot else EX_PASS)
+
+
 def report(rows):
     for name, ok, detail in rows:
         tag = "  N/A   " if ok == NA else ("  ok    " if ok is True else ("  CANNOT " if ok is None else "  FAIL  "))
@@ -290,7 +372,7 @@ def report(rows):
     fails = [n for n, ok, _ in rows if ok is False]
     cannot = [n for n, ok, _ in rows if ok is None]
     print("EXAMINED: {} brief-channel assertions ({} failed, {} not measured)".format(len(rows), len(fails), len(cannot)))
-    return EX_FAIL if fails else (EX_CANNOT if cannot else EX_PASS)
+    return report_rc(rows)
 
 
 def main(argv):
