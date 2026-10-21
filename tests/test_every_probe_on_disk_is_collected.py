@@ -92,6 +92,12 @@ EXEMPT: dict[str, str] = {
         "employer to ask about; it removes the position again after phase 2. "
         "It has no PROBE_NAME and no verdict. Its wiring and its seeded/failed "
         "states are pinned by tests/test_the_walk_seeds_the_owner_employer.sh.",
+    "lib/gen_whatsapp_config.sh":
+        "a helper, not a probe: it runs install.sh's real channel-config writer "
+        "off-box in a throwaway HOME and prints the config.toml for answer 5 "
+        "(WhatsApp on, synthetic number), so a walk box never enables WhatsApp. "
+        "It has no PROBE_NAME and no verdict. It IS invoked: "
+        "lib/brief_channel_probe.py runs it to judge the real writer.",
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
     "lib/converge_wait.sh":
