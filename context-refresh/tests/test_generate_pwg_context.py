@@ -305,3 +305,62 @@ def test_l3_calendar_kind_timeline_row_withheld(monkeypatch, gen):
     })
     digest = gen.build_digest()
     assert "Private offsite" not in (digest or "")
+
+
+# ── Derived preferences reach the digest (smart-prefs) ───────────────────────
+
+_DERIVED_HUB = {
+    # Longest prefix first: _patch_hub matches by startswith in dict order.
+    "/api/v1/preferences/derived": {
+        "generated_at": "2026-10-22T00:00:00Z",
+        "degraded": False,
+        "items": [
+            {"dimension": "media.film.genre", "label": "Noir thrillers",
+             "strength": 0.8, "confidence": 0.9, "intensity": "strong",
+             "because": ["watched 12"]},
+            {"dimension": "food.cuisine", "label": "Cilantro",
+             "strength": -0.6, "confidence": 0.7, "intensity": "casual",
+             "because": ["skipped 4"]},
+        ],
+    },
+    **_MINED_HUB,
+}
+
+
+def _preferences_lines(digest):
+    section = digest.split(_PREFS_HEADING, 1)[1].split("\n## ", 1)[0]
+    return [ln for ln in section.splitlines() if ln.startswith("- ")]
+
+
+def test_derived_preferences_reach_the_preferences_section(monkeypatch, gen):
+    _patch_sparql(monkeypatch, gen, [])
+    _patch_hub(monkeypatch, gen, _DERIVED_HUB)
+    lines = _preferences_lines(gen.build_digest())
+    assert "- Likes: Noir thrillers" in lines
+    assert "- Not keen on: Cilantro" in lines
+    # derived first, the interest profile still fills in behind it
+    assert lines.index("- Likes: Noir thrillers") < lines.index("- Sea kayaking (Sport)")
+
+
+def test_degraded_derived_route_adds_nothing_and_breaks_nothing(monkeypatch, gen):
+    hub = dict(_DERIVED_HUB)
+    hub["/api/v1/preferences/derived"] = {
+        "items": [], "degraded": True,
+        "cannot_check": "no derived preferences materialized yet"}
+    _patch_sparql(monkeypatch, gen, [])
+    _patch_hub(monkeypatch, gen, hub)
+    lines = _preferences_lines(gen.build_digest())
+    assert lines == ["- Sea kayaking (Sport)"]
+
+
+def test_derived_preferences_stay_inside_the_section_budget(monkeypatch, gen):
+    many = [{"dimension": "d", "label": f"Thing {i}", "strength": 0.5,
+             "confidence": 0.9, "intensity": "casual", "because": []}
+            for i in range(40)]
+    hub = dict(_DERIVED_HUB)
+    hub["/api/v1/preferences/derived"] = {"items": many, "degraded": False}
+    _patch_sparql(monkeypatch, gen, [])
+    _patch_hub(monkeypatch, gen, hub)
+    lines = _preferences_lines(gen.build_digest())
+    assert len(lines) <= gen.MAX_PREFERENCES
+    assert sum(1 for ln in lines if ln.startswith("- Likes: Thing")) == gen.MAX_DERIVED_PREFERENCES

@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `cc0d1fb8b0263f30ab4eccec78f8ae1a6980a969db90be1155d1293ccf22af14` (post-graft, this repo, after item 11) |
+| Current SHA-256 | `1cb41381c742ad5bdf948ac79e2f39560e1b1fa982c909ad8e7f0f2687dbdf98` (post-graft, this repo, after item 12) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-18 (people ranked from per-channel last-contact dates, walk #31, item 11). NOT upstream. |
+| Last divergence | 2026-10-22 (derived preferences read into the Preferences section, smart-prefs, item 12). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -205,6 +205,20 @@ the kind of blanket claim that goes stale one item at a time:
    The recency arm is an addition: if its read fails the counted ranking
    still renders (the failure stays recorded). Pinned by
    `test_green_a_failed_recency_read_keeps_the_counted_ranking`.
+
+12. **Derived preferences reach the digest** (2026-10-22, smart-prefs). NOT
+   upstream. The Preferences section read the compiled interest profile
+   (`/api/v1/preferences`) and the coach surface only, so the derive engine's
+   `pwg:DerivedPreference` nodes ("What you like"), served at
+   `/api/v1/preferences/derived`, reached the wiki and the assistant's tool but
+   never CONTEXT.md. `_derived_preference_lines` now reads that route first and
+   renders `- Likes: <label>` / `- Not keen on: <label>` (sign of `strength`),
+   at most `MAX_DERIVED_PREFERENCES` (4), counted INSIDE `MAX_PREFERENCES` (8)
+   so the section's size is unchanged. A degraded or empty answer adds nothing;
+   the interest profile still fills the section. Pinned by
+   `test_derived_preferences_*` in `context-refresh/tests/test_generate_pwg_context.py`
+   and, end to end through the real generator and the real walk probe, by
+   `tests/test_the_generated_digest_names_derived_preferences.sh`.
 
 ## Why vendored rather than shipped in the assistant release
 

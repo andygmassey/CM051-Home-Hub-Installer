@@ -149,6 +149,10 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             self._send(200, _EMPLOYER)
         elif path == "/api/v1/preferences":
             self._send(200, _PREFERENCES)
+        elif path == "/api/v1/preferences/derived":
+            # As the Hub answers before the derive pass has run: 200 degraded.
+            self._send(200, {"items": [], "degraded": True,
+                             "cannot_check": "no derived preferences materialized yet"})
         else:
             self._send(404, {"error": "not found"})
 
