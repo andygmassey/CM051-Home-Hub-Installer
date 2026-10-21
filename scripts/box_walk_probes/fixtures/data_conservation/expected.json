@@ -3568,7 +3568,7 @@
      "exclusions": [
       {
        "fact": {
-        "key": "w.denied.preferences.source=facebook|category=movie_tv",
+        "key": "w.denied.preferences.source=facebook_watched|category=movie_tv",
         "zero_if": "w.denied.preferences.total"
        },
        "reason": "CM044 noise_reason() denied it",
@@ -3581,27 +3581,27 @@
      },
      "facts": {
       "graph": {
-       "key": "x.pref.raw.source=facebook|category=movie_tv",
+       "key": "x.pref.raw.source=facebook_watched|category=movie_tv",
        "zero_if": "x.pref.raw.total"
       },
       "graph_distinct": {
-       "key": "x.pref.distinct.source=facebook|category=movie_tv",
+       "key": "x.pref.distinct.source=facebook_watched|category=movie_tv",
        "zero_if": "x.pref.raw.total"
       },
       "shown": {
-       "key": "w.shown.preferences.source=facebook|category=movie_tv",
+       "key": "w.shown.preferences.source=facebook_watched|category=movie_tv",
        "zero_if": "w.corpus_chars"
       },
       "stored": {
-       "key": "q.preferences.source=facebook|category=movie_tv",
+       "key": "q.preferences.source=facebook_watched|category=movie_tv",
        "zero_if": "q.preferences.total"
       }
      },
-     "id": "preferences/facebook/movie_tv",
+     "id": "preferences/facebook_watched/movie_tv",
      "parsers": [
       "meta"
      ],
-     "source": "facebook",
+     "source": "facebook_watched",
      "unit": "preferences",
      "writer_emitted": 4,
      "writer_excluded": 0,
