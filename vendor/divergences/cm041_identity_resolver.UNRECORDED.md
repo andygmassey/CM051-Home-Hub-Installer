@@ -216,3 +216,33 @@ Update: no vector snapshot, no merge. `record_merge` raises `SnapshotUnavailable
 when Qdrant cannot be read; `execute()` skips the pair, journals a `skip`
 (reason `qdrant_unavailable`), and the next converge retries. Not a RULE 2
 refusal, not a pin.
+
+## Nameless pair on one number resolves to one person (CM051 #2545, 2026-10-21)
+
+NOT UPSTREAM yet; CM041 needs the same change (CM041 `identity_resolver/resolver.py`,
+`_identifier_match_trustworthy`). Not retired by any merged upstream PR.
+
+Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
+gains one early return, and the module imports `name_tier` and `NAME_TIER_HUMAN`
+from `canonical_name.py` (already in the tree, nothing there touched).
+
+Why: the BW-1 guard trusted a shareable (phone/email) match only when both display
+names were present and equal. A Contacts card with no name (job title only) and a
+messaging handle on the same number are both nameless, so the guard declined and a
+second person was minted: two "Unknown contact" rows on one number on the v1.0.106
+walk box. Measured by reproduction against the shipped syncer and resolver over an
+rdflib store: card `""` + phone, then handle `""`/phone-as-name + same phone gave
+`match_type=new`.
+
+Fix: when NEITHER the incoming name nor the matched node's name is human-tier
+(blank, phone, email or system alias), there is no name to disagree about and the
+match is trusted. RULE 2 runs first and is untouched, so two Contacts cards with
+different `icloud_contact_uid` still never merge. A human name on either side keeps
+the existing name-agreement rule: different human names on one line stay two people,
+and a nameless handle beside a NAMED card still declines.
+
+Guarded by `tests/test_nameless_records_sharing_a_number_are_one_person.py` (3 red on
+the unmodified resolver, 8 green here; mutant dropping the matched-node side goes
+red on the named-card control). Does NOT repair duplicates already in an installed
+graph: the BatchResolver exact-identifier tier requires the same full name, so
+existing nameless pairs are not collapsed by this change.

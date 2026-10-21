@@ -11,7 +11,13 @@ import httpx
 
 from contact_syncer.relationship_labels import is_relationship_label
 
-from .canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
+from .canonical_name import (
+    NAME_TIER_HUMAN,
+    choose_canonical_display_name,
+    name_tier,
+    prefer_real_given_name,
+    upward_name,
+)
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
@@ -1043,10 +1049,24 @@ class IdentityResolver:
 
         if id_type not in self._SHAREABLE_ID_TYPES:
             return True
+        existing_raw = self._person_display_name(matched_uri)
+        # CM051 #2545: when NEITHER side carries a human name (both blank, or a
+        # phone / email / system alias standing in for one) there is no name to
+        # disagree about, and the shared number or address is the only identity
+        # either record has. Declining here minted a second person for every
+        # such pair, which the People list shows as two "Unknown contact" rows
+        # on one number. RULE 2 has already run above, so two different Contacts
+        # cards still never merge. A human name on EITHER side keeps the
+        # name-agreement rule below, unchanged.
+        if (
+            name_tier(identity.display_name) < NAME_TIER_HUMAN
+            and name_tier(existing_raw) < NAME_TIER_HUMAN
+        ):
+            return True
         incoming = self._normalise_name(identity.display_name)
         if not incoming:
             return False
-        existing = self._normalise_name(self._person_display_name(matched_uri))
+        existing = self._normalise_name(existing_raw)
         if not existing:
             return False
         return incoming == existing
