@@ -15,8 +15,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 49
-digest: 721aa8a98ebfbf104f49202e610bb01475d1372250817be2d0a2bdb93fe9b85c
+hosts: 52
+digest: 0db3a3efdc1fea0587affb3375ba634d1b68e5b817ca1e43ffb94b3ed5973a22
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -220,14 +220,52 @@ and the instrument reports such a connection in its own bucket, headed OWNER
 ATTRIBUTED, SERVICE NOT, so a reader can see how much of the attribution rests
 on who owns an address rather than on which service answered.
 
-### Still unattributed
+### `limactl`'s destinations: attributed from the code, 2026-10-21
 
-1. `limactl`'s install-phase destinations, which change between samples.
+They were listed here as unattributed because they changed between samples.
+The cause is not mysterious and it is not one thing:
 
-Publishing an inventory with unexplained rows is better than publishing one
-that quietly drops them, and better again is going back and explaining one.
-This is still not finished, and the enrichment measurement above is the
-blocker, not this.
+* **`limactl` is carrying the VM's traffic, not its own.** colima starts the
+  VM with lima's `user-v2` network, which is a userspace network run by a
+  `limactl` process. A TCP connection opened by a container inside the VM
+  therefore shows on the Mac as a socket owned by `limactl`. What the probe
+  saw under `limactl` is what the containers were talking to.
+* **The image pulls are all `ghcr.io`.** Every compose image in the installer
+  is a `ghcr.io/...@sha256:` digest. Layers are served from a CDN, so the
+  addresses differ sample to sample. `ghcr.io` and
+  `pkg-containers.githubusercontent.com` were already declared.
+* **The Wikimedia address was a missing name.** `208.80.154.224` held by
+  `limactl` on 2026-08-17 is `text-lb.eqiad.wikimedia.org`, the front end that
+  `en.wikipedia.org` resolves to in some regions (a Hong Kong lookup returns
+  `103.102.166.224`, 2026-10-21). The wiki-compiler container looks artists
+  and organisations up on Wikipedia, MusicBrainz and OpenStreetMap, but only
+  when `OSTLER_PUBLIC_LOOKUPS=agreed`, which the launcher sets from the
+  customer's recorded yes. `en.wikipedia.org` and `overpass-api.de` were not
+  in the ledger. They are now, and the `musicbrainz.org` and
+  `nominatim.openstreetmap.org` rows now say the compiler path is live when
+  consented (the host-side enricher for Nominatim is still dead code).
+* **The VM image comes from GitHub.** colima's pinned image
+  (`abiosoft/colima-core`, sha512-checked) is fetched by colima's own curl
+  downloader, so it shows under `curl`, via a redirect to
+  `release-assets.githubusercontent.com`, now declared.
+
+What the VM does **not** fetch, read from the generated `lima.yaml` and
+colima's embedded image table: no containerd or nerdctl archive
+(`containerd.system` and `user` are false), no k3s (Kubernetes is off), no
+`apt` in any provision script (Docker is baked into the image), and no
+`docker.io` or `registry-1` pull.
+
+Because the probe joins by name resolved in the same loop as the socket read,
+none of this needs an IP range. A host that rotates addresses is matched by its
+name, so the fix for a `limactl` row is always to declare the name.
+
+**Not settled by reading, and not published as rows:** that a walk box really
+uses `user-v2` (the version read was colima 0.10.3; the installer does not pin
+colima, so `brew install colima` can change it), and whether the guest sends
+NTP over UDP, which a TCP probe cannot see. On a walk box mid-install, run
+`lsof -nP -iTCP -sTCP:ESTABLISHED -a -c limactl` and compare each remote's
+reverse name with the ledger; if a row there matches nothing declared, that is
+a new finding. `ps -ef | grep '[l]imactl usernet'` confirms the carrier.
 
 ## Verify it yourself
 

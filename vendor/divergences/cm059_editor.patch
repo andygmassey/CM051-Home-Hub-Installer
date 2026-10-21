@@ -393,7 +393,7 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -484,20 +485,130 @@
+@@ -488,20 +489,130 @@
  _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
  # A one-off signal this old is not a current interest, regardless of shape.
  _ANCIENT_YEARS = 15
@@ -525,7 +525,7 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -900,7 +1011,46 @@
+@@ -920,7 +1031,46 @@
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -573,7 +573,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -920,8 +1070,16 @@
+@@ -940,8 +1090,16 @@
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -590,7 +590,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -947,6 +1105,9 @@
+@@ -967,6 +1125,9 @@
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -600,7 +600,7 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -957,16 +1118,77 @@
+@@ -977,16 +1138,77 @@
  # ---------------------------------------------------------------------------
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
@@ -682,7 +682,7 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
-@@ -992,7 +1214,8 @@
+@@ -1012,7 +1234,8 @@
      oxigraph_url = oxigraph_url or os.environ.get(
          "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
      out: list[dict] = []
