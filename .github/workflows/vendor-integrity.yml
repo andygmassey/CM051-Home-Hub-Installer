@@ -91,6 +91,9 @@ on:
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_front_page_not_me_probe_end_to_end.sh'
+      - 'scripts/box_walk_probes/probes/front_page_not_me_is_saved.sh'
+      - 'scripts/box_walk_probes/lib/front_page_not_me.py'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       - 'tests/test_the_doctor_page_is_on_brand.py'
       # The four files that carry the Doctor's palette. The brand gate reads all
@@ -627,6 +630,14 @@ jobs:
       - name: The Front Page add verb reaches the store and survives a compile
         if: always()
         run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
+
+      # CM051 #2470 (v1.0.105 walk: Not me came back on the next visit). The walk
+      # probe POSTs a Not me from Origin tauri://localhost to the REAL Doctor,
+      # re-reads both stores, and must FAIL against a no-persist server, a server
+      # that refuses the app origin, and a mutant Doctor with that origin removed.
+      - name: The Not me walk probe passes the real route and fails every broken one
+        if: always()
+        run: bash tests/test_front_page_not_me_probe_end_to_end.sh
 
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only
