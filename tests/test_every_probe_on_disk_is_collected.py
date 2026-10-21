@@ -51,6 +51,17 @@ EXEMPT: dict[str, str] = {
         "companion_walk_baseline before the pairing probes and "
         "companion_walk_unpair after every measurement, so the walk leaves no "
         "synthetic companion paired. It has no PROBE_NAME and no verdict.",
+    "lib/contact_cards_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it after the "
+        "scale fixture and calls contact_cards_apply, which gives a cold walk "
+        "account synthetic Contacts THROUGH the shipped paths (contact_syncer "
+        "--vcf, pwg_ingest.ingest_imessage, dedupe_merge.run, the people-to-"
+        "Qdrant reconcile) so no_person_holds_two_contact_cards, "
+        "people_stores_reconcile and people_count_agreement have something to "
+        "measure. It has no PROBE_NAME and no verdict; collecting it would run "
+        "a seed as if it were a measurement. Its invocation and its three "
+        "probe-side consequences are pinned by "
+        "tests/test_contact_cards_seed_runs_the_probe.py.",
     "lib/scale_fixture_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it after "
         "usage_seed and calls scale_fixture_apply, which replays the synthetic "
