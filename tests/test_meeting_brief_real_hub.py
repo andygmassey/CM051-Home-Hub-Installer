@@ -323,11 +323,11 @@ def main():
 
                 print("-- 4c Ostler Pro: the canonical subscription gate (Rule 0.8) --")
                 rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 5))
-                check("day 5 of the included month: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
+                check("day 5 of the included window: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
                 rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("paid", 20))
                 check("a paying subscriber: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
-                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 31))
-                check("day 31, never paid: nothing sent, exit 0, and the log says Pro is not active",
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 181))
+                check("day 181, never paid: nothing sent, exit 0, and the log says Pro is not active",
                       rc == 0 and not sent and "Ostler Pro is not active" in log, f"rc={rc} sent={len(sent)} {log[-200:]}")
 
                 stub_composer(composer, "ok", calls)
