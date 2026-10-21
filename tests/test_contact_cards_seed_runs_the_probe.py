@@ -236,8 +236,7 @@ if _mode:
 
 @pytest.fixture(autouse=True)
 def _pin_survivor_order(monkeypatch):
-    """With no repair step in the seed (r3), the iMessage-survivor order is the [116]-dependent
-    RED shape. Pin the order every test runs in (low = card node survives); the high-order tests
+    """The iMessage-survivor order is the shape [116] fixes (see the negative control). Pin the order every test runs in (low = card node survives); the high-order tests
     set it explicitly, so nothing here is a coin flip."""
     monkeypatch.setenv("CCS_CARD_ID", "low")
 
@@ -481,21 +480,28 @@ def test_mutant_without_the_ingest_the_nameless_case_is_not_exercised_and_the_se
 # this shape unprompted: 9 vectors for 8 people).
 
 
-def test_seed_runs_no_repair_step_it_follows_the_shipped_install_order():
-    """r3: the seed must not paper over the install order with its own repair."""
-    assert "repair_merge_consistency" not in seed_script(Path("/nonexistent-home"))
+def test_seed_runs_the_repair_after_dedupe_exactly_as_install_sh_does():
+    """[116]: install.sh now runs repair_merge_consistency AFTER dedupe_merge. The seed runs its
+    own dedupe after install, so it must follow the same order: dedupe, then repair."""
+    script = seed_script(Path("/nonexistent-home"))
+    assert script.index("dedupe_merge.run()") < script.index("repair_merge_consistency")
+    install = (ROOT / "install.sh").read_text()
+    dd = install.index("from ostler_fda.dedupe_merge import run")
+    assert "MERGE-CONSISTENCY REPAIR, SECOND PASS" in install[dd:], "install.sh must repair after dedupe"
 
 
-def test_shipped_order_with_the_iMessage_survivor_refuses_a_stale_vector(stores, home, monkeypatch):
-    """The honest state today: without [116] (repair after dedupe in install.sh) the seed
-    refuses, and says why. 9 vectors for 8 people."""
+def test_without_the_post_dedupe_repair_the_iMessage_survivor_refuses_a_stale_vector(stores, home, monkeypatch):
+    """Negative control (the pre-[116] order): drop the repair line and the seed refuses, and
+    says why. 9 vectors for 8 people. Proves the read-back can see the defect [116] fixes."""
     monkeypatch.setenv("CCS_CARD_ID", "high")
-    state, log = run_seed(home, stores)
+    def drop_repair(script):
+        return "\n".join(l for l in script.splitlines() if "repair_merge_consistency" not in l)
+    state, log = run_seed(home, stores, mutate=drop_repair)
     assert state == "failed-stale-vector-1", log
     assert len(stores.points) == len(fx.CARDS) + 1, "9 vectors for 8 people"
 
 
-def test_DEPENDS_ON_116_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, monkeypatch):
+def test_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, monkeypatch):
     monkeypatch.setenv("CCS_CARD_ID", "high")
     assert run_seed(home, stores)[0] == "seeded"
     assert len(stores.points) == len(fx.CARDS)
