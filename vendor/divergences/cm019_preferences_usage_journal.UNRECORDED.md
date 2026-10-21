@@ -317,3 +317,7 @@ Retire: re-pin past the #421 merge commit.
 
 Proof: `tests/test_cm019_enrich_consent_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/consent.py`).
 
+
+## 2026-10-21 addendum: personal-world-graph #421 MERGED as 5622a763, pin moved
+
+Pin re-pinned 7fd66daf -> 5622a76360cc6ce5b91fe023295e1bb6eb8a0589 (the #421 merge commit). `consent.py` re-synced byte for byte to that commit; it supersedes the 455fb8e1 copy described above: the file must say accepted AND the environment variable, when set at all (even empty), must say accepted; the file is read as bytes and split on LF only, so a CRLF line is refused. This resolves the "open tension" above: upstream no longer lets the env var win, so the stricter-decides behaviour is now upstream's own. `enricher.py` and `cli.py` upstream are byte-identical between 455fb8e1 and the merge commit, so they are unchanged here. CM051's local changes (`--budget-seconds`, the file-only backstop, the `require_enrichment_consent` import name) are kept. The upstream tests for the gate are not vendored; `tests/test_cm019_enrich_consent_gate_vendored.py` carries arm 1b for the new rules.

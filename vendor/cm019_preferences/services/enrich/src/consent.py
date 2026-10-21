@@ -9,9 +9,10 @@ Fail closed: declined, absent, empty or unrecognised all mean NO outbound
 request. The value is read on every call, never cached at import, so a
 decision changed after the process started is honoured.
 
-Sources, in order: the environment variable (if set and non-empty it wins,
-whatever it says), then ${OSTLER_DIR}/config/.env, which is where the
-installer records the answer. The recurring enrich agent never exports the
+Both sources must agree: ${OSTLER_DIR}/config/.env, which is where the
+installer records the answer, must say accepted, AND the environment
+variable, when it is set at all, must also say accepted. Either one saying
+anything else refuses. The recurring enrich agent never exports the
 variable, so the file is the real source there. The file is read exactly as
 the shell gates in install.sh do: last matching line, one trailing and one
 leading double quote stripped, then an EXACT match on "accepted" (no
@@ -35,12 +36,13 @@ def _env_file() -> Path:
 def _decision_from_file() -> str:
     """Mirror of: sed -n 's/^KEY=//p' | tail -n 1, then strip one pair of quotes."""
     try:
-        text = _env_file().read_text(encoding="utf-8")
+        text = _env_file().read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
     prefix = CONSENT_ENV + "="
     value = ""
-    for line in text.splitlines():
+    # split on LF only, as sed does: a CRLF line keeps its CR and never matches.
+    for line in text.split("\n"):
         if line.startswith(prefix):
             value = line[len(prefix):]
     if value.endswith('"'):
@@ -52,8 +54,10 @@ def _decision_from_file() -> str:
 
 def public_lookup_allowed() -> bool:
     """True only when the owner accepted enrichment (read fresh, fail closed)."""
-    decision = os.environ.get(CONSENT_ENV) or _decision_from_file()
-    return decision == CONSENT_ACCEPTED
+    env = os.environ.get(CONSENT_ENV)
+    if env is not None and env != CONSENT_ACCEPTED:
+        return False
+    return _decision_from_file() == CONSENT_ACCEPTED
 
 
 class ConsentRequired(click.ClickException):

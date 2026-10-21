@@ -102,6 +102,21 @@ for content, want in CASES:
     got = public_lookup_allowed()
     check(f"arm1 file {content!r} -> {want}", got is want, f"got {got}")
 
+# arm 1b: upstream #421 merge: the file must say accepted AND the env, when
+# set at all, must say accepted; CRLF is refused (split on LF only).
+write_env(f"{KEY}=accepted\r\n")
+check("arm1b CRLF line -> False", public_lookup_allowed() is False)
+write_env(f"{KEY}=accepted\n")
+for envval, want in (("accepted", True), ("declined", False), ("", False), ("Accepted", False)):
+    os.environ[KEY] = envval
+    got = public_lookup_allowed()
+    check(f"arm1b file accepted, env {envval!r} -> {want}", got is want, f"got {got}")
+os.environ.pop(KEY, None)
+write_env(f"{KEY}=declined\n")
+os.environ[KEY] = "accepted"
+check("arm1b file declined, env accepted -> False", public_lookup_allowed() is False)
+os.environ.pop(KEY, None)
+
 # ---------------------------------------------------------------- arm 2
 count = {"http": 0, "socket": 0}
 
