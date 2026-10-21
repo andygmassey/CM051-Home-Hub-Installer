@@ -181,6 +181,7 @@ test_catchup_takeout.py	WIRED	.github/workflows/catchup-takeout.yml
 test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-record-gate.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_cm019_enrich_consent_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_local_store_ignores_proxy.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
