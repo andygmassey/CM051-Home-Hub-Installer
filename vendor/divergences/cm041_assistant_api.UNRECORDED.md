@@ -1436,10 +1436,10 @@ before it merges, re-graft from its final head.
   --gateway-src <ostler-assistant main 58d6523>` adds one route, `ical GET
   /api/v1/preferences/derived` (`auth: service_token`, the same as
   `/api/v1/preferences`); `--check` reports current. RE-RUN 2026-10-21 after
-  the branch took main: 268 routes against ostler-assistant main c285001. The
-  regeneration also picks up gateway routes ostler-assistant added since main
-  last regenerated (main itself reads STALE against that gateway); a fresh
-  regeneration of main differs from this file by exactly the derived route.
+  the branch took main: regenerated against the PINNED hub tag hub-v0.5.23
+  (de05a70a), which is what CI's contract-is-current checks out, NOT
+  ostler-assistant main. 265 routes; against main's committed contract the
+  only difference is the derived route.
 - NOT vendored: `assistant_api/tests/test_derived_preferences_route.py`. Tests
   are excluded from this tree anyway, and that file passes the operator's first
   name as the user id four times; it needs the same scrub CM041 #217 gave #216's
