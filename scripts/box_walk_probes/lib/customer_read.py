@@ -640,7 +640,17 @@ def judge(f, declared=None):
         # silently pass every duplicate through -- see the CANNOT-RUN branch
         # immediately below.
         reviewed_raw = f.get("duplicate_review_phones")
-        if dup and reviewed_raw is None:
+        # A report built before the seed (or still refreshing) omits seeded
+        # pairs, so "no card" in it is not evidence. CANNOT-RUN, never FAIL/PASS.
+        stale = f.get("duplicate_review_stale")
+        diff_note = "; contacts/diff as_of={} refreshing={} seed_ts={}".format(
+            f.get("duplicate_review_as_of"), f.get("duplicate_review_refreshing"),
+            f.get("duplicate_review_seed_ts"))
+        if dup and stale:
+            add(DECLARED[13], None,
+                "NOT MEASURED: {} duplicate number(s) found but the duplicate-review report is "
+                "stale ({}); reviewed-vs-silent cannot be told apart{}".format(len(dup), stale, diff_note))
+        elif dup and reviewed_raw is None:
             add(DECLARED[13], None,
                 "NOT MEASURED: {} duplicate number(s) found but the duplicate-review "
                 "surface (/api/v1/contacts/diff) could not be read, so reviewed-vs-"
@@ -651,8 +661,8 @@ def judge(f, declared=None):
             silent = dup - reviewed
             add(DECLARED[13], not silent,
                 "{} of {} duplicated number(s) are UNREVIEWED (numbers withheld); "
-                "{} already surfaced as a duplicate-review card".format(
-                    len(silent), len(dup), len(dup & reviewed)))
+                "{} already surfaced as a duplicate-review card{}".format(
+                    len(silent), len(dup), len(dup & reviewed), diff_note))
 
     # Ruling 2026-10-04 (#2546): each screen labels what it counts, so there is
     # no cross-equality. The Hub counts named people and must equal the
@@ -1069,7 +1079,51 @@ def _make_saw(f, token):
     return saw
 
 
-def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
+DIFF_WAIT_S = 720   # the Hub serves a cached report for up to 600s (ical-server.py TTL) plus build time
+DIFF_POLL_S = 15
+
+
+def _diff_as_of_epoch(diff):
+    """The report's as_of (ISO, UTC) as epoch seconds, or None when absent or unparseable."""
+    import datetime as dt
+    try:
+        return dt.datetime.fromisoformat(str(diff["as_of"])).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def wait_for_fresh_diff(fetch, seed_ts, bound_s=DIFF_WAIT_S, poll_s=DIFF_POLL_S,
+                        sleep=None, clock=None):
+    """Poll fetch() (the /api/v1/contacts/diff body) until the report is settled and post-seed.
+
+    Settled = not preparing, refreshing is false, and (when the walk recorded a
+    seed time) as_of is later than it. The Hub serves a CACHED report, so one
+    built before the seed omits the seeded pair, and reading that as "no review
+    card" is a false UNREVIEWED. Returns (diff, stale): stale is None when
+    settled, else a reason; on stale the caller must say CANNOT-RUN, never
+    FAIL or PASS. A fetch error propagates (the caller already maps it to
+    CANNOT-RUN as "review surface unreadable")."""
+    import time
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    t0 = clock()
+    while True:
+        diff = fetch()
+        asof = _diff_as_of_epoch(diff)
+        if diff.get("preparing"):
+            why = "report still preparing"
+        elif diff.get("refreshing"):
+            why = "report refreshing"
+        elif seed_ts is not None and (asof is None or asof <= seed_ts):
+            why = "report as_of {} is not later than the seed time {}".format(diff.get("as_of"), int(seed_ts))
+        else:
+            return diff, None
+        if clock() - t0 + poll_s > bound_s:
+            return diff, "stale report after {}s: {}".format(int(clock() - t0), why)
+        sleep(poll_s)
+
+
+def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None, seed_ts=None):
     import urllib.request
     from playwright.sync_api import sync_playwright
 
@@ -1420,8 +1474,18 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         try:
             req = urllib.request.Request(doctor_base + "/api/v1/contacts/diff", headers={
                 "Authorization": "Bearer " + token})
-            with _local_urlopen(req, timeout=180) as r:
-                diff = json.load(r)
+            def _fetch():
+                with _local_urlopen(req, timeout=180) as r:
+                    return json.load(r)
+            # The Hub serves a cached report that can predate the walk seed
+            # (ical-server.py _contacts_diff_cached): wait for a settled,
+            # post-seed one, else the judge says CANNOT-RUN (stale), not FAIL.
+            diff, stale = wait_for_fresh_diff(_fetch, seed_ts)
+            f["duplicate_review_as_of"] = diff.get("as_of")
+            f["duplicate_review_refreshing"] = diff.get("refreshing")
+            f["duplicate_review_seed_ts"] = seed_ts
+            if stale:
+                f["duplicate_review_stale"] = stale
             # CM051 walk #3, item E: do NOT filter by evidence["strategy"].
             # consolidate_matches keeps only the HIGHEST-confidence match per
             # pair, so a pair sharing both an email and a phone is filed
@@ -1437,7 +1501,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             # robust to a future strategy rename than matching the name.
             # #2786: the report is built off the request path. "preparing" is
             # an empty list that means NOT LOOKED YET, never "nothing to review".
-            if diff.get("preparing") or (diff.get("degraded") and not diff.get("items")):
+            if not stale and (diff.get("preparing") or (diff.get("degraded") and not diff.get("items"))):
                 raise RuntimeError("duplicate review not ready: " + str(diff.get("reason") or "degraded")[:100])
             reviewed = set()
             for item in diff.get("items") or []:
@@ -2128,8 +2192,14 @@ def main(argv):
                         handles += [h.strip() for h in line.split(",") if h.strip()] if ("@" in line or re.search(r"\d{6,}", line)) else [line]
                 except Exception:
                     handles = []
+            seed_ts = None
+            if a.get("--seed-ts-file"):
+                try:
+                    seed_ts = float(open(a["--seed-ts-file"]).read().strip())
+                except (OSError, ValueError):
+                    seed_ts = None
             facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"],
-                            self_handles=handles)
+                            self_handles=handles, seed_ts=seed_ts)
             if a.get("--owner-source"):
                 facts["owner_source"] = a["--owner-source"]
             if a.get("--freshness-file"):
