@@ -174,6 +174,9 @@ REQUEST_TIMEOUT_SECS = 8
 MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 8
+# Of those, how many may be derived preferences (smart-prefs). They come first
+# and are counted inside MAX_PREFERENCES, so the section's size is unchanged.
+MAX_DERIVED_PREFERENCES = 4
 MAX_ORGS = 6
 # Calendar events (flights, trips, appointments) surfaced grouped by whose
 # calendar they came from, so the brief never merges one person's trip into
@@ -1235,6 +1238,41 @@ def _calendar_by_owner_section() -> list[str]:
     return lines
 
 
+def _derived_preference_lines() -> list[str]:
+    """Derived preferences ("What you like"), strongest first.
+
+    Read from /api/v1/preferences/derived, the route the derive engine's
+    pwg:DerivedPreference nodes are served on. A degraded or absent answer
+    (nothing derived yet, route missing on an older Hub) yields no lines: the
+    interest profile below still fills the section, and _get_json has already
+    recorded the non-delivery. Only the label is rendered, never the 'because'
+    evidence, to keep the digest short.
+    """
+    data = _get_json(f"/api/v1/preferences/derived?limit={MAX_DERIVED_PREFERENCES}")
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or data.get("degraded"):
+        return []
+    lines: list[str] = []
+    seen: set[str] = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        label = " ".join(str(it.get("label") or "").split())
+        if not label or label.lower() in seen:
+            continue
+        seen.add(label.lower())
+        try:
+            strength = float(it.get("strength") or 0)
+        except (TypeError, ValueError):
+            continue
+        if strength == 0:
+            continue
+        lines.append(f"- Likes: {label}" if strength > 0 else f"- Not keen on: {label}")
+        if len(lines) >= MAX_DERIVED_PREFERENCES:
+            break
+    return lines
+
+
 def _preferences_section() -> list[str]:
     """Top preferences from the coaching / observation surface.
 
@@ -1280,7 +1318,9 @@ def _preferences_section() -> list[str]:
     # section read ONLY the coach surface above, whose database does not exist
     # on a customer box, so it said "nothing stored" beside an interest
     # profile of 4,628 entries that /api/v1/preferences serves score-sorted.
-    lines: list[str] = []
+    lines: list[str] = _derived_preference_lines()
+    if len(lines) >= MAX_PREFERENCES:
+        return lines
     prefs = _get_json(f"/api/v1/preferences?limit={MAX_PREFERENCES * 5}")
     interests = prefs.get("interests") if isinstance(prefs, dict) else None
     seen: set[str] = set()

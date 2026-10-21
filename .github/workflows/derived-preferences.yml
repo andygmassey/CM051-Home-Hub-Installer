@@ -34,6 +34,8 @@ on:
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_derive_preferences_is_scheduled.sh'
       - 'tests/test_derived_prefs_probe_is_run_by_the_walk.sh'
+      - 'tests/test_the_generated_digest_names_derived_preferences.sh'
+      - 'context-refresh/bin/generate_pwg_context.py'
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
@@ -87,3 +89,6 @@ jobs:
       - name: The runner collects and invokes the derived-preferences probe (fake Hub)
         if: always()
         run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
+      - name: The generated CONTEXT.md names a derived preference (real generator, real probe)
+        if: always()
+        run: bash tests/test_the_generated_digest_names_derived_preferences.sh
