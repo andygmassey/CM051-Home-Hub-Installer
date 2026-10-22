@@ -32,6 +32,11 @@ CONTRACT_VERSION = "derived-preferences.v1"
 # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
 PWG_NS = "https://schema.ostler.ai/ontology#"
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
+# The levels a derived node may carry and still be served. L3 is never served and
+# neither is a level that is present but not one of these (pwg_privacy doctrine:
+# an unparseable level fails closed). A node with NO level is served: it is
+# behavioural evidence, or a graph written before CM019 #423.
+SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
 # Dedicated, fully-regenerable named graph for derived nodes.
 DERIVED_GRAPH = "https://schema.ostler.ai/derived/graph/preferences"
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
@@ -50,6 +55,7 @@ class AffinityView:
     category: str = ""   # films / tv / music / ...; "" when the store did not say
     node: str = ""       # the derived node's URI, to resolve "because" later
     tier: str = ""       # "broad" | "specific"; "" for graphs written before tiers
+    privacy: str = ""    # highest privacy level of the evidence (CM019 #423); "" = none stated
 
 
 def interleave_by_category(views, limit: int) -> list:
@@ -104,9 +110,10 @@ class DerivedGraphReader:
         with_evidence: bool = True,
         **_kw,
     ) -> List[AffinityView]:
+        served = ", ".join(f'"{lvl}"' for lvl in SERVED_PRIVACY_LEVELS)
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -116,6 +123,8 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
+            "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            f"    FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
             "  }\n"
             "} ORDER BY DESC(?confidence) DESC(?strength)\n"
@@ -123,6 +132,10 @@ class DerivedGraphReader:
         )
         views: List[AffinityView] = []
         for b in self._sparql(q):
+            privacy = (b.get("privacy") or "").strip().upper()
+            if privacy and privacy not in SERVED_PRIVACY_LEVELS:
+                # Belt to the query's braces: never serve an L3 or unparseable row.
+                continue
             subj_uri = b.get("s")
             because = (
                 self._evidence_titles(subj_uri)
@@ -140,6 +153,7 @@ class DerivedGraphReader:
                     category=b.get("category") or "",
                     node=subj_uri or "",
                     tier=b.get("tier") or "",
+                    privacy=privacy,
                 )
             )
         return views
@@ -214,7 +228,7 @@ def _now_iso(now: Optional[datetime]) -> str:
 
 
 def _item(view) -> dict:
-    return {
+    d = {
         "dimension": view.dimension,
         "label": view.subject,
         "strength": round(float(view.strength), 4),
@@ -222,6 +236,11 @@ def _item(view) -> dict:
         "intensity": view.intensity,
         "because": list(view.because),
     }
+    # Only when the evidence carried a level: consumers apply their L2 handling
+    # (same shape as CM019 derive/endpoint.py, PWG #423).
+    if getattr(view, "privacy", ""):
+        d["privacy_level"] = view.privacy
+    return d
 
 
 def build_derived_preferences_response(

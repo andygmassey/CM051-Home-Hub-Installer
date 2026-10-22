@@ -1442,10 +1442,10 @@ the content gate reads RED for this tree, as on main before this change.
 Guarded by tests/test_vendored_cm041_revendor_07a22b4c_routes.py (5 pass here,
 5 fail on the pre-re-vendor tree).
 
-## 2026-10-23: round 2, pin 07a22b4c -> 5992efa4 (CM041 #233, #234)
+## 2026-10-23: round 2, pin 07a22b4c -> f2ef7891 (CM041 #233, #234, #235)
 
-Both commits touch only assistant_api. derived_preferences.py is byte-identical
-to upstream at 5992efa4 (it was byte-identical at 07a22b4c too). ical-server.py
+All three commits touch only assistant_api. derived_preferences.py is byte-identical
+to upstream at f2ef7891 (#235: L3 and unparseable levels never served, privacy_level emitted) (it was byte-identical at 07a22b4c too). ical-server.py
 takes #234 (the ?tier= parameter, 400 on an unknown tier, tier passed to the
 builder) by 3-way merge, clean, 14 of 14 added lines present. hub_contract.yaml
 regenerated. No new divergence. Guarded by

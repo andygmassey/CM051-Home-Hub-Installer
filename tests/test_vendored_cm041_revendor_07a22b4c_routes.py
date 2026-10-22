@@ -15,6 +15,8 @@ subprocess, with only the stores stubbed:
   * CM041 #233/#234: the derived route's top-N is round-robin by category;
     no ?tier= reads broad and falls back to all on a pre-tier graph
     (tier_fallback), an explicit ?tier=broad is strict, a bogus tier is 400.
+  * CM041 #235: an L3 or unparseable derived node is never served; a served
+    node carries privacy_level.
 
 Synthetic data only (example.com, a placeholder owner id). Red on the
 pre-re-vendor tree: the derived route 404s, commitments carry no
@@ -66,6 +68,17 @@ class Oxigraph(BaseHTTPRequestHandler):
                      "confidence": "0.9", "intensity": "keen"}]
         elif "DerivedPreference" in q and STATE["derived"] == "tiered13":
             rows = _tiered13_rows()
+        elif "DerivedPreference" in q and STATE["derived"] == "levels":
+            # The stub ignores SPARQL FILTERs, so this exercises the reader's
+            # own refusal of an L3 or unparseable row.
+            base = {"dimension": "genre", "strength": "0.8", "intensity": "keen",
+                    "tier": "broad", "category": "music"}
+            rows = [dict(base, s="urn:example:d/l2", subject="level two item",
+                         confidence="0.9", privacy="L2"),
+                    dict(base, s="urn:example:d/l3", subject="level three item",
+                         confidence="0.95", privacy="L3"),
+                    dict(base, s="urn:example:d/bad", subject="unparseable level item",
+                         confidence="0.94", privacy="not-a-level")]
         elif "derivedFrom" in q:
             rows = [{"title": "example album"}]
         elif "OutstandingTodo" in q:
@@ -274,3 +287,14 @@ def test_derived_top_n_is_round_robin_by_category(server):
             assert worst <= -(-n // 3), (n, cats)
     finally:
         STATE["derived"] = "one"
+
+
+def test_derived_never_serves_an_l3_or_unparseable_node(server):
+    STATE["derived"] = "levels"
+    try:
+        code, body = _derived(server, "?tier=all")
+    finally:
+        STATE["derived"] = "one"
+    assert code == 200 and body["degraded"] is False, body
+    assert [i["label"] for i in body["items"]] == ["level two item"], body
+    assert body["items"][0].get("privacy_level") == "L2", body
