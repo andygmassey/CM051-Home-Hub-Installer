@@ -155,6 +155,6 @@ hub_v0_5_28_pinned	CM051	c1298abc	no	hub_v0_5_28_pinned	capability_matrix.sh gat
 q32_calendar_include_label	CM051	da7e22ef	no	q32_calendar_include_label	capability_matrix.sh gate	CM051 #3112
 q23_spoken_capture_copy_short	CM051	250cd6b4	no	q23_spoken_capture_copy_short	capability_matrix.sh gate	CM051 #3108
 consent_survives_promote	CM051	d5806417	no	consent_survives_promote	capability_matrix.sh gate	CM051 #3113
-listener_watchdog_ceiling_360	CM051	29840e06	no	listener_watchdog_ceiling_360	capability_matrix.sh gate	CM051 #3100
+listener_watchdog_ceiling_360	CM051	3610f96f	no	listener_watchdog_ceiling_360	capability_matrix.sh gate	CM051 #3100
 front_page_not_me_probe_blocking	CM051	cb3dda75	no	front_page_not_me_probe_blocking	capability_matrix.sh gate	CM051 #3071
 remotecapture_0_1_8_fail_closed_consent	CM051	86dce673	no	remotecapture_0_1_8_fail_closed_consent	capability_matrix.sh gate	CM042 #23
