@@ -18,6 +18,13 @@
      "unit": "people"
     },
     {
+     "additions": [
+      {
+       "fact": "walk.seeded.people",
+       "reason": "the walk's own seeds wrote these Person nodes (contact cards, neighbour, grounding person)",
+       "stage": "stored"
+      }
+     ],
      "category": "person",
      "facts": {
       "graph": {
@@ -88,6 +95,13 @@
      "unit": "people"
     },
     {
+     "additions": [
+      {
+       "fact": "walk.seeded.people",
+       "reason": "the walk's own seeds wrote these Person nodes (contact cards, neighbour, grounding person)",
+       "stage": "stored"
+      }
+     ],
      "category": "person",
      "facts": {
       "graph": {

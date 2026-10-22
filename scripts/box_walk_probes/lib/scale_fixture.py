@@ -256,6 +256,40 @@ def _owner_user_id(home):
     return ""
 
 
+SEEDED_PEOPLE_FILE = ".walk-seeded-people"
+
+
+def _seeded_people_path(home):
+    return os.path.join(home, SEEDED_PEOPLE_FILE)
+
+
+def record_seeded_people(home, name, count):
+    """Append `<name> <count>` to ~/.walk-seeded-people, replacing this seed's earlier
+    line. data_conservation reads the file to explain why people/all STORED is the
+    owner plus what the walk's seeds wrote. The count is the seed's own write result."""
+    path = _seeded_people_path(home)
+    try:
+        keep = [l for l in open(path).read().splitlines() if l.strip() and l.split()[0] != name]
+    except FileNotFoundError:
+        keep = []
+    with open(path + ".tmp", "w") as fh:
+        fh.write("".join(l + "\n" for l in keep) + "%s %d\n" % (name, count))
+    os.replace(path + ".tmp", path)
+
+
+def forget_seeded_people(home, name):
+    """Remove this seed's lines. The file is left EMPTY, never deleted: an empty file
+    is a readable 0 and an absent one is read as 'no seed ran'."""
+    path = _seeded_people_path(home)
+    try:
+        keep = [l for l in open(path).read().splitlines() if l.strip() and l.split()[0] != name]
+    except FileNotFoundError:
+        return
+    with open(path + ".tmp", "w") as fh:
+        fh.write("".join(l + "\n" for l in keep))
+    os.replace(path + ".tmp", path)
+
+
 def neighbour_update(uid, now):
     """The SPARQL UPDATE that seeds the neighbour note (idempotent)."""
     return ("DELETE WHERE { GRAPH ?g { <%s> ?p ?o } } ;\n"
@@ -292,6 +326,9 @@ def seed_neighbour(home, store="http://127.0.0.1:7878", wait_s=600):
         opener.open(urllib.request.Request(store + "/update", data=upd.encode(), headers=headers, method="POST"), timeout=30).read()
     except Exception as e:
         return "failed-write-%s" % type(e).__name__
+    # The update answered 2xx (urlopen raises otherwise): exactly one Person node, the
+    # neighbour, was written (the DELETE WHERE above makes the INSERT idempotent).
+    record_seeded_people(home, "neighbour", 1)
     ctx = os.path.join(home, ".ostler", "assistant-config", "workspace", "CONTEXT.md")
     before = os.path.getmtime(ctx) if os.path.exists(ctx) else 0
     subprocess.call(["launchctl", "kickstart", "-k", "gui/%d/com.creativemachines.ostler.context-refresh" % os.getuid()],
@@ -451,6 +488,8 @@ def main(argv=None):
     if a.cmd == "forget":
         res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home),
                "neighbour_vector": forget_neighbour_vector(a.qdrant.rstrip("/"), a.home)}
+        if res["neighbour"] == "forgotten" and res["neighbour_vector"] == "forgotten":
+            forget_seeded_people(a.home, "neighbour")
         print(json.dumps(res))
         ok = all(v.get("left") == 0 for v in res["points"].values()) and res["neighbour"] == "forgotten"
         return 0 if ok else 1

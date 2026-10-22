@@ -28,6 +28,8 @@
 # review probe waits for the Hub's cached /api/v1/contacts/diff report to be built
 # after it (same clock as the report's as_of), else it is CANNOT-RUN (stale).
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/seeded_people.sh"
+
 _ccs_box() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
         ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" "$OSTLER_BOX_HOST" "$1"
@@ -67,6 +69,7 @@ case \"\$real\" in ''|*[!0-9]*) cat \$D/guard.err >&2; echo failed-guard; exit 0
 j=\$(\$PY -m contact_syncer.syncer --vcf \$D/cards.vcf --graph-endpoint \"\$OXI\" 2>\$D/syncer.log | tail -n 1)
 n=\$(printf %s \"\$j\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"imported\", -1)))')
 case \"\$n\" in ''|*[!0-9]*|0) echo failed-syncer-imported-\${n:-nothing}; exit 0 ;; esac
+$(seeded_people_record_cmd contact_cards '$n')
 [ -x \$FDAPY ] || { echo failed-no-ingest-venv; exit 0; }
 \$FDAPY -c 'import json,sys; from pathlib import Path
 from ostler_fda import pwg_ingest, dedupe_merge
@@ -74,8 +77,12 @@ r = pwg_ingest.ingest_imessage(Path(sys.argv[1])); m = dedupe_merge.run()
 q = pwg_ingest.ingest_people_to_qdrant()
 print(json.dumps({\"ingest\": r.get(\"status\"), \"merge\": m, \"vectors\": q.get(\"status\")}))' \$D >\$D/ingest.log 2>&1 || { echo failed-ingest-or-merge; exit 0; }
 cd \$PIPE && \$PY -m identity_resolver.repair_merge_consistency --oxigraph-url \"\$OXI\" --qdrant-url \"\${QDRANT_URL:-http://localhost:6333}\" --backup-dir \$D/backups --apply >\$D/repair.log 2>&1 || { cat \$D/repair.log >&2; echo failed-merge-consistency-repair; exit 0; }
-v=\$(\$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1)
+vo=\$(\$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err)
+v=\$(printf %s \"\$vo\" | tail -n 1)
 case \"\$v\" in seeded) date +%s > \$HOME/.walk-contact-cards-seed-ts ;; esac
+vj=\$(printf %s \"\$vo\" | head -n 1)
+cp=\$(printf %s \"\$vj\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read())[\"cast_persons\"]))' 2>\$D/count.err)
+$(seeded_people_record_cmd contact_cards '${cp:-unreadable}')
 echo \"\$v\""
 }
 
@@ -101,6 +108,7 @@ cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
 out=\$(\$PY \$D/contact_cards_fixture.py forget 2>\$D/forget.err | tail -n 1)
 cat \$D/forget.err >&2
 rm -rf \"\$D\"; rmdir \"\$O/walk-seed\" 2>/dev/null
+case \"\$out\" in removed|nothing-to-remove) $(seeded_people_forget_cmd contact_cards) ;; esac
 echo \"\$out\""
 }
 

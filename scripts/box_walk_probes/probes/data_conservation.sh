@@ -50,8 +50,14 @@ DC_TABLE_OUT="${OSTLER_CONSERVATION_TABLE_OUT:-}"
 
 # Prints the facts JSON from the box. The lib is shipped as a heredoc so the
 # box needs nothing installed; its python3 is the system one (3.9 safe).
+# The walk's seeds record the people they wrote in ~/.walk-seeded-people. An absent
+# file is 0 ONLY when the walk ran no seed: run_box_walk.sh exports
+# OSTLER_WALK_SEEDS_RAN=1 once its seeds may run, and then --no-seed-run is withheld
+# so an absent file reads NOT-MEASURED instead of 0.
 dc_collect() {
-    box_run "python3 - collect <<'PYPAYLOAD'
+    local nosd="--no-seed-run"
+    [ "${OSTLER_WALK_SEEDS_RAN:-0}" = "1" ] && nosd=""
+    box_run "python3 - collect ${nosd} <<'PYPAYLOAD'
 $(cat "$DC_LIB")
 PYPAYLOAD"
 }

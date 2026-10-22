@@ -665,3 +665,90 @@ def test_the_name_check_goes_red_on_the_v1_0_116_cast():
     old = [(1, "Jane", "Doe", [], [], ""), (4, "Raj", "Patel", [], [], "")]
     hit = _card_names(old) & (_persona_names() | {GROUNDING_SEED_PERSON.lower()})
     assert hit == {"jane doe", "raj patel"}
+
+
+# ------------------------------------------------ the seed records what it wrote
+# data_conservation people/all: STORED = the owner plus what the walk's seeds wrote.
+# Each seed appends `<seed> <count>` to ~/.walk-seeded-people from its own write result.
+def _seeded_lines(home):
+    p = home / ".walk-seeded-people"
+    return p.read_text().splitlines() if p.exists() else None
+
+
+def test_seed_records_the_people_it_wrote_from_its_own_readback(stores, home):
+    assert _seeded_lines(home) is None
+    state, log = run_seed(home, stores)
+    assert state == "seeded", log
+    lines = _seeded_lines(home)
+    # the count is verify()'s cast_persons (what the graph holds), not len(CARDS) assumed
+    assert "contact_cards %d" % stores.person_count() in lines, lines
+    assert lines == ["contact_cards %d" % len(fx.CARDS)], lines
+
+
+def test_a_second_seed_replaces_its_line_it_does_not_double_it(stores, home):
+    assert run_seed(home, stores)[0] == "seeded"
+    first = _seeded_lines(home)
+    assert run_seed(home, stores)[0] == "seeded"
+    assert _seeded_lines(home) == first
+
+
+def test_the_seed_leaves_another_seeds_line_alone(stores, home):
+    (home / ".walk-seeded-people").write_text("neighbour 1\n")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert "neighbour 1" in _seeded_lines(home)
+    assert run_forget(home, stores) == "removed"
+    assert _seeded_lines(home) == ["neighbour 1"]
+
+
+def test_forget_removes_its_lines_and_leaves_the_file_empty_not_absent(stores, home):
+    assert run_seed(home, stores)[0] == "seeded"
+    assert run_forget(home, stores) == "removed"
+    assert _seeded_lines(home) == [], "an absent file would read as 'no seed ran'; empty is a readable 0"
+
+
+def test_a_failed_forget_keeps_the_line_because_the_people_are_still_there(stores, home):
+    assert run_seed(home, stores)[0] == "seeded"
+    before = _seeded_lines(home)
+    out = run_forget(home, stores, mutate=lambda s: s.replace("forget 2>", "forget-nope 2>"))
+    assert out != "removed"
+    assert _seeded_lines(home) == before
+
+
+def test_a_seed_that_cannot_count_records_a_line_the_collector_reads_as_unreadable(stores, home):
+    dc = __import__("data_conservation")
+    # mutant: verify's JSON loses cast_persons, so the seed cannot count what it wrote
+    state, _log = run_seed(home, stores, mutate=lambda s: s.replace('["cast_persons"]', '["cast_personz"]'))
+    lines = _seeded_lines(home)
+    assert "contact_cards unreadable" in lines, lines
+    facts, meta = {}, {}
+    dc.SEEDED_PEOPLE = str(home / ".walk-seeded-people")
+    dc.collect_seeded_people(facts, meta, False)
+    assert "walk.seeded.people" not in facts and "unreadable" in meta["seeded_people"]
+
+
+def test_the_recorded_file_explains_the_people_all_row_through_the_real_collector(stores, home):
+    """Consumer side: the file THIS seed wrote, read by the shipping collector and judged by the
+    shipped expected.json row, reads EXPLAINED; delete the line and the same box reads INFLATED."""
+    dc = __import__("data_conservation")
+    assert run_seed(home, stores)[0] == "seeded"
+    dc.SEEDED_PEOPLE = str(home / ".walk-seeded-people")
+    owner = 1
+    n = stores.person_count()
+    exp = json.load(open(ROOT / "scripts/box_walk_probes/fixtures/data_conservation/expected.json"))["profiles"]["chain"]
+    exp = {"rows": [r for r in exp["rows"] if r.get("id") == "people/all"]}
+
+    def verdict(facts_in):
+        rows, _c = dc.adjudicate(exp, facts_in)
+        return rows[0]["verdict"], rows[0]["why"]
+
+    facts, meta = {}, {}
+    dc.collect_seeded_people(facts, meta, False)
+    base = {"hyd.people.item_count": owner, "q.people.total": owner + n, "x.class.Person": owner + n,
+            "x.class.total": owner + n, "w.shown.people.source=fda_people_index": owner + n}
+    got = dict(base, **facts)
+    assert verdict(got)[0] == "EXPLAINED", verdict(got)
+    # CONTROL (the check can fail): the same box with the line removed is INFLATED
+    (home / ".walk-seeded-people").write_text("")
+    facts2, meta2 = {}, {}
+    dc.collect_seeded_people(facts2, meta2, False)
+    assert verdict(dict(base, **facts2))[0] == "INFLATED"

@@ -15,6 +15,8 @@ next. This does, per (source, category), on every walk.
 
 THREE SUBCOMMANDS
   collect      Runs ON THE BOX, read-only, stdlib only (python 3.9 safe).
+               `collect --no-seed-run` says the walk ran no seed, so an absent
+               ~/.walk-seeded-people reads 0 (otherwise it is unreadable).
                Prints one JSON object {"facts": {key: int}, "meta": {...}}.
                Facts are flat "dotted.key=value" counters, e.g.
                  log.imessage.messages            IN (install.log summary)
@@ -30,7 +32,8 @@ VERDICTS (worst wins per row)
                 minus the exclusions expected.json DECLARES. Unexplained. FAIL.
   NOT-MEASURED  the instrument could not read (store unreachable, log absent).
                 Not a pass and not a fail. Overall CANNOT-RUN.
-  EXPLAINED     a gap exists and equals the declared exclusions, reason named.
+  EXPLAINED     a gap exists and equals the declared exclusions (or, upward, the
+                declared ADDITIONS: people the walk's own seeds wrote), reason named.
   CONSERVED     every stage matches.
   (SURPLUS is a note, never a verdict: more stored than expected is duplicates
    or an unmodelled writer, and is printed, not failed.)
@@ -84,6 +87,28 @@ def _excl_total(row, stage, facts):
 def _excl_reasons(row, stage, facts):
     out = []
     for e in row.get("exclusions", []):
+        if e.get("stage") == stage:
+            c = _excl_count(e, facts)
+            if c:
+                out.append("%s x%d" % (e.get("reason", "unstated"), c))
+    return out
+
+
+def _add_total(row, stage, facts):
+    """ADDITIONS mirror exclusions: items a stage legitimately holds MORE of than
+    the stage before it, because the walk itself put them there (its seeds). Same
+    shape {stage, fact|count, reason}; a fact that is absent adds nothing."""
+    t = 0
+    for e in row.get("additions", []):
+        if e.get("stage") == stage:
+            c = _excl_count(e, facts)
+            t += c or 0
+    return t
+
+
+def _add_reasons(row, stage, facts):
+    out = []
+    for e in row.get("additions", []):
         if e.get("stage") == stage:
             c = _excl_count(e, facts)
             if c:
@@ -154,7 +179,8 @@ def adjudicate_row(row, facts):
             continue
         e = exp.get(s)
         declared = _excl_total(row, s, facts)
-        unmeasured_excl = [x for x in row.get("exclusions", [])
+        added = _add_total(row, s, facts)
+        unmeasured_excl = [x for x in list(row.get("exclusions", [])) + list(row.get("additions", []))
                            if x.get("stage") == s and "fact" in x and _fact(facts, x["fact"]) is None]
         if unmeasured_excl:
             bump("NOT-MEASURED", "%s: exclusion fact %s unreadable" % (s, _name(unmeasured_excl[0]["fact"])))
@@ -174,14 +200,19 @@ def adjudicate_row(row, facts):
                         extra = " (%d distinct: nodes are mirrored)" % d
                     bump("INFLATED", "%s: %d held vs %d expected (+%d)%s" % (s, mv, int(e), mv - int(e), extra))
         if chain_on and prev_val is not None:
-            floor = prev_val - declared
+            # Expected at a stage = previous - declared exclusions + declared additions.
+            floor = prev_val - declared + added
+            ceiling = prev_val + added
             if e is None and mv < floor:
-                bump("LOST", "%s: %d from %d at %s, %d declared excluded (lost %d unexplained)"
-                     % (s, mv, prev_val, prev_stage, declared, floor - mv))
-            elif e is None and s != "in" and mv > prev_val:
-                bump("INFLATED", "%s: %d exceeds %d at %s (+%d)" % (s, mv, prev_val, prev_stage, mv - prev_val))
+                bump("LOST", "%s: %d from %d at %s, %d declared excluded, %d declared added (lost %d unexplained)"
+                     % (s, mv, prev_val, prev_stage, declared, added, floor - mv))
+            elif e is None and s != "in" and mv > ceiling:
+                bump("INFLATED", "%s: %d exceeds %d at %s + %d declared added (+%d unexplained)"
+                     % (s, mv, prev_val, prev_stage, added, mv - ceiling))
             elif mv < prev_val and declared > 0 and (e is None or mv >= int(e)):
                 bump("EXPLAINED", "%s: -%d %s" % (s, prev_val - mv, "; ".join(_excl_reasons(row, s, facts))))
+            elif mv > prev_val and added > 0 and (e is None or mv <= int(e)):
+                bump("EXPLAINED", "%s: +%d %s" % (s, mv - prev_val, "; ".join(_add_reasons(row, s, facts))))
         if s == "graph" and chain_on and m["stored"] is not None and e is None:
             if mv < m["stored"]:
                 bump("LOST", "graph: %d vs %d in the vector store (lost %d)" % (mv, m["stored"], m["stored"] - mv))
@@ -327,6 +358,7 @@ HOME = os.path.expanduser("~")
 STORE_CONF = os.environ.get("OSTLER_PROBE_STORE_CURL_CONF", os.path.join(HOME, ".ostler/secrets/store-curl.conf"))
 WIKI_DIR = os.environ.get("OSTLER_WIKI_DIR", os.path.join(HOME, "Documents/Ostler/Wiki"))
 LOG_DIR = os.environ.get("OSTLER_LOG_DIR", os.path.join(HOME, ".ostler/logs"))
+SEEDED_PEOPLE = os.environ.get("OSTLER_WALK_SEEDED_PEOPLE", os.path.join(HOME, ".walk-seeded-people"))
 
 # collection -> (payload keys to tally one by one, [(keyA, keyB) pairs], display key candidates)
 # Pairs are the (source, category) grain the allow-list bugs live at.
@@ -694,6 +726,45 @@ def collect_state(facts, meta):
             facts["w.pages.%s" % sub] = sum(1 for x in os.listdir(dp) if x.endswith(".md") and x != "index.md")
 
 
+def collect_seeded_people(facts, meta, no_seed_run):
+    """The people the WALK's own seeds put on the box. Each seed appends
+    `<seed> <count>` to ~/.walk-seeded-people from its own write result and removes
+    its line when it forgets.
+
+    ABSENT file = 0 ONLY when the caller says the walk ran no seed (no_seed_run).
+    Otherwise an absent file is unreadable, and so is a file with a line that is not
+    `<name> <integer>`: no fact is set, so the row that needs it is NOT-MEASURED,
+    never CONSERVED. A file that exists and is empty is a readable 0 (every seed
+    forgot)."""
+    try:
+        with open(SEEDED_PEOPLE, "r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except FileNotFoundError:
+        if no_seed_run:
+            facts["walk.seeded.people"] = 0
+            meta["seeded_people"] = "absent, walk ran no seed"
+        else:
+            meta["seeded_people"] = "absent but a seed ran"
+        return
+    except OSError as e:
+        meta["seeded_people"] = "unreadable: %s" % type(e).__name__
+        return
+    total, per = 0, {}
+    for ln in lines:
+        if not ln.strip():
+            continue
+        parts = ln.split()
+        if len(parts) != 2 or not parts[1].isdigit():
+            meta["seeded_people"] = "unreadable: malformed line %r" % ln[:40]
+            return
+        n = int(parts[1])
+        total += n
+        per[parts[0]] = per.get(parts[0], 0) + n
+    facts["walk.seeded.people"] = total
+    for k, v in per.items():
+        facts["walk.seeded.people.%s" % k] = v
+
+
 def collect_doctor(facts, meta, hdr):
     """SHOWN at the Doctor: GET /api/v1/sources (item_count, last_run_count)."""
     code, js = _http("http://127.0.0.1:8089/api/v1/sources", headers=hdr, timeout=15)
@@ -709,7 +780,7 @@ def collect_doctor(facts, meta, hdr):
                 facts["doctor.%s.%s" % (k, f)] = r[f]
 
 
-def collect():
+def collect(no_seed_run=False):
     facts, meta = {}, {}
     hdr = _headers()
     meta["credential_headers"] = len(hdr)
@@ -727,6 +798,7 @@ def collect():
     collect_state(facts, meta)
     collect_ingest_logs(facts, meta)
     collect_doctor(facts, meta, hdr)
+    collect_seeded_people(facts, meta, no_seed_run)
     return {"facts": facts, "meta": meta}
 
 
@@ -938,11 +1010,67 @@ def selftest():
     if overall(r11, c11)[1] != 78:
         fails.append("all IN zero (and stored zero) did not CANNOT-RUN")
 
+    # 13. ADDITIONS: people the walk's own seeds wrote. 116c read in=1 (the owner) and
+    #     STORED/GRAPH 11/11 after the seeds (10 seeded). With the seeds declared that is
+    #     EXPLAINED; without them (or one more than declared) it is INFLATED.
+    exp_pa = {"rows": [{"id": "people/all", "source": "people", "category": "person",
+                        "facts": {"in": "i", "stored": "q", "graph": "g", "shown": "w"},
+                        "additions": [{"stage": "stored", "fact": "seeded", "reason": "walk seeds"}]}]}
+    pa = {"i": 1, "q": 11, "g": 11, "w": 11, "seeded": 10}
+    r13, c13 = adjudicate(exp_pa, pa)
+    if not (c13["EXPLAINED"] == 1 and c13["LOST"] == 0 and c13["INFLATED"] == 0 and overall(r13, c13)[1] == 0
+            and "walk seeds x10" in r13[0]["why"]):
+        fails.append("116c numbers with 10 declared seeded people were not EXPLAINED (reason named): %s %s" % (c13, r13[0]["why"]))
+    r13b, c13b = adjudicate(exp_pa, dict(pa, q=12, g=12, w=12))          # MUTANT: in + seeded + 1
+    if not (c13b["INFLATED"] == 1 and overall(r13b, c13b)[1] == 1):
+        fails.append("stored = in + seeded + 1 was not INFLATED (real inflation hidden by the addition): %s" % c13b)
+    r13c, c13c = adjudicate(exp_pa, dict(pa, seeded=12))                 # declares more than was written
+    if not (c13c["LOST"] == 1 and overall(r13c, c13c)[1] == 1):
+        fails.append("a seed file declaring more than was written was not LOST: %s" % c13c)
+    f13d = dict(pa)
+    del f13d["seeded"]                                                   # the seed file could not be read
+    r13d, c13d = adjudicate(exp_pa, f13d)
+    if not (c13d["NOT-MEASURED"] == 1 and c13d["CONSERVED"] == 0 and c13d["EXPLAINED"] == 0 and overall(r13d, c13d)[1] == 78):
+        fails.append("an unreadable seed fact was not NOT-MEASURED / 78 (never CONSERVED): %s" % c13d)
+    r13e, c13e = adjudicate(exp_pa, dict(pa, seeded=0, q=1, g=1, w=1))   # the early phase: no seed, 1/1/1/1
+    if not (c13e["CONSERVED"] == 1 and overall(r13e, c13e)[1] == 0):
+        fails.append("early phase 1/1/1/1 with 0 seeded was not CONSERVED: %s" % c13e)
+    r13f, c13f = adjudicate(exp_pa, dict(pa, w=10))                      # a SHOWN gap the addition does not explain
+    if not (c13f["LOST"] == 1 and "shown" in r13f[0]["why"]):
+        fails.append("an unexplained shown gap behind a declared addition was not LOST at shown: %s" % c13f)
+
+    # 14. The seed file reader: absent is 0 ONLY when told no seed ran; unreadable sets no fact.
+    keep_path, d14 = SEEDED_PEOPLE, tempfile.mkdtemp(prefix="dcs_")
+    try:
+        def read14(content, no_seed_run):
+            path = os.path.join(d14, "walk-seeded-people")
+            if os.path.exists(path):
+                os.remove(path)
+            if content is not None:
+                with open(path, "w") as fh:
+                    fh.write(content)
+            fa, me = {}, {}
+            globals()["SEEDED_PEOPLE"] = path
+            collect_seeded_people(fa, me, no_seed_run)
+            return fa.get("walk.seeded.people")
+        if read14(None, True) != 0:
+            fails.append("absent seed file with --no-seed-run did not read 0")
+        if read14(None, False) is not None:
+            fails.append("absent seed file after a seed ran read as a number (must be unreadable)")
+        if read14("", False) != 0:
+            fails.append("an EMPTY seed file (every seed forgot) did not read 0")
+        if read14("contact_cards 8\nneighbour 1\ngrounding 1\n", False) != 10:
+            fails.append("seed file lines were not summed to 10")
+        if read14("contact_cards 8\nneighbour many\n", False) is not None:
+            fails.append("a malformed seed line read as a number (must be unreadable)")
+    finally:
+        globals()["SEEDED_PEOPLE"] = keep_path
+
     for f_ in fails:
         print("SELFTEST FAIL: " + f_)
     if not fails:
         print("SELFTEST OK: control clean; 4 mutations LOST; mirrored nodes INFLATED; denial counts EXPLAIN exactly; known gap visible; absent fact NOT-MEASURED; empty set CANNOT-RUN; "
-              "real wiki reader saw the allow-list drop (apple %d -> %d)" % (good["apple"], bad["apple"]))
+              "real wiki reader saw the allow-list drop (apple %d -> %d); seeded people explain exactly their count, +1 is INFLATED, an overdeclared or unreadable seed file is LOST / NOT-MEASURED" % (good["apple"], bad["apple"]))
     return 0 if not fails else 1
 
 
@@ -956,7 +1084,7 @@ def main(argv):
         return 2
     cmd = argv[1]
     if cmd == "collect":
-        json.dump(collect(), sys.stdout, sort_keys=True)
+        json.dump(collect(no_seed_run="--no-seed-run" in argv[2:]), sys.stdout, sort_keys=True)
         print()
         return 0
     if cmd == "selftest":
