@@ -389,6 +389,27 @@ def _is_instagram_activity_dirname(name: str) -> bool:
     return "instagram" in lower and "activity" in lower
 
 
+def _has_valid_facebook_inbox(root: Path) -> bool:
+    """True iff a Facebook-NAMED activity root holds a readable Messenger inbox.
+
+    CM051 118 guard (vendor-side, not in HR015 #1164): on a mixed root, an
+    explicit Facebook activity root with a valid inbox wins, which is exactly
+    what happened before the Instagram route existed. A wrongly-claimed
+    Facebook export would break a working import.
+    """
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and _is_facebook_activity_dirname(child.name):
+                inbox = child / "messages" / "inbox"
+                if inbox.is_dir():
+                    msg = _find_first(inbox, "message_1.json", budget=5000)
+                    if msg and _json_has_keys(msg, ("participants", "messages")):
+                        return True
+    except OSError:
+        pass
+    return False
+
+
 def _detect_instagram(root: Path) -> Optional[Detection]:
     # Instagram DYI: same per-thread JSON as Messenger, so this runs BEFORE
     # _detect_facebook and needs a positive Instagram signal: either an
@@ -396,6 +417,11 @@ def _detect_instagram(root: Path) -> Optional[Detection]:
     # to an Instagram-only marker. Without this, an older Instagram export
     # (flat ``messages/inbox``) is claimed by the Facebook detector and its
     # DMs land under the wrong channel.
+    # MIXED-ROOT RULE (named, CM051 118): Facebook wins on conflict. Instagram is
+    # claimed only on a positive Instagram signal AND no Facebook-named activity
+    # root with a valid inbox beside it.
+    if _has_valid_facebook_inbox(root):
+        return None
     candidates = []
     try:
         for child in root.iterdir():

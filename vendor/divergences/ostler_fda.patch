@@ -1,8 +1,115 @@
-diff --git a/apple_mail.py b/apple_mail.py
-index eefc9bba..91fc98c2 100644
+--- a/apple_mail_mbox.py
++++ b/apple_mail_mbox.py
+@@ -500,7 +500,9 @@
+     return EmlxMeta(path=path, received_at=received_at)
+ 
+ 
+-def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
++def discover_emlx_files(
++    mail_dir: Path, errors: Optional[list] = None
++) -> Iterator[Path]:
+     """Yield every ``.emlx`` file under ``mail_dir`` recursively.
+ 
+     Apple Mail nests files several directories deep (V*/account.mbox/
+@@ -513,8 +515,17 @@
+     # #197: rglob raises if a subdir vanishes/unreadable mid-walk (Apple Mail
+     # rearranges its V*/*.mbox tree during a tick). Walk resiliently: skip the
+     # unreadable subtree + log, keep going. Email-ingest degrades, never crashes.
++    # A failure on the ROOT is not "a subdir vanished": the whole mailbox was
++    # refused (Full Disk Access not granted), and returning an empty walk made
++    # the caller record backfill_complete=true, so older mail was never read
++    # after the grant. Raise it. A failure BELOW the root is still skipped, but
++    # is appended to ``errors`` so the caller can refuse to advance its edges.
+     def _on_walk_error(err: OSError) -> None:
++        if Path(err.filename or "") == Path(mail_dir):
++            raise err
+         logger.warning("discover_emlx_files: skipping unreadable dir during walk: %s", err)
++        if errors is not None:
++            errors.append(err)
+     found: list[Path] = []
+     for root, _dirs, files in os.walk(mail_dir, onerror=_on_walk_error):
+         for name in files:
+@@ -753,8 +764,9 @@
+     skipped_unparseable = 0
+     skipped_no_date = 0
+     scanned_files = 0
++    walk_errors: list = []
+     try:
+-        for emlx_path in discover_emlx_files(mail_dir):
++        for emlx_path in discover_emlx_files(mail_dir, walk_errors):
+             scanned_files += 1
+             try:
+                 meta = scan_emlx_metadata(emlx_path)
+@@ -801,6 +813,17 @@
+             and chunk_floor <= p.received_at < oldest_edge
+         ]
+         new_oldest_edge = chunk_floor
++
++    if walk_errors:
++        # Part of the mailbox could not be read this tick. Whatever we did not
++        # see cannot be counted as covered: hold the backward edge where it was
++        # so the chunk is retried, and never declare the backfill complete.
++        new_oldest_edge = oldest_edge
++        logger.error(
++            "Apple Mail walk could not read %d director%s (first: %s); holding "
++            "the backward edge and not marking the backfill complete.",
++            len(walk_errors), "y" if len(walk_errors) == 1 else "ies", walk_errors[0],
++        )
+ 
+     fresh = forward + backward
+     fresh.sort(key=lambda p: p.received_at or datetime.min.replace(tzinfo=timezone.utc))
+@@ -814,7 +837,9 @@
+         min((p.received_at for p in discovered if p.received_at is not None),
+             default=None)
+     )
+-    if is_unbounded_first_run:
++    if walk_errors:
++        pass  # incomplete walk: no completion claim of any kind
++    elif is_unbounded_first_run:
+         # Unbounded first run emitted the entire mailbox in one
+         # go; backward sweep would re-emit what we just shipped.
+         # Mark complete and pin the oldest edge to the actual
+@@ -890,7 +915,11 @@
+             _record("other", error_message=f"checkpoint save failed: {exc}")
+             raise
+         _record(
+-            "success",
++            "mailbox_unreadable" if walk_errors else "success",
++            error_message=(
++                f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
++                if walk_errors else None
++            ),
+             emitted=0,
+             oldest=new_oldest_edge,
+             newest=checkpoint.newest_processed,
+@@ -947,6 +976,11 @@
+         max(emitted_forward_dates) if emitted_forward_dates
+         else checkpoint.newest_processed
+     )
++    if walk_errors:
++        # Mail in the directory we could not read may be NEWER than what we
++        # just emitted; stepping the forward edge over it would lose it for
++        # good. Hold it (a later tick may re-emit; the importer dedupes).
++        advanced_newest = checkpoint.newest_processed
+ 
+     try:
+         save_checkpoint(
+@@ -974,7 +1008,11 @@
+         skipped_unparseable, skipped_no_date, skipped_at_emit,
+     )
+     _record(
+-        "success",
++        "mailbox_unreadable" if walk_errors else "success",
++        error_message=(
++            f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
++            if walk_errors else None
++        ),
+         emitted=emitted_count,
+         oldest=new_oldest_edge,
+         newest=advanced_newest,
 --- a/apple_mail.py
 +++ b/apple_mail.py
-@@ -17,6 +17,8 @@ from __future__ import annotations
+@@ -17,6 +17,8 @@
  
  import logging
  import sqlite3
@@ -11,7 +118,7 @@ index eefc9bba..91fc98c2 100644
  from dataclasses import dataclass
  from datetime import datetime, timezone
  from pathlib import Path
-@@ -80,16 +82,108 @@ def _find_envelope_index(mail_dir: Optional[Path] = None) -> Path:
+@@ -80,16 +82,108 @@
      return envelope
  
  
@@ -123,7 +230,7 @@ index eefc9bba..91fc98c2 100644
          limit: Maximum number of messages to extract.
  
      Returns:
-@@ -104,7 +198,7 @@ def extract_messages(
+@@ -104,7 +198,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -132,7 +239,7 @@ index eefc9bba..91fc98c2 100644
              raise PermissionError(
                  "Cannot read Mail data. Grant Full Disk Access."
              ) from e
-@@ -115,79 +209,16 @@ def extract_messages(
+@@ -115,79 +209,16 @@
      # Mail stores dates as Unix timestamps (not Mac epoch)
      cutoff = datetime.now(timezone.utc).timestamp() - (since_days * 86400)
  
@@ -222,7 +329,7 @@ index eefc9bba..91fc98c2 100644
  
      # Get recipients from the addresses table. Sequoia recipients schema
      # uses recipients.message + recipients.address (both INTEGER fks),
-@@ -272,6 +303,44 @@ def extract_messages(
+@@ -272,6 +303,44 @@
      return messages
  
  
@@ -267,7 +374,7 @@ index eefc9bba..91fc98c2 100644
  def email_stats(messages: list[EmailMessage]) -> dict:
      """Compute summary statistics for extracted emails."""
      senders: dict[str, int] = {}
-@@ -313,8 +382,7 @@ def frequent_contacts(messages: list[EmailMessage], limit: int = 50) -> dict[str
+@@ -313,8 +382,7 @@
          if not sender:
              continue
          # Normalise "Name <email>" to just the email
@@ -277,591 +384,6 @@ index eefc9bba..91fc98c2 100644
          counts[sender] = counts.get(sender, 0) + 1
  
      sorted_contacts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-diff --git a/apple_mail_mbox.py b/apple_mail_mbox.py
-index d9ae1ce6..1daf46dd 100644
---- a/apple_mail_mbox.py
-+++ b/apple_mail_mbox.py
-@@ -500,7 +500,9 @@ def scan_emlx_metadata(
-     return EmlxMeta(path=path, received_at=received_at)
- 
- 
--def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
-+def discover_emlx_files(
-+    mail_dir: Path, errors: Optional[list] = None
-+) -> Iterator[Path]:
-     """Yield every ``.emlx`` file under ``mail_dir`` recursively.
- 
-     Apple Mail nests files several directories deep (V*/account.mbox/
-@@ -513,8 +515,17 @@ def discover_emlx_files(mail_dir: Path) -> Iterator[Path]:
-     # #197: rglob raises if a subdir vanishes/unreadable mid-walk (Apple Mail
-     # rearranges its V*/*.mbox tree during a tick). Walk resiliently: skip the
-     # unreadable subtree + log, keep going. Email-ingest degrades, never crashes.
-+    # A failure on the ROOT is not "a subdir vanished": the whole mailbox was
-+    # refused (Full Disk Access not granted), and returning an empty walk made
-+    # the caller record backfill_complete=true, so older mail was never read
-+    # after the grant. Raise it. A failure BELOW the root is still skipped, but
-+    # is appended to ``errors`` so the caller can refuse to advance its edges.
-     def _on_walk_error(err: OSError) -> None:
-+        if Path(err.filename or "") == Path(mail_dir):
-+            raise err
-         logger.warning("discover_emlx_files: skipping unreadable dir during walk: %s", err)
-+        if errors is not None:
-+            errors.append(err)
-     found: list[Path] = []
-     for root, _dirs, files in os.walk(mail_dir, onerror=_on_walk_error):
-         for name in files:
-@@ -753,8 +764,9 @@ def emit_mbox(
-     skipped_unparseable = 0
-     skipped_no_date = 0
-     scanned_files = 0
-+    walk_errors: list = []
-     try:
--        for emlx_path in discover_emlx_files(mail_dir):
-+        for emlx_path in discover_emlx_files(mail_dir, walk_errors):
-             scanned_files += 1
-             try:
-                 meta = scan_emlx_metadata(emlx_path)
-@@ -802,6 +814,17 @@ def emit_mbox(
-         ]
-         new_oldest_edge = chunk_floor
- 
-+    if walk_errors:
-+        # Part of the mailbox could not be read this tick. Whatever we did not
-+        # see cannot be counted as covered: hold the backward edge where it was
-+        # so the chunk is retried, and never declare the backfill complete.
-+        new_oldest_edge = oldest_edge
-+        logger.error(
-+            "Apple Mail walk could not read %d director%s (first: %s); holding "
-+            "the backward edge and not marking the backfill complete.",
-+            len(walk_errors), "y" if len(walk_errors) == 1 else "ies", walk_errors[0],
-+        )
-+
-     fresh = forward + backward
-     fresh.sort(key=lambda p: p.received_at or datetime.min.replace(tzinfo=timezone.utc))
- 
-@@ -814,7 +837,9 @@ def emit_mbox(
-         min((p.received_at for p in discovered if p.received_at is not None),
-             default=None)
-     )
--    if is_unbounded_first_run:
-+    if walk_errors:
-+        pass  # incomplete walk: no completion claim of any kind
-+    elif is_unbounded_first_run:
-         # Unbounded first run emitted the entire mailbox in one
-         # go; backward sweep would re-emit what we just shipped.
-         # Mark complete and pin the oldest edge to the actual
-@@ -890,7 +915,11 @@ def emit_mbox(
-             _record("other", error_message=f"checkpoint save failed: {exc}")
-             raise
-         _record(
--            "success",
-+            "mailbox_unreadable" if walk_errors else "success",
-+            error_message=(
-+                f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
-+                if walk_errors else None
-+            ),
-             emitted=0,
-             oldest=new_oldest_edge,
-             newest=checkpoint.newest_processed,
-@@ -947,6 +976,11 @@ def emit_mbox(
-         max(emitted_forward_dates) if emitted_forward_dates
-         else checkpoint.newest_processed
-     )
-+    if walk_errors:
-+        # Mail in the directory we could not read may be NEWER than what we
-+        # just emitted; stepping the forward edge over it would lose it for
-+        # good. Hold it (a later tick may re-emit; the importer dedupes).
-+        advanced_newest = checkpoint.newest_processed
- 
-     try:
-         save_checkpoint(
-@@ -974,7 +1008,11 @@ def emit_mbox(
-         skipped_unparseable, skipped_no_date, skipped_at_emit,
-     )
-     _record(
--        "success",
-+        "mailbox_unreadable" if walk_errors else "success",
-+        error_message=(
-+            f"{len(walk_errors)} director(ies) unreadable, first: {walk_errors[0]}"
-+            if walk_errors else None
-+        ),
-         emitted=emitted_count,
-         oldest=new_oldest_edge,
-         newest=advanced_newest,
-diff --git a/apple_music.py b/apple_music.py
-index a1d294da..14baa3be 100644
---- a/apple_music.py
-+++ b/apple_music.py
-@@ -25,12 +25,37 @@ The XML lives under the user's home directory and does not require
- Full Disk Access on current macOS (it is not a TCC-protected store),
- but the path is overridable via ``OSTLER_MUSIC_LIBRARY_XML`` for
- custom installs and tests.
-+
-+NATIVE READER (CM051, Andy 2026-10-14, walk #27)
-+------------------------------------------------
-+The XML above exists ONLY when the owner has ticked the Music app's
-+option to share its library XML with other applications. Almost nobody has, so on the
-+walk box this module read 0 tracks while the owner's real listening sat
-+in ``Music Library.musiclibrary``. The primary reader is now the signed
-+``ostler-music-library`` helper bundled in the installer (Apple's public
-+iTunesLibrary framework, gated by the "Media & Apple Music" privacy
-+permission), located through ``OSTLER_MUSIC_LIBRARY_HELPER``. Order:
-+
-+    1. an explicit ``xml_path`` argument      -> XML only (as before)
-+    2. the native helper, when one is located -> every track, play count,
-+                                                 last played, date added,
-+                                                 rating, playlists
-+    3. the XML export, when one exists        -> fallback
-+    4. nothing                                -> empty, never an exception
-+
-+FAIL-OPEN. A refused permission, an empty library, no Music app, a
-+missing helper, a hung helper (bounded by a timeout) or unreadable output
-+all degrade to step 3 and then 4. ``MusicLibrary.native_status`` records
-+which, so the walk can tell "the owner has no music" from "the permission
-+was never granted".
- """
- from __future__ import annotations
- 
-+import json
- import logging
- import os
- import plistlib
-+import subprocess
- import uuid
- from dataclasses import dataclass, field
- from datetime import datetime, timezone
-@@ -65,6 +90,20 @@ _ALT_LIBRARY_XML = (
- 
- _ENV_OVERRIDE = "OSTLER_MUSIC_LIBRARY_XML"
- 
-+# The signed native helper (gui/ostler-music-library in CM051). install.sh
-+# exports its path; nothing else locates it, so a run with no helper is the
-+# old XML-only behaviour, byte for byte.
-+_HELPER_ENV = "OSTLER_MUSIC_LIBRARY_HELPER"
-+_HELPER_TIMEOUT_ENV = "OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT"
-+_HELPER_TIMEOUT_DEFAULT_S = 180.0
-+_HELPER_SCHEMA = 1
-+
-+# The file the CM019 preference importer recognises
-+# (services/ingest/src/parsers/apple_music_library.py). Written next to
-+# apple_music.json; install.sh stages it into the preferences drop-zone.
-+PREFERENCE_EXPORT_NAME = "ostler_apple_music_library.json"
-+PREFERENCE_EXPORT_SOURCE = "apple_music_library"
-+
- 
- @dataclass
- class Track:
-@@ -78,6 +117,11 @@ class Track:
-     last_played: Optional[datetime]
-     rating: Optional[int]  # 0-100 on disk (star * 20); None if unrated.
-     loved: bool
-+    # Native-reader fields. Defaults keep the XML reader's Track(...) calls
-+    # valid; the XML carries "Date Added", "Skip Count" and "Disliked" too.
-+    added: Optional[datetime] = None
-+    skip_count: int = 0
-+    disliked: bool = False
- 
- 
- @dataclass
-@@ -85,6 +129,9 @@ class Playlist:
-     """A named user playlist and the track ids it contains."""
-     name: str
-     track_ids: List[str] = field(default_factory=list)
-+    # A smart playlist is a rule ("most played", "added recently"), not a
-+    # choice the owner made track by track, so it is not curation.
-+    smart: bool = False
- 
- 
- @dataclass
-@@ -108,6 +155,19 @@ class MusicLibrary:
-     """The parsed library: tracks + playlists."""
-     tracks: List[Track] = field(default_factory=list)
-     playlists: List[Playlist] = field(default_factory=list)
-+    # Which reader produced this library: "native", "xml" or "none".
-+    reader: str = "none"
-+    # What the native helper said, whatever reader won:
-+    #   not_tried    no helper located (OSTLER_MUSIC_LIBRARY_HELPER unset/absent)
-+    #   ok           read tracks
-+    #   empty        the framework answered and the library has no songs
-+    #   unavailable  the framework refused: permission not granted, no
-+    #                library, no Music app (error domain/code in native_detail)
-+    #   timeout      the helper did not answer inside the bound
-+    #   bad_output   the helper answered with something that is not its JSON
-+    #   error        the helper could not be started
-+    native_status: str = "not_tried"
-+    native_detail: str = ""
- 
- 
- # Apple's built-in "smart"/system playlists carry a distinct flag in
-@@ -191,7 +251,10 @@ def _parse_track(raw: dict) -> Optional[Track]:
-         rating=(
-             int(raw["Rating"]) if isinstance(raw.get("Rating"), int) else None
-         ),
--        loved=bool(raw.get("Loved", False)),
-+        loved=bool(raw.get("Loved", False) or raw.get("Favorited", False)),
-+        added=_as_datetime(raw.get("Date Added")),
-+        skip_count=int(raw.get("Skip Count") or 0),
-+        disliked=bool(raw.get("Disliked", False)),
-     )
- 
- 
-@@ -220,7 +283,172 @@ def _parse_playlist(raw: dict) -> Optional[Playlist]:
-     return Playlist(name=name, track_ids=track_ids)
- 
- 
--def extract_library(xml_path: Optional[Path] = None) -> MusicLibrary:
-+def _resolve_helper(helper: Optional[Path]) -> Optional[Path]:
-+    """The native helper path: arg > OSTLER_MUSIC_LIBRARY_HELPER > none."""
-+    if helper is None:
-+        raw = os.environ.get(_HELPER_ENV, "").strip()
-+        if not raw:
-+            return None
-+        helper = Path(raw).expanduser()
-+    if helper.is_file() and os.access(helper, os.X_OK):
-+        return helper
-+    return None
-+
-+
-+def _iso_datetime(raw) -> Optional[datetime]:
-+    """Parse the helper's ISO-8601 timestamps to tz-aware UTC."""
-+    if not isinstance(raw, str) or not raw:
-+        return None
-+    try:
-+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-+    except ValueError:
-+        return None
-+    if dt.tzinfo is None:
-+        dt = dt.replace(tzinfo=timezone.utc)
-+    return dt.astimezone(timezone.utc)
-+
-+
-+def _int(raw, default: int = 0) -> int:
-+    try:
-+        return int(raw)
-+    except (TypeError, ValueError):
-+        return default
-+
-+
-+def library_from_helper_json(payload: dict) -> MusicLibrary:
-+    """Build a MusicLibrary from the helper's ``status: ok`` JSON object.
-+
-+    Separate from the subprocess call so a synthetic fixture can drive it.
-+    Rows without an id or a title are dropped, as the XML reader drops them.
-+    """
-+    tracks: List[Track] = []
-+    for raw in payload.get("tracks") or []:
-+        if not isinstance(raw, dict):
-+            continue
-+        tid, title = raw.get("id"), raw.get("title")
-+        if not tid or not title:
-+            continue
-+        rating = _int(raw.get("rating"), 0)
-+        tracks.append(Track(
-+            track_id=str(tid),
-+            name=str(title),
-+            artist=raw.get("artist") or None,
-+            album=raw.get("album") or None,
-+            genre=raw.get("genre") or None,
-+            play_count=max(0, _int(raw.get("play_count"))),
-+            last_played=_iso_datetime(raw.get("last_played")),
-+            rating=rating if rating > 0 else None,
-+            loved=raw.get("loved") is True,
-+            added=_iso_datetime(raw.get("added")),
-+            skip_count=max(0, _int(raw.get("skip_count"))),
-+            disliked=raw.get("disliked") is True,
-+        ))
-+    playlists: List[Playlist] = []
-+    for raw in payload.get("playlists") or []:
-+        if not isinstance(raw, dict) or not raw.get("name"):
-+            continue
-+        playlists.append(Playlist(
-+            name=str(raw["name"]),
-+            track_ids=[str(t) for t in (raw.get("track_ids") or [])],
-+            smart=raw.get("smart") is True,
-+        ))
-+    return MusicLibrary(tracks=tracks, playlists=playlists, reader="native",
-+                        native_status="ok")
-+
-+
-+def read_native_library(
-+    helper: Optional[Path] = None, timeout: Optional[float] = None
-+) -> MusicLibrary:
-+    """Run the signed helper and return what it read. NEVER raises.
-+
-+    A library with ``reader == "native"`` means the helper read songs. Any
-+    other outcome returns an EMPTY library whose ``native_status`` says why,
-+    so the caller can fall back to the XML export.
-+    """
-+    path = _resolve_helper(helper)
-+    if path is None:
-+        return MusicLibrary(native_status="not_tried")
-+    if timeout is None:
-+        try:
-+            timeout = float(os.environ.get(_HELPER_TIMEOUT_ENV, "") or
-+                            _HELPER_TIMEOUT_DEFAULT_S)
-+        except ValueError:
-+            timeout = _HELPER_TIMEOUT_DEFAULT_S
-+    try:
-+        proc = subprocess.run(
-+            [str(path)], stdin=subprocess.DEVNULL, capture_output=True,
-+            timeout=timeout, check=False,
-+        )
-+    except subprocess.TimeoutExpired:
-+        logger.warning("Music library helper did not answer in %.0fs; skipping.", timeout)
-+        return MusicLibrary(native_status="timeout",
-+                            native_detail=f"no answer in {timeout:.0f}s")
-+    except OSError as exc:
-+        logger.warning("Music library helper could not start (%s).", type(exc).__name__)
-+        return MusicLibrary(native_status="error", native_detail=type(exc).__name__)
-+
-+    return library_from_helper_output(proc.stdout, proc.returncode)
-+
-+
-+def library_from_helper_output(stdout: bytes, returncode: int = 0) -> MusicLibrary:
-+    """Turn the helper's stdout into a library. NEVER raises.
-+
-+    Shared by the install-time read (``read_native_library``) and the
-+    scheduled refresh (``apple_music_refresh``), which receives the same
-+    bytes from the signed app that ran the helper.
-+    """
-+    lines = [ln for ln in stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
-+    try:
-+        payload = json.loads(lines[-1]) if lines else None
-+    except ValueError:
-+        payload = None
-+    if not isinstance(payload, dict) or payload.get("schema") != _HELPER_SCHEMA:
-+        return MusicLibrary(native_status="bad_output",
-+                            native_detail=f"rc={returncode}")
-+
-+    status = payload.get("status")
-+    if status == "ok":
-+        lib = library_from_helper_json(payload)
-+        if lib.tracks:
-+            return lib
-+        return MusicLibrary(native_status="empty")
-+    if status == "empty":
-+        return MusicLibrary(native_status="empty")
-+    if status == "unavailable":
-+        detail = "{}:{}".format(payload.get("error_domain", "?"), payload.get("error_code", "?"))
-+        logger.info("Music library not readable natively (%s); falling back.", detail)
-+        return MusicLibrary(native_status="unavailable", native_detail=detail)
-+    return MusicLibrary(native_status="bad_output", native_detail=f"status={status!r}")
-+
-+
-+def extract_library(
-+    xml_path: Optional[Path] = None, helper: Optional[Path] = None
-+) -> MusicLibrary:
-+    """Read the owner's music library: native helper first, XML fallback.
-+
-+    An explicit ``xml_path`` reads that XML only (the pre-native contract).
-+    Otherwise the native helper is tried when one is located, then the XML
-+    export. Never raises for a missing permission, library or helper.
-+    """
-+    if xml_path is not None:
-+        lib = _extract_library_xml(xml_path)
-+        return lib
-+
-+    native = read_native_library(helper=helper)
-+    if native.reader == "native":
-+        logger.info(
-+            "Read Apple Music library natively: %d tracks, %d user playlists",
-+            len(native.tracks), len(native.playlists),
-+        )
-+        return native
-+
-+    lib = _extract_library_xml(None)
-+    lib.native_status = native.native_status
-+    lib.native_detail = native.native_detail
-+    return lib
-+
-+
-+def _extract_library_xml(xml_path: Optional[Path] = None) -> MusicLibrary:
-     """Parse the iTunes/Music library XML into a MusicLibrary.
- 
-     Args:
-@@ -271,11 +499,11 @@ def extract_library(xml_path: Optional[Path] = None) -> MusicLibrary:
-         "Parsed Apple Music library: %d tracks, %d user playlists (from %s)",
-         len(tracks), len(playlists), path,
-     )
--    return MusicLibrary(tracks=tracks, playlists=playlists)
-+    return MusicLibrary(tracks=tracks, playlists=playlists, reader="xml")
- 
- 
- def top_artists(
--    library: MusicLibrary, limit: int = 50
-+    library: MusicLibrary, limit: Optional[int] = 50
- ) -> List[ArtistTaste]:
-     """Aggregate tracks by artist, ranked by total play count.
- 
-@@ -299,7 +527,7 @@ def top_artists(
- 
- 
- def top_genres(
--    library: MusicLibrary, limit: int = 30
-+    library: MusicLibrary, limit: Optional[int] = 30
- ) -> List[GenreTaste]:
-     """Aggregate tracks by genre, ranked by total play count."""
-     agg: dict[str, dict] = {}
-@@ -347,13 +575,16 @@ def to_records(library: MusicLibrary) -> List[dict]:
-     - ``music_genre``    one per genre, with play + track counts.
-     - ``music_playlist`` one per user playlist, with its size.
- 
-+    EVERY artist and genre is emitted (CM051 #28: no storage cap; this used to
-+    keep the top 200 artists and top 100 genres and drop the rest).
-+
-     Per-track rows are intentionally NOT emitted in bulk here -- the
-     aggregates are the durable taste signal; the wiki Music wing
-     renders the most-played list from ``most_played()`` directly.
-     """
-     records: List[dict] = []
- 
--    for a in top_artists(library, limit=200):
-+    for a in top_artists(library, limit=None):
-         records.append({
-             "id": _stable_id("artist", a.artist),
-             "type": "music_artist",
-@@ -364,7 +595,7 @@ def to_records(library: MusicLibrary) -> List[dict]:
-             "privacy_level": PRIVACY_LEVEL,
-         })
- 
--    for g in top_genres(library, limit=100):
-+    for g in top_genres(library, limit=None):
-         records.append({
-             "id": _stable_id("genre", g.genre),
-             "type": "music_genre",
-@@ -388,6 +619,76 @@ def to_records(library: MusicLibrary) -> List[dict]:
-     return records
- 
- 
-+def _iso(dt: Optional[datetime]) -> Optional[str]:
-+    return dt.astimezone(timezone.utc).isoformat() if dt else None
-+
-+
-+def to_preference_export(library: MusicLibrary) -> dict:
-+    """The per-track file the CM019 preference importer reads.
-+
-+    One row per track with the raw evidence (play count, last played, date
-+    added, star rating, loved, disliked, and whether the owner put it in a
-+    playlist they made). No strength is computed here: scoring belongs to
-+    the importer, on the same scale as every other music service.
-+    """
-+    curated: set = set()
-+    for p in library.playlists:
-+        if not p.smart:
-+            curated.update(p.track_ids)
-+    rows = []
-+    for t in library.tracks:
-+        rows.append({
-+            "id": t.track_id,
-+            "title": t.name,
-+            "artist": t.artist,
-+            "album": t.album,
-+            "genre": t.genre,
-+            "play_count": t.play_count,
-+            "skip_count": t.skip_count,
-+            "last_played": _iso(t.last_played),
-+            "added": _iso(t.added),
-+            "rating": t.rating or 0,
-+            "loved": bool(t.loved),
-+            "disliked": bool(t.disliked),
-+            "in_user_playlist": t.track_id in curated,
-+        })
-+    return {
-+        "schema": 1,
-+        "source": PREFERENCE_EXPORT_SOURCE,
-+        "reader": library.reader,
-+        "tracks": rows,
-+        "user_playlists": sum(1 for p in library.playlists if not p.smart),
-+    }
-+
-+
-+def write_preference_export(library: MusicLibrary, output_dir: Path) -> Optional[Path]:
-+    """Write ``PREFERENCE_EXPORT_NAME`` when there is at least one track."""
-+    if not library.tracks:
-+        return None
-+    output_dir.mkdir(parents=True, exist_ok=True)
-+    out = output_dir / PREFERENCE_EXPORT_NAME
-+    out.write_text(json.dumps(to_preference_export(library)))
-+    return out
-+
-+
-+def previous_export_track_count(output_dir: Path) -> Optional[int]:
-+    """Tracks in an export a previous run left in ``output_dir``, or None.
-+
-+    The install reads the library natively, as a descendant of the
-+    installer, which holds the "Media & Apple Music" grant. The recurring
-+    FDA re-run is a launchd job with no such grant, so its native read is
-+    refused (fail-open, and deliberately never a new prompt). That run must
-+    not report the library as gone, or erase what the install read.
-+    """
-+    path = output_dir / PREFERENCE_EXPORT_NAME
-+    try:
-+        data = json.loads(path.read_text())
-+    except (OSError, ValueError):
-+        return None
-+    tracks = data.get("tracks") if isinstance(data, dict) else None
-+    return len(tracks) if isinstance(tracks, list) and tracks else None
-+
-+
- def library_stats(library: MusicLibrary) -> dict:
-     """Privacy-safe summary for the install summary screen.
- 
-@@ -405,6 +706,10 @@ def library_stats(library: MusicLibrary) -> dict:
-         "distinct_genres": len({t.genre for t in library.tracks if t.genre}),
-         "top_artists": [a.artist for a in arts],
-         "top_genres": [g.genre for g in gens],
-+        "tracks_with_plays": sum(1 for t in library.tracks if t.play_count > 0),
-+        "reader": library.reader,
-+        "native_status": library.native_status,
-+        "native_detail": library.native_detail,
-     }
- 
- 
-@@ -443,6 +748,15 @@ def main(argv: Optional[List[str]] = None) -> int:
-             f"{DEFAULT_LIBRARY_XML} (also honours ${_ENV_OVERRIDE})."
-         ),
-     )
-+    parser.add_argument(
-+        "--helper",
-+        type=Path,
-+        default=None,
-+        help=(
-+            "Path to the ostler-music-library helper. Default: "
-+            f"${_HELPER_ENV}; without one only the XML export is read."
-+        ),
-+    )
-     parser.add_argument(
-         "--output-dir",
-         type=Path,
-@@ -481,7 +795,7 @@ def main(argv: Optional[List[str]] = None) -> int:
-     }
- 
-     try:
--        library = extract_library(xml_path=args.xml_path)
-+        library = extract_library(xml_path=args.xml_path, helper=args.helper)
-     except Exception as exc:  # noqa: BLE001 -- last-resort guard
-         msg = type(exc).__name__
-         _stderr(f"pwg-apple-music: unexpected failure ({msg})")
-@@ -495,6 +809,8 @@ def main(argv: Optional[List[str]] = None) -> int:
-         # No library file or empty export -- graceful skip.
-         _stderr("pwg-apple-music: no Apple Music / iTunes library found.")
-         result["status"] = "no_library"
-+        result["native_status"] = library.native_status
-+        result["native_detail"] = library.native_detail
-         if args.json:
-             print(_json.dumps(result))
-         return 0
-@@ -513,6 +829,7 @@ def main(argv: Optional[List[str]] = None) -> int:
-             (output_dir / "apple_music.json").write_text(
-                 _json.dumps(records, indent=2)
-             )
-+            write_preference_export(library, output_dir)
-         except OSError as exc:
-             msg = type(exc).__name__
-             _stderr(f"pwg-apple-music: could not write JSON ({msg})")
-diff --git b/apple_music_refresh.py b/apple_music_refresh.py
-new file mode 100644
-index 00000000..acf3324c
 --- /dev/null
 +++ b/apple_music_refresh.py
 @@ -0,0 +1,610 @@
@@ -1475,11 +997,481 @@ index 00000000..acf3324c
 +
 +if __name__ == "__main__":
 +    raise SystemExit(main())
-diff --git a/apple_notes.py b/apple_notes.py
-index 72c7587e..18e2e03d 100644
+--- a/apple_music.py
++++ b/apple_music.py
+@@ -25,12 +25,37 @@
+ Full Disk Access on current macOS (it is not a TCC-protected store),
+ but the path is overridable via ``OSTLER_MUSIC_LIBRARY_XML`` for
+ custom installs and tests.
++
++NATIVE READER (CM051, Andy 2026-10-14, walk #27)
++------------------------------------------------
++The XML above exists ONLY when the owner has ticked the Music app's
++option to share its library XML with other applications. Almost nobody has, so on the
++walk box this module read 0 tracks while the owner's real listening sat
++in ``Music Library.musiclibrary``. The primary reader is now the signed
++``ostler-music-library`` helper bundled in the installer (Apple's public
++iTunesLibrary framework, gated by the "Media & Apple Music" privacy
++permission), located through ``OSTLER_MUSIC_LIBRARY_HELPER``. Order:
++
++    1. an explicit ``xml_path`` argument      -> XML only (as before)
++    2. the native helper, when one is located -> every track, play count,
++                                                 last played, date added,
++                                                 rating, playlists
++    3. the XML export, when one exists        -> fallback
++    4. nothing                                -> empty, never an exception
++
++FAIL-OPEN. A refused permission, an empty library, no Music app, a
++missing helper, a hung helper (bounded by a timeout) or unreadable output
++all degrade to step 3 and then 4. ``MusicLibrary.native_status`` records
++which, so the walk can tell "the owner has no music" from "the permission
++was never granted".
+ """
+ from __future__ import annotations
+ 
++import json
+ import logging
+ import os
+ import plistlib
++import subprocess
+ import uuid
+ from dataclasses import dataclass, field
+ from datetime import datetime, timezone
+@@ -65,7 +90,21 @@
+ 
+ _ENV_OVERRIDE = "OSTLER_MUSIC_LIBRARY_XML"
+ 
++# The signed native helper (gui/ostler-music-library in CM051). install.sh
++# exports its path; nothing else locates it, so a run with no helper is the
++# old XML-only behaviour, byte for byte.
++_HELPER_ENV = "OSTLER_MUSIC_LIBRARY_HELPER"
++_HELPER_TIMEOUT_ENV = "OSTLER_MUSIC_LIBRARY_HELPER_TIMEOUT"
++_HELPER_TIMEOUT_DEFAULT_S = 180.0
++_HELPER_SCHEMA = 1
+ 
++# The file the CM019 preference importer recognises
++# (services/ingest/src/parsers/apple_music_library.py). Written next to
++# apple_music.json; install.sh stages it into the preferences drop-zone.
++PREFERENCE_EXPORT_NAME = "ostler_apple_music_library.json"
++PREFERENCE_EXPORT_SOURCE = "apple_music_library"
++
++
+ @dataclass
+ class Track:
+     """A single track from the library with taste-relevant metadata."""
+@@ -78,6 +117,11 @@
+     last_played: Optional[datetime]
+     rating: Optional[int]  # 0-100 on disk (star * 20); None if unrated.
+     loved: bool
++    # Native-reader fields. Defaults keep the XML reader's Track(...) calls
++    # valid; the XML carries "Date Added", "Skip Count" and "Disliked" too.
++    added: Optional[datetime] = None
++    skip_count: int = 0
++    disliked: bool = False
+ 
+ 
+ @dataclass
+@@ -85,6 +129,9 @@
+     """A named user playlist and the track ids it contains."""
+     name: str
+     track_ids: List[str] = field(default_factory=list)
++    # A smart playlist is a rule ("most played", "added recently"), not a
++    # choice the owner made track by track, so it is not curation.
++    smart: bool = False
+ 
+ 
+ @dataclass
+@@ -108,6 +155,19 @@
+     """The parsed library: tracks + playlists."""
+     tracks: List[Track] = field(default_factory=list)
+     playlists: List[Playlist] = field(default_factory=list)
++    # Which reader produced this library: "native", "xml" or "none".
++    reader: str = "none"
++    # What the native helper said, whatever reader won:
++    #   not_tried    no helper located (OSTLER_MUSIC_LIBRARY_HELPER unset/absent)
++    #   ok           read tracks
++    #   empty        the framework answered and the library has no songs
++    #   unavailable  the framework refused: permission not granted, no
++    #                library, no Music app (error domain/code in native_detail)
++    #   timeout      the helper did not answer inside the bound
++    #   bad_output   the helper answered with something that is not its JSON
++    #   error        the helper could not be started
++    native_status: str = "not_tried"
++    native_detail: str = ""
+ 
+ 
+ # Apple's built-in "smart"/system playlists carry a distinct flag in
+@@ -191,7 +251,10 @@
+         rating=(
+             int(raw["Rating"]) if isinstance(raw.get("Rating"), int) else None
+         ),
+-        loved=bool(raw.get("Loved", False)),
++        loved=bool(raw.get("Loved", False) or raw.get("Favorited", False)),
++        added=_as_datetime(raw.get("Date Added")),
++        skip_count=int(raw.get("Skip Count") or 0),
++        disliked=bool(raw.get("Disliked", False)),
+     )
+ 
+ 
+@@ -220,7 +283,172 @@
+     return Playlist(name=name, track_ids=track_ids)
+ 
+ 
+-def extract_library(xml_path: Optional[Path] = None) -> MusicLibrary:
++def _resolve_helper(helper: Optional[Path]) -> Optional[Path]:
++    """The native helper path: arg > OSTLER_MUSIC_LIBRARY_HELPER > none."""
++    if helper is None:
++        raw = os.environ.get(_HELPER_ENV, "").strip()
++        if not raw:
++            return None
++        helper = Path(raw).expanduser()
++    if helper.is_file() and os.access(helper, os.X_OK):
++        return helper
++    return None
++
++
++def _iso_datetime(raw) -> Optional[datetime]:
++    """Parse the helper's ISO-8601 timestamps to tz-aware UTC."""
++    if not isinstance(raw, str) or not raw:
++        return None
++    try:
++        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
++    except ValueError:
++        return None
++    if dt.tzinfo is None:
++        dt = dt.replace(tzinfo=timezone.utc)
++    return dt.astimezone(timezone.utc)
++
++
++def _int(raw, default: int = 0) -> int:
++    try:
++        return int(raw)
++    except (TypeError, ValueError):
++        return default
++
++
++def library_from_helper_json(payload: dict) -> MusicLibrary:
++    """Build a MusicLibrary from the helper's ``status: ok`` JSON object.
++
++    Separate from the subprocess call so a synthetic fixture can drive it.
++    Rows without an id or a title are dropped, as the XML reader drops them.
++    """
++    tracks: List[Track] = []
++    for raw in payload.get("tracks") or []:
++        if not isinstance(raw, dict):
++            continue
++        tid, title = raw.get("id"), raw.get("title")
++        if not tid or not title:
++            continue
++        rating = _int(raw.get("rating"), 0)
++        tracks.append(Track(
++            track_id=str(tid),
++            name=str(title),
++            artist=raw.get("artist") or None,
++            album=raw.get("album") or None,
++            genre=raw.get("genre") or None,
++            play_count=max(0, _int(raw.get("play_count"))),
++            last_played=_iso_datetime(raw.get("last_played")),
++            rating=rating if rating > 0 else None,
++            loved=raw.get("loved") is True,
++            added=_iso_datetime(raw.get("added")),
++            skip_count=max(0, _int(raw.get("skip_count"))),
++            disliked=raw.get("disliked") is True,
++        ))
++    playlists: List[Playlist] = []
++    for raw in payload.get("playlists") or []:
++        if not isinstance(raw, dict) or not raw.get("name"):
++            continue
++        playlists.append(Playlist(
++            name=str(raw["name"]),
++            track_ids=[str(t) for t in (raw.get("track_ids") or [])],
++            smart=raw.get("smart") is True,
++        ))
++    return MusicLibrary(tracks=tracks, playlists=playlists, reader="native",
++                        native_status="ok")
++
++
++def read_native_library(
++    helper: Optional[Path] = None, timeout: Optional[float] = None
++) -> MusicLibrary:
++    """Run the signed helper and return what it read. NEVER raises.
++
++    A library with ``reader == "native"`` means the helper read songs. Any
++    other outcome returns an EMPTY library whose ``native_status`` says why,
++    so the caller can fall back to the XML export.
++    """
++    path = _resolve_helper(helper)
++    if path is None:
++        return MusicLibrary(native_status="not_tried")
++    if timeout is None:
++        try:
++            timeout = float(os.environ.get(_HELPER_TIMEOUT_ENV, "") or
++                            _HELPER_TIMEOUT_DEFAULT_S)
++        except ValueError:
++            timeout = _HELPER_TIMEOUT_DEFAULT_S
++    try:
++        proc = subprocess.run(
++            [str(path)], stdin=subprocess.DEVNULL, capture_output=True,
++            timeout=timeout, check=False,
++        )
++    except subprocess.TimeoutExpired:
++        logger.warning("Music library helper did not answer in %.0fs; skipping.", timeout)
++        return MusicLibrary(native_status="timeout",
++                            native_detail=f"no answer in {timeout:.0f}s")
++    except OSError as exc:
++        logger.warning("Music library helper could not start (%s).", type(exc).__name__)
++        return MusicLibrary(native_status="error", native_detail=type(exc).__name__)
++
++    return library_from_helper_output(proc.stdout, proc.returncode)
++
++
++def library_from_helper_output(stdout: bytes, returncode: int = 0) -> MusicLibrary:
++    """Turn the helper's stdout into a library. NEVER raises.
++
++    Shared by the install-time read (``read_native_library``) and the
++    scheduled refresh (``apple_music_refresh``), which receives the same
++    bytes from the signed app that ran the helper.
++    """
++    lines = [ln for ln in stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
++    try:
++        payload = json.loads(lines[-1]) if lines else None
++    except ValueError:
++        payload = None
++    if not isinstance(payload, dict) or payload.get("schema") != _HELPER_SCHEMA:
++        return MusicLibrary(native_status="bad_output",
++                            native_detail=f"rc={returncode}")
++
++    status = payload.get("status")
++    if status == "ok":
++        lib = library_from_helper_json(payload)
++        if lib.tracks:
++            return lib
++        return MusicLibrary(native_status="empty")
++    if status == "empty":
++        return MusicLibrary(native_status="empty")
++    if status == "unavailable":
++        detail = "{}:{}".format(payload.get("error_domain", "?"), payload.get("error_code", "?"))
++        logger.info("Music library not readable natively (%s); falling back.", detail)
++        return MusicLibrary(native_status="unavailable", native_detail=detail)
++    return MusicLibrary(native_status="bad_output", native_detail=f"status={status!r}")
++
++
++def extract_library(
++    xml_path: Optional[Path] = None, helper: Optional[Path] = None
++) -> MusicLibrary:
++    """Read the owner's music library: native helper first, XML fallback.
++
++    An explicit ``xml_path`` reads that XML only (the pre-native contract).
++    Otherwise the native helper is tried when one is located, then the XML
++    export. Never raises for a missing permission, library or helper.
++    """
++    if xml_path is not None:
++        lib = _extract_library_xml(xml_path)
++        return lib
++
++    native = read_native_library(helper=helper)
++    if native.reader == "native":
++        logger.info(
++            "Read Apple Music library natively: %d tracks, %d user playlists",
++            len(native.tracks), len(native.playlists),
++        )
++        return native
++
++    lib = _extract_library_xml(None)
++    lib.native_status = native.native_status
++    lib.native_detail = native.native_detail
++    return lib
++
++
++def _extract_library_xml(xml_path: Optional[Path] = None) -> MusicLibrary:
+     """Parse the iTunes/Music library XML into a MusicLibrary.
+ 
+     Args:
+@@ -271,11 +499,11 @@
+         "Parsed Apple Music library: %d tracks, %d user playlists (from %s)",
+         len(tracks), len(playlists), path,
+     )
+-    return MusicLibrary(tracks=tracks, playlists=playlists)
++    return MusicLibrary(tracks=tracks, playlists=playlists, reader="xml")
+ 
+ 
+ def top_artists(
+-    library: MusicLibrary, limit: int = 50
++    library: MusicLibrary, limit: Optional[int] = 50
+ ) -> List[ArtistTaste]:
+     """Aggregate tracks by artist, ranked by total play count.
+ 
+@@ -299,7 +527,7 @@
+ 
+ 
+ def top_genres(
+-    library: MusicLibrary, limit: int = 30
++    library: MusicLibrary, limit: Optional[int] = 30
+ ) -> List[GenreTaste]:
+     """Aggregate tracks by genre, ranked by total play count."""
+     agg: dict[str, dict] = {}
+@@ -347,13 +575,16 @@
+     - ``music_genre``    one per genre, with play + track counts.
+     - ``music_playlist`` one per user playlist, with its size.
+ 
++    EVERY artist and genre is emitted (CM051 #28: no storage cap; this used to
++    keep the top 200 artists and top 100 genres and drop the rest).
++
+     Per-track rows are intentionally NOT emitted in bulk here -- the
+     aggregates are the durable taste signal; the wiki Music wing
+     renders the most-played list from ``most_played()`` directly.
+     """
+     records: List[dict] = []
+ 
+-    for a in top_artists(library, limit=200):
++    for a in top_artists(library, limit=None):
+         records.append({
+             "id": _stable_id("artist", a.artist),
+             "type": "music_artist",
+@@ -364,7 +595,7 @@
+             "privacy_level": PRIVACY_LEVEL,
+         })
+ 
+-    for g in top_genres(library, limit=100):
++    for g in top_genres(library, limit=None):
+         records.append({
+             "id": _stable_id("genre", g.genre),
+             "type": "music_genre",
+@@ -386,8 +617,78 @@
+         })
+ 
+     return records
++
++
++def _iso(dt: Optional[datetime]) -> Optional[str]:
++    return dt.astimezone(timezone.utc).isoformat() if dt else None
++
++
++def to_preference_export(library: MusicLibrary) -> dict:
++    """The per-track file the CM019 preference importer reads.
+ 
++    One row per track with the raw evidence (play count, last played, date
++    added, star rating, loved, disliked, and whether the owner put it in a
++    playlist they made). No strength is computed here: scoring belongs to
++    the importer, on the same scale as every other music service.
++    """
++    curated: set = set()
++    for p in library.playlists:
++        if not p.smart:
++            curated.update(p.track_ids)
++    rows = []
++    for t in library.tracks:
++        rows.append({
++            "id": t.track_id,
++            "title": t.name,
++            "artist": t.artist,
++            "album": t.album,
++            "genre": t.genre,
++            "play_count": t.play_count,
++            "skip_count": t.skip_count,
++            "last_played": _iso(t.last_played),
++            "added": _iso(t.added),
++            "rating": t.rating or 0,
++            "loved": bool(t.loved),
++            "disliked": bool(t.disliked),
++            "in_user_playlist": t.track_id in curated,
++        })
++    return {
++        "schema": 1,
++        "source": PREFERENCE_EXPORT_SOURCE,
++        "reader": library.reader,
++        "tracks": rows,
++        "user_playlists": sum(1 for p in library.playlists if not p.smart),
++    }
+ 
++
++def write_preference_export(library: MusicLibrary, output_dir: Path) -> Optional[Path]:
++    """Write ``PREFERENCE_EXPORT_NAME`` when there is at least one track."""
++    if not library.tracks:
++        return None
++    output_dir.mkdir(parents=True, exist_ok=True)
++    out = output_dir / PREFERENCE_EXPORT_NAME
++    out.write_text(json.dumps(to_preference_export(library)))
++    return out
++
++
++def previous_export_track_count(output_dir: Path) -> Optional[int]:
++    """Tracks in an export a previous run left in ``output_dir``, or None.
++
++    The install reads the library natively, as a descendant of the
++    installer, which holds the "Media & Apple Music" grant. The recurring
++    FDA re-run is a launchd job with no such grant, so its native read is
++    refused (fail-open, and deliberately never a new prompt). That run must
++    not report the library as gone, or erase what the install read.
++    """
++    path = output_dir / PREFERENCE_EXPORT_NAME
++    try:
++        data = json.loads(path.read_text())
++    except (OSError, ValueError):
++        return None
++    tracks = data.get("tracks") if isinstance(data, dict) else None
++    return len(tracks) if isinstance(tracks, list) and tracks else None
++
++
+ def library_stats(library: MusicLibrary) -> dict:
+     """Privacy-safe summary for the install summary screen.
+ 
+@@ -405,6 +706,10 @@
+         "distinct_genres": len({t.genre for t in library.tracks if t.genre}),
+         "top_artists": [a.artist for a in arts],
+         "top_genres": [g.genre for g in gens],
++        "tracks_with_plays": sum(1 for t in library.tracks if t.play_count > 0),
++        "reader": library.reader,
++        "native_status": library.native_status,
++        "native_detail": library.native_detail,
+     }
+ 
+ 
+@@ -444,6 +749,15 @@
+         ),
+     )
+     parser.add_argument(
++        "--helper",
++        type=Path,
++        default=None,
++        help=(
++            "Path to the ostler-music-library helper. Default: "
++            f"${_HELPER_ENV}; without one only the XML export is read."
++        ),
++    )
++    parser.add_argument(
+         "--output-dir",
+         type=Path,
+         default=None,
+@@ -481,7 +795,7 @@
+     }
+ 
+     try:
+-        library = extract_library(xml_path=args.xml_path)
++        library = extract_library(xml_path=args.xml_path, helper=args.helper)
+     except Exception as exc:  # noqa: BLE001 -- last-resort guard
+         msg = type(exc).__name__
+         _stderr(f"pwg-apple-music: unexpected failure ({msg})")
+@@ -495,6 +809,8 @@
+         # No library file or empty export -- graceful skip.
+         _stderr("pwg-apple-music: no Apple Music / iTunes library found.")
+         result["status"] = "no_library"
++        result["native_status"] = library.native_status
++        result["native_detail"] = library.native_detail
+         if args.json:
+             print(_json.dumps(result))
+         return 0
+@@ -513,6 +829,7 @@
+             (output_dir / "apple_music.json").write_text(
+                 _json.dumps(records, indent=2)
+             )
++            write_preference_export(library, output_dir)
+         except OSError as exc:
+             msg = type(exc).__name__
+             _stderr(f"pwg-apple-music: could not write JSON ({msg})")
 --- a/apple_notes.py
 +++ b/apple_notes.py
-@@ -80,6 +80,8 @@ import gzip
+@@ -80,6 +80,8 @@
  import json
  import logging
  import sqlite3
@@ -1488,7 +1480,7 @@ index 72c7587e..18e2e03d 100644
  import sys
  from dataclasses import asdict, dataclass
  from datetime import datetime, timezone
-@@ -493,7 +495,7 @@ def extract_notes(
+@@ -493,7 +495,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -1497,11 +1489,9 @@ index 72c7587e..18e2e03d 100644
              raise PermissionError(
                  "Cannot read Apple Notes. Grant Full Disk Access."
              ) from e
-diff --git a/backfill_ladder.py b/backfill_ladder.py
-index 6417aaa9..aa6c9adf 100644
 --- a/backfill_ladder.py
 +++ b/backfill_ladder.py
-@@ -266,3 +266,209 @@ def resolve_backfill_days(
+@@ -266,3 +266,209 @@
      else:
          logger.info("[backfill-ladder] %s widening %sd -> %sd", source, current, chosen)
      return chosen
@@ -1711,11 +1701,9 @@ index 6417aaa9..aa6c9adf 100644
 +    results = ingest_all(Path(fda_dir)) or {}
 +    logger.info("[first-window] finished %d pending source(s)", len(sources))
 +    return {"status": "ok", "sources": sources, "ingest": sorted(results) if isinstance(results, dict) else []}
-diff --git a/calendar.py b/calendar.py
-index a0a3d6ff..88d0835e 100644
 --- a/calendar.py
 +++ b/calendar.py
-@@ -23,6 +23,8 @@ from __future__ import annotations
+@@ -23,6 +23,8 @@
  
  import logging
  import sqlite3
@@ -1724,7 +1712,7 @@ index a0a3d6ff..88d0835e 100644
  import time as _time
  from dataclasses import dataclass
  from datetime import datetime, timezone
-@@ -227,7 +229,7 @@ def extract_events(
+@@ -227,7 +229,7 @@
      try:
          conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -1733,9 +1721,6 @@ index a0a3d6ff..88d0835e 100644
              # RAISE (do not return []) so the extract_all orchestrator's
              # PermissionError -> no_fda branch fires and the customer gets a
              # Doctor "grant Full Disk Access" card. Returning [] here made a
-diff --git b/catchup_browser.py b/catchup_browser.py
-new file mode 100644
-index 00000000..019dcac2
 --- /dev/null
 +++ b/catchup_browser.py
 @@ -0,0 +1,194 @@
@@ -1933,9 +1918,6 @@ index 00000000..019dcac2
 +    if not out:
 +        logger.info("browser catch-up: no browser source is enabled")
 +    return out
-diff --git b/catchup_mail.py b/catchup_mail.py
-new file mode 100644
-index 00000000..e3f0ad11
 --- /dev/null
 +++ b/catchup_mail.py
 @@ -0,0 +1,241 @@
@@ -2180,9 +2162,6 @@ index 00000000..e3f0ad11
 +
 +def adapters():
 +    return [MailContacts(), MailBodies()]
-diff --git b/catchup_mbox.py b/catchup_mbox.py
-new file mode 100644
-index 00000000..87ab0441
 --- /dev/null
 +++ b/catchup_mbox.py
 @@ -0,0 +1,838 @@
@@ -3024,9 +3003,6 @@ index 00000000..87ab0441
 +    out += [MailboxAdapter(p, ident) for ident, p in sorted(by_identity.items())]
 +    logger.info("catch-up takeout: %d mailbox(es) found", len(out))
 +    return out
-diff --git b/catchup_photos.py b/catchup_photos.py
-new file mode 100644
-index 00000000..88dfddec
 --- /dev/null
 +++ b/catchup_photos.py
 @@ -0,0 +1,190 @@
@@ -3220,11 +3196,9 @@ index 00000000..88dfddec
 +        logger.info("catch-up photos: Photos was not chosen at install; nothing to walk")
 +        return []
 +    return [PhotosAdapter()]
-diff --git a/chrome_history.py b/chrome_history.py
-index 1744cb6d..91eaba62 100644
 --- a/chrome_history.py
 +++ b/chrome_history.py
-@@ -32,6 +32,8 @@ from __future__ import annotations
+@@ -32,6 +32,8 @@
  import logging
  import shutil
  import sqlite3
@@ -3233,7 +3207,7 @@ index 1744cb6d..91eaba62 100644
  import tempfile
  from contextlib import contextmanager
  from dataclasses import dataclass
-@@ -150,6 +152,10 @@ def extract_history(
+@@ -150,6 +152,10 @@
      db_path: Optional[Path] = None,
      since_days: int = 365,
      min_visits: int = 1,
@@ -3244,7 +3218,7 @@ index 1744cb6d..91eaba62 100644
  ) -> list[HistoryEntry]:
      """Extract browsing history entries from Chrome.
  
-@@ -162,6 +168,14 @@ def extract_history(
+@@ -162,6 +168,14 @@
              at the extract_all.py layer.
          min_visits: Drop URLs whose ``urls.visit_count`` is below
              this threshold. Default 1 to match Safari.
@@ -3259,7 +3233,7 @@ index 1744cb6d..91eaba62 100644
  
      Returns:
          List of HistoryEntry, most-recent visit first.
-@@ -184,14 +198,22 @@ def extract_history(
+@@ -184,14 +198,22 @@
      # visits.visit_time monotonicity.
      now_unix = datetime.now(timezone.utc).timestamp()
      cutoff_unix = now_unix - (since_days * 86400)
@@ -3283,7 +3257,7 @@ index 1744cb6d..91eaba62 100644
                  raise PermissionError(
                      "Cannot read Chrome history. Grant Full Disk Access "
                      "(System Settings > Privacy & Security > Full Disk Access)."
-@@ -210,14 +232,19 @@ def extract_history(
+@@ -210,14 +232,19 @@
                      v.from_visit
                  FROM urls u
                  JOIN visits v ON v.url = u.id
@@ -3305,7 +3279,7 @@ index 1744cb6d..91eaba62 100644
              conn.close()
              return []
          conn.close()
-@@ -258,6 +285,33 @@ def extract_history(
+@@ -258,6 +285,33 @@
      return entries
  
  
@@ -3339,11 +3313,9 @@ index 1744cb6d..91eaba62 100644
  def top_domains(
      entries: list[HistoryEntry],
      limit: int = 50,
-diff --git a/dedupe_merge.py b/dedupe_merge.py
-index 8a352c8e..8c975291 100644
 --- a/dedupe_merge.py
 +++ b/dedupe_merge.py
-@@ -32,6 +32,11 @@ from typing import Dict, List, Set, Tuple
+@@ -32,6 +32,11 @@
  
  import httpx
  
@@ -3355,7 +3327,7 @@ index 8a352c8e..8c975291 100644
  logger = logging.getLogger(__name__)
  
  OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
-@@ -42,22 +47,22 @@ PWG = "https://schema.ostler.ai/ontology#"
+@@ -42,22 +47,22 @@
  # name-fuzzy signals only, never an exact-merge key.
  EXACT_KEY_TYPES: Tuple[str, ...] = ("email", "phone")
  
@@ -3365,8 +3337,8 @@ index 8a352c8e..8c975291 100644
 +# of this type is an over-merge BY DEFINITION -- no judgement, no name
 +# comparison involved.
 +CANONICAL_KEY_TYPE = "icloud_contact_uid"
-+
  
++
  def _canonical_phone(value: str) -> str:
      """Canonicalise a phone identifier so a WhatsApp JID collides with the
 -    same E.164 number written by Contacts / iMessage.
@@ -3391,7 +3363,7 @@ index 8a352c8e..8c975291 100644
      v = value.strip()
      if v.lower().endswith("@s.whatsapp.net"):
          local = v.split("@", 1)[0]
-@@ -107,8 +112,6 @@ def find_collisions() -> Dict[Tuple[str, str], List[str]]:
+@@ -107,8 +112,6 @@
          groups: Dict[str, Set[str]] = {}
          for r in rows:
              value = r["v"]["value"]
@@ -3400,7 +3372,7 @@ index 8a352c8e..8c975291 100644
              key = _canonical_phone(value) if typ == "phone" else value
              groups.setdefault(key, set()).add(r["p"]["value"])
          for value, persons in groups.items():
-@@ -151,9 +154,57 @@ def _components(collisions: Dict[Tuple[str, str], List[str]]) -> Dict[str, Set[s
+@@ -151,9 +154,57 @@
      return comps
  
  
@@ -3460,10 +3432,11 @@ index 8a352c8e..8c975291 100644
      # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
      _sparql_update(
          f"DELETE {{ <{dupe}> ?p ?o }} "
-@@ -166,6 +217,112 @@ def _merge_pair(canonical: str, dupe: str) -> None:
+@@ -165,7 +216,113 @@
+         f"DELETE {{ ?s ?p <{dupe}> }} "
          f"INSERT {{ ?s ?p <{canonical}> }} "
          f"WHERE  {{ ?s ?p <{dupe}> }}"
-     )
++    )
 +    # NAME TIERS (DMG #27): one displayName on the survivor, chosen UPWARD only.
 +    _elect_survivor_name(canonical, keep_names, dupe_names)
 +    # Tombstone: <dupe> pwg:mergedInto <canonical>
@@ -3561,7 +3534,7 @@ index 8a352c8e..8c975291 100644
 +        f"DELETE {{ <{canonical}> <{PWG}displayName> ?old }} "
 +        f"WHERE {{ <{canonical}> <{PWG}displayName> ?old }} ; "
 +        f"INSERT DATA {{ {' '.join(inserts)} }}"
-+    )
+     )
 +    if is_human:
 +        # A real name is the resolution the provisional flag was waiting for.
 +        # The dupe's flag moved over with everything else; it must not label a
@@ -3573,7 +3546,7 @@ index 8a352c8e..8c975291 100644
  
  
  def run(dry_run: bool = False) -> Dict[str, int]:
-@@ -174,19 +331,86 @@ def run(dry_run: bool = False) -> Dict[str, int]:
+@@ -174,19 +331,86 @@
      folded away)."""
      collisions = find_collisions()
      comps = _components(collisions)
@@ -3662,11 +3635,9 @@ index 8a352c8e..8c975291 100644
  
  
  def main() -> int:
-diff --git a/extract_all.py b/extract_all.py
-index 65da6f46..9a344f4e 100644
 --- a/extract_all.py
 +++ b/extract_all.py
-@@ -103,9 +103,41 @@ def _env_days(name: str, default: int) -> int:
+@@ -103,9 +103,41 @@
          return default
  
  
@@ -3708,7 +3679,7 @@ index 65da6f46..9a344f4e 100644
  ) -> dict:
      """Run enabled extractors and save results.
  
-@@ -115,6 +147,17 @@ def run_all(
+@@ -115,6 +147,17 @@
          enabled_sources: Iterable of source names to run. None means
              "use the env var or fall back to DEFAULT_SOURCES" – see
              _resolve_enabled_sources.
@@ -3726,7 +3697,7 @@ index 65da6f46..9a344f4e 100644
  
      Returns:
          A summary dict suitable for the installer's completion screen.
-@@ -134,7 +177,16 @@ def run_all(
+@@ -134,7 +177,16 @@
      if "safari_history" in sources:
          try:
              from .safari_history import extract_history, top_domains, to_timeline_entries
@@ -3744,7 +3715,7 @@ index 65da6f46..9a344f4e 100644
              domains = top_domains(entries, limit=100)
  
              timeline = to_timeline_entries(entries)
-@@ -160,17 +212,15 @@ def run_all(
+@@ -160,17 +212,15 @@
              summary["sources"]["safari_history"] = {"status": "not_found"}
              logger.info("[skip] Safari History: database not found")
          except Exception as e:
@@ -3766,7 +3737,7 @@ index 65da6f46..9a344f4e 100644
      if "chrome_history" in sources:
          try:
              from .chrome_history import (
-@@ -192,9 +242,6 @@ def run_all(
+@@ -192,9 +242,6 @@
                  "status": "ok",
                  "visits": len(chrome_entries),
                  "unique_domains": len(chrome_domains),
@@ -3776,7 +3747,7 @@ index 65da6f46..9a344f4e 100644
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -208,7 +255,7 @@ def run_all(
+@@ -208,7 +255,7 @@
              summary["sources"]["chrome_history"] = {"status": "not_found"}
              logger.info("[skip] Chrome History: Chrome not installed")
          except Exception as e:
@@ -3785,7 +3756,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Chrome History: %s", e)
      else:
          summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
-@@ -238,7 +285,7 @@ def run_all(
+@@ -238,7 +285,7 @@
          except FileNotFoundError:
              summary["sources"]["safari_bookmarks"] = {"status": "not_found"}
          except Exception as e:
@@ -3794,7 +3765,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Safari Bookmarks: %s", e)
      else:
          summary["sources"]["safari_bookmarks"] = {"status": "disabled_by_user"}
-@@ -259,11 +306,18 @@ def run_all(
+@@ -259,11 +306,18 @@
              # still arrives, over the settle-in period rather than during
              # onboarding. An explicit env value pins the window and disables
              # the ladder. Andy's call.
@@ -3815,7 +3786,7 @@ index 65da6f46..9a344f4e 100644
              stats = conversation_stats(conversations)
  
              (output_dir / "imessage_conversations.json").write_text(
-@@ -287,7 +341,7 @@ def run_all(
+@@ -287,7 +341,7 @@
          except FileNotFoundError:
              summary["sources"]["imessage"] = {"status": "not_found"}
          except Exception as e:
@@ -3824,7 +3795,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] iMessage: %s", e)
      else:
          summary["sources"]["imessage"] = {"status": "disabled_by_user"}
-@@ -306,7 +360,20 @@ def run_all(
+@@ -306,7 +360,20 @@
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -3846,7 +3817,7 @@ index 65da6f46..9a344f4e 100644
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -338,7 +405,7 @@ def run_all(
+@@ -338,7 +405,7 @@
              summary["sources"]["whatsapp_history"] = {"status": "not_found"}
              logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
          except Exception as e:
@@ -3855,7 +3826,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] WhatsApp: %s", e)
      else:
          summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
-@@ -423,7 +490,7 @@ def run_all(
+@@ -423,7 +490,7 @@
              summary["sources"]["facebook_messenger"] = {"status": "not_found"}
              logger.info("[skip] Facebook Messenger: %s", e)
          except Exception as e:
@@ -3864,7 +3835,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Facebook Messenger: %s", e)
      else:
          summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
-@@ -452,7 +519,7 @@ def run_all(
+@@ -452,7 +519,7 @@
          except FileNotFoundError:
              summary["sources"]["apple_notes"] = {"status": "not_found"}
          except Exception as e:
@@ -3873,7 +3844,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Apple Notes: %s", e)
      else:
          summary["sources"]["apple_notes"] = {"status": "disabled_by_user"}
-@@ -482,6 +549,14 @@ def run_all(
+@@ -482,6 +549,14 @@
                      since_days=365,
                      with_people_only=("photos_faces" in sources),
                  )
@@ -3888,7 +3859,7 @@ index 65da6f46..9a344f4e 100644
                  (output_dir / "photos_events.json").write_text(
                      json.dumps([asdict(e) for e in events], indent=2, default=str)
                  )
-@@ -504,7 +579,7 @@ def run_all(
+@@ -504,7 +579,7 @@
          except FileNotFoundError:
              summary["sources"]["photos"] = {"status": "not_found"}
          except Exception as e:
@@ -3897,7 +3868,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Photos: %s", e)
      else:
          summary["sources"]["photos"] = {"status": "disabled_by_user"}
-@@ -599,12 +674,29 @@ def run_all(
+@@ -599,12 +674,29 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -3929,7 +3900,7 @@ index 65da6f46..9a344f4e 100644
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -633,7 +725,7 @@ def run_all(
+@@ -633,7 +725,7 @@
              summary["sources"]["reminders"] = {"status": "not_found"}
              logger.info("[skip] Reminders: database not found")
          except Exception as e:
@@ -3938,7 +3909,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Reminders: %s", e)
      else:
          summary["sources"]["reminders"] = {"status": "disabled_by_user"}
-@@ -643,23 +735,68 @@ def run_all(
+@@ -643,23 +735,68 @@
      # signal (top artists/genres, playlist counts). extract_library()
      # degrades to an empty library rather than raising when no XML is
      # present, so "not_found" surfaces as ok-with-zero-tracks.
@@ -4011,7 +3982,7 @@ index 65da6f46..9a344f4e 100644
              )
  
          except PermissionError:
-@@ -669,7 +806,7 @@ def run_all(
+@@ -669,7 +806,7 @@
              summary["sources"]["apple_music"] = {"status": "not_found"}
              logger.info("[skip] Apple Music: library XML not found")
          except Exception as e:
@@ -4020,7 +3991,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Apple Music: %s", e)
      else:
          summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
-@@ -766,7 +903,7 @@ def run_all(
+@@ -766,7 +903,7 @@
              summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
              logger.info("[skip] Google Takeout: %s", e)
          except Exception as e:
@@ -4029,7 +4000,7 @@ index 65da6f46..9a344f4e 100644
              logger.warning("[warn] Google Takeout: %s", e)
      else:
          summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
-@@ -775,8 +912,45 @@ def run_all(
+@@ -775,8 +912,45 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -4076,11 +4047,16 @@ index 65da6f46..9a344f4e 100644
              contacts = frequent_contacts(messages)
  
              (output_dir / "apple_mail.json").write_text(
-@@ -785,15 +959,37 @@ def run_all(
+@@ -785,15 +959,37 @@
              (output_dir / "apple_mail_contacts.json").write_text(
                  json.dumps(contacts, indent=2, default=str)
              )
--
++            # DMG #27: which senders are machines (no-reply, calendar system,
++            # notification domain, all-list mail) and which are people the
++            # owner corresponded with. Counts only in the summary.
++            from .machine_senders import collect as _collect_machine_senders
++            summary["machine_senders"] = _collect_machine_senders(output_dir)
+ 
 -            summary["sources"]["apple_mail"] = {
 -                "status": "ok",
 -                **stats,
@@ -4089,12 +4065,6 @@ index 65da6f46..9a344f4e 100644
 -                "[ok] Apple Mail: %d messages, %d unread",
 -                stats["total_messages"], stats["unread"],
 -            )
-+            # DMG #27: which senders are machines (no-reply, calendar system,
-+            # notification domain, all-list mail) and which are people the
-+            # owner corresponded with. Counts only in the summary.
-+            from .machine_senders import collect as _collect_machine_senders
-+            summary["machine_senders"] = _collect_machine_senders(output_dir)
-+
 +            # #259: when Apple Mail is configured but the local store
 +            # holds no messages in the window, do not pretend success.
 +            # Surface an empty_no_content status so install.sh can guide
@@ -4123,7 +4093,7 @@ index 65da6f46..9a344f4e 100644
  
          except PermissionError:
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
-@@ -802,11 +998,24 @@ def run_all(
+@@ -802,11 +998,24 @@
              summary["sources"]["apple_mail"] = {"status": "not_found"}
              logger.info("[skip] Apple Mail: not configured on this Mac")
          except Exception as e:
@@ -4149,7 +4119,7 @@ index 65da6f46..9a344f4e 100644
      # ── Save summary ────────────────────────────────────────────────
      (output_dir / "extraction_summary.json").write_text(
          json.dumps(summary, indent=2, default=str)
-@@ -852,7 +1061,11 @@ def main():
+@@ -852,7 +1061,11 @@
      if args.include_faces:
          enabled = (enabled or set(DEFAULT_SOURCES)) | {"photos_faces"}
  
@@ -4162,9 +4132,6 @@ index 65da6f46..9a344f4e 100644
  
      # Print machine-readable summary for the installer to parse
      print(json.dumps(summary, default=str))
-diff --git b/first_import.py b/first_import.py
-new file mode 100644
-index 00000000..4ab6b440
 --- /dev/null
 +++ b/first_import.py
 @@ -0,0 +1,149 @@
@@ -4317,9 +4284,6 @@ index 00000000..4ab6b440
 +    except LedgerUnreadable:
 +        return GateDecision(False, "could_not_check")
 +    return GateDecision(False, "pro_required")
-diff --git b/forget_tombstone.py b/forget_tombstone.py
-new file mode 100644
-index 00000000..c25dc6aa
 --- /dev/null
 +++ b/forget_tombstone.py
 @@ -0,0 +1,314 @@
@@ -4637,11 +4601,9 @@ index 00000000..c25dc6aa
 +        data["entries"] = keep
 +        _write(path, data)
 +    return removed
-diff --git a/given_name_variants.py b/given_name_variants.py
-index 8396d5d7..8cbfd3c8 100644
 --- a/given_name_variants.py
 +++ b/given_name_variants.py
-@@ -104,7 +104,21 @@ _DEFAULT_CLASSES: List[List[str]] = [
+@@ -104,7 +104,21 @@
      ["timothy", "timmy"],
      ["victoria", "vicky", "tori"],
      ["william", "billy", "willie"],
@@ -4664,7 +4626,7 @@ index 8396d5d7..8cbfd3c8 100644
      ["allison", "allie"],
      ["alexander", "xander"],
      ["alexandra", "sasha"],
-@@ -150,7 +164,9 @@ def _build() -> Dict[str, str]:
+@@ -150,7 +164,9 @@
          if not group:
              continue
          # The FIRST entry is the full name and the canon -- not the longest,
@@ -4675,11 +4637,9 @@ index 8396d5d7..8cbfd3c8 100644
          canon = group[0]
          for name in group:
              if name in _AMBIGUOUS:
-diff --git a/imessage.py b/imessage.py
-index f6707053..d37418ee 100644
 --- a/imessage.py
 +++ b/imessage.py
-@@ -19,6 +19,8 @@ from __future__ import annotations
+@@ -19,6 +19,8 @@
  
  import logging
  import sqlite3
@@ -4688,7 +4648,7 @@ index f6707053..d37418ee 100644
  import time
  from dataclasses import dataclass
  from datetime import datetime, timezone
-@@ -29,6 +31,56 @@ from .settling_progress import report_settling_progress
+@@ -29,6 +31,56 @@
  
  logger = logging.getLogger(__name__)
  
@@ -4745,7 +4705,7 @@ index f6707053..d37418ee 100644
  # Settling-progress cadence: emit a shard update whenever more than this many
  # seconds have passed since the last emit, or at the end of the loop. Per the
  # writer helper's docstring the cost story is disk I/O, not compute; ~30s
-@@ -45,6 +97,45 @@ MAC_EPOCH_OFFSET = 978307200
+@@ -45,6 +97,45 @@
  DEFAULT_CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
  
  
@@ -4791,7 +4751,7 @@ index f6707053..d37418ee 100644
  @dataclass
  class Conversation:
      """A conversation thread (individual or group)."""
-@@ -146,7 +237,7 @@ def extract_conversations(
+@@ -146,7 +237,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -4800,7 +4760,7 @@ index f6707053..d37418ee 100644
              raise PermissionError(
                  "Cannot read iMessage history. Grant Full Disk Access."
              ) from e
-@@ -174,8 +265,9 @@ def extract_conversations(
+@@ -174,8 +265,9 @@
              ORDER BY last_msg DESC
          """, (min_messages,)).fetchall()
      except sqlite3.OperationalError as e:
@@ -4811,7 +4771,7 @@ index f6707053..d37418ee 100644
          return []
  
      conn.close()
-@@ -282,7 +374,7 @@ def extract_messages(
+@@ -282,7 +374,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -4820,7 +4780,7 @@ index f6707053..d37418ee 100644
              raise PermissionError(
                  "Cannot read iMessage history. Grant Full Disk Access."
              ) from e
-@@ -297,7 +389,11 @@ def extract_messages(
+@@ -297,7 +389,11 @@
                  m.is_from_me,
                  m.date,
                  m.cache_has_attachments as has_attachment,
@@ -4833,7 +4793,7 @@ index f6707053..d37418ee 100644
              FROM message m
              JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
              JOIN chat c ON c.ROWID = cmj.chat_id
-@@ -307,8 +403,9 @@ def extract_messages(
+@@ -307,8 +403,9 @@
              LIMIT ?
          """, (chat_id, limit)).fetchall()
      except sqlite3.OperationalError as e:
@@ -4844,7 +4804,7 @@ index f6707053..d37418ee 100644
          return []
  
      conn.close()
-@@ -317,6 +414,8 @@ def extract_messages(
+@@ -317,6 +414,8 @@
      for row in rows:
          if row["date"] is None:
              continue
@@ -4853,9 +4813,6 @@ index f6707053..d37418ee 100644
  
          messages.append(Message(
              text=row["text"],
-diff --git b/machine_senders.py b/machine_senders.py
-new file mode 100644
-index 00000000..58168051
 --- /dev/null
 +++ b/machine_senders.py
 @@ -0,0 +1,288 @@
@@ -5147,9 +5104,6 @@ index 00000000..58168051
 +        return set(), set()
 +    return ({_norm(a) for a in (data.get("machine") or {}) if _norm(a)},
 +            {_norm(a) for a in (data.get("correspondents") or []) if _norm(a)})
-diff --git b/owner_addresses.py b/owner_addresses.py
-new file mode 100644
-index 00000000..99e51c69
 --- /dev/null
 +++ b/owner_addresses.py
 @@ -0,0 +1,246 @@
@@ -5399,9 +5353,6 @@ index 00000000..99e51c69
 +def is_owner_address(value: Optional[str], owner: Set[str]) -> bool:
 +    n = _norm(value)
 +    return bool(n) and n in owner
-diff --git b/person_audit.py b/person_audit.py
-new file mode 100644
-index 00000000..f3dc7f26
 --- /dev/null
 +++ b/person_audit.py
 @@ -0,0 +1,73 @@
@@ -5478,11 +5429,9 @@ index 00000000..f3dc7f26
 +    except Exception as exc:  # noqa: BLE001 -- must never stop the caller
 +        logger.warning("person removal audit NOT written: %s", type(exc).__name__)
 +        return False
-diff --git a/photos_metadata.py b/photos_metadata.py
-index 8bf9fcfc..09a3f759 100644
 --- a/photos_metadata.py
 +++ b/photos_metadata.py
-@@ -18,7 +18,10 @@ Requires Full Disk Access (FDA) permission on macOS Sequoia+.
+@@ -18,7 +18,10 @@
  from __future__ import annotations
  
  import logging
@@ -5493,7 +5442,7 @@ index 8bf9fcfc..09a3f759 100644
  from dataclasses import dataclass
  from datetime import datetime, timezone
  from pathlib import Path
-@@ -34,6 +37,22 @@ DEFAULT_PHOTOS_PATH = (
+@@ -34,6 +37,22 @@
  )
  
  
@@ -5516,7 +5465,7 @@ index 8bf9fcfc..09a3f759 100644
  @dataclass
  class PersonInPhotos:
      """A person recognised by Apple Photos' face detection."""
-@@ -75,7 +94,7 @@ def extract_people(
+@@ -75,7 +94,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -5525,7 +5474,7 @@ index 8bf9fcfc..09a3f759 100644
              raise PermissionError(
                  "Cannot read Photos metadata. Grant Full Disk Access."
              ) from e
-@@ -176,10 +195,71 @@ def extract_people(
+@@ -176,10 +195,71 @@
      return people
  
  
@@ -5597,7 +5546,7 @@ index 8bf9fcfc..09a3f759 100644
  ) -> list[PhotoEvent]:
      """Extract photo events for timeline integration.
  
-@@ -187,6 +267,14 @@ def extract_photo_events(
+@@ -187,6 +267,14 @@
          db_path: Path to Photos.sqlite.
          since_days: Only extract from last N days.
          with_people_only: Only include photos that have recognised faces.
@@ -5612,7 +5561,7 @@ index 8bf9fcfc..09a3f759 100644
  
      Returns:
          List of PhotoEvent objects for timeline display.
-@@ -199,7 +287,7 @@ def extract_photo_events(
+@@ -199,7 +287,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -5621,7 +5570,7 @@ index 8bf9fcfc..09a3f759 100644
              raise PermissionError(
                  "Cannot read Photos metadata. Grant Full Disk Access."
              ) from e
-@@ -207,36 +295,46 @@ def extract_photo_events(
+@@ -207,36 +295,46 @@
  
      conn.row_factory = sqlite3.Row
  
@@ -5678,7 +5627,7 @@ index 8bf9fcfc..09a3f759 100644
      except sqlite3.OperationalError as e:
          logger.debug("macOS 26+ photo events schema failed: %s", e)
  
-@@ -255,11 +353,11 @@ def extract_photo_events(
+@@ -255,11 +353,11 @@
                  LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                  WHERE a.ZDATECREATED > ?
                    AND a.ZTRASHEDSTATE = 0
@@ -5692,7 +5641,7 @@ index 8bf9fcfc..09a3f759 100644
          except sqlite3.OperationalError as e:
              logger.debug("macOS 14-15 photo events schema failed: %s", e)
  
-@@ -278,14 +376,17 @@ def extract_photo_events(
+@@ -278,14 +376,17 @@
                  LEFT JOIN ZPERSON p ON p.Z_PK = df.ZPERSON
                  WHERE a.ZDATECREATED > ?
                    AND a.ZTRASHEDSTATE = 0
@@ -5712,7 +5661,7 @@ index 8bf9fcfc..09a3f759 100644
              return []
  
      conn.close()
-@@ -302,7 +403,7 @@ def extract_photo_events(
+@@ -302,7 +403,7 @@
  
          events.append(PhotoEvent(
              date=date,
@@ -5721,7 +5670,7 @@ index 8bf9fcfc..09a3f759 100644
              latitude=row["lat"] if row["lat"] and row["lat"] != 0 else None,
              longitude=row["lon"] if row["lon"] and row["lon"] != 0 else None,
              people=people,
-@@ -311,3 +412,48 @@ def extract_photo_events(
+@@ -311,3 +412,48 @@
  
      logger.info("Extracted %d photo events", len(events))
      return events
@@ -5770,11 +5719,9 @@ index 8bf9fcfc..09a3f759 100644
 +        return None
 +    finally:
 +        conn.close()
-diff --git a/pwg_ingest.py b/pwg_ingest.py
-index 0b1e9237..c842712b 100644
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -30,8 +30,14 @@ from pathlib import Path
+@@ -30,8 +30,14 @@
  from typing import Optional
  
  import httpx
@@ -5789,7 +5736,7 @@ index 0b1e9237..c842712b 100644
  from .identifier_quality import observe as _observe_identifier
  from .usage_journal import record_usage as _record_usage
  from .usage_journal import tokens_from_ollama as _tokens_from_ollama
-@@ -71,6 +77,8 @@ def _record_embed_usage(response: dict) -> None:
+@@ -71,6 +77,8 @@
          purpose="ingesting",
          session_id=_USAGE_SESSION_ID,
      )
@@ -5798,7 +5745,7 @@ index 0b1e9237..c842712b 100644
  QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
  DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
  
-@@ -125,6 +133,380 @@ def _wiki_slug(name: str) -> str:
+@@ -125,6 +133,380 @@
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
  
@@ -6179,7 +6126,7 @@ index 0b1e9237..c842712b 100644
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -216,16 +598,22 @@ def _embed_text(text: str) -> list[float]:
+@@ -216,16 +598,22 @@
      return embs[0]
  
  
@@ -6204,12 +6151,10 @@ index 0b1e9237..c842712b 100644
          raise ValueError(
              f"refusing to key a person on the role address {clean!r}: "
              "it is a sender, not a person, and keying on it merges everyone "
-@@ -238,30 +626,164 @@ def _person_uri(person_id: str) -> str:
+@@ -238,30 +626,164 @@
      return f"https://schema.ostler.ai/ontology#person_{person_id}"
  
  
--def _whatsapp_display_name(jid: str) -> str:
--    """Placeholder display name for an un-named WhatsApp phone contact.
 +def _is_forgotten(identifier: str = "", uri: Optional[str] = None,
 +                  name: Optional[str] = None) -> bool:
 +    """Has the person this record describes been erased by
@@ -6229,12 +6174,7 @@ index 0b1e9237..c842712b 100644
 +        values.append("+" + local)
 +    return forget_tombstone.is_forgotten(values=values, uri=uri, name=name)
 +
- 
--    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
--    a `+`-prefixed phone so the placeholder reads as a phone contact rather
--    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
--    are returned unchanged. A real name replaces this once contact_syncer or
--    CM046 email enrichment supplies one.
++
 +# Sentinel for "the store could not answer". Distinct from None, which
 +# means "asked, and nobody holds this". Collapsing the two is the
 +# manufactured-clean-input failure: a store that refused to answer would
@@ -6336,9 +6276,15 @@ index 0b1e9237..c842712b 100644
 +    return phonenumbers.is_valid_number(parsed)
 +
 +
-+def _whatsapp_display_name(jid: str) -> str:
+ def _whatsapp_display_name(jid: str) -> str:
+-    """Placeholder display name for an un-named WhatsApp phone contact.
 +    """Placeholder display name for an un-named WhatsApp contact.
-+
+ 
+-    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
+-    a `+`-prefixed phone so the placeholder reads as a phone contact rather
+-    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
+-    are returned unchanged. A real name replaces this once contact_syncer or
+-    CM046 email enrichment supplies one.
 +    The local-part of an `@s.whatsapp.net` JID is USUALLY an E.164 number.
 +    Show it as a `+`-prefixed phone so the placeholder reads as a phone
 +    contact rather than a bare "random number" (BW-4) -- but only once
@@ -6380,7 +6326,7 @@ index 0b1e9237..c842712b 100644
  
  
  # ── iMessage ingestion ────────────────────────────────────────────
-@@ -280,6 +802,8 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -280,6 +802,8 @@
      conversations = json.loads(conversations_file.read_text())
      people_created = 0
      people_enriched = 0
@@ -6389,7 +6335,7 @@ index 0b1e9237..c842712b 100644
  
      for convo in conversations:
          participants = convo.get("participants", [])
-@@ -294,19 +818,36 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -294,19 +818,36 @@
              if not participant:
                  continue
  
@@ -6428,7 +6374,7 @@ index 0b1e9237..c842712b 100644
  
              if not exists:
                  # Create a minimal person node
-@@ -315,13 +856,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -315,13 +856,19 @@
  
                  triples = [
                      f"<{uri}> a pwg:Person",
@@ -6449,7 +6395,7 @@ index 0b1e9237..c842712b 100644
                  # Add identifier
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -358,31 +905,109 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -358,33 +905,111 @@
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6557,17 +6503,19 @@ index 0b1e9237..c842712b 100644
 +    except Exception as exc:  # noqa: BLE001
 +        raise _StoreUnavailable(type(exc).__name__) from exc
 +    return len(result) > 0
-+
-+
+ 
+ 
 +def _live_person(uri: str):
 +    """(live_uri, exists) for a writer about to create or enrich ``uri``.
 +    Raises ``_StoreUnavailable``."""
 +    live = _resolve_merged(uri)
 +    return live, _person_exists(live)
- 
- 
++
++
  def _identifier_exists(id_uri: str) -> bool:
-@@ -394,7 +1019,8 @@ def _identifier_exists(id_uri: str) -> bool:
+     """Check if an identifier URI exists in Oxigraph."""
+     try:
+@@ -394,7 +1019,8 @@
          )
          return len(result) > 0
      except Exception:
@@ -6577,7 +6525,7 @@ index 0b1e9237..c842712b 100644
  
  
  # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
-@@ -476,6 +1102,87 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
+@@ -476,6 +1102,87 @@
          logger.debug("Could not update last_contact: %s", e)
  
  
@@ -6665,7 +6613,7 @@ index 0b1e9237..c842712b 100644
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
  #
  # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-@@ -523,7 +1230,9 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -523,7 +1230,9 @@
      chats = json.loads(chats_file.read_text())
      people_created = 0
      people_enriched = 0
@@ -6675,7 +6623,7 @@ index 0b1e9237..c842712b 100644
      tier_t2_intimate = 0
      tier_t2_active = 0
      tier_t3_skipped = 0
-@@ -571,34 +1280,66 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -571,34 +1280,66 @@
              # right call -- it consults what OTHER sources have already learned
              # about this identifier, so a channel exposed by mail is refused
              # here too.
@@ -6698,7 +6646,7 @@ index 0b1e9237..c842712b 100644
 +            except _StoreUnavailable:
 +                lookup_failed += 1
 +                continue
-+
+ 
 +            # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
 +            # E.164 number. Present it as a `+`-prefixed phone so the
 +            # placeholder reads as a phone contact rather than a bare
@@ -6719,7 +6667,7 @@ index 0b1e9237..c842712b 100644
 +            # phone-JID suffix). The caller must not write that value under
 +            # identifierType "phone" -- see _whatsapp_phone_e164.
 +            phone_e164 = _whatsapp_phone_e164(participant)
- 
++
              if not exists:
 -                # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is
 -                # an E.164 number. Present it as a `+`-prefixed phone so the
@@ -6752,7 +6700,7 @@ index 0b1e9237..c842712b 100644
                      f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                      f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                  ])
-@@ -627,11 +1368,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -627,11 +1368,19 @@
                  # renderer picks the highest one.
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  if not _identifier_exists(id_uri):
@@ -6774,7 +6722,7 @@ index 0b1e9237..c842712b 100644
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -647,6 +1396,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -647,6 +1396,12 @@
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6787,7 +6735,7 @@ index 0b1e9237..c842712b 100644
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -656,14 +1411,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -656,14 +1411,16 @@
                  _update_last_contact(uri, last_msg, "whatsapp")
  
      logger.info(
@@ -6807,7 +6755,7 @@ index 0b1e9237..c842712b 100644
          "tier_t1_dm_chats": tier_t1,
          "tier_t2_intimate_chats": tier_t2_intimate,
          "tier_t2_active_chats": tier_t2_active,
-@@ -688,6 +1445,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -688,6 +1445,13 @@
      people_seen: set[str] = set()
      events_processed = 0
      meetings_created = 0
@@ -6821,7 +6769,7 @@ index 0b1e9237..c842712b 100644
  
      for event in events:
          attendees = event.get("attendees", [])
-@@ -704,31 +1468,101 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -704,32 +1468,102 @@
              # calendar attendee who shared it into ONE node (#659). An invite
              # carries no attendee display name, so this contributes nothing to
              # the structural rule -- but it still honours it.
@@ -6844,7 +6792,7 @@ index 0b1e9237..c842712b 100644
 +                continue
              if _observe_identifier(attendee, ""):
                  logger.debug("skipping role address %s", attendee)
-                 continue
++                continue
 +            # A forgotten attendee is neither created nor linked to the meeting.
 +            if _is_forgotten(attendee):
 +                continue
@@ -6859,7 +6807,7 @@ index 0b1e9237..c842712b 100644
 +                # FAIL CLOSED (DMG #27 S2): a store that cannot be asked must
 +                # not mint a person. Counted, and retried on the next run.
 +                lookup_failed += 1
-+                continue
+                 continue
              person_id = _person_id_from_identifier(attendee)
 -            uri = _person_uri(person_id)
 +            # The holder may be a merged-away node: write onto its survivor.
@@ -6919,16 +6867,17 @@ index 0b1e9237..c842712b 100644
                      )
                      _sparql_update(sparql)
 +                    people_created += 1
-+
+ 
 +                # v1018-D658: runs for NEW and EXISTING alike. Every name write
 +                # above sits inside the not-exists guard, so an existing person's
 +                # placeholder was never revisited by any source. Upward-only -- a
 +                # same-tier or lower value is a no-op.
 +                _upsert_display_name(uri, attendee)
- 
++
              # Update last contact from meeting date
              if start_date:
-@@ -780,14 +1614,28 @@ def ingest_calendar(fda_dir: Path) -> dict:
+                 _update_last_contact(uri, start_date, "calendar")
+@@ -780,14 +1614,28 @@
          events_processed += 1
  
      logger.info(
@@ -6959,7 +6908,7 @@ index 0b1e9237..c842712b 100644
      }
  
  
-@@ -814,20 +1662,30 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -814,20 +1662,30 @@
  
          person_id = _person_id_from_identifier(f"photos_face_{name}")
          uri = _person_uri(person_id)
@@ -6992,7 +6941,7 @@ index 0b1e9237..c842712b 100644
  
              if first_seen:
                  triples.append(
-@@ -846,12 +1704,168 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -846,12 +1704,168 @@
              _sparql_update(sparql)
              people_created += 1
  
@@ -7161,7 +7110,7 @@ index 0b1e9237..c842712b 100644
  def ingest_mail_contacts(fda_dir: Path) -> dict:
      """Ingest frequent email contacts into the people graph.
  
-@@ -865,9 +1879,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -865,9 +1879,15 @@
  
      contacts = json.loads(contacts_file.read_text())
      people_created = 0
@@ -7178,7 +7127,7 @@ index 0b1e9237..c842712b 100644
              # Skip very infrequent senders
              continue
  
-@@ -875,20 +1895,61 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -875,20 +1895,61 @@
          # email correspondent who shared it into ONE node (#659). The frequency
          # map is address->count with no names, so this consults the learned set
          # rather than adding to it.
@@ -7245,7 +7194,7 @@ index 0b1e9237..c842712b 100644
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -907,8 +1968,29 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -907,10 +1968,31 @@
              _sparql_update(sparql)
              people_created += 1
  
@@ -7256,7 +7205,7 @@ index 0b1e9237..c842712b 100644
 +        # placeholder was never revisited by any source. Upward-only -- a
 +        # same-tier or lower value is a no-op.
 +        _upsert_display_name(uri, email)
-+
+ 
 +    logger.info(
 +        "Apple Mail: %d contacts created, %d matched to an existing person",
 +        people_created, people_matched,
@@ -7275,12 +7224,16 @@ index 0b1e9237..c842712b 100644
 +        "machine_senders_skipped": machine_skipped,
 +    }
  
- 
++
  # ── Browser history ingestion (direct path, v1.0) ─────────────────
-@@ -1104,6 +2186,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+ #
+ # Single-Mac product: there is NO PWG gateway on a customer install.
+@@ -1102,6 +2184,63 @@
+                     collection, start, len(chunk), type(exc).__name__,
+                 )
      return upserted
- 
- 
++
++
 +def _qdrant_scroll_points(collection: str, limit: int = 1000) -> Optional[list[dict]]:
 +    """Enumerate every point in a collection with its payload.
 +
@@ -7336,12 +7289,10 @@ index 0b1e9237..c842712b 100644
 +                    collection, start, len(chunk), type(exc).__name__,
 +                )
 +    return deleted
-+
-+
- def _load_browsing_visits(fda_dir: Path) -> list[dict]:
-     """Read safari_history.json + chrome_history.json from ``fda_dir``.
  
-@@ -1250,6 +2389,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+ 
+ def _load_browsing_visits(fda_dir: Path) -> list[dict]:
+@@ -1250,6 +2389,10 @@
              "points_created": sent,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7352,7 +7303,7 @@ index 0b1e9237..c842712b 100644
          }
  
      if sent == 0:
-@@ -1266,6 +2409,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+@@ -1266,6 +2409,7 @@
              "points_created": 0,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7360,7 +7311,7 @@ index 0b1e9237..c842712b 100644
          }
  
      logger.info(
-@@ -1898,6 +3042,9 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1898,6 +3042,9 @@
          "?givenName ?familyName ?createdAt WHERE {\n"
          "  ?uri a pwg:Person ;\n"
          "       pwg:displayName ?displayName .\n"
@@ -7370,10 +7321,12 @@ index 0b1e9237..c842712b 100644
          "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
          "  OPTIONAL { ?uri pwg:organization ?org }\n"
          "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
-@@ -1916,6 +3063,58 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1914,7 +3061,59 @@
+         # never fabricate now().
+         "  OPTIONAL { ?uri pwg:createdAt ?createdAt }\n"
          "}"
-     )
- 
++    )
++
 +    # Third query: the LAST-CONTACT signal, folded to one date per person.
 +    #
 +    # WHY THIS EXISTS (CM051, 2026-09-16). The Qdrant `people` payload built
@@ -7418,18 +7371,17 @@ index 0b1e9237..c842712b 100644
 +        "  UNION { ?uri pwg:lastContactCalendar ?d }\n"
 +        "  UNION { ?uri pwg:lastContactEmail ?d }\n"
 +        "} GROUP BY ?uri"
-+    )
+     )
 +    last_contact_by_uri: dict[str, str] = {}
 +    for row in last_contact_rows:
 +        uri = (row.get("uri", {}) or {}).get("value", "")
 +        value = (row.get("lastContact", {}) or {}).get("value", "").strip()
 +        if uri and value:
 +            last_contact_by_uri[uri] = value
-+
+ 
      # Second query: identifiers grouped per person.
      id_rows = _sparql_query(
-         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-@@ -1984,10 +3183,48 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1984,10 +3183,48 @@
              # can place this person. Empty -> omitted from those views (no
              # now() fabrication).
              "created_at": created_at,
@@ -7478,7 +7430,7 @@ index 0b1e9237..c842712b 100644
  def _person_embed_doc(person: dict) -> str:
      """Build the descriptive text embedded for semantic people-search.
  
-@@ -2003,6 +3240,29 @@ def _person_embed_doc(person: dict) -> str:
+@@ -2003,6 +3240,29 @@
      return " ".join(p for p in parts if p).strip()
  
  
@@ -7508,13 +7460,13 @@ index 0b1e9237..c842712b 100644
  def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      """Populate the Qdrant ``people`` collection from Oxigraph (#600).
  
-@@ -2024,11 +3284,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2024,11 +3284,23 @@
      stably from the person URI so a re-install is idempotent) with a
      payload matching the reader contract, (5) returns a counts-only
      dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
 -    but nothing landed in Qdrant.
 +    but nothing landed in Qdrant, OR if only SOME of them landed.
-+
+ 
 +    THE (6) HALF WAS ONCE ALL-OR-NOTHING. ``_qdrant_upsert_points`` drops
 +    any point with an empty vector and keeps going after a failed chunk,
 +    returning only the count that landed -- so a partial sweep used to
@@ -7524,7 +7476,7 @@ index 0b1e9237..c842712b 100644
 +    that a week of daily re-runs never closed, because "ok" told
 +    install.sh there was nothing left to retry. ``sent`` is now compared
 +    against ``total`` before anything is called a success.
- 
++
      Returns counts only (parity with the other ingesters; install.sh
      reads ``sent``):
        ``status``         : "ok" | "no_data" | "error"
@@ -7533,7 +7485,7 @@ index 0b1e9237..c842712b 100644
        ``sent``           : points upserted into Qdrant
        ``points_created`` : alias of ``sent``
        ``total``          : Person nodes considered (with a display name)
-@@ -2099,7 +3371,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2099,7 +3371,23 @@
              # diverges from one that recomputes it (iOS Identifiable id + URL).
              "slug": _wiki_slug(person["display_name"]),
              "source": "fda_people_index",
@@ -7558,10 +7510,13 @@ index 0b1e9237..c842712b 100644
          }
          # Surface the REAL pwg:createdAt date so the time-ordered wiki
          # views (year pages, person timeline, "recent people") can place
-@@ -2148,6 +3436,120 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
-             "total": len(people),
-         }
- 
+@@ -2145,9 +3433,123 @@
+             "status": "error",
+             "sent": 0,
+             "points_created": 0,
++            "total": len(people),
++        }
++
 +    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
 +    #
 +    # The check above only ever caught the ALL-OR-NOTHING case. Anything
@@ -7593,9 +7548,9 @@ index 0b1e9237..c842712b 100644
 +            "reason": "partial_landing",
 +            "sent": sent,
 +            "points_created": sent,
-+            "total": len(people),
-+        }
-+
+             "total": len(people),
+         }
+ 
 +    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
 +    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
 +    #
@@ -7679,7 +7634,7 @@ index 0b1e9237..c842712b 100644
      logger.info(
          "People: %d of %d Person nodes indexed into Qdrant '%s'.",
          sent, len(people), PEOPLE_QDRANT_COLLECTION,
-@@ -2157,6 +3559,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2157,6 +3559,7 @@
          "sent": sent,
          "points_created": sent,
          "total": len(people),
@@ -7687,7 +7642,7 @@ index 0b1e9237..c842712b 100644
      }
  
  
-@@ -2178,7 +3581,7 @@ _INGEST_DISPATCH = (
+@@ -2178,7 +3581,7 @@
      ("imessage", "ingest_imessage"),
      ("whatsapp", "ingest_whatsapp"),
      ("calendar", "ingest_calendar"),
@@ -7696,7 +7651,7 @@ index 0b1e9237..c842712b 100644
      ("apple_mail", "ingest_mail_contacts"),
      ("browser_history", "ingest_browser_history"),
      ("bookmarks", "ingest_bookmarks"),
-@@ -2195,6 +3598,10 @@ _DISPATCH_EXEMPT = frozenset({
+@@ -2195,6 +3598,10 @@
      # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
      # not itself a writer the loop should call.
      "ingest_all",
@@ -7707,7 +7662,7 @@ index 0b1e9237..c842712b 100644
  })
  
  
-@@ -2244,6 +3651,14 @@ def main():
+@@ -2244,6 +3651,14 @@
      fda_dir = Path(args.fda_dir) if args.fda_dir else None
      results = ingest_all(fda_dir)
      print(json.dumps(results, indent=2))
@@ -7722,11 +7677,9 @@ index 0b1e9237..c842712b 100644
  
  
  if __name__ == "__main__":
-diff --git a/pyproject.toml b/pyproject.toml
-index 4369a1ab..bb274ea7 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -40,6 +40,10 @@ dependencies = [
+@@ -40,6 +40,10 @@
      # hand-rolled word splitting got "Mary-Jane van der Berg" wrong.
      # Reached from pwg_ingest, so every ingest path needs it present.
      "nameparser>=2.1.0,<3.0",
@@ -7737,11 +7690,9 @@ index 4369a1ab..bb274ea7 100644
  ]
  
  # The ostler_fda Python source lives directly in this directory (the .py files
-diff --git a/reminders.py b/reminders.py
-index ee2080fc..0c22291a 100644
 --- a/reminders.py
 +++ b/reminders.py
-@@ -19,6 +19,8 @@ from __future__ import annotations
+@@ -19,6 +19,8 @@
  
  import logging
  import sqlite3
@@ -7750,7 +7701,7 @@ index ee2080fc..0c22291a 100644
  from dataclasses import dataclass
  from datetime import datetime, timezone
  from pathlib import Path
-@@ -135,7 +137,7 @@ def extract_reminders(
+@@ -135,7 +137,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -7759,9 +7710,6 @@ index ee2080fc..0c22291a 100644
              raise PermissionError(
                  "Cannot read Reminders data. Grant Full Disk Access."
              ) from e
-diff --git b/repair_overmerged_contact_cards.py b/repair_overmerged_contact_cards.py
-new file mode 100644
-index 00000000..5be87fea
 --- /dev/null
 +++ b/repair_overmerged_contact_cards.py
 @@ -0,0 +1,729 @@
@@ -8494,9 +8442,6 @@ index 00000000..5be87fea
 +
 +if __name__ == "__main__":
 +    sys.exit(main())
-diff --git b/repair_placeholder_names.py b/repair_placeholder_names.py
-new file mode 100644
-index 00000000..3f8f3f80
 --- /dev/null
 +++ b/repair_placeholder_names.py
 @@ -0,0 +1,384 @@
@@ -8884,23 +8829,21 @@ index 00000000..3f8f3f80
 +
 +if __name__ == "__main__":
 +    sys.exit(main())
-diff --git a/repair_role_address_people.py b/repair_role_address_people.py
-index 567fe9c5..04ffa91f 100644
 --- a/repair_role_address_people.py
 +++ b/repair_role_address_people.py
-@@ -65,6 +65,11 @@ import urllib.parse
+@@ -64,6 +64,11 @@
+ import urllib.parse
  import urllib.request
  from typing import Dict, List
- 
++
 +try:
 +    from .person_audit import record_person_removal
 +except ImportError:  # plain script
 +    from person_audit import record_person_removal  # type: ignore
-+
+ 
  try:
      from .role_addresses import is_role_identifier
- except ImportError:  # running as a plain script (repair on the box)
-@@ -260,6 +265,7 @@ def main(argv=None) -> int:
+@@ -260,6 +265,7 @@
      print(f"         --data-binary @{backup} '{OXIGRAPH}/store?default'")
  
      for c in cands:
@@ -8908,11 +8851,9 @@ index 567fe9c5..04ffa91f 100644
          _update(f"""PREFIX pwg: <{NS}>
  DELETE WHERE {{ <{c['uri']}> ?p ?o }}""")
          logger.info("deleted %s (%s)", c["uri"], c["email"])
-diff --git a/role_addresses.py b/role_addresses.py
-index 8d5e6183..320a4817 100644
 --- a/role_addresses.py
 +++ b/role_addresses.py
-@@ -73,3 +73,29 @@ def is_role_identifier(identifier: str) -> bool:
+@@ -73,3 +73,29 @@
      # `messages-noreply@`, `inmail-hit-reply@`: a role word joined by a dash.
      parts = re.split(r"[-._]", local)
      return bool(parts) and any(p in _ROLE_LOCALS for p in parts if p)
@@ -8942,11 +8883,9 @@ index 8d5e6183..320a4817 100644
 +    if all(c in _PHONE_CHARS for c in ident) and sum(c.isdigit() for c in ident) >= 7:
 +        return False
 +    return True
-diff --git a/safari_history.py b/safari_history.py
-index aeb5f575..593f689e 100644
 --- a/safari_history.py
 +++ b/safari_history.py
-@@ -16,6 +16,8 @@ from __future__ import annotations
+@@ -16,6 +16,8 @@
  
  import logging
  import sqlite3
@@ -8955,7 +8894,7 @@ index aeb5f575..593f689e 100644
  from dataclasses import dataclass, asdict
  from datetime import datetime, timezone
  from pathlib import Path
-@@ -70,6 +72,10 @@ def extract_history(
+@@ -70,6 +72,10 @@
      db_path: Optional[Path] = None,
      since_days: int = 365,
      min_visits: int = 1,
@@ -8966,7 +8905,7 @@ index aeb5f575..593f689e 100644
  ) -> list[HistoryEntry]:
      """Extract browsing history entries from Safari.
  
-@@ -77,6 +83,15 @@ def extract_history(
+@@ -77,6 +83,15 @@
          db_path: Path to History.db. Default: ~/Library/Safari/History.db
          since_days: Only extract entries from the last N days. Default: 365.
          min_visits: Minimum visit count to include. Default: 1.
@@ -8982,7 +8921,7 @@ index aeb5f575..593f689e 100644
  
      Returns:
          List of HistoryEntry objects, most recent first.
-@@ -94,7 +109,7 @@ def extract_history(
+@@ -94,7 +109,7 @@
          # Open read-only to avoid any risk of corruption
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -8991,7 +8930,7 @@ index aeb5f575..593f689e 100644
              raise PermissionError(
                  "Cannot read Safari history. Grant Full Disk Access to "
                  "this application in System Settings > Privacy & Security."
-@@ -106,6 +121,12 @@ def extract_history(
+@@ -106,6 +121,12 @@
      # Calculate the Mac absolute time for our since_days cutoff
      now_unix = datetime.now(timezone.utc).timestamp()
      cutoff_mac = (now_unix - (since_days * 86400)) - MAC_EPOCH_OFFSET
@@ -9004,7 +8943,7 @@ index aeb5f575..593f689e 100644
  
      try:
          rows = conn.execute("""
-@@ -117,12 +138,17 @@ def extract_history(
+@@ -117,12 +138,17 @@
                  hv.redirect_source
              FROM history_items hi
              JOIN history_visits hv ON hi.id = hv.history_item
@@ -9024,7 +8963,7 @@ index aeb5f575..593f689e 100644
          conn.close()
          return []
  
-@@ -163,6 +189,30 @@ def extract_history(
+@@ -163,6 +189,30 @@
      return entries
  
  
@@ -9055,9 +8994,6 @@ index aeb5f575..593f689e 100644
  def top_domains(
      entries: list[HistoryEntry],
      limit: int = 50,
-diff --git b/sink_health.py b/sink_health.py
-new file mode 100644
-index 00000000..ff37f6b1
 --- /dev/null
 +++ b/sink_health.py
 @@ -0,0 +1,69 @@
@@ -9130,9 +9066,6 @@ index 00000000..ff37f6b1
 +def sink_healthy() -> bool:
 +    """Ollama AND the stores. Both must answer."""
 +    return ollama_healthy() and stores_answer()
-diff --git b/tcc_refusal.py b/tcc_refusal.py
-new file mode 100644
-index 00000000..45891837
 --- /dev/null
 +++ b/tcc_refusal.py
 @@ -0,0 +1,77 @@
@@ -9213,6 +9146,111 @@ index 00000000..45891837
 +                    return path is not None and _path_exists_or_refused(path)
 +        cur = cur.__cause__ or cur.__context__
 +    return False
+--- a/universal_import.py
++++ b/universal_import.py
+@@ -389,6 +389,27 @@
+     return "instagram" in lower and "activity" in lower
+ 
+ 
++def _has_valid_facebook_inbox(root: Path) -> bool:
++    """True iff a Facebook-NAMED activity root holds a readable Messenger inbox.
++
++    CM051 118 guard (vendor-side, not in HR015 #1164): on a mixed root, an
++    explicit Facebook activity root with a valid inbox wins, which is exactly
++    what happened before the Instagram route existed. A wrongly-claimed
++    Facebook export would break a working import.
++    """
++    try:
++        for child in root.iterdir():
++            if child.is_dir() and _is_facebook_activity_dirname(child.name):
++                inbox = child / "messages" / "inbox"
++                if inbox.is_dir():
++                    msg = _find_first(inbox, "message_1.json", budget=5000)
++                    if msg and _json_has_keys(msg, ("participants", "messages")):
++                        return True
++    except OSError:
++        pass
++    return False
++
++
+ def _detect_instagram(root: Path) -> Optional[Detection]:
+     # Instagram DYI: same per-thread JSON as Messenger, so this runs BEFORE
+     # _detect_facebook and needs a positive Instagram signal: either an
+@@ -396,6 +417,11 @@
+     # to an Instagram-only marker. Without this, an older Instagram export
+     # (flat ``messages/inbox``) is claimed by the Facebook detector and its
+     # DMs land under the wrong channel.
++    # MIXED-ROOT RULE (named, CM051 118): Facebook wins on conflict. Instagram is
++    # claimed only on a positive Instagram signal AND no Facebook-named activity
++    # root with a valid inbox beside it.
++    if _has_valid_facebook_inbox(root):
++        return None
+     candidates = []
+     try:
+         for child in root.iterdir():
+@@ -865,6 +891,7 @@
+ 
+     persisted = 0
+     failed = 0
++    unavailable = 0
+     for payload in payloads:
+         conv_id = payload.get("conversation_id")
+         transcript = payload.get("transcript")
+@@ -892,6 +919,10 @@
+                     "conversation (exit %s)", source, proc.returncode
+                 )
+                 failed += 1
++                if proc.returncode == 75:
++                    # EX_TEMPFAIL: pwg-convo could not reach its model or
++                    # gateway. An outage, not a verdict on this thread.
++                    unavailable += 1
+         except (OSError, ValueError) as exc:  # noqa: BLE001 -- type only (privacy)
+             logger.warning(
+                 "universal_import: pwg-convo exec failed for %s (%s)",
+@@ -906,6 +937,7 @@
+         "persist_status": status,
+         "persisted": persisted,
+         "persist_failed": failed,
++        "persist_unavailable": unavailable,
+     }
+ 
+ 
+@@ -1363,6 +1395,15 @@
+     convo = _persist_email_conversations(
+         messages, source="email_mbox", output_dir=out
+     )
++    # v1.0.108: this pass stops at five years, 250,000 messages and 20,000
++    # threads (fast install). Queue the mailbox so the background catch-up
++    # (catchup_mbox.py) reads the rest of it; threads sent here are not sent
++    # again. Never fatal.
++    try:
++        from .catchup_mbox import queue_mailbox
++        queue_mailbox(detection.route_path)
++    except Exception as exc:  # noqa: BLE001 -- type only
++        logger.info("universal_import: mailbox not queued for catch-up (%s)", type(exc).__name__)
+     return {
+         "status": "ok",
+         "dispatched": "google_takeout(mbox)",
+--- a/whatsapp_history.py
++++ b/whatsapp_history.py
+@@ -84,6 +84,8 @@
+ 
+ import logging
+ import sqlite3
++
++from .tcc_refusal import is_fda_refusal
+ import time
+ from dataclasses import asdict, dataclass, field
+ from datetime import datetime, timedelta, timezone
+@@ -222,7 +224,7 @@
+         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+     except sqlite3.OperationalError as exc:
+         msg = str(exc).lower()
+-        if "authorization denied" in msg or "permission" in msg:
++        if is_fda_refusal(exc, db_path) or "authorization denied" in msg or "permission" in msg:
+             raise PermissionError(
+                 "Cannot read WhatsApp history. Grant Full Disk Access "
+                 "(System Settings > Privacy & Security > Full Disk Access)."
 diff --git b/test_vendor_browser_history.sh b/test_vendor_browser_history.sh
 new file mode 100755
 index 00000000..057be211
@@ -10174,72 +10212,3 @@ index 00000000..e9a6e089
 +        assert result["people_created"] == 1
 +        assert f'pwg:displayName "+{_NANP}"' in text
 +        assert "displayNameProvisional" in text
-diff --git a/universal_import.py b/universal_import.py
-index 1e396762..633f46de 100644
---- a/universal_import.py
-+++ b/universal_import.py
-@@ -865,6 +865,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
- 
-     persisted = 0
-     failed = 0
-+    unavailable = 0
-     for payload in payloads:
-         conv_id = payload.get("conversation_id")
-         transcript = payload.get("transcript")
-@@ -892,6 +893,10 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
-                     "conversation (exit %s)", source, proc.returncode
-                 )
-                 failed += 1
-+                if proc.returncode == 75:
-+                    # EX_TEMPFAIL: pwg-convo could not reach its model or
-+                    # gateway. An outage, not a verdict on this thread.
-+                    unavailable += 1
-         except (OSError, ValueError) as exc:  # noqa: BLE001 -- type only (privacy)
-             logger.warning(
-                 "universal_import: pwg-convo exec failed for %s (%s)",
-@@ -906,6 +911,7 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
-         "persist_status": status,
-         "persisted": persisted,
-         "persist_failed": failed,
-+        "persist_unavailable": unavailable,
-     }
- 
- 
-@@ -1363,6 +1369,15 @@ def _dispatch_mbox(detection: Detection, *, output_dir: Optional[Path]) -> dict:
-     convo = _persist_email_conversations(
-         messages, source="email_mbox", output_dir=out
-     )
-+    # v1.0.108: this pass stops at five years, 250,000 messages and 20,000
-+    # threads (fast install). Queue the mailbox so the background catch-up
-+    # (catchup_mbox.py) reads the rest of it; threads sent here are not sent
-+    # again. Never fatal.
-+    try:
-+        from .catchup_mbox import queue_mailbox
-+        queue_mailbox(detection.route_path)
-+    except Exception as exc:  # noqa: BLE001 -- type only
-+        logger.info("universal_import: mailbox not queued for catch-up (%s)", type(exc).__name__)
-     return {
-         "status": "ok",
-         "dispatched": "google_takeout(mbox)",
-diff --git a/whatsapp_history.py b/whatsapp_history.py
-index c5b260f1..a3b12fe6 100644
---- a/whatsapp_history.py
-+++ b/whatsapp_history.py
-@@ -84,6 +84,8 @@ from __future__ import annotations
- 
- import logging
- import sqlite3
-+
-+from .tcc_refusal import is_fda_refusal
- import time
- from dataclasses import asdict, dataclass, field
- from datetime import datetime, timedelta, timezone
-@@ -222,7 +224,7 @@ def _open_readonly(db_path: Path) -> sqlite3.Connection:
-         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-     except sqlite3.OperationalError as exc:
-         msg = str(exc).lower()
--        if "authorization denied" in msg or "permission" in msg:
-+        if is_fda_refusal(exc, db_path) or "authorization denied" in msg or "permission" in msg:
-             raise PermissionError(
-                 "Cannot read WhatsApp history. Grant Full Disk Access "
-                 "(System Settings > Privacy & Security > Full Disk Access)."
