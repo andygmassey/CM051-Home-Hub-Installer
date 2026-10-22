@@ -270,6 +270,10 @@ struct InstallCompleteView: View {
             // #599: primary iPhone call to action -- download the app.
             getIosAppSection
 
+            // Founders: the offer code and one-tap redeem link, only when the
+            // customer's verified licence named a plan.
+            proOfferSection
+
             // #599: the pairing QR, demoted below the download CTA and
             // relabelled "already installed the app? scan to pair".
             pairingSection
@@ -444,6 +448,90 @@ struct InstallCompleteView: View {
     private static let iosAppURL = "https://ostler.ai/ios"
 
     @ViewBuilder
+    /// The Pro offer install.sh recorded from the customer's VERIFIED licence
+    /// (~/.ostler/state/pro_offer.json). Nil when the file is absent, unreadable
+    /// or names nothing: the screen then says nothing about an offer rather than
+    /// promising a code that does not exist.
+    struct ProOffer: Equatable {
+        let plan: String
+        let months: Int
+        let offerCode: String?
+        let redeemURL: URL?
+
+        var isFounding: Bool { plan == "founding" }
+
+        /// The redeem link is accepted only if it is Apple's offer-code host
+        /// and carries a code of plain alphanumerics, whatever the file says.
+        static func load(from fileURL: URL) -> ProOffer? {
+            guard let data = try? Data(contentsOf: fileURL),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let plan = obj["plan"] as? String,
+                  let months = obj["months"] as? Int, months > 0
+            else { return nil }
+            var code: String? = nil
+            if let raw = obj["offer_code"] as? String,
+               (4...32).contains(raw.count),
+               raw.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) {
+                code = raw
+            }
+            var url: URL? = nil
+            if code != nil, let raw = obj["redeem_url"] as? String, let u = URL(string: raw),
+               u.scheme == "https", u.host == "apps.apple.com" {
+                url = u
+            }
+            return ProOffer(plan: plan == "founding" ? "founding" : "standard",
+                            months: months, offerCode: code, redeemURL: url)
+        }
+
+        static var defaultFileURL: URL {
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".ostler/state/pro_offer.json")
+        }
+    }
+
+    @ViewBuilder
+    private var proOfferSection: some View {
+        if let offer = ProOffer.load(from: ProOffer.defaultFileURL) {
+            VStack(alignment: .leading, spacing: .ostlerSpace1) {
+                Divider()
+                Text(ViewCopy.shared.string(for: "pro_offer.title"))
+                    .font(.ostlerStrap)
+                    .tracking(1.2)
+                    .foregroundStyle(Color.ostlerInkMuted)
+                if offer.isFounding {
+                    Text(ViewCopy.shared.string(for: "pro_offer.founder"))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                }
+                Text(ViewCopy.shared.string(for: "pro_offer.terms",
+                                            fills: ["months": String(offer.months)]))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(ViewCopy.shared.string(for: "pro_offer.yearly"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkSubdued)
+                if let code = offer.offerCode {
+                    Text("\(ViewCopy.shared.string(for: "pro_offer.code_label")): \(code)")
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .textSelection(.enabled)
+                    if let link = offer.redeemURL {
+                        Button(ViewCopy.shared.string(for: "pro_offer.redeem_button")) {
+                            NSWorkspace.shared.open(link)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.ostlerOxblood)
+                    }
+                } else {
+                    Text(ViewCopy.shared.string(for: "pro_offer.code_follows"))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInkMuted)
+                }
+            }
+        }
+    }
+
     private var getIosAppSection: some View {
         VStack(alignment: .leading, spacing: .ostlerSpace2) {
             Text(ViewCopy.shared.string(for: "get_ios_app.title"))

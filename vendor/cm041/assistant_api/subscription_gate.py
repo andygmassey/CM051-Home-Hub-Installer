@@ -22,7 +22,8 @@ cannot observe.
 
 Sync paths:
 1. ``activate_first_month_free()`` -- called by install.sh after license
-   verification. Hub gets 30 days of Pro for free.
+   verification. Hub gets the included Pro window the customer's
+   licence names: 6 months for a founder, 3 months for everyone else.
 2. ``refresh_from_companion()`` -- called when the iOS Companion pushes a
    fresh StoreKit receipt via ``POST /api/v1/subscription/receipt``.
 3. ``expire_check()`` -- run periodically by the ical-server's
@@ -68,8 +69,10 @@ Helper contract (the only public surface other pipelines depend on):
 - ``expire_check() -> None`` -- periodic state walker.
 
 Per locked memory feedback_subscription_gating_v1 + the 2026-05-27
-pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo with first 30 days
-free at install time.
+pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo, with 6 months
+(founder) or 3 months (standard) included at install time. The included
+months AUTO-RENEW into paid Pro ($9.99/month or $79/year) unless cancelled;
+the Apple receipt, not this file, is the entitlement of record.
 """
 
 from __future__ import annotations
@@ -142,6 +145,41 @@ KEY_LICENCE_TIER_STATE = "licence_tier_state"
 # (HR015 #929). For a BETA licence this is the beta window, and the beta
 # window is the entitlement -- see activate_first_month_free.
 KEY_LICENCE_EXPIRES_AT = "licence_expires_at"
+
+# The included Pro plan (CM050 licence field ``plan``, Andy 2026-10-23)
+#
+# founding  one of the first 500 Hub buyers (or an F&F tester): 6 months.
+# standard  everyone after: 3 months.
+#
+# NOTHING DEFAULTS TO founding. A missing, unreadable or unrecognised plan is
+# standard. The earlier attempt (#3083) defaulted to founding, which gave
+# every install 180 days; the safe direction for an unknown value is the
+# shorter window, because founding is a promise made to 500 named buyers.
+PLAN_FOUNDING = "founding"
+PLAN_STANDARD = "standard"
+INCLUDED_MONTHS = {PLAN_FOUNDING: 6, PLAN_STANDARD: 3}
+KEY_INCLUDED_PLAN = "included_plan"
+
+
+def resolve_plan(raw) -> str:
+    """Map whatever the licence said onto a known plan; unknown -> standard."""
+    if isinstance(raw, str) and raw.strip().lower() == PLAN_FOUNDING:
+        return PLAN_FOUNDING
+    return PLAN_STANDARD
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    """``dt`` plus whole calendar months, clamped to the target month's end."""
+    index = dt.year * 12 + (dt.month - 1) + months
+    year, month = divmod(index, 12)
+    month += 1
+    for day in (dt.day, 30, 29, 28):
+        try:
+            return dt.replace(year=year, month=month, day=day)
+        except ValueError:
+            continue
+    raise ValueError("unreachable: every month has a 28th")
+
 
 # How long before a window closes the customer is told it is closing.
 #
@@ -685,12 +723,17 @@ def activate_first_month_free(
     licence_tier: Optional[str] = None,
     licence_tier_state: Optional[str] = None,
     licence_expires_at: Optional[str] = None,
+    included_plan: Optional[str] = None,
 ) -> None:
     """Called at install.sh time after license verification succeeds.
 
-    Hub gets 30 days of Pro free with Hub purchase. Customer can then
-    subscribe via the iOS app to extend. Writes the canonical first-
-    month-free state: ``status=active`` for 30 days.
+    The Hub gets the included Pro window the customer's licence names:
+    ``included_plan`` "founding" is 6 calendar months, anything else
+    (None, unreadable, unrecognised) is "standard", 3 months. The months
+    auto-renew into paid Pro on the App Store unless cancelled; this
+    window is only the Hub-side mirror of that offer. Writes the canonical
+    included-window state: ``status=active`` until the window closes
+    (``source`` keeps its historical value ``first_month_free``).
 
     ``has_ever_paid`` is CARRIED OVER from any existing state, never
     granted. Two consequences, both intended:
@@ -722,7 +765,8 @@ def activate_first_month_free(
         # Defensive: caller passed garbage. Fall back to now so install
         # never silently writes a broken state.
         purchase_dt = _now()
-    expires = purchase_dt + timedelta(days=30)
+    plan = resolve_plan(included_plan)
+    expires = _add_months(purchase_dt, INCLUDED_MONTHS[plan])
 
     # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT A CALENDAR MONTH ──
     #
@@ -734,8 +778,8 @@ def activate_first_month_free(
     # customer was given.
     #
     # ONLY for tier `beta`, and only when the beta window is a date we
-    # can actually read. A hub or pro licence keeps the 30-day free
-    # month unchanged: their update window is about updates, not about
+    # can actually read. A hub or pro licence keeps the included window
+    # unchanged: their update window is about updates, not about
     # whether the product runs, and reading it as an entitlement would
     # cut off paying customers.
     #
@@ -752,6 +796,7 @@ def activate_first_month_free(
         "expires_at": expires.isoformat().replace("+00:00", "Z"),
         "grace_period_end": grace_end.isoformat().replace("+00:00", "Z"),
         "source": SOURCE_FIRST_MONTH_FREE,
+        KEY_INCLUDED_PLAN: plan,
         KEY_HAS_EVER_PAID: _has_ever_paid(old_state),
     }
     # An unverified install must not overwrite a tier a previous verified

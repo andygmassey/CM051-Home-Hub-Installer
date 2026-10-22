@@ -30,6 +30,11 @@ on:
       - 'tests/test_licence_gate.sh'
       - 'tests/test_shipped_compose_licence_mount.sh'
       - 'tests/test_licence_tier_reaches_the_hub.sh'
+      # Founders (2026-10-23): the included Pro plan is read from the licence.
+      - 'tests/test_founders_plan_from_licence.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'gui/OstlerInstaller/Views/InstallCompleteView.swift'
+      - 'gui/OstlerInstaller/Resources/ViewCopy.json'
       - 'gui/OstlerInstaller/Auth/LicenseVerifier.swift'
       - 'gui/OstlerInstaller/Auth/LicensePersistence.swift'
       # The tier leaves the licence gate and lands in the Hub's own
@@ -105,3 +110,14 @@ jobs:
       - name: every licence carries a tier, and the Hub reads it
         if: always()
         run: bash tests/test_licence_tier_reaches_the_hub.sh
+
+      # Founders (Andy, 2026-10-23). The fourth face: the PLAN the licence
+      # names. Walks a signed licence through the real install.sh gate to the
+      # 6 or 3 month Hub window and the offer code on the end screen, and
+      # proves nothing defaults to founding (the superseded #3083 gave every
+      # install 180 days). `if: always()` for the same maskless reason as the
+      # steps above. Limb E needs swiftc and reports CANNOT-RUN on this Linux
+      # runner; it is run on macOS by whoever cuts.
+      - name: the included Pro plan comes from the licence, and nothing defaults to founding
+        if: always()
+        run: bash tests/test_founders_plan_from_licence.sh

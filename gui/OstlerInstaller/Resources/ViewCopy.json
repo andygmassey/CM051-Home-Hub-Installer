@@ -323,6 +323,17 @@
     "url_caption": "ostler.ai/ios"
   },
 
+  "pro_offer": {
+    "_meta": "Founders (2026-10-23): install end screen. Shown only when install.sh wrote ~/.ostler/state/pro_offer.json from a verified licence naming a plan. The included months AUTO-RENEW into Pro at $9.99/month ($79/year), so the screen says so plainly (Andy, 2026-10-18); never opt-in phrasing.",
+    "title": "Your Ostler Pro offer",
+    "founder": "You are an Ostler founder.",
+    "terms": "Free for {months} months, then $9.99/month. Cancel anytime in Settings.",
+    "yearly": "Save with yearly: $79",
+    "code_label": "Your offer code",
+    "redeem_button": "Redeem in the App Store",
+    "code_follows": "Your offer code will follow by email."
+  },
+
   "install_complete": {
     "_meta": "#599 (2026-06-02): completion screen reworked. Hero 'Ostler is installed' (calm, not 'everything is ready') -> a 'what's happening now' hydration explainer that is the focus -> 'Get Ostler on your iPhone' (get_ios_app) -> demoted pairing QR (pair_iphone) -> the per-service tick list moved into a collapsed 'Hub status' disclosure. CTAs sit in the sticky footer. All copy via Rule 0.9. Qualitative hydration timing only (no hard hours number).",
     "heading": "Ostler is installed",
