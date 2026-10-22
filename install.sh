@@ -2418,6 +2418,137 @@ OSTLER_LICENCE_TIER_STATE="unverified"
 OSTLER_LICENCE_EXPIRES_AT=""
 export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE OSTLER_LICENCE_EXPIRES_AT
 
+# ── The included Pro plan the licence names (founders, 2026-10-23) ──
+#
+# The CM050 licence carries `plan` ("founding" | "standard"), `offer_code`
+# and `founder_number` (null for standard). Founding = the first 500 Hub
+# buyers (F&F testers on top): 6 months of included Pro. Standard = 3.
+#
+# NOTHING DEFAULTS TO founding. Every path that does not read a verified
+# licence leaves these at their safe values: standard, no code. That covers
+# --allow-unlicensed, OSTLER_DEV=1, a legacy licence with no `plan`, and a
+# licence whose plan is unreadable or unrecognised. (#3083 defaulted to
+# founding, which gave every install 180 days.)
+#
+# Exported because the included-Pro activation (G2) runs in a child python3
+# and reads the plan from the environment, the same way it reads the tier.
+OSTLER_INCLUDED_PLAN="standard"
+OSTLER_INCLUDED_PLAN_SOURCE="default"   # "licence" once a verified licence named it
+OSTLER_OFFER_CODE=""
+OSTLER_FOUNDER_NUMBER=""
+export OSTLER_INCLUDED_PLAN OSTLER_INCLUDED_PLAN_SOURCE OSTLER_OFFER_CODE OSTLER_FOUNDER_NUMBER
+
+# Read plan / offer_code / founder_number out of an ALREADY VERIFIED licence
+# file. Called only from the verifier's PASS branch: the fields are inside the
+# signed body, so they are as trustworthy as the tier. Prints ONE line,
+# "<plan> <offer_code|-> <founder_number|-> <plan_present 0|1>", every token
+# whitespace-free by construction, so a customer-supplied value can never
+# shift a field or smuggle a newline.
+#
+#   plan            "founding" only when the licence says exactly that
+#                   (case-insensitive); anything else is "standard".
+#   offer_code      kept only if 4..32 chars of [A-Za-z0-9] (it is put in a
+#                   URL and on a screen); otherwise "-".
+#   founder_number  kept only if a positive integer; otherwise "-".
+_ostler_licence_plan_read() {
+    local _py="$1" _file="$2"
+    "$_py" -I -c '
+import json, re, sys
+plan, code, num, present = "standard", "-", "-", "0"
+try:
+    with open(sys.argv[1], "rb") as handle:
+        doc = json.loads(handle.read().decode("utf-8"))
+except (OSError, ValueError, UnicodeDecodeError):
+    doc = None
+if isinstance(doc, dict):
+    raw = doc.get("plan")
+    if isinstance(raw, str):
+        present = "1"
+        if raw.strip().lower() == "founding":
+            plan = "founding"
+    raw = doc.get("offer_code")
+    if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9]{4,32}", raw):
+        code = raw
+    raw = doc.get("founder_number")
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1:
+        num = str(raw)
+sys.stdout.write("%s %s %s %s" % (plan, code, num, present))
+' "$_file"
+}
+
+# Apply the reading to the exported variables. Never aborts the install:
+# an unreadable licence plan is "standard", which is the safe answer.
+_ostler_licence_plan_apply() {
+    local _line="" _rc=0 _plan _code _num _present
+    _line="$(_ostler_licence_plan_read "$1" "$2")" || _rc=$?
+    if [[ "$_rc" -ne 0 || -z "$_line" ]]; then
+        warn "Could not read the Pro plan from your licence (rc=${_rc}); using the standard 3 months."  # i18n-exempt
+        return 0
+    fi
+    read -r _plan _code _num _present <<<"$_line"
+    OSTLER_INCLUDED_PLAN="$_plan"
+    [[ "$_present" == "1" ]] && OSTLER_INCLUDED_PLAN_SOURCE="licence"
+    [[ "$_code" != "-" ]] && OSTLER_OFFER_CODE="$_code"
+    [[ "$_num" != "-" ]] && OSTLER_FOUNDER_NUMBER="$_num"
+    return 0
+}
+
+# Apple's one-tap offer-code redemption link for CM031 (App Store id 6767103373).
+OSTLER_OFFER_REDEEM_URL_TEMPLATE="https://apps.apple.com/redeem?ctx=offercodes&id=6767103373&code="
+
+# Show the offer on the install end screen and persist it for the GUI.
+# Three cases, and they are not the same:
+#   code present        -> show the code and the redeem link.
+#   plan named, no code -> the pool was empty at purchase time; the purchase
+#                          succeeded and the email says the code follows.
+#   no plan named       -> legacy or unlicensed install: say nothing about a code.
+_ostler_pro_offer_report() {
+    local _months=3 _url="" _state_dir="${HOME}/.ostler/state"
+    [[ "$OSTLER_INCLUDED_PLAN" == "founding" ]] && _months=6
+    if [[ "$OSTLER_INCLUDED_PLAN_SOURCE" != "licence" ]]; then
+        # A previous install's offer must not outlive a reinstall that names none.
+        rm -f "${_state_dir}/pro_offer.json"
+        return 0
+    fi
+    if [[ "$OSTLER_INCLUDED_PLAN" == "founding" ]]; then
+        if [[ -n "$OSTLER_FOUNDER_NUMBER" ]]; then
+            info "$(printf "$MSG_INFO_PRO_OFFER_FOUNDER_NUMBERED" "$OSTLER_FOUNDER_NUMBER")"
+        else
+            info "$MSG_INFO_PRO_OFFER_FOUNDER"
+        fi
+    fi
+    if [[ -n "$OSTLER_OFFER_CODE" ]]; then
+        _url="${OSTLER_OFFER_REDEEM_URL_TEMPLATE}${OSTLER_OFFER_CODE}"
+        info "$(printf "$MSG_INFO_PRO_OFFER_CODE" "$OSTLER_OFFER_CODE")"
+        info "$(printf "$MSG_INFO_PRO_OFFER_REDEEM" "$_url")"
+    else
+        info "$MSG_INFO_PRO_OFFER_CODE_FOLLOWS"
+    fi
+    echo ""
+    # Values travel through the environment, never through python source.
+    if mkdir -p "$_state_dir" && OSTLER_PRO_OFFER_MONTHS="$_months" OSTLER_PRO_OFFER_URL="$_url" \
+        python3 -I -c '
+import json, os, sys
+doc = {
+    "plan": os.environ["OSTLER_INCLUDED_PLAN"],
+    "months": int(os.environ["OSTLER_PRO_OFFER_MONTHS"]),
+    "offer_code": os.environ.get("OSTLER_OFFER_CODE") or None,
+    "redeem_url": os.environ.get("OSTLER_PRO_OFFER_URL") or None,
+    "founder_number": int(os.environ["OSTLER_FOUNDER_NUMBER"]) if os.environ.get("OSTLER_FOUNDER_NUMBER") else None,
+}
+tmp = sys.argv[1] + ".tmp"
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as handle:
+    json.dump(doc, handle)
+os.replace(tmp, sys.argv[1])
+' "${_state_dir}/pro_offer.json"; then
+        :
+    else
+        warn "Could not record your Pro offer for the install screen; it is shown above."  # i18n-exempt
+    fi
+    return 0
+}
+
 if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
     # Loud on purpose, three times, matching the --allow-plaintext
     # precedent above. This is the line support needs to see in a
@@ -2879,6 +3010,10 @@ OSTLER_LICENCE_VERIFY_PY
                          warn "Installing with Hub features for now. A later version of Ostler will pick up the rest." ;;  # i18n-exempt
                 *)       warn "Licence tier could not be determined." ;;               # i18n-exempt
             esac
+            # The verifier passed, so the signed `plan` / `offer_code` are
+            # trustworthy. Read them here, the only place a verified licence
+            # is in hand.
+            _ostler_licence_plan_apply "$_lic_python" "$OSTLER_LICENCE_FILE"
             ;;
         10) _ostler_licence_refuse "No licence file found." ;;                         # i18n-exempt
         11) _ostler_licence_refuse "The licence file is empty." ;;                     # i18n-exempt
@@ -40698,7 +40833,7 @@ else
     fi
 fi
 
-# ── First-month-free subscription activation (G2) ─────────────────
+# ── Included Pro activation (G2; the name is historical) ──────────
 #
 # The GUI verified the customer's Ed25519-signed licence file before
 # exec'ing this script (see the "Licence / activation check" block
@@ -40706,16 +40841,23 @@ fi
 # point install.sh has run to completion against a verified licence,
 # so this is the canonical "after licence verification succeeds"
 # mount point in the post-install lifecycle. Wire the customer's Hub
-# to 30 days of Ostler Pro for free per the G0 subscription_gate
-# contract (PR #190) -- single source of truth for whether ongoing
-# intelligence runs.
+# to the included Pro window their licence names (6 months founding,
+# 3 months standard; never founding by default) per the G0
+# subscription_gate contract (PR #190) -- single source of truth for
+# whether ongoing intelligence runs. The included months AUTO-RENEW into
+# paid Pro on the App Store; every message here says so.
 #
 # Fail-open posture: if the Python call fails for ANY reason
 # (vendored helper missing, state dir not writable, disk full), the
 # install MUST continue. The customer can re-activate via the iOS
 # Companion once paired. We never block a legitimate customer on a
 # subscription-state write failure.
-info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+if [[ "$OSTLER_INCLUDED_PLAN" == "founding" ]]; then
+    INCLUDED_PRO_MONTHS=6
+else
+    INCLUDED_PRO_MONTHS=3
+fi
+info "$(printf "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING" "$INCLUDED_PRO_MONTHS")"
 if python3 -c "
 import sys, os
 # The .app build (gui/project.yml postBuildScript L487-514) intentionally
@@ -40752,14 +40894,22 @@ if _tier_state == 'unverified':
 _lic_expiry = os.environ.get('OSTLER_LICENCE_EXPIRES_AT') or None
 if _lic_expiry == 'unparseable':
     _lic_expiry = None
+# Founders (2026-10-23). The plan is read from the VERIFIED licence by
+# _ostler_licence_plan_apply and arrives through the environment for the
+# same injection reason as the tier. An unverified install never names a
+# plan, and the gate itself maps anything but 'founding' to standard.
+_plan = os.environ.get('OSTLER_INCLUDED_PLAN') or None
+if _tier_state == 'unverified':
+    _plan = None
 activate_first_month_free(
     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     licence_tier=_tier,
     licence_tier_state=_tier_state,
     licence_expires_at=_lic_expiry,
+    included_plan=_plan,
 )
 " 2>&1; then
-    ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    ok "$(printf "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED" "$INCLUDED_PRO_MONTHS")"
 else
     # NON-FATAL: install continues. Customer can re-activate via
     # Companion later. Per fail-open: never block install on
@@ -42036,13 +42186,18 @@ fi
 echo "     Duration:      ${INSTALL_MINS}m ${INSTALL_SECS}s"
 echo ""
 
-# Subscription pricing hint -- surfaces the $9.99 USD/mo post-trial
-# pricing so the customer is never surprised when their first 30
-# days expire and the iOS Companion offers a subscription. Routed
-# through info() so it lands in both the TTY log and the GUI sidebar.
-# USD is canonical for v1.0 launch (locked 2026-05-27).
-info "$MSG_INFO_SUBSCRIPTION_PRICING_HINT"
+# Subscription pricing hint -- the included months AUTO-RENEW into paid Pro
+# at $9.99/month ($79/year), so say so plainly, never as an opt-in (Andy,
+# 2026-10-18). Routed through info() so it lands in both the TTY log and
+# the GUI sidebar. USD is canonical for v1.0 launch (locked 2026-05-27).
+info "$(printf "$MSG_INFO_SUBSCRIPTION_PRICING_HINT" "${INCLUDED_PRO_MONTHS:-3}")"
 echo ""
+
+# The offer code the licence carries, and the one-tap redeem link. Printed
+# here, and written to ~/.ostler/state/pro_offer.json for the GUI end screen
+# (InstallCompleteView reads that file). Nothing is printed for an install
+# whose licence named no plan: a code that does not exist is not promised.
+_ostler_pro_offer_report
 
 # ── Next steps ─────────────────────────────────────────────────────
 
