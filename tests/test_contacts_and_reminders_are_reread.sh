@@ -26,6 +26,12 @@
 # ============================================================================
 set -uo pipefail
 
+# shellcheck source=lib/fda_run_all.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh"
+fda_run_all_contract_check "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || {
+    rc=$?; echo "$(basename "$0"): the run_all call/signature moved (rc ${rc}); see tests/lib/fda_run_all.sh" >&2; exit 2; }
+
+
 REPO_ROOT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -144,10 +150,7 @@ R="${WORK}/reminders"
 PKG="${R}/.ostler/fda-module/ostler_fda"
 mkdir -p "$PKG" "${R}/.ostler/imports/fda" "${R}/bin"
 : > "${PKG}/__init__.py"
-cat > "${PKG}/extract_all.py" <<'PYEOF'
-import json, os, pathlib
-
-def run_all(output_dir=None, enabled_sources=None):
+{ printf 'import json, os, pathlib\n\n%s\n' "$FDA_RUN_ALL_STUB_DEF"; cat <<'PYEOF'
     out = pathlib.Path(str(output_dir))
     status = os.environ["REM_STATUS"]
     if status == "ok":
@@ -158,6 +161,7 @@ def run_all(output_dir=None, enabled_sources=None):
     (out / "extraction_summary.json").write_text(json.dumps(summary))
     return summary
 PYEOF
+} > "${PKG}/extract_all.py"
 cat > "${PKG}/pwg_ingest.py" <<'PYEOF'
 _INGEST_DISPATCH = ()
 

@@ -25,6 +25,11 @@
 # ============================================================================
 set -uo pipefail
 
+# shellcheck source=lib/fda_run_all.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh"
+fda_run_all_contract_check "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || {
+    rc=$?; echo "$(basename "$0"): the run_all call/signature moved (rc ${rc}); see tests/lib/fda_run_all.sh" >&2; exit 2; }
+
 REPO_ROOT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -72,13 +77,11 @@ build_root() {
     mkdir -p "$pkg" "${root}/.ostler/bin" "${root}/.ostler/imports/fda" \
              "${root}/.ostler/state/source_activity"
     : > "${pkg}/__init__.py"
-    cat > "${pkg}/extract_all.py" <<'PYEOF'
-import json, os
-
-def run_all(output_dir=None, enabled_sources=None):
+    { printf 'import json, os\n\n%s\n' "$FDA_RUN_ALL_STUB_DEF"; cat <<'PYEOF'
     with open(os.environ["FDA_TEST_SUMMARY"]) as fh:
         return {"sources": json.load(fh)}
 PYEOF
+    } > "${pkg}/extract_all.py"
     cat > "${pkg}/pwg_ingest.py" <<'PYEOF'
 import os, sys
 

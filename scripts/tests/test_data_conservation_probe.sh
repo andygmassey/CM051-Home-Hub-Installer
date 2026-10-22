@@ -9,6 +9,7 @@
 #   F. the probe is registered: walk_promote_scope.tsv has its row
 #   G. an all-zero box exits 78 (CANNOT-RUN), never 0
 #   H. a known_gap row that was not read exits 78, never 0 (NOT-MEASURED is not KNOWN-GAP)
+#   I. an absent graph class reads 0 only when the graph answered, and is still judged
 # EXIT: 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -64,4 +65,20 @@ J
 echo '{"facts":{"s":4}}' > "$W/f_kg.json"
 python3 "$LIB" adjudicate --expected "$W/exp_kg.json" --facts "$W/f_kg.json" --profile t >"$W/o5" 2>&1; r5=$?
 { [ "$r5" -eq 78 ] && ! grep -q 'KNOWN-GAP |' "$W/o5"; } && ok "H: an unread known_gap row exits 78 and is not KNOWN-GAP" || bad "H: rc=$r5"
+# I. An absent graph class reads 0 only when the graph answered (x.class.total),
+#    and a 0 read that way is still judged: Person absent under 2 stored is LOST.
+cat > "$W/exp_cls.json" <<'J'
+{"profiles":{"t":{"rows":[
+ {"id":"pl/a","source":"pl","category":"a","expected":{"stored":0},"facts":{"stored":{"key":"x.class.Place","zero_if":"x.class.total"}}},
+ {"id":"pe/a","source":"pe","category":"a","facts":{"in":"i","stored":"s","graph":{"key":"x.class.Person","zero_if":"x.class.total"}}}]}}}
+J
+echo '{"facts":{"i":2,"s":2,"x.class.Person":2,"x.class.total":2}}' > "$W/f_cls_ok.json"
+echo '{"facts":{"i":2,"s":2,"x.class.total":0}}' > "$W/f_cls_lost.json"
+echo '{"facts":{"i":2,"s":2,"x.class.Person":2}}' > "$W/f_cls_nm.json"
+python3 "$LIB" adjudicate --expected "$W/exp_cls.json" --facts "$W/f_cls_ok.json" --profile t >"$W/o6" 2>&1; r6=$?
+python3 "$LIB" adjudicate --expected "$W/exp_cls.json" --facts "$W/f_cls_lost.json" --profile t >"$W/o7" 2>&1; r7=$?
+python3 "$LIB" adjudicate --expected "$W/exp_cls.json" --facts "$W/f_cls_nm.json" --profile t >"$W/o8" 2>&1; r8=$?
+{ [ "$r6" -eq 0 ] && ! grep -q 'unreadable' "$W/o6"; } && ok "I1: an absent Place class reads 0 when the graph answered" || bad "I1: rc=$r6 $(cat "$W/o6")"
+{ [ "$r7" -eq 1 ] && grep -q '| pe | a |.*| LOST |' "$W/o7"; } && ok "I2: Person absent under 2 stored is still LOST" || bad "I2: rc=$r7 $(cat "$W/o7")"
+{ [ "$r8" -eq 78 ] && grep -q 'x.class.Place unreadable' "$W/o8"; } && ok "I3: without x.class.total an absent class stays unreadable (78)" || bad "I3: rc=$r8 $(cat "$W/o8")"
 echo; echo "== ${PASS} pass / ${FAIL} fail =="; [ "$FAIL" -eq 0 ]
