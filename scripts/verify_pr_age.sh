@@ -74,6 +74,16 @@ MAX_HOURS="${PR_AGE_HOURS:-48}"
 DEFERRALS="${OSTLER_CUT_DEFERRALS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/cut-deferrals.yaml}"
 ALLOW_PARTIAL="${PR_AGE_ALLOW_PARTIAL:-}"
 
+# Anti-accretion floor. The pr_exemptions: block is an escape hatch, not a
+# parking lot: on 2026-10-17 it held ~783 rows, every one expired, and the gate
+# spent its time re-reding a legacy pile instead of policing new debt. The cap
+# is the same rule the freshness ledger already encodes -- an exemption must
+# DRAIN, it may not ACCRETE -- made arithmetic here. Read from cut-deferrals.yaml
+# (pr_exemptions_live_cap:), overridable per-run, default 10. See the LIVE
+# EXEMPTION LEDGER section below for what counts as "live".
+LIVE_CAP="${PR_AGE_LIVE_CAP:-$(sed -n 's/^pr_exemptions_live_cap:[[:space:]]*//p' "$DEFERRALS" 2>/dev/null | head -1)}"
+LIVE_CAP="${LIVE_CAP:-10}"
+
 DEFAULT_REPOS="andygmassey/CM051-Home-Hub-Installer
 andygmassey/CM044-PWG-Personal-Wiki
 andygmassey/CM041-People-Graph
@@ -178,6 +188,36 @@ exempt_verdict() {
     printf 'none'
 }
 
+# The pr_exemptions refs carry the SHORT repo name (CM051-Home-Hub-Installer#42),
+# but `gh pr view` needs owner/repo. The gate's repo list is the single source of
+# truth for which owner each repo lives under, so resolve from it. Empty when the
+# ref names a repo this run does not know about -> state UNKNOWN, never a guess.
+owner_repo_for_short() { # short-repo-name -> owner/repo (empty if unknown)
+    local short="$1" r
+    while IFS= read -r r; do
+        [[ -z "$r" ]] && continue
+        [[ "${r#*/}" == "$short" ]] && { printf '%s' "$r"; return; }
+    done <<< "$REPOS"
+}
+
+# Resolve a PR's state with one `gh pr view`, owner-scoped the same way the PR
+# listing is (token_for_owner + gh_as). Prints exactly one of OPEN|CLOSED|MERGED|
+# UNKNOWN. UNKNOWN is fail-SAFE for the cap below: an unresolved state is never
+# counted as live, so a credential gap can only ever UNDER-count, never
+# manufacture a cap breach out of an auth error.
+pr_state() { # owner/repo  number
+    local repo="$1" num="$2" owner tok st
+    owner="${repo%%/*}"
+    tok="$(token_for_owner "$owner")"
+    st="$(gh_as "$tok" pr view "$num" --repo "$repo" --json state --jq '.state' 2>/dev/null)" || st=""
+    case "$st" in
+        OPEN)   printf 'OPEN' ;;
+        CLOSED) printf 'CLOSED' ;;
+        MERGED) printf 'MERGED' ;;
+        *)      printf 'UNKNOWN' ;;
+    esac
+}
+
 effective_epoch=$(date -j -f "%Y-%m-%d" "$RULE_EFFECTIVE_DATE" "+%s" 2>/dev/null \
                   || date -d "$RULE_EFFECTIVE_DATE" "+%s" 2>/dev/null)
 if [[ -z "${effective_epoch:-}" ]]; then
@@ -266,6 +306,61 @@ say ""
 # scrollback above it.
 total_repos=$(( checked + unreachable ))
 say "== ${checked} of ${total_repos} repo(s) checked | ${violations} over ${MAX_HOURS}h | ${exempted} exempt | ${legacy} pre-rule =="
+
+# ============================================================================
+# LIVE EXEMPTION LEDGER -- auto-retire + anti-accretion floor.
+# ============================================================================
+# The block above checks a PR against its exemption only when the PR is OPEN and
+# overdue, because that is the only shape that can produce a RED. But an
+# exemption also costs something while its PR is NOT in that shape: a row whose
+# PR already merged or closed is dead weight, and a pile of still-live rows is
+# the 783-exemption backlog forming again. So, independent of the per-PR sweep:
+#
+#   * AUTO-RETIRE: for each UNEXPIRED row, resolve the PR's state once. A
+#     merged/closed PR's exemption is RETIREABLE -- it defers a PR that no
+#     longer exists -- and is dropped from the live count, never a failure.
+#   * LIVE CAP: the count of LIVE rows (unexpired AND still-open PR) may not
+#     exceed LIVE_CAP. Over the cap is RED: the escape hatch is accreting
+#     faster than it drains. Expired rows are NOT live (they are handled by the
+#     per-PR RED path above and cleared by scripts/drain_pr_exemptions.sh), so
+#     the legacy pile does not itself trip the cap -- only genuine live debt does.
+#
+# gh calls here are bounded by the number of UNEXPIRED rows, not the whole file:
+# an expired row is skipped before any network call.
+live_count=0; retireable=0; cap_unknown=0
+retireable_names=""; live_names=""
+while IFS=$'\t' read -r xref xreview; do
+    [[ -z "$xref" ]] && continue
+    [[ -n "$xreview" ]] || continue   # undated: not live; caught by the RED path if its PR is overdue
+    xrev_epoch=$(date -j -f "%Y-%m-%d" "$xreview" "+%s" 2>/dev/null \
+                 || date -d "$xreview" "+%s" 2>/dev/null)
+    [[ -n "${xrev_epoch:-}" ]] || continue
+    (( xrev_epoch < now_epoch )) && continue   # expired -> not live, no gh call
+    xshort="${xref%%#*}"; xnum="${xref#*#}"
+    [[ "$xnum" =~ ^[0-9]+$ ]] || continue       # malformed ref, skip the gh call
+    xrepo="$(owner_repo_for_short "$xshort")"
+    if [[ -z "$xrepo" ]]; then st="UNKNOWN"; else st="$(pr_state "$xrepo" "$xnum")"; fi
+    case "$st" in
+        OPEN)          live_count=$(( live_count + 1 )); live_names="${live_names}${xref}"$'\n' ;;
+        CLOSED|MERGED) retireable=$(( retireable + 1 )); retireable_names="${retireable_names}  - ${xref} (${st})"$'\n' ;;
+        UNKNOWN)       cap_unknown=$(( cap_unknown + 1 )) ;;
+    esac
+done < <(exempt_entries)
+
+cap_over=0
+say "== live exemptions: ${live_count} open / cap ${LIVE_CAP} | ${retireable} retireable (PR merged/closed) | ${cap_unknown} unresolved =="
+if (( retireable > 0 )); then
+    say ""
+    say "RETIREABLE -- these exemptions defer a PR that has already merged or closed."
+    say "They are NOT failing this gate, but they are dead weight. Clear them with:"
+    say "  bash scripts/drain_pr_exemptions.sh --retire-closed"
+    printf '%s' "$retireable_names"
+fi
+if (( live_count > LIVE_CAP )); then
+    cap_over=1
+    say ""
+    say "== VERDICT: RED -- ${live_count} LIVE exemptions exceed the cap of ${LIVE_CAP} =="
+fi
 
 # ============================================================================
 # PARTIAL RUNS FAIL CLOSED, DELIBERATELY.
@@ -378,6 +473,29 @@ For each RED above:
 
 Deliberately blocked is fine. Silently blocked is what produced a 176-PR
 backlog and six fixes that Andy found by hand on a shipped DMG.
+EOF
+    exit 1
+fi
+
+# The anti-accretion floor. Reported as exit 1 (a real, found problem) ahead of
+# the "could not look" exit 3 below, for the same reason violations are: a
+# definite breach must not be laundered into a vaguer "cannot verify". The count
+# is monotonic in resolved-OPEN rows only, so an unresolved state can never cause
+# this -- if we are over the cap, we have hard evidence of it.
+if (( cap_over > 0 )); then
+    cat >&2 <<EOF
+
+ERROR: ${live_count} LIVE exemptions (unexpired, PR still open) exceed the cap of
+${LIVE_CAP}. The pr_exemptions: block is an escape hatch, not a parking lot, and
+it is accreting faster than it drains -- exactly how 176 open PRs became 783
+exemptions.
+
+Bring the live count back under ${LIVE_CAP}:
+  * merge or close the PRs these exemptions defer (that retires the row), or
+  * if the backlog is genuinely legacy, drain it:
+      bash scripts/drain_pr_exemptions.sh --retire-closed   # safe, closed/merged only
+  * raise the cap ONLY as a deliberate, recorded decision in cut-deferrals.yaml
+    (pr_exemptions_live_cap:) -- not to quiet this run.
 EOF
     exit 1
 fi

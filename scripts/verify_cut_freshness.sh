@@ -198,7 +198,16 @@ run_to() {
 # because the cut already carries it for exactly that owner.
 token_for() {
     local acct="$1"
-    [ -n "${FRESHNESS_GH_BIN:-}" ] && { printf 'mock-token'; return 0; }
+    if [ -n "${FRESHNESS_GH_BIN:-}" ]; then
+        # Mock mode. A token is present for every account EXCEPT any the test
+        # explicitly declares missing (FRESHNESS_MOCK_NO_TOKEN, space/comma
+        # list) -- the seam that lets test_cut_freshness_gate.sh exercise the
+        # token preflight without a real credential.
+        case " $(printf '%s' "${FRESHNESS_MOCK_NO_TOKEN:-}" | tr ',' ' ') " in
+            *" $acct "*) printf ''; return 0 ;;
+            *)           printf 'mock-token'; return 0 ;;
+        esac
+    fi
     local key="_TOK_$(printf '%s' "$acct" | tr -c 'A-Za-z0-9' '_')"
     local cur; eval "cur=\${$key:-}"
     if [ -z "$cur" ]; then
@@ -317,6 +326,41 @@ gh_compare() {
     if [ "$rc" -eq 2 ]; then echo "UNREACH"; return; fi
     if [ "$rc" -eq 1 ]; then echo "NONE"; return; fi
     printf '%s' "$API_OUT" | tr -d '\n'
+}
+
+# net_path_fresh <acct> <owner/repo> <base> <head> <path>
+#   The API-native half of the NET-CONTENT short-circuit (the local-git half is
+#   vlib_net_content_equal in _vendor_lib.sh, used by verify_vendor_fresh.sh).
+#   A commit count is the wrong instrument for "did what ships move?" -- a
+#   delete-then-restore (HR015 #1145/#1146) advances the graph by two commits
+#   and changes the shipped bytes by zero. GitHub's compare endpoint returns the
+#   NET file diff base..head, so if nothing UNDER the vendored path appears in
+#   it, the pin is content-current however many commits sit in between.
+#   Echoes:
+#     FRESH    net diff under <path> is empty -> content-current
+#     STALE    at least one file under <path> net-changed -> a real advance
+#     UNKNOWN  could not tell (compare errored, or its file list may be
+#              truncated at GitHub's 300-file cap) -> caller must NOT short-circuit
+#   SAFETY: only FRESH short-circuits, and it is reached only when the net diff
+#   is provably empty AND the list was not truncated. It can turn a false STALE
+#   into FRESH; it can never turn a real STALE into FRESH.
+net_path_fresh() {
+    local acct="$1" repo="$2" base="$3" head="$4" path="$5" sel
+    if [ -z "$path" ] || [ "$path" = "." ]; then
+        sel='.files[].filename'
+    else
+        sel='.files[].filename | select(. == "'"$path"'" or startswith("'"$path"'/"))'
+    fi
+    api "$acct" "repos/$repo/compare/$base...$head" \
+        --jq '"\(.files|length) \([ '"$sel"' ]|length)"'
+    [ $? -ne 0 ] && { echo UNKNOWN; return; }
+    local total under
+    total="$(printf '%s' "$API_OUT" | awk '{print $1}')"
+    under="$(printf '%s' "$API_OUT" | awk '{print $2}')"
+    case "$total" in ''|*[!0-9]*) echo UNKNOWN; return ;; esac
+    [ "$total" -ge 300 ] && { echo UNKNOWN; return; }   # file list may be truncated
+    case "$under" in ''|*[!0-9]*) echo UNKNOWN; return ;; esac
+    if [ "$under" -eq 0 ]; then echo FRESH; else echo STALE; fi
 }
 
 # freshness_verdict <acct> <owner/repo> <pinned_sha> <live_head>
@@ -441,6 +485,46 @@ EOF
     else DELTA_STATUS=DIVERGED; fi
 }
 
+# ===========================================================================
+# TOKEN PREFLIGHT -- fail LOUD on a missing per-owner credential.
+# ===========================================================================
+# A missing OSTLER_GH_TOKEN_<OWNER> makes every api() call for that owner 404,
+# which the gate would otherwise report as N separate "unreadable-source" REDs
+# -- a credential gap wearing a content problem's clothes (cut run 31682172040:
+# fifteen byte-identical "bad pin" rows that were all one unset token). Resolve
+# each owner the checked, NON-exempt trees need, once, up front; if any is
+# unresolvable by any means token_for knows, say exactly which env var to set
+# and exit CANNOT-VERIFY (3) -- never a content verdict about the artefact.
+preflight_accounts=""
+_add_acct() { case " $preflight_accounts " in *" $1 "*) : ;; *) preflight_accounts="$preflight_accounts $1" ;; esac; }
+while IFS= read -r _t; do
+    [ -z "$_t" ] && continue
+    [ -n "$FRESHNESS_ONLY" ] && [ "$_t" != "$FRESHNESS_ONLY" ] && continue
+    _es="$(vlib_reasoned_exemption "$_t" | cut -f1)"
+    if [ "$_es" = "exempt" ] || [ "$_es" = "ack" ]; then continue; fi   # exempt -> never read from GitHub
+    IFS=$'\t' read -r _acct _owner _pfx < <(resolve_github "$(vlib_field "$_t" source_repo)")
+    [ -n "$_acct" ] && _add_acct "$_acct"
+done < <(vlib_tree_names)
+# The daemon (ostler-ai) and wiki (andygmassey) reads happen only on a full sweep.
+if [ -z "$FRESHNESS_ONLY" ]; then _add_acct ostler-ai; _add_acct andygmassey; fi
+
+_missing=""
+for _a in $preflight_accounts; do
+    [ -z "$(token_for "$_a")" ] && _missing="$_missing $_a"
+done
+if [ -n "$_missing" ]; then
+    echo "CANNOT VERIFY: no usable GitHub credential for the owner(s) this run needs:" >&2
+    for _a in $_missing; do
+        _env="OSTLER_GH_TOKEN_$(printf '%s' "$_a" | tr 'a-z-' 'A-Z_')"
+        echo "    $_a  -> set $_env (a token that can read $_a's private repos)" >&2
+    done
+    echo "  A missing token makes every read for that owner 404, which this gate" >&2
+    echo "  would otherwise report as per-tree 'unreadable-source' REDs. Failing" >&2
+    echo "  LOUD here instead of handing you a content verdict that is really an" >&2
+    echo "  auth gap. Set the token(s) above, or run where 'gh auth' resolves them." >&2
+    exit 3
+fi
+
 echo "=== Cut-freshness gate (live GitHub HEAD) ==="
 echo "manifest:            $VLIB_MANIFEST"
 echo "daemon provenance:   ${OSTLER_RELEASES_REPO:-ostler-ai/ostler-releases} release asset -> tag -> commit"
@@ -457,23 +541,32 @@ while IFS= read -r tree; do
     pinned="$(vlib_field "$tree" pinned_sha)"
     subpath="$(vlib_field "$tree" source_path)"
     srcrepo="$(vlib_field "$tree" source_repo)"
-    exempt="$(manifest_bool "$tree" verify_exempt)"
-    exreason="$(vlib_field "$tree" exempt_reason)"
-
-    # --- EXEMPTION: an auditable allowlist, never a silent WARN. A genuinely
-    #     unverifiable source may opt out ONLY with a reason. No reason => RED. ---
-    if [ "$exempt" = "true" ]; then
-        if [ -z "$exreason" ]; then
-            n_stale=$((n_stale+1))
-            add_row "vendor:$tree" "$pinned" "-" "RED exempt-without-reason"
-            add_detail "vendor:$tree RED: verify_exempt=true but exempt_reason is empty -- add an auditable reason or remove the exemption."
-        else
+    # --- REASONED EXEMPTION: an auditable allowlist, never a silent WARN. ---
+    # Read through the ONE shared vocabulary (scripts/_vendor_lib.sh), so this
+    # gate now honours unverifiable_ack as well as its own verify_exempt -- the
+    # fix for a tree (cm019_preferences) that was ack'd in the sibling gate and
+    # red here for the same manifest. `verify = skip` is deliberately NOT a
+    # reasoned exemption (see scenario (g)): for a fetchable source it is a
+    # silent downgrade, and this gate still refuses it below.
+    IFS=$'\t' read -r exstate exdetail < <(vlib_reasoned_exemption "$tree")
+    case "$exstate" in
+        exempt|ack)
             n_exempt=$((n_exempt+1))
             add_row "vendor:$tree" "$pinned" "exempt" "EXEMPT"
-            add_detail "vendor:$tree EXEMPT: $exreason"
-        fi
-        continue
-    fi
+            add_detail "vendor:$tree EXEMPT: $exdetail"
+            continue ;;
+        incomplete)
+            n_stale=$((n_stale+1))
+            # Keep the legacy row label for a verify_exempt with no reason, which
+            # the gate's tests and scrapes key off; name the ack case distinctly.
+            if [ "$(manifest_bool "$tree" verify_exempt)" = "true" ]; then
+                add_row "vendor:$tree" "$pinned" "-" "RED exempt-without-reason"
+            else
+                add_row "vendor:$tree" "$pinned" "-" "RED ack-incomplete"
+            fi
+            add_detail "vendor:$tree RED: $exdetail"
+            continue ;;
+    esac
 
     # A non-git pin on a NON-exempt tree is unverifiable -> fail-closed (this was
     # the silent-WARN hole). Mark it verify_exempt + exempt_reason if truly so.
@@ -516,6 +609,21 @@ while IFS= read -r tree; do
         UNREACH)
             n_cannot=$((n_cannot+1)); add_row "vendor:$tree" "$pinned" "$live" "CANNOT-VERIFY" ;;
         STALE|DIVERGED)
+            # NET-CONTENT short-circuit (STALE only; DIVERGED is a weirder state
+            # left to the hold_ack ladder). If the source is +N commits past the
+            # pin but the NET diff under the vendored path is empty, those commits
+            # changed nothing that ships (a delete-then-restore round-trip) and the
+            # pin is content-current -- FRESH, no hold_ack required. UNKNOWN or
+            # STALE both fall through to the unchanged ladder below.
+            if [ "$base" = "STALE" ]; then
+                ncf="$(net_path_fresh "$acct" "$owner" "$pinned" "$live" "$gpath")"
+                if [ "$ncf" = "FRESH" ]; then
+                    n_fresh=$((n_fresh+1))
+                    add_row "vendor:$tree" "$pinned" "$live" "FRESH net-zero"
+                    add_detail "vendor:$tree FRESH: source is ${verdict#*:} commit(s) past the pin, but the NET diff under $gpath is EMPTY (delete-then-restore); the pin is content-current, no hold_ack needed."
+                    continue
+                fi
+            fi
             # A pin behind HEAD is allowed ONLY via a hold_ack that acknowledges
             # EVERY commit in the live delta AND asserts the bugfixes are grafted.
             hold_shas="$(vlib_field "$tree" hold_ack_shas)"

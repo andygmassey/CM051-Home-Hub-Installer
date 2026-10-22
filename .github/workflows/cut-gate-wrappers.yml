@@ -87,6 +87,11 @@ on:
       - 'scripts/verify_no_env_trust_anchors.sh'
       - 'scripts/tests/test_no_env_trust_anchors.sh'
       - 'tests/test_pr_age_gate_declares_partial_runs.sh'
+      # The PR-age ledger fixes (auto-retire + anti-accretion cap) and the drain
+      # script. Watched AND run below -- editing either test must re-run it.
+      - 'tests/test_pr_age_live_exemption_cap.sh'
+      - 'tests/test_drain_pr_exemptions.sh'
+      - 'scripts/drain_pr_exemptions.sh'
       - 'tests/test_pr_age_review_by_ignores_an_inline_comment.sh'
       - 'scripts/provenance_gate.sh'
       - 'scripts/verify_stapling.sh'
@@ -479,6 +484,17 @@ jobs:
       - name: The PR-age gate declares the repos it could NOT check
         if: always()
         run: /bin/bash tests/test_pr_age_gate_declares_partial_runs.sh
+
+      # The anti-accretion cap + auto-retire of merged/closed exemptions. Both
+      # are hermetic (a gh shim on PATH), so they run on a bare runner with no
+      # credential and no network.
+      - name: The PR-age exemption block drains, it does not accrete
+        if: always()
+        run: /bin/bash tests/test_pr_age_live_exemption_cap.sh
+
+      - name: The exemption drain removes only dead rows, and loses nothing else
+        if: always()
+        run: /bin/bash tests/test_drain_pr_exemptions.sh
 
       # An inline YAML comment on a review_by line was read as part of the
       # date: BSD date called it valid, GNU date called it undated (the

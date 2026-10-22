@@ -261,10 +261,21 @@ resolve_source_repo() {
 
 vlib_materialise() {
     local tree="$1" dest="$2"
+    # Optional 3rd arg: materialise at THIS ref instead of the manifest's
+    # pinned_sha. Backward-compatible -- every existing two-arg caller is
+    # unaffected. Used by vlib_subtree_hash to render the same vendored file-set
+    # at a different commit (the net-content short-circuit), so it must apply
+    # the SAME exclude rules and the SAME flatten as the pinned path below.
+    local sha_override="${3:-}"
     local repo subpath sha
     repo="$(resolve_source_repo "$tree")"
     subpath="$(vlib_field "$tree" source_path)"
     sha="$(vlib_field "$tree" pinned_sha)"
+    # An `if`, not `[ -n ... ] && sha=...`: the && form returns non-zero when the
+    # override is empty (the common 2-arg call), and a bare caller under `set -e`
+    # (sync_vendor.sh) would abort on it. This repo has been bitten by exactly
+    # that shape before -- see the sed/head note in verify_vendor_fresh.sh.
+    if [ -n "$sha_override" ]; then sha="$sha_override"; fi
 
     if [ -z "$repo" ] || [ ! -d "$repo" ]; then
         echo "  could not verify $tree: source repo not found ($repo)" >&2
@@ -596,4 +607,111 @@ vlib_refuse_if_regenerate_forbidden() {   # $1 = tree name
     echo "  by re-pointing an env placeholder or moving a checkout. BOTH entry" >&2
     echo "  points refuse: regenerate_divergence_patch.sh and sync_vendor.sh." >&2
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# NET-CONTENT short-circuit -- one source of truth for "did the vendored
+# file-set actually change between two commits?", shared so neither gate has to
+# reason from the commit graph alone.
+#
+# WHY IT EXISTS. Both freshness gates ask "has the source advanced past the
+# pin?" by enumerating commits (git log pin..ref, or the GitHub commits API).
+# A commit count is the WRONG instrument for the question that actually matters,
+# which is whether the CONTENT the DMG ships has moved. HR015 #1145 deleted a
+# set of files and #1146 restored them byte-for-byte; the vendored subset is
+# identical at the pin and at HEAD, yet two commits sit in the delta, so the
+# commit-graph answer is "advanced" and both gates go RED over a round-trip that
+# nets to zero. That is a false red on the gate the launch cut leans on hardest.
+#
+# The fix is to resolve the vendored path's CONTENT at each ref and compare. If
+# source@pin and source@ref render byte-identical file-sets (excludes applied,
+# exactly as the gate materialises them), the intervening commits changed
+# nothing that ships and the advance arm is clean -- regardless of how many
+# commits there were.
+#
+# SAFETY: this can only ever turn a false RED into FRESH. If the content truly
+# differs the hashes differ and the short-circuit is NOT taken, so it can never
+# manufacture a false green. And if EITHER ref cannot be rendered (sick/absent
+# source), the comparison returns "not equal" rather than guessing -- the gate
+# then falls through to its normal unverifiable handling.
+# ---------------------------------------------------------------------------
+
+# Portable content hash (macOS ships `shasum`, not `sha1sum`; cksum is the last
+# resort and is fine here -- we compare two trees we rendered ourselves).
+vlib_hash() {
+    if command -v sha1sum >/dev/null 2>&1; then sha1sum
+    elif command -v shasum >/dev/null 2>&1; then shasum
+    else cksum; fi | awk '{print $1}'
+}
+
+# Deterministic hash of the vendored file-set at <ref> (excludes applied).
+# Prints the hash, or nothing + returns 1 if the ref cannot be materialised.
+vlib_subtree_hash() { # tree  ref
+    local tree="$1" ref="$2" d rc=0 h
+    d="$(mktemp -d)"
+    vlib_materialise "$tree" "$d" "$ref" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != "0" ]; then rm -rf "$d"; return 1; fi
+    # path + bytes, NUL-delimited, LC_ALL=C sorted -> reproducible across hosts.
+    h="$( (cd "$d" && find . -type f -not -path '*/__pycache__/*' | LC_ALL=C sort | while IFS= read -r f; do
+            printf '%s\0' "$f"; cat "$f"; done) | vlib_hash )"
+    rm -rf "$d"
+    [ -n "$h" ] || return 1
+    printf '%s' "$h"
+}
+
+# True (0) when the vendored file-set is byte-identical at <pin-ref> and
+# <head-ref> -- i.e. the commits between them net to zero for what ships. Both
+# must render; if either cannot, returns 1 (NOT equal) so the caller never takes
+# the short-circuit on a guess.
+vlib_net_content_equal() { # tree  pin-ref  head-ref
+    local tree="$1" pin="$2" ref="$3" hp hr
+    hp="$(vlib_subtree_hash "$tree" "$pin")" || return 1
+    hr="$(vlib_subtree_hash "$tree" "$ref")" || return 1
+    [ -n "$hp" ] && [ -n "$hr" ] && [ "$hp" = "$hr" ]
+}
+
+# ---------------------------------------------------------------------------
+# THE ONE REASONED-EXEMPTION VOCABULARY, shared by both freshness gates.
+#
+# The two gates grew two different words for "this tree is deliberately not
+# verified, and here is the reason":
+#   verify_cut_freshness.sh  knew  verify_exempt = true  (+ exempt_reason)
+#   verify_vendor_fresh.sh   knew  unverifiable_ack = true (+ reason + owner)
+# so cm019_preferences, carrying unverifiable_ack, was honoured by one gate and
+# red by the other for the SAME tree in the SAME manifest -- the exact
+# cry-wolf-until-ignored failure the toolchain exists to prevent. This reader is
+# the single place both gates ask the question, so a tree exempted in writing is
+# treated identically everywhere.
+#
+# It covers ONLY the two REASONED exemptions. It deliberately does NOT cover
+# `verify = skip`: for a FETCHABLE source, skip is a silent downgrade, and
+# verify_cut_freshness.sh refuses it on purpose (tests/test_cut_freshness_gate.sh
+# scenario (g)). Unifying skip would re-open that hole, so skip stays each gate's
+# own business.
+#
+# Prints "<state>\t<detail>", state one of:
+#   none         no reasoned exemption declared -> verify the tree normally
+#   exempt       verify_exempt = true, with exempt_reason
+#   ack          unverifiable_ack = true, with BOTH reason and owner
+#   incomplete   a reasoned exemption declared but missing its required
+#                reason/owner -> RED, naming what is missing (an unattributed
+#                exemption is how a temporary gap becomes permanent)
+# ---------------------------------------------------------------------------
+vlib_reasoned_exemption() { # tree
+    local tree="$1"
+    if [ "$(vlib_manifest_bool "$tree" verify_exempt)" = "true" ]; then
+        local r; r="$(vlib_field "$tree" exempt_reason)"
+        if [ -n "$r" ]; then printf 'exempt\t%s' "$r"
+        else printf 'incomplete\tverify_exempt = true but exempt_reason is empty'; fi
+        return
+    fi
+    if [ "$(vlib_manifest_bool "$tree" unverifiable_ack)" = "true" ]; then
+        local reason owner
+        reason="$(vlib_field "$tree" unverifiable_ack_reason)"
+        owner="$(vlib_field "$tree" unverifiable_ack_owner)"
+        if [ -n "$reason" ] && [ -n "$owner" ]; then printf 'ack\towner=%s; %s' "$owner" "$reason"
+        else printf 'incomplete\tunverifiable_ack = true requires BOTH unverifiable_ack_reason and unverifiable_ack_owner'; fi
+        return
+    fi
+    printf 'none\t'
 }
