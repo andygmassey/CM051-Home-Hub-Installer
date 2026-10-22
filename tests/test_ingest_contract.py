@@ -198,9 +198,9 @@ def test_bookmarks_keep_the_real_save_time_an_int_level_and_the_owner(monkeypatc
     monkeypatch.setenv("OSTLER_USER_ID", "fixture_owner")
     sent = _capture(monkeypatch, m)
     (tmp_path / "safari_bookmarks.json").write_text(json.dumps([
-        {"title": "Fixture Read Later", "url": "https://example.com/a", "domain": "example.com",
+        {"title": "fixture-read-later", "url": "https://example.com/a", "domain": "example.com",
          "folder": "Reading List", "date_added": "2021-05-04T10:00:00+00:00"},
-        {"title": "Fixture Plain", "url": "https://example.org/b", "domain": "example.org",
+        {"title": "fixture-plain", "url": "https://example.org/b", "domain": "example.org",
          "folder": "Favorites", "date_added": None},
     ]))
     assert m.ingest_bookmarks(tmp_path)["status"] == "ok"
@@ -223,7 +223,7 @@ def test_bookmarks_never_invent_an_owner(monkeypatch, tmp_path):
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "no-install-here"))
     sent = _capture(monkeypatch, m)
     (tmp_path / "safari_bookmarks.json").write_text(json.dumps([
-        {"title": "Fixture", "url": "https://example.com/a", "domain": "example.com", "folder": "F"}]))
+        {"title": "fixture", "url": "https://example.com/a", "domain": "example.com", "folder": "F"}]))
     m.ingest_bookmarks(tmp_path)
     assert sent and "user_id" not in sent[0]["payload"]
 

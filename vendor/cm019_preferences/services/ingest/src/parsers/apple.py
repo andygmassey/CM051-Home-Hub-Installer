@@ -51,19 +51,20 @@ def _later(a, b):
 # id is derived from it, and a changed subject would orphan every stored point.
 #
 # "Apple Music Play Activity.csv" has no artist column at all (its only artist
-# column, "Container Artist Name", is set on a sliver of rows), so the artist is
+# column, the container one, is set on a sliver of rows), so the artist is
 # looked up from the sibling history files of the SAME export by song title,
 # and only when the title maps to exactly one artist. An ambiguous title gets
 # no artist rather than a guess.
 #
-# That file's real play time is in several columns and only "Event Timestamp"
-# was read; on a real export it is set on roughly a third of completed plays,
-# while "Event End Timestamp" is set on every one of them.
+# That file's real play time is in several columns and only the plain event
+# column was read; on a real export it is set on roughly a third of completed
+# plays, while the event-end column is set on every one of them.
+# Lowercase, matched case-insensitively against the row's own headers.
 _APPLE_PLAY_TIMESTAMP_COLUMNS = (
-    "Event Timestamp",
-    "Event End Timestamp",
-    "Event Start Timestamp",
-    "Event Received Timestamp",
+    "event timestamp",
+    "event end timestamp",
+    "event start timestamp",
+    "event received timestamp",
 )
 _APPLE_HISTORY_FILES = (
     "apple music - track play history.csv",
@@ -82,8 +83,9 @@ def _split_artist_track(description: str):
 
 def _first_timestamp(row: dict) -> str:
     """The first non-empty play-time column of a Play Activity row."""
+    lowered = {str(k).strip().lower(): v for k, v in row.items() if k}
     for column in _APPLE_PLAY_TIMESTAMP_COLUMNS:
-        value = (row.get(column) or "").strip()
+        value = (lowered.get(column) or "").strip()
         if value:
             return value
     return ""

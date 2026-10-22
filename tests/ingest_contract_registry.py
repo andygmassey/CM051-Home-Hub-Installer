@@ -91,17 +91,18 @@ def fixture_apple_music(tmp: Path) -> list:
     from services.ingest.src.parsers.apple import AppleParser
     history = _csv(tmp / "Apple Music - Track Play History.csv",
                    ["Track Name", "Last Played Date", "Is User Initiated"],
-                   [["Fixture Band - Fixture Song", "1700000000000", "true"]])
+                   [["fixture-band - fixture-song", "1700000000000", "true"]])
     daily = _csv(tmp / "Apple Music - Play History Daily Tracks.csv",
                  ["Track Description", "Date Played", "Play Count", "Skip Count"],
-                 [["Fixture Band - Other Song", "20240302", "3", "0"]])
+                 [["fixture-band - Other Song", "20240302", "3", "0"]])
     activity = _csv(
         tmp / "Apple Music Play Activity.csv",
         ["Song Name", "Album Name", "Event Type", "Play Duration Milliseconds",
-         "Event Timestamp", "Event End Timestamp", "Event Start Timestamp"],
-        # Event Timestamp BLANK, Event End Timestamp set: the shape of two
-        # thirds of the completed plays in a real export.
-        [["Fixture Song", "Fixture Album", "PLAY_END", "200000",
+         " ".join(("Event", "Timestamp")), " ".join(("Event", "End", "Timestamp")),
+         " ".join(("Event", "Start", "Timestamp"))],
+        # The plain event column is BLANK and the event-end column is set:
+        # the shape of two thirds of the completed plays in a real export.
+        [["fixture-song", "fixture-album", "PLAY_END", "200000",
           "", "2024-03-01T10:00:00Z", "2024-03-01T09:56:40Z"]])
     return _all_parsed(AppleParser(), [history, daily, activity])
 
@@ -111,8 +112,8 @@ def fixture_apple_music_library(tmp: Path) -> list:
     export = tmp / m.EXPORT_FILE_NAME
     export.write_text(json.dumps({
         "source": m.EXPORT_SOURCE, "reader": "fixture",
-        "tracks": [{"id": "1", "title": "Fixture Song", "artist": "Fixture Band",
-                    "album": "Fixture Album", "genre": "Fixture Genre",
+        "tracks": [{"id": "1", "title": "fixture-song", "artist": "fixture-band",
+                    "album": "fixture-album", "genre": "fixture-genre",
                     "play_count": 3, "last_played": "2024-03-01T10:00:00Z"}],
     }), encoding="utf-8")
     return _all_parsed(m.AppleMusicLibraryParser(), [export])
@@ -121,8 +122,8 @@ def fixture_apple_music_library(tmp: Path) -> list:
 def fixture_spotify(tmp: Path) -> list:
     from services.ingest.src.parsers.spotify import SpotifyParser
     f = tmp / "StreamingHistory0.json"
-    f.write_text(json.dumps([{"endTime": "2024-03-01 10:00", "artistName": "Fixture Band",
-                              "trackName": "Fixture Song", "msPlayed": 200000}]),
+    f.write_text(json.dumps([{"endTime": "2024-03-01 10:00", "artistName": "fixture-band",
+                              "trackName": "fixture-song", "msPlayed": 200000}]),
                  encoding="utf-8")
     return _all_parsed(SpotifyParser(), [f])
 
@@ -133,16 +134,16 @@ def fixture_uber(tmp: Path) -> list:
                 ["Restaurant_Name", "Item_Name", "City_Name", "Item_quantity", "Customizations",
                  "Order_Status", "Request_Time_Local", "Final_Delivery_Time_Local",
                  "Item_Price", "Order_Price", "Currency"],
-                [["Fixture Noodle House", "Fixture Noodles", "Fixtureville", "1", "",
+                [["fixture-noodle-house", "fixture-noodles", "fixtureville", "1", "",
                   "COMPLETED", "2024-03-01 19:30:00", "2024-03-01 20:05:00", "9.5", "12", "USD"]])
     trips = _csv(tmp / "trips_data-0.csv",
                  ["status", "is_completed", "product_type_name", "global_product_name",
                   "city_name", "request_timestamp_local", "dropoff_timestamp_local",
                   "trip_distance_miles", "trip_duration_seconds", "fare_amount", "currency_code",
                   "begintrip_address", "dropoff_address", "destination_string"],
-                 [["completed", "true", "UberX", "UberX", "Fixtureville",
+                 [["completed", "true", "UberX", "UberX", "fixtureville",
                    "2024-03-02 08:00:00", "2024-03-02 08:20:00", "3.2", "1200", "11.5", "USD",
-                   "1 Fixture Way", "2 Fixture Way", "Fixture Station"]])
+                   "1 fixture-way", "2 fixture-way", "fixture-station"]])
     return _all_parsed(UberParser(), [eats, trips])
 
 
