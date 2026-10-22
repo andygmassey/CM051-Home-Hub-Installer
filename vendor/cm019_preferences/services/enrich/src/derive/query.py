@@ -37,7 +37,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy ?trend ?cwin ?creason ?csup ?ctx WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -49,6 +49,11 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
             "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            "    OPTIONAL { ?s pwg:trend ?trend }\n"
+            "    OPTIONAL { ?s pwg:contradictionWinner ?cwin }\n"
+            "    OPTIONAL { ?s pwg:contradictionReason ?creason }\n"
+            "    OPTIONAL { ?s pwg:suppressSuggestion ?csup }\n"
+            "    OPTIONAL { ?s pwg:timeContext ?ctx }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -71,6 +76,12 @@ class DerivedGraphReader:
                     node=subj,
                     tier=b.get("tier", {}).get("value", ""),
                     privacy=b.get("privacy", {}).get("value", ""),
+                    trend=b.get("trend", {}).get("value", ""),
+                    contradiction_winner=b.get("cwin", {}).get("value", ""),
+                    contradiction_reason=b.get("creason", {}).get("value", ""),
+                    suppress=b.get("csup", {}).get("value", "") == "true",
+                    context=tuple(
+                        c for c in b.get("ctx", {}).get("value", "").split(",") if c),
                 )
             )
         return views

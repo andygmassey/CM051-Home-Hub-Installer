@@ -104,6 +104,7 @@ def run(
     from derive.config import build_readers, load_dimensions
     from derive.engine import Aggregator, DerivationEngine
     from derive.model import DERIVED_GRAPH
+    from derive.patterns import default_derivers
     from derive.writer import DerivedGraphWriter
 
     status = {
@@ -121,9 +122,14 @@ def run(
 
     try:
         readers = build_readers(gateway)
-        aggregator = Aggregator(load_dimensions())
+        dimensions = load_dimensions()
+        aggregator = Aggregator(dimensions)
         status["derivation_version"] = aggregator._version
-        engine = DerivationEngine(readers=readers, aggregator=aggregator)
+        # Trend, say-vs-do contradiction, time-of-day context: annotate the
+        # aggregated nodes. A deriver that raises is reported below; the base
+        # nodes still stand.
+        engine = DerivationEngine(readers=readers, aggregator=aggregator,
+                                  derivers=default_derivers(dimensions))
         result = engine.run_result(user_id, now=now)
     except Exception as exc:  # noqa: BLE001 - recorded, never silent
         status["reason"] = f"engine did not start: {type(exc).__name__}"
@@ -139,6 +145,19 @@ def run(
         f"{len(result.failed_readers)} failed, {len(result.nodes)} node(s) derived",
         flush=True,
     )
+
+    n_up = sum(1 for n in result.nodes if n.trend == "rising")
+    n_down = sum(1 for n in result.nodes if n.trend == "falling")
+    print(
+        f"derive: patterns trend rising={n_up} falling={n_down} "
+        f"contradictions={sum(1 for n in result.nodes if n.contradiction)} "
+        f"context={sum(1 for n in result.nodes if n.context)}",
+        flush=True,
+    )
+    for f in result.failed_derivers:
+        # Deriver name and exception type only; the base nodes were kept.
+        print(f"derive: pattern deriver FAILED: {f.split(':', 2)[0]}: {f.split(':', 2)[1].strip()}",
+              file=sys.stderr, flush=True)
 
     if result.failed_readers:
         # Reader names and exception types only. A reader's message can carry

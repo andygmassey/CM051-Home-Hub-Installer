@@ -172,6 +172,9 @@ class RunResult:
     nodes: List[DerivedPreference]
     failed_readers: List[str] = field(default_factory=list)
     readers_total: int = 0
+    # A pattern deriver that raised. The base nodes still stand (a deriver only
+    # annotates), so this does NOT make the run unsafe to write; it is reported.
+    failed_derivers: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -190,6 +193,8 @@ class DerivationEngine:
 
     readers: list
     aggregator: Aggregator
+    # Pattern derivers (patterns.py): annotate the aggregated nodes in place.
+    derivers: list = field(default_factory=list)
 
     def run_result(self, user_id: str, now: Optional[datetime] = None) -> RunResult:
         """Run every reader, recording FAILURES rather than crashing the batch.
@@ -208,7 +213,16 @@ class DerivationEngine:
             except Exception as exc:  # noqa: BLE001 - recorded, never silently dropped
                 failed.append(f"{name}: {type(exc).__name__}: {exc}")
         nodes = self.aggregator.aggregate(items, now=now)
-        return RunResult(nodes=nodes, failed_readers=failed, readers_total=len(self.readers))
+        failed_derivers: List[str] = []
+        for d in self.derivers:
+            try:
+                d.derive(items, nodes, now=now)
+            except Exception as exc:  # noqa: BLE001 - recorded, base nodes stand
+                failed_derivers.append(
+                    f"{getattr(d, 'method', d.__class__.__name__)}: "
+                    f"{type(exc).__name__}: {exc}")
+        return RunResult(nodes=nodes, failed_readers=failed, readers_total=len(self.readers),
+                         failed_derivers=failed_derivers)
 
     def run(self, user_id: str, now: Optional[datetime] = None) -> List[DerivedPreference]:
         """Backward-compatible: just the node list. Callers that must honour the

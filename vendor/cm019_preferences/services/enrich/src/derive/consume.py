@@ -33,6 +33,12 @@ class AffinityView:
     node: str = ""           # the derived node's URI, to resolve "because" later
     tier: str = ""           # "broad" | "specific"; "" for graphs written before tiers
     privacy: str = ""        # highest privacy level of the evidence ("" = none stated)
+    # Optional pattern-deriver fields ("" / () / False when absent).
+    trend: str = ""          # "rising" | "falling" | "stable"
+    contradiction_winner: str = ""   # "stated" | "behaviour"
+    contradiction_reason: str = ""
+    suppress: bool = False   # a contradicted dislike: never suggest, whatever the sign
+    context: Tuple[str, ...] = ()    # ("evening", "weekend")
 
 
 @dataclass
@@ -66,8 +72,20 @@ class DerivedAffinityScorer:
         for dim, val in candidate.tags:
             a = self._by_key.get((dim, normalize_value(val)))
             if a is not None:
-                total += a.strength * a.confidence
+                # A contradicted dislike still subtracts, whatever sign the mixed
+                # evidence netted to: the marker never lets it rank as a like.
+                s = -abs(a.strength) if a.suppress else a.strength
+                total += s * a.confidence
         return total
+
+    def suppressed(self, candidate: Candidate) -> bool:
+        """True when the candidate matches a disliked thing (a plain dislike or a
+        contradicted one). Callers that must NEVER suggest a dislike filter on this."""
+        for dim, val in candidate.tags:
+            a = self._by_key.get((dim, normalize_value(val)))
+            if a is not None and (a.suppress or a.strength < 0):
+                return True
+        return False
 
     def score(self, candidate: Candidate) -> float:
         return candidate.base_relevance + self.contribution(candidate)

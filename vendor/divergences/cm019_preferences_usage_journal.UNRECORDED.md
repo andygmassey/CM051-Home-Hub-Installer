@@ -364,3 +364,14 @@ Tree `cm019_preferences`. Pin NOT moved. DIVERGENCE from source at the pin; ACKS
 - Applied by patch(1), the rest of each file untouched: `derive/vocab/cuisine.yaml` (hierarchical: regional rows carry `parent:`), `derive/readers.py` (vocab rows may be `{parent, words}`; a region rolls up to its parent as extra evidence, never merged), `derive/readers.yaml`, `derive/dimensions.yaml`, `enrich/src/enricher.py`, `enrich/src/models/enrichment.py`. Hand-applied (the vendored files differ from upstream): `ingest/src/pipeline.py` and `ingest/src/parsers/__init__.py`, three lines each.
 - Consent: the OSM client returns before any HTTP client exists unless `public_lookup_allowed()` (exact `accepted` only); the local-model arm is localhost Ollama only. Nominatim policy: identifying User-Agent, one request per second across processes (flock'd stamp file), a per-run lookup ceiling.
 - Retire: when the upstream PR merges, re-pin and delete this section.
+
+## 2026-10-23 smart-prefs patterns: trend, say-vs-do contradiction, time-of-day context
+
+Tree `cm019_preferences`. Pin NOT moved. A DIVERGENCE from source at the pin, ahead of upstream: it ACKS the personal-world-graph PR stacked on #422 (branch `feat/smart-prefs-patterns`, stacked on #428, ported from the unreviewed #413 chunks 7-9).
+
+- New `derive/patterns.py`; edited, byte-identical to that branch: `derive/{consume,endpoint,engine,model,query,writer}.py`, `ontology/upper/pwg-derived.ttl`, `ontology/shacl/derived-preference-shapes.ttl`. The vendor-only `derive_runner.py` passes `derivers=default_derivers(dimensions)` to the engine and logs counts (no labels) plus any failed deriver.
+- Output: optional `trend` (rising|falling|stable), `contradiction` {winner, suppress, reason} and `context` (morning|afternoon|evening|night|weekend) on a served item. v1 consumers are unaffected. A contradicted dislike keeps its strength and sign and carries `suppress`: it is never suggested and the dislike side wins, with the reason as counts only.
+- The trend window is read from `services/common/recency.py` (the shared half-life) when the half-life PR lands; until then `patterns.RECENCY_SOURCE` is `fixed-window` (365 days). It defines no decay constant of its own.
+- Data limit (ingest contract audit): a point is one (source, subject) with its LATEST event time, so trend and time-of-day run over the population of distinct points, not events; sources whose points all carry the import day are detected and excluded.
+- Proof: `tests/test_vendored_derive_patterns.py` (wired in `derived-preferences.yml`): RED on #3116's head (no derivers, no fields), GREEN here.
+- Retire: when the upstream PR merges, re-pin to its merge commit and delete this section.
