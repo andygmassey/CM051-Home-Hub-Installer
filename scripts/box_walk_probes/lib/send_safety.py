@@ -357,8 +357,7 @@ def delivery_mode_of(cron_list_body, job_id):
     return None
 
 
-def write_config(cfg_dir, model_port, gw_port, cron_tok):
-    os.makedirs(cfg_dir, exist_ok=True)
+def render_config(model_port, gw_port, companion_port, cron_tok):
     t = ['schema_version = 2', 'user_first_name = "Probe"', 'user_assistant_name = "Ostler"', '',
          '[providers]', 'fallback = "ollama"', '', '[providers.models.ollama]',
          'base_url = "http://127.0.0.1:%d"' % model_port, 'model = "probe-model"', 'timeout_secs = 60', '',
@@ -366,7 +365,12 @@ def write_config(cfg_dir, model_port, gw_port, cron_tok):
          '[memory]', 'backend = "sqlite"', 'auto_save = true',
          'embedding_provider = "custom:http://127.0.0.1:%d/v1"' % model_port,
          'embedding_model = "probe-embed"', 'embedding_dimensions = 768', '',
-         '[gateway]', 'port = %d' % gw_port, 'host = "127.0.0.1"', 'require_pairing = false', '',
+         # The Companion TLS listener (oa gateway lib.rs companion_listener_required =
+         # companion_enabled || require_pairing) is OFF, and if it were ever on it
+         # would bind loopback on a free port, never the Hub's 0.0.0.0:8443, so the
+         # owner's phone can never reach this process.
+         '[gateway]', 'port = %d' % gw_port, 'host = "127.0.0.1"', 'require_pairing = false',
+         'companion_enabled = false', 'companion_host = "127.0.0.1"', 'companion_port = %d' % companion_port, '',
          '[autonomy]', 'level = "full"', '',
          '[channels]', '', '[channels.imessage]', 'enabled = true',
          # the owner's exact entry, plus the wildcard that lets a stranger past the
@@ -379,7 +383,39 @@ def write_config(cfg_dir, model_port, gw_port, cron_tok):
               'allowed_tools = ["poll"]', 'uses_memory = false', 'enabled = true',
               'schedule = { kind = "every", every_ms = 45000 }',
               'delivery = { mode = "none" }', '']
-    open(os.path.join(cfg_dir, "config.toml"), "w").write("\n".join(t))
+    return "\n".join(t)
+
+
+def config_problems(text, gw_port, companion_port):
+    """-> reasons the rendered sandbox config could reach a real person or the
+    Hub's own listeners. Empty means safe to start."""
+    out = []
+    kv = lambda k: (re.search(r"(?m)^%s\s*=\s*(.+?)\s*$" % k, text) or [None, ""])[1]
+    if kv("companion_enabled") != "false":
+        out.append("companion_enabled is not false")
+    if kv("companion_host").strip('"') != "127.0.0.1":
+        out.append("companion_host is not loopback")
+    cp = kv("companion_port")
+    if not cp.isdigit() or int(cp) in (0, 8443, gw_port) or int(cp) != companion_port:
+        out.append("companion_port is the default or unset or equals the gateway port")
+    if kv("require_pairing") != "false":
+        out.append("require_pairing is not false")
+    if kv("host").strip('"') != "127.0.0.1":
+        out.append("gateway host is not loopback")
+    tables = [m for m in re.findall(r"(?m)^\[+(channels\.[A-Za-z0-9_.-]+)\]+", text)]
+    other = [t for t in tables if t != "channels.imessage"]
+    if other:
+        out.append("channel tables other than imessage: %s" % ",".join(other))
+    if "channels.imessage" not in tables:
+        out.append("the imessage channel table is missing")
+    return out
+
+
+def write_config(cfg_dir, model_port, gw_port, companion_port, cron_tok):
+    os.makedirs(cfg_dir, exist_ok=True)
+    text = render_config(model_port, gw_port, companion_port, cron_tok)
+    open(os.path.join(cfg_dir, "config.toml"), "w").write(text)
+    return config_problems(text, gw_port, companion_port)
 
 
 class Sandbox(object):
@@ -397,6 +433,9 @@ class Sandbox(object):
         self.proc = None
         self.model = FakeModel()
         self.gw = _free_port()
+        self.companion = _free_port()
+        while self.companion == self.gw:
+            self.companion = _free_port()
         self.env = {}
         atexit.register(self.close)
 
@@ -409,7 +448,9 @@ class Sandbox(object):
         self.model.start()
         self.shim()
         make_chat_db(self.db)
-        write_config(self.cfg, self.model.port, self.gw, cron_tok)
+        self.config_problems = write_config(self.cfg, self.model.port, self.gw, self.companion, cron_tok)
+        if self.config_problems:
+            return False
         env = {k: v for k, v in os.environ.items() if k not in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY")}
         env.update({"HOME": self.home, "ZEROCLAW_CONFIG_DIR": self.cfg, "ZEROCLAW_WORKSPACE": self.cfg,
                     "OSTLER_DIR": self.ostler, "OSTLER_WORKSPACE": self.cfg,
@@ -421,6 +462,7 @@ class Sandbox(object):
         logf = open(self.logp, "wb")
         self.proc = subprocess.Popen([daemon, "daemon"], env=env, stdout=logf, stderr=subprocess.STDOUT,
                                      cwd=self.root, start_new_session=True)
+        return True
 
     def shim_ok(self):
         """The daemon's own PATH lookup must land on the shim, and running it must leave a record."""
@@ -489,7 +531,9 @@ def run_scenario(scenario):
     sb = Sandbox()
     signal.signal(signal.SIGTERM, lambda *a: sys.exit(143))
     try:
-        sb.start(daemon, tok if scenario == "cron" else "")
+        if not sb.start(daemon, tok if scenario == "cron" else ""):
+            cap["cannot"] = "REFUSED to start: the rendered sandbox config could reach a real listener or channel: " + "; ".join(sb.config_problems)
+            return cap
         if not sb.up(int(os.environ.get("OSTLER_SENDSAFETY_BOOT_S", "90"))):
             cap["cannot"] = "the sandbox daemon did not come up: " + ANSI.sub("", sb.log_tail())[-300:].replace("\n", " | ")
             return cap
@@ -814,6 +858,24 @@ def self_test():
     expect("any/not-booted", "tainted", _mut("tainted", lambda c: c.update(booted=False)), EX_CANNOT)
     expect("any/poll-not-offered", "tainted", _mut("tainted", lambda c: c["model"].update(offered_poll=False)), EX_CANNOT)
     expect("stranger/message-never-taken", "stranger", _mut("stranger", lambda c: c["model"].update(turns_seen=[])), EX_CANNOT)
+    # the rendered sandbox config: loopback, non-default companion port, imessage only
+    for cron in ("", "zqx"):
+        txt = render_config(41001, 41002, 41003, cron)
+        pr = config_problems(txt, 41002, 41003)
+        cases[0] += 1
+        if pr:
+            bad.append("rendered config flagged: %r" % (pr,))
+    base = render_config(41001, 41002, 41003, "")
+    for name, mut in (("default companion port", base.replace("companion_port = 41003", "companion_port = 8443")),
+                      ("companion port unset", base.replace("companion_port = 41003\n", "\n")),
+                      ("companion host all-interfaces", base.replace('companion_host = "127.0.0.1"', 'companion_host = "0.0.0.0"')),
+                      ("companion enabled", base.replace("companion_enabled = false", "companion_enabled = true")),
+                      ("pairing required", base.replace("require_pairing = false", "require_pairing = true")),
+                      ("second channel", base + "\n[channels.whatsapp]\nenabled = true\n"),
+                      ("no imessage", base.replace("[channels.imessage]", "[channels.nothing]"))):
+        cases[0] += 1
+        if not config_problems(mut, 41002, 41003):
+            bad.append("config mutant not caught: " + name)
     # parse_log and classify_result against the real wording
     lg = parse_log('\x1b[33m WARN\x1b[0m zeroclaw_api::turn_provenance: outbound send refused tool="poll" reason="not_owner_turn"\n'
                    "WARN x: owner confirmation required tool=poll what=send\nINFO y: owner confirmed; releasing the call tool=poll\n")
@@ -833,7 +895,10 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "--self-test":
         return self_test()
     if len(argv) >= 3 and argv[1] == "box":
-        cap = run_scenario(argv[2])
+        try:
+            cap = run_scenario(argv[2])
+        except BaseException as e:  # a crash is a named CANNOT-RUN, never a silent empty capture
+            cap = {"scenario": argv[2], "booted": False, "cannot": "driver crashed: %s: %s" % (type(e).__name__, str(e)[:200])}
         print(json.dumps(cap))
         return EX_PASS
     if len(argv) >= 3 and argv[1].startswith("judge-") and argv[1][6:] in JUDGES:

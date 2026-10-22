@@ -27,10 +27,10 @@ _LIB="${_HERE}/lib/send_safety.py"
 
 self_test() {
     if python3 "${_LIB}" --self-test >/dev/null; then
-        probe_examined 28 "judge cases (117-shaped, one mutant per assertion, blind control)"
+        probe_examined 37 "judge cases (117-shaped, one mutant per assertion, blind control)"
         probe_fail "negative control behaved: the 117-shaped capture was FAIL, every mutant landed on its own verdict and a blind instrument was CANNOT-RUN"
     fi
-    probe_examined 28 "judge cases"
+    probe_examined 37 "judge cases"
     probe_pass "SELF-TEST BROKEN: the send-safety judge put a known case on the wrong verdict"
 }
 

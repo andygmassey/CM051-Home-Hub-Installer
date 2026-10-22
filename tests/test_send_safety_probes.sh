@@ -70,6 +70,16 @@ expect prompt_via_model  $N2 1
 expect cron_sends        $N1 0; expect cron_sends        $N3 1
 expect cron_announce     $N3 78
 
+echo "--- the sandbox config never reaches the Hub's listeners or a real channel ---"
+LIBP="$REPO/scripts/box_walk_probes/lib"
+python3 - "$LIBP" <<'PY' && ok "rendered config: companion off, loopback, non-default port, imessage only, mutants caught" || bad "config check"
+import sys; sys.path.insert(0, sys.argv[1]); import send_safety as s
+t = s.render_config(41001, 41002, 41003, "zqx")
+assert not s.config_problems(t, 41002, 41003), s.config_problems(t, 41002, 41003)
+assert 'companion_port = 41003' in t and 'companion_port = 8443' not in t and 'companion_host = "127.0.0.1"' in t
+assert s.config_problems(t.replace("41003", "8443"), 41002, 41003)
+assert s.config_problems(t + "\n[channels.whatsapp]\nenabled = true\n", 41002, 41003)
+PY
 echo "--- no sandbox process or directory is left behind ---"
 left="$(ps -axo command | grep -c '[f]ake_ostler_assistant.py daemon')"
 [ "$left" -eq 0 ] && ok "no stand-in daemon still running" || bad "$left stand-in daemon(s) left running"
