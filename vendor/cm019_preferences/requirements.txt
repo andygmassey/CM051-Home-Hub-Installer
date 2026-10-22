@@ -46,6 +46,15 @@ msoffcrypto-tool>=5.0.0
 aiohttp>=3.9.0
 aiolimiter>=1.1.0
 
+# Preference derivation (services/enrich/src/derive, the "What you like"
+# producer). config.py reads its dimension/reader registry from YAML at import
+# time, and the writer SHACL-validates every derived node before it swaps the
+# named graph, which needs rdflib + pyshacl. All three are pure Python; no
+# model, no network. Floors match upstream services/enrich/requirements.txt.
+pyyaml>=6.0
+rdflib>=7.0.0
+pyshacl>=0.25.0
+
 # Security floor: msoffcrypto-tool pulls in cryptography; keep the Snyk-pinned
 # minimum that still applies to the surviving dependency tree.
 cryptography>=46.0.5
@@ -58,10 +67,12 @@ cryptography>=46.0.5
 #   sentence-transformers, torch, transformers, nltk, sentencepiece,
 #   scikit-learn, numpy, pillow
 #       -> the ML embedding stack. Replaced by the Ollama HTTP vectorizer.
-#   rdflib, orjson      -> not imported anywhere in the vendored tree (the
+#   orjson              -> not imported anywhere in the vendored tree (the
 #                          Oxigraph loader talks SPARQL over httpx).
-#   pyshacl, pandas     -> upstream pyproject extras; not imported on the
+#   pandas              -> upstream pyproject extra; not imported on the
 #                          ingest CLI path.
+#   (rdflib + pyshacl are NOT dropped any more: the derive writer imports
+#    both. See the derivation section above.)
 #   python-multipart    -> only api.py form uploads (server surface).
 #   (aiohttp + aiolimiter are NOT dropped: enrich is wired -- see the
 #    enrichment section above. The hydrate step runs ingest THEN enrich.)

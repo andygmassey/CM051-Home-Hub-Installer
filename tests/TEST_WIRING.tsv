@@ -115,6 +115,7 @@ test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/wor
 test_an_advisory_probe_is_not_a_walk_fail.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_an_enrichment_miss_is_not_an_import_error.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_an_identifier_is_not_a_taste.py	WIRED	.github/workflows/vendor-integrity.yml
+test_an_import_reaches_the_digest_straight_away.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unconfirmed_calendar_is_not_buried_forever.py	WIRED	.github/workflows/privacy-spine.yml
 test_an_undescribed_vendor_divergence_is_red.sh	WIRED	.github/workflows/vendor-divergence-described.yml
@@ -290,6 +291,9 @@ test_dedupe_merge_name_tier_upward_only.py	WIRED	.github/workflows/dedupe-merge-
 test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
+test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
+test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_digest_refreshes_when_the_interest_profile_lands.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
@@ -312,6 +316,7 @@ test_doctor_rows_show_one_honest_total.sh	WIRED	.github/workflows/hydrate-sentin
 test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
+test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -485,6 +490,7 @@ test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launc
 test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -804,6 +810,7 @@ test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-man
 test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_searxng_source_offer_ships.sh	WIRED	.github/workflows/third-party-notices.yml
 test_the_seed_forgets_what_the_walk_taught.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml

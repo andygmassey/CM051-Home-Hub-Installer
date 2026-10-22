@@ -659,6 +659,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (fini
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Background contact-dedupe LaunchAgent could not be loaded. Duplicates will still be merged by the daily maintenance pass; it will simply take longer to settle."
 MSG_OK_ENRICH_AGENT_LOADED="Background enrichment LaunchAgent loaded (fills in details on your films, places, books and links; runs in slices over the next day or so)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="Background enrichment LaunchAgent could not be loaded. Your preferences are saved and searchable; they will simply be missing the extra reference detail (directors, cast, locations) until it runs."
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-recompile scripts bundled with installer"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s"
@@ -1372,8 +1374,12 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
