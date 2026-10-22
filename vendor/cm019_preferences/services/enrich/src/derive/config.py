@@ -35,6 +35,8 @@ def load_dimensions(path: Path = DIMENSIONS_YAML) -> List[DimensionConfig]:
             min_evidence=int(r.get("min_evidence", 3)),
             tier=str(r.get("tier", "specific")),
             max_items=int(r["max_items"]) if r.get("max_items") else None,
+            half_life_days=float(r["half_life_days"]) if r.get("half_life_days") else None,
+            evergreen=bool(r.get("evergreen", False)),
         )
         for r in rows
     ]

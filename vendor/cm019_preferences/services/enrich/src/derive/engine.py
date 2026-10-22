@@ -30,6 +30,11 @@ class DimensionConfig:
     # single thing (an artist, a series, a restaurant). Consumers that lead with
     # types ask for the broad tier; the specific one follows once broad is settled.
     tier: str = "specific"
+    # Recency half-life in days for this dimension's evidence. None = the 540d
+    # preference default (services/common/recency.py). `evergreen` = never decays
+    # (dietary/medical). Both come from dimensions.yaml.
+    half_life_days: Optional[float] = None
+    evergreen: bool = False
 
 
 class Aggregator:
@@ -75,7 +80,10 @@ class Aggregator:
             if len(members) < cfg.min_evidence:
                 continue  # anti-spurious gate (negative control covers this)
 
-            score = score_group(members, now=now)
+            score = score_group(
+                members, now=now,
+                half_life_days=cfg.half_life_days, evergreen=cfg.evergreen,
+            )
             user_id = members[0].user_id
             # display subject: the most common raw value spelling in the group
             subject = _modal_value(members)
