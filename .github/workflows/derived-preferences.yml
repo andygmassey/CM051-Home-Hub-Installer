@@ -39,6 +39,8 @@ on:
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
+      - 'tests/test_vendored_derived_route_privacy_level.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
       - 'tests/test_vendored_stated_transcripts_reach_the_derive_engine.py'
@@ -86,6 +88,13 @@ jobs:
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
+      - name: The hub route passes a derived node's privacy level through and never serves L3
+        # Real in-memory pyoxigraph; L1/L2 tagged, L3 and an unparseable level
+        # dropped, no level served untagged (control), and the Python guard.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_vendored_derived_route_privacy_level.py
       - name: The owner's LinkedIn career reaches the derive engine
         if: always()
         run: |
