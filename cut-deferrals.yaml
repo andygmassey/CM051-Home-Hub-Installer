@@ -37,6 +37,55 @@ pr_exemptions:
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
+  # v1.0.117 PR-AGE EXEMPTIONS, ORM 2026-10-23: every CM051 PR over 48h or within ~14h of it (the 117 cut/tag cycle).
+  - ref: "CM051-Home-Hub-Installer#3043"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3054"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3057"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3058"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3059"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3064"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3067"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3068"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3077"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3082"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3083"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3084"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3086"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3092"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3093"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3094"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.117: open PR on main, NOT taken by the v1.0.117 cut (v1.0.116 plus named picks only, Archie)."
+    review_by: 2026-10-30
   # v1.0.116 PR-AGE EXEMPTIONS, ORM 2026-10-21: every CM051 PR over 48h or within 6h of it.
   - ref: "CM051-Home-Hub-Installer#3017"
     reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.116: open PR on main, NOT taken by the v1.0.116 cut (b73c20c9 plus named picks only, Archie). Not in scope; to be reviewed, merged or closed."
@@ -946,6 +995,15 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  - ref: "CM051:feat/abcddb-contact-photos"
+    reason: "ORM 2026-10-23, v1.0.117 (the coordinator named the vendor-stated-preferences branches as our own 118 graft branches; Archie to confirm): PR #3026 CLOSED unmerged (contact photos); 3 commits, not in the 117 scope (v1.0.116 plus named picks only). Branch tip stays on the remote."
+    until_cut: "v1.0.118"
+  - ref: "CM051:feat/vendor-stated-preferences"
+    reason: "ORM 2026-10-23, v1.0.117 (the coordinator named the vendor-stated-preferences branches as our own 118 graft branches; Archie to confirm): PR #3117 CLOSED, superseded by the r3 branch; 8 commits of 118 smart-preferences vendoring (CM019). Not in the 117 scope."
+    until_cut: "v1.0.118"
+  - ref: "CM051:feat/vendor-stated-preferences-r2"
+    reason: "ORM 2026-10-23, v1.0.117 (the coordinator named the vendor-stated-preferences branches as our own 118 graft branches; Archie to confirm): CLOSED PR line of 118 smart-preferences vendoring (CM019), superseded by r3; 8 commits. Not in the 117 scope."
+    until_cut: "v1.0.118"
   - ref: "CM051:#1437"
     reason: >-
       The decline arm must not claim "nothing was written to your Mac" when a
