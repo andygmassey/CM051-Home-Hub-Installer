@@ -34,6 +34,7 @@ tmp="$(mktemp -d)"
 cleanup() { rm -rf "$tmp"; }
 trap cleanup EXIT
 export PATH="$HERE/fakebin:$PATH"
+[ "$(command -v open)" = "$HERE/fakebin/open" ] || { echo "CANNOT-RUN: the open stand-in is not first on PATH"; exit 2; }
 export FAKE_SECURITY_STORE="$tmp/fake-keychain.json" FAKE_SECURITY_LOG="$tmp/fake-security.log"
 : > "$FAKE_SECURITY_LOG"
 [ "$(command -v security)" = "$HERE/fakebin/security" ] \

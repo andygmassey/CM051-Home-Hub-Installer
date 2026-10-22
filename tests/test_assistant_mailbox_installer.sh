@@ -12,6 +12,9 @@
 # Exit 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# No test opens a real app or System Settings pane: the stand-in is first on PATH.
+export PATH="$REPO_ROOT/tests/e2e/fakebin:$PATH"
+[ "$(command -v open)" = "$REPO_ROOT/tests/e2e/fakebin/open" ] || { echo "CANNOT-RUN: open stand-in not first on PATH"; exit 2; }
 # Provider domains the host rules key on, composed at runtime so no literal
 # address at a real provider sits in this PUBLIC repo (ci-pii-shape-scan).
 IC="icloud.com"; MC="me.com"; GM="gmail.com"
