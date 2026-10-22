@@ -28,6 +28,7 @@ from .clients.events import EventClient
 from .clients.domain_topics import DomainTopicMapper
 from .clients.youtube import YouTubeClient
 from .clients.places import PlacesClient
+from .clients.osm_cuisine import OsmCuisineClient
 from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, EntityResult
 
 logger = logging.getLogger(__name__)
@@ -248,6 +249,10 @@ class EnrichmentService:
         "venue": "wikidata_place",
         "restaurant": "wikidata_place",
 
+        # Food evidence (reservations, delivery, calendar meals): the restaurant
+        # is in extra.restaurant. Keyless OpenStreetMap lookup, consent-gated.
+        "food": "osm_cuisine",
+
         # Events - Ticketmaster
         "event": "events",
         "ticket": "events",
@@ -331,6 +336,7 @@ class EnrichmentService:
         self.__events = None
         self.__youtube = None
         self.__google_places = None
+        self.__osm_cuisine = None
 
         # Track already-enriched preferences (in memory for this run)
         self._enriched_ids: Set[str] = set()
@@ -348,6 +354,12 @@ class EnrichmentService:
         if self.__events is None:
             self.__events = EventClient()
         return self.__events
+
+    @property
+    def _osm_cuisine(self) -> OsmCuisineClient:
+        if self.__osm_cuisine is None:
+            self.__osm_cuisine = OsmCuisineClient(cache=self._cache)
+        return self.__osm_cuisine
 
     @property
     def _youtube(self) -> YouTubeClient:
@@ -823,6 +835,13 @@ INSERT DATA {{
 
         elif client_name == "google_places":
             return await self._google_places.enrich_venue(pref_id, subject)
+
+        elif client_name == "osm_cuisine":
+            extra = preference.get("extra", {}) or {}
+            restaurant = extra.get("restaurant")
+            if not restaurant or extra.get("cuisine"):
+                return None  # not a restaurant point, or the cuisine is already known locally
+            return await self._osm_cuisine.enrich_venue(pref_id, restaurant, extra.get("area") or "")
 
         elif client_name == "events":
             return await self._events.enrich_event(pref_id, subject)

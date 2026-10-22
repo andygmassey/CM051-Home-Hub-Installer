@@ -173,6 +173,7 @@ SENSITIVE_CATEGORIES = {
     "politics", "political",
     "sexuality", "sexual_orientation", "gender_identity",
     "finance", "financial", "money", "legal", "addiction",
+    "dietary", "diet",  # dietary-guard: grocery diet signals, health-adjacent (Art. 9)
 }
 
 

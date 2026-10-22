@@ -286,6 +286,42 @@
   vocab: cuisine
   vocab_strict: true
 
+# Cuisine written by the food evidence parser (reservations, delivery orders,
+# calendar meals, web pages), mapped through the SAME shared vocabulary
+# (vocab/cuisine.yaml) as every other reader, so Szechuan, Sichuanese and
+# Sichuan are all `chinese`. extra.cuisine is a rule or tag reading;
+# extra.cuisine_inferred is a local-model guess from a venue name and weighs
+# less (0.4, the 'inferred' tier). The stated-likes writer can use either field.
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [food]
+  field: extra.cuisine
+  vocab: cuisine
+  evidence_confidence: 0.7
+
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [food]
+  field: extra.cuisine_inferred
+  vocab: cuisine
+  evidence_confidence: 0.4
+
+# What the owner buys or orders: grocery items and delivery dishes from the food
+# evidence parser. Diet-shaped signals are NOT here: they are category
+# 'dietary', private, and no row of this file reads that category.
+- dimension: food.item
+  domain: food
+  category: food
+  kind: qdrant_field
+  select_categories: [food]
+  field: extra.food_item
+  transform: lower
+  evidence_confidence: 0.6
+
 - dimension: place.city
   domain: place
   category: place

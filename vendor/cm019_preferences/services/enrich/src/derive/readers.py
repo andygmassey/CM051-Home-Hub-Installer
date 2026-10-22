@@ -100,6 +100,23 @@ _VOCAB_DIR = Path(__file__).resolve().parent / "vocab"
 _VOCAB_CACHE: Dict[str, list] = {}
 
 
+def _vocab_rows(name: str) -> dict:
+    """label -> (parent or None, [words]) from vocab/<name>.yaml.
+
+    A row is either a plain list of words, or ``{parent: <label>, words: [...]}``
+    for a REGIONAL value (sichuan under chinese). A regional value is its own
+    node, never merged into its parent; the parent only receives a roll-up.
+    """
+    rows = yaml.safe_load((_VOCAB_DIR / f"{name}.yaml").read_text()) or {}
+    out = {}
+    for label, v in rows.items():
+        if isinstance(v, dict):
+            out[str(label)] = (str(v["parent"]) if v.get("parent") else None, list(v.get("words", [])))
+        else:
+            out[str(label)] = (None, list(v))
+    return out
+
+
 def load_vocab(name: str) -> list:
     """[(canonical label, compiled whole-word regex), ...] from vocab/<name>.yaml.
 
@@ -107,13 +124,38 @@ def load_vocab(name: str) -> list:
     same labels, so evidence from different sources lands in one group.
     """
     if name not in _VOCAB_CACHE:
-        rows = yaml.safe_load((_VOCAB_DIR / f"{name}.yaml").read_text()) or {}
         compiled = []
-        for label, words in rows.items():
-            alts = "|".join(re.escape(str(w).lower()) for w in words)
-            compiled.append((str(label), re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z0-9])" % alts)))
+        parents = {}
+        for label, (parent, words) in _vocab_rows(name).items():
+            alts = "|".join(re.escape(str(w).lower()) for w in sorted(words, key=lambda w: -len(str(w))))
+            compiled.append((label, re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z0-9])" % alts)))
+            if parent:
+                parents[label] = parent
         _VOCAB_CACHE[name] = compiled
+        _VOCAB_CACHE[name + "#parents"] = parents
     return _VOCAB_CACHE[name]
+
+
+def vocab_parents(name: str) -> dict:
+    """{regional label: parent label} for a vocabulary (empty when flat)."""
+    load_vocab(name)
+    return _VOCAB_CACHE.get(name + "#parents", {})
+
+
+def with_parent_rollup(labels: List[str], vocab: Optional[str]) -> List[str]:
+    """Labels plus each one's ancestors, order kept, no duplicates. The regional
+    label stays in the list: the roll-up ADDS "chinese" beside "sichuan", it
+    never replaces it, so opposite feelings about two regions stay two nodes."""
+    if not vocab:
+        return list(labels)
+    parents = vocab_parents(vocab)
+    out: List[str] = []
+    for lab in labels:
+        x = lab
+        while x and x not in out:
+            out.append(x)
+            x = parents.get(x)
+    return out
 
 
 def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> List[str]:
@@ -129,7 +171,8 @@ def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> L
     if not vocab:
         return [text]
     low = text.lower()
-    hits = [label for label, rx in load_vocab(vocab) if rx.search(low)]
+    flat = low.replace("-", " ")      # "Hong Kong-style" is the keyword "hong kong style"
+    hits = [label for label, rx in load_vocab(vocab) if rx.search(low) or rx.search(flat)]
     if hits:
         return hits
     return [] if strict else [text]
@@ -211,7 +254,7 @@ class OxigraphOverlayReader:
                 continue
             pref_id = subj[len(PREF_URN_PREFIX):]
             conf = _as_float(b.get("conf", {}).get("value"), 0.5)
-            for canon in canonical_labels(label, self.vocab, self.vocab_strict):
+            for canon in with_parent_rollup(canonical_labels(label, self.vocab, self.vocab_strict), self.vocab):
                 tags.setdefault(pref_id, []).append({"label": canon, "conf": conf})
         return tags
 
@@ -407,7 +450,7 @@ class LexiconReader:
         for p in self.gateway.scroll(self.select_categories, SCROLL_FIELDS):
             pl = p.get("payload", {})
             text = self.source_field._value(pl)
-            for label in canonical_labels(text, self.vocab, strict=True):
+            for label in with_parent_rollup(canonical_labels(text, self.vocab, strict=True), self.vocab):
                 yield EvidenceItem(
                     preference_id=str(p.get("id")),
                     user_id=user_id,

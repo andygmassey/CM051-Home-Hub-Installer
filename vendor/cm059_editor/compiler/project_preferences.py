@@ -194,6 +194,11 @@ def to_triples(points: list[dict]) -> tuple[list[str], int]:
         if not node_type or not subject or not category or strength is None or not source:
             skipped += 1
             continue
+        if str(category).strip().lower() in ("dietary", "diet"):  # dietary-guard
+            # Grocery diet signals are stored private (compartment 0) and are never
+            # projected: this graph feeds the Front Page and the brief.
+            skipped += 1
+            continue
         s = f"<{_iri(p)}>"
         lines.append(
             f'{s} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> '

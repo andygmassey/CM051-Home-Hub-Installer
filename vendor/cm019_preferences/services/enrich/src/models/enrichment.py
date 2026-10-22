@@ -94,6 +94,7 @@ class EnrichmentSource(str, Enum):
     YOUTUBE = "youtube"
     GEOCODER = "geocoder"
     PLACES = "places"
+    OSM = "osm"  # OpenStreetMap Nominatim cuisine tag (keyless, consent-gated)
     PODCAST_INDEX = "podcast_index"
     CROSSREF = "crossref"
     SEMANTIC_SCHOLAR = "semantic_scholar"

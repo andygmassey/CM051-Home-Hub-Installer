@@ -344,3 +344,12 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE
 - Round 4 (Andy: types before things): dimensions carry `tier: broad|specific`; the endpoint takes `tier` (default `broad`, `all` = old behaviour, broad first within a category); new reader kinds `rollup` (a tag known for some items under an artist/album/series/restaurant applies to all of them) and `lexicon`, and SHARED vocabularies `derive/vocab/{cuisine,music_style}.yaml` (food.cuisine and media.music.genre map into them). Same files as #422's round 4. The walk probe's route URL gains `&tier=all` so it still counts every derived preference.
 - Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` and `tests/test_vendored_linkedin_career_reaches_the_derive_engine.py` (both wired in `derived-preferences.yml`): RED on main, GREEN here.
 - Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
+
+## 2026-10-23 food evidence (personal-world-graph food PR, stacked on #422)
+
+Tree `cm019_preferences`. Pin NOT moved. DIVERGENCE from source at the pin; ACKS the upstream food PR (branch feat/food-prefs-evidence, base feat/smart-prefs-all-of-life).
+
+- New, byte-identical to the PR head: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`, `services/enrich/src/derive/cuisine_vocab.py`, `services/enrich/src/derive/cuisine_local_model.py`.
+- Applied by patch(1), the rest of each file untouched: `derive/vocab/cuisine.yaml` (hierarchical: regional rows carry `parent:`), `derive/readers.py` (vocab rows may be `{parent, words}`; a region rolls up to its parent as extra evidence, never merged), `derive/readers.yaml`, `derive/dimensions.yaml`, `enrich/src/enricher.py`, `enrich/src/models/enrichment.py`. Hand-applied (the vendored files differ from upstream): `ingest/src/pipeline.py` and `ingest/src/parsers/__init__.py`, three lines each.
+- Consent: the OSM client returns before any HTTP client exists unless `public_lookup_allowed()` (exact `accepted` only); the local-model arm is localhost Ollama only. Nominatim policy: identifying User-Agent, one request per second across processes (flock'd stamp file), a per-run lookup ceiling.
+- Retire: when the upstream PR merges, re-pin and delete this section.
