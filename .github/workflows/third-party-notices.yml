@@ -1,0 +1,41 @@
+name: third-party-notices
+
+# The product must carry the source offer for the AGPL-3.0 software it ships.
+#
+# Vane's image bundles SearXNG (AGPL-3.0). The website carried the offer; the
+# product carried none (vendor/THIRD_PARTY_NOTICES.md and vendor/LICENSES had 0
+# matches for SearXNG or Vane on main, 2026-10-22). tests/test_the_searxng_source_offer_ships.sh
+# proves the notice, the full licence text, the pinned commit, the Vane digest
+# link and, through `install.sh --licenses` in a sandboxed HOME, that the
+# customer can read it. It must run when any of those move.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/THIRD_PARTY_NOTICES.md'
+      - 'vendor/LICENSES/**'
+      - 'vendor/VENDOR_ONLY.tsv'
+      # The Vane digest and the --licenses printer live here.
+      - 'install.sh'
+      - 'tests/test_the_searxng_source_offer_ships.sh'
+      - '.github/workflows/third-party-notices.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  third-party-notices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: the SearXNG source offer ships and reaches the customer
+        run: bash tests/test_the_searxng_source_offer_ships.sh
