@@ -1,6 +1,8 @@
+diff --git a/_vendor/ostler_usage_journal/usage_journal.py b/_vendor/ostler_usage_journal/usage_journal.py
+index 9da437f2..7c37b57f 100644
 --- a/_vendor/ostler_usage_journal/usage_journal.py
 +++ b/_vendor/ostler_usage_journal/usage_journal.py
-@@ -143,6 +143,7 @@
+@@ -143,6 +143,7 @@ def record_usage(
      session_id: str,
      *,
      journal_path: Optional[Path] = None,
@@ -8,7 +10,7 @@
  ) -> bool:
      """Append one MEASURED local-model usage record. Returns True if written.
  
-@@ -178,6 +179,8 @@
+@@ -178,6 +179,8 @@ def record_usage(
              .isoformat(timespec="seconds")
              .replace("+00:00", "Z"),
              "purpose": purpose,
@@ -17,7 +19,7 @@
          },
      }
  
-@@ -402,6 +405,7 @@
+@@ -402,6 +405,7 @@ class RollingUsageRecorder:
                  purpose=self._purpose,
                  session_id=self._session_id,
                  journal_path=self._journal_path,
@@ -25,9 +27,11 @@
              )
          except Exception:  # noqa: BLE001 - accounting must never raise
              logger.warning(
+diff --git a/corrections.py b/corrections.py
+index b33f69cb..a75ce107 100644
 --- a/corrections.py
 +++ b/corrections.py
-@@ -28,6 +28,8 @@
+@@ -28,6 +28,8 @@ from __future__ import annotations
  import json
  import os
  import urllib.request
@@ -36,7 +40,7 @@
  from datetime import datetime, timezone
  
  DEFAULT_STORE = os.path.expanduser("~/.ostler/editor/interest_corrections.json")
-@@ -117,9 +119,17 @@
+@@ -117,9 +119,17 @@ class CorrectionStore:
          payload = self._assert_payload(action, key, factor)
          try:
              url = self.ical_server_url.rstrip("/") + "/api/v1/memory/assert"
@@ -55,14 +59,14 @@
              with urllib.request.urlopen(req, timeout=10) as resp:
                  return 200 <= resp.status < 300
          except Exception:
+diff --git a/frontpage.py b/frontpage.py
+index 91a7d057..adf2db98 100644
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -355,6 +355,134 @@
-         source="ostler:editor",
-         privacy="L1",  # generic product copy; about the operator, no PII
+@@ -357,6 +357,134 @@ def pro_locked_card(now: datetime) -> dict:
      )
-+
-+
+ 
+ 
 +# Interest categories whose subject is an account handle stored WITHOUT its "@"
 +# (the Instagram parser keeps the bare username, often snake_case:
 +# category "instagram_creator"). Shown raw it reads as an internal key
@@ -189,10 +193,12 @@
 +    if year.isdigit() and int(year) < now.year:
 +        line += f", last seen in {year}"
 +    return line + "."
- 
- 
++
++
  def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
-@@ -368,12 +496,12 @@
+     """Phase C card: one inferred interest, with its evidence and the rate/
+     correct affordances. Priority is the interest's own score mapped into the
+@@ -368,12 +496,12 @@ def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
          1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
      # CM051 #2534: one evidence line per card, not two joined with " - ".
      ev_list = it.get("evidence") or []
@@ -208,7 +214,7 @@
          now=now, domain=it.get("domain"),
          priority=base,
          action={"label": "Spot on", "kind": "strengthen"},
-@@ -422,6 +550,7 @@
+@@ -422,6 +550,7 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
      bench = [it for block in (profile.get("domains") or [])
               for it in (block.get("interests") or [])
               if it.get("polarity") != "dislike"
@@ -216,7 +222,7 @@
               and it.get("id") not in chosen_ids]
      if not bench:
          return picked[-n:] if n else []
-@@ -449,6 +578,20 @@
+@@ -449,6 +578,20 @@ def _rotation_picks(profile: dict, picked: list, now: datetime, n: int,
      return out or (picked[-n:] if n else [])
  
  
@@ -237,7 +243,7 @@
  def exploration_pick(profile: dict, picked: list[dict],
                       exclude_ids: set | None = None) -> dict | None:
      """The E4 anti-filter-bubble pick: the strongest liked interest that did
-@@ -460,6 +603,7 @@
+@@ -460,6 +603,7 @@ def exploration_pick(profile: dict, picked: list[dict],
      pool = [it for block in profile.get("domains", [])
              for it in block.get("interests", [])
              if it.get("polarity") != "dislike"
@@ -245,7 +251,7 @@
              and it.get("id") not in picked_ids]
      if not pool:
          return None
-@@ -484,7 +628,7 @@
+@@ -484,7 +628,7 @@ def exploration_card(it: dict, now: datetime, ledger=None) -> dict:
      created = fe or now
      card = _make_card(
          "interest", key,
@@ -254,7 +260,7 @@
          body=("A hunch, based on what Ostler already knows you're into - "
                "say if it lands."),
          now=now, domain=it.get("domain"),
-@@ -593,7 +737,7 @@
+@@ -593,7 +737,7 @@ def _top_interests(profile: dict, exclude_ids: set | None = None) -> list[dict]:
              pool.append(it)
      pool.sort(key=lambda it: it.get("score", 0.0), reverse=True)
      for it in pool:
@@ -263,7 +269,7 @@
              continue
          dom = it.get("domain", "Other")
          if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
-@@ -762,6 +906,83 @@
+@@ -762,6 +906,83 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
      return kept[:MAX_FEED_CARDS]
  
  
@@ -347,7 +353,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -786,6 +1007,7 @@
+@@ -786,6 +1007,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -355,7 +361,7 @@
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
-@@ -874,6 +1096,12 @@
+@@ -874,6 +1096,12 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
      cards = drop_resting(cards)
      cards = privacy_gate(cards)
      cards = entitlement_gate(cards, entitled, now)
@@ -368,9 +374,11 @@
      cards.sort(key=lambda c: c.get("priority", 0.0), reverse=True)
      cards = dedup_by_id(cards)
      cards = _apply_feed_caps(cards)
+diff --git a/interest_profile.py b/interest_profile.py
+index a61cc924..9f2eef45 100644
 --- a/interest_profile.py
 +++ b/interest_profile.py
-@@ -5,7 +5,7 @@
+@@ -5,7 +5,7 @@ is a pure function of (raw preference rows, now, corrections) so it is testable
  without a live graph. The I/O layer (fetch_preferences) talks read-only to
  Oxigraph; nothing here ever writes to the graph.
  
@@ -379,7 +387,7 @@
    ?s a pwg:LikePreference | pwg:DislikePreference
       pwg:subject            "Web Development"
       pwg:category           "professional"
-@@ -29,11 +29,12 @@
+@@ -29,11 +29,12 @@ import os
  import re
  import sys
  import unicodedata
@@ -393,12 +401,10 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -488,20 +489,130 @@
- _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
- # A one-off signal this old is not a current interest, regardless of shape.
+@@ -490,18 +491,128 @@ _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
  _ANCIENT_YEARS = 15
-+
-+
+ 
+ 
 +# 🔴 AN IDENTIFIER IS NOT A TASTE, AND NOTHING WAS SAYING SO.
 +#
 +# Found by looking at the page a person sees rather than at the counts. With
@@ -463,8 +469,8 @@
 +    if not any(ch.isalpha() for ch in s):
 +        return True
 +    return False
- 
- 
++
++
  # ---------------------------------------------------------------------------
  # Scoring layer (pure)
  # ---------------------------------------------------------------------------
@@ -525,7 +531,15 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -920,7 +1031,46 @@
+@@ -759,6 +870,7 @@ def _iso(value) -> str | None:
+ _SOURCE_DISPLAY = {
+     "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
+     "facebook_watched": "Facebook",
++    "inferred": "patterns across your data",
+     "csv": "your imported data", "email": "your email", "imap": "your email",
+     "you": "you",
+     "streaming_history": "your browsing history",
+@@ -920,7 +1032,46 @@ def apply_corrections(interests: list[dict], corrections: dict | None,
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -573,7 +587,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -940,8 +1090,16 @@
+@@ -940,8 +1091,16 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -590,7 +604,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -967,6 +1125,9 @@
+@@ -967,6 +1126,9 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -600,11 +614,10 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -977,16 +1138,77 @@
- # ---------------------------------------------------------------------------
+@@ -978,15 +1140,76 @@ def compile_profile(raws: list[dict], now: datetime | None = None,
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
-+
+ 
 +def _oxigraph_credential() -> tuple[str, str] | None:
 +    """The Oxigraph loopback credential, or None when none is configured.
 +
@@ -632,7 +645,7 @@
 +        except OSError:
 +            val = ""
 +    return ("Authorization", "Bearer " + val) if val else None
- 
++
 +
  def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list[dict]:
 +    """Read-only SPARQL SELECT against Oxigraph.
@@ -682,7 +695,78 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
-@@ -1012,7 +1234,8 @@
+@@ -1007,12 +1230,78 @@ def _pref_query(node_type: str) -> str:
+     )
+ 
+ 
++# Derived preferences (smart-prefs): pwg:DerivedPreference nodes the CM019
++# derive engine writes into this dedicated named graph. Literal reads never name
++# it, so until this read existed the Front Page and the scouts ranked against a
++# profile that could not see one (CONTEXT.md already reads the same nodes).
++DERIVED_GRAPH = "https://schema.ostler.ai/derived/graph/preferences"
++# At most this many join the profile, strongest first: the Front Page's own
++# caps (MAX_INTEREST_CARDS / MAX_PER_DOMAIN) are unchanged, and a derived row
++# competes for a slot on score like any other. Same figure and floor as the
++# CONTEXT.md digest and /api/v1/preferences/derived.
++MAX_DERIVED_ROWS = 4
++DERIVED_MIN_CONFIDENCE = 0.35
++
++
++def _derived_query() -> str:
++    return (
++        f"PREFIX pwg: <{PWG_NS}>\n"
++        "SELECT ?subject ?strength ?confidence ?derivedAt WHERE {\n"
++        f"  GRAPH <{DERIVED_GRAPH}> {{\n"
++        "    ?s a pwg:DerivedPreference ;\n"
++        "       pwg:subject ?subject ;\n"
++        "       pwg:preferenceStrength ?strength ;\n"
++        "       pwg:confidence ?confidence .\n"
++        "    OPTIONAL { ?s pwg:derivedAt ?derivedAt }\n"
++        f"    FILTER(?confidence >= {DERIVED_MIN_CONFIDENCE})\n"
++        "  }\n"
++        "} ORDER BY DESC(?confidence) DESC(?strength)\n"
++        f"LIMIT {MAX_DERIVED_ROWS}"
++    )
++
++
++def fetch_derived_preferences(oxigraph_url: str) -> list[dict]:
++    """Derived preference rows as raw rows. A signed strength becomes a
++    polarity; category is the conservative ``inferred_interest`` (local-only,
++    L2) because a derived taste is an inference, never a declared one. A failed
++    read is reported on stderr and yields no rows: the literal profile must not
++    be lost to a derive-side outage, and the failure must not be silent."""
++    try:
++        rows = _sparql_select(oxigraph_url, _derived_query())
++    except Exception as exc:  # noqa: BLE001 - literal rows still stand
++        print(f"interest-profile: derived-preference read failed "
++              f"({type(exc).__name__}: {exc}) - compiling from literal "
++              "preferences only", file=sys.stderr)
++        return []
++    out: list[dict] = []
++    for row in rows[:MAX_DERIVED_ROWS]:
++        try:
++            strength = float(row.get("strength") or 0.0)
++        except ValueError:
++            continue
++        if strength == 0.0 or not row.get("subject"):
++            continue
++        out.append({
++            "subject": row["subject"],
++            "category": "inferred_interest",
++            "strength": str(abs(strength)),
++            "source": "inferred",
++            "observed_at": row.get("derivedAt") or None,
++            "created_at": None,
++            "stored_privacy": None,
++            "polarity": "like" if strength > 0 else "dislike",
++        })
++    return out
++
++
+ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
+-    """Read like/dislike preference rows from Oxigraph. Read-only."""
++    """Read like/dislike preference rows from Oxigraph, plus derived ones.
++    Read-only."""
      oxigraph_url = oxigraph_url or os.environ.get(
          "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
      out: list[dict] = []
@@ -692,6 +776,17 @@
          for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
              out.append({
                  "subject": row.get("subject", ""),
+@@ -1025,6 +1314,7 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
+                 "stored_privacy": row.get("plevel") or None,
+                 "polarity": polarity,
+             })
++    out.extend(fetch_derived_preferences(oxigraph_url))
+     return out
+ 
+ 
+diff --git b/project_preferences.py b/project_preferences.py
+new file mode 100644
+index 00000000..763bed5a
 --- /dev/null
 +++ b/project_preferences.py
 @@ -0,0 +1,423 @@
@@ -1118,9 +1213,11 @@
 +          f"({r['triples']} triples) from {r['points']} Qdrant points; "
 +          f"{r['in_pipeline']} already in the graph from the ingest pipeline; "
 +          f"{r['skipped']} skipped as unqueryable")
+diff --git a/render_frontpage.py b/render_frontpage.py
+index bc49c6c4..aa287cbd 100644
 --- a/render_frontpage.py
 +++ b/render_frontpage.py
-@@ -625,7 +625,7 @@
+@@ -625,7 +625,7 @@ def _masthead(feed: dict) -> str:
          '<div class="masthead"><h1>Your Front Page</h1>'
          f'{date_html}</div>'
          '<p class="lede">What Ostler thinks is worth your attention today, drawn '
@@ -1129,7 +1226,7 @@
  
  
  def render(feed: dict) -> str:
-@@ -633,7 +633,7 @@
+@@ -633,7 +633,7 @@ def render(feed: dict) -> str:
      cards = feed.get("cards", [])
      bands = _bands_html(cards)
      if not bands:
@@ -1138,7 +1235,7 @@
                   'still settling in.</p>')
      return (
          '<!doctype html><html><head><meta charset="utf-8"><meta name="lang" content="en-GB">'
-@@ -651,7 +651,7 @@
+@@ -651,7 +651,7 @@ def render(feed: dict) -> str:
          '</div></div></div>'
          f'<div class="fp">{_masthead(feed)}<div id="bands">{bands}</div></div>'
          '<p class="gfoot">The Editor · compiled '
@@ -1147,7 +1244,7 @@
          'this preview renders the same JSON the Hub and iOS apps consume.</p>'
          f'<script>{_JS}</script>'
          '</body></html>')
-@@ -664,7 +664,7 @@
+@@ -664,7 +664,7 @@ def render_fragment(feed: dict) -> str:
      cards = feed.get("cards", [])
      bands = _bands_html(cards)
      if not bands:
@@ -1156,9 +1253,11 @@
                   'still settling in.</p>')
      return (f'<style>{_CSS}</style>{_ICON_DEFS}'
              f'<div class="fp"><div id="bands">{bands}</div></div>'
+diff --git a/signals.py b/signals.py
+index 9b8bd19a..28811721 100644
 --- a/signals.py
 +++ b/signals.py
-@@ -62,6 +62,19 @@
+@@ -62,6 +62,19 @@ _STRINGS = {
      "reply_debt_title_many": "{count} people are waiting on you",
      "reply_debt_body": "{names} {have} messages awaiting your reply.",
      "reply_debt_action": "See who",
@@ -1178,7 +1277,7 @@
      "gone_quiet_title": "You and {name} have gone quiet",
      "gone_quiet_body": ("No contact for {span}. A short message keeps "
                          "the thread alive."),
-@@ -379,7 +392,7 @@
+@@ -379,7 +392,7 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
          return None
      cid = fp.card_id("signal", "reply_debt")
      created = _ledger_created(ledger, cid, now)
@@ -1187,14 +1286,10 @@
      if count == 1:
          title = _STRINGS["reply_debt_title_one"]
      else:
-@@ -400,12 +413,50 @@
-         action={"label": _STRINGS["reply_debt_action"], "kind": "open_reply_debt"},
-         source="ostler:conversations", privacy=_card_privacy(privacy),
-         signal={"type": "reply_debt", "count": count})
-+    card["created_utc"] = fp._iso(created)
-+    return card
-+
-+
+@@ -404,8 +417,46 @@ def reply_debt_card(count: int, names, now: datetime, ledger=None,
+     return card
+ 
+ 
 +def reply_debt_degraded(raw) -> bool:
 +    """True when the reply-debt endpoint answered but said it could not look
 +    (``degraded: true``). A degraded payload carries count 0, and count 0 must
@@ -1228,17 +1323,17 @@
 +        action=None, source="ostler:conversations", privacy="L2",
 +        signal={"type": "reply_debt", "unchecked": True,
 +                "not_connected": bool(not_connected)})
-     card["created_utc"] = fp._iso(created)
-     return card
- 
- 
++    card["created_utc"] = fp._iso(created)
++    return card
++
++
  def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
                      privacy: str = "L2"):
 +    name = fp.person_label(name)
      if not name:
          return None
      # Upper bound (CM051 walk #5; fp.GONE_QUIET_IGNORE_AFTER_MONTHS's own
-@@ -450,6 +501,7 @@
+@@ -450,6 +501,7 @@ def gone_quiet_card(name: str, months_since: float, now: datetime, ledger=None,
  
  def birthday_card(name: str, days_until: int, now: datetime, ledger=None,
                    privacy: str = "L2"):
@@ -1246,7 +1341,7 @@
      if not name or days_until is None:
          return None
      du = int(days_until)
-@@ -485,6 +537,7 @@
+@@ -485,6 +537,7 @@ def commitment_card(what: str, days_until: int, who, now: datetime, ledger=None,
      if days_until is None:
          return None
      du = int(days_until)
@@ -1254,7 +1349,7 @@
      key = f"commitment::{who or ''}::{what}"
      cid = fp.card_id("signal", key)
      created = _ledger_created(ledger, cid, now)
-@@ -516,10 +569,15 @@
+@@ -516,10 +569,15 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
          return []
      cards: list = []
  

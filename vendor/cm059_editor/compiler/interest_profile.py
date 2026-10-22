@@ -870,6 +870,7 @@ def _iso(value) -> str | None:
 _SOURCE_DISPLAY = {
     "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
     "facebook_watched": "Facebook",
+    "inferred": "patterns across your data",
     "csv": "your imported data", "email": "your email", "imap": "your email",
     "you": "you",
     "streaming_history": "your browsing history",
@@ -1229,8 +1230,73 @@ def _pref_query(node_type: str) -> str:
     )
 
 
+# Derived preferences (smart-prefs): pwg:DerivedPreference nodes the CM019
+# derive engine writes into this dedicated named graph. Literal reads never name
+# it, so until this read existed the Front Page and the scouts ranked against a
+# profile that could not see one (CONTEXT.md already reads the same nodes).
+DERIVED_GRAPH = "https://schema.ostler.ai/derived/graph/preferences"
+# At most this many join the profile, strongest first: the Front Page's own
+# caps (MAX_INTEREST_CARDS / MAX_PER_DOMAIN) are unchanged, and a derived row
+# competes for a slot on score like any other. Same figure and floor as the
+# CONTEXT.md digest and /api/v1/preferences/derived.
+MAX_DERIVED_ROWS = 4
+DERIVED_MIN_CONFIDENCE = 0.35
+
+
+def _derived_query() -> str:
+    return (
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?subject ?strength ?confidence ?derivedAt WHERE {\n"
+        f"  GRAPH <{DERIVED_GRAPH}> {{\n"
+        "    ?s a pwg:DerivedPreference ;\n"
+        "       pwg:subject ?subject ;\n"
+        "       pwg:preferenceStrength ?strength ;\n"
+        "       pwg:confidence ?confidence .\n"
+        "    OPTIONAL { ?s pwg:derivedAt ?derivedAt }\n"
+        f"    FILTER(?confidence >= {DERIVED_MIN_CONFIDENCE})\n"
+        "  }\n"
+        "} ORDER BY DESC(?confidence) DESC(?strength)\n"
+        f"LIMIT {MAX_DERIVED_ROWS}"
+    )
+
+
+def fetch_derived_preferences(oxigraph_url: str) -> list[dict]:
+    """Derived preference rows as raw rows. A signed strength becomes a
+    polarity; category is the conservative ``inferred_interest`` (local-only,
+    L2) because a derived taste is an inference, never a declared one. A failed
+    read is reported on stderr and yields no rows: the literal profile must not
+    be lost to a derive-side outage, and the failure must not be silent."""
+    try:
+        rows = _sparql_select(oxigraph_url, _derived_query())
+    except Exception as exc:  # noqa: BLE001 - literal rows still stand
+        print(f"interest-profile: derived-preference read failed "
+              f"({type(exc).__name__}: {exc}) - compiling from literal "
+              "preferences only", file=sys.stderr)
+        return []
+    out: list[dict] = []
+    for row in rows[:MAX_DERIVED_ROWS]:
+        try:
+            strength = float(row.get("strength") or 0.0)
+        except ValueError:
+            continue
+        if strength == 0.0 or not row.get("subject"):
+            continue
+        out.append({
+            "subject": row["subject"],
+            "category": "inferred_interest",
+            "strength": str(abs(strength)),
+            "source": "inferred",
+            "observed_at": row.get("derivedAt") or None,
+            "created_at": None,
+            "stored_privacy": None,
+            "polarity": "like" if strength > 0 else "dislike",
+        })
+    return out
+
+
 def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
-    """Read like/dislike preference rows from Oxigraph. Read-only."""
+    """Read like/dislike preference rows from Oxigraph, plus derived ones.
+    Read-only."""
     oxigraph_url = oxigraph_url or os.environ.get(
         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
     out: list[dict] = []
@@ -1248,6 +1314,7 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
                 "stored_privacy": row.get("plevel") or None,
                 "polarity": polarity,
             })
+    out.extend(fetch_derived_preferences(oxigraph_url))
     return out
 
 

@@ -1067,3 +1067,4 @@ scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-pro
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
 test_the_generated_digest_names_derived_preferences.sh	WIRED	.github/workflows/derived-preferences.yml
+test_the_interest_compile_reads_derived_preferences.py	WIRED	.github/workflows/derived-preferences.yml
