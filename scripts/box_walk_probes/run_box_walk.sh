@@ -760,7 +760,7 @@ WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
 # reads OSTLER_OWNER_SEED_STATE (lib/owner_employer_seed.sh). Both seeds are
 # forgotten before the replay, so a phase 2 re-run reads "unrun" and reports
 # CANNOT-RUN over a measured phase 1 verdict (walk #10, v1.0.107).
-SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner"
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner derived_preferences_reach_digest_and_tool"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
     local fixture=live

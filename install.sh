@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8922) captures the path BY
+    # _ostler_write_store_curl_config (defined :8939) captures the path BY
     # VALUE and never re-reads it:
-    #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16714, both of which run
+    #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8994 and :16731, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17509, where the note reads
+    # WhatsApp Web session path did it again at :17526, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17526 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17543 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6251 against a definition at :8922. Top-level
+    # writer's own definition: :6268 against a definition at :8939. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16714) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8994, :16731) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19674 / :19852 / :20009 / :20454 path. There the
+    # :19699 / :19877 / :20034 / :20479 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -3705,6 +3705,23 @@ _ostler_promote_prelaunch_tree() {
     fi
 
     OSTLER_PRELAUNCH_PROMOTED=true
+
+    # POST-PROMOTE ASSERTION: a consent decision recorded this run must have
+    # survived the replace above. The persist block (3.6b) once wrote into the
+    # final posture/ while staged, and the promote then replaced posture/ with
+    # the staged copy: every record lost, install reported ok (v1.0.116).
+    if [[ -n "${_OSTLER_CONSENT_RECORDED_TICKBOXES:-}" ]]; then
+        local _cp_tb _cp_file="${OSTLER_FINAL_DIR}/posture/consent.json"
+        if [[ ! -s "$_cp_file" ]]; then
+            err "Consent was recorded during this install but ${_cp_file} is missing after the staging promote. The consent records were lost."  # i18n-exempt
+        else
+            for _cp_tb in $_OSTLER_CONSENT_RECORDED_TICKBOXES; do
+                if ! /usr/bin/grep -q -F "\"${_cp_tb}\"" "$_cp_file"; then
+                    err "Consent tickbox ${_cp_tb} was recorded during this install but is absent from ${_cp_file} after the staging promote."  # i18n-exempt
+                fi
+            done
+        fi
+    fi
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
     #
@@ -18446,7 +18463,13 @@ if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # design (block header above), so this changes only HOW a failure is shown,
     # not the step's ok status.
     _region_stderr="$(mktemp)"
-    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
+    # OSTLER_HOME="${OSTLER_DIR}": save_region() and consent_cli resolve their
+    # posture/ dir from OSTLER_HOME (vendor/ostler_security/consent.py:70), which
+    # defaults to the FINAL ~/.ostler. This block runs while OSTLER_DIR is still
+    # the prelaunch staging tree, and the promote then rm -rf's the final
+    # posture/ and replaces it with the staged one. Writing to the final dir
+    # here lost consent.json and region.json on every fresh install (v1.0.116).
+    if ! OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -18486,13 +18509,15 @@ PY
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
         local stderr_file
         stderr_file=$(mktemp)
-        if USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
+        if OSTLER_HOME="${OSTLER_DIR}" \
+           USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
            "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
                 --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
+            _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then
@@ -22510,6 +22535,176 @@ ENRPLIST
 # `}` because the nginx heredocs contain plenty of those. Do not
 # remove or reword this marker.)
 
+# ── "What you like": the preference-derivation agent (smart-prefs) ──────
+#
+# The derive engine (vendor/cm019_preferences/services/enrich/src/derive/)
+# rolls the literal preferences + their enrichment overlay up into
+# pwg:DerivedPreference nodes in their own named graph, which the wiki's
+# "What you like" page and the assistant's pwg_derived_preferences tool read.
+# Until this agent existed nothing on a box ever ran it, so both read an empty
+# graph on every install.
+#
+# NOT GATED ON THE ENRICHMENT ANSWER, and that is deliberate. The enrich tick
+# above sends titles to public reference services; this one reads and writes
+# the box's own Oxigraph and Qdrant and calls nothing else. With enrichment
+# declined it still runs, finds no genre/director overlay to roll up, and
+# records an honest "empty" rather than leaving the graph absent.
+#
+# NOT GATED ON PRO either. CM044's what_you_like page renders in the ordinary
+# wiki compile for every customer; only the Obsidian vault writer checks the
+# Apple receipt, and it already gates that page's vault copy. Gating the
+# producer would leave a page every customer sees permanently empty for the
+# ones without Pro.
+#
+# CADENCE: every 6 hours, RunAtLoad false, so the first pass lands after the
+# install's own import has populated the graph rather than racing it. It is
+# idempotent (deterministic node URIs, wholesale swap), so re-running on the
+# same data rewrites the same graph.
+#
+# YIELDING: ProcessType=Background + Nice 10 (the scheduler drops it behind
+# anything the customer is doing, chat included); the resource-tier
+# pause/defer check (an operator Pause, or a box over its load ceiling, skips
+# the tick); and the shared ingest slot, so a derive never reads the graph
+# while an ingest or enrich slice is half-way through writing it. It holds no
+# model, so it holds the slot for seconds.
+_install_derive_preferences_agent() {
+    local label="com.ostler.derive-preferences"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-derive-preferences-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local derive_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time; the wrapper
+    # resolves its paths at run time.
+    cat > "$wrapper" <<'DERIVETICKEOF'
+#!/usr/bin/env bash
+# One pass of the preference-derivation engine ("What you like").
+# Generated by install.sh _install_derive_preferences_agent. Local only.
+#
+# `set -uo pipefail`, not -e: a failed pass is recorded in the status file
+# the runner writes and the next tick tries again.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+DERIVE_USER="${OSTLER_DERIVE_USER:-ostler}"
+LOG_FILE="${LOGS_DIR}/derive-preferences.log"
+
+mkdir -p "$LOGS_DIR"
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to derive"
+    exit 0
+fi
+
+# Operator Pause and the load ceiling. Fail-safe: no tier lib, no deferral.
+_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
+if [[ "${OSTLER_RESOURCE_GOVERNOR:-1}" == "1" && -f "$_tier_lib" ]]; then
+    # shellcheck source=/dev/null
+    . "$_tier_lib"
+    if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+        ostler_resource_tier_detect
+        if ostler_resource_tier_should_defer_nonessential; then
+            log "deferred (${OSTLER_DEFER_REASON:-load}); the next tick tries again"
+            exit 0
+        fi
+    fi
+fi
+
+cd "$CM019_DIR" || { log "cannot enter ${CM019_DIR}"; exit 0; }
+CMD=("$CM019_PY" -m services.enrich.src.derive_runner --user-id "$DERIVE_USER")
+
+log "tick start"
+_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
+if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
+    # shellcheck source=/dev/null
+    . "$_slot_lib"
+    if ! ostler_slot_acquire "derive-preferences"; then
+        log "ingest slot busy; yielding this tick"
+        exit 0
+    fi
+    if ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+        log "tick finished: written (see state/derived-preferences.json)"
+    else
+        log "tick finished: NOT written (see state/derived-preferences.json for why)"
+    fi
+    exit 0
+fi
+if "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+    log "tick finished: written (see state/derived-preferences.json)"
+else
+    log "tick finished: NOT written (see state/derived-preferences.json for why)"
+fi
+exit 0
+DERIVETICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<DERIVEPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_DERIVE_USER</key>
+        <string>${derive_user}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_URL</key>
+        <string>${QDRANT_URL:-http://localhost:6333}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/derive-preferences.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/derive-preferences.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+DERIVEPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null \
+        || launchctl load "$plist" 2>/dev/null \
+        || true
+    # Ask launchd what is registered; `launchctl load` exits 0 on failure
+    # (see _install_enrichment_agent above).
+    if launchctl print "gui/$(id -u)/${label}" >/dev/null 2>&1; then
+        ok "$MSG_OK_DERIVE_AGENT_LOADED"
+    else
+        warn "$MSG_WARN_DERIVE_AGENT_LOAD_FAILED"
+    fi
+}
+
 cd "$OSTLER_DIR"
 # Bring up the data services only at this phase. The wiki-site
 # image is added by piece 1 of the wiki-container brief but its
@@ -24212,6 +24407,13 @@ else
     info "$MSG_CM019_SETUP_SKIPPED"
 fi
 
+# "What you like": schedule the derivation engine against this venv. Needs
+# only the venv; the first pass runs after the import below has filled the
+# graph (RunAtLoad false, every 6 hours). See _install_derive_preferences_agent.
+if [[ -x "$CM019_PY" ]]; then
+    _install_derive_preferences_agent
+fi
+
 # ── 3.12 ostler-import command ──────────────────────────────────
 
 IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
@@ -24247,6 +24449,24 @@ else
 # Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
 # error, so one consumer being unavailable never blocks the others.
 set -uo pipefail
+# Bounded, detached kickstart (same contract as install.sh's _ks_bounded, which
+# this generated script cannot see): a penalty-boxed job must never block the
+# caller, so the kick is backgrounded behind a 10s watchdog. Absent label: no-op.
+_ks_bounded() {
+    [ -n "${1:-}" ] || return 0
+    launchctl print "$1" >/dev/null 2>&1 || return 0
+    _ksb_cmd=(launchctl kickstart "$1")
+    (
+        "${_ksb_cmd[@]}" >/dev/null 2>&1 &
+        _ksb_pid=$!
+        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
+        _ksb_wd=$!
+        wait "$_ksb_pid" 2>/dev/null || true
+        kill -TERM "$_ksb_wd" 2>/dev/null || true
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
+}
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 CM019_DIR="${OSTLER_DIR}/services/cm019"
@@ -24467,6 +24687,18 @@ for d in "${DIRS[@]}"; do
         fi
     fi
 done
+
+# ── smart-prefs P1: an import that has finished reaches the digest NOW ─────
+# The interest-profile compile (editor-frontpage tick) is what puts
+# preferences into ~/.ostler/preferences/interest_profile.json, which is what
+# the digest and the assistant's pwg_preferences tool read. It ran only on the
+# hourly tick, so a customer who imported and asked straight away got an empty
+# answer. Kick it here. The derive agent is kicked too, so the "What you like"
+# graph (read straight from the graph by the wiki and the derived route, not
+# through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
+# a missing agent never fails an import.
+_ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
+_ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc
 IMPORTEOF
 fi
@@ -27481,6 +27713,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
     com.ostler.enrich
+    com.ostler.derive-preferences
     com.creativemachines.ostler.assistant
     com.creativemachines.ostler.whatsapp-keepalive
     com.creativemachines.ostler.tailscaled
@@ -32784,7 +33017,7 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
     mkdir -p "$LICENSES_DEST"
     LICENSES_BASE="${NOTICES_BASE_URL}/LICENSES"
     LICENSES_FETCHED=0
-    for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
+    for f in Apache-2.0.txt AGPL-3.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
         if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
             LICENSES_FETCHED=$((LICENSES_FETCHED + 1))
         fi
