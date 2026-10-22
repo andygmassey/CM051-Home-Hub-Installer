@@ -9140,12 +9140,17 @@ def api_meeting_upcoming(within_minutes=120):
     # miss an event right at the boundary).
     days_lookahead = max(1, int((within_minutes + 1439) // 1440))
 
+    # In-process calendar read (CM041 #231): never HTTP-call our own port from
+    # a handler. CM051: an explicitly configured CALENDAR_API_URL names a
+    # different calendar source and is still read over HTTP by the brief; the
+    # default resolves to this server's own /api/v1/calendar, which is
+    # build_calendar_response, so it is read in-process.
+    _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
+                 else _calendar_events_in_process)
     try:
-        # In-process calendar read: never HTTP-call our own port from a
-        # handler (single-threaded server, and the call carries no token).
         all_briefs = _brief.pre_meeting_brief(
             days=days_lookahead,
-            events_provider=_calendar_events_in_process,
+            events_provider=_provider,
         )
     except Exception as exc:
         return {

@@ -3,8 +3,10 @@ vendored ical-server (vendor/cm041/assistant_api/ical-server.py) as a
 subprocess, with only the stores stubbed:
 
   * CM041 #231: /api/v1/meeting/upcoming reads the calendar IN-PROCESS. The
-    brief's calendar URL is pointed at a dead port, so a server that still
+    brief's default calendar URL is not this server, so a server that still
     HTTP-calls /calendar for the brief degrades; the in-process read does not.
+    (An explicitly set CALENDAR_API_URL keeps the HTTP read; that seam is
+    covered by tests/test_meeting_brief_real_hub.py.)
     With no calendar store at all it must say degraded (never an empty 200).
   * CM041 #232: /api/v1/commitments serves a per-row privacy_level
     (tagged -> that level, untagged -> L2, unparseable -> L3).
@@ -13,7 +15,7 @@ subprocess, with only the stores stubbed:
 
 Synthetic data only (example.com, a placeholder owner id). Red on the
 pre-re-vendor tree: the derived route 404s, commitments carry no
-privacy_level, and meeting/upcoming degrades on the dead calendar URL.
+privacy_level, and meeting/upcoming degrades on the brief's HTTP calendar read.
 """
 from __future__ import annotations
 
@@ -91,6 +93,10 @@ def _start(fda_dir):
     port = _free_port()
     env = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
     env.pop("OSTLER_DB_KEY", None)
+    # No CALENDAR_API_URL: the brief's default HTTP target is 127.0.0.1:8090,
+    # which is NOT this server (it listens on a free port), so only an
+    # in-process read of this server's calendar can succeed.
+    env.pop("CALENDAR_API_URL", None)
     edge_url = "http://127.0.0.1:%d" % edge_port
     env.update({
         "OSTLER_API_PORT": str(port), "OXIGRAPH_URL": edge_url,
@@ -101,9 +107,6 @@ def _start(fda_dir):
         "WIKI_BASE_URL": "http://wiki.example",
         "OSTLER_FDA_IMPORT_DIR": str(fda_dir),
         "ICAL_SCRIPT": str(work / "no-such-ical-script"),
-        # The brief's HTTP calendar target is a dead port: only an in-process
-        # read can succeed.
-        "CALENDAR_API_URL": "http://127.0.0.1:9/api/v1",
         "PYTHONPATH": os.pathsep.join([str(ROOT / "vendor/cm041"), str(ROOT / "vendor")]),
     })
     proc = subprocess.Popen([sys.executable, str(SERVER)], env=env, cwd=str(SERVER.parent),

@@ -326,8 +326,11 @@ past the upstream scrub a0f3ca19.
 TAKEN FROM UPSTREAM (no longer a divergence): #84 module logger, #149
 trust_env formatting, #120 contact_type into the Qdrant payload, #138
 qdrant_collection.py self-create (new file), #164 last_contact bare-index fix,
-#172 a failed read never overwrites richer data, #109 modules
-(given_name_variants, identifier_quality, name_election, role_addresses).
+#172 a failed read never overwrites richer data.
+
+NOT VENDORED, now declared in `exclude`: the #109 modules given_name_variants,
+identifier_quality, name_election, role_addresses. Nothing in the vendored
+contact_syncer imports them (0 importers), as recorded at the v1.0.19 hold.
 
 KEPT (CM051-side, still needed):
 - #108 settling producer is NOT taken. install.sh owns the `contacts` settling
