@@ -40833,7 +40833,7 @@ else
     fi
 fi
 
-# ── Included Pro activation (G2; the name is historical) ──────────
+# ── First-month-free subscription activation (G2) ─────────────────
 #
 # The GUI verified the customer's Ed25519-signed licence file before
 # exec'ing this script (see the "Licence / activation check" block

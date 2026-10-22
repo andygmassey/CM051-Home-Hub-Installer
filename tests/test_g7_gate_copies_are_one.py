@@ -10,7 +10,7 @@ is copied rather than shared. Copies in this repo:
   ostler_fda sources: the Google Takeout Chat export, Notion, Linear, GitHub)
 
 This test fails if any copy drifts from the others, or from the pinned digest
-(CM052 main 1ec0578, 2026-10-19; HR015 ostler_fda/tests/
+(CM051 founders plan, over CM052 main 1ec0578, 2026-10-23; HR015 ostler_fda/tests/
 test_subscription_gate_parity.py pins the same digest). To change the gate,
 change the CM052 source, re-copy it byte for byte to every path below, and
 re-pin in the same change.
@@ -41,7 +41,7 @@ COPIES = (
     REPO / "vendor" / "ostler_fda" / "subscription_gate.py",
 )
 FDA_GATE = COPIES[2]
-PINNED_SHA256 = "cc5b8989c9e5d8cd8af5b0ef2ff589e8276dd36c51b85635cf76f9923b3ac14d"
+PINNED_SHA256 = "0e76100b076bd6b5581b5f85812c51c94efb9cdf2d59007b0848b4223f807ae9"
 
 
 def _env(state: Path) -> dict:

@@ -4,11 +4,12 @@
 #
 # Locks the install.sh G2 first-month-free activation block. This test
 # verifies the post-licence-verification subscription activation that
-# wires every fresh Hub install to 30 days of Ostler Pro per the G0
-# subscription_gate contract (CM051 PR #190).
+# wires every fresh Hub install to its included Ostler Pro window (3 months
+# standard, 6 founding, from the licence plan) per the G0 subscription_gate
+# contract (CM051 PR #190).
 #
 # Why this test exists:
-#   - The activation is the customer's only path to the first 30 days
+#   - The activation is the customer's only path to the included months
 #     of Pro. A regression silently breaks the trial without any obvious
 #     symptom -- the Hub installs cleanly, the customer never knows.
 #   - The non-fatal posture (warn-only on failure) must hold so a broken
@@ -18,7 +19,8 @@
 #   1. activate_first_month_free() writes a JSON state file when called
 #      with a synthetic OSTLER_SUBSCRIPTION_STATE override.
 #   2. The state has status=active, source=first_month_free, and an
-#      expires_at ~30 days in the future.
+#      expires_at ~3 calendar months in the future (no plan named is
+#      standard, never founding).
 #   3. install.sh contains the activation block + the 4 G2 MSG_* keys
 #      are present in the en-GB strings catalogue.
 #   4. install.sh structural sanity (still parses with bash -n).
@@ -99,15 +101,20 @@ done
 # Locked 2026-05-27 (project_pricing_v1_0_locked_2026-05-27): USD is
 # canonical for v1.0; GBP / £ must not appear in customer copy.
 pricing=$(grep '^MSG_INFO_SUBSCRIPTION_PRICING_HINT=' "$STRINGS_FILE")
-if ! grep -q '9.99 USD' <<<"$pricing"; then
-    echo "FAIL [i18n]: pricing hint must use '9.99 USD' (USD-canonical v1.0)" >&2
+if ! grep -qF '$9.99/month' <<<"$pricing"; then
+    echo "FAIL [i18n]: pricing hint must say '\$9.99/month' (USD-canonical v1.0)" >&2
+    exit 1
+fi
+# Auto-renew is disclosed plainly, never opt-in phrasing (Andy, 2026-10-18).
+if ! grep -qF 'Cancel anytime in Settings' <<<"$pricing" || ! grep -qF 'Save with yearly: \$79' <<<"$pricing"; then
+    echo "FAIL [copy]: pricing hint must disclose renewal, cancel and yearly price" >&2
     exit 1
 fi
 if echo "$pricing" | LC_ALL=C grep -qE 'GBP|\xc2\xa3'; then
     echo "FAIL [i18n]: pricing hint must not contain GBP or £ (USD-canonical v1.0)" >&2
     exit 1
 fi
-echo "PASS: pricing hint uses 9.99 USD"
+echo "PASS: pricing hint uses \$9.99/month and discloses renewal"
 
 # ── No-em-dash check on G2 strings ─────────────────────────────
 for key in \
@@ -167,17 +174,17 @@ expires_iso = state.get("expires_at")
 assert expires_iso, "expires_at missing"
 expires = datetime.fromisoformat(expires_iso.replace("Z", "+00:00"))
 delta_days = (expires - datetime.now(timezone.utc)).days
-# 30 days +/- 1 day tolerance for clock jitter at the boundary
-assert 28 <= delta_days <= 31, f"expires_at not ~30 days out: {delta_days} days"
-print(f"PASS: expires_at ~30 days out ({delta_days} days)")
+# 3 calendar months is 89..92 days; -1 for the floor of .days
+assert 88 <= delta_days <= 92, f"expires_at not ~3 months out: {delta_days} days"
+print(f"PASS: expires_at ~3 months out ({delta_days} days)")
 
 grace_iso = state.get("grace_period_end")
 assert grace_iso, "grace_period_end missing"
 grace = datetime.fromisoformat(grace_iso.replace("Z", "+00:00"))
 grace_delta = (grace - datetime.now(timezone.utc)).days
-# 30 + 14 grace = ~44 days; +/- 1 day tolerance
-assert 42 <= grace_delta <= 45, f"grace_period_end not ~44 days out: {grace_delta} days"
-print(f"PASS: grace_period_end ~44 days out ({grace_delta} days)")
+# 3 months + 14 grace = 103..106 days
+assert 102 <= grace_delta <= 106, f"grace_period_end not ~105 days out: {grace_delta} days"
+print(f"PASS: grace_period_end ~105 days out ({grace_delta} days)")
 PYEOF
 
 echo ""

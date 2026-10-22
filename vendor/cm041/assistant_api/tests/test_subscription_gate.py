@@ -55,6 +55,7 @@ from subscription_gate import (  # noqa: E402
     expire_check,
     is_active_or_grace,
     refresh_from_companion,
+    _add_months,
     state_dict,
 )
 
@@ -96,7 +97,7 @@ class TestDefaultState(SubscriptionGateTestCase):
 
 
 class TestFirstMonthFree(SubscriptionGateTestCase):
-    def test_activate_writes_active_state_with_30d_expiry(self) -> None:
+    def test_activate_default_is_standard_three_calendar_months(self) -> None:
         # Purchase date is RELATIVE to now, because an install happens now.
         # It used to be the literal datetime(2026, 5, 27) -- the day the
         # test was written -- and the final assertion below claimed that
@@ -115,7 +116,9 @@ class TestFirstMonthFree(SubscriptionGateTestCase):
         self.assertEqual(snapshot["source"], "first_month_free")
 
         expires = datetime.fromisoformat(snapshot["expires_at"].replace("Z", "+00:00"))
-        self.assertEqual(expires - purchase, timedelta(days=30))
+        # No plan named -> standard -> 3 calendar months. NEVER founding.
+        self.assertEqual(snapshot["included_plan"], "standard")
+        self.assertEqual(expires, _add_months(purchase, 3))
 
         grace_end = datetime.fromisoformat(snapshot["grace_period_end"].replace("Z", "+00:00"))
         self.assertEqual(grace_end - expires, timedelta(days=GRACE_DAYS))
@@ -126,18 +129,75 @@ class TestFirstMonthFree(SubscriptionGateTestCase):
     def test_activate_with_garbage_date_falls_back_to_now(self) -> None:
         """install.sh should never write a broken state, even if it
         somehow passes garbage. Defensive fallback uses now() so the
-        customer always gets at least 30 days from when the install
+        customer always gets the standard window from when the install
         actually ran.
         """
         activate_first_month_free("not-an-iso-date")
         snapshot = state_dict()
         self.assertEqual(snapshot["status"], STATUS_ACTIVE)
         # We can't assert the exact date, but the expires_at should be
-        # parseable and ~30 days from now.
+        # parseable and ~3 months (89..92 days) from now.
         expires = datetime.fromisoformat(snapshot["expires_at"].replace("Z", "+00:00"))
         delta = expires - datetime.now(timezone.utc)
-        self.assertGreater(delta, timedelta(days=29))
-        self.assertLess(delta, timedelta(days=31))
+        self.assertGreater(delta, timedelta(days=88))
+        self.assertLess(delta, timedelta(days=93))
+
+
+class TestIncludedPlan(SubscriptionGateTestCase):
+    """Founders (2026-10-23): the window follows the licence's plan, and
+    nothing defaults to founding."""
+
+    def _expires(self) -> datetime:
+        return datetime.fromisoformat(state_dict()["expires_at"].replace("Z", "+00:00"))
+
+    def test_founding_is_six_calendar_months(self) -> None:
+        purchase = datetime.now(timezone.utc)
+        activate_first_month_free(_iso(purchase), included_plan="founding")
+        self.assertEqual(state_dict()["included_plan"], "founding")
+        self.assertEqual(self._expires(), _add_months(purchase, 6))
+
+    def test_standard_is_three_calendar_months(self) -> None:
+        purchase = datetime.now(timezone.utc)
+        activate_first_month_free(_iso(purchase), included_plan="standard")
+        self.assertEqual(self._expires(), _add_months(purchase, 3))
+
+    def test_nothing_defaults_to_founding(self) -> None:
+        purchase = datetime.now(timezone.utc)
+        for raw in (None, "", "gold", "FOUNDERS", 7, {"plan": "founding"}, "founding-ish"):
+            self.state_path.unlink(missing_ok=True)
+            activate_first_month_free(_iso(purchase), included_plan=raw)  # type: ignore[arg-type]
+            self.assertEqual(state_dict()["included_plan"], "standard", repr(raw))
+            self.assertEqual(self._expires(), _add_months(purchase, 3), repr(raw))
+
+    def test_plan_match_is_case_insensitive_and_trimmed(self) -> None:
+        purchase = datetime.now(timezone.utc)
+        activate_first_month_free(_iso(purchase), included_plan=" Founding ")
+        self.assertEqual(self._expires(), _add_months(purchase, 6))
+
+    def test_month_end_is_clamped_not_overflowed(self) -> None:
+        self.assertEqual(
+            _add_months(datetime(2026, 8, 31, tzinfo=timezone.utc), 6),
+            datetime(2027, 2, 28, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            _add_months(datetime(2026, 11, 30, tzinfo=timezone.utc), 3),
+            datetime(2027, 2, 28, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            _add_months(datetime(2026, 10, 31, tzinfo=timezone.utc), 6),
+            datetime(2027, 4, 30, tzinfo=timezone.utc),
+        )
+
+    def test_a_founder_on_day_93_still_has_pro_and_loses_it_after_six_months(self) -> None:
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc) - timedelta(days=93)), included_plan="founding"
+        )
+        self.assertTrue(is_active_or_grace())
+        self.state_path.unlink()
+        activate_first_month_free(
+            _iso(datetime.now(timezone.utc) - timedelta(days=186)), included_plan="founding"
+        )
+        self.assertFalse(is_active_or_grace())
 
 
 class TestRefreshFromCompanion(SubscriptionGateTestCase):
@@ -409,32 +469,32 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
             _iso(datetime.now(timezone.utc) - timedelta(days=days))
         )
 
-    def test_a_buyer_who_never_subscribes_loses_pro_on_day_31(self) -> None:
+    def test_a_buyer_who_never_subscribes_loses_pro_on_day_93(self) -> None:
         """Bought the Hub, took the free month, never subscribed.
 
-        On day 31 ongoing intelligence stops. No grace: the 14-day
+        On day 93 (past the standard 3 months) ongoing intelligence stops. No grace: the 14-day
         cushion is for people who have paid, per Andy 2026-07-31.
         """
-        self._install_days_ago(31)
+        self._install_days_ago(93)
         self.assertFalse(
             is_active_or_grace(),
-            "A Hub buyer 31 days in who never paid for Pro still has it. "
+            "A Hub buyer 93 days in who never paid for Pro still has it. "
             "This is the defect: every buyer got Pro free forever.",
         )
         self.assertEqual(state_dict()["status"], STATUS_INACTIVE)
 
-    def test_that_buyer_still_has_pro_on_day_29(self) -> None:
-        """The free month is a real month. Do not clip it."""
-        self._install_days_ago(29)
+    def test_that_buyer_still_has_pro_on_day_85(self) -> None:
+        """The included three months are real months. Do not clip them."""
+        self._install_days_ago(85)
         self.assertTrue(is_active_or_grace())
 
-    def test_that_buyer_gets_no_grace_fortnight_on_day_40(self) -> None:
-        """Day 40 is inside the 14-day grace window on paper.
+    def test_that_buyer_gets_no_grace_fortnight_on_day_100(self) -> None:
+        """Day 100 is inside the 14-day grace window on paper.
 
         A never-paid trialist must not get it, or the free month is a
         free 44 days and the reinstall loop makes it free forever.
         """
-        self._install_days_ago(40)
+        self._install_days_ago(100)
         self.assertFalse(is_active_or_grace())
 
     def test_that_buyer_cannot_farm_a_second_month_by_reinstalling(self) -> None:
@@ -444,7 +504,7 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
         bit must still read false, so the second month also ends on time
         rather than compounding into a grace window.
         """
-        self._install_days_ago(40)
+        self._install_days_ago(100)
         self.state_path.unlink()
         self._install_days_ago(0)
         self.assertTrue(is_active_or_grace())
@@ -527,7 +587,7 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
         a denominator of everybody. Gate it on has_ever_paid or the
         day-31 fix is undone by the branch below it.
         """
-        self._install_days_ago(31)
+        self._install_days_ago(93)
         state = state_dict()
         state["last_validated_at"] = _iso(datetime.now(timezone.utc))
         self._write_raw(state)
@@ -594,7 +654,7 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
         status must not be the authority, or we ship this defect again
         the first time a plist fails to bootstrap.
         """
-        self._install_days_ago(31)
+        self._install_days_ago(93)
         self.assertEqual(json.loads(self.state_path.read_text())["status"],
                          STATUS_ACTIVE)
         self.assertFalse(is_active_or_grace())
@@ -603,7 +663,7 @@ class TestTheCustomerOnDayThirtyOne(SubscriptionGateTestCase):
 
     def test_a_read_only_state_dir_still_expires_the_trial(self) -> None:
         """The decision must not depend on the write-back succeeding."""
-        self._install_days_ago(31)
+        self._install_days_ago(93)
         os.chmod(self.state_path, 0o444)
         os.chmod(self.state_path.parent, 0o555)
         try:
