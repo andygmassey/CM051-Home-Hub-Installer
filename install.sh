@@ -3633,7 +3633,7 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8922) captures the path BY
+    # _ostler_write_store_curl_config (defined :8939) captures the path BY
     # VALUE and never re-reads it:
     #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
@@ -3670,7 +3670,7 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6251 against a definition at :8922. Top-level
+    # writer's own definition: :6268 against a definition at :8939. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
@@ -3705,6 +3705,23 @@ _ostler_promote_prelaunch_tree() {
     fi
 
     OSTLER_PRELAUNCH_PROMOTED=true
+
+    # POST-PROMOTE ASSERTION: a consent decision recorded this run must have
+    # survived the replace above. The persist block (3.6b) once wrote into the
+    # final posture/ while staged, and the promote then replaced posture/ with
+    # the staged copy: every record lost, install reported ok (v1.0.116).
+    if [[ -n "${_OSTLER_CONSENT_RECORDED_TICKBOXES:-}" ]]; then
+        local _cp_tb _cp_file="${OSTLER_FINAL_DIR}/posture/consent.json"
+        if [[ ! -s "$_cp_file" ]]; then
+            err "Consent was recorded during this install but ${_cp_file} is missing after the staging promote. The consent records were lost."  # i18n-exempt
+        else
+            for _cp_tb in $_OSTLER_CONSENT_RECORDED_TICKBOXES; do
+                if ! /usr/bin/grep -q -F "\"${_cp_tb}\"" "$_cp_file"; then
+                    err "Consent tickbox ${_cp_tb} was recorded during this install but is absent from ${_cp_file} after the staging promote."  # i18n-exempt
+                fi
+            done
+        fi
+    fi
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
     #
@@ -18367,7 +18384,13 @@ if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # design (block header above), so this changes only HOW a failure is shown,
     # not the step's ok status.
     _region_stderr="$(mktemp)"
-    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
+    # OSTLER_HOME="${OSTLER_DIR}": save_region() and consent_cli resolve their
+    # posture/ dir from OSTLER_HOME (vendor/ostler_security/consent.py:70), which
+    # defaults to the FINAL ~/.ostler. This block runs while OSTLER_DIR is still
+    # the prelaunch staging tree, and the promote then rm -rf's the final
+    # posture/ and replaces it with the staged one. Writing to the final dir
+    # here lost consent.json and region.json on every fresh install (v1.0.116).
+    if ! OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -18407,13 +18430,15 @@ PY
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
         local stderr_file
         stderr_file=$(mktemp)
-        if USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
+        if OSTLER_HOME="${OSTLER_DIR}" \
+           USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
            "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
                 --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
+            _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then

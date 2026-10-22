@@ -227,6 +227,7 @@ test_confirm_identity_helper.py	WIRED	.github/workflows/install-gui-contract.yml
 test_connect_whatsapp_is_on_the_first_screen.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_console_only_register_names_real_probes.py	WIRED	.github/workflows/walk-record-gate.yml
