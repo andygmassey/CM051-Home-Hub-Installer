@@ -59,7 +59,10 @@ class Store:
         return [p for p in self.points if not categories or p["payload"]["category"] in categories]
 
     def sparql(self, q):
-        pred = re.search(r"enrichment/ontology#(\w+)>", q).group(1)
+        mp = re.search(r"enrichment/ontology#(\w+)>", q)
+        if mp is None:
+            return []   # not an overlay query: the stated readers ask the fact store, which has no rows here
+        pred = mp.group(1)
         return [{"s": {"value": PREF_URN_PREFIX + pid}, "label": {"value": lab},
                  "conf": {"value": "0.9"}} for pid, lab in self.tags.get(pred, [])]
 
