@@ -33,11 +33,12 @@ mkos red7 'echo "  [PASS] arm 6: stub"; echo "  [FAIL] arm 7: stub moved"; exit 
 mkos cannot 'echo "  [CANNOT-RUN] arm 6: stub no checkout"; echo "  [PASS] arm 7: stub"; exit 2'
 mkos noarms 'echo "  [PASS] arm 1: stub"; exit 0'
 mkos exit0_fail6 'echo "  [FAIL] arm 6: stub"; echo "  [PASS] arm 7: stub"; exit 0'
+mkos exit0_fail7 'echo "  [PASS] arm 6: stub"; echo "  [FAIL] arm 7: stub"; exit 0'
 
 out=$(run "$T/green" "$S"); rc=$?
 [ $rc -eq 0 ] && grep -q "model pins (arms 6 and 7): GREEN" <<<"$out" && grep -q "DRY-RUN: git tag v1.0.99999 $H" <<<"$out" && ok "a green gate reaches the push" || { no "green gate did not reach the push"; echo "$out" | tail -6; }
 grep -q "ref=$H" <<<"$out" && ok "the gate was handed the SHA being tagged as OSTLER_CM051_REF" || no "gate not told the tag SHA"
-for n in red6 red7 cannot noarms exit0_fail6; do
+for n in red6 red7 cannot noarms exit0_fail6 exit0_fail7; do
   out=$(run "$T/$n" "$S"); rc=$?
   [ $rc -ne 0 ] && grep -q "REFUSED. The model-pin gate" <<<"$out" && ! grep -q DRY-RUN <<<"$out" && ok "$n refuses and pushes nothing" || { no "$n did not refuse"; echo "$out" | tail -4; }
 done
@@ -72,4 +73,9 @@ out=$(env -u OSTLER_PRETAG_MODELPINS -u OSTLER_PRETAG_OS003_PIN HOME="$T/emptyho
 m=$(mktemp); sed 's/if \[ "\$mprc" -ne 0 \] || /if false \&\& /' "$S" > "$m"
 if cmp -s "$S" "$m"; then no "mutant did not apply"; else
   out=$(run "$T/red6" "$m"); [ $? -eq 0 ] && grep -q DRY-RUN <<<"$out" && ok "mutant ignoring the gate verdict is caught (it would have pushed)" || no "mutant survived"; fi
+# Mutant: drop the arm 7 PASS requirement. The exit-0 + arm 7 FAIL stub must then
+# slip through (push), which is what makes the case above a real check.
+m=$(mktemp); sed 's/ || ! grep -q .\\\[PASS\\\] arm 7. <<<"$mpout"//' "$S" > "$m"
+if cmp -s "$S" "$m"; then no "arm 7 mutant did not apply"; else
+  out=$(run "$T/exit0_fail7" "$m"); [ $? -eq 0 ] && grep -q DRY-RUN <<<"$out" && ok "mutant dropping the arm 7 check is caught (it would have pushed)" || no "arm 7 mutant survived"; fi
 rm -f "$m"; echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
