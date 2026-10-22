@@ -580,7 +580,9 @@ test_orphan_selftest_survives_a_wordy_gate.sh	WIRED	.github/workflows/orphan-gat
 test_os003_sync_defaults_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_osascript_dialogs_activate_system_events.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline.yml
+test_ostler_fda_instagram_dms_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_fda_staging_cleanup_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_ostler_fda_subscription_gate_parity_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml

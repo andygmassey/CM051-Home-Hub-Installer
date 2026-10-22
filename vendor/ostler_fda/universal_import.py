@@ -339,6 +339,87 @@ def _is_facebook_activity_dirname(name: str) -> bool:
     return "facebook" in lower and "activity" in lower
 
 
+# Instagram DYI markers. A flat ``messages/inbox`` tree is identical in a
+# Facebook and an Instagram export, so a bare directory name (or a bare file
+# name Facebook could also use) is NOT evidence: Facebook exports carry their
+# own ``connections/`` and ``personal_information/`` trees. Each marker is a
+# FILE plus a CONTENT key only Instagram writes:
+#   * the owner profile: ``profile_user[0].string_map_data`` with a
+#     ``Username`` entry (Facebook's profile file is ``profile_v2``);
+#   * the following list: top-level ``relationships_following``.
+# UNVERIFIED against a real export: built from Meta's documented layout
+# (see ostler_fda/instagram_dms.py).
+_INSTAGRAM_PROFILE_FILES = (
+    "personal_information/personal_information/personal_information.json",
+    "personal_information/personal_information.json",
+)
+_INSTAGRAM_FOLLOWING_FILES = (
+    "connections/followers_and_following/following.json",
+    "followers_and_following/following.json",
+)
+
+
+def _load_small_json(path: Path, max_bytes: int = 2_000_000):
+    try:
+        if not path.is_file() or path.stat().st_size > max_bytes:
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _has_instagram_marker(root: Path) -> Optional[str]:
+    """The Instagram-only marker file found under ``root``, or None."""
+    for rel in _INSTAGRAM_PROFILE_FILES:
+        data = _load_small_json(root / rel)
+        users = data.get("profile_user") if isinstance(data, dict) else None
+        if (isinstance(users, list) and users and isinstance(users[0], dict)
+                and isinstance(users[0].get("string_map_data"), dict)
+                and "Username" in users[0]["string_map_data"]):
+            return rel
+    for rel in _INSTAGRAM_FOLLOWING_FILES:
+        data = _load_small_json(root / rel)
+        if isinstance(data, dict) and "relationships_following" in data:
+            return rel
+    return None
+
+
+def _is_instagram_activity_dirname(name: str) -> bool:
+    lower = name.lower()
+    return "instagram" in lower and "activity" in lower
+
+
+def _detect_instagram(root: Path) -> Optional[Detection]:
+    # Instagram DYI: same per-thread JSON as Messenger, so this runs BEFORE
+    # _detect_facebook and needs a positive Instagram signal: either an
+    # ``your_instagram_activity`` root, or a flat ``messages/inbox`` tree next
+    # to an Instagram-only marker. Without this, an older Instagram export
+    # (flat ``messages/inbox``) is claimed by the Facebook detector and its
+    # DMs land under the wrong channel.
+    candidates = []
+    try:
+        for child in root.iterdir():
+            if child.is_dir() and _is_instagram_activity_dirname(child.name):
+                candidates.append((child / "messages" / "inbox", f"{child.name}/messages/inbox"))
+    except OSError:
+        pass
+    marker = _has_instagram_marker(root)
+    if marker:
+        candidates.append((root / "messages" / "inbox", f"messages/inbox + Instagram marker {marker}"))
+    for inbox, where in candidates:
+        if not inbox.is_dir():
+            continue
+        msg = _find_first(inbox, "message_1.json", budget=5000)
+        if msg and _json_has_keys(msg, ("participants", "messages")):
+            return Detection(
+                format="instagram_dms",
+                confidence=1.0,
+                signal=f"{where}/<thread>/message_1.json with participants+messages keys",
+                route_path=root,
+            )
+    return None
+
+
 def _detect_facebook(root: Path) -> Optional[Detection]:
     # Facebook DYI: messages/inbox/<thread>/message_1.json with
     # participants + messages keys.
@@ -568,6 +649,7 @@ def _detect_markdown_collection(root: Path) -> Optional[Detection]:
 
 # Order is load-bearing: most specific structural signatures first.
 _DETECTORS: List[Callable[[Path], Optional[Detection]]] = [
+    _detect_instagram,  # before facebook: same JSON shape, see _detect_instagram
     _detect_facebook,
     _detect_apple_notes,
     _detect_whatsapp_sqlite,
@@ -886,6 +968,28 @@ def _stage_then_persist(
     if not keep and staged.exists():
         staged.unlink()
     return {**persist, "staging_kept": keep, "staging_l3_withheld": withheld}
+
+
+def _dispatch_instagram(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    """Instagram DMs: parse with instagram_dms (which reuses the Messenger
+    parser), stage, then persist through the SAME CM048 sink as Messenger."""
+    from . import instagram_dms as igd
+
+    threads = igd.parse_export(export_root=detection.route_path)
+    stats = igd.conversation_stats(threads)
+    payloads = igd.ingestible_payloads(threads)
+    persist = _stage_then_persist(
+        payloads, igd.OUTPUT_FILENAME, "instagram_dms", output_dir=output_dir
+    )
+    return {
+        "status": "ok",
+        "dispatched": "instagram_dms",
+        "summary": {
+            **stats,
+            "message_requests_skipped": igd.count_message_requests(detection.route_path),
+        },
+        **persist,
+    }
 
 
 def _dispatch_facebook(detection: Detection, *, output_dir: Optional[Path]) -> dict:
@@ -2017,6 +2121,7 @@ def _dispatch_knowledge(detection: Detection, *, output_dir: Optional[Path]) -> 
 
 
 _DISPATCH: dict = {
+    "instagram_dms": _dispatch_instagram,
     "facebook_messenger": _dispatch_facebook,
     "whatsapp_sqlite": _dispatch_whatsapp_sqlite,
     "apple_notes_sqlite": _dispatch_apple_notes,
