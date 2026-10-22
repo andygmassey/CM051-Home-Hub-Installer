@@ -2535,7 +2535,7 @@ doc = {
     "offer_code": os.environ.get("OSTLER_OFFER_CODE") or None,
     "redeem_url": os.environ.get("OSTLER_PRO_OFFER_URL") or None,
     "founder_number": int(os.environ["OSTLER_FOUNDER_NUMBER"]) if os.environ.get("OSTLER_FOUNDER_NUMBER") else None,
-}
+    }
 tmp = sys.argv[1] + ".tmp"
 fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as handle:
@@ -3033,6 +3033,7 @@ fi
 # with no licence still refuses.
 if [[ "${OSTLER_TEST_STOP_AFTER_LICENCE_GATE:-0}" == "1" ]]; then
     echo "OSTLER_TEST: licence gate passed, stopping before install."  # i18n-exempt
+    echo "OSTLER_TEST: included_plan=${OSTLER_INCLUDED_PLAN} source=${OSTLER_INCLUDED_PLAN_SOURCE} offer_code=${OSTLER_OFFER_CODE} founder_number=${OSTLER_FOUNDER_NUMBER}"  # i18n-exempt
     exit 0
 fi
 
