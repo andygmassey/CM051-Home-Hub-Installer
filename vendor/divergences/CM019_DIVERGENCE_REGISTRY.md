@@ -245,6 +245,16 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### food evidence -- restaurants, cuisines, what you buy (ahead of the pin; personal-world-graph food PR on #422)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`,
+`services/enrich/src/derive/{cuisine_vocab,cuisine_local_model}.py`. Changed: `derive/vocab/cuisine.yaml`
+(more spellings and menu words; the ONE shared cuisine table), `derive/{readers,dimensions}.yaml`
+(food.cuisine lexicon rows on `extra.cuisine`/`extra.cuisine_inferred`, new food.item),
+`enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
+`ingest/src/{pipeline,parsers/__init__}.py` (register the parser). Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 food evidence".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

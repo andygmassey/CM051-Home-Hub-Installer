@@ -40,6 +40,9 @@ on:
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_vendored_food_evidence_reaches_smart_preferences.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
@@ -85,6 +88,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_tiers_and_rollup.py
+      - name: Food evidence reaches Smart Preferences (restaurants, cuisines, what you buy)
+        # ingest_food stages only the claimed extracts, the parser output derives
+        # through the vendored registry, a diet signal stays private, and the OSM
+        # lookup makes zero requests unless the owner accepted enrichment.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
+          python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py

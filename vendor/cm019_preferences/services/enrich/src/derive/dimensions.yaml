@@ -220,3 +220,10 @@
   tier: specific
   min_evidence: 4        # the proof that a new dimension is a config row; no live source yet
   max_items: 20
+
+- dimension: food.item
+  label: "Food you buy or order"
+  category: food
+  tier: specific
+  min_evidence: 3
+  max_items: 30
