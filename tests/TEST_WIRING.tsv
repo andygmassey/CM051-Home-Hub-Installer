@@ -903,6 +903,7 @@ test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
 test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
+test_vendored_cm041_revendor_07a22b4c_routes.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_vendored_cm059_frontpage_holds_back_consent_cards.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
