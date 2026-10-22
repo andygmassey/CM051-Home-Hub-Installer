@@ -245,6 +245,10 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### smart-prefs -- stated conversation preferences (ahead of the pin; personal-world-graph #423, stacked on #427)
+
+`derive/stated.py`, `derive/stated_messages.py`, `derive/stated_model.py` and `derive/stated_vocab.yaml` are new, and `derive/{config,engine,model,query,endpoint,consume,writer}.py`, `dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are changed again, byte-identical to #423's head. Cuisines map through the shared `vocab/cuisine.yaml` (#427). Not a divergence from intent: re-pin when #423 merges. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs stated".
+
 ### food evidence -- restaurants, cuisines, what you buy (ahead of the pin; personal-world-graph food PR on #422)
 
 New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`,
