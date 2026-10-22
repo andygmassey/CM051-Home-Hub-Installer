@@ -57,10 +57,10 @@ class Oxigraph(BaseHTTPRequestHandler):
         rows = []
         if "DerivedPreference" in q and STATE["derived"] == "one":
             rows = [{"s": "urn:example:derived/1", "dimension": "genre",
-                     "subject": "Synthetic Jazz", "strength": "0.8",
+                     "subject": "synthetic jazz", "strength": "0.8",
                      "confidence": "0.9", "intensity": "keen"}]
         elif "derivedFrom" in q:
-            rows = [{"title": "Example Album"}]
+            rows = [{"title": "example album"}]
         elif "OutstandingTodo" in q:
             base = {"owner": "user", "status": "open", "deadline": "2026-12-01",
                     "source": "2026-10-01", "createdAt": "2026-10-01T00:00:00Z"}
@@ -185,8 +185,8 @@ def test_derived_preferences_route_serves_the_graph(server):
     code, body = get(server, "/api/v1/preferences/derived")
     assert code == 200
     assert body["degraded"] is False, body
-    assert [i["label"] for i in body["items"]] == ["Synthetic Jazz"]
-    assert body["items"][0]["because"] == ["Example Album"]
+    assert [i["label"] for i in body["items"]] == ["synthetic jazz"]
+    assert body["items"][0]["because"] == ["example album"]
 
 
 def test_derived_preferences_route_degrades_on_an_empty_graph(server):

@@ -2391,6 +2391,7 @@ nonperson	vendor/cm059_editor/compiler/interest_profile.py::ed1712d8189adcea	PRO
 # cm059_editor interest_profile.py (ORM 2026-10-21): a platform name in an upstream comment, PRODUCT.
 nonperson	vendor/cm059_editor/compiler/interest_profile.py::fcc24845717d3ab3	PRODUCT: the social platform name followed by the word watch in an upstream CM059 code comment describing the facebook_watched source weight; a product and a common noun, not a person.
 nonperson	vendor/cm019_preferences/services/enrich/src/cli.py::6259bfe5f6b92f31	PRODUCT: line 1007, the stderr banner that names the vendored CM019 topic-normalisation step by its product name, quoted in the source. It is the name of the shipped component, and the string is vendored verbatim from upstream, so renaming it would falsify the log line and diverge from upstream for no privacy gain.
+nonperson	vendor/cm041/contact_syncer/qdrant_collection.py::4608035f277e70b0	PRODUCT: line 1 of the module docstring, the words 'Shared' and 'Qdrant' (the vector store product). No person is named in the file; vendored from CM041 #138 on 2026-10-22.
 # smart-prefs graft (personal-world-graph 96ff272d, derive engine). These files
 # are vendored BYTE-IDENTICAL to upstream, so they are cleared here rather than
 # edited: a scrub of the vendored copy alone would diverge from source and write
@@ -2402,3 +2403,4 @@ phrase	dedicated qdrant	code comment "Dedicated Qdrant collection for the derive
 phrase	return qdrant	docstring "Return Qdrant points" in vendor/cm019_preferences/services/enrich/src/derive/readers.py; a verb plus the vector-store product, not a person
 phrase	blade runner	FILM TITLE ("Blade Runner 2049") in the shared derived-preferences contract example, byte-identical across CM019, CM041 and ostler-assistant (contract/derived_preferences_response.example.json); a public work, not a person, same precedent as the album and book titles above
 phrase	christopher nolan	PUBLIC FIGURE, deliberate: a film DIRECTOR value in the shared derived-preferences contract example (dimension media.film.director) and in model.py's field comment, the canonical example of what that dimension holds. Same precedent as the enrichment public-figure rows above. NOT a customer contact; the contract is byte-identical in three repos and renaming one copy breaks the pin
+phrase	configure	prose (CM041 contact_syncer/syncer.py logging comment, vendored 2026-10-22)
