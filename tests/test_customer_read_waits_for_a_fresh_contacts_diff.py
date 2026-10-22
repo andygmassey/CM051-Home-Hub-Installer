@@ -13,7 +13,9 @@ and a fake clock. Synthetic data only. Exit 0 all pass, 1 any fail.
 import copy
 import datetime as dt
 import os
+import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts", "box_walk_probes", "lib"))
@@ -143,6 +145,136 @@ def _():
     return bool(wait([dict(STALE, as_of=iso(SEED))], bound=60)[1]), None
 
 
+def _seed_block():
+    """The probe's own seed-time block, cut out of the real shell file."""
+    src = open(os.path.join(os.path.dirname(HERE), "scripts", "box_walk_probes", "probes",
+                            "hub_screens_customer_read.sh")).read()
+    if '    seed_unreadable=""' not in src:  # the pre-fix two-line block, so its behaviour is what fails
+        a = src.index('    box_run "cat')
+        b = src.index("\n", src.index("[ -s", a)) + 1
+        return src[a:b]
+    a = src.index('    seed_unreadable=""')
+    b = src.index("    esac\n", a) + len("    esac\n")
+    # plus the probe's own argument assembly for the collector
+    c = src.index('    [ "${seed_rc}" -eq 0 ]', b)
+    d = src.index("--seed-ts-unreadable", c)
+    d = src.index("\n", d) + 1
+    return src[a:b] + src[c:d]
+
+
+def probe_seed(mode, content=None):
+    """Run the real block with a box_run that executes the REAL remote command
+    locally against a temp HOME. mode: absent | file | dir (read error) | ssh (255)."""
+    with tempfile.TemporaryDirectory() as home:
+        seed = os.path.join(home, ".walk-contact-cards-seed-ts")
+        if mode == "file":
+            open(seed, "w").write(content)
+        elif mode == "dir":
+            os.mkdir(seed)
+        script = (
+            'seedf="$OUT/seed_ts.txt"\n'
+            'probe_note() { echo "NOTE: $*"; }\n'
+            'box_run() { if [ "$MODE" = ssh ]; then return 255; fi; HOME="$FAKEHOME" bash -c "$1" 2>/dev/null; }\n'
+            + _seed_block()
+            + 'echo "RC=${seed_rc} UNREADABLE=${seed_unreadable}"\necho "ARGS=$*"\n')
+        script = "set --\n" + script
+        r = subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True,
+                           env={"PATH": os.environ["PATH"], "OUT": home, "MODE": mode, "FAKEHOME": home})
+        return r.stdout
+
+
+@case("probe: seed file ABSENT keeps the 'refreshing only' note, not unreadable")
+def _():
+    o = probe_seed("absent")
+    return "refreshing only" in o and "UNREADABLE=\n" in o and "RC=4" in o, o
+
+
+@case("probe: ssh/box failure -> 'seed ts unreadable' (main: collapsed into 'no seed ts')")
+def _():
+    o = probe_seed("ssh")
+    return ("seed ts unreadable" in o and "CANNOT-RUN" in o and "refreshing only" not in o
+            and "ARGS=--seed-ts-unreadable seed ts unreadable" in o and "--seed-ts-file" not in o), o
+
+
+@case("probe: file present but read error -> 'seed ts unreadable'")
+def _():
+    o = probe_seed("dir")
+    return "seed ts unreadable" in o and "refreshing only" not in o, o
+
+
+@case("probe: readable file -> rc 0, no note, no unreadable")
+def _():
+    o = probe_seed("file", "1800000000\n")
+    return "RC=0 UNREADABLE=\n" in o and "NOTE" not in o and "ARGS=--seed-ts-file " in o, o
+
+
+@case("py: read_seed_ts_file good file -> (ts, None)")
+def _():
+    with tempfile.NamedTemporaryFile("w", suffix=".ts") as t:
+        t.write("1800000000\n")
+        t.flush()
+        return cr.read_seed_ts_file(t.name) == (1800000000.0, None), None
+
+
+@case("py: unparseable / empty / implausible seed file -> problem 'seed ts unparseable: ...', never silent None")
+def _():
+    outs = []
+    for body in ("garbage\n", "", "nan", "-5", "0"):
+        with tempfile.NamedTemporaryFile("w", suffix=".ts") as t:
+            t.write(body)
+            t.flush()
+            outs.append(cr.read_seed_ts_file(t.name))
+    return all(ts is None and p and p.startswith("seed ts unparseable: ") for ts, p in outs), outs
+
+
+@case("py: seed file missing on disk -> 'seed ts unreadable'")
+def _():
+    ts, p = cr.read_seed_ts_file("/nonexistent/seed.ts")
+    return ts is None and p.startswith("seed ts unreadable"), (ts, p)
+
+
+@case("judge: seed problem + duplicate -> CANNOT-RUN naming the problem, even if a card exists")
+def _():
+    v = verdict13({"duplicate_review_seed_problem": "seed ts unparseable: 'garbage' is not a number",
+                   "duplicate_review_as_of": iso(SEED + 60), "duplicate_review_refreshing": False}, ["447700900008"])
+    return v[1] is None and "seed ts unparseable" in v[2], v
+
+
+@case("judge: seed problem + missing card -> CANNOT-RUN, not FAIL")
+def _():
+    v = verdict13({"duplicate_review_seed_problem": "seed ts unreadable (box command rc=255)",
+                   "duplicate_review_as_of": iso(SEED + 60), "duplicate_review_refreshing": False}, [])
+    return v[1] is None and "seed ts unreadable" in v[2], v
+
+
+@case("end to end: CLI main() with an unparseable --seed-ts-file reaches collect with the problem")
+def _():
+    seen = {}
+    real = cr.collect
+    cr.collect = lambda *a, **k: (seen.update(k), (_ for _ in ()).throw(RuntimeError("stop")))[1]
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            for n, body in (("tok", "t"), ("seed", "garbage")):
+                open(os.path.join(d, n), "w").write(body)
+            argv = ["collect", "--base", "http://x", "--token-file", os.path.join(d, "tok"),
+                    "--out", d, "--seed-ts-file", os.path.join(d, "seed")]
+            try:
+                cr.main(argv)
+            except RuntimeError:
+                pass
+            seen1 = dict(seen)
+            argv2 = ["collect", "--base", "http://x", "--token-file", os.path.join(d, "tok"),
+                     "--out", d, "--seed-ts-unreadable", "seed ts unreadable (box command rc=255)"]
+            try:
+                cr.main(argv2)
+            except RuntimeError:
+                pass
+    finally:
+        cr.collect = real
+    return ("unparseable" in (seen1.get("seed_problem") or "") and seen1.get("seed_ts") is None
+            and "unreadable" in (seen.get("seed_problem") or "")), (seen1, seen)
+
+
 @case("wiring (static; collect needs a browser): seed time flows seed -> probe -> main -> collect -> wait")
 def _():
     root = os.path.dirname(HERE)
@@ -152,7 +284,9 @@ def _():
            ".walk-contact-cards-seed-ts" in rd("scripts", "box_walk_probes", "probes", "hub_screens_customer_read.sh")
            and "--seed-ts-file" in rd("scripts", "box_walk_probes", "probes", "hub_screens_customer_read.sh"),
            'a.get("--seed-ts-file")' in cr_src and "seed_ts=seed_ts" in cr_src,
-           "wait_for_fresh_diff(_fetch, seed_ts)" in cr_src)
+           "wait_for_fresh_diff(_fetch, seed_ts)" in cr_src,
+           "--seed-ts-unreadable" in rd("scripts", "box_walk_probes", "probes", "hub_screens_customer_read.sh")
+           and 'a.get("--seed-ts-unreadable")' in cr_src)
     return all(got), got
 
 

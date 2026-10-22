@@ -646,7 +646,13 @@ def judge(f, declared=None):
         diff_note = "; contacts/diff as_of={} refreshing={} seed_ts={}".format(
             f.get("duplicate_review_as_of"), f.get("duplicate_review_refreshing"),
             f.get("duplicate_review_seed_ts"))
-        if dup and stale:
+        seed_problem = f.get("duplicate_review_seed_problem")
+        if dup and seed_problem:
+            add(DECLARED[13], None,
+                "NOT MEASURED: {} duplicate number(s) found but {}; the report cannot be "
+                "checked for staleness, so reviewed-vs-silent cannot be told apart{}".format(
+                    len(dup), seed_problem, diff_note))
+        elif dup and stale:
             add(DECLARED[13], None,
                 "NOT MEASURED: {} duplicate number(s) found but the duplicate-review report is "
                 "stale ({}); reviewed-vs-silent cannot be told apart{}".format(len(dup), stale, diff_note))
@@ -1092,6 +1098,26 @@ def _diff_as_of_epoch(diff):
         return None
 
 
+def read_seed_ts_file(path):
+    """(seed_ts, problem) from the box-epoch seed-time file.
+
+    A file that cannot be read or parsed is a PROBLEM the verdict must carry
+    (duplicate arm CANNOT-RUN), never a silent seed_ts=None."""
+    try:
+        raw = open(path).read().strip()
+    except OSError as exc:
+        return None, "seed ts unreadable: {}".format(type(exc).__name__)
+    if not raw:
+        return None, "seed ts unparseable: file is empty"
+    try:
+        ts = float(raw)
+    except ValueError:
+        return None, "seed ts unparseable: {!r} is not a number".format(raw[:20])
+    if ts != ts or ts in (float("inf"), float("-inf")) or ts <= 0:
+        return None, "seed ts unparseable: {!r} is not a plausible epoch".format(raw[:20])
+    return ts, None
+
+
 def wait_for_fresh_diff(fetch, seed_ts, bound_s=DIFF_WAIT_S, poll_s=DIFF_POLL_S,
                         sleep=None, clock=None):
     """Poll fetch() (the /api/v1/contacts/diff body) until the report is settled and post-seed.
@@ -1123,7 +1149,7 @@ def wait_for_fresh_diff(fetch, seed_ts, bound_s=DIFF_WAIT_S, poll_s=DIFF_POLL_S,
         sleep(poll_s)
 
 
-def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None, seed_ts=None):
+def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None, seed_ts=None, seed_problem=None):
     import urllib.request
     from playwright.sync_api import sync_playwright
 
@@ -1484,6 +1510,8 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             f["duplicate_review_as_of"] = diff.get("as_of")
             f["duplicate_review_refreshing"] = diff.get("refreshing")
             f["duplicate_review_seed_ts"] = seed_ts
+            if seed_problem:
+                f["duplicate_review_seed_problem"] = seed_problem
             if stale:
                 f["duplicate_review_stale"] = stale
             # CM051 walk #3, item E: do NOT filter by evidence["strategy"].
@@ -2192,14 +2220,11 @@ def main(argv):
                         handles += [h.strip() for h in line.split(",") if h.strip()] if ("@" in line or re.search(r"\d{6,}", line)) else [line]
                 except Exception:
                     handles = []
-            seed_ts = None
+            seed_ts, seed_problem = None, a.get("--seed-ts-unreadable")
             if a.get("--seed-ts-file"):
-                try:
-                    seed_ts = float(open(a["--seed-ts-file"]).read().strip())
-                except (OSError, ValueError):
-                    seed_ts = None
+                seed_ts, seed_problem = read_seed_ts_file(a["--seed-ts-file"])
             facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"],
-                            self_handles=handles, seed_ts=seed_ts)
+                            self_handles=handles, seed_ts=seed_ts, seed_problem=seed_problem)
             if a.get("--owner-source"):
                 facts["owner_source"] = a["--owner-source"]
             if a.get("--freshness-file"):
