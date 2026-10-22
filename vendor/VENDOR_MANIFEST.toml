@@ -409,7 +409,7 @@ owner = "archie"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
-  pinned_sha = "2c1dde92d602518377001b9d13eaeb930074f81c"
+  pinned_sha = "f6b75bea4d9e154cd818fd24d3503635be97a6a8"
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
   # RETIRED 2026-10-18 (vendor drift reduction): unrecorded_divergence pointer and
   # vendor/divergences/cm048_pipeline.UNRECORDED.md removed. Measured: source@0190f448
