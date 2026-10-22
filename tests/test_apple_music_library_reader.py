@@ -25,6 +25,7 @@ import json
 import os
 import stat
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -424,7 +425,6 @@ def test_ingest_is_additive_only(tmp_path, monkeypatch):
 def _ladder_box(tmp_path, monkeypatch, pending):
     """Synthetic box for backfill_ladder.finish_pending_first_windows: home,
     state dir and XML path all under tmp, no helper, no grant, ingest stubbed."""
-    from ostler_fda import pwg_ingest
     state = tmp_path / "state"
     state.mkdir()
     for src in pending:
@@ -434,7 +434,13 @@ def _ladder_box(tmp_path, monkeypatch, pending):
     (tmp_path / "home").mkdir(exist_ok=True)
     monkeypatch.delenv("OSTLER_MUSIC_LIBRARY_HELPER", raising=False)
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(tmp_path / "no-such-library.xml"))
-    monkeypatch.setattr(pwg_ingest, "ingest_all", lambda *_a, **_k: {})
+    # Replace the whole module, not just ingest_all: the real one imports
+    # httpx and phonenumbers at the top, which the CI job does not install
+    # (it passed locally only because this host had them). The ladder does
+    # `from .pwg_ingest import ingest_all`, which finds this entry first.
+    fake = types.ModuleType("ostler_fda.pwg_ingest")
+    fake.ingest_all = lambda *_a, **_k: {}
+    monkeypatch.setitem(sys.modules, "ostler_fda.pwg_ingest", fake)
 
 
 @pytest.mark.parametrize("pending", [["imessage"], ["apple_music"], ["imessage", "apple_music"]])

@@ -49,6 +49,11 @@
 # ============================================================================
 set -uo pipefail
 
+# shellcheck source=lib/fda_run_all.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh"
+fda_run_all_contract_check "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || {
+    rc=$?; echo "$(basename "$0"): the run_all call/signature moved (rc ${rc}); see tests/lib/fda_run_all.sh" >&2; exit 2; }
+
 REPO_ROOT=""
 SELF_TEST=0
 while [[ $# -gt 0 ]]; do
@@ -136,7 +141,8 @@ build_root() {
     mkdir -p "$pkg" "${root}/.ostler/bin" "${root}/.ostler/imports/fda"
     : > "${pkg}/__init__.py"
 
-    cat > "${pkg}/extract_all.py" <<'PYEOF'
+    {
+    cat <<'PYEOF'
 import os
 import pathlib
 
@@ -146,7 +152,9 @@ def _log(line):
         fh.write(line + "\n")
 
 
-def run_all(output_dir=None, enabled_sources=None, skip_sources=None, writer="unrecorded"):
+PYEOF
+    printf '%s\n' "$FDA_RUN_ALL_STUB_DEF"
+    cat <<'PYEOF'
     # Stand-in for the real extractor. Writes the artefact the real one writes
     # so control (7) can prove the harvest survives a failing ingest.
     out = pathlib.Path(str(output_dir))
@@ -155,6 +163,7 @@ def run_all(output_dir=None, enabled_sources=None, skip_sources=None, writer="un
     _log("run_all " + str(output_dir))
     return {"sources": {}}
 PYEOF
+    } > "${pkg}/extract_all.py"
 
     # `fda_dir` deliberately defaults to a SENTINEL rather than being required.
     # A required arg would turn "called with no directory" into a TypeError and
@@ -234,7 +243,7 @@ printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 # original grows; truncation at a named anchor does not.
 # The exact extract line in the shipped wrapper. Exact, not a looser pattern:
 # if the call changes again this must fail loudly and be updated deliberately.
-EXTRACT_ANCHOR="_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')"
+EXTRACT_ANCHOR="${FDA_RUN_ALL_CALL}"
 awk -v anchor="${EXTRACT_ANCHOR}" '
     !stop { print }
     !stop && $0 == anchor { stop = 1; next }
