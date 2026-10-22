@@ -65,6 +65,7 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
+      - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -477,6 +478,12 @@ jobs:
       - name: the context digest catches up when the interest profile lands
         if: always()
         run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
+
+      # smart-prefs P1: the import itself kicks the compile, so preferences
+      # reach the digest and pwg_preferences now, not at the hourly tick.
+      - name: an import reaches the digest and pwg_preferences straight away
+        if: always()
+        run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
