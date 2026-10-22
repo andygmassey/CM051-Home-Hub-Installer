@@ -211,9 +211,9 @@ pinned there, so this is no longer a divergence. Detail and proof:
 
 ### smart-prefs (build after v1.0.108) -- the derive engine is grafted; filters.py does NOT delegate to strength.py
 
-The pin moved 7fd66daf -> 96ff272d to carry the preference-derivation engine
-("What you like"). Seventeen files arrive BYTE-IDENTICAL to upstream@96ff272d
-(cmp-verified): `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`,
+The pin stays at 5622a763, which already carries the preference-derivation engine
+("What you like"). Seventeen files arrive BYTE-IDENTICAL to upstream@5622a763
+(cmp-verified; the same bytes as at 96ff272d): `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`,
 `readers.yaml`, `contract/derived_preferences_response.example.json`),
 `services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`
 and `ontology/upper/pwg-derived.ttl`. Those are not divergences.
