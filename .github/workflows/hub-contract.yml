@@ -20,6 +20,7 @@ on:
       - 'vendor/doctor/**'
       - 'install.sh'
       - 'scripts/gen_hub_contract.py'
+      - 'tests/test_assistant_mailbox_not_on_8443.py'
       - 'scripts/hub_contract_check.py'
       - 'scripts/hub_contract_check.js'
       - 'scripts/pin_hub_contract.py'
@@ -83,6 +84,13 @@ jobs:
             echo "CANNOT-RUN: gateway source not checked out (can CM051_RELEASES_READ read ostler-ai/ostler-assistant?)"; exit 2
           fi
           python3 scripts/gen_hub_contract.py --gateway-src ostler-assistant --check
+      - name: the assistant-mailbox routes are not on the 8443 companion allowlist (Archie ruling, own email)
+        if: always()
+        run: |
+          if [ ! -f ostler-assistant/crates/zeroclaw-gateway/src/lib.rs ]; then
+            echo "CANNOT-RUN: gateway source not checked out"; exit 2
+          fi
+          python3 tests/test_assistant_mailbox_not_on_8443.py ostler-assistant
 
   client-pin-drift:
     runs-on: ubuntu-latest

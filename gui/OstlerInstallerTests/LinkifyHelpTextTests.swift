@@ -237,3 +237,51 @@ final class LinkifyHelpTextTests: XCTestCase {
         )
     }
 }
+
+// v1.0.108: the assistant's own email address screens (AssistantMailbox in
+// OnboardingQuestionView.swift). Appended here rather than a new file so the
+// tracked .xcodeproj stays in sync with project.yml; synthetic data only.
+final class AssistantMailboxTests: XCTestCase {
+    private let createHelp = """
+    Open https://account.apple.com/account and create a NEW account.
+
+    Suggested address: tess.assistant@icloud.example
+
+    When the account exists, continue.
+    """
+
+    func testCreateScreenOffersThePageAndACopyReadyAddress() {
+        let actions = AssistantMailbox.actions(promptId: "am_create", help: createHelp)
+        XCTAssertEqual(actions, [
+            .openURL(URL(string: "https://account.apple.com/account")!),
+            .copy("tess.assistant@icloud.example"),
+        ])
+    }
+
+    func testOnlyTheCreateScreenOffersCopy() {
+        let help = "Sign in at https://myaccount.google.com/apppasswords\nSuggested address: x@gmail.example"
+        XCTAssertEqual(AssistantMailbox.actions(promptId: "am_app_password", help: help),
+                       [.openURL(URL(string: "https://myaccount.google.com/apppasswords")!)])
+    }
+
+    func testOtherPromptsGetNoButtons() {
+        XCTAssertTrue(AssistantMailbox.actions(promptId: "assistant_name", help: createHelp).isEmpty)
+        XCTAssertTrue(AssistantMailbox.actions(promptId: "am_password", help: createHelp).isEmpty)
+    }
+
+    func testPasteIsOfferedOnlyOnThePasswordField() {
+        XCTAssertTrue(AssistantMailbox.offersPaste(promptId: "am_password"))
+        XCTAssertFalse(AssistantMailbox.offersPaste(promptId: "am_address"))
+    }
+
+    func testPasteStripsSpacesAndDashes() {
+        XCTAssertEqual(AssistantMailbox.pasteableAppPassword("Abcd-Efgh ijkl\u{2013}mnop\n"),
+                       "abcdefghijklmnop")
+    }
+
+    func testPasteIgnoresAnythingThatIsNotAnAppPassword() {
+        XCTAssertNil(AssistantMailbox.pasteableAppPassword("my real account password 1!"))
+        XCTAssertNil(AssistantMailbox.pasteableAppPassword("abcd-efgh-ijkl"))
+        XCTAssertNil(AssistantMailbox.pasteableAppPassword(""))
+    }
+}

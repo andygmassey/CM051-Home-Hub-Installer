@@ -17,6 +17,9 @@
 # be able to go red. Exit 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# No test opens a real app or System Settings pane: the stand-in is first on PATH.
+export PATH="$REPO_ROOT/tests/e2e/fakebin:$PATH"
+[ "$(command -v open)" = "$REPO_ROOT/tests/e2e/fakebin/open" ] || { echo "CANNOT-RUN: open stand-in not first on PATH"; exit 2; }
 INSTALL_SH="${REPO_ROOT}/install.sh"
 [ -f "$INSTALL_SH" ] || { echo "CANNOT-RUN: install.sh not found"; exit 2; }
 fails=0

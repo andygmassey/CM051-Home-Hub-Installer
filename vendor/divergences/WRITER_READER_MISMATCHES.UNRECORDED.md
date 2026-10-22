@@ -1667,3 +1667,24 @@ The import, the `derived_preferences_section` call, and the
 `{derived_preferences_section}` placeholder in `web_ui.py`, plus the
 vendor-only module they depend on. Guarded by
 `tests/test_doctor_shows_derived_preferences_status.py`.
+## Added 2026-10-15, v1.0.108. `doctor`, the assistant's own mailbox
+
+`scripts/regenerate_divergence_patch.sh doctor` was NOT re-run: the tree is
+`regenerate_forbidden` (see `DOCTOR_SOURCE_STATUS_PANEL_2219.md`), so this
+records the edit by location and shape only.
+
+- `vendor/doctor/agent/assistant_mailbox.py`: a NEW vendor-only file. The rules,
+  probes, Keychain access and Doctor card for the assistant's own email address.
+  `install.sh` calls its CLI during setup; the Doctor imports it. Standard
+  library only.
+- `vendor/doctor/agent/web_ui.py`: one import (`render_html as
+  render_assistant_mailbox`), one try/except block that renders the card into
+  `assistant_mailbox_section` beside the other posture tiles, and a route block
+  `/api/v1/assistant-mailbox` (GET) and `/api/v1/assistant-mailbox/{action}`
+  (POST: `on`, `off`, `test-now`, `replace-password`) placed just before
+  `/api/v1/box-status`. `test-now` awaits `asyncio.to_thread(am.test_now)`
+  because the daemon's self-test can take about a minute. POSTs use `_not_hub_local` and `_cross_site_refusal`.
+- `vendor/doctor/agent/test_assistant_mailbox.py`: its tests (excluded from the
+  shipped tree by `test_*.py`).
+
+What a future sync must preserve: all three. The contract is `CONTRACT.md`.

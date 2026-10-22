@@ -34,10 +34,10 @@ CONTRACT="${OSTLER_HUB_CONTRACT:-${_REPO}/vendor/cm041/assistant_api/hub_contrac
 
 self_test() {
     if python3 "${LIB}" --self-test; then
-        probe_examined 11 "fake-gateway arms"
-        probe_fail "negative control behaved: a planted token, URL-encoded token, base64 Vane password, and a fingerprint and licence id echoed on the invite routes each went red naming the route, and a blind control went CANNOT-RUN"
+        probe_examined 16 "fake-gateway arms"
+        probe_fail "negative control behaved: a planted token, URL-encoded token and base64 Vane password each went red naming the route, the mailbox app password echoed by the self-test route went red, a fingerprint and licence id echoed on the invite routes each went red, a blind control or an unreadable Keychain item went CANNOT-RUN, and with a real mailbox host the self-test was never POSTed"
     fi
-    probe_examined 11 "fake-gateway arms"
+    probe_examined 16 "fake-gateway arms"
     probe_pass "SELF-TEST BROKEN: the sweep let a planted secret through"
 }
 
@@ -67,7 +67,13 @@ run_probe() {
     probe_examined "${n}" "judge lines"
     [ "${n}" -gt 0 ] || probe_fail "the judge printed nothing; a silent probe is not a pass"
     case "${rc}" in
-        0)  probe_pass "no route served a stored secret; see the counts above" ;;
+        0)  # Archie: the no-outward-mail guard skipping the self-test must be
+            # NAMED on the verdict line, never a bare PASS.
+            if grep -q '^  CANNOT POST /api/assistant-mailbox/self-test ' <<< "${out}"; then
+                probe_pass_qualified "mailbox self-test CANNOT-RUN: host not loopback" \
+                    "no other route served a stored secret; see the counts above"
+            fi
+            probe_pass "no route served a stored secret; see the counts above" ;;
         78) probe_cannot_run "see the CANNOT line above" ;;
         *)  probe_fail "see the FAIL lines above: each names the route that served a stored secret" ;;
     esac

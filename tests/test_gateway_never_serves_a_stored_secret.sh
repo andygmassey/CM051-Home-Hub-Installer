@@ -2,7 +2,7 @@
 # gateway_never_serves_a_stored_secret, RED/GREEN end to end through the real
 # probe script (box_run on this machine, OSTLER_BOX_HOST unset) and the real
 # hub contract's gateway route list, against a fake gateway:
-#   1. the lib's own --self-test (8 arms) passes, and the probe's --self-test
+#   1. the lib's own --self-test (13 arms) passes, and the probe's --self-test
 #      returns FAIL (1), as the walk runner's phase 1 demands
 #   2. a fake gateway that leaks the paired token on GET /api/config: the
 #      probe FAILs (1) and names GET /api/config
@@ -11,6 +11,19 @@
 #   5. no route answering: CANNOT-RUN (78)
 #   6. in every arm, no secret value appears anywhere in the probe's output
 #   7. mutation: a blinded counter turns arm 2 into CANNOT-RUN, not PASS
+#   8. the fixture enables [email_assistant]: the mailbox app password is a
+#      swept secret, POST /api/assistant-mailbox/self-test is in the contract
+#      and requested with the bearer. Its Keychain read goes to the security
+#      stand-in (tests/e2e/fakebin/security), first on PATH: no test touches a
+#      real keychain.
+#   9. no outward mail: with a REAL provider host in [email_assistant] the
+#      probe prints CANNOT for the self-test route with the reason, sweeps a
+#      read-only GET instead, and still PASSes a clean gateway; with loopback
+#      hosts (the fixture default, the mailsim case) it POSTs it.
+#  10. a PASS with the self-test skipped NAMES it on the verdict line
+#      (`VERDICT: PASS (mailbox self-test CANNOT-RUN: host not loopback)`); a
+#      loopback PASS carries no qualifier; a mutant that drops the qualifier
+#      is caught.
 #   8. a fake gateway that echoes the device fingerprint on POST
 #      /api/v1/invites/mint (the Hub's invites proxy, ostler-assistant #573):
 #      FAIL naming that route, which the probe sweeps even though the vendored
@@ -52,6 +65,19 @@ PY
 }
 
 mkdir -p "$work/ostler/assistant-config"
+export PATH="$PWD/tests/e2e/fakebin:$PATH"
+export FAKE_SECURITY_STORE="$work/fake-keychain.json" FAKE_SECURITY_LOG="$work/fake-security.log"
+# box_run is a LOGIN shell, which resets PATH, so the stand-in is also named
+# by absolute path; the real security tool must never run here.
+export OSTLER_SECRET_SWEEP_SECURITY="$PWD/tests/e2e/fakebin/security"
+: > "$FAKE_SECURITY_LOG"
+python3 - "$LIBDIR" "$FAKE_SECURITY_STORE" <<'PY'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import stored_secret_sweep as s
+json.dump({"default": {s.MAILBOX_SERVICE + "\n" + s.SYN_MAILBOX_ADDR: s.SYN_MAILBOX}}, open(sys.argv[2], "w"))
+PY
+[ "$(command -v security)" = "$PWD/tests/e2e/fakebin/security" ] && ok "Keychain reads go to the security stand-in" || bad "security stand-in not first on PATH"
 python3 - "$LIBDIR" "$work" <<'PY'
 import os, shutil, sys
 sys.path.insert(0, sys.argv[1])
@@ -64,7 +90,9 @@ for sub, name in (("license", "license.json"), ("state", "fingerprint.txt")):
 PY
 [ "$(stat -c %a "$work/ostler/assistant-config/config.toml" 2>/dev/null || stat -f %Lp "$work/ostler/assistant-config/config.toml")" = 600 ] \
     && ok "the fixture config.toml is 0600" || bad "the fixture config.toml is not 0600"
-SECRETS="$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import stored_secret_sweep as s; print(s.SYN_TOKEN); print(s.SYN_TOKEN2); print(s.SYN_VANE); print(s.SYN_LICENCE); print(s.SYN_FPRINT)" "$LIBDIR")"
+SECRETS="$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import stored_secret_sweep as s; print(s.SYN_TOKEN); print(s.SYN_TOKEN2); print(s.SYN_VANE); print(s.SYN_MAILBOX); print(s.SYN_LICENCE); print(s.SYN_FPRINT)" "$LIBDIR")"
+python3 -c "import json,sys; sys.exit(0 if any(r['listener']=='gateway' and r['method']=='POST' and r['path']=='/api/assistant-mailbox/self-test' and 'device_bearer' in r['auth'] for r in json.load(open('vendor/cm041/assistant_api/hub_contract.yaml'))['routes']) else 1)" \
+    && ok "the contract carries POST /api/assistant-mailbox/self-test as device_bearer" || bad "the mailbox self-test route is not in the contract as device_bearer"
 ngw="$(python3 -c "import json; print(len([r for r in json.load(open('vendor/cm041/assistant_api/hub_contract.yaml'))['routes'] if r['listener']=='gateway']))")"
 
 run_arm() {  # $1 port(s), extra env in caller
@@ -85,6 +113,13 @@ nf="$(/usr/bin/grep -cE '^  FAIL   [A-Z]+ /' "$work/out")"
 [ "$nf" -eq 1 ] && ok "exactly one route named (the leaking one)" || bad "leak arm named $nf routes"
 no_values "leak arm"
 
+# RED: a gateway whose mailbox self-test echoes the app password.
+start_fake mbleak 'POST /api/assistant-mailbox/self-test SYN_MAILBOX'; pm="$FAKE_PORT"
+rc="$(run_arm "http://127.0.0.1:$pm")"
+[ "$rc" -eq 1 ] && /usr/bin/grep -q 'FAIL   POST /api/assistant-mailbox/self-test on http://127.0.0.1.*assistant_mailbox_password' "$work/out" \
+    && ok "the mailbox app password echoed by the self-test route: FAIL naming the route and the secret" || { bad "mailbox-leak arm rc=$rc"; tail -5 "$work/out"; }
+no_values "mailbox-leak arm"
+
 start_fake fp 'POST /api/v1/invites/mint SYN_FPRINT'; pf="$FAKE_PORT"
 rc="$(run_arm "http://127.0.0.1:$pf")"
 [ "$rc" -eq 1 ] && /usr/bin/grep -q 'FAIL   POST /api/v1/invites/mint on http://127.0.0.1.*device_fingerprint' "$work/out" \
@@ -97,6 +132,40 @@ rc="$(run_arm "http://127.0.0.1:$pc")"
 /usr/bin/grep -qE "^  ok     [0-9]+ requests" "$work/out" && req="$(/usr/bin/grep -oE '^  ok     [0-9]+' "$work/out" | tail -1 | tr -dc 0-9)" || req=0
 [ "$req" -gt "$ngw" ] && ok "the clean arm made $req requests over $ngw contract gateway routes" || bad "the clean arm made $req requests for $ngw routes"
 no_values "clean arm"
+/usr/bin/grep -q 'assistant mailbox: enabled, its password is swept' "$work/out" \
+    && ok "the clean arm swept the mailbox app password" || bad "the mailbox app password was not swept"
+/usr/bin/grep -q 'find-generic-password' "$FAKE_SECURITY_LOG" && ! /usr/bin/grep -q UNSUPPORTED "$FAKE_SECURITY_LOG" \
+    && ok "the Keychain read went to the stand-in" || bad "no stand-in Keychain read recorded"
+
+# No outward mail: point the fixture's mailbox at a real provider host.
+cp "$work/ostler/assistant-config/config.toml" "$work/cfg.loopback"
+sed 's/^imap_host = .*/imap_host = "imap.mail.me.com"/; s/^smtp_host = .*/smtp_host = "smtp.mail.me.com"/' "$work/cfg.loopback" > "$work/ostler/assistant-config/config.toml"
+chmod 600 "$work/ostler/assistant-config/config.toml"
+rc="$(run_arm "http://127.0.0.1:$pc")"
+[ "$rc" -eq 0 ] && /usr/bin/grep -q 'CANNOT POST /api/assistant-mailbox/self-test on .*mailbox host is not loopback; self-test would send real mail' "$work/out" \
+    && ok "a real mailbox host: the self-test is not POSTed, CANNOT names why, the rest still PASSes" || { bad "real-host arm rc=$rc"; tail -5 "$work/out"; }
+no_values "real-host arm"
+QUAL='^VERDICT: PASS \(mailbox self-test CANNOT-RUN: host not loopback\) -- '
+/usr/bin/grep -qE "$QUAL" "$work/out" && [ "$(/usr/bin/grep -c '^VERDICT: ' "$work/out")" -eq 1 ] \
+    && ok "a real mailbox host: the verdict line names the skipped self-test" || { bad "verdict not qualified: $(/usr/bin/grep '^VERDICT' "$work/out")"; }
+# Mutant: drop the qualifier; the same arm must be caught.
+qm="$work/qmut"; mkdir -p "$qm/scripts/box_walk_probes/lib" "$qm/scripts/box_walk_probes/probes" "$qm/vendor/cm041/assistant_api"
+cp scripts/box_walk_probes/lib/probe.sh scripts/box_walk_probes/lib/stored_secret_sweep.py "$qm/scripts/box_walk_probes/lib/"
+cp vendor/cm041/assistant_api/hub_contract.yaml "$qm/vendor/cm041/assistant_api/"
+sed 's/^            if grep -q .*CANNOT POST \/api\/assistant-mailbox\/self-test.*then$/            if false; then/' "$PROBE" > "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh"
+if cmp -s "$PROBE" "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh"; then
+    bad "qualifier mutant did not apply"
+else
+    OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$qm/scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh" > "$work/qout" 2>&1
+    ! /usr/bin/grep -qE "$QUAL" "$work/qout" && /usr/bin/grep -q '^VERDICT: PASS -- ' "$work/qout" \
+        && ok "mutant (qualifier dropped) prints a bare PASS, which the check above rejects" || bad "qualifier mutant not distinguishable"
+fi
+cp "$work/cfg.loopback" "$work/ostler/assistant-config/config.toml"
+! /usr/bin/grep -q 'mailbox host is not loopback' <(OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$PROBE" 2>&1) \
+    && ok "loopback mailbox hosts: no CANNOT for the self-test (it is POSTed)" || bad "loopback hosts still skipped the self-test"
+OSTLER_DIR="$work/ostler" OSTLER_SECRET_SWEEP_BASES="http://127.0.0.1:$pc" bash "$PROBE" > "$work/out" 2>&1
+/usr/bin/grep -q '^VERDICT: PASS -- ' "$work/out" && ! /usr/bin/grep -q '^VERDICT: PASS (' "$work/out" \
+    && ok "loopback mailbox hosts: a plain PASS, no qualifier" || bad "loopback verdict: $(/usr/bin/grep '^VERDICT' "$work/out")"
 
 # Control sees 0: drive the lib directly with a control file lacking the secret
 # (the probe has no flag for it on purpose); then a dead base through the probe.
