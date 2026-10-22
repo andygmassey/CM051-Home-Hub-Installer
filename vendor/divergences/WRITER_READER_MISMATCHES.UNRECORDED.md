@@ -1634,3 +1634,36 @@ keeps "could not look" and no reason.
 The map, the `needs_access` key, and the `status_word` choice in the renderer.
 Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (mutant:
 defaulting an unlisted reason to Full Disk Access turns six assertions red).
+
+## doctor: the "What you like" status row is wired into the dashboard (smart-prefs, build after v1.0.108) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from derived_preferences_status import render_derived_preferences_status`,
+one `derived_preferences_section = render_derived_preferences_status()` call
+directly after `source_status_section = render_source_status()`, and one
+`{derived_preferences_section}` placeholder in the dashboard HTML directly
+after `{source_status_section}`.
+
+The reader, the render function and the customer copy live in a NEW
+vendor-only module, `vendor/doctor/agent/derived_preferences_status.py`,
+declared in `vendor/VENDOR_ONLY.tsv` (route d), not here. It reads the
+counts-only record `~/.ostler/state/derived-preferences.json` written by the
+cm019 runner after every pass, and the `com.ostler.derive-preferences` plist
+written by install.sh `_install_derive_preferences_agent`. No subprocess, no
+network. This record covers only the `web_ui.py` wiring edit.
+
+### Why there is no patch, re-measured rather than inherited
+
+`scripts/regenerate_divergence_patch.sh doctor` was run on 2026-10-17 for this
+change and REFUSED before any source checkout: "doctor is marked
+regenerate_forbidden in VENDOR_MANIFEST.toml." Same ban, same reason as the
+Documents-folder entry above. A grep of `doctor.patch` for
+`render_derived_preferences_status` returns nothing, and that means NOT
+RECORDED there, not NOT DIVERGED.
+
+### What a future sync must preserve
+
+The import, the `derived_preferences_section` call, and the
+`{derived_preferences_section}` placeholder in `web_ui.py`, plus the
+vendor-only module they depend on. Guarded by
+`tests/test_doctor_shows_derived_preferences_status.py`.
