@@ -165,6 +165,16 @@ def main():
     check(any(isinstance(r, StatedConversationReader) for r in build_readers(FactStore())),
           "that registry includes the stated reader")
 
+    print("arm 8: a stated node passes the real SHACL gate the writer enforces")
+    try:
+        import pyshacl  # noqa: F401
+    except ImportError:
+        print("  CANNOT-RUN pyshacl not installed (neither pass nor fail)")
+    else:
+        from derive.shacl import PyShaclValidator
+        ok, text = PyShaclValidator().validate_turtle(node.to_turtle()) if node is not None else (False, "no node")
+        check(ok, "negative-strength stated node conforms" + ("" if ok else ": " + text[:200]))
+
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 
