@@ -13,6 +13,8 @@ on:
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'tests/test_customer_read_exempts_marked_customer_text.py'
       - 'tests/test_customer_read_contacts_not_masked_by_people.py'
+      - 'tests/test_customer_read_waits_for_a_fresh_contacts_diff.py'
+      - 'scripts/box_walk_probes/lib/contact_cards_seed.sh'
       - 'tests/test_hub_screens_people_judges_every_row.py'
       - 'tests/test_hub_screens_timeline_kinds_compares_the_box.py'
       - 'scripts/box_walk_probes/lib/probe.sh'
@@ -107,6 +109,9 @@ jobs:
       - name: The Contacts row is judged on the API's contacts source, not masked by people (v1.0.115 H1)
         if: always()
         run: python3 tests/test_customer_read_contacts_not_masked_by_people.py
+      - name: The duplicate-review read waits for a post-seed contacts/diff report, else CANNOT-RUN (stale)
+        if: always()
+        run: python3 tests/test_customer_read_waits_for_a_fresh_contacts_diff.py
       - name: The em dash check exempts marked customer text and nothing else, in a real browser (cut 13)
         # The self-test above is pure Python over facts and cannot see
         # CUSTOMER_TITLES_JS. This runs that JavaScript in Chromium against

@@ -197,6 +197,10 @@ jobs:
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
 
+      - name: customer copy states the real source count
+        if: always()
+        run: bash tests/test_source_count_copy.sh
+
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()
         run: bash tests/test_daemon_fda_app_bundle_path.sh

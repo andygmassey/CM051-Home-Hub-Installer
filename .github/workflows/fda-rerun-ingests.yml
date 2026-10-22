@@ -51,6 +51,7 @@ on:
       - 'install.sh'
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_rerun_ingests.sh'
+      - 'tests/lib/fda_run_all.sh'
       - 'tests/test_notes_are_opened_and_refreshed.sh'
       - 'tests/test_contacts_and_reminders_are_reread.sh'
       - 'vendor/doctor/agent/routine_status.py'
