@@ -1411,3 +1411,13 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-23: derived-preferences route passes privacy_level and never serves L3 (CM041 #235, ff318e04)
+
+Tree: `cm041/assistant_api`. Pin HELD. NOT YET A MERGED SHA: CM041 #235 is open, so no `hold_ack_shas` entry is added; add the squash sha and cite it here before this merges.
+
+- `vendor/cm041/assistant_api/derived_preferences.py`: ONLY the privacy hunks of #235 applied to the 07a22b4c file (as vendored by #3111): `AffinityView.privacy`, `SERVED_PRIVACY_LEVELS`, the `pwg:privacyLevel` OPTIONAL plus FILTER in the reader query, the Python guard, and `privacy_level` on the item when set. #233/#234 (round-robin, tier) are NOT grafted here; they arrive with the next re-pin, and the hunks above were written to apply with or without them.
+- This tree (#3117 base) does not yet hold the file at all: the file, the route registration in `ical-server.py` and the contract fixture arrive with #3111 (07a22b4c re-vendor). If #3111 merges first this file is an add/add conflict; resolve to #3111's file plus the hunks above.
+- Why: CM019 #423 stamps derived nodes with the highest privacy level of their evidence; without this the route dropped it and would have served an L3 node.
+- Proof: `tests/test_vendored_derived_route_privacy_level.py` (7 checks; 5 fail on the 07a22b4c module, 0 after), wired in `derived-preferences.yml`.
+- Retire: re-pin `cm041/assistant_api` past the #235 squash sha.
