@@ -51,6 +51,7 @@ jobs:
       - name: probe contract, scope row and exit codes
         run: /bin/bash scripts/tests/test_data_conservation_probe.sh
       - name: the walk's seeds record the people they write (people/all additions)
+        if: always()
         run: /bin/bash scripts/tests/test_walk_seeds_record_the_people_they_write.sh
       - name: probe --self-test must come back FAIL (its negative control fired)
         run: |

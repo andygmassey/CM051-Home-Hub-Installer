@@ -174,14 +174,14 @@ for prof in ("chain", "full"):
 PY
 
 # ---- E. wiring
-n_export="$(/usr/bin/grep -n '^export OSTLER_WALK_SEEDS_RAN' "$RUNNER" | head -1 | cut -d: -f1)"
-n_first="$(/usr/bin/grep -n '^grounding_seed_apply' "$RUNNER" | head -1 | cut -d: -f1)"
+n_export="$(/usr/bin/grep -m1 -n '^export OSTLER_WALK_SEEDS_RAN' "$RUNNER" | cut -d: -f1)"
+n_first="$(/usr/bin/grep -m1 -n '^grounding_seed_apply' "$RUNNER" | cut -d: -f1)"
 { [ -n "$n_export" ] && [ -n "$n_first" ] && [ "$n_export" -lt "$n_first" ]; } \
     && ok "E1: the runner exports OSTLER_WALK_SEEDS_RAN (line $n_export) before its first seed (line $n_first)" || bad "E1: export ${n_export:-none} first seed ${n_first:-none}"
 # the probe with its last line (the call to probe_main) removed, beside symlinks to the real lib
 mkdir -p "$W/bw/probes"; ln -s "$LIBD" "$W/bw/lib"; ln -s "${REPO}/scripts/box_walk_probes/fixtures" "$W/bw/fixtures"
 sed '$d' "$PROBES/data_conservation.sh" > "$W/bw/probes/data_conservation.sh"
-nosd() { env $1 bash -c '. "$0"; box_run() { printf "%s" "$1" | head -n 1; }; dc_collect' "$W/bw/probes/data_conservation.sh" 2>&1; }
+nosd() { env $1 bash -c '. "$0"; box_run() { IFS= read -r l <<<"$1"; printf "%s\n" "$l"; }; dc_collect' "$W/bw/probes/data_conservation.sh" 2>&1; }
 a="$(nosd OSTLER_WALK_SEEDS_RAN=1)"; b="$(nosd OSTLER_WALK_SEEDS_RAN=0)"; c="$(nosd X=1)"
 { [ "$a" = "python3 - collect  <<'PYPAYLOAD'" ] && [ "$b" = "python3 - collect --no-seed-run <<'PYPAYLOAD'" ] && [ "$c" = "$b" ]; } \
     && ok "E2: probe withholds --no-seed-run once seeds ran (1), passes it when none ran (0 or unset)" || bad "E2: [$a] [$b] [$c]"

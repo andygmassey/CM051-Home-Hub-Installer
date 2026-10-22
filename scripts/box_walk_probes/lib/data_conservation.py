@@ -1125,8 +1125,8 @@ def selftest():
         globals()["SEEDED_PEOPLE"] = keep_path
 
     # 15. NAMES: a failing row lists who is behind the count, masked and capped; a passing row lists none.
-    mk = mask_name("Ada Synthetic +44 7700 900 123 ada@example.com")
-    if "900" in mk.replace("9xx", "") or "example.com" in mk or "+44 7700 9xx xxx" not in mk or "Ada Synthetic" not in mk:
+    mk = mask_name("Jane Doe +44 7700 900 123 jane@example.com")
+    if "900" in mk.replace("9xx", "") or "example.com" in mk or "+44 7700 9xx xxx" not in mk or "Jane Doe" not in mk:
         fails.append("mask_name leaked or mangled a phone/email: %r" % mk)
     nd = name_diff(["A One", "B Two", "+44 7700 900 123"], ["A One", "B Two"])
     if not (nd["missing_n"] == 1 and nd["missing"] == ["+44 7700 9xx xxx"] and nd["extra_n"] == 0):

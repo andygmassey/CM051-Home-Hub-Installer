@@ -114,7 +114,7 @@ grep '| people | person |' "$W/jo_early" | grep -q '| CONSERVED |' \
 for prof in chain full; do
     row() { grep '| people | person |' "$1"; }
     kb='"hyd.people.item_count":1,"x.class.total":11,"x.class.Person":11,"walk.seeded.people":10,"q.people.total":11'
-    nm='"names.people":{"stored_n":11,"shown_n":10,"missing_n":1,"missing":["Quinn Synthetic"],"extra_n":0,"extra":[]}'
+    nm='"names.people":{"stored_n":11,"shown_n":10,"missing_n":1,"missing":["John Smith"],"extra_n":0,"extra":[]}'
     echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10,${nm}}}" > "$W/k_lost.json"
     echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":11,${nm}}}" > "$W/k_ok.json"
     echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10}}" > "$W/k_blind.json"
@@ -122,7 +122,7 @@ for prof in chain full; do
     for k in lost ok blind infl; do
         python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/k_$k.json" --profile "$prof" >"$W/ko_$k" 2>&1
     done
-    row "$W/ko_lost" | grep -q '| LOST |' && row "$W/ko_lost" | grep -q 'stored not shown 1: Quinn Synthetic' \
+    row "$W/ko_lost" | grep -q '| LOST |' && row "$W/ko_lost" | grep -q 'stored not shown 1: John Smith' \
         && row "$W/ko_lost" | grep -q 'shown not stored 0: none (of 11 stored)' \
         && ok "K1 ($prof): LOST by 1 names the missing card, with counts" || bad "K1 ($prof): $(row "$W/ko_lost")"
     row "$W/ko_ok" | grep -q '| EXPLAINED |' && ! row "$W/ko_ok" | grep -q 'names:' \
