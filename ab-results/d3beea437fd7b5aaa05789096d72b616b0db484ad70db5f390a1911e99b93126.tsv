@@ -1,0 +1,12 @@
+run_stamp=20261022T132846Z
+run_host=lab-76e555e0
+question_id	old_pass	new_pass	n	old_tools_none	new_tools_none	old_p50_ms	new_p50_ms
+q1_about_me	10	10	10	0	0	12600	12600
+q2_interests	10	10	10	0	0	10700	10900
+q3_recent_contacts	10	10	10	0	0	10300	9900
+q4_seeded_person	10	10	10	0	0	7600	8200
+owner_about_me	10	10	10	0	0	12800	12900
+owner_career	10	10	10	10	10	8600	7000
+reply_debt	10	10	10	0	0	7500	7800
+opening_turn	10	10	10	0	0	5000	5200
+drops=0

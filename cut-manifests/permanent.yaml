@@ -192,6 +192,10 @@ entries:
           - f3b5d1d784  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - 74baad511b  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - c2850018ae  # HELD for hub-v0.5.28 (v1.0.117): oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
+          - ce34c638d5  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #625 Doctor channel cards
+          - 5b09e2af4e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #624 Allowed contacts spacing
+          - ed56800620  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #623 first run shows existing wiki/Home
+          - c849b8c07e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #622 Home first-run hero copy
           - 13d4f02986  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
           - 2ac8ecf4b1  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
           - 3d9343bc67  # hub-v0.5.27 graft 3b3e8ebf (cherry-picked)
