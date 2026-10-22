@@ -562,6 +562,7 @@ test_one_store_does_not_get_two_budgets.sh	WIRED	.github/workflows/rule-09-strin
 test_only_the_users_own_address_book_is_read.sh	WIRED	.github/workflows/address-book-source-guard.yml
 test_open_prs_are_reported_not_counted.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_operator_pii_scan_sees_all_text_kinds.sh	WIRED	.github/workflows/operator-pii-scan.yml
+test_operator_pii_step_never_clobbers_home.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_organisation_senders_are_not_people.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_orphan_gate_cannot_verify.sh	WIRED	.github/workflows/cut.yml
 test_orphan_gate_declared_skip_always_counts.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
