@@ -100,6 +100,7 @@ test_a_walk_record_names_the_instrument_that_graded_it.sh	WIRED	.github/workflow
 test_a_writing_probe_declares_it_and_is_never_promoted.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ab_results_gate.sh	WIRED	.github/workflows/ab-results-gate.yml
 test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_address_book_photos_reach_photo_dir.py	WIRED	.github/workflows/address-book-source-guard.yml
 test_ai_conversations_default_to_the_locked_privacy_level.py	WIRED	.github/workflows/privacy-spine.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
@@ -484,6 +485,7 @@ test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launc
 test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -888,6 +890,7 @@ test_v1010_store_front_proxy.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.y
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
 test_vane_bundle.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_vane_searxng_has_no_idle_egress.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_vane_web_search_credential_reaches_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_vendor_doctor_knowledge_embed_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

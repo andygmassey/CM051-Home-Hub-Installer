@@ -87,6 +87,10 @@ jobs:
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
 
+      - name: legal text says the English version prevails
+        if: always()
+        run: bash tests/test_legal_text_says_english_prevails.sh
+
       # BOARD ROW 1589. Every service row on the success screen is grepped out
       # of the installer's own transcript, so the customer is shown what the
       # installer BELIEVES it did. The panel must SAY so on screen.

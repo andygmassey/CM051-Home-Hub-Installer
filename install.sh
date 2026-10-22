@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16712, both of which run
+    # Its two top-level arming calls are :8977 and :16714, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17507, where the note reads
+    # WhatsApp Web session path did it again at :17509, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17524 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17526 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16712) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8977, :16714) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19672 / :19850 / :20007 / :20452 path. There the
+    # :19635 / :19813 / :19970 / :20415 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -12683,6 +12683,8 @@ _ostler_ask_personal_use_terms() {
     echo ""
     echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
     echo ""
+    echo -e "  ${DIM}${MSG_TERMS_LANGUAGE}${NC}"
+    echo ""
     TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
     if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
         echo ""
@@ -20138,7 +20140,7 @@ import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'), writer='install')
 print(json.dumps(summary, default=str))
 " 2>&1)
     FDA_EXIT=$?
@@ -21551,6 +21553,10 @@ services:
     # an unauthenticated read for any second account on the Mac.
     volumes:
       - vane_data:/home/vane/data
+      # Our SearXNG settings (3 engines, no idle egress), written by the
+      # installer BEFORE this container is created or Docker makes a DIRECTORY
+      # here. The image's own settings load every default engine.
+      - ${HOME}/.ostler/vane-searxng-settings.yml:/etc/searxng/settings.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -21992,6 +21998,63 @@ umask "$_va_um"
 chmod 600 "${OSTLER_DIR}/ostler-vane-htpasswd" "${OSTLER_DIR}/ostler-vane-auth.conf"
 unset _vane_htpasswd_hash
 ok "Vane browser credential written (0600); :3000 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/vane_password."
+
+# ── Vane's bundled SearXNG: our own settings, no idle egress ──────
+#
+# The image's stock settings are `use_default_settings: true`: every engine
+# SearXNG ships (several dozen, wikidata and the Wikipedia family among them),
+# autocomplete through Google, wolframalpha on. A walk box showed ostler-vane
+# holding a CLOSE-WAIT socket to a Wikimedia address with nothing asked of it.
+# This file replaces that, mounted read-only over /etc/searxng/settings.yml.
+#
+# Three engines, each a declared row in scripts/box_walk_probes/egress_hosts.tsv,
+# and every feature that can open a socket without a user query is off:
+# autocomplete, favicon resolver, image proxy, metrics, tor_check, oa_doi_rewrite.
+# tests/test_vane_searxng_has_no_idle_egress.py parses THIS heredoc and fails if
+# that stops being true. Written before `docker compose up` or Docker would
+# create a DIRECTORY at the bind path. 0644 because SearXNG runs as a non-root
+# user in the container; it carries only a random cookie-signing key for an
+# instance that is not published (Vane's :3000 sits behind the credential).
+_vs_secret="$(/usr/bin/openssl rand -hex 32)"
+if [[ -z "${_vs_secret}" ]]; then
+    fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the vane SearXNG key with openssl rand."
+fi
+cat > "${OSTLER_DIR}/vane-searxng-settings.yml" <<'VSEOF'
+# Ostler vane SearXNG settings -- generated by the Ostler installer.
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - brave
+      - wikipedia
+
+general:
+  instance_name: 'ostler-search'
+  enable_metrics: false
+
+search:
+  autocomplete: ''
+  favicon_resolver: ''
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: '__OSTLER_VANE_SEARXNG_SECRET__'
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+plugins:
+  searx.plugins.tor_check.SXNGPlugin:
+    active: false
+  searx.plugins.oa_doi_rewrite.SXNGPlugin:
+    active: false
+VSEOF
+/usr/bin/sed -i '' "s/__OSTLER_VANE_SEARXNG_SECRET__/${_vs_secret}/" "${OSTLER_DIR}/vane-searxng-settings.yml"
+chmod 644 "${OSTLER_DIR}/vane-searxng-settings.yml"
+unset _vs_secret
+ok "Vane web search limited to 3 engines (duckduckgo, brave, wikipedia); no autocomplete, favicon or image-proxy fetches."
 
 # ── Wiki tailnet gate, fail-closed placeholder (v1.0.17) ──────────
 #
@@ -25009,7 +25072,11 @@ from ostler_fda.pwg_ingest import ingest_all
 from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-_summary = run_all(fda_dir)
+# The hourly rerun cannot hold the Media & Apple Music grant, so it must not
+# re-run the apple_music arm: that overwrote apple_music.json and the summary
+# entry with 0 tracks / reader none between the daily music-refresh reads.
+# skip_sources keeps both as they were; writer says whose run this is.
+_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')
 
 # ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
 #
