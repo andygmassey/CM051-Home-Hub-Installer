@@ -32953,7 +32953,7 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
     mkdir -p "$LICENSES_DEST"
     LICENSES_BASE="${NOTICES_BASE_URL}/LICENSES"
     LICENSES_FETCHED=0
-    for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
+    for f in Apache-2.0.txt AGPL-3.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
         if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
             LICENSES_FETCHED=$((LICENSES_FETCHED + 1))
         fi
