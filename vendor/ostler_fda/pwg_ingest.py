@@ -1866,12 +1866,32 @@ def ingest_photos(fda_dir: Path) -> dict:
 MAIL_CONTACT_MIN_COUNT = 3
 
 
-def ingest_mail_contacts(fda_dir: Path) -> dict:
+_SOURCE_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+_IDENTIFIER_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+
+
+def ingest_mail_contacts(
+    fda_dir: Path,
+    *,
+    person_source: str = "apple_mail_fda",
+    identifier_label: str = "APPLE_MAIL",
+) -> dict:
     """Ingest frequent email contacts into the people graph.
 
     Uses the sender frequency data to create/enrich Person nodes
     with email identifiers.
+
+    ``person_source`` / ``identifier_label`` record the TRUE source on every
+    Person and identifier this call creates. They default to the Apple Mail
+    labels this function was written for; any other caller of this shared
+    sink (Google Chat Takeout via universal_import._persist_mail_contacts)
+    passes its own, so a Chat correspondent is never labelled APPLE_MAIL.
+    Validated against a fixed shape: the values are interpolated into SPARQL.
     """
+    if not _SOURCE_LABEL_RE.match(person_source or ""):
+        raise ValueError(f"invalid person_source label {person_source!r}")
+    if not _IDENTIFIER_LABEL_RE.match(identifier_label or ""):
+        raise ValueError(f"invalid identifier_label {identifier_label!r}")
     contacts_file = fda_dir / "apple_mail_contacts.json"
     if not contacts_file.exists():
         logger.info("No Apple Mail contacts to ingest")
@@ -1944,7 +1964,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
                 f"<{uri}> a pwg:Person",
                 f'<{uri}> pwg:contactType "person"',
                 f'<{uri}> pwg:privacyLevel "{DEFAULT_PRIVACY}"',
-                f'<{uri}> pwg:source "apple_mail_fda"',
+                f'<{uri}> pwg:source "{person_source}"',
             ]
             # v1018-D011. This source names people after their address by
             # construction, and it never flagged one. Every person it created
@@ -1957,7 +1977,7 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
                 f"<{id_uri}> a pwg:PersonIdentifier",
                 f'<{id_uri}> pwg:identifierType "email"',
                 f'<{id_uri}> pwg:identifierValue "{_escape(email)}"',
-                f'<{id_uri}> pwg:identifierLabel "APPLE_MAIL"',
+                f'<{id_uri}> pwg:identifierLabel "{identifier_label}"',
             ])
 
             sparql = (

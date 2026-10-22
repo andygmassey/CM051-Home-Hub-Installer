@@ -1121,6 +1121,15 @@ def _dispatch_imessage(detection: Detection, *, output_dir: Optional[Path]) -> d
 _MAIL_CONTACTS_STAGING = "apple_mail_contacts.json"
 
 
+# The TRUE source label each non-mail caller of the shared email-correspondent
+# sink writes on the People it creates. A source absent here is mail, and
+# keeps the Apple Mail labels. (People join fix 3: the Google Chat sink was
+# minting people labelled apple_mail_fda / APPLE_MAIL.)
+_PEOPLE_SOURCE_LABELS = {
+    "google_chat": ("google_chat_takeout", "GOOGLE_CHAT"),
+}
+
+
 def _persist_mail_contacts(contacts: dict, *, source: str) -> dict:
     """Hand a ``{email: count}`` correspondent map to the people-graph sink.
 
@@ -1150,7 +1159,12 @@ def _persist_mail_contacts(contacts: dict, *, source: str) -> dict:
         (staging / _MAIL_CONTACTS_STAGING).write_text(json.dumps(contacts))
         from . import pwg_ingest as pwg
 
-        result = pwg.ingest_mail_contacts(staging)
+        labels = _PEOPLE_SOURCE_LABELS.get(source)
+        if labels:
+            result = pwg.ingest_mail_contacts(
+                staging, person_source=labels[0], identifier_label=labels[1])
+        else:
+            result = pwg.ingest_mail_contacts(staging)
         if result.get("status") == "ok":
             return {
                 "persist_status": "ok",
