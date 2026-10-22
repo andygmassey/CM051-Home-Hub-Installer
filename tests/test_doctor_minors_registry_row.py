@@ -35,33 +35,33 @@ import diagnostic_rules as D  # noqa: E402
 import diagnostic_copy as C  # noqa: E402
 
 TITLE = "Your under-18 list can't be read, so imports are paused until it's fixed"
-NAMES = ["Sam Example", "Robin Placeholder", "sam.example@example.test", "+447700900123", "@sam_example_kid"]
+NAMES = ["Sam Jones", "Jane Smith", "sam.jones@example.test", "+447700900123", "@sam_jones_kid"]
 
-VALID_ENTRY = {"slug": "sam-example", "names": [NAMES[0]], "identifiers": NAMES[2:]}
+VALID_ENTRY = {"slug": "sam-jones", "names": [NAMES[0]], "identifiers": NAMES[2:]}
 VALID = {
     "empty_list": '{"version": 1, "minors": []}',
     "one_minor": json.dumps({"version": 1, "minors": [VALID_ENTRY]}),
     "no_version": json.dumps({"minors": [VALID_ENTRY]}),
-    "entry_without_names": '{"minors": [{"slug": "sam-example"}]}',
+    "entry_without_names": '{"minors": [{"slug": "sam-jones"}]}',
 }
 CORRUPT = {
     "empty_file": "",
     "not_json": "{",
-    "truncated_with_names": '{"version": 1, "minors": [{"slug": "sam-example", "names": ["Sam Example", "Robin Placeholder"',
+    "truncated_with_names": '{"version": 1, "minors": [{"slug": "sam-jones", "names": ["Sam Jones", "Jane Smith"',
     "json_list": "[]",
     "json_string": '"minors"',
     "json_null": "null",
     "json_number": "3",
     "no_minors_key": '{"version": 1}',
     "minors_null": '{"minors": null}',
-    "minors_object": '{"minors": {"names": ["Sam Example"]}}',
-    "minors_string": '{"minors": "Sam Example"}',
+    "minors_object": '{"minors": {"names": ["Sam Jones"]}}',
+    "minors_string": '{"minors": "Sam Jones"}',
     "minors_empty_object": '{"minors": {}}',
     "minors_empty_string": '{"minors": ""}',
-    "entry_is_a_string": '{"minors": ["Sam Example"]}',
-    "entry_is_a_list": '{"minors": [["Sam Example"]]}',
-    "names_is_a_number": '{"minors": [{"slug": "sam-example", "names": 7}]}',
-    "identifiers_is_null": '{"minors": [{"slug": "sam-example", "identifiers": null}]}',
+    "entry_is_a_string": '{"minors": ["Sam Jones"]}',
+    "entry_is_a_list": '{"minors": [["Sam Jones"]]}',
+    "names_is_a_number": '{"minors": [{"slug": "sam-jones", "names": 7}]}',
+    "identifiers_is_null": '{"minors": [{"slug": "sam-jones", "identifiers": null}]}',
 }
 
 
