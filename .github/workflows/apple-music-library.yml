@@ -66,8 +66,8 @@ jobs:
           n="$(python -m pytest tests/test_apple_music_library_reader.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 25 ]; then
-            echo "REFUSING: expected at least 25 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 32 ]; then
+            echo "REFUSING: expected at least 32 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_apple_music_library_reader.py -v -rs
