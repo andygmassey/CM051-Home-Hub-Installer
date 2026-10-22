@@ -22,7 +22,7 @@ mkos(){ # $1 = name, $2 = stub gate body
   git -C "$d" update-ref refs/remotes/origin/main HEAD; }
 pinof(){ git -C "$T/$1" rev-parse HEAD; }
 run(){ # $1 = os003 dir, $2 = script
-  OSTLER_PRETAG_OS003_PIN="$(git -C "$1" rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)" \
+  OSTLER_PRETAG_OS003_PIN="$(git -C "$1" rev-parse HEAD 2>/dev/null || printf '%040d' 0)" \
   OSTLER_OS003_DIR="$1" OSTLER_PRETAG_NOFETCH=1 OSTLER_PRETAG_PRAGE=true OSTLER_PRETAG_DRY_RUN=1 \
   OSTLER_PRETAG_CANDIDATE="echo success $H https://example.invalid/cand" OSTLER_PRETAG_REHEARSE="echo success $H https://example.invalid/run" \
   bash "$2" v1.0.99999 "$H" 2>&1; }
