@@ -218,6 +218,7 @@ test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-
 test_cm052_paused_conversation_is_not_watermarked.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_cold_staged_trees_and_agents_have_an_upgrade_path.py	WIRED	.github/workflows/derived-preferences.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
 test_collections_are_created_where_readiness_is_proven.sh	WIRED	.github/workflows/install-manifest-gate.yml
@@ -879,6 +880,7 @@ test_upgrade_does_not_revert_the_launchagent_path.sh	WIRED	.github/workflows/lau
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/bash32-compat.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh	WIRED	.github/workflows/derived-preferences.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
