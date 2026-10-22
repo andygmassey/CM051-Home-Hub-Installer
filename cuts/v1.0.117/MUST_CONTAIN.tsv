@@ -1,0 +1,157 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.117.
+#
+# Opened 2026-10-21 by ORM, carrying v1.0.115. v1.0.117 = CM051 main at #3074 (b73c20c9) + hub-v0.5.27 (oa graft 3b3e8ebf).
+# Carried hub rows cited to the hub-v0.5.26 re-pin (5b45fb05) are re-cited to the hub-v0.5.27 re-pin (f6cca414). Text below carried from v1.0.115.
+#
+#
+# Opened 2026-10-20 by ORM: the v1.0.114 BOM carried unchanged. v1.0.115 is the same inputs (hub-v0.5.26) re-spun because the
+# v1.0.114 tag reached no DMG (PR-age crossed between candidate and tag run). Text below carried from v1.0.114.
+#
+#
+# Opened 2026-10-20 by ORM, carrying v1.0.113 in full. v1.0.114 = v1.0.113 + hub-v0.5.26 (oa graft 0cfdfe23 = hub-v0.5.25 + oa #601).
+# The carried hub rows cited to the hub-v0.5.25 re-pin (a641d809) are re-cited to the hub-v0.5.26 re-pin (5b45fb05). Text below carried from v1.0.113.
+#
+#
+# Opened 2026-10-20 by ORM, carrying v1.0.112 in full. v1.0.113 = CM051 main (111/112 content via #3033, walk harness
+# #3037 #3038 #3039 #3041, #3046) + hub-v0.5.25 (oa graft 85bd53af = hub-v0.5.23 + #591 + #594 #597 #595 #593 #596 #598 #599).
+# The carried hub rows cited to the hub-v0.5.23 re-pin (7c6e32a7) are re-cited to the hub-v0.5.25 re-pin (a641d809). Text below carried from v1.0.112.
+#
+#
+# DRAFT opened 2026-10-19 by ORM, carrying v1.0.111 in full. v1.0.112 = CM051 main 5ddc33d3 + the v1.0.111 cut
+# commits + CM041 #225 graft + the fix Archie rules on the v1.0.111 walk failure (row added when it lands).
+# Daemon unchanged: hub-v0.5.23. Text below carried from v1.0.111.
+#
+#
+# Opened 2026-10-19 by ORM. v1.0.109 and v1.0.110 were each tagged once and reached no DMG (preflight checklist;
+# then check-manifest daemon hold in one register only). Carries every v1.0.110 row unchanged (same pins: hub-v0.5.22),
+# plus the merges since 59676f3d: #2972 (model digest pins), #3019 (register rows re-targeted to v1.0.111) and #3020
+# (hold registers agree; no tag without a green candidate build; cut/ PR pin check reads the branch head).
+#
+# (v1.0.110 header and rows follow, kept verbatim:)
+#
+# MUST_CONTAIN.tsv -- the BOM for v1.0.110.
+#
+# Opened 2026-10-19 by ORM for the v1.0.110 re-spin (Archie): v1.0.109 was tagged once and spent at preflight
+# (cut run 39181160785, no DMG). Carries every v1.0.109 row unchanged (same pins: hub-v0.5.22, CM051 bd9fe1a4 lineage),
+# plus rows for the merges since bd9fe1a4: #3015 (18 carried register rows re-gated) and #3016 (cut/ dispatch runs the
+# tag-time preflight). The old v1.0.110 scope (#2972, #2993, the 16 held oa commits) moves to v1.0.111.
+#
+# (v1.0.109 header and rows follow, kept verbatim:)
+#
+# MUST_CONTAIN.tsv -- the BOM for v1.0.109.
+#
+# Opened 2026-10-18 by ORM for the v1.0.109 cut from CM051 main bd9fe1a4: carries every v1.0.108 row unchanged
+# (each still cites a commit in the cut's lineage), plus rows for hub-v0.5.22 (oa 21d5d5ad, CM051 #2986), the
+# Ollama 0.34.0 pin (#2977), the email secrets file (#2974), the audio set (#2976/#2978, #2998) and the tests/CI set
+# (#3004, #2992, #2994, #3012, #3009). Deferred to v1.0.110: #2972 (model digest verify), #2993 (16GB tier to qwen3.5:4b).
+#
+# (v1.0.108 header and rows follow, kept verbatim:)
+#
+# MUST_CONTAIN.tsv -- the BOM for v1.0.108.
+#
+# Opened 2026-10-17 by Archie for the F&F candidate from main: carries every v1.0.107 row, plus eight rows for
+# hub-v0.5.19 (oa 58d65239), wiki v0.1.56 (CM044 5ae073b3) and CM051 1d5a35d8. The v1.0.107 history follows.
+#
+# (v1.0.107 header, kept verbatim:)
+#
+# Opened 2026-10-01 by ORM for the wiki re-pin (v0.1.35 abandoned, v0.1.36 superseded, now v0.1.37). Carries every v1.0.106 row unchanged;
+# the carry-forward re-citation and the rest of the v1.0.107 fixes are the cut-freeze step's job.
+# New rows: the v0.1.37 wiki images (CM044 a2677196) with the #2576 editor-feed mount.
+# 2026-10-02 (ORM): 20 rows that cited PR BRANCH heads (8183c2b4, e8a1a708, 92bd5bd5, 11e87652, dc445ad0) re-cited to their
+# squash MERGE commits on CM051 main (937c10fa #2595, 8a710c27 #2586, 7d447a60 #2594, 9a85fc2e #2596), so every CM051 ref
+# is an ancestor of the cut pin, as scripts/verify_bom_rows_are_in_the_pin.sh requires on a tag push.
+# 2026-10-02 (ORM, cut freeze): carried-forward rows re-cited because a later re-pin REPLACED the install.sh lines they keyed on
+# (the v1.0.106 trap again): 21 daemon rows c9666f0a (0.4.92 re-pin, #2508) -> 937c10fa (0.4.93 re-pin, #2595), and the
+# wiki row 70034e69 (v0.1.34, #2262) -> 8a710c27 (v0.1.37, #2586). Each fix is still in the daemon/images those commits pin.
+# 2026-10-02 (ORM): the 0.4.94 re-pin (#2600, c86f104f) replaced the install.sh pin lines again, so every row that cited
+# 937c10fa (0.4.93) or the #2600 branch head 7d9de221 is re-cited to c86f104f.
+# 2026-10-02 (ORM): the 0.4.96 re-pin (#2606, b8cae2a6) replaced the pin lines again: rows citing c86f104f (0.4.94)
+# and the #2606 branch head cf070d4d are re-cited to b8cae2a6. hub-v0.4.95 was never pinned.
+# 2026-10-03 (ORM): the 0.4.97 re-pin (#2615, 4fc9ccfb) replaced the pin lines again: rows citing b8cae2a6 (0.4.96)
+# and the #2615 branch head 90fdaca7 are re-cited to 4fc9ccfb.
+# 2026-10-03 (ORM): the 0.4.98 re-pin (#2623, d44ae3e7) replaced the pin lines again: rows citing 4fc9ccfb (0.4.97)
+# and the #2623 branch head 74158403 are re-cited to d44ae3e7. No row cites the #2621 or #2622 heads.
+# 2026-10-04 (ORM, candidate #6): re-cited to merge commits on CM051 main. The 0.4.99 re-pin (#2632, eddbf528)
+# replaced the daemon pin lines again (d44ae3e7 and the #2632 head f4372ff9 -> eddbf528). The wiki v0.1.40 re-pin
+# (#2635, 1d9430a7) replaced the wiki pin lines (8a710c27 v0.1.37 and the #2635 head 6a1d61a9 -> 1d9430a7). PR heads
+# -> their merges: #2626 962f1c3e -> 3d143f0b; #2628 0bb224b8 -> 19b07057 for its pin row, but the three #298
+# capability rows -> 1d9430a7, because v0.1.40 replaced the v0.1.38 pin lines they keyed on (#298 is in v0.1.40).
+# 2026-10-04 (ORM, candidate #7): CM051 #2644 (091510a7) re-pinned hub-v0.5.0 and wiki v0.1.41, replacing the daemon
+# pin lines (eddbf528 -> 091510a7, 52 rows) and the wiki pin lines (1d9430a7 -> 091510a7, 12 rows). All 64 measured ABSENT
+# at 091510a7 before this change; no row citing either ref was still in the pin.
+# 2026-10-04 (ORM, candidate #8): CM051 #2645 (165923e5) re-pinned wiki v0.1.42, replacing install.sh pin lines again.
+# 2026-10-07 (ORM, candidate #10): CM051 #2657 (9f5c9d45) re-pinned wiki v0.1.43 (CM044 ba0ce754, #305 #306).
+# All 70 rows citing 091510a7 measured ABSENT at 165923e5 and nothing else did; all 70 re-cited to 165923e5.
+# 2026-10-07 (ORM, candidate #10 freeze): CM051 #2666 (07e0fce7, wiki v0.1.45) and #2661 (2fd7dac7, hub-v0.5.4) replaced the
+# wiki and daemon pin lines. All 79 rows measured ABSENT at 2fd7dac7 (73 citing 165923e5, 3 citing 15d6ce50, 3 citing 9f5c9d45) and
+# nothing else was ABSENT. Daemon rows (pin(daemon)/fix(daemon), 58) -> 2fd7dac7; wiki rows and the #2576 editor-feed mount (21) -> 07e0fce7.
+# Each fix is still in the daemon (oa cb02e94a) or images (CM044 cc59f35f) those commits pin; the #2576 mount is at install.sh:19875 of 2fd7dac7.
+#
+# 2026-10-07 (ORM, candidate #10): CM051 #2661 hub-v0.5.4 (2fd7dac7), #2666 wiki v0.1.45 (07e0fce7), #2668 RemoteCapture 0.1.4 (00a8ce2f).
+# 2026-10-07 (ORM, candidate #10 freeze): rows for the eight other #10 merges, which had none (#2662 #2664 #2665 #2667 #2669 #2670 #2672 #2673).
+# 2026-10-08 (ORM, candidate #10): RemoteCapture 0.1.4 (CM051 #2668) regressed rc#9/rc#10 (CM042 #28) and never shipped; its row is replaced by 0.1.5 (CM051 #2681, afc376a3). remote_capture_pinned_at_v014 is downgraded to required=no in the manifest.
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: pin(remote-capture): RemoteCapture 0.1.5 (CM042 #24 store auth, #25 Hub-outage queue, #29 restores rc#9 identity header and rc#10 capture copy) [SUPERSEDED in #16 by RemoteCapture 0.1.6 (#2735); re-cited from afc376a3 to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows] | CM051 | 5696e8c5 | no | remote_capture_pinned_at_v015 | TBD | CM042 #24 #25 #29 (CM051 #2681)
+# 2026-10-08 (ORM, candidate #11 freeze): CM051 #2698 (b755f55c, hub-v0.5.5 + wiki v0.1.46) replaced the daemon and wiki pin lines. All 96 rows measured ABSENT at b755f55c by scripts/verify_bom_rows_are_in_the_pin.sh (71 citing 2fd7dac7, 25 citing 07e0fce7) and nothing else was ABSENT. All 96 -> b755f55c. Each fix is still in the daemon (oa 06e879fb = hub-v0.5.4 + #476) or the images (CM044 08f35937 = v0.1.45 + #312) that b755f55c pins.
+# 2026-10-08 (ORM, candidate #11): CM051 #2698 (b755f55c) re-pins hub-v0.5.5 (oa 06e879fb, #476) and wiki v0.1.46 (CM044 08f35937, #312). Rows for the #11 merges #2691 #2692 #2693 #2694 #2696.
+# 2026-10-08 (ORM, candidate #12): CM051 #2713 (6514ff15) re-pins hub-v0.5.6 (oa fd904f45, #481 #483) and wiki v0.1.47 (CM044 e3d5abe9, #314). Rows for the #12 merges #2708 #2709 #2710 #2711.
+# 2026-10-09 (ORM, candidate #13): CM051 #2718 (84629b62) re-pins wiki v0.1.48 (CM044 88b8425b, #315 #316). Rows for the #13 merges #2716 #2717. Hub stays hub-v0.5.6.
+# 2026-10-09 (ORM, candidate #14): CM051 #2724 (7f1879fb) re-pins wiki v0.1.49 (CM044 74c993f4, #317). Rows for the #14 merges #2721 #2722. Hub stays hub-v0.5.6.
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: repin(wiki): both wiki images at CM044 v0.1.49 (74c993f4) | CM051 | 7f1879fb | no | wiki_images_pinned_at_cm044_v0151 | TBD | CM051 #2724
+# 2026-10-09 (ORM, candidate #15): CM051 #2731 (7ac7c2cb) re-pins hub-v0.5.7 (oa 3140e252, #487 #488). Rows for the #15 merges #2727 #2728. Wiki stays v0.1.49. cut.env CM051=0fd77d29 (#2738 daemon hold row, after #2731).
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.7 daemon tarball 5dee36de (oa 3140e252) [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows] | CM051 | 5696e8c5 | no | daemon_pinned_at_hub_v0507 | TBD | oa #487 #488 (CM051 #2731)
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.7 hub app 515ebcf7 [SUPERSEDED in #16 by hub-v0.5.8 (#2750); re-cited from 7ac7c2cb to the #16 pin 5696e8c5, as #374 did for the 0.5.5/0.5.6 rows] | CM051 | 5696e8c5 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2731
+# 2026-10-10 (ORM, candidate #16): CM051 #2750 (5696e8c5) re-pins hub-v0.5.8 (oa 8c41eec5, c16 batch). Rows for #2735 #2736 #2737 #2744 #2746 and the #2749 batch (7e20c029). Wiki stays v0.1.49. cut.env CM051=5696e8c5.
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.8 daemon tarball 32cc5ccc (oa 8c41eec5) | CM051 | 5696e8c5 | no | daemon_pinned_at_hub_v0508 | TBD | oa #494 (CM051 #2750)
+# SUPERSEDED (#17, ORM 2026-10-10): a later pin replaced this one; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.8 hub app 2e03d519 | CM051 | 5696e8c5 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2750
+# 2026-10-10 (ORM, candidate #17, launch candidate): CM051 #2773 batch (main 011101ea) + #2759; hub-v0.5.9 (oa ae65b992) in #2778; wiki v0.1.51 (CM044 37f33694) in #2777. cut.env CM051=011101ea, DAEMON_COMMIT=ae65b992. CI-only #2780 (hub-screens duplicate step) carries no product row.
+# SUPERSEDED (#18, ORM 2026-10-11): hub-v0.5.10 replaced this pin; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.9 daemon tarball 65d18a07 (oa ae65b992) | CM051 | f9aa2ca8 | no | daemon_pinned_at_hub_v0509 | TBD | oa #499 #500 #501 (CM051 #2778)
+# SUPERSEDED (#18, ORM 2026-10-11): hub-v0.5.10 replaced this pin; the row is kept as text and no longer read by the pin gate: pin(daemon): 0.5.9 hub app ff3ad532 | CM051 | f9aa2ca8 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2778
+# SUPERSEDED (#23, ORM 2026-10-12): replaced by hub-v0.5.15 / wiki v0.1.52; kept as text, no longer read by the pin gate: repin(wiki): both wiki images at CM044 v0.1.51 (37f33694) | CM051 | 3daa9163 | no | wiki_images_pinned_at_cm044_v0152 | TBD | CM051 #2777
+# 2026-10-11 (ORM, candidate #18, launch candidate): CM051 #2787 batch (main 05df2f03): #2784 #2785 #2786 #2760 and the hub-v0.5.10 re-pin #2788 (oa ca8b2fec, #505 #497). Wiki stays v0.1.51. cut.env CM051=05df2f03, DAEMON_COMMIT=ca8b2fec.
+# SUPERSEDED (#19, ORM 2026-10-11): hub-v0.5.12 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.10 daemon tarball d5f67031 (oa ca8b2fec) | CM051 | 4a6c2442 | no | daemon_pinned_at_hub_v0510 | TBD | oa #505 #497 (CM051 #2788)
+# SUPERSEDED (#19, ORM 2026-10-11): hub-v0.5.12 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.10 hub app 62642338 | CM051 | 4a6c2442 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2788
+# 2026-10-11 (ORM, candidate #19): CM051 #2795 (36d3a468) re-pins hub-v0.5.12 (oa fa8f8132, #506 #507). hub-v0.5.11 superseded, never pinned. Wiki stays v0.1.51.
+# SUPERSEDED (#20, ORM 2026-10-11): hub-v0.5.13 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.12 daemon tarball da063e8d (oa fa8f8132) | CM051 | 36d3a468 | no | daemon_pinned_at_hub_v0512 | TBD | oa #506 #507 (CM051 #2795)
+# SUPERSEDED (#20, ORM 2026-10-11): hub-v0.5.13 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.12 hub app 8000cdcb | CM051 | 36d3a468 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2795
+# 2026-10-11 (ORM, candidate #20): CM051 #2810 (5b83ad3e) re-pins hub-v0.5.13 (oa a59a6d1d, #508 #511; #509 NOT in, #2803 stays advisory); chat A/B drops=0. Plus #2809 batch, #2802, #2798, #2799, #2801, #2805. cut.env CM051=5b83ad3e.
+# SUPERSEDED (#21, ORM 2026-10-12): hub-v0.5.14 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.13 daemon tarball d6a506ba (oa a59a6d1d) | CM051 | 5b83ad3e | no | daemon_pinned_at_hub_v0513 | TBD | oa #508 #511 (CM051 #2810)
+# SUPERSEDED (#21, ORM 2026-10-12): hub-v0.5.14 replaced this pin; kept as text, no longer read by the pin gate: pin(daemon): 0.5.13 hub app d3a50fa0 | CM051 | 5b83ad3e | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2810
+# 2026-10-12 (ORM, candidate #21): CM051 #2816 (60869cc7) re-pins hub-v0.5.14 (oa 7d5a3fe8: #512 #514 #515 #516) and flips the #2803 walk scope row to BLOCKING. Plus 2eb320fe, ad1a9d26, 355bc076. cut.env CM051=60869cc7.
+# SUPERSEDED (#23, ORM 2026-10-12): replaced by hub-v0.5.15 / wiki v0.1.52; kept as text, no longer read by the pin gate: pin(daemon): 0.5.14 daemon tarball f2fa393c (oa 7d5a3fe8) | CM051 | 60869cc7 | no | daemon_pinned_at_hub_v0514 | TBD | oa #512 #514 #515 #516 (CM051 #2816)
+# SUPERSEDED (#23, ORM 2026-10-12): replaced by hub-v0.5.15 / wiki v0.1.52; kept as text, no longer read by the pin gate: pin(daemon): 0.5.14 hub app 8f137217 | CM051 | 60869cc7 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2816
+# 2026-10-12 (ORM, candidate #22): CM051-only, hub stays hub-v0.5.14 (7d5a3fe8). Batch #2822 (7fc72749): #2819 #2820 #2821. cut.env CM051=7fc72749.
+# 2026-10-12 (ORM, candidate #23): CM051 #2828 (1ab94795) re-pins hub-v0.5.15 (oa 644b6137, #517) and wiki v0.1.52 (CM044 d6ba3a01, #321). Plus #2825 #2826 #2827 #2830. cut.env CM051=577d1740.
+# SUPERSEDED (#27, ORM 2026-10-14): replaced by hub-v0.5.16; kept as text, no longer read by the pin gate: pin(daemon): 0.5.15 daemon tarball 761ed728 (oa 644b6137) | CM051 | 1ab94795 | no | daemon_pinned_at_hub_v0515 | TBD | oa #517 (CM051 #2828)
+# SUPERSEDED (#27, ORM 2026-10-14): replaced by hub-v0.5.16; kept as text, no longer read by the pin gate: pin(daemon): 0.5.15 hub app de1dc421 | CM051 | 1ab94795 | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2828
+# SUPERSEDED (#28, ORM 2026-10-14): replaced by wiki v0.1.53; kept as text, no longer read by the pin gate: repin(wiki): both wiki images at CM044 v0.1.52 (d6ba3a01) [carried in #27 by hub-v0.5.16 (#2860); re-cited from 1ab94795] | CM051 | 7058359d | no | wiki_images_pinned_at_cm044_v0153 | TBD | CM051 #2828
+# 2026-10-13 (ORM, candidate #24): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2833 #2836 (#2834 #2835) #2832. cut.env CM051=7842b798.
+# 2026-10-13 (ORM, candidate #25): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2840, #2843 (#2841 #2842). cut.env CM051=25ecc4ff.
+# 2026-10-13 (ORM, candidate #26): CM051-only on the #23 pins (hub-v0.5.15 644b6137, wiki v0.1.52 d6ba3a01). #2848 (#2847 #2846). cut.env CM051=8f8db9da.
+# 2026-10-14 (ORM, candidate #27): CM051 #2854 (#2852 #2853), #2855, #2858 (#2856 #2857). Hub re-pin rows (oa #518 #519, hub-v0.5.16) follow in the same PR.
+# 2026-10-14 (ORM, candidate #27): CM051 #2860 (7058359d) re-pins hub-v0.5.16 (oa 5aed1b05: #518 #519); wiki v0.1.52 unchanged.
+# SUPERSEDED (#28, ORM 2026-10-14): replaced by hub-v0.5.17; kept as text, no longer read by the pin gate: pin(daemon): 0.5.16 daemon tarball c77051d9 (oa 5aed1b05) | CM051 | 7058359d | no | daemon_pinned_at_hub_v0516 | TBD | oa #518 #519 (CM051 #2860)
+# SUPERSEDED (#28, ORM 2026-10-14): replaced by hub-v0.5.17; kept as text, no longer read by the pin gate: pin(daemon): 0.5.16 hub app 67debd28 | CM051 | 7058359d | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2860
+# 2026-10-14 (ORM, candidate #28, IN PROGRESS): CM051 #2880 (landed in batch #2896, 8cdaf136) re-pins wiki v0.1.54 (CM044 443d8f51, #324-#342); plus CM051 #2865 #2864. More #28 rows follow.
+# SUPERSEDED (#30, ORM 2026-10-15): replaced by wiki v0.1.55; kept as text, no longer read by the pin gate: repin(wiki): both wiki images at CM044 v0.1.54 (443d8f51) | CM051 | 8cdaf136 | no | wiki_images_pinned_at_cm044_v0155 | TBD | CM051 #2880
+# 2026-10-14 (ORM, candidate #28): batch #2896 (8cdaf136, incl. #2880 wiki v0.1.54), #2876 (e0bac607), batch #2897 (d0c9f235), hub-v0.5.17 re-pin #2898 (da56d31f, oa bab3dc7a).
+# SUPERSEDED (#30, ORM 2026-10-16): replaced by hub-v0.5.18; kept as text, no longer read by the pin gate: pin(daemon): 0.5.17 daemon tarball 098b915e (oa bab3dc7a) | CM051 | da56d31f | no | daemon_pinned_at_hub_v0517 | TBD | oa #520 #522 #527 #528 #529 (CM051 #2898)
+# SUPERSEDED (#30, ORM 2026-10-16): replaced by hub-v0.5.18; kept as text, no longer read by the pin gate: pin(daemon): 0.5.17 hub app 506d559b | CM051 | da56d31f | no | hub_app_pinned_at_the_shipped_bundle | TBD | CM051 #2898
+# 2026-10-15 (ORM, candidate #29): CM051 #2912 (7d211203) only; #28 is no-ship (P1 privacy: look-ups ran after a declined consent). #2874 (f0f2ac2f) is harness only, not payload.
+# 2026-10-15 (ORM, candidate #30, DRAFT): wiki v0.1.55 (CM044 c20db124) re-pinned by CM051 #2932 (a1e8182b); oa #537. Hub-v0.5.18 and CM051 rows follow.
+# 2026-10-15 (ORM, candidate #30): CM051 batches #2926 (c2ffec96) #2927 (8c70d522) #2928 (c868c3a9) #2929 (b8c4d3a1) + #2911 #2921 #2908. Each 0 at f3b921d1 and in the #29 DMG 66f847df.
+# 2026-10-16 (ORM, candidate #30): CM051 #2932 (a1e8182b) re-pins hub-v0.5.18 (oa 9d2c9491: #547 #548 + #531 #536 #539).
+# 2026-10-19 (ORM, Archie review of OS003 #397): every CM051 first-parent merge in 56a5ed21..bd9fe1a4 (the v1.0.108 cut
+# SHA to this cut's pin) was compared against this BOM: 35 merges examined, 10 already had a row, 25 rows added below.
+# capability `none` on a row means one of two things, stated on the row: TEST/CI/WALK-ONLY (nothing ships to a customer,
+# so there is no artefact property to guard) or NO CAPABILITY ROW YET (a product change whose guard is still owed).
+what	repo	ref	landed	capability_id	verify	ticket
+wiki_no_attr_list_leak	CM044	d2bd7bec	no	wiki_no_attr_list_leak	capability_matrix.sh gate	CM044 #388
+wiki_frontpage_no_rail	CM044	d2bd7bec	no	wiki_frontpage_no_rail	capability_matrix.sh gate	CM044 #389
+wiki_search_snippet_capped	CM044	ced30d49	no	wiki_search_snippet_capped	capability_matrix.sh gate	CM044 #390
+wiki_duplicates_need_signal	CM044	ced30d49	no	wiki_duplicates_need_signal	capability_matrix.sh gate	CM044 #391
+wiki_images_v0_1_59	CM051	a3dd9e1d	no	wiki_images_v0_1_59	capability_matrix.sh gate	CM051 #3114
+wiki_site_image_v0_1_59	CM051	a3dd9e1d	no	wiki_site_image_v0_1_59	capability_matrix.sh gate	CM051 #3114
+hub_v0_5_28_pinned	CM051	d9854a99	no	hub_v0_5_28_pinned	capability_matrix.sh gate	CM051 cut/v1.0.117
+q32_calendar_include_label	CM051	a1486033	no	q32_calendar_include_label	capability_matrix.sh gate	CM051 #3112
+q23_spoken_capture_copy_short	CM051	33949237	no	q23_spoken_capture_copy_short	capability_matrix.sh gate	CM051 #3108
+consent_survives_promote	CM051	89e0fd7b	no	consent_survives_promote	capability_matrix.sh gate	CM051 #3113
