@@ -47,11 +47,11 @@ lift() { # file name indent -> function text
 run_upgrade() { # $1 install.sh to lift from, $2 = ok|pipfail, $3 = workdir -> prints rc
     local isf="$1" mode="$2" w="$3"
     local home="${w}/home" bin="${w}/bin" payload="${w}/payload" cm="${w}/home/.ostler/services/cm019"
-    mkdir -p "$bin" "$payload/cm019_preferences/services/enrich/src/derive" \
+    mkdir -p "$bin" "$payload/services/cm019/services/enrich/src/derive" \
              "$cm/services/enrich/src" "$cm/.venv/bin" "$cm/state" "$home/Library/LaunchAgents" "$home/.ostler/logs"
-    # payload (the new build)
-    echo "pyyaml>=6.0" > "$payload/cm019_preferences/requirements.txt"
-    echo "NEW" > "$payload/cm019_preferences/services/enrich/src/derive/engine.py"
+    # payload (the new build), in the layout gui/Makefile stage-payload really produces
+    echo "pyyaml>=6.0" > "$payload/services/cm019/requirements.txt"
+    echo "NEW" > "$payload/services/cm019/services/enrich/src/derive/engine.py"
     # the 116-shaped box: old code, a venv with no pyyaml, user data, no agent
     echo "OLD" > "$cm/services/enrich/src/old.py"
     echo "keep me" > "$cm/state/user-data.txt"
@@ -71,7 +71,7 @@ exit 0
 STUB
     chmod +x "${bin}/launchctl"
     {
-        for fn in _upg_log:"    " _upg_resolve_python3:"    " _upg_run_bounded:"    " _upg_refresh_cm019:"    " _upg_install_derive_agent:"    "; do
+        for fn in _upg_log:"    " _upg_payload_dir:"    " _upg_resolve_python3:"    " _upg_run_bounded:"    " _upg_refresh_cm019:"    " _upg_install_derive_agent:"    "; do
             lift "$isf" "${fn%%:*}" "${fn#*:}" || { echo "CANNOT-RUN: cannot lift ${fn%%:*}" >&2; return 2; }
         done
         lift "$isf" _install_derive_preferences_agent "" || { echo "CANNOT-RUN: cannot lift the agent installer" >&2; return 2; }

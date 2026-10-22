@@ -21,7 +21,8 @@ reason. FAILS when
   2  a baseline `covered` item is no longer reached by the upgrade block
   3  a baseline `cold-only` item now IS covered (tighten the baseline)
   4  a baseline row names something the cold install no longer stages
-A `cold-only` row needs a reason that begins `118 decision:` or `fixed:`.
+A `cold-only` row needs a reason that begins `119 decision:` or `fixed:` (the general
+restage-on-upgrade mode is 119; 118 fixes only the smart-prefs rows).
 
 SELF-TEST (mutants, run on every invocation): a fake cold-staged tree and a fake
 agent must trip (1); removing the cm019 refresh from the upgrade block must trip (2).
@@ -40,7 +41,9 @@ BASELINE = os.environ.get("UPGRADE_PARITY_TSV", os.path.join(REPO, "scripts", "u
 _UPG_START = re.compile(r'^if \[\[ "\$\{OSTLER_UPGRADE_MODE:-0\}" == "1"')
 _TREE_COLD = re.compile(r'^\s*(?:\[\[ -d [^\]]*\]\] && )?(?:cp -R|rsync -a)\s+"?\$\{SCRIPT_DIR\}/([A-Za-z0-9_.-]+)')
 _TREE_BUNDLE = re.compile(r'^\s*[A-Z0-9_]*_BUNDLE="\$\{SCRIPT_DIR\}/([A-Za-z0-9_.-]+)"')
-_TREE_UPG = re.compile(r'\$\{_UPG_PAYLOAD\}/([A-Za-z0-9_.-]+)')
+# `${_UPG_PAYLOAD}/<tree>`, `${_UPG_PAYLOAD}/services/<tree>` and the
+# `_upg_payload_dir services/<tree> <tree>` candidate lists.
+_TREE_UPG = re.compile(r'(?:\$\{_UPG_PAYLOAD\}/(?:services/)?|_upg_payload_dir (?:services/)?)([A-Za-z0-9_.-]+)')
 _LABEL = re.compile(r'\bcom\.(?:ostler|creativemachines\.ostler)[A-Za-z0-9._-]*')
 
 
@@ -84,14 +87,15 @@ def enumerate_items(text):
         # A label only counts where the upgrade ACTS on it (kick, bootstrap, a
         # *_LABEL= it manages, an _install_*_agent). A log message that names an
         # agent, or a plist it merely reads, is not coverage.
-        if not re.search(r'_ks_bounded|launchctl|_LABEL=|_install_', l):
+        if not re.search(r'_ks_bounded|launchctl|_LABEL=|_label=|_install_', l):
             continue
         for raw in _LABEL.findall(l):
             c = clean_label(raw)
             if c:
                 ag_upg.add(c)
     # a payload tree the upgrade names under its payload alias
-    alias = {"doctor": "doctor", "knowledge": "cm024_knowledge", "cm024_knowledge": "cm024_knowledge"}
+    alias = {"knowledge": "cm024_knowledge", "cm048": "cm048_pipeline", "cm019": "cm019_preferences",
+             "pwg_privacy.py": "assistant_api"}
     trees_upg = {alias.get(t, t) for t in trees_upg}
     return trees_cold, trees_upg, ag_cold, ag_upg
 
@@ -130,8 +134,8 @@ def check(text, baseline):
                 fails.append(f"2 {kind} {name!r} is baseline-covered but the upgrade block no longer reaches it")
             if status == "cold-only" and covered:
                 fails.append(f"3 {kind} {name!r} is now covered by the upgrade block; mark it covered in the baseline")
-            if status == "cold-only" and not re.match(r'(118 decision|fixed):', reason):
-                fails.append(f"5 {kind} {name!r} is cold-only without a '118 decision:' or 'fixed:' reason")
+            if status == "cold-only" and not re.match(r'(119 decision|fixed):', reason):
+                fails.append(f"5 {kind} {name!r} is cold-only without a '119 decision:' or 'fixed:' reason")
         for (k, name), _ in baseline.items():
             if k == kind and name not in cold:
                 fails.append(f"4 baseline names {kind} {name!r} but the cold install no longer stages it")
@@ -172,7 +176,8 @@ def main():
     else:
         print("  PASS mutant: a fake cold agent trips the ratchet (RED)")
     # the payload path inside the upgrade block IS the upgrade counterpart
-    stripped = re.sub(r'\$\{_UPG_PAYLOAD\}/cm019_preferences', '${_UPG_PAYLOAD}/removed', text)
+    stripped = text.replace("_upg_payload_dir services/cm019 cm019_preferences", "_upg_payload_dir services/removed removed")
+    stripped = stripped.replace("${_UPG_PAYLOAD}/cm019_preferences", "${_UPG_PAYLOAD}/removed")
     if not any("tree 'cm019_preferences'" in f and f.startswith("2") for f in check(stripped, baseline)):
         print("  FAIL mutant: removing the cm019 refresh did not trip the ratchet"); mut_ok = False
     else:

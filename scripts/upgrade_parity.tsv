@@ -1,57 +1,57 @@
 # Cold-staged trees and LaunchAgents against what the Sparkle upgrade path (OSTLER_UPGRADE_MODE) refreshes or installs.
 # Generated from install.sh by tests/test_cold_staged_trees_and_agents_have_an_upgrade_path.py; the REASONS are hand-written.
-# columns: kind<TAB>name<TAB>status (covered|cold-only)<TAB>reason ("fixed:", "covered:" or "118 decision:")
+# columns: kind<TAB>name<TAB>status (covered|cold-only)<TAB>reason ("fixed:", "covered:" or "119 decision:")
 # A new cold-staged tree or agent with no row here FAILS the ratchet. A cold-only row that becomes covered FAILS too: mark it covered.
-tree	LICENSES	cold-only	118 decision: licence texts are cold-only; a changed notice does not reach an upgraded box (AGPL notices in #3102 are shipped in the app bundle)
-tree	assistant_api	cold-only	118 decision: HIGH for smart-prefs. Carries the ical-server and the live /api/v1/preferences/derived route (round-robin by category, tier filter, tier fallback: CM041 #233/#234). An upgraded box keeps the previous route, which ranks by confidence alone and ignores ?tier. Needs an owner decision before the 118 verdict
+tree	LICENSES	cold-only	119 decision: licence texts are cold-only; a changed notice does not reach an upgraded box (AGPL notices in #3102 are shipped in the app bundle)
+tree	assistant_api	covered	fixed: _upg_refresh_assistant_api (118): copy-over, tar backup, kickstart -k, health probe of /api/v1/preferences/derived?tier=all, rollback + restart of the old server
 tree	cm019_preferences	covered	fixed: _upg_refresh_cm019 (this PR)
 tree	cm024_knowledge	covered	covered: _upg_refresh_knowledge
 tree	cm048_pipeline	covered	covered: _upg_refresh_cm048
-tree	contact_syncer	cold-only	118 decision: pipeline code (CM041 contact syncer, LinkedIn career importer) is not refreshed on upgrade; same staging site as meeting_syncer and identity_resolver
-tree	context-refresh	cold-only	118 decision: HIGH for smart-prefs. Carries the CONTEXT.md generator (derived preferences reach the digest, #3096). An upgraded box keeps the previous generator and the digest does not show derived preferences
+tree	contact_syncer	cold-only	119 decision: pipeline code (CM041 contact syncer, LinkedIn career importer) is not refreshed on upgrade; same staging site as meeting_syncer and identity_resolver
+tree	context-refresh	covered	fixed: _upg_refresh_context_refresh (118): copy-over, tar backup, the tree's own INSTALL_SNIPPET.sh, launchctl print, rollback
 tree	doctor	covered	covered: _upg_refresh_doctor
-tree	email-ingest	cold-only	118 decision: email ingest tree and its LaunchAgents are cold-only; fixes to it do not reach an upgraded box
-tree	hub-power	cold-only	118 decision: hub-power tree is cold-only; upgrade does not refresh it
-tree	identity_resolver	cold-only	118 decision: staged with contact_syncer into the import pipeline; not refreshed on upgrade
-tree	meeting_syncer	cold-only	118 decision: staged with contact_syncer into the import pipeline; not refreshed on upgrade
-tree	ostler_fda	cold-only	118 decision: _upg_repair_fda_venv repairs the venv but the module code is not refreshed; importers fixed in 118 do not reach an upgraded box until it is
-tree	ostler_hygiene	cold-only	118 decision: memory-hygiene tree is cold-only; staged with the ical-server services root
+tree	email-ingest	cold-only	119 decision: email ingest tree and its LaunchAgents are cold-only; fixes to it do not reach an upgraded box
+tree	hub-power	cold-only	119 decision: hub-power tree is cold-only; upgrade does not refresh it
+tree	identity_resolver	cold-only	119 decision: staged with contact_syncer into the import pipeline; not refreshed on upgrade
+tree	meeting_syncer	cold-only	119 decision: staged with contact_syncer into the import pipeline; not refreshed on upgrade
+tree	ostler_fda	cold-only	119 decision: _upg_repair_fda_venv repairs the venv but the module code is not refreshed; importers fixed in 118 do not reach an upgraded box until it is
+tree	ostler_hygiene	covered	fixed: refreshed with assistant_api (_upg_refresh_assistant_api), as the cold install stages it beside the ical-server
 tree	ostler_security	covered	covered: installed into the cm048 venv by _upg_refresh_cm048
-tree	wiki-recompile	cold-only	118 decision: wiki-recompile tree is cold-only; wiki fixes in 118 reach an upgraded box only through its image re-pin
-agent	com.creativemachines.ostler-remotecapture	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+tree	wiki-recompile	cold-only	119 decision: wiki-recompile tree is cold-only; wiki fixes in 118 reach an upgraded box only through its image re-pin
+agent	com.creativemachines.ostler-remotecapture	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
 agent	com.creativemachines.ostler.assistant	covered	covered: _upg_rerender_plists
-agent	com.creativemachines.ostler.context-refresh	cold-only	118 decision: HIGH for smart-prefs. Runs the context-refresh tree (cold-only above)
-agent	com.creativemachines.ostler.dedupe-catchup	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.editor-frontpage	cold-only	118 decision: Front Page tick; plist not re-rendered on upgrade, code is the vendored cm059 editor staged cold
-agent	com.creativemachines.ostler.editor-frontpage-catchup	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.email-bundle	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.email-ingest	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.hub-power	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.imessage-bundle	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.spoken-bundle	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.tailscaled	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.whatsapp-bundle	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.context-refresh	covered	fixed: installed/re-rendered by _upg_refresh_context_refresh via the tree's INSTALL_SNIPPET.sh, print-verified
+agent	com.creativemachines.ostler.dedupe-catchup	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.editor-frontpage	cold-only	119 decision: Front Page tick; plist not re-rendered on upgrade, code is the vendored cm059 editor staged cold
+agent	com.creativemachines.ostler.editor-frontpage-catchup	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.email-bundle	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.email-ingest	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.hub-power	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.imessage-bundle	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.spoken-bundle	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.tailscaled	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.whatsapp-bundle	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
 agent	com.creativemachines.ostler.whatsapp-keepalive	covered	covered: _upg_rerender_plists
-agent	com.creativemachines.ostler.wiki-recompile	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.creativemachines.ostler.wiki-recompile-catchup	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.aiconv-resume	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.colima	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.contact-resync	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.deferred-register-device	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.wiki-recompile	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.creativemachines.ostler.wiki-recompile-catchup	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.aiconv-resume	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.colima	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.contact-resync	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.deferred-register-device	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
 agent	com.ostler.derive-preferences	covered	fixed: _upg_install_derive_agent (this PR)
 agent	com.ostler.doctor	covered	covered: kicked after the doctor tree refresh
-agent	com.ostler.engine-supervisor	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.enrich	cold-only	118 decision: the enrichment tick plist is not re-rendered on upgrade; its code (cm019, now refreshed) is picked up on the next tick, but a plist change would not be
-agent	com.ostler.export-scan	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.fda-rerun	cold-only	118 decision: upgrade repairs the venv it uses (_upg_repair_fda_venv) but neither re-renders the plist nor refreshes ostler_fda
-agent	com.ostler.ical-server	cold-only	118 decision: HIGH for smart-prefs. Runs assistant_api (cold-only tree above); an upgrade does not restart it onto new code
-agent	com.ostler.imessage-bridge	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.listener-watchdog	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.meeting-brief-sender	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.memory-hygiene	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.music-refresh	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.music-refresh-apply	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.ollama	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.ollama-logrotate	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.ollama-watchdog	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
-agent	com.ostler.stay-awake	cold-only	118 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.engine-supervisor	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.enrich	cold-only	119 decision: the enrichment tick plist is not re-rendered on upgrade; its code (cm019, now refreshed) is picked up on the next tick, but a plist change would not be
+agent	com.ostler.export-scan	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.fda-rerun	cold-only	119 decision: upgrade repairs the venv it uses (_upg_repair_fda_venv) but neither re-renders the plist nor refreshes ostler_fda
+agent	com.ostler.ical-server	covered	fixed: restarted onto the new code by _upg_refresh_assistant_api (kickstart -k, print, health probe)
+agent	com.ostler.imessage-bridge	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.listener-watchdog	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.meeting-brief-sender	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.memory-hygiene	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.music-refresh	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.music-refresh-apply	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.ollama	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.ollama-logrotate	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.ollama-watchdog	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
+agent	com.ostler.stay-awake	cold-only	119 decision: cold-only LaunchAgent; the upgrade path neither installs nor re-renders it, so an upgraded box keeps the plist the previous build wrote (and only gains the agent by a full re-install)
