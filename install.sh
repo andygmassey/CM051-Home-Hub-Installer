@@ -24289,6 +24289,7 @@ fi
 export OSTLER_IMPORT_RUN_LEDGER
 
 rc=0
+PREFS_WRITTEN=0
 for d in "${DIRS[@]}"; do
     [[ -d "$d" ]] || continue
 
@@ -24302,8 +24303,22 @@ for d in "${DIRS[@]}"; do
 
     # ── Preference wiki (CM019 ingest + enrich) ────────────────────
     if [[ -x "$CM019_PY" ]]; then
-        ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
-            "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+        # The summary goes to stderr; keep a copy so we know whether rows were
+        # written (see the profile refresh after the loop). A pipeline, not a
+        # process substitution, so the copy is complete when we read it.
+        _ing_log="$(mktemp -t ostler-import-ingest.XXXXXX)" || _ing_log=""
+        if [[ -n "$_ing_log" ]]; then
+            ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+                "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) 2>&1 | tee "$_ing_log"
+            _ing_rc="${PIPESTATUS[0]}"
+            [[ "$_ing_rc" -ne 0 ]] && rc="$_ing_rc"
+            _ing_n="$(sed -n 's/.*Preferences created: *\([0-9,]*\).*/\1/p' "$_ing_log" | tr -d ',' | tail -n 1)"
+            [[ "${_ing_n:-0}" =~ ^[0-9]+$ && "${_ing_n:-0}" -gt 0 ]] && PREFS_WRITTEN=1
+            rm -f "$_ing_log"
+        else
+            ( cd "$CM019_DIR" && QDRANT_COLLECTION=preferences \
+                "$CM019_PY" -m services.ingest.src.cli ingest-dir "$d" -u "$CM019_USER" ) || rc=$?
+        fi
 
         # THIS CALL IS WHY THE INSTALL STALLED FOR TEN MINUTES.
         #
@@ -24426,6 +24441,43 @@ for d in "${DIRS[@]}"; do
         fi
     fi
 done
+
+# ── Make new preferences visible now, not at the next hourly tick ──
+# The owner digest and pwg_preferences read ~/.ostler/preferences/
+# interest_profile.json, which only the editor-frontpage tick compiles (it
+# projects Qdrant `preferences` into the graph, then compiles). Without this a
+# customer's first import shows "nothing stored" for up to an hour. So when
+# this run wrote preference rows, kickstart that same job: launchd then owns
+# the compile.
+#
+# NO BACKGROUND CHILD. ostler-import runs under com.ostler.export-scan (and
+# other launchd jobs) with no AbandonProcessGroup, so launchd kills every
+# process left in the job's group when the job exits. A disowned debounce
+# subshell is reaped that way and the recompile never fires. Everything here
+# is therefore in the foreground and finished before ostler-import exits:
+# the kickstart is polled for at most 10s (a penalty-boxed job makes
+# kickstart hang, see _ks_bounded in install.sh) and killed if it overruns.
+# Importers finishing together each kickstart -k; the last one restarts the
+# compile after every importer's rows are stored. An unloaded label is the
+# NORMAL case during the first install (the agent is created later and
+# RunAtLoad covers it), so it is skipped quietly.
+if [[ "$PREFS_WRITTEN" -eq 1 ]]; then
+    _pr_target="gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
+    if launchctl print "$_pr_target" >/dev/null 2>&1; then
+        launchctl kickstart -k "$_pr_target" >/dev/null 2>&1 &
+        _pr_pid=$!
+        _pr_i=0
+        while kill -0 "$_pr_pid" 2>/dev/null && [[ "$_pr_i" -lt 10 ]]; do
+            sleep 1
+            _pr_i=$((_pr_i + 1))
+        done
+        if kill -0 "$_pr_pid" 2>/dev/null; then
+            kill -TERM "$_pr_pid" 2>/dev/null || true
+        fi
+        wait "$_pr_pid" 2>/dev/null || true
+        echo "Preferences stored: refreshing your interest profile."
+    fi
+fi
 exit $rc
 IMPORTEOF
 fi
