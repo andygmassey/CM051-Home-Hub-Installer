@@ -337,12 +337,11 @@
 # The same stated preferences, from the owner's own lines in the iMessage and
 # WhatsApp transcripts CM048 has already written. Deterministic (no model), the
 # same privacy filters as the fact path (L2/L3, deceased/suppressed, minors), and
-# it never opens chat.db. allowed_privacy is the one-line decision: the CM048
-# baseline for a chat is L2, so on a typical Hub nothing passes until that is
-# decided.
+# it never opens chat.db. L2 is admitted (the CM048 baseline for a chat) and the
+# derived node inherits the highest level of its evidence; L3 stays out.
 - dimension: stated.transcripts
   domain: stated
   category: stated
   kind: stated_transcripts
   channels: [im, imessage, whatsapp]
-  allowed_privacy: [L0, L1]
+  allowed_privacy: [L0, L1, L2]

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Sequence
 
-from .model import DerivedPreference, EvidenceItem, normalize_value
+from .model import DerivedPreference, EvidenceItem, max_privacy, normalize_value
 from .scoring import score_group
 
 
@@ -102,6 +102,7 @@ class Aggregator:
                 derivation_method="rollup",
                 is_contested=score.is_contested,
                 evidence_titles=_evidence_titles(members),
+                privacy_level=max_privacy(m.privacy_level for m in members),
             )
             out.append(node)
 

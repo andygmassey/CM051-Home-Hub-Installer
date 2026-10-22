@@ -69,7 +69,7 @@ food.ingredient:
 media.music.genre:
   Jazz: [jazz]
   Classical: [classical music, classical]
-  Rock: [rock music]
+  Rock music: [rock music]
   Hip hop: [hip hop, hip-hop, rap]
   Country: [country music]
   Electronic: [electronic music, techno, house music, edm]

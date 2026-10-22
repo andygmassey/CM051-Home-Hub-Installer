@@ -5,7 +5,8 @@ Drives the VENDORED tree through build_readers (as derive_runner does) over
 synthetic CM048 transcripts. Reads only transcripts: no message database is
 opened. Synthetic text only.
 
-  arm 1  filter L2/L3: conversations at L2 and L3 are skipped (L1 control reads).
+  arm 1  filter L3: L3 conversations are skipped; L2 is ADMITTED (Archie, 2026-10-22)
+         and the evidence carries its level.
   arm 2  filter deceased: a conversation with a suppressed contact is skipped; a
          failed suppression lookup RAISES instead of reading unfiltered.
   arm 3  filter minors: a minor conversation and a minor mention are skipped.
@@ -16,6 +17,13 @@ opened. Synthetic text only.
          evidence or the derived node; because is "you said so in a message".
   arm 7  MUTANT: with the registry row dropped the source disappears.
   arm 8  the module never opens a message database.
+  arm 9  privacy inheritance: an L2-only dislike gives a node stamped L2, a mixed
+         L1+L2 node is stamped L2, an L1-only node L1; the turtle carries
+         pwg:privacyLevel.
+  arm 10 tier-model stage: a recording model sees ONLY lines that passed every
+         filter (L3, minor, suppressed, friend, assistant, quote); it decides
+         polarity only (an invented item is dropped and counted); a cancel
+         mid-flight leaves the verdict cache holding exactly what finished.
 
 Exit: 0 pass, 1 real failure, 2 cannot-run.
 """
@@ -98,11 +106,12 @@ def fresh():
 
 def main():
     print("arm 1: privacy")
-    s = fresh(); s.chat([("You", "I hate coffee")], "L2"); s.chat([("You", "I hate coffee")], "L3")
+    s = fresh(); s.chat([("You", "I hate coffee")], "L3")
     r = s.reader()
-    check(run(r)[0] == [] and r.stats["skipped_privacy"] == 2, "L2 and L3 skipped")
-    s.chat([("You", "I hate coffee")], "L1")
-    check(len(run(s.reader())[0]) == 1, "control: L1 reads")
+    check(run(r)[0] == [] and r.stats["skipped_privacy"] == 1, "L3 skipped")
+    s.chat([("You", "I hate coffee")], "L2")
+    it = run(s.reader())[0]
+    check(len(it) == 1 and it[0].privacy_level == "L2", "L2 admitted and the evidence carries L2")
 
     print("arm 2: deceased / suppressed")
     s = fresh(); s.chat([("You", "I hate coffee")], handle="+44 7700 900123"); s.chat([("You", "I love jazz")], handle="+15550199")
@@ -172,6 +181,61 @@ def main():
     print("arm 8: no message database")
     src = (SRC / "derive" / "stated_messages.py").read_text()
     check("sqlite3" not in src and "import sqlite" not in src, "stated_messages.py does not import sqlite")
+
+    print("arm 9: privacy inheritance")
+    s = fresh(); s.chat([("You", "I hate coffee")], "L2")
+    nd = run(s.reader())[1].get(("food.drink", "Coffee"))
+    check(nd is not None and nd.privacy_level == "L2" and 'pwg:privacyLevel "L2"' in nd.to_turtle(), "L2-only node stamped L2")
+    s = fresh(); s.chat([("You", "I hate coffee")], "L1", handle="+15550101"); s.chat([("You", "I can't stand coffee")], "L2", handle="+15550102")
+    nd = run(s.reader())[1].get(("food.drink", "Coffee"))
+    check(nd is not None and nd.privacy_level == "L2", "mixed L1+L2 node stamped L2")
+    s = fresh(); s.chat([("You", "I hate coffee")], "L1")
+    nd = run(s.reader())[1].get(("food.drink", "Coffee"))
+    check(nd is not None and nd.privacy_level == "L1", "L1-only node stays L1")
+
+    print("arm 10: tier-model stage")
+    from derive import stated_model as smod
+    s = fresh()
+    s.chat([("You", "lol hate l3secret coffee")], "L3")
+    s.chat([("You", "lol hate minorchat coffee")], cid="minor1")
+    s.chat([("You", "lol hate suppressed coffee")], handle="+447700900123")
+    s.chat([("Dave", "lol hate friendline coffee")])
+    s.chat([("You", "\U0001F916 lol hate assistantline coffee")])
+    s.chat([("You", "> lol hate quoteline coffee")])
+    s.chat([("You", "lol hate coffee")])
+    seen = []
+
+    def model(text, cands):
+        seen.append(text)
+        return {"items": [{"dim": d, "value": v, "polarity": "dislike"} for d, v in cands]
+                + [{"dim": "food.drink", "value": "Invented", "polarity": "dislike"}]}
+
+    cache = smod.VerdictCache(Path(tempfile.mkdtemp()) / "v.json")
+    res = smod.run_stage(s.reader(Gateway(["+447700900123"]), minor_conversations={"minor1"}), model, cache,
+                         wait_idle=lambda: True)
+    check(seen == ["lol hate coffee"], "the model saw only the one line that passed every filter")
+    check(res.stats["dropped_not_a_candidate"] == 1, "an invented item was dropped and counted")
+    check(all("coffee" not in json_blob for json_blob in [cache.path.read_text()]), "the cache holds no text")
+    calls = {"n": 0}
+
+    def cancelling(text, cands):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise smod.StageCancelled()
+        return {"items": []}
+
+    s2 = fresh()
+    for i in range(5):
+        s2.chat([("You", "lol hate coffee")], handle=f"+1555010{i}")
+    c2 = smod.VerdictCache(Path(tempfile.mkdtemp()) / "v2.json")
+    rr = smod.StageResult()
+    try:
+        smod.run_stage(s2.reader(), cancelling, c2, wait_idle=lambda: True, result=rr)
+    except smod.StageCancelled:
+        pass
+    import json as _json
+    check(len(_json.loads(c2.path.read_text())["verdicts"]) == 2 and rr.in_flight == 0,
+          "a cancel mid-flight keeps the 2 finished verdicts and leaks no in-flight count")
 
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

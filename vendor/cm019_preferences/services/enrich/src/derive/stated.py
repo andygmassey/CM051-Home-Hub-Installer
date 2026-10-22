@@ -39,15 +39,16 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
-from .model import EvidenceItem
+from .model import PRIVACY_ORDER, EvidenceItem
 
 VOCAB_YAML = Path(__file__).resolve().parent / "stated_vocab.yaml"
 
 # The only text a stated node ever shows as its reason.
 STATED_BECAUSE = "you said so in a message"
 OWNER_ABOUT_PREFIX = "urn:ostler:user/"
-# Facts at or above these privacy levels never feed a preference.
-BLOCKED_PRIVACY = {"L2", "L3"}
+# Facts at these privacy levels never feed a preference. L2 is admitted (Archie,
+# 2026-10-22) and the derived node inherits it; L3 stays out.
+BLOCKED_PRIVACY = {"L3"}
 
 STRONG, MEDIUM, SOFT = 0.9, 0.6, 0.35
 
@@ -430,11 +431,12 @@ class StatedConversationReader:
         rows = self.gateway.sparql(self._query(user_id))
         # (conversation, dimension, value) -> best stance, so repeating yourself
         # inside one conversation is still one observation.
-        best: Dict[Tuple[str, str, str], Tuple[Stance, str, dict]] = {}
+        best: Dict[Tuple[str, str, str], Tuple[Stance, str, dict, str]] = {}
         for b in rows:
             self.stats["facts_seen"] += 1
             text = b.get("text", {}).get("value", "")
-            if (b.get("priv", {}).get("value") or "L1") in BLOCKED_PRIVACY:
+            level = b.get("priv", {}).get("value") or "L1"
+            if level in BLOCKED_PRIVACY:
                 self.stats["skipped_private"] += 1
                 continue
             if mentions_a_minor(text):
@@ -450,8 +452,10 @@ class StatedConversationReader:
             for st in stances:
                 k = (conv, st.dimension, st.value.lower())
                 if k not in best or abs(st.strength) > abs(best[k][0].strength):
-                    best[k] = (st, fact, hdr)
-        for (conv, dim, _v), (st, fact, hdr) in sorted(best.items()):
+                    best[k] = (st, fact, hdr, level)
+                elif PRIVACY_ORDER.get(level, 0) > PRIVACY_ORDER.get(best[k][3], 0):
+                    best[k] = (best[k][0], best[k][1], best[k][2], level)
+        for (conv, dim, _v), (st, fact, hdr, level) in sorted(best.items()):
             self.stats["evidence_" + ("negative" if st.strength < 0 else "positive")] += 1
             pid = hashlib.sha1(f"{conv}|{dim}|{st.value.lower()}".encode()).hexdigest()[:16]
             yield EvidenceItem(
@@ -468,4 +472,5 @@ class StatedConversationReader:
                 enrichment_confidence=0.8 if st.method == "vocab" else 0.5,
                 raw_subject=STATED_BECAUSE,
                 provenance=fact or None,
+                privacy_level=level,
             )

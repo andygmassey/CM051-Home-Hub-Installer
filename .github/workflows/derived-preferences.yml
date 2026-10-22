@@ -42,6 +42,8 @@ on:
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
       - 'tests/test_vendored_stated_transcripts_reach_the_derive_engine.py'
+      - 'tests/test_stated_model_tick_yields.sh'
+      - 'scripts/ostler-stated-model-tick.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
@@ -105,6 +107,11 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_stated_transcripts_reach_the_derive_engine.py
+      - name: The stated-preference model stage yields to chat (tier defer, slot, tier model only)
+        # DISABLED BY DECISION (precision 33% on 6 graded hits); the wrapper's
+        # guarantees are pinned so enabling it later cannot skip them.
+        if: always()
+        run: bash tests/test_stated_model_tick_yields.sh
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py

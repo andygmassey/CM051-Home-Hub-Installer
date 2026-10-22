@@ -209,6 +209,7 @@ class DerivedGraphWriter:
                 "confidence": node.confidence,
                 "intensity": node.intensity_tier,
                 "derivation_version": node.derivation_version,
+                "privacy_level": node.privacy_level,
             },
         }
 

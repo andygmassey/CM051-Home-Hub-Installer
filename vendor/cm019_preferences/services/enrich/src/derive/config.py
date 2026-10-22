@@ -17,6 +17,7 @@ from .engine import DimensionConfig
 from .readers import OxigraphOverlayReader, QdrantFieldReader, StoreGateway
 from .stated import StatedConversationReader, StatedMapper
 from .stated_messages import StatedTranscriptReader
+from .stated_model import VerdictCache
 
 _HERE = Path(__file__).resolve().parent
 DIMENSIONS_YAML = _HERE / "dimensions.yaml"
@@ -97,9 +98,13 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML, stated_model
                 StatedTranscriptReader(
                     gateway=gateway,
                     root=root,
+                    verdicts=VerdictCache(Path(
+                        os.environ.get("OSTLER_STATED_MODEL_CACHE")
+                        or Path(os.environ.get("OSTLER_DIR") or Path.home() / ".ostler")
+                        / "workspace" / "stated_model_verdicts.json")),
                     mapper=StatedMapper(allowed_dimensions=[d.dimension for d in load_dimensions()]),
                     channels=tuple(r.get("channels", ["im", "imessage", "whatsapp"])),
-                    allowed_privacy=tuple(r.get("allowed_privacy", ["L0", "L1"])),
+                    allowed_privacy=tuple(r.get("allowed_privacy", ["L0", "L1", "L2"])),
                     dimension=r["dimension"],
                     domain=r["domain"],
                     category=r.get("category", "stated"),

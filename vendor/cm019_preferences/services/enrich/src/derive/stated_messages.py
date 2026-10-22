@@ -14,7 +14,9 @@ Same privacy filters as the fact path, taken from what the extracted store
 already carries:
 
 - the conversation's ``privacy_level`` frontmatter: only the levels in
-  ``allowed_privacy`` (default L0 and L1) are read, so L2 and L3 are skipped;
+  ``allowed_privacy`` (default L0, L1 and L2) are read, so L3 is skipped; L2 is
+  admitted (Archie, 2026-10-22) and every piece of evidence carries its level, so
+  the derived node inherits the HIGHEST level of its evidence;
 - chats with a person the owner marked "deceased / stop suggesting" (the
   ``pwg:SuggestionSuppression`` records, matched on identifier and slug). If that
   lookup fails the reader RAISES rather than reading without the filter;
@@ -48,13 +50,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from .model import PWG_NS, EvidenceItem
+from .model import PWG_NS, EvidenceItem, max_privacy
 from .stated import STATED_BECAUSE, StatedMapper, mentions_a_minor
 
 MAX_MONTHS_PER_CONVERSATION = 3
 DEFAULT_CHANNELS = ("im", "imessage", "whatsapp")
 DEFAULT_OWNER_LABELS = ("you", "me")
-DEFAULT_ALLOWED_PRIVACY = ("L0", "L1")
+DEFAULT_ALLOWED_PRIVACY = ("L0", "L1", "L2")   # L3 stays out; the node inherits the level
 
 ASSISTANT_SEND_PREFIX = "\U0001F916"
 ASSISTANT_SEND_MARKER = "⁣⁤⁣"
@@ -97,6 +99,7 @@ class OwnerLine:
     when: Optional[datetime]
     text: str
     src: str
+    privacy: str = ""
 
 
 def _parse_ts(v: str) -> Optional[datetime]:
@@ -151,6 +154,7 @@ class StatedTranscriptReader:
     owner_labels: Tuple[str, ...] = DEFAULT_OWNER_LABELS
     allowed_privacy: Tuple[str, ...] = DEFAULT_ALLOWED_PRIVACY
     minor_conversations: Set[str] = field(default_factory=set)   # conversation_id values
+    verdicts: Optional[object] = None   # a VerdictCache of tier-model polarity verdicts (stated_model)
     dimension: str = "stated.transcripts"
     domain: str = "stated"
     category: str = "stated"
@@ -203,11 +207,18 @@ class StatedTranscriptReader:
             self.stats["conversations_read"] += 1
             key = conversation_key(cid)
             src = fm_value(fm, "channel").lower()
+            level = fm_value(fm, "privacy_level")
             for when, line in owner_lines(body, self.owner_labels):
-                yield OwnerLine(key, when, line, src)
+                yield OwnerLine(key, when, line, src, level)
 
-    def read(self, user_id: str) -> Iterable[EvidenceItem]:
-        cell: Dict[Tuple[str, str, str, str], Tuple[float, str]] = {}
+    def filtered_lines(self) -> Iterator[OwnerLine]:
+        """The owner's lines AFTER every filter, text cleaned of quotes/forwards.
+
+        Everything downstream of here, the deterministic parser and the tier
+        model alike, sees only what this yields: privacy (L3), minors, deceased
+        or suppressed contacts, not-the-owner, assistant sends, quoted and
+        forwarded material have all been removed first.
+        """
         for ol in self._lines():
             self.stats["owner_lines"] += 1
             text = ol.text
@@ -217,21 +228,33 @@ class StatedTranscriptReader:
             if mentions_a_minor(text):
                 self.stats["skipped_minor_mention"] += 1
                 continue
-            stances = self.mapper.parse_message(clean_owner_text(text))
+            yield OwnerLine(ol.conv, ol.when, clean_owner_text(text), ol.src, ol.privacy)
+
+    def read(self, user_id: str) -> Iterable[EvidenceItem]:
+        cell: Dict[Tuple[str, str, str, str], Tuple[float, str, str, str]] = {}
+        for ol in self.filtered_lines():
+            month = ol.when.strftime("%Y-%m") if ol.when else "0000-00"
+            stances = list(self.mapper.parse_message(ol.text))
+            if self.verdicts is not None:
+                have = {(s.dimension, s.value) for s in stances}
+                stances += [s for s in self.verdicts.stances_for(ol) if (s.dimension, s.value) not in have]
             if not stances:
                 continue
             self.stats["cue_hits"] += 1
-            month = ol.when.strftime("%Y-%m") if ol.when else "0000-00"
             for st in stances:
                 k = (ol.conv, month, st.dimension, st.value)
-                if k not in cell or abs(st.strength) > abs(cell[k][0]):
-                    cell[k] = (st.strength, ol.src)
-        per: Dict[Tuple[str, str, str], List[Tuple[float, str, str]]] = {}
-        for (conv, month, dim, val), (strength, src) in cell.items():
-            per.setdefault((conv, dim, val), []).append((strength, month, src))
+                prev = cell.get(k)
+                lvl = max_privacy([ol.privacy] + ([prev[2]] if prev else []))
+                if prev is None or abs(st.strength) > abs(prev[0]):
+                    cell[k] = (st.strength, ol.src, lvl, st.method)
+                else:
+                    cell[k] = (prev[0], prev[1], lvl, prev[3])
+        per: Dict[Tuple[str, str, str], List[Tuple[float, str, str, str, str]]] = {}
+        for (conv, month, dim, val), (strength, src, lvl, how) in cell.items():
+            per.setdefault((conv, dim, val), []).append((strength, month, src, lvl, how))
         for (conv, dim, val), rows in sorted(per.items()):
             rows.sort(key=lambda r: (-abs(r[0]), r[1]))
-            for strength, month, src in rows[:MAX_MONTHS_PER_CONVERSATION]:
+            for strength, month, src, lvl, how in rows[:MAX_MONTHS_PER_CONVERSATION]:
                 self.stats["evidence_negative" if strength < 0 else "evidence_positive"] += 1
                 pid = hashlib.sha1(f"tr|{conv}|{month}|{dim}|{val.lower()}".encode()).hexdigest()[:16]
                 try:
@@ -249,7 +272,8 @@ class StatedTranscriptReader:
                     polarity_source="stated",
                     source="stated:" + src,
                     observed_at=observed,
-                    enrichment_confidence=0.8,
+                    enrichment_confidence=0.8 if how == "vocab" else 0.6,
                     raw_subject=STATED_BECAUSE,
                     provenance=f"urn:ostler:message-scan:{conv}:{month}",
+                    privacy_level=lvl,
                 )
