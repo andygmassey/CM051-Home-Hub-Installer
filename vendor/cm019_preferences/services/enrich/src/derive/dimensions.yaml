@@ -125,6 +125,18 @@
   min_evidence: 2
   max_items: 20
 
+- dimension: food.drink
+  label: "Drink"
+  category: food
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.ingredient
+  label: "Ingredient or dish"
+  category: food
+  min_evidence: 2
+  max_items: 20
+
 - dimension: place.city
   label: "City"
   category: place

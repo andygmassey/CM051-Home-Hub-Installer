@@ -245,6 +245,10 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### smart-prefs -- stated conversation preferences (ahead of the pin; personal-world-graph #423, stacked on #422)
+
+`derive/stated.py` and `derive/stated_vocab.yaml` are new, and `derive/{config,engine,model}.py`, `dimensions.yaml`, `readers.yaml` are changed again, byte-identical to #423's head. Not a divergence from intent: re-pin when #423 merges. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs stated".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

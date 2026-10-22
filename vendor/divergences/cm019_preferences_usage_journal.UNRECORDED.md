@@ -343,3 +343,14 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE
 - Round 3 (Archie ruling): `derive/{consume,query,endpoint}.py` also carry #422's category interleave: the endpoint's top-N is round-robin by category (`get_mixed_preferences`, `interleave_by_category`), so one wide category cannot own the list. The HUB route that actually serves /api/v1/preferences/derived is `vendor/cm041/assistant_api/derived_preferences.py` (CM041 #215, vendored by #3111), a verbatim lift of this builder with its own reader; it still ranks by confidence alone and needs the same lift (see the PR body).
 - Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` and `tests/test_vendored_linkedin_career_reaches_the_derive_engine.py` (both wired in `derived-preferences.yml`): RED on main, GREEN here.
 - Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
+
+## 2026-10-22 smart-prefs stated: what the owner says in conversations (personal-world-graph #423)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. DIVERGENCE from source at the pin: it ACKS UPSTREAM andygmassey/personal-world-graph PR #423 (branch feat/smart-prefs-stated-conversations, head d7efd484, stacked on #422).
+
+- Changed, byte-identical to #423's head: `services/enrich/src/derive/{stated.py,stated_vocab.yaml}` (new), `derive/{config,engine,model}.py`, `derive/{dimensions,readers}.yaml`.
+- What it does: owner-attributed CM048 `preference` facts (read-only SPARQL on the fact store) become evidence with a dimension, a normalised value (vocabulary and synonyms first, an optional local tier-model fallback second), polarity and intensity, counted once per conversation. Adds `food.drink` and `food.ingredient`. No message text reaches the derived node; its because line is the fixed "you said so in a message". Other people's facts, minors and L2/L3 facts are excluded.
+- Reaches the Hub through `derive_runner.py`'s existing `build_readers(gateway)`; vocabulary only, because the runner does not pass `--stated-model` (follow-up).
+- Not grafted: `services/enrich/scripts/store_derived_preferences.py` (not vendored; PII default), so `--stated-model` is not available on the Hub yet.
+- Proof on this tree: `tests/test_vendored_stated_preferences_reach_the_derive_engine.py` (wired in `derived-preferences.yml`): FAIL on the #3116 tree, PASS here.
+- Retire: when #423 merges, re-pin to its merge commit and delete this section.

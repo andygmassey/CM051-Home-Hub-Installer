@@ -68,7 +68,13 @@ class Aggregator:
         out: List[DerivedPreference] = []
         for (dimension, _norm), members in groups.items():
             cfg = self._config_for(dimension)
-            if len(members) < cfg.min_evidence:
+            # The anti-spurious gate stops a pile of weak behavioural signals
+            # (one play, one visit) from becoming a preference. A STATED item is
+            # the owner saying so in words, so one is enough to exist; its low
+            # confidence is what keeps a single remark from steering anything,
+            # and repetition across conversations is what raises it.
+            stated = any(m.polarity_source == "stated" for m in members)
+            if len(members) < cfg.min_evidence and not stated:
                 continue  # anti-spurious gate (negative control covers this)
 
             score = score_group(members, now=now)

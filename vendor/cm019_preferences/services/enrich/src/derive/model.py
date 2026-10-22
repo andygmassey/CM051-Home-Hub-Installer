@@ -84,11 +84,15 @@ class EvidenceItem:
     enrichment_confidence: float   # 0..1, from the overlay
     context: dict = field(default_factory=dict)  # {time_of_day, activity, ...}
     raw_subject: str = ""     # literal item title, for explanations
+    # Where pwg:derivedFrom points when the evidence is not a literal
+    # preference point. Stated evidence points at the conversation FACT node, so
+    # the link resolves to something real without carrying the words said.
+    provenance: Optional[str] = None
 
     @property
     def provenance_uri(self) -> str:
         """The literal subject this evidence links back to (pwg:derivedFrom)."""
-        return f"{PREF_URN_PREFIX}{self.preference_id}"
+        return self.provenance or f"{PREF_URN_PREFIX}{self.preference_id}"
 
 
 def _esc(s: str) -> str:

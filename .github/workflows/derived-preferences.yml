@@ -40,6 +40,7 @@ on:
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
+      - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
@@ -87,6 +88,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings
           python3 tests/test_vendored_linkedin_career_reaches_the_derive_engine.py
+      - name: What the owner says in conversations reaches the derive engine
+        # CM048 preference facts -> stated evidence with polarity; coffee x3 vs x1,
+        # Cantonese/Sichuan, a friend's taste excluded, no message text, and a
+        # dropped-row mutant.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0'
+          python3 tests/test_vendored_stated_preferences_reach_the_derive_engine.py
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py

@@ -1,0 +1,113 @@
+# Controlled vocabulary for STATED preferences (what the owner says in
+# conversations). DATA, not code: adding a term never touches the mapper.
+#
+#   <dimension>:
+#     <Canonical value>: [synonym, synonym, ...]
+#
+# The canonical value is what the derived node is called, so "Sichuanese",
+# "Szechuan" and "Sichuan food" all become one value "Sichuan" and merge with
+# behavioural evidence for the same value (reservations, receipts). Matching is
+# case-insensitive on whole words; a plural "s"/"es" is accepted automatically.
+# A trailing "food", "cuisine", "cooking" or "dishes" is stripped before lookup,
+# so write the bare name. Longest phrase wins, so "iced coffee" is not "coffee".
+#
+# Every dimension named here MUST exist in dimensions.yaml (a test enforces it).
+# Anything the vocabulary does not know goes to the local-model fallback, which
+# may only answer with one of these dimensions.
+
+food.cuisine:
+  Sichuan: [sichuanese, szechuan, szechwan, sichuan]
+  Cantonese: [cantonese, canton, hong kong style, hk style]
+  Hunan: [hunanese, hunan]
+  Chinese: [chinese]
+  Japanese: [japanese]
+  Korean: [korean]
+  Thai: [thai]
+  Vietnamese: [vietnamese]
+  Indian: [indian]
+  Italian: [italian]
+  French: [french]
+  Spanish: [spanish, tapas]
+  Mexican: [mexican]
+  Greek: [greek]
+  Turkish: [turkish]
+  Lebanese: [lebanese]
+  Middle Eastern: [middle eastern]
+  Mediterranean: [mediterranean]
+  Vegetarian: [vegetarian]
+  Vegan: [vegan]
+  Seafood: [seafood]
+  Sushi: [sushi]
+  Dim sum: [dim sum, dimsum]
+  Pizza: [pizza]
+  Barbecue: [barbecue, bbq, barbeque]
+  Fast food: [fast food]
+food.drink:
+  Coffee: [coffee, espresso, flat white, latte, cappuccino, americano]
+  Tea: [tea, green tea, black tea]
+  Beer: [beer, lager, ale, ipa]
+  Wine: [wine, red wine, white wine]
+  Whisky: [whisky, whiskey, scotch, bourbon]
+  Gin: [gin]
+  Cocktails: [cocktail]
+  Champagne: [champagne, prosecco]
+  Sake: [sake]
+  Soft drinks: [soda, fizzy drinks, coke]
+  Juice: [juice, orange juice]
+food.ingredient:
+  Coriander: [coriander, cilantro]
+  Mushrooms: [mushroom]
+  Olives: [olive]
+  Cheese: [cheese]
+  Chocolate: [chocolate]
+  Spicy food: [spicy, hot and spicy, chilli, chili]
+  Garlic: [garlic]
+  Onions: [onion]
+  Offal: [offal]
+  Peanuts: [peanut]
+  Pineapple on pizza: [pineapple on pizza]
+media.music.genre:
+  Jazz: [jazz]
+  Classical: [classical music, classical]
+  Rock: [rock music]
+  Hip hop: [hip hop, hip-hop, rap]
+  Country: [country music]
+  Electronic: [electronic music, techno, house music, edm]
+  Folk: [folk music]
+  Pop: [pop music]
+  Metal: [heavy metal, metal music]
+  Opera: [opera]
+  Blues: [blues]
+media.film.genre:
+  Horror: [horror, horror films, scary films]
+  Science fiction: [sci-fi, sci fi, science fiction]
+  Romantic comedy: [rom-com, rom com, romcom, romantic comedy]
+  Comedy: [comedies]
+  Documentary: [documentary, documentaries]
+  Western: [western, westerns]
+  Thriller: [thriller]
+media.tv.genre:
+  Reality TV: [reality tv, reality television]
+  True crime: [true crime]
+  Soap opera: [soap opera, soaps]
+interests.topic:
+  Golf: [golf]
+  Football: [football, soccer]
+  Cricket: [cricket]
+  Tennis: [tennis]
+  Sailing: [sailing]
+  Cycling: [cycling]
+  Hiking: [hiking]
+  Gardening: [gardening]
+  Cooking: [cooking at home]
+  Photography: [photography]
+  Chess: [chess]
+  Poker: [poker]
+  Camping: [camping]
+  Karaoke: [karaoke]
+  Cryptocurrency: [crypto, cryptocurrency, bitcoin]
+health.activity:
+  Running: [running, jogging]
+  Yoga: [yoga]
+  Swimming: [swimming]
+  Gym: [gym, weightlifting, lifting weights]

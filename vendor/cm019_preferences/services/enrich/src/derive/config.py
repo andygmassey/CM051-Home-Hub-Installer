@@ -14,6 +14,7 @@ import yaml
 
 from .engine import DimensionConfig
 from .readers import OxigraphOverlayReader, QdrantFieldReader, StoreGateway
+from .stated import StatedConversationReader, StatedMapper
 
 _HERE = Path(__file__).resolve().parent
 DIMENSIONS_YAML = _HERE / "dimensions.yaml"
@@ -33,7 +34,8 @@ def load_dimensions(path: Path = DIMENSIONS_YAML) -> List[DimensionConfig]:
     ]
 
 
-def build_readers(gateway: StoreGateway, path: Path = READERS_YAML) -> list:
+def build_readers(gateway: StoreGateway, path: Path = READERS_YAML, stated_model=None) -> list:
+    """``stated_model`` is the optional local-model fallback for stated preferences."""
     rows = yaml.safe_load(Path(path).read_text()) or []
     readers: list = []
     for r in rows:
@@ -66,6 +68,22 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML) -> list:
                     allowlist=tuple(str(a).lower() for a in r.get("allowlist", [])),
                     evidence_confidence=float(r.get("evidence_confidence", 0.5)),
                     **common,
+                )
+            )
+        elif kind == "stated_conversation":
+            # One reader, many dimensions: the vocabulary decides which. The
+            # model may only answer with a dimension the registry carries.
+            readers.append(
+                StatedConversationReader(
+                    gateway=gateway,
+                    mapper=StatedMapper(
+                        allowed_dimensions=[d.dimension for d in load_dimensions()],
+                        model=stated_model,
+                    ),
+                    dimension=r["dimension"],
+                    domain=r["domain"],
+                    category=r.get("category", "stated"),
+                    fact_types=tuple(r.get("fact_types", ["preference"])),
                 )
             )
         else:

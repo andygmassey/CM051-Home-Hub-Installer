@@ -319,3 +319,17 @@
   kind: qdrant_field
   select_categories: [transaction, finance, banking]
   field: extra.mcc_category
+
+# === Stated in conversations ===============================================
+# What the owner SAYS ("I hate coffee", "love Sichuan, not a fan of Cantonese")
+# as extracted by the CM048 conversation processor into owner-attributed
+# `preference` facts. One reader reads the fact store (Oxigraph, read-only) and
+# fans out into whichever dimension the vocabulary (stated_vocab.yaml) maps the
+# value to, with polarity. Other people's facts are never read. A single remark
+# can exist as a node but only repetition across conversations raises its
+# confidence past the consume threshold.
+- dimension: stated.conversations
+  domain: stated
+  category: stated
+  kind: stated_conversation
+  fact_types: [preference]
