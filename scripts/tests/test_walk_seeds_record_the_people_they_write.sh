@@ -79,6 +79,30 @@ SEED-LOAD OK: 'Jane Doe' is in the graph"
 [ "$(cat "$W/b4")" = "after-failed-forget=grounding 1" ] && ok "B4: a failed forget KEEPS the line (the person is still there)" || bad "B4: $(cat "$W/b4")"
 [ "$(cat "$W/b5")" = "empty" ] && ok "B5: a clean forget removes the line, file left empty" || bad "B5: $(cat "$W/b5")"
 
+# B6: the REAL grounding_seed_apply and grounding_seed_forget, loader and box stubbed
+fresh
+mkdir -p "$W/seed"; echo "api/v1/memory/assert" > "$W/seed/load_seed.py"
+echo '{"gate":{"known_person":"Jane Doe","expect_fact":"cable engineer at example.com"}}' > "$W/seed/seed_fixture.json"
+(
+    . "$LIBD/grounding_seed.sh"
+    OSTLER_SEED_DIR="$W/seed"; unset OSTLER_GATE_EXPECT_FACT OSTLER_GATE_KNOWN_PERSON OSTLER_SEED_SKIP
+    _gs_box_exec() { HOME="$W/h" /bin/sh -c "$1"; }
+    _gs_purge_daemon_memory() { :; }
+    _gs_run_loader() {
+        case "$*" in
+            *--forget*) echo "SEED-FORGET OK: 'Jane Doe'"; return 0 ;;
+            *) echo "seed: asserted 3 fact(s) for 'Jane Doe' via POST /api/v1/memory/assert; statuses = ['created_person', 'stored', 'stored']"
+               echo "SEED-LOAD OK: 'Jane Doe' is in the graph"; return 0 ;;
+        esac
+    }
+    grounding_seed_apply >/dev/null
+    echo "state=${GROUNDING_SEED_STATE} file=$(file)" > "$W/b6a"
+    grounding_seed_forget >/dev/null
+    { [ -f "$W/h/.walk-seeded-people" ] && [ ! -s "$W/h/.walk-seeded-people" ] && echo empty || echo "left=$(file)"; } > "$W/b6b"
+)
+[ "$(cat "$W/b6a")" = "state=seeded file=grounding 1" ] && ok "B6a: grounding_seed_apply records grounding 1 from the loader's output" || bad "B6a: $(cat "$W/b6a")"
+[ "$(cat "$W/b6b")" = "empty" ] && ok "B6b: grounding_seed_forget removes it" || bad "B6b: $(cat "$W/b6b")"
+
 # ---- C. neighbour
 fresh
 python3 -I - "$LIBD" "$W/h" <<'PY' && ok "C: neighbour records 1 on a 2xx write, nothing on a failed write, forget removes only on a full forget" || bad "C: see above"
@@ -110,14 +134,19 @@ sf.forget_seeded_people(home, "neighbour")
 assert open(path).read() == "contact_cards 8\n"
 sf.forget_seeded_people(home, "contact_cards")
 assert os.path.exists(path) and open(path).read() == ""
-# the CLI forget: a half-failed forget (store unreachable) keeps the line
+# the CLI forget, the stores stubbed: a full forget removes the line, a half-failed one keeps it
+import io, contextlib
 sf.record_seeded_people(home, "neighbour", 1)
-srv.shutdown(); srv.server_close()
-import json, io, contextlib
-buf = io.StringIO()
-with contextlib.redirect_stdout(buf):
+sf.forget = lambda q, h, post=None: {}
+sf.forget_neighbour = lambda h, store=None: "forgotten"
+sf.forget_neighbour_vector = lambda q, h, post=None: "failed-URLError"
+with contextlib.redirect_stdout(io.StringIO()):
     sf.main(["forget", "--qdrant", "http://127.0.0.1:9", "--home", home])
-assert open(path).read() == "neighbour 1\n", "forget with the stores down must keep the line: " + open(path).read()
+assert open(path).read() == "neighbour 1\n", "a half-failed forget must keep the line: " + open(path).read()
+sf.forget_neighbour_vector = lambda q, h, post=None: "forgotten"
+with contextlib.redirect_stdout(io.StringIO()):
+    sf.main(["forget", "--qdrant", "http://127.0.0.1:9", "--home", home])
+assert open(path).read() == "", "a full forget must remove the line: " + open(path).read()
 PY
 
 # ---- D. the collector, end to end through the shipped expected.json row
