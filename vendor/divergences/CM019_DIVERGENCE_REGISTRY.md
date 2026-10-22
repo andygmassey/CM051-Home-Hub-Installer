@@ -209,6 +209,34 @@ Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
 pinned there, so this is no longer a divergence. Detail and proof:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
 
+### smart-prefs (build after v1.0.108) -- the derive engine is grafted; filters.py does NOT delegate to strength.py
+
+The pin stays at 5622a763, which already carries the preference-derivation engine
+("What you like"). Seventeen files arrive BYTE-IDENTICAL to upstream@5622a763
+(cmp-verified; the same bytes as at 96ff272d): `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`,
+`readers.yaml`, `contract/derived_preferences_response.example.json`),
+`services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`
+and `ontology/upper/pwg-derived.ttl`. Those are not divergences.
+
+**The divergence this re-pin CREATES**, and it is deliberate: upstream aae370bc
+also rewrote `services/ingest/src/filters.py` so `_calculate_strength` delegates
+to `strength.calculate_strength` via a top-level `from strength import ...`.
+That edit is NOT grafted. On the box nothing puts `services/common` on the
+ingest path's `sys.path`, so the delegation would make
+`services.ingest.src.filters` fail to import and take every preference ingest
+with it. The vendored file keeps its inline copy of the same math, which
+upstream's own golden test (`services/common/tests/test_strength_golden.py`)
+asserts is byte-identical in output. So the two copies agree today and this
+row is the record that they are two copies.
+
+**Also not vendored, on purpose:** `services/enrich/scripts/store_derived_preferences.py`
+(upstream's CLI). Its `--user-id` default is the operator's first name, which
+cannot enter this public repository; the box gets its own runner instead.
+
+**Upstream status:** nothing owed for the engine. For `filters.py`, retire by
+grafting the delegation once the box's ingest entrypoint puts `services/common`
+on `sys.path` (or upstream packages `strength` under `services/ingest`).
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

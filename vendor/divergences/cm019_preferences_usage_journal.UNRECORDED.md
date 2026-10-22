@@ -321,3 +321,14 @@ Proof: `tests/test_cm019_enrich_consent_gate_vendored.py` (wired in `enrichment-
 ## 2026-10-21 addendum: personal-world-graph #421 MERGED as 5622a763, pin moved
 
 Pin re-pinned 7fd66daf -> 5622a76360cc6ce5b91fe023295e1bb6eb8a0589 (the #421 merge commit). `consent.py` re-synced byte for byte to that commit; it supersedes the 455fb8e1 copy described above: the file must say accepted AND the environment variable, when set at all (even empty), must say accepted; the file is read as bytes and split on LF only, so a CRLF line is refused. This resolves the "open tension" above: upstream no longer lets the env var win, so the stricter-decides behaviour is now upstream's own. `enricher.py` and `cli.py` upstream are byte-identical between 455fb8e1 and the merge commit, so they are unchanged here. CM051's local changes (`--budget-seconds`, the file-only backstop, the `require_enrichment_consent` import name) are kept. The upstream tests for the gate are not vendored; `tests/test_cm019_enrich_consent_gate_vendored.py` carries arm 1b for the new rules.
+
+## 2026-10-21 smart-prefs: the derive engine is grafted at the current pin (CM051 #2954)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3074. That re-pin moved past the nine smart-prefs derive commits while holding the engine out of the vendored subset; this change brings it in.
+
+- Added, byte-identical to upstream@96ff272d and unchanged at 5622a763: `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`, `readers.yaml`, `contract/derived_preferences_response.example.json`), `services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`, `ontology/upper/pwg-derived.ttl`. Measured: `git diff --stat 96ff272d 5622a763` over those paths is empty, and `cmp` against upstream passes 17 of 17.
+- `requirements.txt` (vendor-only, its own VENDOR_ONLY row): `pyyaml`, `rdflib`, `pyshacl`.
+- NOT carried, recorded in `CM019_DIVERGENCE_REGISTRY.md`: the `services/ingest/src/filters.py` delegation to `strength.py` (aae370bc). The vendored filters.py keeps its inline copy of the same maths.
+- Manifest: the nine derive shas leave `hold_ack_shas`; 5d1cdf13 stays.
+- These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
+- Retire: nothing to retire for the engine itself. It is source at the pin.
