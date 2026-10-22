@@ -64,28 +64,28 @@ _CUES: List[Tuple[re.Pattern, float]] = [
         # negative, strong
         (r"\b(?:hates?|hated|hating|detests?|loathes?|despises?|abhors?)\b", -STRONG),
         (r"\b(?:can't|cannot|can not)\s+(?:stand|bear|abide)\b", -STRONG),
-        (r"\b(?:is|'s)\s+sick\s+of\b", -STRONG),
+        (r"\b(?:is|am|'s|'m)\s+sick\s+of\b", -STRONG),
         # negative, soft: a negated verb or fan-phrase softened by an adverb
         (rf"\b{_NOT}\s+{_ADV}(?:\s+{_ADV})?\s+(?:{_LIKE_V}|{_FAN}|eat|drink)\b", -SOFT),
         (rf"\b{_NOT}\s+(?:a\s+(?:big|huge|massive)\s+fan\s+of|that\s+keen\s+on)\b", -SOFT),
         (r"\b(?:doesn't|does not|don't|do not)\s+love\b", -SOFT),
-        (r"\b(?:isn't|is not|'s not)\s+really\s+(?:keen|into)\b(?:\s+on)?", -SOFT),
+        (r"\b(?:isn't|is not|'s not|'m not)\s+really\s+(?:keen|into)\b(?:\s+on)?", -SOFT),
         # negative, medium
         (rf"\b{_INTENSE}\s+(?:dislikes?|disliked|disliking|avoids?)\b", -STRONG),
         (r"\b(?:dislikes?|disliked|disliking|avoids?|avoided|avoiding)\b", -MEDIUM),
         (rf"\b{_NOT}\s+(?:like|enjoy|care\s+for|have\s+a\s+taste\s+for)\b", -MEDIUM),
         (rf"\b{_NOT}\s+(?:a\s+fan\s+of|keen\s+on|into|fond\s+of)\b", -MEDIUM),
-        (r"\b(?:is|'s)\s+no\s+fan\s+of\b", -MEDIUM),
+        (r"\b(?:is|am|'s|'m)\s+no\s+fan\s+of\b", -MEDIUM),
         # positive, strong
         (r"\b(?:loves?|loved|loving|adores?|adored|worships?)\b", STRONG),
-        (r"\b(?:is|'s)\s+(?:obsessed\s+with|crazy\s+about|mad\s+about|passionate\s+about|addicted\s+to)\b", STRONG),
+        (r"\b(?:is|am|'s|'m)\s+(?:obsessed\s+with|crazy\s+about|mad\s+about|passionate\s+about|addicted\s+to)\b", STRONG),
         (r"\bcan't\s+get\s+enough\s+of\b", STRONG),
-        (r"\b(?:is|'s)\s+a\s+(?:big|huge|massive)\s+fan\s+of\b", STRONG),
+        (r"\b(?:is|am|'s|'m)\s+a\s+(?:big|huge|massive)\s+fan\s+of\b", STRONG),
         (r"\bfavou?rite\b", STRONG),
         # positive, medium
         (rf"\b{_INTENSE}\s+(?:likes?|enjoys?|prefers?|appreciates?)\b", STRONG),
         (r"\b(?:likes?|liked|enjoys?|enjoyed|enjoying|prefers?|preferred|preferring|appreciates?)\b", MEDIUM),
-        (r"\b(?:is|'s)\s+(?:a\s+fan\s+of|into|keen\s+on|fond\s+of|partial\s+to)\b", MEDIUM),
+        (r"\b(?:is|am|'s|'m)\s+(?:a\s+fan\s+of|into|keen\s+on|fond\s+of|partial\s+to)\b", MEDIUM),
     ]
 ]
 
@@ -121,8 +121,17 @@ class Stance:
     method: str              # "vocab" | "model"
 
 
+# Texting drops apostrophes: "dont like", "cant stand", "im not a fan of".
+_CONTRACTION_FIX = {
+    "dont": "don't", "doesnt": "doesn't", "didnt": "didn't", "cant": "can't",
+    "isnt": "isn't", "wouldnt": "wouldn't", "im": "i'm", "ive": "i've", "id": "i'd",
+}
+_CONTRACTIONS = re.compile(r"\b(?:" + "|".join(_CONTRACTION_FIX) + r")\b")
+
+
 def _norm_text(text: str) -> str:
     t = (text or "").lower().replace("’", "'").replace("‘", "'")
+    t = _CONTRACTIONS.sub(lambda m: _CONTRACTION_FIX[m.group(0)], t)
     return re.sub(r"\s+", " ", t).strip()
 
 
@@ -224,6 +233,71 @@ class StatedMapper:
                     continue
                 out[(dim, canon)] = Stance(dim, canon, cue[2], "vocab")
         return list(out.values()), cue_without_term
+
+    # -- first-person mode, for the owner's own sent messages ------------------
+    _SENT = re.compile(r"[^.!?;\n]+[.!?;]*")
+    _ADVERBS = re.compile(
+        r"(?:(?:really|so|absolutely|just|honestly|actually|totally|literally|also|still|"
+        r"always|completely|truly|genuinely|personally|definitely|obviously|simply)\s+)+$"
+    )
+    _SUBJECT_END = re.compile(r"(?:\bi|\bi'm|\bwe|\bwe're|\bmy)$")
+    _CONNECTIVE_END = re.compile(r"(?:\band|\bplus|\balso|&|,)$")
+    _BLOCK = re.compile(
+        r"\b(?:you|your|you're|u|ur|if|would|could|should|wanna|want|wants|need|gonna|"
+        r"going to|let's|lets|why|what|whether|hope|wish|suppose|imagine|maybe|might|"
+        r"probably|i'd|i'll|will|can i|shall)\b"
+    )
+    _QUESTION_START = re.compile(
+        r"^(?:do|does|did|is|are|was|were|would|will|can|could|have|has|how|what|why|who|where|when)\b"
+    )
+    _I_PREFER = re.compile(
+        r"\bi\s+(?:really\s+)?prefer\s+(?P<a>.+?)\s+(?:to|over|rather\s+than|instead\s+of)\s+(?P<b>.+)"
+    )
+
+    def parse_message(self, text: str) -> List[Stance]:
+        """Stances stated by the SPEAKER of one message ("I hate coffee").
+
+        The caller guarantees the message was sent by the owner, so attribution
+        is exact; what this adds is precision about WHO the sentence is about.
+        A like or dislike counts only when its subject is the speaker: "I",
+        "we", an elided "hate coffee", or "my favourite ...". Questions
+        ("do you like jazz?"), wishes ("I'd love a coffee"), and other people's
+        tastes ("she hates coffee", "my wife loves jazz") are dropped.
+        """
+        out: Dict[Tuple[str, str], Stance] = {}
+        for sent in self._SENT.findall(text or ""):
+            if sent.rstrip().endswith("?"):
+                continue
+            t = _norm_text(sent)
+            t = re.sub(r"[.!?;]+$", "", t).strip()
+            if not t or self._QUESTION_START.match(t):
+                continue
+            po = self._I_PREFER.search(t)
+            if po and not self._BLOCK.search(t):
+                for side, mag in (("a", MEDIUM), ("b", -SOFT)):
+                    for _s, _e, dim, canon in self._terms_in(po.group(side)):
+                        out[(dim, canon)] = Stance(dim, canon, mag, "vocab")
+                continue
+            for clause in _CLAUSE_SPLIT.split(t):
+                clause = clause.strip()
+                if not clause or self._BLOCK.search(clause):
+                    continue
+                accepted = []
+                for cs, ce, mag in self._cues_in(clause):
+                    prefix = self._ADVERBS.sub("", clause[:cs].strip() + " ").strip()
+                    if prefix == "" or self._SUBJECT_END.search(prefix):
+                        accepted.append((cs, ce, mag))
+                    elif accepted and self._CONNECTIVE_END.search(prefix):
+                        accepted.append((cs, ce, mag))
+                if not accepted:
+                    continue
+                for ts, te, dim, canon in self._terms_in(clause):
+                    before = [c for c in accepted if c[1] <= ts]
+                    after = [c for c in accepted if c[0] >= te]
+                    cue = before[-1] if before else (after[0] if after else None)
+                    if cue is not None:
+                        out[(dim, canon)] = Stance(dim, canon, cue[2], "vocab")
+        return list(out.values())
 
     def map_fact(self, text: str) -> Tuple[List[Stance], str]:
         """Stances for one fact text, and how they were found (counted, never logged)."""

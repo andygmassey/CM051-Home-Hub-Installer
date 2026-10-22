@@ -7,6 +7,7 @@ engine never imports a domain module.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -15,6 +16,7 @@ import yaml
 from .engine import DimensionConfig
 from .readers import OxigraphOverlayReader, QdrantFieldReader, StoreGateway
 from .stated import StatedConversationReader, StatedMapper
+from .stated_messages import StatedTranscriptReader
 
 _HERE = Path(__file__).resolve().parent
 DIMENSIONS_YAML = _HERE / "dimensions.yaml"
@@ -84,6 +86,23 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML, stated_model
                     domain=r["domain"],
                     category=r.get("category", "stated"),
                     fact_types=tuple(r.get("fact_types", ["preference"])),
+                )
+            )
+        elif kind == "stated_transcripts":
+            # The owner's own lines in the transcripts CM048 already wrote. Never
+            # a message database: that would be a new TCC surface.
+            root = Path(r.get("root") or os.environ.get("OSTLER_CONVERSATIONS_DIR")
+                        or Path.home() / "Documents" / "Ostler" / "Conversations")
+            readers.append(
+                StatedTranscriptReader(
+                    gateway=gateway,
+                    root=root,
+                    mapper=StatedMapper(allowed_dimensions=[d.dimension for d in load_dimensions()]),
+                    channels=tuple(r.get("channels", ["im", "imessage", "whatsapp"])),
+                    allowed_privacy=tuple(r.get("allowed_privacy", ["L0", "L1"])),
+                    dimension=r["dimension"],
+                    domain=r["domain"],
+                    category=r.get("category", "stated"),
                 )
             )
         else:
