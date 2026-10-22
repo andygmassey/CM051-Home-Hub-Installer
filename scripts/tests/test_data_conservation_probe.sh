@@ -96,7 +96,7 @@ for prof in chain full; do
     for k in ok mut over nm; do
         python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/j_$k.json" --profile "$prof" >"$W/jo_$k" 2>&1
     done
-    row "$W/jo_ok" | grep -q '| EXPLAINED |' && row "$W/jo_ok" | grep -q 'walk seeds\|walk.s own seeds\|seeds' \
+    row "$W/jo_ok" | grep -q '| EXPLAINED |' && row "$W/jo_ok" | grep -q 'own seeds wrote' \
         && ok "J1 ($prof): 116c numbers with 10 declared seeded people read EXPLAINED, reason named" || bad "J1 ($prof): $(row "$W/jo_ok")"
     row "$W/jo_mut" | grep -q '| INFLATED |' \
         && ok "J2 ($prof): MUTANT stored = in + seeded + 1 stays INFLATED" || bad "J2 ($prof): $(row "$W/jo_mut")"
