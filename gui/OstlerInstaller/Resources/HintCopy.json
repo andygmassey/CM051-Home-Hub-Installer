@@ -47,6 +47,7 @@
     "why": "Ostler runs its databases (Qdrant, Oxigraph, Redis) and wiki in Docker. Ollama and the assistant binary run natively – Docker is only the data layer.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "Ollama runs language models on your Mac's Apple Silicon. Every prompt your assistant answers, every wiki summary, runs through this. Nothing leaves the machine.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "Reading your Mac's databases",
-    "subtitle": "The instant onboarding bit",
+    "subtitle": "The quick first look",
     "why": "macOS won't let any app read your messages, mail, notes, calendars or photos without your explicit say-so. We need that one permission so Ostler can pull all of it together into your knowledge graph. Everything stays on this Mac – nothing is sent anywhere. You'll grant it once in System Settings and macOS remembers from then on.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "Three small databases boot up: vectors for semantic search, RDF triples for relationships, Redis for the message bus. All local, all yours.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane is the local web-search front end. It runs in a container on your Mac and talks to your local Ollama – web searches never leave your machine. If the container fails to start, the rest of Ostler keeps working; you can retry web search later.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "First-time pull is ~3.6 GB (SearXNG bundled in). Subsequent starts are seconds.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "First-pass import: contacts, conversations, calendar events, Safari history. The wiki compiler runs after this, turning the graph into pages you can read.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "Import time scales with your history. Years of iMessage data can take 10-20 minutes.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -238,7 +241,7 @@
     "id": "spoken_bundle",
     "title": "Meeting and voice conversations",
     "subtitle": "Conversation memory",
-    "why": "Ostler turns your own recorded meetings and voice notes into short summaries, to-dos, clean transcripts and metadata. These are your own recordings, consented when you captured them. Everything stays on your Mac.",
+    "why": "Ostler turns your own captured meetings and voice notes into short summaries, to-dos, clean transcripts and metadata. These are your own captures, consented when you captured them. Everything stays on your Mac.",
     "duration_estimate_s": 10,
     "long_running_threshold_s": 60,
     "illustration": null,
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "Setting up call and meeting transcripts",
-    "subtitle": "Recording is always your choice",
-    "why": "This installs the app that can record and transcribe your calls and meetings on this Mac. It records nothing until you explicitly start it, and transcription happens locally.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,
