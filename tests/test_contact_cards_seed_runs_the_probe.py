@@ -267,8 +267,20 @@ def home(tmp_path, stores):
                     (".ostler/services/email-ingest/.venv/bin/python", "vendor")):
         w = h / rel
         w.parent.mkdir(parents=True)
-        pyp = ":".join([str(shim)] + [str(ROOT / x) for x in (pp, "vendor/cm041")])
-        w.write_text("#!/bin/bash\n%sexport PYTHONPATH=%s\nexec %s \"$@\"\n" % (env, pyp, sys.executable))
+        if rel.startswith(".ostler/import-pipeline"):
+            # FAITHFUL TO THE BOX (v1.0.116 walk34, "No module named contact_syncer"): the
+            # installed pipeline venv does NOT carry contact_syncer on its path. The code
+            # sits as packages in $PIPE (import-pipeline/), so it imports only when cwd or
+            # PYTHONPATH says so. A wrapper that put vendor/cm041 on PYTHONPATH hid that.
+            pipe = h / ".ostler" / "import-pipeline"
+            for ent in (ROOT / "vendor" / "cm041").iterdir():
+                if ent.is_dir() and not ent.name.startswith((".", "__")):
+                    (pipe / ent.name).symlink_to(ent)
+            pyp = str(shim)
+        else:
+            pyp = ":".join([str(shim)] + [str(ROOT / x) for x in (pp, "vendor/cm041")])
+        w.write_text("#!/bin/bash\n%sexport PYTHONPATH=%s${PYTHONPATH:+:$PYTHONPATH}\nexec %s \"$@\"\n"
+                     % (env, pyp, sys.executable))
         w.chmod(0o755)
     # the ingest module reads OXIGRAPH_URL at import; dedupe_merge too (os.getenv). Both come from env.
     return h
@@ -593,3 +605,63 @@ def test_the_runner_calls_the_seed_and_the_forget():
     assert "contact_cards_apply || true" in runner
     assert "contact_cards_forget || true" in runner
     assert any(ln.strip().startswith("declare -F contact_cards_forget") for ln in runner)
+
+
+def test_v1_0_116_the_guard_finds_contact_syncer_with_the_box_python(stores, home):
+    """walk34 printed failed-guard: the fixture is run by path from the walk-seed dir, so
+    sys.path[0] is that dir and contact_syncer (in $PIPE) was not importable."""
+    state, text = run_seed(home, stores)
+    assert state == "seeded", text
+    assert "No module named" not in text, text
+
+
+def test_failed_guard_surfaces_the_guard_stderr(stores, home):
+    """The cause of failed-guard was in guard.err on the box and never reached the record."""
+    state, text = run_seed(home, stores, mutate=lambda s: s.replace(
+        "contact_cards_fixture.py guard", "contact_cards_fixture.py guard-NOPE"))
+    assert state == "failed-guard", text
+    assert "usage: contact_cards_fixture.py" in text, text
+
+
+def test_probe_runs_not_cannot_run_over_the_seed_and_fails_on_two_cards(stores, home):
+    """The point of the seed: the BLOCKING probe RUNS (PASS on the clean seed, FAIL on one
+    person holding two cards). CANNOT-RUN here is the v1.0.116 symptom."""
+    assert run_seed(home, stores)[0] == "seeded"
+    v, text = probe("no_person_holds_two_contact_cards", home, stores)
+    assert v.startswith("PASS"), text
+    stores.g.update(
+        'PREFIX pwg: <%s> INSERT { ?p pwg:hasIdentifier <urn:x:dupuid2> . <urn:x:dupuid2> pwg:identifierType '
+        '"icloud_contact_uid" ; pwg:identifierValue "%s" } WHERE { ?p pwg:hasIdentifier ?i . '
+        '?i pwg:identifierValue "%s" }' % (PWG, fx.card_uid(2), fx.card_uid(1)))
+    v, text = probe("no_person_holds_two_contact_cards", home, stores)
+    assert v.startswith("FAIL"), text
+
+
+# v1.0.116 re-walk (walk34): once #3088 let this seed run, card 1 wrote a second
+# "Jane Doe", the grounding seed's person (grounding_seed.sh, "seed: asserted 5
+# fact(s) for 'Jane Doe'"). pwg_people resolved the card, not the seeded person,
+# and assistant_grounds_the_opening_turn went 10/10 -> 0/10 on the same DMG. Card 4
+# was "Raj Patel", which the owner-score persona also seeds. Seeds that share a
+# box must not share a person's name.
+GROUNDING_SEED_PERSON = "Jane Doe"
+
+
+def _persona_names():
+    text = (ROOT / "scripts" / "owner_score" / "persona.json").read_text(encoding="utf-8")
+    return {m.lower() for m in re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", text)}
+
+
+def _card_names(cards):
+    return {("%s %s" % (c[1], c[2])).lower() for c in cards if c[1] or c[2]}
+
+
+def test_no_card_shares_a_name_with_another_walk_seed():
+    other = _persona_names() | {GROUNDING_SEED_PERSON.lower()}
+    assert "raj patel" in other, "control: the persona must still read as names"
+    assert not (_card_names(fx.CARDS) & other), sorted(_card_names(fx.CARDS) & other)
+
+
+def test_the_name_check_goes_red_on_the_v1_0_116_cast():
+    old = [(1, "Jane", "Doe", [], [], ""), (4, "Raj", "Patel", [], [], "")]
+    hit = _card_names(old) & (_persona_names() | {GROUNDING_SEED_PERSON.lower()})
+    assert hit == {"jane doe", "raj patel"}
