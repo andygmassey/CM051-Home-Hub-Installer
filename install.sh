@@ -8283,7 +8283,7 @@ _link() {
 echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
-echo "  Ostler imports from 20 platforms. Request your data exports"
+echo "  Ostler imports 18 platform exports. Request your data exports"
 echo "  now -- they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
@@ -20099,7 +20099,7 @@ import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'), writer='install')
 print(json.dumps(summary, default=str))
 " 2>&1)
     FDA_EXIT=$?
@@ -25031,7 +25031,11 @@ from ostler_fda.pwg_ingest import ingest_all
 from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-_summary = run_all(fda_dir)
+# The hourly rerun cannot hold the Media & Apple Music grant, so it must not
+# re-run the apple_music arm: that overwrote apple_music.json and the summary
+# entry with 0 tracks / reader none between the daily music-refresh reads.
+# skip_sources keeps both as they were; writer says whose run this is.
+_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')
 
 # ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
 #
