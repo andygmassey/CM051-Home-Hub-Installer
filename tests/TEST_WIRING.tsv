@@ -713,6 +713,7 @@ test_sign_python_bundle_reports_why.sh	WIRED	.github/workflows/cut-gate-wrappers
 test_signing_credential_guard.sh	WIRED	.github/workflows/cut.yml
 test_skills_lockdown_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_slot_waiter_can_outlast_a_holder.sh	WIRED	.github/workflows/slot-fairness.yml
+test_smart_prefs_probes.sh	WIRED	.github/workflows/smart-prefs-probes.yml
 test_social_ingest_wired.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_source_count_copy.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_source_status_canonical_matches_recorders.sh	WIRED	.github/workflows/hydrate-sentinel.yml
