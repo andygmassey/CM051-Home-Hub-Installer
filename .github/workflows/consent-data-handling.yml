@@ -83,6 +83,10 @@ jobs:
         if: always()
         run: bash tests/test_spoken_capture_consent_does_not_claim_audio_is_kept.sh
 
+      - name: Q23 spoken-capture copy stays short enough to keep the toggle visible
+        if: always()
+        run: bash tests/test_q23_spoken_capture_copy_fits_the_window.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
