@@ -20099,7 +20099,7 @@ import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'), writer='install')
 print(json.dumps(summary, default=str))
 " 2>&1)
     FDA_EXIT=$?
@@ -24970,7 +24970,11 @@ from ostler_fda.pwg_ingest import ingest_all
 from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-_summary = run_all(fda_dir)
+# The hourly rerun cannot hold the Media & Apple Music grant, so it must not
+# re-run the apple_music arm: that overwrote apple_music.json and the summary
+# entry with 0 tracks / reader none between the daily music-refresh reads.
+# skip_sources keeps both as they were; writer says whose run this is.
+_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')
 
 # ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
 #
