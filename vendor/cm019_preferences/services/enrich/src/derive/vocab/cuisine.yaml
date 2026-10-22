@@ -8,10 +8,22 @@
 # keyword is not a cuisine (a venue type such as "restaurant", a price facet)
 # and is dropped by readers that set vocab_strict.
 italian:     [italian, pizza, pizzeria, pasta, trattoria, ristorante, osteria, gelato, italian, pepperoni, risotto, tiramisu, carbonara, margherita, lasagne, lasagna, gnocchi, bruschetta, focaccia, spaghetti, ravioli, italy]
-japanese:    [japanese, sushi, ramen, izakaya, yakitori, tempura, udon, sashimi, teppanyaki, omakase, tonkatsu, okonomiyaki, gyoza, donburi, katsu, robata, soba, japan]
-chinese:     [chinese, dim sum, dimsum, cantonese, szechuan, sichuan, hotpot, "hot pot", noodle, noodles, dumpling, dumplings, sichuanese, szechwan, szechuanese, "si chuan", "dim sum", "yum cha", congee, wonton, "char siu", "siu mei", "cha chaan teng", "roast goose", "har gow", "siu mai", "cheung fun", "claypot rice", mapo, "dan dan", "kung pao", "peking duck", "chow mein", "lo mein", shanghainese, taiwanese, hunan, china]
+japanese:     [japanese, izakaya, yakitori, tempura, udon, teppanyaki, tonkatsu, okonomiyaki, gyoza, donburi, katsu, robata, soba, japan]
+sushi:        {parent: japanese, words: [sushi, sashimi, omakase, nigiri]}
+ramen:        {parent: japanese, words: [ramen, tonkotsu]}
+chinese:      [chinese, hotpot, "hot pot", noodle, noodles, dumpling, dumplings, "peking duck", "chow mein", "lo mein", china]
+# REGIONAL cuisines. `parent:` rolls the evidence up for "likes Chinese food", but a regional
+# value is its own node and is NEVER merged into its parent: "love Sichuan, not a fan of
+# Cantonese" is two opposite preferences. Spellings live on the regional row.
+sichuan:      {parent: chinese, words: [sichuan, sichuanese, szechuan, szechwan, szechuanese, "si chuan", mapo, "dan dan", "kung pao", "twice cooked pork", "hot and sour", mala]}
+cantonese:    {parent: chinese, words: [cantonese, "hong kong style", "hk style", "hongkong style", "dim sum", dimsum, "yum cha", congee, wonton, "char siu", "siu mei", "cha chaan teng", "roast goose", "har gow", "siu mai", "cheung fun", "claypot rice", canton]}
+shanghainese: {parent: chinese, words: [shanghainese, shanghai, xiaolongbao, "xiao long bao"]}
+taiwanese:    {parent: chinese, words: [taiwanese, taiwan]}
+hunan:        {parent: chinese, words: [hunan, hunanese]}
 thai:        [thai, "pad thai", "tom yum", "green curry", "red curry", massaman, "som tam", "tom kha", "pad see ew", thailand]
-indian:      [indian, curry, tandoori, biryani, masala, dosa, korma, vindaloo, paneer, dal, saag, balti, thali, samosa, bhaji, naan, india, pakistani, nepalese, "sri lankan"]
+indian:       [indian, curry, biryani, masala, korma, vindaloo, paneer, dal, saag, balti, thali, samosa, bhaji, india, pakistani, nepalese, "sri lankan"]
+north indian: {parent: indian, words: [tandoori, tikka, naan, "butter chicken", punjabi, "north indian"]}
+south indian: {parent: indian, words: [dosa, idli, sambar, "south indian", chettinad, kerala, vada]}
 korean:      [korean, bbq, bibimbap, kimchi, "korean bbq", bulgogi, tteokbokki, japchae, galbi, samgyeopsal, korea]
 vietnamese:  [vietnamese, pho, banh mi, "bun cha", "goi cuon", "bun bo", vietnam]
 mexican:     [mexican, taco, tacos, burrito, taqueria, cantina, quesadilla, enchilada, enchiladas, nachos, guacamole, fajita, fajitas, mexico]

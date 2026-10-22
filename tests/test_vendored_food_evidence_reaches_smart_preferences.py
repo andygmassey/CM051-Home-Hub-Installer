@@ -16,7 +16,8 @@ CM019 parser and the vendored derive registry on synthetic extracts:
          row reads its category.
   arm 5  CONSENT: the OSM cuisine client makes ZERO requests unless the install
          recorded "accepted", and one request when it did.
-  arm 6  one cuisine is one value: Szechuan, Sichuanese, Sichuan -> chinese.
+  arm 6  one cuisine is one value: Szechuan, Sichuanese, Sichuan -> sichuan.
+  arm 7  regions stay apart: love Sichuan / not a fan of Cantonese are two nodes.
 
 Exit: 0 pass, 1 real failure, 2 cannot-run.
 """
@@ -169,7 +170,30 @@ def cuisines(spellings):
     return {s for (d, s) in derive(pts) if d == "food.cuisine"}
 
 
-check(cuisines(["Szechuan", "Sichuanese", "sichuan"]) == {"chinese"}, "arm 6: Szechuan, Sichuanese, Sichuan are one value")
+check(cuisines(["Szechuan", "Sichuanese", "sichuan"]) == {"sichuan", "chinese"},
+      "arm 6: Szechuan, Sichuanese, Sichuan are ONE value (sichuan) plus the chinese roll-up")
+
+
+def region_pts(spec):
+    return [type("P", (), {"category": "food", "subject": f"R{i}", "source": "s", "strength": st,
+                           "extra": {"restaurant": f"Synthetic R{i}", "cuisine": cu}})() for i, (cu, st) in enumerate(spec)]
+
+
+def derive2(ps):
+    items = [i for r in build_readers(Store2(ps)) for i in r.read("u")]
+    return {(n.dimension, n.subject): n for n in Aggregator(load_dimensions()).aggregate(items, now=datetime(2026, 10, 22, tzinfo=timezone.utc))}
+
+
+class Store2(Store):
+    def __init__(self, ps):
+        self.pts = [{"id": f"p{i}", "payload": {"category": p.category, "subject": p.subject, "source": p.source, "strength": p.strength,
+                                                 "observed_at": "2026-09-01T00:00:00Z", "extra": p.extra}} for i, p in enumerate(ps)]
+
+
+g = derive2(region_pts([("Szechuan", 0.8)] * 3 + [("Hong Kong-style", -0.5)] * 3))
+check(g[("food.cuisine", "sichuan")].preference_strength > 0 > g[("food.cuisine", "cantonese")].preference_strength,
+      "arm 7: love Sichuan, not a fan of Cantonese = two nodes, opposite polarity")
+check(("food.cuisine", "chinese") in g and g[("food.cuisine", "chinese")].evidence_count == 6, "arm 7: the chinese roll-up exists and erases neither")
 
 # ── arm 5: consent ───────────────────────────────────────────────────────────
 import types  # noqa: E402
@@ -197,9 +221,10 @@ def lookups(decision):
     return len(calls), [t.name for t in r.topics]
 
 
-check(lookups("declined") == (0, []), "arm 5: declined -> zero requests")
+for bad in ("declined", "ACCEPTED", "Accepted", " accepted ", "accepted\t"):
+    check(lookups(bad) == (0, []), f"arm 5: {bad!r} -> zero requests (consent is EXACT 'accepted')")
 check(lookups(None) == (0, []), "arm 5: absent -> zero requests")
-check(lookups("accepted") == (1, ["chinese"]), "arm 5: accepted -> one request, cuisine read and normalised")
+check(lookups("accepted") == (1, ["sichuan"]), "arm 5: accepted -> one request, cuisine read and normalised")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

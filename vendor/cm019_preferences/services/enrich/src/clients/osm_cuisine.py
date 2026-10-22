@@ -11,10 +11,18 @@ limiter), and results cached on disk so a venue is asked about once.
 Negative answers are cached too, for a shorter time, so a venue OSM does not
 know is not asked about every run.
 
-What leaves the machine: the restaurant name and area text, as the query.
-Never a person, a message, a dish or an address.
+What leaves the machine: the restaurant name and area text, as the query. That is
+the place name the owner visited, which is what the install's enrichment consent
+covers. Never a person, a message, a dish or a street address.
+
+Attribution: the cuisine tag is OpenStreetMap data (ODbL). It is stored in the local
+cache file with the credit and turned into a word from our own vocabulary
+(``chinese``); no OSM-sourced name or text is shown anywhere. Any surface that ever
+shows OSM-sourced content must carry "(c) OpenStreetMap contributors".
 """
 
+import asyncio
+import fcntl
 import json
 import logging
 import os
@@ -35,7 +43,50 @@ logger = logging.getLogger(__name__)
 EATING_PLACES = {"restaurant", "cafe", "fast_food", "food_court", "bar", "pub", "ice_cream", "biergarten"}
 POSITIVE_TTL_S = 90 * 86400
 NEGATIVE_TTL_S = 30 * 86400
-USER_AGENT = "Ostler-CuisineLookup/1.0 (local personal assistant; restaurant cuisine tag; https://ostler.ai)"
+# Product name/version plus a contact URL, as the usage policy asks. Never the HTTP
+# library's default agent.
+USER_AGENT = "Ostler/1.0 (restaurant cuisine lookup; contact https://ostler.ai)"
+MIN_INTERVAL_S = 1.0
+# A ceiling on lookups per process so a first run over a large history is not a bulk
+# geocode: the enricher offers one point at a time and the cache answers repeats.
+MAX_LOOKUPS_PER_RUN = int(os.environ.get("OSTLER_OSM_MAX_LOOKUPS", "100"))
+ATTRIBUTION = "Cuisine tags (c) OpenStreetMap contributors, ODbL: https://www.openstreetmap.org/copyright"
+
+
+class CrossProcessLimiter:
+    """At most one request per MIN_INTERVAL_S across ALL processes.
+
+    A lock file holds the time of the last request. Entering takes an exclusive
+    flock, sleeps until the interval has passed since that stamp, writes the new
+    stamp and releases. Drop-in for the AsyncLimiter the base client uses
+    (``async with self.rate_limiter``), so every retry is spaced too.
+    """
+
+    def __init__(self, path: Path, interval: float = MIN_INTERVAL_S):
+        self.path, self.interval = Path(path), interval
+
+    def _wait_turn(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(self.path), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                last = float(os.pread(fd, 64, 0).decode() or 0)
+            except ValueError:
+                last = 0.0
+            wait = last + self.interval - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, repr(time.time()).encode(), 0)
+        finally:
+            os.close(fd)   # closing releases the flock
+
+    async def __aenter__(self):
+        await asyncio.to_thread(self._wait_turn)
+
+    async def __aexit__(self, *exc):
+        return False
 
 
 def _tokens(s: str) -> set:
@@ -55,6 +106,8 @@ class OsmCuisineClient(BaseClient[Dict[str, Any]]):
         # Nominatim: absolute maximum 1 request per second.
         super().__init__(rate_limit=1.0, max_retries=settings.max_retries, timeout=settings.request_timeout, cache=cache)
         self._path = Path(cache_path) if cache_path else _cache_file()
+        self.rate_limiter = CrossProcessLimiter(self._path.with_suffix(".rate"))
+        self._lookups = 0
         self._disk: Optional[Dict[str, Any]] = None
 
     def _get_headers(self) -> Dict[str, str]:
@@ -74,7 +127,7 @@ class OsmCuisineClient(BaseClient[Dict[str, Any]]):
             self._path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=str(self._path.parent), prefix=".osm_cuisine.")
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(self._disk, fh)
+                json.dump({**self._disk, "_attribution": ATTRIBUTION}, fh)
             os.replace(tmp, self._path)
         except OSError as exc:
             logger.debug("osm cuisine cache not saved (%s)", type(exc).__name__)
@@ -85,7 +138,7 @@ class OsmCuisineClient(BaseClient[Dict[str, Any]]):
 
     def _cached(self, key: str):
         row = self._load().get(key)
-        if not row:
+        if not isinstance(row, dict):
             return None
         ttl = POSITIVE_TTL_S if row.get("cuisines") else NEGATIVE_TTL_S
         return row if time.time() - row.get("at", 0) < ttl else None
@@ -98,6 +151,9 @@ class OsmCuisineClient(BaseClient[Dict[str, Any]]):
         if hit is not None:
             self._cache_hits += 1
             return hit
+        if self._lookups >= MAX_LOOKUPS_PER_RUN:
+            return None   # over the per-run ceiling: no bulk geocoding; try again next run
+        self._lookups += 1
         q = f"{name} {area}".strip()
         rows = await self._make_request(
             "GET", f"{self.BASE_URL}/search",

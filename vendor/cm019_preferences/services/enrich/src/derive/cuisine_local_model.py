@@ -19,13 +19,15 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 try:  # package import (production) or flat import (tests put derive on sys.path)
-    from .cuisine_vocab import VENUE_LABELS, labels, normalise_cuisine
+    from .cuisine_vocab import VENUE_LABELS, labels, normalise_cuisine, parents
 except ImportError:  # pragma: no cover
-    from cuisine_vocab import VENUE_LABELS, labels, normalise_cuisine
+    from cuisine_vocab import VENUE_LABELS, labels, normalise_cuisine, parents
 
 OLLAMA_URL = "http://127.0.0.1:11434"
 # Cuisine labels the model may answer with (venue types are not a guess it can make).
-_ASKABLE = [c for c in labels() if c not in VENUE_LABELS]
+# Top-level cuisines only: a name rarely tells a model Sichuan from Hunan, so it is
+# never asked to guess a region.
+_ASKABLE = [c for c in labels() if c not in VENUE_LABELS and c not in parents()]
 GenerateFn = Callable[[str], Optional[str]]
 
 

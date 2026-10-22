@@ -41,6 +41,9 @@ on:
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
       - 'tests/test_vendored_food_evidence_reaches_smart_preferences.py'
+      - 'tests/test_dietary_is_never_surfaced.py'
+      - 'vendor/cm059_editor/compiler/project_preferences.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
@@ -96,6 +99,13 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
           python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
+      - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
+        # No reader row, derive code, editor/Front Page code or brief code reads the
+        # category; the projector drops it; the scanner is proven red on a fake row.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_dietary_is_never_surfaced.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py

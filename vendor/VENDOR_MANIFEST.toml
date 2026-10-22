@@ -881,6 +881,7 @@ source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "5f3e94ce3a7f6fbeb702d637596052ccd248c0c6"
   divergence_patch = "vendor/divergences/cm059_editor.patch"
+  unrecorded_divergence = "vendor/divergences/cm059_editor_dietary_guard.UNRECORDED.md"  # DECLARED 2026-10-23: two guard lines (project_preferences.py, interest_profile.py) so grocery diet signals are never projected; upstream CM059 follow-up
   # RECORDED 2026-10-18 (vendor drift reduction): the calls field plus the five later grafts that file listed (#2603, shape sweep, interest provenance, walks #29/#30) now in this tree's divergence patch,
   # written by scripts/regenerate_divergence_patch.sh against the source AT pin 85c87924; the tool
   # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
