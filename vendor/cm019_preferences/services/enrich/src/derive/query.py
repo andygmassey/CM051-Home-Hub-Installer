@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional
 
-from .consume import AffinityView
+from dataclasses import replace
+
+from .consume import AffinityView, interleave_by_category
 from .model import DERIVED_GRAPH, ENRICH_NS, PWG_NS
 
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
@@ -35,7 +37,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -44,6 +46,7 @@ class DerivedGraphReader:
             "       pwg:confidence ?confidence .\n"
             f'    ?s pwg:belongsToUser <{PWG_NS}user_{user_id}> .\n'
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
+            "    OPTIONAL { ?s pwg:category ?category }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -62,9 +65,32 @@ class DerivedGraphReader:
                     confidence=float(b["confidence"]["value"]),
                     intensity=b.get("intensity", {}).get("value", "casual"),
                     because=because,
+                    category=b.get("category", {}).get("value", ""),
+                    node=subj,
                 )
             )
         return views
+
+    def get_mixed_preferences(
+        self,
+        user_id: str,
+        min_confidence: float = 0.35,
+        limit: int = 8,
+        pool: int = 600,
+    ) -> List[AffinityView]:
+        """The top ``limit`` interleaved round-robin by category.
+
+        Ranking by confidence alone lets one wide category (every TV series, every
+        site) own the whole list. This reads a candidate pool WITHOUT evidence,
+        interleaves it, and only then resolves the "because" titles for the few
+        items kept.
+        """
+        ranked = self.get_derived_preferences(
+            user_id, min_confidence=min_confidence, limit=max(pool, limit),
+            with_evidence=False,
+        )
+        picked = interleave_by_category(ranked, limit)
+        return [replace(v, because=self._evidence_titles(v.node)) for v in picked]
 
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
         """Titles behind a node: its own pwg:evidenceTitle first (written by the

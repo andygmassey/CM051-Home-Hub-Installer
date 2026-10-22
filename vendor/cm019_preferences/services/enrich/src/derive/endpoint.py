@@ -46,9 +46,15 @@ def build_derived_preferences_response(
     """Build the endpoint payload. Never raises; degrades loudly instead."""
     ts = _now_iso(now)
     try:
-        views = reader.get_derived_preferences(
-            user_id, min_confidence=min_confidence, limit=limit
-        )
+        # Prefer the category-interleaved read: ranked by confidence alone, one
+        # wide category (every TV series, every site) owns the whole list.
+        mixed = getattr(reader, "get_mixed_preferences", None)
+        if mixed is not None:
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit)
+        else:
+            views = reader.get_derived_preferences(
+                user_id, min_confidence=min_confidence, limit=limit
+            )
     except Exception as exc:  # dependency down: degrade, do not 200 []
         return {
             "generated_at": ts,
