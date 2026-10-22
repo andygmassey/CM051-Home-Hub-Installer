@@ -652,6 +652,7 @@ test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh	WIRED	.github/workflows/cut-
 test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_q23_spoken_capture_copy_fits_the_window.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -810,6 +811,7 @@ test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-man
 test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_searxng_source_offer_ships.sh	WIRED	.github/workflows/third-party-notices.yml
 test_the_seed_forgets_what_the_walk_taught.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
