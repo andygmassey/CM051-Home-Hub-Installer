@@ -193,6 +193,19 @@ entries:
           - 74baad511b  # HELD for 118: oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - c2850018ae  # HELD for 118: oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - ce34c638d5  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #625 Doctor channel cards
+          - 58ddfa51a7  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - dc017222cd  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 9aa2ec38ee  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 2ab7fb5793  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 20c564f245  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 845469426f  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 3545933d4c  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 1476bbebe8  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - fc6a04fc4f  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 0a208ccf66  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 76dd4903da  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - caa78153f5  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
+          - 4f9f7f2437  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
           - 5b09e2af4e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #624 Allowed contacts spacing
           - ed56800620  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #623 first run shows existing wiki/Home
           - c849b8c07e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #622 Home first-run hero copy
