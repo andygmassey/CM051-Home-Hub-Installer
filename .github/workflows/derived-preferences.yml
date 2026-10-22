@@ -50,6 +50,7 @@ on:
       - 'vendor/cm059_editor/compiler/interest_profile.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_vendored_derive_patterns.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
@@ -131,6 +132,13 @@ jobs:
         # guarantees are pinned so enabling it later cannot skip them.
         if: always()
         run: bash tests/test_stated_model_tick_yields.sh
+      - name: Trend, say-vs-do contradiction and time-of-day context reach the graph
+        # Real runner, real writer and SHACL gate, pyoxigraph. Red control: the
+        # same run with the derivers unregistered writes none of the fields.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_derive_patterns.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py

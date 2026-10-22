@@ -37,6 +37,21 @@ def _item(view) -> dict:
     # Only when the evidence carried a level: consumers apply their L2 handling.
     if getattr(view, "privacy", ""):
         d["privacy_level"] = view.privacy
+    # Optional pattern fields: present only when derived, so a consumer written
+    # against derived-preferences.v1 without them is unaffected.
+    trend = getattr(view, "trend", "")
+    if trend:
+        d["trend"] = trend
+    winner = getattr(view, "contradiction_winner", "")
+    if winner:
+        d["contradiction"] = {
+            "winner": winner,
+            "suppress": bool(getattr(view, "suppress", False)),
+            "reason": getattr(view, "contradiction_reason", ""),
+        }
+    context = getattr(view, "context", ())
+    if context:
+        d["context"] = list(context)
     return d
 
 

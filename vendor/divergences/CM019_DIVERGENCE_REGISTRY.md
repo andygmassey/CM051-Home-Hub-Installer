@@ -259,6 +259,14 @@ New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/client
 `ingest/src/{pipeline,parsers/__init__}.py` (register the parser). Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 food evidence".
 
+### smart-prefs -- trend, say-vs-do contradiction, time-of-day context (ahead of the pin; personal-world-graph, stacked on #422)
+
+New `services/enrich/src/derive/patterns.py`, plus optional-field changes in
+`derive/{consume,endpoint,engine,model,query,writer}.py` and the two ontology
+files. Byte-identical to the CM019 branch `feat/smart-prefs-patterns` (5a508ed); the
+vendor-only `derive_runner.py` registers the derivers. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs patterns".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
