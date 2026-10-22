@@ -12,6 +12,9 @@ subprocess, with only the stores stubbed:
     (tagged -> that level, untagged -> L2, unparseable -> L3).
   * CM041 #215: GET /api/v1/preferences/derived serves the derived graph and
     degrades loudly when the graph is empty.
+  * CM041 #233/#234: the derived route's top-N is round-robin by category;
+    no ?tier= reads broad and falls back to all on a pre-tier graph
+    (tier_fallback), an explicit ?tier=broad is strict, a bogus tier is 400.
 
 Synthetic data only (example.com, a placeholder owner id). Red on the
 pre-re-vendor tree: the derived route 404s, commitments carry no
@@ -61,6 +64,8 @@ class Oxigraph(BaseHTTPRequestHandler):
             rows = [{"s": "urn:example:derived/1", "dimension": "genre",
                      "subject": "synthetic jazz", "strength": "0.8",
                      "confidence": "0.9", "intensity": "keen"}]
+        elif "DerivedPreference" in q and STATE["derived"] == "tiered13":
+            rows = _tiered13_rows()
         elif "derivedFrom" in q:
             rows = [{"title": "example album"}]
         elif "OutstandingTodo" in q:
@@ -77,6 +82,31 @@ class Oxigraph(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     do_GET = do_POST
+
+
+# 13 categories. "tv" holds the ten most confident rows, so a list ranked by
+# confidence alone is all "tv"; every other category holds one weaker row.
+# Every row is tier "broad".
+CAT13 = ["tv", "films", "music", "books", "food", "travel", "sport", "art",
+         "games", "podcasts", "news", "fashion", "science"]
+
+
+def _tiered13_rows():
+    rows = []
+    for i in range(10):
+        rows.append({"s": "urn:example:d/tv%d" % i, "dimension": "genre",
+                     "subject": "tv item %d" % i, "strength": "0.9",
+                     "confidence": "%.3f" % (0.99 - i * 0.001),
+                     "intensity": "keen", "category": "tv", "tier": "broad"})
+    for j, cat in enumerate(CAT13[1:]):
+        rows.append({"s": "urn:example:d/%s" % cat, "dimension": "genre",
+                     "subject": "%s item" % cat, "strength": "0.5",
+                     "confidence": "%.3f" % (0.8 - j * 0.01),
+                     "intensity": "casual", "category": cat, "tier": "broad"})
+    return rows
+
+
+LABEL_CATEGORY = {r["subject"]: r["category"] for r in _tiered13_rows()}
 
 
 def _free_port():
@@ -201,3 +231,46 @@ def test_derived_preferences_route_degrades_on_an_empty_graph(server):
     assert code == 200
     assert body["items"] == [] and body["degraded"] is True, body
     assert body.get("cannot_check"), body
+
+
+def _derived(server, query=""):
+    return get(server, "/api/v1/preferences/derived" + query)
+
+
+def test_derived_default_falls_back_to_all_on_a_pre_tier_graph(server):
+    # CM041 #234: the "one" fixture row carries no tier (a graph written before
+    # tiers). No ?tier= reads broad, finds nothing, and serves all, saying so.
+    STATE["derived"] = "one"
+    code, body = _derived(server)
+    assert code == 200, body
+    assert body["degraded"] is False and body["items"], body
+    assert body.get("tier") == "all" and body.get("tier_fallback") is True, body
+
+
+def test_derived_explicit_broad_is_strict_on_a_pre_tier_graph(server):
+    STATE["derived"] = "one"
+    code, body = _derived(server, "?tier=broad")
+    assert code == 200, body
+    assert body["items"] == [] and body["degraded"] is True, body
+    assert "tier_fallback" not in body, body
+
+
+def test_derived_bogus_tier_is_a_400(server):
+    code, _ = _derived(server, "?tier=bogus")
+    assert code == 400
+
+
+def test_derived_top_n_is_round_robin_by_category(server):
+    # CM041 #233: with 13 categories and one of them holding the ten most
+    # confident rows, no category may take more than ceil(N/3) of the top N.
+    STATE["derived"] = "tiered13"
+    try:
+        for n in (8, 13):
+            code, body = _derived(server, "?limit=%d&tier=all" % n)
+            assert code == 200 and body["degraded"] is False, body
+            cats = [LABEL_CATEGORY[i["label"]] for i in body["items"]]
+            assert len(cats) == n, cats
+            worst = max(cats.count(c) for c in set(cats))
+            assert worst <= -(-n // 3), (n, cats)
+    finally:
+        STATE["derived"] = "one"
