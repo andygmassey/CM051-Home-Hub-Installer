@@ -12,7 +12,18 @@
 # SIGSTOP on the daemon pid. The kernel still accepts the TCP connection, the
 # process never answers, and launchd still reads it as running.
 #
-# PASS needs ALL of, within the budget (default 300 s):
+# THE BUDGET IS DERIVED, NEVER A NUMBER. v1.0.116c: the watchdog recovered, but
+# at 307 s, and a fixed 300 s window had already expired (FAIL on a working
+# watchdog). The wait is now computed from the config the product ships:
+#   interval x strikes x 3/2   (StartInterval from the installed plist; 3/2 is
+#                               the strike drift seen under load, 74-82 s on 60)
+# + strikes x curl --max-time  (each strike's own probe)
+# + the capture cap            (ostler-listener-watchdog --print-config)
+# + the post-restart verify window + a margin (default 30 s).
+# OSTLER_LWR_BUDGET_S overrides it for tests only. If the config cannot be
+# read the probe is CANNOT-RUN, never a fallback number.
+#
+# PASS needs ALL of, within that budget:
 #   - :8443 answers HTTP 401 again (an unauthenticated GET /api/sessions)
 #   - the watchdog's state file records a restart at or after the SIGSTOP
 #   - a capture dir from this run holds a non-empty sample.txt and lsof.txt
@@ -37,13 +48,15 @@ set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
 
 PROBE_NAME="listener_watchdog_recovers_a_wedged_listener"
-PROBE_QUESTION="with the daemon SIGSTOPped (process alive, :8443 silent, the 2026-10-17 incident), does the listener watchdog capture sample/lsof, restart the daemon and bring :8443 back to 401 within 300 s?"
+PROBE_QUESTION="with the daemon SIGSTOPped (process alive, :8443 silent, the 2026-10-17 incident), does the listener watchdog capture sample/lsof, restart the daemon and bring :8443 back to 401 within the budget derived from its shipped config?"
 
 LWR_LABEL="${OSTLER_DAEMON_LABEL:-com.creativemachines.ostler.assistant}"
 LWR_WD_LABEL="${OSTLER_LISTENER_WD_AGENT_LABEL:-com.ostler.listener-watchdog}"
 LWR_LAUNCHCTL="${OSTLER_PROBE_LAUNCHCTL:-/bin/launchctl}"
 LWR_URL="${OSTLER_LWR_URL:-https://127.0.0.1:${OSTLER_COMPANION_PORT:-8443}/api/sessions}"
-LWR_BUDGET_S="${OSTLER_LWR_BUDGET_S:-300}"
+LWR_BUDGET_S="${OSTLER_LWR_BUDGET_S:-}"
+LWR_MARGIN_S="${OSTLER_LWR_MARGIN_S:-30}"
+LWR_PLIST="${OSTLER_LWR_PLIST:-\$HOME/Library/LaunchAgents/${LWR_WD_LABEL}.plist}"
 LWR_POLL_S="${OSTLER_LWR_POLL_S:-10}"
 LWR_PID=""
 LWR_BG=""
@@ -61,6 +74,27 @@ _lwr_classify() {
     if [ "$cap" != 1 ]; then echo FAIL-NO-CAPTURE; return; fi
     if [ "$newpid" != 1 ]; then echo FAIL-NOT-RESTARTED; return; fi
     echo PASS
+}
+
+# _lwr_budget <interval> <strikes> <curl_max> <capture_cap> <verify> <margin>
+# THE ONE BUDGET FUNCTION: run_probe and self_test both call it. Prints seconds.
+_lwr_budget() {
+    echo $(( ($1 * $2 * 3 + 1) / 2 + $2 * $3 + $4 + $5 + $6 ))
+}
+
+# Reads the shipped config off the box and prints the budget; rc 1 and a reason
+# on stderr when any input is missing or not a number.
+_lwr_derive_budget() {
+    local cfg interval fail_n max_s cap verify
+    cfg="$(box_run "\$HOME/.ostler/bin/ostler-listener-watchdog --print-config")"
+    interval="$(box_run "sed -n '/<key>StartInterval<\\/key>/{n;s/.*<integer>\\([0-9][0-9]*\\)<.*/\\1/p;}' \"${LWR_PLIST}\"" | head -1)"
+    fail_n="$(kv "$cfg" fail_n)"; max_s="$(kv "$cfg" max_s)"; cap="$(kv "$cfg" capture_max_s)"; verify="$(kv "$cfg" verify_s)"
+    local v
+    for v in "$interval" "$fail_n" "$max_s" "$cap" "$verify"; do
+        case "$v" in ''|*[!0-9]*) echo "could not read the watchdog config (interval='${interval}' fail_n='${fail_n}' max_s='${max_s}' capture_max_s='${cap}' verify_s='${verify}')" >&2; return 1 ;; esac
+    done
+    _lwr_budget "$interval" "$fail_n" "$max_s" "$cap" "$verify" "$LWR_MARGIN_S"
+    echo "interval ${interval}s x ${fail_n} strikes x 1.5 drift + ${fail_n} x ${max_s}s curl + ${cap}s capture cap + ${verify}s verify + ${LWR_MARGIN_S}s margin"
 }
 
 _lwr_cont() {
@@ -140,6 +174,19 @@ run_probe() {
     fi
     case "$pid" in *[!0-9]*) probe_cannot_run "unparseable daemon pid '${pid}'" ;; esac
 
+    if [ -z "$LWR_BUDGET_S" ]; then
+        local why derived whyf
+        whyf="$(mktemp "${TMPDIR:-/tmp}/lwr.why.XXXXXX")"
+        if ! derived="$(_lwr_derive_budget 2>"$whyf")"; then
+            why="$(cat "$whyf")"; rm -f "$whyf"
+            probe_cannot_run "${why}; no wait budget can be derived, so recovery was not exercised. Daemon not touched."
+        fi
+        rm -f "$whyf"
+        LWR_BUDGET_S="$(printf '%s\n' "$derived" | sed -n 1p)"
+        probe_note "wait budget ${LWR_BUDGET_S}s = $(printf '%s\n' "$derived" | sed -n 2p)"
+    else
+        probe_note "wait budget ${LWR_BUDGET_S}s (OSTLER_LWR_BUDGET_S override)"
+    fi
     LWR_PID="$pid"
     trap '_lwr_cont' EXIT
     trap '_lwr_cont; exit 130' INT TERM HUP
