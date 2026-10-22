@@ -1411,3 +1411,11 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-23 118: hub_contract.yaml carries the four under-18 Doctor proxy rows
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry (the under-18 routes graft is a separate PR).
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.23>` adds four Doctor rows because install.sh DOCTOR_PROXY_PATHS gained `/api/v1/minors`, `/api/v1/minors/suggestions`, `/api/v1/people/{slug}/minor` and `/api/v1/people/{slug}/minor-suggestion/dismiss`. They are marked `upstream_missing: true`, which is the truth until the graft lands.
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.23> --check` reports current (284 routes).
+- Retire: the graft PR regenerates this file again with the ical routes present.
