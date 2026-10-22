@@ -144,6 +144,53 @@ def _fact(facts, key):
     return int(v)
 
 
+NAME_LIST_CAP = 20
+_EMAIL = re.compile(r"[^\s@<>]+@[^\s@<>]+")
+_DIGITS = re.compile(r"\+?\d[\d ()\-.]{5,}\d")
+
+
+def mask_name(text):
+    """A display name made safe to print: emails and phone-like runs are masked
+    ('+44 7700 900 123' -> '+44 7700 9xx xxx'), plain names pass through."""
+    t = _EMAIL.sub("e***@***", str(text))
+
+    def phone(m):
+        seen, out = 0, []
+        for ch in m.group(0):
+            if ch.isdigit():
+                seen += 1
+                out.append(ch if seen <= 7 else "x")
+            else:
+                out.append(ch)
+        return "".join(out) if seen >= 7 else m.group(0)
+    return _DIGITS.sub(phone, t)
+
+
+def name_diff(stored, shown):
+    """stored/shown: lists of RAW display names. -> the facts blob adjudicate_row
+    prints: names stored but not shown, shown but not stored, counts, masked, capped."""
+    ss, sh = set(stored), set(shown)
+    miss = sorted(ss - sh)
+    extra = sorted(sh - ss)
+    return {"stored_n": len(stored), "shown_n": len(shown),
+            "missing_n": len(miss), "missing": [mask_name(x) for x in miss[:NAME_LIST_CAP]],
+            "extra_n": len(extra), "extra": [mask_name(x) for x in extra[:NAME_LIST_CAP]]}
+
+
+def _names_detail(blob):
+    """-> text, or None when the blob is unusable (then nothing is claimed)."""
+    if not isinstance(blob, dict) or "missing_n" not in blob:
+        return None
+
+    def part(label, n, lst):
+        shown = [mask_name(x) for x in lst[:NAME_LIST_CAP]]
+        more = " (+%d more)" % (n - len(shown)) if n > len(shown) else ""
+        return "%s %d: %s%s" % (label, n, ", ".join(shown) if shown else "none", more)
+    return "names: %s; %s (of %d stored)" % (
+        part("stored not shown", blob["missing_n"], blob.get("missing", [])),
+        part("shown not stored", blob["extra_n"], blob.get("extra", [])), blob.get("stored_n", 0))
+
+
 def adjudicate_row(row, facts):
     """One row -> dict(verdict, stage values, expected, why, notes).
 
@@ -222,6 +269,9 @@ def adjudicate_row(row, facts):
                 bump("INFLATED", "graph: %d nodes vs %d stored (+%d)%s" % (mv, m["stored"], mv - m["stored"], extra))
         if s != "graph":              # graph is a parallel store, not a link in the chain
             prev_stage, prev_val = s, mv
+    if verdict in FAILING and row.get("names"):
+        detail = _names_detail(facts.get(row["names"]))
+        why.append(detail or "names: NOT INSTRUMENTED (no %s fact)" % row["names"])
     gap = row.get("known_gap")
     if gap:
         # A known gap applies ONLY to a row that WAS fully measured and failed.
@@ -371,6 +421,8 @@ COLLECTION_SPEC = {
     "reminders_knowledge":   (["source", "list", "privacy_level"], [], ["title"]),
     "evernote_knowledge":    (["source", "privacy_level"], [], ["title"]),
 }
+NAME_DETAIL = ("people",)   # collections whose failing rows list the names behind the count
+NAME_DETAIL_MAX = 5000
 SHOWN_SAMPLE_CAP = 3000   # per (collection, group); beyond this we sample every k-th
 
 
@@ -475,6 +527,7 @@ def collect_qdrant(facts, meta, hdr, corpus):
         want = None if (coll == "preferences" and noise) else list(keys) + list(disp)
         tallies, shown, seen_n, ok = {}, {}, 0, True
         groups = {}
+        all_texts = []
         for pl in _scroll(coll, want, hdr):
             if pl is None:
                 ok = False
@@ -499,6 +552,8 @@ def collect_qdrant(facts, meta, hdr, corpus):
                 if pl.get(d):
                     text = str(pl[d])
                     break
+            if coll in NAME_DETAIL and text:
+                all_texts.append(text)
             for g in gkeys:
                 tallies[g] = tallies.get(g, 0) + 1
                 if denied:
@@ -526,6 +581,9 @@ def collect_qdrant(facts, meta, hdr, corpus):
             else:
                 facts["q.%s.%s" % (coll, g)] = n
         # SHOWN: how many of the stored items' display text appear in the wiki.
+        if corpus is not None and coll in NAME_DETAIL and len(all_texts) <= NAME_DETAIL_MAX:
+            # Which ones: the raw diff is taken here, only masked names leave.
+            facts["names.%s" % coll] = name_diff(all_texts, [t for t in all_texts if is_shown(t, corpus)])
         if corpus is not None:
             for g, texts in groups.items():
                 n = len(texts)
@@ -1065,6 +1123,43 @@ def selftest():
             fails.append("a malformed seed line read as a number (must be unreadable)")
     finally:
         globals()["SEEDED_PEOPLE"] = keep_path
+
+    # 15. NAMES: a failing row lists who is behind the count, masked and capped; a passing row lists none.
+    mk = mask_name("Ada Synthetic +44 7700 900 123 ada@example.com")
+    if "900" in mk.replace("9xx", "") or "example.com" in mk or "+44 7700 9xx xxx" not in mk or "Ada Synthetic" not in mk:
+        fails.append("mask_name leaked or mangled a phone/email: %r" % mk)
+    nd = name_diff(["A One", "B Two", "+44 7700 900 123"], ["A One", "B Two"])
+    if not (nd["missing_n"] == 1 and nd["missing"] == ["+44 7700 9xx xxx"] and nd["extra_n"] == 0):
+        fails.append("name_diff did not isolate the missing card: %s" % nd)
+    big = name_diff(["N%03d" % i for i in range(50)], [])
+    if not (big["missing_n"] == 50 and len(big["missing"]) == NAME_LIST_CAP):
+        fails.append("name_diff did not cap the list at %d: %s" % (NAME_LIST_CAP, big["missing_n"]))
+    exp_nm = {"rows": [{"id": "p/x", "source": "p", "category": "x", "names": "names.p",
+                        "facts": {"stored": "q", "shown": "w"}}]}
+    rl, cl = adjudicate(exp_nm, {"q": 3, "w": 2, "names.p": nd})
+    if not (cl["LOST"] == 1 and "stored not shown 1: +44 7700 9xx xxx" in rl[0]["why"]):
+        fails.append("a LOST row did not name the missing card: %s" % rl[0]["why"])
+    rc_, cc_ = adjudicate(exp_nm, {"q": 3, "w": 3, "names.p": nd})
+    if not (cc_["CONSERVED"] == 1 and "names:" not in rc_[0]["why"]):
+        fails.append("a CONSERVED row printed a name list: %s" % rc_[0]["why"])
+
+    # 16. COLLECTOR: the real collect_qdrant on a fake people store (11 cards, one nameless =
+    #     its phone number) against a wiki that shows 10: the facts blob names it, masked.
+    saved = {k: globals()[k] for k in ("_http", "_scroll", "COLLECTION_SPEC", "HOME")}
+    try:
+        cards = ["Person %02d Synthetic" % i for i in range(10)] + ["+44 7700 900 123"]
+        globals()["HOME"] = tempfile.mkdtemp(prefix="dch_")          # noise_reason probing reads under HOME
+        globals()["COLLECTION_SPEC"] = {"people": COLLECTION_SPEC["people"]}
+        globals()["_http"] = lambda url, **kw: (200, {"result": {"points_count": len(cards)}})
+        globals()["_scroll"] = lambda coll, keys, hdr: iter({"source": "fda_people_index", "display_name": c} for c in cards)
+        f16, m16 = {}, {}
+        collect_qdrant(f16, m16, {}, _norm(" ".join(cards[:10])))
+        nb = f16.get("names.people", {})
+        if not (nb.get("missing") == ["+44 7700 9xx xxx"] and nb.get("missing_n") == 1 and nb.get("stored_n") == 11
+                and f16.get("w.shown.people.source=fda_people_index") == 10):
+            fails.append("collector did not produce the masked missing-card blob: %s" % nb)
+    finally:
+        globals().update(saved)
 
     for f_ in fails:
         print("SELFTEST FAIL: " + f_)

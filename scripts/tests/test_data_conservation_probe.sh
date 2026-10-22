@@ -110,4 +110,27 @@ echo '{"facts":{"hyd.people.item_count":1,"q.people.total":1,"x.class.Person":1,
 python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/j_early.json" --profile chain >"$W/jo_early" 2>&1
 grep '| people | person |' "$W/jo_early" | grep -q '| CONSERVED |' \
     && ok "J5: early phase 1/1/1/1 with 0 seeded is CONSERVED" || bad "J5: $(grep '| people | person |' "$W/jo_early")"
+# K. a LOST or INFLATED people row names the people behind the count (masked, capped); CONSERVED prints none.
+for prof in chain full; do
+    row() { grep '| people | person |' "$1"; }
+    kb='"hyd.people.item_count":1,"x.class.total":11,"x.class.Person":11,"walk.seeded.people":10,"q.people.total":11'
+    nm='"names.people":{"stored_n":11,"shown_n":10,"missing_n":1,"missing":["Quinn Synthetic"],"extra_n":0,"extra":[]}'
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10,${nm}}}" > "$W/k_lost.json"
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":11,${nm}}}" > "$W/k_ok.json"
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10}}" > "$W/k_blind.json"
+    echo "{\"facts\":{${kb},\"q.people.total\":12,\"x.class.Person\":12,\"w.shown.people.source=fda_people_index\":12,\"names.people\":{\"stored_n\":12,\"shown_n\":12,\"missing_n\":0,\"missing\":[],\"extra_n\":1,\"extra\":[\"+44 7700 900123\", \"jo.synthetic@example.com\"]}}}" > "$W/k_infl.json"
+    for k in lost ok blind infl; do
+        python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/k_$k.json" --profile "$prof" >"$W/ko_$k" 2>&1
+    done
+    row "$W/ko_lost" | grep -q '| LOST |' && row "$W/ko_lost" | grep -q 'stored not shown 1: Quinn Synthetic' \
+        && row "$W/ko_lost" | grep -q 'shown not stored 0: none (of 11 stored)' \
+        && ok "K1 ($prof): LOST by 1 names the missing card, with counts" || bad "K1 ($prof): $(row "$W/ko_lost")"
+    row "$W/ko_ok" | grep -q '| EXPLAINED |' && ! row "$W/ko_ok" | grep -q 'names:' \
+        && ok "K2 ($prof): a passing row prints no name list" || bad "K2 ($prof): $(row "$W/ko_ok")"
+    row "$W/ko_blind" | grep -q 'names: NOT INSTRUMENTED' \
+        && ok "K3 ($prof): a failing row with no names fact says NOT INSTRUMENTED, not 'none'" || bad "K3 ($prof): $(row "$W/ko_blind")"
+    row "$W/ko_infl" | grep -q '| INFLATED |' && row "$W/ko_infl" | grep -q 'shown not stored 1: +44 7700 9xxxxx, e\*\*\*@\*\*\*' \
+        && ! grep -q '900123\|example.com' "$W/ko_infl" \
+        && ok "K4 ($prof): INFLATED lists the extra names and masks phone/email" || bad "K4 ($prof): $(row "$W/ko_infl")"
+done
 echo; echo "== ${PASS} pass / ${FAIL} fail =="; [ "$FAIL" -eq 0 ]
