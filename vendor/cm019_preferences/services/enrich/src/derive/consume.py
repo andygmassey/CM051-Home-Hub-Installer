@@ -29,6 +29,8 @@ class AffinityView:
     confidence: float
     intensity: str = "casual"
     because: Tuple[str, ...] = ()
+    category: str = ""       # films / tv / music / ...; "" when the store did not say
+    node: str = ""           # the derived node's URI, to resolve "because" later
 
 
 @dataclass
@@ -71,3 +73,27 @@ class DerivedAffinityScorer:
     def rank(self, candidates: Sequence[Candidate]) -> List[Candidate]:
         """Highest score first; stable for equal scores (preserves input order)."""
         return sorted(candidates, key=lambda c: -self.score(c))
+
+
+def interleave_by_category(views: Sequence[AffinityView], limit: int) -> List[AffinityView]:
+    """Round-robin a ranked list by category, so one category cannot own the top-N.
+
+    Round 1 takes each category's best item, round 2 each category's second, and
+    so on. Inside a round the items are ordered by confidence then strength, and
+    within a category the input order is kept (the input is already ranked). A
+    category that runs out simply drops out of later rounds, so when the others
+    are empty the one left still fills the list.
+    """
+    by_cat: Dict[str, List[AffinityView]] = {}
+    for v in views:
+        by_cat.setdefault(v.category, []).append(v)
+    out: List[AffinityView] = []
+    rnd = 0
+    while len(out) < limit:
+        this_round = [items[rnd] for items in by_cat.values() if len(items) > rnd]
+        if not this_round:
+            break
+        this_round.sort(key=lambda v: (-v.confidence, -v.strength))
+        out.extend(this_round[: limit - len(out)])
+        rnd += 1
+    return out
