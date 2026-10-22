@@ -127,7 +127,7 @@
   domain: media.book
   category: books
   kind: oxigraph_overlay
-  select_categories: [book, books]
+  select_categories: [book, books, insight]
   tag_predicate: hasEntity
   tag_entity_type: author
 
@@ -211,7 +211,7 @@
 
 - dimension: place.city
   domain: place
-  category: places
+  category: place
   kind: qdrant_field
   select_categories: [transportation, food, travel, place]
   field: extra.city
@@ -219,7 +219,7 @@
 
 - dimension: place.city
   domain: place
-  category: places
+  category: place
   kind: oxigraph_overlay
   select_categories: [place, venue, restaurant]
   tag_predicate: hasEntity
@@ -240,3 +240,82 @@
   select_categories: [product, fashion, electronics, vehicle, hobby, media, home, shopping, sports, sport, toys, beauty, kids, hardware, automotive, books, book, lifestyle, wellness, fitness, nutrition, food]
   tag_predicate: hasEntity
   tag_entity_type: brand
+
+# === Food, health, work, money (union with feat/pwg-derive-general chunk 6) ====
+# Restaurant: the importer's own restaurant field (delivery orders) plus the
+# venue entity the places enrichment writes for restaurant-category items.
+- dimension: food.restaurant
+  domain: food
+  category: food
+  kind: qdrant_field
+  select_categories: [food]
+  field: extra.restaurant
+  evidence_confidence: 0.7
+
+- dimension: food.restaurant
+  domain: food
+  category: food
+  kind: oxigraph_overlay
+  select_categories: [restaurant, food]
+  tag_predicate: hasEntity
+  tag_entity_type: venue
+
+- dimension: health.activity
+  domain: health
+  category: health
+  kind: qdrant_field
+  select_categories: [fitness]
+  field: extra.activity
+  transform: lower
+  evidence_confidence: 0.7
+
+# Career, from the owner's own LinkedIn export (Skills.csv, Positions.csv,
+# Profile.csv Industry). Not a CV: facts the derive engine rolls up.
+- dimension: work.skill
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.skill_name
+  evidence_confidence: 0.8
+
+- dimension: work.role
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.role_title
+  evidence_confidence: 0.8
+
+- dimension: work.employer
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.employer
+  evidence_confidence: 0.8
+
+- dimension: work.industry
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.industry
+  evidence_confidence: 0.8
+
+# Geo as one instance of the pattern: the geo analyzer's own place/travel points.
+- dimension: place.area
+  domain: place
+  category: place
+  kind: qdrant_field
+  select_categories: [place, travel, location]
+  field: subject
+
+# The brand-new-dimension proof from chunk 6: no transaction data on a box yet,
+# so this derives nothing live. A config row, zero engine diff.
+- dimension: finance.spend_category
+  domain: finance
+  category: finance
+  kind: qdrant_field
+  select_categories: [transaction, finance, banking]
+  field: extra.mcc_category

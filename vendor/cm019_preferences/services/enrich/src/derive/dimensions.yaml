@@ -127,7 +127,7 @@
 
 - dimension: place.city
   label: "City"
-  category: places
+  category: place
   min_evidence: 2
   max_items: 20
 
@@ -136,3 +136,55 @@
   category: brands
   min_evidence: 2
   max_items: 30
+
+# --- Food, health, work, money (union with feat/pwg-derive-general chunk 6) ---
+- dimension: food.restaurant
+  label: "Restaurant"
+  category: food
+  min_evidence: 2
+  max_items: 30
+
+- dimension: health.activity
+  label: "Workout type"
+  category: health
+  min_evidence: 2
+  max_items: 20
+
+# Career dimensions come from the owner's own LinkedIn export. Each is a stated
+# fact, so one record is enough (min_evidence 1); they are still gated by the
+# confidence floor every consumer applies.
+- dimension: work.skill
+  label: "Skill"
+  category: work
+  min_evidence: 1
+  max_items: 40
+
+- dimension: work.role
+  label: "Job title"
+  category: work
+  min_evidence: 1
+  max_items: 20
+
+- dimension: work.employer
+  label: "Employer"
+  category: work
+  min_evidence: 1
+  max_items: 20
+
+- dimension: work.industry
+  label: "Industry"
+  category: work
+  min_evidence: 1
+  max_items: 5
+
+- dimension: place.area
+  label: "Area"
+  category: place
+  min_evidence: 2
+  max_items: 20
+
+- dimension: finance.spend_category
+  label: "Spending category"
+  category: finance
+  min_evidence: 4        # the proof that a new dimension is a config row; no live source yet
+  max_items: 20

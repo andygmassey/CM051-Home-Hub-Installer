@@ -38,6 +38,8 @@ on:
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
+      - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
   push:
@@ -76,6 +78,11 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
           python3 tests/test_vendored_derive_covers_all_of_life.py
+      - name: The owner's LinkedIn career reaches the derive engine
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings
+          python3 tests/test_vendored_linkedin_career_reaches_the_derive_engine.py
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py
