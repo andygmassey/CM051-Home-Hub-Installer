@@ -72,8 +72,15 @@ if ! command -v python3 >/dev/null 2>&1; then
     cant "python3 absent; cannot stand up a loopback server for the behavioural arm"
 else
     _port=0
+    # Track the server's PID and kill exactly it on any exit (was an untracked
+    # subshell plus `pkill -f` by pattern, which leaked the server when the test
+    # was killed and could hit someone else's http.server).
+    _srv=""
+    trap '[ -n "${_srv}" ] && kill "${_srv}" 2>/dev/null' EXIT
+    trap 'exit 143' INT TERM HUP
     for _p in 18711 18712 18713; do
-        (python3 -m http.server "$_p" --bind 127.0.0.1 >/dev/null 2>&1 &) 
+        python3 -m http.server "$_p" --bind 127.0.0.1 >/dev/null 2>&1 &
+        _srv=$!
         for _i in 1 2 3 4 5 6 7 8 9 10; do
             if curl -s -o /dev/null --noproxy '*' -m 1 "http://127.0.0.1:${_p}/" 2>/dev/null; then _port=$_p; break; fi
             sleep 0.3
@@ -95,8 +102,7 @@ else
         else
             bad "behavioural: --noproxy did not reach the loopback service (got ${_with})"
         fi
-        curl -s -o /dev/null --noproxy '*' -m 1 "http://127.0.0.1:${_port}/__shutdown" 2>/dev/null || true
-        pkill -f "http.server ${_port}" 2>/dev/null || true
+        kill "${_srv}" 2>/dev/null || true
     fi
 fi
 
