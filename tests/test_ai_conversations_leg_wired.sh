@@ -12,7 +12,7 @@
 #   2. The producer run is gated on the flag being exactly "true".
 #   3. install.sh invokes the vendored pwg-ai-convo producer with the
 #      v1.0.3 contract flags (--source all / --since-days / --json).
-#   4. Ordering: the leg runs AFTER the first-month-free subscription
+#   4. Ordering: the leg runs AFTER the included-Pro subscription
 #      activation (CM052's wire.post() PAUSES with no episodic write
 #      when subscription_state.json is absent -- gotcha 1).
 #   5. The pip install is NON-editable (editable does not expose the
@@ -56,19 +56,19 @@ if ! grep -q -- '--source all --since-days 365 --json' "$INSTALL"; then
 fi
 echo "wiring check: install.sh invokes pwg-ai-convo with the v1.0.3 contract flags"
 
-# 4. Ordering: leg AFTER first-month-free activation (subscription gate).
+# 4. Ordering: leg AFTER included-Pro activation (subscription gate).
 aiconv_line="$(grep -n 'if \[\[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" \]\]' "$INSTALL" | head -1 | cut -d: -f1)"
-fmf_line="$(grep -n 'from subscription_gate import activate_first_month_free' "$INSTALL" | head -1 | cut -d: -f1)"
+fmf_line="$(grep -n 'from subscription_gate import activate_included_pro' "$INSTALL" | head -1 | cut -d: -f1)"
 if [ -z "$aiconv_line" ] || [ -z "$fmf_line" ]; then
     echo "FAIL: could not locate the AI-Conversations gate and/or the first-month-free activation callsite" >&2
     exit 1
 fi
 if [ "$aiconv_line" -le "$fmf_line" ]; then
-    echo "FAIL: AI-Conversations leg (line $aiconv_line) must run AFTER first-month-free activation (line $fmf_line)" >&2
+    echo "FAIL: AI-Conversations leg (line $aiconv_line) must run AFTER included-Pro activation (line $fmf_line)" >&2
     echo "      CM052's wire.post() pauses with no episodic write until subscription_state.json exists." >&2
     exit 1
 fi
-echo "ordering check: AI-Conversations leg (line $aiconv_line) runs after first-month-free activation (line $fmf_line)"
+echo "ordering check: AI-Conversations leg (line $aiconv_line) runs after included-Pro activation (line $fmf_line)"
 
 # 5. NON-editable pip install of the vendored package.
 if grep -E 'pip" install [^|]*-e[[:space:]]+"\$_AICONV_SRC"' "$INSTALL" >/dev/null; then

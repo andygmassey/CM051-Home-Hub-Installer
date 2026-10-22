@@ -129,8 +129,8 @@ MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Email-ingest scripts not bu
 MSG_INFO_EXISTING_CHECKOUT_UPDATING="  Existing checkout at %s; updating..."
 MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
 MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING="FDA extraction module not bundled. Skipping instant data extraction."
-MSG_INFO_FIRST_MONTH_FREE_ACTIVATING="Activating your first 30 days of Ostler Pro..."
-MSG_INFO_SUBSCRIPTION_PRICING_HINT="Ostler Pro is \$9.99 USD per month after the trial. Subscribe in the Ostler app on your iPhone."
+MSG_INFO_INCLUDED_PRO_ACTIVATING="Activating the Ostler Pro months included with your Hub..."
+MSG_INFO_SUBSCRIPTION_PRICING_HINT="Ostler Pro is \$9.99 USD per month once your included Pro months end. Subscribe in the Ostler app on your iPhone."
 MSG_INFO_FOUND_GMAIL_MBOX_MB="Found Gmail mbox at %s (%s MB)"
 MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="Found Google Takeout zip at %s (%s MB)"
 MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="Full Disk Access detected – full extraction available."
@@ -511,7 +511,7 @@ MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Os
 MSG_OK_EXTRACTED="Extracted to %s"
 MSG_OK_EXTRACTED_FROM_SOURCE_S_DATA_SAVED="Extracted from %s source(s). Data saved to %s/imports/fda/"
 MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING="FDA re-run scheduled every %s minutes (catches slow iCloud syncs and finishes the calendar backfill)"
-MSG_OK_FIRST_MONTH_FREE_ACTIVATED="Ostler Pro active for 30 days. Subscribe in the Ostler app on your iPhone to extend after the trial."
+MSG_OK_INCLUDED_PRO_ACTIVATED="Ostler Pro is active for the months included with your Hub. Subscribe in the Ostler app on your iPhone to continue after that."
 MSG_OK_FOUND="Found: %s"
 MSG_OK_FOUND_EXPORTS="Found exports at %s"
 MSG_OK_FOUND_GDPR_EXPORT_S="Found %s GDPR export(s):"
@@ -781,7 +781,7 @@ MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA extraction module not bundled. Co
 MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="The data-extraction module is on disk but its dependencies did not install, so it cannot be loaded:"
 MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plaintext was passed – the scheduled data refresh will fail on every run."
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
-MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
+MSG_WARN_INCLUDED_PRO_FAILED_NONFATAL="Could not activate your included Ostler Pro months at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
 MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (gemma4:e2b) – reliable, accurate, sub-second on short questions, with tool calls and an honest 'I don't know' when it doesn't. For richer answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR import had errors. You can re-run with:"
@@ -1564,7 +1564,7 @@ MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_STORE_EMPTY="Your WhatsApp contacts were read
 MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_UNVERIFIED="Could not check whether your WhatsApp contacts are still in your people graph. Reading them again rather than assuming they are there."
 
 # AI Conversations hydration strings (#553 / #613)
-# Used by install.sh's AI Conversations leg (after the first-month-free
+# Used by install.sh's AI Conversations leg (after the included-Pro
 # activation -- the CM052 subscription gate must be open before the
 # drain). GATED OFF for v1.0.x: OSTLER_AI_CONVERSATIONS_ENABLED
 # defaults to false and none of these strings are shown; the disabled

@@ -206,3 +206,427 @@ index 5431a38f..350fc701 100644
              "failed": errors,
          },
          enabled=args.json,
+diff --git a/src/cm052/subscription_gate.py b/src/cm052/subscription_gate.py
+index 70f707c6..96b0df23 100644
+--- a/src/cm052/subscription_gate.py
++++ b/src/cm052/subscription_gate.py
+@@ -21,8 +21,9 @@ grace window. We never punish customers on infrastructure problems we
+ cannot observe.
+ 
+ Sync paths:
+-1. ``activate_first_month_free()`` -- called by install.sh after license
+-   verification. Hub gets 30 days of Pro for free.
++1. ``activate_included_pro()`` -- called by install.sh after license
++   verification. Hub gets the INCLUDED Pro window: 180 days for founding
++   customers, 90 for standard (see ``INCLUDED_DAYS``).
+ 2. ``refresh_from_companion()`` -- called when the iOS Companion pushes a
+    fresh StoreKit receipt via ``POST /api/v1/subscription/receipt``.
+ 3. ``expire_check()`` -- run periodically by the ical-server's
+@@ -41,7 +42,7 @@ Sync paths:
+    persists that walk so the Doctor banner and support can see it.
+ 
+ Paid-once rule (Andy, 2026-07-31, re-made 2026-09-16): "keep it as long
+-as they've paid (fully) for Pro at least once. ie. not the 30 days free
++as they've paid (fully) for Pro at least once. ie. not the included window
+ plus a failed card try." Implemented here as the ``has_ever_paid`` sticky
+ bit -- see ``_has_ever_paid``. It mirrors the daemon's
+ ``SubscriptionConfig::has_ever_paid`` (zeroclaw-config schema.rs) and the
+@@ -55,8 +56,9 @@ Helper contract (the only public surface other pipelines depend on):
+ - ``state_dict() -> dict`` -- for the Doctor banner + diagnostics.
+ - ``refresh_from_companion(receipt_b64, expires_at_iso) -> None`` --
+   writer called when the iOS Companion pushes a fresh receipt.
+-- ``activate_first_month_free(purchase_date_iso, licence_tier,
+-  licence_tier_state) -> None`` -- writer called by install.sh, which is
++- ``activate_included_pro(purchase_date_iso, licence_tier,
++  licence_tier_state, licence_expires_at, included_plan) -> None`` --
++  writer called by install.sh, which is
+   the only thing on a customer's Mac that ever opens the licence file.
+ - ``licence_tier(state=None) -> (tier, state)`` -- what tier the verified
+   licence was issued at, and how confident we are of it. See
+@@ -67,9 +69,12 @@ Helper contract (the only public surface other pipelines depend on):
+   a testing convenience.
+ - ``expire_check() -> None`` -- periodic state walker.
+ 
+-Per locked memory feedback_subscription_gating_v1 + the 2026-05-27
+-pricing decision: Hub GBP 99 one-time + Pro GBP 9.99/mo with first 30 days
+-free at install time.
++Pricing decision (supersedes the 2026-05-27 "first 30 days free"): the Hub
++purchase includes Ostler Pro for 6 months (founding customers) or 3 months
++(standard), then $9.99/mo or $79/yr. The Apple receipt is the single truth
++for Pro once the owner has a subscription: the included window only covers
++owners WITHOUT one, and ``activate_included_pro`` never overwrites a state a
++receipt wrote.
+ """
+ 
+ from __future__ import annotations
+@@ -97,7 +102,10 @@ STATUS_GRACE = "grace"
+ STATUS_INACTIVE = "inactive"
+ 
+ # Source enum -- records how the current state landed (for support + UX).
+-SOURCE_FIRST_MONTH_FREE = "first_month_free"
++# The on-disk value predates the 180/90-day window and is FROZEN: state files
++# already in customers' hands carry it, and the upgrade path below recognises
++# them by it. Renaming the value would orphan every existing install.
++SOURCE_INCLUDED_PRO = "first_month_free"
+ SOURCE_COMPANION = "companion"
+ SOURCE_HUB_INITIAL = "hub_initial"
+ SOURCE_DEFAULT = "default"
+@@ -140,9 +148,54 @@ KEY_LICENCE_TIER_STATE = "licence_tier_state"
+ 
+ # The licence's own update_window_expires_at, recorded at install time
+ # (HR015 #929). For a BETA licence this is the beta window, and the beta
+-# window is the entitlement -- see activate_first_month_free.
++# window is the entitlement -- see activate_included_pro.
+ KEY_LICENCE_EXPIRES_AT = "licence_expires_at"
+ 
++# ---------------------------------------------------------------------------
++# The included Pro window
++# ---------------------------------------------------------------------------
++#
++# Hub $99 includes Ostler Pro for 6 months (founding customers) or 3 months
++# (standard). The Hub used to grant 30 days, which the iPhone never saw and
++# which was a third of the shortest promise on the website.
++#
++# WHICH PLAN? The licence carries a tier (hub / pro / beta) but NO signal that
++# separates a founding purchase from a standard one, and the CM050 licence
++# server does not issue one. So there is no reliable signal today and every
++# install defaults to FOUNDING (180 days) -- right for every install before
++# public launch, because every buyer before launch is a founding customer.
++#
++# TODO(standard-tier): when CM050 issues a founding/standard marker, have
++# install.sh export OSTLER_INCLUDED_PLAN from the verified licence and flip
++# DEFAULT_INCLUDED_PLAN to PLAN_STANDARD. That is the ONLY edit the switch
++# needs; ``activate_included_pro`` already takes ``included_plan``.
++PLAN_FOUNDING = "founding"
++PLAN_STANDARD = "standard"
++INCLUDED_DAYS = {PLAN_FOUNDING: 180, PLAN_STANDARD: 90}
++DEFAULT_INCLUDED_PLAN = PLAN_FOUNDING  # the named setting; see the TODO above
++
++# What the Hub granted before this change. Only the upgrade path reads it: a
++# state with no KEY_INCLUDED_DAYS marker was written by a build that granted
++# this many days, which is how its ORIGINAL activation date is recovered
++# (expires_at minus this).
++LEGACY_INCLUDED_DAYS = 30
++
++KEY_INCLUDED_PLAN = "included_plan"
++KEY_INCLUDED_DAYS = "included_days"
++KEY_INCLUDED_FROM = "included_from"
++
++
++def _resolve_plan(plan: Optional[str]) -> str:
++    """A recognised plan, else the default. Never raises.
++
++    An unrecognised value (empty, wrong case, a number) is not an error to
++    refuse the install over; it is "no signal", and no signal is the default.
++    """
++    if isinstance(plan, str) and plan in INCLUDED_DAYS:
++        return plan
++    return DEFAULT_INCLUDED_PLAN
++
++
+ # How long before a window closes the customer is told it is closing.
+ #
+ # ANDY'S RULE, AND IT IS NOT A NICETY: "They are warned BEFORE it
+@@ -318,8 +371,8 @@ def _has_ever_paid(state: dict) -> bool:
+ 
+     This is the trust anchor for the 14-day post-lapse grace window and
+     for the 30-day offline fail-open. Andy's ruling: grace is a cushion
+-    for people who actually paid, not a second free month for a trialist
+-    whose 30 days ran out, and not a reward for a failed card.
++    for people who actually paid, not a second free window for a trialist
++    whose included window ran out, and not a reward for a failed card.
+ 
+     Evidence (any one is enough):
+ 
+@@ -341,8 +394,8 @@ def _has_ever_paid(state: dict) -> bool:
+     the one place this file must NOT copy the daemon. The Rust backfill
+     (``SubscriptionConfig::backfill_has_ever_paid``) does accept Active,
+     because on that side a fresh install defaults to ``Grace``. On THIS
+-    side install.sh calls ``activate_first_month_free``, which writes
+-    ``status=active`` for the free month. Accepting that as proof would set
++    side install.sh calls ``activate_included_pro``, which writes
++    ``status=active`` for the included window. Accepting that as proof would set
+     the bit for every single trialist on day zero, the denominator would
+     be "everybody", and the rule would read as implemented while changing
+     nothing. If you are about to add it, this paragraph is why you should
+@@ -358,6 +411,54 @@ def _has_ever_paid(state: dict) -> bool:
+     return False
+ 
+ 
++def _extend_legacy_window(state: dict) -> dict:
++    """Upgrade a running 30-day included window to the current length. Pure.
++
++    A state written by a build that granted 30 days carries no
++    ``KEY_INCLUDED_DAYS`` marker. Its ORIGINAL activation date is
++    ``expires_at`` minus 30 days (the writer never stored it), and the new
++    expiry is that date plus the plan's window, so an owner on day 10 of 30
++    ends up on day 10 of 180, not day 0 of a fresh 180.
++
++    ONCE and IDEMPOTENT: the marker is written with the extension, and a
++    state that has it is returned untouched. The marker, not the date maths,
++    is what makes a second pass a no-op.
++
++    NEVER applied to:
++    - a state a receipt wrote (``source != SOURCE_INCLUDED_PRO``): the Apple
++      receipt is the truth and the included window does not exist for them;
++    - a beta licence, whose window IS the licence's own date;
++    - a state with no readable ``expires_at``: nothing to extend from.
++
++    A legacy state that already lapsed to ``inactive`` is restored to
++    ``active`` when the extended expiry is still ahead; ``_walk`` then decides
++    what is true at ``now``. One that is past even the new end stays ended.
++    """
++    if state.get("source") != SOURCE_INCLUDED_PRO:
++        return state
++    if state.get(KEY_INCLUDED_DAYS) is not None:
++        return state
++    if state.get(KEY_LICENCE_TIER) == TIER_BETA:
++        return state
++    expires = _parse_iso(state.get("expires_at"))
++    if expires is None:
++        return state
++    plan = _resolve_plan(state.get(KEY_INCLUDED_PLAN))
++    days = INCLUDED_DAYS[plan]
++    started = expires - timedelta(days=LEGACY_INCLUDED_DAYS)
++    new_expires = started + timedelta(days=days)
++    out = dict(state)
++    out["status"] = STATUS_ACTIVE
++    out["expires_at"] = new_expires.isoformat().replace("+00:00", "Z")
++    out["grace_period_end"] = (
++        (new_expires + timedelta(days=GRACE_DAYS)).isoformat().replace("+00:00", "Z")
++    )
++    out[KEY_INCLUDED_PLAN] = plan
++    out[KEY_INCLUDED_DAYS] = days
++    out[KEY_INCLUDED_FROM] = started.isoformat().replace("+00:00", "Z")
++    return out
++
++
+ def _walk(state: dict, now: datetime) -> tuple:
+     """Pure state-machine step. Returns ``(effective_status, new_state)``.
+ 
+@@ -374,11 +475,12 @@ def _walk(state: dict, now: datetime) -> tuple:
+     - lapse, customer HAS ever paid -> ``grace`` until ``grace_period_end``,
+       then ``inactive``.
+     - lapse, customer has NEVER paid -> ``inactive`` immediately. No grace.
+-      This is Andy's rule and it is the whole revenue fix: the free month
++      This is Andy's rule and it is the whole revenue fix: the included window
+       ends on the day it ends.
+ 
+     Never raises. Never writes.
+     """
++    state = _extend_legacy_window(state)
+     paid = _has_ever_paid(state)
+     new_state = dict(state)
+     new_state[KEY_HAS_EVER_PAID] = paid
+@@ -390,7 +492,7 @@ def _walk(state: dict, now: datetime) -> tuple:
+             # Unparseable or absent expiry. For a customer who has paid we
+             # fail OPEN (Apple restraint: never lock a payer out on a field
+             # we cannot read). For one who never paid we fail CLOSED -- the
+-            # free month has no defensible end date, so it is over. That
++            # included window has no defensible end date, so it is over. That
+             # asymmetry is deliberate: deleting expires_at from the JSON is
+             # the cheapest way to try to farm a permanent free trial.
+             if paid:
+@@ -486,9 +588,9 @@ def is_active_or_grace() -> bool:
+ 
+     # Fail-open, for payers only. Note the denominator this branch must
+     # not silently acquire: before the has_ever_paid guard, EVERY install
+-    # satisfied it for its first 30 days, because install.sh stamps
++    # satisfied it for the whole included window, because install.sh stamps
+     # last_validated_at at activation time. It read as a safety net and
+-    # behaved as a second free month.
++    # behaved as a second free window.
+     if _has_ever_paid(state):
+         last_validated = _parse_iso(state.get("last_validated_at"))
+         expires = _parse_iso(state.get("expires_at"))
+@@ -562,8 +664,8 @@ def expiry_warning(
+     is a clock an unpaid install can set to last year.
+ 
+     WHOSE WINDOW. ``expires_at`` is the state's own window, which for a
+-    beta licence IS the beta window (activate_first_month_free puts it
+-    there) and for everyone else is the free month or the last receipt.
++    beta licence IS the beta window (activate_included_pro puts it
++    there) and for everyone else is the included window or the last receipt.
+     So this one function warns a beta tester about their beta and a
+     subscriber about their subscription, without either case needing to
+     know about the other.
+@@ -631,7 +733,7 @@ def expiry_warning(
+             "expires_at": snapshot.get("expires_at"),
+             "tier": tier,
+             "tier_state": tier_state,
+-            # NEVER the raw stamp. activate_first_month_free derives
++            # NEVER the raw stamp. activate_included_pro derives
+             # expires_at from datetime.now(), which carries microseconds,
+             # so the raw value reads as "2026-09-13T05:57:41.666985Z" in
+             # a sentence a customer is reading.
+@@ -663,8 +765,8 @@ def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
+     THIS IS THE ONLY PLACE ``has_ever_paid`` IS SET TRUE. A receipt
+     reaching this function is the Hub's proof that the customer completed
+     a real purchase or restore; the iOS app does not push one otherwise.
+-    That is what makes the bit mean "paid", and what keeps the free month
+-    (which arrives through ``activate_first_month_free``, with no receipt)
++    That is what makes the bit mean "paid", and what keeps the included window
++    (which arrives through ``activate_included_pro``, with no receipt)
+     from claiming it.
+     """
+     new_state = {
+@@ -680,17 +782,33 @@ def refresh_from_companion(receipt_b64: str, expires_at_iso: str) -> None:
+     _write(new_state)
+ 
+ 
+-def activate_first_month_free(
++def activate_included_pro(
+     purchase_date_iso: str,
+     licence_tier: Optional[str] = None,
+     licence_tier_state: Optional[str] = None,
+     licence_expires_at: Optional[str] = None,
++    included_plan: Optional[str] = None,
+ ) -> None:
+     """Called at install.sh time after license verification succeeds.
+ 
+-    Hub gets 30 days of Pro free with Hub purchase. Customer can then
+-    subscribe via the iOS app to extend. Writes the canonical first-
+-    month-free state: ``status=active`` for 30 days.
++    The Hub purchase includes Ostler Pro: 180 days for ``founding``, 90 for
++    ``standard`` (``INCLUDED_DAYS``). The owner can subscribe via the iOS
++    app at any time; once they do, the Apple receipt is the truth and this
++    window stops mattering. Writes ``status=active`` for the window.
++
++    ``included_plan`` is the plan, defaulting to ``DEFAULT_INCLUDED_PLAN``
++    when absent or unrecognised (see the TODO at ``PLAN_FOUNDING``).
++
++    THE RECEIPT WINS. If the state on disk was written by a receipt
++    (``source == companion``) this function records the licence tier and
++    returns; it does not overwrite the receipt's status, expiry or receipt.
++    Re-running install.sh on a paying customer's Hub must not replace their
++    subscription with a fresh free window.
++
++    THE WINDOW IS MEASURED FROM THE ORIGINAL ACTIVATION. Re-running
++    install.sh on an install whose included window is already running keeps
++    that window's start (``included_from``), so re-running the installer is
++    not a way to buy another 180 days.
+ 
+     ``has_ever_paid`` is CARRIED OVER from any existing state, never
+     granted. Two consequences, both intended:
+@@ -698,8 +816,8 @@ def activate_first_month_free(
+     - A customer who is already paying and re-runs the installer keeps
+       the bit, so re-running install.sh cannot cost them their grace.
+     - A trialist who deletes the state file and reinstalls to farm a
+-      second free month gets ``has_ever_paid=False`` again, so their
+-      month still ends on day 30 with no grace after it.
++      second window gets ``has_ever_paid=False`` again, so their window
++      still ends on its last day with no grace after it.
+ 
+     The 14-day ``grace_period_end`` is still written so support and the
+     Doctor banner can see the shape of the window, but it is INERT for a
+@@ -717,49 +835,83 @@ def activate_first_month_free(
+     issuing after this build shipped must survive contact with an older
+     Hub rather than being flattened to "hub" by the act of being read.
+     """
++    old_state = _load()
++
++    # The receipt is the truth: only the tier fields are ever updated.
++    if old_state.get("source") == SOURCE_COMPANION:
++        kept = dict(old_state)
++        _apply_tier(kept, old_state, licence_tier, licence_tier_state,
++                    licence_expires_at)
++        if kept != old_state:
++            _write(kept)
++        return
++
+     purchase_dt = _parse_iso(purchase_date_iso)
+     if purchase_dt is None:
+         # Defensive: caller passed garbage. Fall back to now so install
+         # never silently writes a broken state.
+         purchase_dt = _now()
+-    expires = purchase_dt + timedelta(days=30)
+ 
+-    # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT A CALENDAR MONTH ──
++    # A window already running keeps its original start.
++    prior = _extend_legacy_window(old_state)
++    if prior.get("source") == SOURCE_INCLUDED_PRO:
++        prior_from = _parse_iso(prior.get(KEY_INCLUDED_FROM))
++        if prior_from is not None and prior_from < purchase_dt:
++            purchase_dt = prior_from
++
++    plan = _resolve_plan(included_plan)
++    days = INCLUDED_DAYS[plan]
++    expires = purchase_dt + timedelta(days=days)
++
++    # ── A BETA TESTER'S WINDOW IS THEIR BETA, NOT THE INCLUDED WINDOW ──
+     #
+-    # HR015 #929. Before this, every install got 30 days of Pro whatever
+-    # the licence said, so a tester on a 90-day beta licence lost the
+-    # product on day 31 with their beta still running, and a tester on a
+-    # 14-day licence kept it for a fortnight after their beta ended.
+-    # Neither is what the licence says, and the licence is the thing the
+-    # customer was given.
++    # HR015 #929. Before this, every install got the same fixed window
++    # whatever the licence said, so a tester on a 90-day beta licence lost
++    # the product with their beta still running, and a tester on a 14-day
++    # licence kept it for weeks after their beta ended. Neither is what the
++    # licence says, and the licence is the thing the customer was given.
+     #
+     # ONLY for tier `beta`, and only when the beta window is a date we
+-    # can actually read. A hub or pro licence keeps the 30-day free
+-    # month unchanged: their update window is about updates, not about
++    # can actually read. A hub or pro licence keeps the included window
++    # unchanged: their update window is about updates, not about
+     # whether the product runs, and reading it as an entitlement would
+     # cut off paying customers.
+     #
+-    # Deliberately NOT clamped to 30 days. The beta window IS the grant.
++    # Deliberately NOT clamped to the included window. The beta window IS
++    # the grant.
+     licence_dt = _parse_iso(licence_expires_at)
+     if licence_tier == TIER_BETA and licence_dt is not None:
+         expires = licence_dt
+ 
+     grace_end = expires + timedelta(days=GRACE_DAYS)
+-    old_state = _load()
+     new_state = {
+         "status": STATUS_ACTIVE,
+         "last_validated_at": _iso_now(),
+         "expires_at": expires.isoformat().replace("+00:00", "Z"),
+         "grace_period_end": grace_end.isoformat().replace("+00:00", "Z"),
+-        "source": SOURCE_FIRST_MONTH_FREE,
++        "source": SOURCE_INCLUDED_PRO,
+         KEY_HAS_EVER_PAID: _has_ever_paid(old_state),
++        KEY_INCLUDED_PLAN: plan,
++        KEY_INCLUDED_DAYS: days,
++        KEY_INCLUDED_FROM: purchase_dt.isoformat().replace("+00:00", "Z"),
+     }
+-    # An unverified install must not overwrite a tier a previous verified
+-    # install established. Re-running install.sh with --allow-unlicensed
+-    # would otherwise cost the customer their recorded tier, and the loss
+-    # would be invisible. The licence expiry rides with the tier for the
+-    # same reason and in the same branch: they come from one reading of
+-    # one file, and half of that reading is not a state worth keeping.
++    _apply_tier(new_state, old_state, licence_tier, licence_tier_state,
++                licence_expires_at)
++    _write(new_state)
++
++
++def _apply_tier(new_state: dict, old_state: dict, licence_tier: Optional[str],
++                licence_tier_state: Optional[str],
++                licence_expires_at: Optional[str]) -> None:
++    """Record the licence tier on ``new_state`` (in place).
++
++    An unverified install must not overwrite a tier a previous verified
++    install established. Re-running install.sh with --allow-unlicensed
++    would otherwise cost the customer their recorded tier, and the loss
++    would be invisible. The licence expiry rides with the tier for the
++    same reason and in the same branch: they come from one reading of
++    one file, and half of that reading is not a state worth keeping.
++    """
+     if licence_tier_state in TIER_STATES and licence_tier_state != TIER_STATE_UNVERIFIED:
+         new_state[KEY_LICENCE_TIER_STATE] = licence_tier_state
+         new_state[KEY_LICENCE_TIER] = (
+@@ -771,7 +923,6 @@ def activate_first_month_free(
+             new_state[KEY_LICENCE_EXPIRES_AT] = old_state.get(KEY_LICENCE_EXPIRES_AT)
+     else:
+         _carry_tier(new_state, old_state)
+-    _write(new_state)
+ 
+ 
+ def expire_check() -> None:
