@@ -6,6 +6,11 @@
 # hung sample/lsof; (2) strike spacing is logged; (3) the probe's budget is DERIVED
 # from the shipped config and covers the 116c timeline; (4) a listener that never
 # recovers still FAILs inside that budget; (5) an unreadable config is CANNOT-RUN.
+# (6) ROUND 2: the product promise is an absolute CEILING_S=360 (a wedged listener is
+# back within 6 minutes): window = min(derived, 360); FAIL when the observed recovery
+# is over 360 s; the config check compares the NO-DRIFT worst case with 360 (not the
+# drift-inclusive budget); observed seconds are printed every run; the launchd
+# ProcessType stays Background as on main.
 # Then mutants. Usage: [REPO_ROOT]. rc 0 pass, 1 fail, 2 CANNOT-RUN.
 set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -17,8 +22,12 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ostler-lwb.XXXXXX")" || { echo "CANNOT-RUN: m
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS + 1)); echo "  ok   $*"; }
 bad() { FAIL=$((FAIL + 1)); echo "  FAIL $*"; }
+sweep() { # every process this run started carries the unique $WORK path in its argv (fake daemon, box script, launchctl stub)
+    local p; for p in $(pgrep -f -- "${WORK}/" 2>/dev/null); do [ "$p" = "$$" ] && continue; kill -CONT "$p" 2>/dev/null; kill "$p" 2>/dev/null; done
+}
 cleanup() {
     local p; for p in $(cat "$WORK"/pids 2>/dev/null); do kill -CONT "$p" 2>/dev/null; kill "$p" 2>/dev/null; done
+    sweep
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -72,6 +81,7 @@ cat > "$WORK/bin/lsof" <<'EOF2'
 [ -e "$(dirname "$0")/../hang" ] && exec sleep 60
 echo "fake 1 7u IPv4 TCP *:8443 (LISTEN)"
 EOF2
+printf '#!/usr/bin/env bash\necho $$ >> "%s/pids"\nexec /usr/bin/nohup "$@"\n' "$WORK" > "$WORK/bin/nohup"
 for t in vm_stat memory_pressure sysctl; do printf '#!/usr/bin/env bash\necho fake\n' > "$WORK/bin/$t"; done
 chmod +x "$WORK/bin/"*
 
@@ -152,19 +162,86 @@ verdict() { sed -n 's/^VERDICT: \([A-Z-]*\).*/\1/p' "$WORK/p.out" | tail -1; }
 # expected budget from the inputs: interval 1, 3 strikes, curl 1, cap 2, verify 2, margin 2 = (1*3*3+1)/2 + 3 + 2 + 2 + 2
 EXPECT=$(( (1 * 3 * 3 + 1) / 2 + 3 * 1 + 2 + 2 + 2 ))
 setup; start_loop; rc="$(run_probe)"; stop_loop
-nb="$(sed -n 's/.*wait budget \([0-9]*\)s = .*/\1/p' "$WORK/p.out" | head -1)"
+nb="$(sed -n 's/.*derived budget \([0-9]*\)s = .*/\1/p' "$WORK/p.out" | head -1)"
 [ "$nb" = "$EXPECT" ] && ok "T5 probe derived budget ${nb}s from the plist + --print-config (expected ${EXPECT}s)" || bad "T5 probe budget '${nb}', expected ${EXPECT}: $(grep -i budget "$WORK/p.out" | head -2)"
-[ "$rc" = 0 ] && [ "$(verdict)" = PASS ] && ok "T5 working watchdog: PASS" || bad "T5 working watchdog gave rc=$rc $(verdict): $(tail -4 "$WORK/p.out")"
+[ "$rc" = 0 ] && [ "$(verdict)" = PASS ] && grep -Eq 'observed recovery: [0-9]+s \(ceiling 360s\)' "$WORK/p.out" && grep -Eq 'recovered in [0-9]+s' "$WORK/p.out" && ok "T5 working watchdog: PASS, observed seconds printed ($(grep -o 'observed recovery: [0-9]*s' "$WORK/p.out" | head -1))" || bad "T5 working watchdog gave rc=$rc $(verdict): $(tail -4 "$WORK/p.out")"
 # control A: the restart never happens (watchdog only un-stops the daemon) -> must FAIL
 setup; : > "$WORK/ks.noop"; start_loop; rc="$(run_probe)"; stop_loop
 [ "$rc" = 1 ] && [ "$(verdict)" = FAIL ] && grep -q 'resumed, not restarted' "$WORK/p.out" && ok "T5 CONTROL A a restart that never happens still FAILs" || bad "T5 CONTROL A gave rc=$rc $(verdict): $(tail -2 "$WORK/p.out")"
 # control B: restarted but the listener never comes back -> must FAIL at the derived budget
 setup; : > "$WORK/ks.dead"; start_loop; t0=$(date +%s); rc="$(run_probe)"; stop_loop; dt=$(( $(date +%s) - t0 ))
-[ "$rc" = 1 ] && [ "$(verdict)" = FAIL ] && grep -q 'answered HTTP 000' "$WORK/p.out" && [ "$dt" -le $((EXPECT + 12)) ] && ok "T5 CONTROL B a listener that never recovers FAILs within the derived budget (${dt}s of ${EXPECT}s)" || bad "T5 CONTROL B gave rc=$rc $(verdict) in ${dt}s: $(tail -2 "$WORK/p.out")"
+[ "$rc" = 1 ] && [ "$(verdict)" = FAIL ] && grep -q 'observed recovery: NOT RECOVERED after' "$WORK/p.out" && [ "$dt" -le $((EXPECT + 12)) ] && ok "T5 CONTROL B a listener that never recovers FAILs within the derived budget (${dt}s of ${EXPECT}s)" || bad "T5 CONTROL B gave rc=$rc $(verdict) in ${dt}s: $(tail -2 "$WORK/p.out")"
 # unreadable config -> CANNOT-RUN, daemon untouched
 setup; rm -f "$PL"; rc="$(run_probe)"
 st="$(ps -o stat= -p "$(cat "$WORK/daemon.pid")" 2>/dev/null)"
 [ "$rc" = 78 ] && [ "$(verdict)" = CANNOT-RUN ] && case "$st" in T*) false ;; *) true ;; esac && ok "T5 no plist: CANNOT-RUN, daemon not stopped" || bad "T5 no plist gave rc=$rc $(verdict) stat=$st"
+
+echo "== T6 the 360 s ceiling"
+eval "$(sed -n '/^CEILING_S=360$/p;/^_lwr_classify() {/,/^}/p;/^_lwr_worst_case() {/,/^}/p;/^_lwr_window() {/,/^}/p;/^_lwr_budget() {/,/^}/p' "$PROBE")" 2>/dev/null
+if [ "${CEILING_S:-}" = 360 ] && declare -F _lwr_classify >/dev/null && declare -F _lwr_worst_case >/dev/null && declare -F _lwr_window >/dev/null; then
+    ok "T6 CEILING_S is the constant 360 in the probe"
+    # 116c with the 10 s capture cap: 307 s observed with a 60 s capture, so 307 - 50 = 257 s
+    r116=$(( 307 - (60 - 10) ))
+    c="$(_lwr_classify 1 401 1 401 1 1 1 "$r116")"
+    [ "$r116" = 257 ] && [ "$c" = PASS ] && ok "T6 the 116c timeline with the 10 s cap recovers in ${r116}s: $c (ceiling ${CEILING_S}s)" || bad "T6 116c at ${r116}s gave $c"
+    c="$(_lwr_classify 1 401 1 401 1 1 1 370)"; [ "$c" = FAIL-OVER-CEILING ] && ok "T6 a recovery at 370 s: FAIL ($c)" || bad "T6 370 s gave $c"
+    c="$(_lwr_classify 1 401 1 401 1 1 1 360)"; [ "$c" = PASS ] && ok "T6 a recovery at exactly 360 s passes (boundary)" || bad "T6 360 s gave $c"
+    c="$(_lwr_classify 1 401 1 401 1 1 1 361)"; [ "$c" = FAIL-OVER-CEILING ] && ok "T6 a recovery at 361 s: FAIL (boundary)" || bad "T6 361 s gave $c"
+    c="$(_lwr_classify 1 401 1 401 1 1 1 "")"; [ "$c" = FAIL-NO-TIMING ] && ok "T6 an unmeasured recovery time is FAIL, not PASS" || bad "T6 empty seconds gave $c"
+    [ "$(_lwr_window 385)" = 360 ] && [ "$(_lwr_window 200)" = 200 ] && [ "$(_lwr_window 360)" = 360 ] && ok "T6 wait window = min(derived, 360): 385 -> 360, 200 -> 200" || bad "T6 window: 385 -> $(_lwr_window 385), 200 -> $(_lwr_window 200)"
+    w="$(_lwr_worst_case 60 3 5 10 60)"; w10="$(_lwr_worst_case 60 10 5 10 60)"
+    [ "$w" = 265 ] && [ "$w10" = 720 ] && [ "$w" -le 360 ] && [ "$w10" -gt 360 ] && ok "T6 no-drift worst case: shipped ${w}s <= 360, strikes=10 ${w10}s > 360 (no 1.5 factor, no margin)" || bad "T6 worst case shipped=${w} strikes10=${w10}"
+    [ "$(_lwr_budget 60 3 5 10 60 30)" -gt 360 ] && [ "$w" -le 360 ] && ok "T6 drift-inclusive budget $(_lwr_budget 60 3 5 10 60 30)s is above 360 and is not compared with the ceiling" || bad "T6 budget/worst-case relationship"
+else
+    bad "T6 the probe lacks CEILING_S=360 or one of _lwr_classify/_lwr_worst_case/_lwr_window"
+fi
+
+echo "== T7 launchd ProcessType stays Background as on main"
+pt="$(awk '/^cat > "\$LISTENER_WD_PLIST" <<LISTENERWDPLIST$/{f=1;next} /^LISTENERWDPLIST$/{f=0} f' "$INSTALL" | sed -n '/<key>ProcessType<\/key>/{n;s/.*<string>\(.*\)<.*/\1/p;}')"
+[ "$pt" = Background ] && ok "T7 watchdog plist ProcessType = Background" || bad "T7 watchdog plist ProcessType = '${pt}'"
+keys="$(awk '/^cat > "\$LISTENER_WD_PLIST" <<LISTENERWDPLIST$/{f=1;next} /^LISTENERWDPLIST$/{f=0} f' "$INSTALL" | sed -n 's/^    <key>\(.*\)<\/key>$/\1/p' | tr '\n' ' ')"
+[ "$keys" = "Label ProgramArguments StartInterval ProcessType StandardOutPath StandardErrorPath " ] && ok "T7 watchdog plist keys are exactly main's: ${keys}" || bad "T7 watchdog plist keys changed: '${keys}'"
+
+echo "== T8 the real probe on the SHIPPED plist (interval 60): config check before any SIGSTOP"
+mkplist60() { awk '/^cat > "\$LISTENER_WD_PLIST" <<LISTENERWDPLIST$/{f=1;next} /^LISTENERWDPLIST$/{f=0} f' "$INSTALL" | sed -e "s|\${HOME}|$H|g" -e "s|\${_ollama_rot_logs}|$H/.ostler/logs|g" > "$PL"; }
+run_probe_real() { # shipped capture/verify/strikes (no scaling); extra env in "$@".
+    # Prints the probe's rc, or 99 if it got past the config check and SIGSTOPped the daemon
+    # (a real wedge window is 360+ s; a config the probe should have refused is a RED, not a wait).
+    : > "$WORK/p.out"
+    env HOME="$H" PATH="$WORK/bin:$PATH" OSTLER_PROBE_LAUNCHCTL="$WORK/bin/launchctl" \
+        OSTLER_LWR_URL="http://127.0.0.1:${PORT}/api/sessions" OSTLER_LWR_POLL_S=1 "$@" \
+        bash "$PROBE" > "$WORK/p.out" 2>&1 &
+    local pp=$! i=0
+    while [ "$i" -lt 600 ] && kill -0 "$pp" 2>/dev/null && ! grep -q 'SIGSTOP daemon' "$WORK/p.out"; do sleep 0.5; i=$((i + 1)); done
+    if kill -0 "$pp" 2>/dev/null; then
+        kill -TERM "$pp" 2>/dev/null; wait "$pp" 2>/dev/null; sweep; kill -CONT "$(cat "$WORK/daemon.pid")" 2>/dev/null; echo 99
+    else wait "$pp"; echo $?; fi
+}
+# shipped config: passes the check, derived 385 s, window capped to 360 s. The probe then
+# SIGSTOPs the daemon (rc 99 here = it got that far); the helper stops it again.
+setup; mkplist60
+rc="$(run_probe_real)"
+[ "$rc" = 99 ] && grep -q 'derived budget 385s' "$WORK/p.out" && grep -q 'no-drift worst case 265s' "$WORK/p.out" && grep -q 'wait window 360s = min(derived budget, ceiling 360s)' "$WORK/p.out" && ok "T8 shipped config: derived 385 s, no-drift worst case 265 s <= 360, wait window capped to 360 s" || bad "T8 shipped-config rc=$rc notes: $(grep -i 'budget\|worst\|window' "$WORK/p.out" | head -4)"
+# strikes=10 (the watchdog's own env knob)
+setup; mkplist60
+rc="$(run_probe_real OSTLER_LISTENER_WD_FAIL_N=10)"
+st="$(ps -o stat= -p "$(cat "$WORK/daemon.pid")" 2>/dev/null)"
+[ "$rc" = 1 ] && [ "$(verdict)" = FAIL ] && grep -q 'cannot meet the 360s promise: no-drift worst case 720s' "$WORK/p.out" && ! grep -q 'SIGSTOP daemon' "$WORK/p.out" && case "$st" in T*) false ;; *) true ;; esac && ok "T8 strikes=10: FAIL on the ceiling (720 s > 360 s), daemon never stopped" || bad "T8 strikes=10 gave rc=$rc $(verdict) stat=$st: $(tail -3 "$WORK/p.out")"
+# strikes=10 in the PLIST (EnvironmentVariables), which the probe must read
+setup; mkplist60
+sed -i.bak 's|^</dict>$|    <key>EnvironmentVariables</key>\
+    <dict>\
+        <key>OSTLER_LISTENER_WD_FAIL_N</key>\
+        <string>10</string>\
+    </dict>\
+</dict>|' "$PL"; rm -f "$PL.bak"
+grep -q OSTLER_LISTENER_WD_FAIL_N "$PL" || { echo "CANNOT-RUN: plist mutation did not apply" >&2; exit 2; }
+rc="$(run_probe_real)"
+[ "$rc" = 1 ] && [ "$(verdict)" = FAIL ] && grep -q 'cannot meet the 360s promise: no-drift worst case 720s' "$WORK/p.out" && ok "T8 strikes=10 in the plist: FAIL on the ceiling, not a pass on a larger budget" || bad "T8 plist strikes=10 gave rc=$rc $(verdict): $(grep -i 'worst\|budget' "$WORK/p.out" | head -3)"
+# the override can only LOWER the ceiling
+setup; mkplist60
+rc="$(run_probe_real OSTLER_LWR_CEILING_S=9999 OSTLER_LISTENER_WD_FAIL_N=10)"
+[ "$rc" = 1 ] && grep -q 'ceiling 360s' "$WORK/p.out" && ok "T8 OSTLER_LWR_CEILING_S=9999 cannot raise the ceiling above 360" || bad "T8 raised-ceiling override gave rc=$rc: $(grep -i ceiling "$WORK/p.out" | head -2)"
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
@@ -192,5 +269,22 @@ mutate uncap_capture install 'if [ "$ticks" -ge $((limit * 10)) ]; then' 'if [ "
 mutate hardcode_300 probe 'LWR_BUDGET_S="${OSTLER_LWR_BUDGET_S:-}"' 'LWR_BUDGET_S="${OSTLER_LWR_BUDGET_S:-300}"'
 mutate no_drift_factor probe 'echo $(( ($1 * $2 * 3 + 1) / 2 + $2 * $3 + $4 + $5 + $6 ))' 'echo $(( $1 * $2 + $2 * $3 + $4 + $5 + $6 ))'
 mutate no_gap_log install 'lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})${_gap}"' 'lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"'
+mutate ceiling_raised probe 'CEILING_S=360
+' 'CEILING_S=3600
+'
+mutate ceiling_removed probe 'CEILING_S=360
+' ''
+mutate no_ceiling_in_classify probe 'if [ "$secs" -gt "$CEILING_S" ]; then echo FAIL-OVER-CEILING; return; fi' ':'
+mutate window_not_capped probe '    if [ "$1" -gt "$CEILING_S" ]; then echo "$CEILING_S"; else echo "$1"; fi' '    echo "$1"'
+mutate worst_case_with_drift probe '    echo $(( $1 * $2 + $2 * $3 + $4 + $5 ))' '    echo $(( ($1 * $2 * 3 + 1) / 2 + $2 * $3 + $4 + $5 + 30 ))'
+mutate config_check_off probe 'if [ "$worst" -gt "$CEILING_S" ]; then' 'if [ "$worst" -gt 99999 ]; then'
+mutate strikes_10_default install 'FAIL_N="${OSTLER_LISTENER_WD_FAIL_N:-3}"' 'FAIL_N="${OSTLER_LISTENER_WD_FAIL_N:-10}"'
+mutate processtype_standard install '    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/listener-watchdog.log</string>' '    <key>ProcessType</key>
+    <string>Standard</string>
+    <key>StandardOutPath</key>
+    <string>${_ollama_rot_logs}/listener-watchdog.log</string>'
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

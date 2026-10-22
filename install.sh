@@ -16079,7 +16079,7 @@ cat > "$LISTENER_WD_PLIST" <<LISTENERWDPLIST
     <key>StartInterval</key>
     <integer>60</integer>
     <key>ProcessType</key>
-    <string>Standard</string>
+    <string>Background</string>
     <key>StandardOutPath</key>
     <string>${_ollama_rot_logs}/listener-watchdog.log</string>
     <key>StandardErrorPath</key>
