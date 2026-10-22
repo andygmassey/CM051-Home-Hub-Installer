@@ -344,3 +344,13 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE
 - Round 4 (Andy: types before things): dimensions carry `tier: broad|specific`; the endpoint takes `tier` (default `broad`, `all` = old behaviour, broad first within a category); new reader kinds `rollup` (a tag known for some items under an artist/album/series/restaurant applies to all of them) and `lexicon`, and SHARED vocabularies `derive/vocab/{cuisine,music_style}.yaml` (food.cuisine and media.music.genre map into them). Same files as #422's round 4. The walk probe's route URL gains `&tier=all` so it still counts every derived preference.
 - Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` and `tests/test_vendored_linkedin_career_reaches_the_derive_engine.py` (both wired in `derived-preferences.yml`): RED on main, GREEN here.
 - Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
+
+## 2026-10-22 smart-prefs: representative-first enrichment (personal-world-graph #424, stacked on #422)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. DIVERGENCE from source at the pin because upstream #424 is open (stacked on #422). It ACKS UPSTREAM andygmassey/personal-world-graph PR #424 (branch feat/smart-prefs-representative-first).
+
+- New file, byte-identical to #424: `services/enrich/src/derive/representatives.py`. Groups the points no rollup row has a tag for by the SHIPPED rollup keys (`build_readers`), ranks groups by size, enriches the strongest member of each biggest-first, then the unchanged long tail. Consent first and fail closed (declined = no store read, no request); lookups still go through `enrich_batch` (eligibility gate, per-client rate limits, cache). Writes a counts-only `state/enrich-representatives.json` and a point-id miss ledger, both 0600.
+- Changed in place: `services/enrich/src/cli.py` gains `--representative-first/--no-representative-first` (default on) and runs the pass before the tail inside the same `--budget-seconds` deadline. The hunk is the upstream one re-applied to this tree's own cli.py (which already carries the budget and consent divergences); upstream's cli.py has no deadline, so the call here also passes `deadline=`.
+- No installer change: the existing `com.ostler.enrich` tick already runs `cli enrich --all`.
+- Proof: `tests/test_vendored_enrich_representative_first.py` (wired in `derived-preferences.yml`): RED on the tree without the module (exit 1), GREEN here.
+- Retire: when #424 merges, re-pin to its merge commit and delete this section. The cli.py hunk stays a divergence (the budget deadline).

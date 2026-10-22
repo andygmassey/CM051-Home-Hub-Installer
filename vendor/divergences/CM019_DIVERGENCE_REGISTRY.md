@@ -245,6 +245,14 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### smart-prefs -- representative-first enrichment (ahead of the pin; personal-world-graph #424)
+
+`services/enrich/src/derive/representatives.py` is new and byte-identical to
+upstream #424 (open, stacked on #422). `services/enrich/src/cli.py` carries the
+same option plus a `deadline=` pass-through that upstream's cli.py has no
+equivalent for. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-22 smart-prefs: representative-first enrichment".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

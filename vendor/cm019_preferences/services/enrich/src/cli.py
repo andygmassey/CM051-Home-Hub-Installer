@@ -475,6 +475,15 @@ def cli():
     help="Batch size for processing (default: 50)"
 )
 @click.option(
+    "--representative-first/--no-representative-first",
+    default=True,
+    help=(
+        "Before the long tail, enrich ONE representative per rollup group "
+        "(artist, album, series, restaurant), biggest group first, so one "
+        "lookup unlocks every point under it (default: on)"
+    )
+)
+@click.option(
     "--verbose", "-v",
     is_flag=True,
     help="Enable verbose output"
@@ -488,6 +497,7 @@ def enrich(
     skip_enriched: bool,
     dry_run: bool,
     batch_size: int,
+    representative_first: bool,
     verbose: bool,
 ):
     """Enrich preferences with external metadata.
@@ -582,6 +592,7 @@ def enrich(
             batch_size=batch_size,
             verbose=verbose,
             budget_seconds=budget_seconds,
+            representative_first=representative_first,
         ))
 
 
@@ -692,6 +703,7 @@ async def _run_enrichment(
     batch_size: int,
     verbose: bool,
     budget_seconds: int = 0,
+    representative_first: bool = False,
 ):
     """Execute actual enrichment."""
     click.echo("\nStarting enrichment...\n", err=True)
@@ -709,6 +721,23 @@ async def _run_enrichment(
     )
 
     try:
+        if representative_first:
+            # One representative per rollup group, biggest group first, BEFORE
+            # the id-order long tail, inside the same wall-clock allowance.
+            # Consent-gated and never raises.
+            from .derive.representatives import run_representative_pass
+
+            rep = await run_representative_pass(
+                service, user_id=user_id, categories=categories,
+                batch_size=batch_size, deadline=deadline,
+            )
+            click.echo(
+                f"Representatives: {rep.state}; groups {rep.groups_total} "
+                f"(covered {rep.groups_covered}, parked {rep.groups_parked}); "
+                f"tried {rep.reps_attempted}, enriched {rep.reps_enriched}",
+                err=True,
+            )
+
         if len(categories) == 1:
             # Single category
             stats = await service.enrich_all(
