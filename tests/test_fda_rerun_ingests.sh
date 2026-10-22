@@ -456,12 +456,13 @@ if [[ "$SELF_TEST" == "1" ]]; then
     probe() {
         local label="$1" sedscript="$2" expect_fail="$3"
         local dir="${WORK}/self-${label}"
-        mkdir -p "${dir}/tests" "${dir}/scripts/lib"
+        mkdir -p "${dir}/tests/lib" "${dir}/scripts/lib"
+        cp "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh" "${dir}/tests/lib/fda_run_all.sh"
         sed "$sedscript" "$INSTALL_SH" > "${dir}/install.sh"
         cp "$STRIPPER" "${dir}/scripts/lib/strip_comments.sh"
         cp "${BASH_SOURCE[0]}" "${dir}/tests/$(basename "${BASH_SOURCE[0]}")"
         local out rc
-        out="$(bash "${dir}/tests/$(basename "${BASH_SOURCE[0]}")" --repo-root "$dir" 2>&1)"
+        out="$(FDA_RUN_ALL_SKIP_CONTRACT=1 bash "${dir}/tests/$(basename "${BASH_SOURCE[0]}")" --repo-root "$dir" 2>&1)"
         rc=$?
         if [[ "$rc" == "2" ]]; then
             printf '  [INCONCLUSIVE] %s -- controls could not run against the mutated copy\n' "$label"

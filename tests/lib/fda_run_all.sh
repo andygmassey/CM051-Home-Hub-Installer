@@ -30,6 +30,9 @@ FDA_RUN_ALL_REQUIRED_PARAMS="output_dir enabled_sources skip_sources writer"
 #   rc 2  could not look (file missing / no python): CANNOT-RUN, not a pass.
 fda_run_all_contract_check() {
     local root="$1" install real n py="${PY:-python3}"
+    # A self-test sandbox holds a deliberately mutated install.sh and no vendor
+    # tree; its parent run has already passed this check on the real tree.
+    [[ "${FDA_RUN_ALL_SKIP_CONTRACT:-}" == "1" ]] && return 0
     install="${root}/install.sh"
     real="${root}/vendor/ostler_fda/extract_all.py"
     [[ -f "$install" && -f "$real" ]] || {
