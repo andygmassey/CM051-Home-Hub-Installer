@@ -5745,13 +5745,15 @@
     8090
    ],
    "query_params": [
-    "limit"
+    "limit",
+    "tier"
    ],
    "request_optional": [],
    "request_required": [],
    "response_fields": [
     "cannot_check",
     "degraded",
+    "error",
     "generated_at",
     "items"
    ],

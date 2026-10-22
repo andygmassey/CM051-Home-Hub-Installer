@@ -11848,7 +11848,7 @@ def _sparql_select_unscoped(sparql):
             for b in data.get("results", {}).get("bindings", [])]
 
 
-def api_preferences_derived(limit=8, min_confidence=0.4):
+def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph, built through the CM019 producer builder
     (vendored verbatim in derived_preferences.py beside this file).
@@ -11873,7 +11873,7 @@ def api_preferences_derived(limit=8, min_confidence=0.4):
                 "cannot_check": "derived module unavailable: " + type(exc).__name__}
     reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
     return _dp.build_derived_preferences_response(
-        reader, USER_ID, limit=limit, min_confidence=min_confidence)
+        reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -12834,7 +12834,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps(err).encode())
                 return
-            result = api_preferences_derived(limit=limit, min_confidence=min_conf)
+            # No ?tier= means "not asked": broad, falling back to all while a
+            # pre-tier graph waits for the next derive run. An explicit value is strict.
+            raw_tier = (params.get("tier", [""])[0] or "").strip().lower()
+            tier = raw_tier or None
+            if tier is not None and tier not in ("broad", "specific", "all"):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(
+                    {"error": "tier must be broad, specific or all"}).encode())
+                return
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
