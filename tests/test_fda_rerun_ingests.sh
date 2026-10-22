@@ -146,7 +146,7 @@ def _log(line):
         fh.write(line + "\n")
 
 
-def run_all(output_dir=None, enabled_sources=None):
+def run_all(output_dir=None, enabled_sources=None, skip_sources=None, writer="unrecorded"):
     # Stand-in for the real extractor. Writes the artefact the real one writes
     # so control (7) can prove the harvest survives a failing ingest.
     out = pathlib.Path(str(output_dir))
@@ -232,9 +232,12 @@ printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 # and the negative control failed for a reason that had nothing to do with the
 # property it guards. A fixture built by subtraction breaks whenever the
 # original grows; truncation at a named anchor does not.
-awk '
+# The exact extract line in the shipped wrapper. Exact, not a looser pattern:
+# if the call changes again this must fail loudly and be updated deliberately.
+EXTRACT_ANCHOR="_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')"
+awk -v anchor="${EXTRACT_ANCHOR}" '
     !stop { print }
-    !stop && $0 == "_summary = run_all(fda_dir)" { stop = 1; next }
+    !stop && $0 == anchor { stop = 1; next }
     stop == 1 && ($0 == "\"" || $0 ~ /^" \|\| _fda_rc=/) { print; stop = 2; next }
     stop == 2 { print }
 ' "${WORK}/ostler-fda.shipped" > "${WORK}/ostler-fda.extractonly"
@@ -243,8 +246,8 @@ awk '
 # "the whole shipped wrapper", the negative control then sees ingest_all called
 # and fails -- which is at least loud -- but it could equally become an empty
 # file that fails for the wrong reason. Refuse instead of guessing.
-grep -q '^_summary = run_all(fda_dir)$' "${WORK}/ostler-fda.extractonly" || cannot_run \
-    "could not build the extract-only fixture: the _summary = run_all(fda_dir) anchor moved"
+grep -qxF -- "${EXTRACT_ANCHOR}" "${WORK}/ostler-fda.extractonly" || cannot_run \
+    "could not build the extract-only fixture: the anchor moved: ${EXTRACT_ANCHOR}"
 # The fixture must not CALL ingest_all. Checked on the comment-stripped text
 # with call syntax, not on the raw text: the wrapper's own comments discuss
 # ingest_all at length, and a bare substring guard fails on the prose while the
