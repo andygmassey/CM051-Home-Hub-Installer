@@ -103,6 +103,14 @@ EXEMPT: dict[str, str] = {
         "employer to ask about; it removes the position again after phase 2. "
         "It has no PROBE_NAME and no verdict. Its wiring and its seeded/failed "
         "states are pinned by tests/test_the_walk_seeds_the_owner_employer.sh.",
+    "lib/seeded_people.sh":
+        "a sourced library, not a probe: lib/grounding_seed.sh and "
+        "lib/contact_cards_seed.sh source it for the box-side shell that "
+        "records, and on forget removes, the people a walk seed wrote in "
+        "~/.walk-seeded-people, which data_conservation reads to explain the "
+        "people/all STORED count. It asserts nothing and has no PROBE_NAME or "
+        "verdict. Its use is pinned by "
+        "scripts/tests/test_walk_seeds_record_the_people_they_write.sh.",
     "lib/gen_whatsapp_config.sh":
         "a helper, not a probe: it runs install.sh's real channel-config writer "
         "off-box in a throwaway HOME and prints the config.toml for answer 5 "
