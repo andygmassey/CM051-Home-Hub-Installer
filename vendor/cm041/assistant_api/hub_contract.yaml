@@ -1075,25 +1075,6 @@
     "device_bearer"
    ],
    "body_limit_bytes": null,
-   "id": "doctor DELETE /api/v1/minors",
-   "listener": "doctor",
-   "method": "DELETE",
-   "path": "/api/v1/minors",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
    "id": "doctor GET /api/v1/minors",
    "listener": "doctor",
    "method": "GET",
@@ -1101,88 +1082,15 @@
    "ports": [
     8089
    ],
+   "proxy_to": "ical:GET:/api/v1/minors",
    "query_params": [],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
+   "response_fields": [
+    "minors",
+    "registry"
    ],
-   "body_limit_bytes": null,
-   "id": "doctor PATCH /api/v1/minors",
-   "listener": "doctor",
-   "method": "PATCH",
-   "path": "/api/v1/minors",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor POST /api/v1/minors",
-   "listener": "doctor",
-   "method": "POST",
-   "path": "/api/v1/minors",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor PUT /api/v1/minors",
-   "listener": "doctor",
-   "method": "PUT",
-   "path": "/api/v1/minors",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor DELETE /api/v1/minors/suggestions",
-   "listener": "doctor",
-   "method": "DELETE",
-   "path": "/api/v1/minors/suggestions",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
+   "source": "install.sh"
   },
   {
    "auth": [
@@ -1196,69 +1104,15 @@
    "ports": [
     8089
    ],
+   "proxy_to": "ical:GET:/api/v1/minors/suggestions",
    "query_params": [],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
+   "response_fields": [
+    "minors",
+    "registry"
    ],
-   "body_limit_bytes": null,
-   "id": "doctor PATCH /api/v1/minors/suggestions",
-   "listener": "doctor",
-   "method": "PATCH",
-   "path": "/api/v1/minors/suggestions",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor POST /api/v1/minors/suggestions",
-   "listener": "doctor",
-   "method": "POST",
-   "path": "/api/v1/minors/suggestions",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor PUT /api/v1/minors/suggestions",
-   "listener": "doctor",
-   "method": "PUT",
-   "path": "/api/v1/minors/suggestions",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
+   "source": "install.sh"
   },
   {
    "auth": [
@@ -1567,64 +1421,8 @@
    "auth": [
     "device_bearer"
    ],
-   "body_limit_bytes": null,
-   "id": "doctor DELETE /api/v1/people/{slug}/minor",
-   "listener": "doctor",
-   "method": "DELETE",
-   "path": "/api/v1/people/{slug}/minor",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor GET /api/v1/people/{slug}/minor",
-   "listener": "doctor",
-   "method": "GET",
-   "path": "/api/v1/people/{slug}/minor",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor PATCH /api/v1/people/{slug}/minor",
-   "listener": "doctor",
-   "method": "PATCH",
-   "path": "/api/v1/people/{slug}/minor",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
    "id": "doctor POST /api/v1/people/{slug}/minor",
    "listener": "doctor",
    "method": "POST",
@@ -1632,94 +1430,31 @@
    "ports": [
     8089
    ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor",
    "query_params": [],
-   "request_optional": [],
+   "request_optional": [
+    "minor"
+   ],
    "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "install.sh"
   },
   {
    "auth": [
     "device_bearer"
    ],
-   "body_limit_bytes": null,
-   "id": "doctor PUT /api/v1/people/{slug}/minor",
-   "listener": "doctor",
-   "method": "PUT",
-   "path": "/api/v1/people/{slug}/minor",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor DELETE /api/v1/people/{slug}/minor-suggestion/dismiss",
-   "listener": "doctor",
-   "method": "DELETE",
-   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor GET /api/v1/people/{slug}/minor-suggestion/dismiss",
-   "listener": "doctor",
-   "method": "GET",
-   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
-   "id": "doctor PATCH /api/v1/people/{slug}/minor-suggestion/dismiss",
-   "listener": "doctor",
-   "method": "PATCH",
-   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
-   ],
-   "body_limit_bytes": null,
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
    "id": "doctor POST /api/v1/people/{slug}/minor-suggestion/dismiss",
    "listener": "doctor",
    "method": "POST",
@@ -1727,31 +1462,17 @@
    "ports": [
     8089
    ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor-suggestion/dismiss",
    "query_params": [],
    "request_optional": [],
    "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
-  },
-  {
-   "auth": [
-    "device_bearer"
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
    ],
-   "body_limit_bytes": null,
-   "id": "doctor PUT /api/v1/people/{slug}/minor-suggestion/dismiss",
-   "listener": "doctor",
-   "method": "PUT",
-   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
-   "ports": [
-    8089
-   ],
-   "query_params": [],
-   "request_optional": [],
-   "request_required": [],
-   "response_fields": [],
-   "source": "vendor/doctor/agent/web_ui.py",
-   "upstream_missing": true
+   "source": "install.sh"
   },
   {
    "auth": [
@@ -4081,6 +3802,67 @@
    ],
    "body_limit_bytes": 65536,
    "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/minor",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor",
+   "query_params": [],
+   "request_optional": [
+    "minor"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/minor-suggestion/dismiss",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
    "id": "gateway POST /api/v1/people/{slug}/suppress-suggestions",
    "listener": "gateway",
    "method": "POST",
@@ -5793,6 +5575,48 @@
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
   {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/minors",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/minors",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/minors/suggestions",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/minors/suggestions",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
    "alias_of": "/people",
    "auth": [
     "service_token"
@@ -6011,6 +5835,61 @@
     "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/people/{slug}/minor",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "minor"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/people/{slug}/minor-suggestion/dismiss",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

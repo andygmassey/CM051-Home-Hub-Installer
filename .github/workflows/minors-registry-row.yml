@@ -9,6 +9,9 @@ name: minors-registry-row
 #   bundle   no name reaches the support bundle (raw, redacted, mailto) or a log.
 #   at-rest  the file's default path is inside the tree install.sh keeps out of
 #            Time Machine.
+#   routes   the CM041 setter, suggestion and dismissal routes (grafted into
+#            vendor/cm041) behave: mode 0600, atomic, refuse a corrupt list,
+#            the suggestion never marks, nothing identifying is logged.
 # Exit 2 is CANNOT-RUN and fails the step.
 
 on:
@@ -19,6 +22,8 @@ on:
       - 'vendor/doctor/agent/web_ui.py'
       - 'install.sh'
       - 'scripts/check_doctor_proxy_paths.sh'
+      - 'vendor/cm041/assistant_api/**'
+      - 'vendor/ostler_security/**'
       - 'tests/test_doctor_minors_registry_row.py'
       - 'tests/test_minors_registry_is_inside_the_at_rest_exclusion.py'
       - 'tests/test_doctor_proxy_paths_predicate.sh'
@@ -55,3 +60,15 @@ jobs:
         run: |
           bash scripts/check_doctor_proxy_paths.sh
           bash tests/test_doctor_proxy_paths_predicate.sh
+      - name: The under-18 routes (setter, suggestion, dismissal) in the vendored ical-server
+        if: always()
+        run: |
+          python3 -m pip install --quiet ./vendor/ostler_security httpx
+          n="$(python3 -m pytest vendor/cm041/assistant_api/tests/test_minors_setter.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 27 ]; then
+            echo "REFUSING: expected at least 27 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest -q -p no:cacheprovider vendor/cm041/assistant_api/tests/test_minors_setter.py
