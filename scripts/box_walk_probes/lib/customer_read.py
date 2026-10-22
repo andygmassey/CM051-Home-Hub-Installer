@@ -989,7 +989,9 @@ CUSTOMER_TITLES_JS = r"""() => {
 # a filename in its proper face, not a date shown in the retired mono style.
 MONO_DATES_JS = r"""() => {
   const art = document.querySelector('article') || document.body;
-  const date = /\b(\d{4}-\d{2}-\d{2}|\d{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*( \d{4})?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4})\b/i;
+  const mon = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+  // a WHOLE month token beside a day or a year, or an ISO date; never a month-like prefix of a word
+  const date = new RegExp('\\b(?:\\d{4}-\\d{2}-\\d{2}|\\d{1,2} ' + mon + '\\b|' + mon + ' \\d{1,2}\\b|' + mon + ' \\d{4}\\b|\\d{4} ' + mon + '\\b)', 'i');
   const own = e => [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.nodeValue).join(' ');
   return [...art.querySelectorAll('*')].filter(e => date.test(own(e)) && !e.closest('code,pre,kbd,samp')
     && /mono|courier|menlo|consolas/i.test(getComputedStyle(e).fontFamily)).length;
