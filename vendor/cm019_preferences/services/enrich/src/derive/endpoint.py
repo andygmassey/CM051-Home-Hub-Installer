@@ -42,15 +42,22 @@ def build_derived_preferences_response(
     limit: int = 8,
     min_confidence: float = 0.4,
     now: Optional[datetime] = None,
+    tier: str = "broad",
 ) -> dict:
-    """Build the endpoint payload. Never raises; degrades loudly instead."""
+    """Build the endpoint payload. Never raises; degrades loudly instead.
+
+    ``tier``: ``broad`` (the default; types of things: genres, cuisines, topics),
+    ``specific`` (single things) or ``all`` (every tier, broad first). The
+    round-robin by category applies within the tier. A reader without
+    ``get_mixed_preferences`` ignores the tier and serves the plain ranked read.
+    """
     ts = _now_iso(now)
     try:
         # Prefer the category-interleaved read: ranked by confidence alone, one
         # wide category (every TV series, every site) owns the whole list.
         mixed = getattr(reader, "get_mixed_preferences", None)
         if mixed is not None:
-            views = mixed(user_id, min_confidence=min_confidence, limit=limit)
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier=tier)
         else:
             views = reader.get_derived_preferences(
                 user_id, min_confidence=min_confidence, limit=limit
@@ -64,11 +71,16 @@ def build_derived_preferences_response(
         }
 
     if not views:  # empty graph is NOT a healthy empty result
+        reason = (
+            "no derived preferences materialized yet"
+            if tier == "all"
+            else f"no derived preferences materialized yet in the {tier} tier (tier=all shows every tier)"
+        )
         return {
             "generated_at": ts,
             "items": [],
             "degraded": True,
-            "cannot_check": "no derived preferences materialized yet",
+            "cannot_check": reason,
         }
 
     return {

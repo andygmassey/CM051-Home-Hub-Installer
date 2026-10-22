@@ -26,6 +26,10 @@ class DimensionConfig:
     # high-cardinality dimension (every artist, every site) would otherwise
     # write thousands of nodes and crowd the others out of any top-N read.
     max_items: Optional[int] = None
+    # "broad" = a TYPE of thing (a genre, a cuisine, a topic); "specific" = a
+    # single thing (an artist, a series, a restaurant). Consumers that lead with
+    # types ask for the broad tier; the specific one follows once broad is settled.
+    tier: str = "specific"
 
 
 class Aggregator:
@@ -96,6 +100,7 @@ class Aggregator:
                 derivation_method="rollup",
                 is_contested=score.is_contested,
                 evidence_titles=_evidence_titles(members),
+                tier=cfg.tier,
             )
             out.append(node)
 

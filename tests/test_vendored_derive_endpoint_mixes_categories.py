@@ -43,13 +43,14 @@ def check(cond, msg):
 
 
 class Store:
-    def __init__(self, spec):
+    def __init__(self, spec, broad_n=0):
         self.rows = []
         for cat, (n, conf) in spec.items():
             for v in range(n):
                 self.rows.append({"uri": f"urn:n:{cat}-{v}", "dim": f"{cat}.dim",
                                   "subject": f"{cat}-val{v:02d}", "conf": conf - v * 0.001,
-                                  "strength": 0.6, "category": cat})
+                                  "strength": 0.6, "category": cat,
+                                  "tier": "broad" if v < broad_n else "specific"})
 
     def __call__(self, q):
         if "pwg:derivedFrom" in q:
@@ -59,12 +60,13 @@ class Store:
         return [{"s": {"value": r["uri"]}, "dimension": {"value": r["dim"]},
                  "subject": {"value": r["subject"]}, "strength": {"value": str(r["strength"])},
                  "confidence": {"value": str(r["conf"])}, "intensity": {"value": "casual"},
-                 "category": {"value": r["category"]}} for r in rows]
+                 "category": {"value": r["category"]},
+                 "tier": {"value": r["tier"]}} for r in rows]
 
 
 def mix(spec, limit):
     resp = build_derived_preferences_response(DerivedGraphReader(Store(spec)), "u",
-                                              limit=limit, min_confidence=0.0)
+                                              limit=limit, min_confidence=0.0, tier="all")
     counts = {}
     for it in resp["items"]:
         c = it["label"].split("-")[0]
@@ -93,6 +95,20 @@ print("arm 4: control, the plain ranked read is dominated")
 plain = DerivedGraphReader(Store(spec)).get_derived_preferences("u", min_confidence=0.0, limit=12)
 top = sum(1 for v in plain if v.subject.startswith(cats[0]))
 check(top == 12, f"plain read gives the wide category {top} of 12")
+
+print("arm 5: tier filter, default broad, broad first")
+spec5 = {cats[0]: (6, 0.95), cats[1]: (6, 0.90)}
+st = Store(spec5, broad_n=2)
+rd = DerivedGraphReader(st)
+broad = build_derived_preferences_response(rd, "u", limit=20, min_confidence=0.0)
+check(len(broad["items"]) == 4, f"default tier is broad: {len(broad['items'])} items (2 per category)")
+spec_only = build_derived_preferences_response(rd, "u", limit=20, min_confidence=0.0, tier="specific")
+check(len(spec_only["items"]) == 8, f"tier=specific: {len(spec_only['items'])} items")
+allt = build_derived_preferences_response(rd, "u", limit=20, min_confidence=0.0, tier="all")
+check(len(allt["items"]) == 12, f"tier=all keeps today's behaviour: {len(allt['items'])} items")
+none = build_derived_preferences_response(DerivedGraphReader(Store(spec5, broad_n=0)), "u",
+                                          limit=5, min_confidence=0.0)
+check(none["degraded"] and "broad tier" in none["cannot_check"], "an empty broad tier is degraded and says so")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

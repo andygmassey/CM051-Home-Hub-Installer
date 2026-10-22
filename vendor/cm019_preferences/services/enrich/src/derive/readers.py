@@ -20,8 +20,11 @@ import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Protocol
+
+import yaml
 
 from .model import ENRICH_NS, PREF_URN_PREFIX, EvidenceItem
 
@@ -93,6 +96,45 @@ def _allowlisted(value: str, allow) -> Optional[str]:
     return None
 
 
+_VOCAB_DIR = Path(__file__).resolve().parent / "vocab"
+_VOCAB_CACHE: Dict[str, list] = {}
+
+
+def load_vocab(name: str) -> list:
+    """[(canonical label, compiled whole-word regex), ...] from vocab/<name>.yaml.
+
+    The vocabularies are SHARED data: every reader of a dimension maps into the
+    same labels, so evidence from different sources lands in one group.
+    """
+    if name not in _VOCAB_CACHE:
+        rows = yaml.safe_load((_VOCAB_DIR / f"{name}.yaml").read_text()) or {}
+        compiled = []
+        for label, words in rows.items():
+            alts = "|".join(re.escape(str(w).lower()) for w in words)
+            compiled.append((str(label), re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z0-9])" % alts)))
+        _VOCAB_CACHE[name] = compiled
+    return _VOCAB_CACHE[name]
+
+
+def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> List[str]:
+    """Map a raw label onto the shared vocabulary.
+
+    No vocabulary: the label as it is. With one: every canonical label whose
+    keywords the text contains; nothing matched keeps the raw label unless
+    ``strict`` (a venue type or a price facet is not a cuisine).
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if not vocab:
+        return [text]
+    low = text.lower()
+    hits = [label for label, rx in load_vocab(vocab) if rx.search(low)]
+    if hits:
+        return hits
+    return [] if strict else [text]
+
+
 def _as_float(v, default: float = 0.0) -> float:
     try:
         return float(v)
@@ -116,6 +158,10 @@ class OxigraphOverlayReader:
     # predicates that carry mixed facets, e.g. a place's topics hold cuisine
     # AND a "Price: $$" facet.
     value_exclude_regex: Optional[str] = None
+    # Map each label onto a shared vocabulary (vocab/<name>.yaml); vocab_strict
+    # drops labels that match nothing in it.
+    vocab: Optional[str] = None
+    vocab_strict: bool = False
 
     def _pred(self) -> str:
         return self.tag_predicate if self.tag_predicate.startswith("http") else ENRICH_NS + self.tag_predicate
@@ -164,9 +210,9 @@ class OxigraphOverlayReader:
             if not label or (exclude and exclude.search(label)):
                 continue
             pref_id = subj[len(PREF_URN_PREFIX):]
-            tags.setdefault(pref_id, []).append(
-                {"label": label, "conf": _as_float(b.get("conf", {}).get("value"), 0.5)}
-            )
+            conf = _as_float(b.get("conf", {}).get("value"), 0.5)
+            for canon in canonical_labels(label, self.vocab, self.vocab_strict):
+                tags.setdefault(pref_id, []).append({"label": canon, "conf": conf})
         return tags
 
     def read(self, user_id: str) -> Iterable[EvidenceItem]:
@@ -277,6 +323,105 @@ class QdrantFieldReader:
                 enrichment_confidence=self.evidence_confidence,
                 raw_subject=pl.get("subject") or "",
             )
+
+
+@dataclass
+class RollupReader:
+    """Roll a tag known for SOME of an item's siblings up to ALL of them.
+
+    Most of the graph is not enriched (the enrichment reaches a few hundred
+    points of a hundred thousand), but the items share a key: the tracks of one
+    artist, the episodes of one series, the orders from one restaurant. When ANY
+    point under a key carries an enrichment tag (a genre, a cuisine), every
+    point under that key is evidence for it. So a settled broad group (a genre)
+    is built from the specific items already known, not only from the few the
+    enrichment has reached. Local only: it reads the same two stores as every
+    other reader and makes no network call; the consent-gated enrichment tick is
+    what fills the tags.
+
+    ``key`` is a QdrantFieldReader (field, split, ...) that names the group;
+    ``tags`` is an OxigraphOverlayReader that supplies the tag per point.
+    """
+
+    gateway: StoreGateway
+    dimension: str
+    domain: str
+    category: str
+    select_categories: List[str]
+    key: "QdrantFieldReader"
+    tags: "OxigraphOverlayReader"
+    rollup_factor: float = 0.85    # a rolled-up tag is less sure than a direct one
+
+    def read(self, user_id: str) -> Iterable[EvidenceItem]:
+        tags_by_id = self.tags._overlay_tags()
+        points = self.gateway.scroll(self.select_categories, SCROLL_FIELDS)
+        keyed = []
+        group_tags: Dict[str, Dict[str, float]] = {}
+        for p in points:
+            k = self.key._value(p.get("payload", {})).lower()
+            if not k:
+                continue
+            keyed.append((k, p))
+            for t in tags_by_id.get(str(p.get("id")), ()):
+                best = group_tags.setdefault(k, {})
+                best[t["label"]] = max(best.get(t["label"], 0.0), t["conf"])
+        for k, p in keyed:
+            pl = p.get("payload", {})
+            for label, conf in group_tags.get(k, {}).items():
+                yield EvidenceItem(
+                    preference_id=str(p.get("id")),
+                    user_id=user_id,
+                    domain=self.domain,
+                    dimension=self.dimension,
+                    value=label,
+                    value_qid=None,
+                    item_strength=_as_float(pl.get("strength"), 0.0),
+                    polarity_source=self.key.default_polarity,
+                    source=pl.get("source") or "",
+                    observed_at=_parse_dt(pl.get("observed_at")),
+                    enrichment_confidence=conf * self.rollup_factor,
+                    raw_subject=pl.get("subject") or "",
+                )
+
+
+@dataclass
+class LexiconReader:
+    """Value from a payload field, mapped onto a shared vocabulary by keyword.
+
+    A restaurant named for what it serves is evidence for that cuisine with no
+    lookup at all. The field goes through the same value pipeline as
+    QdrantFieldReader; each canonical label whose keywords the text contains is
+    one evidence item. Nothing matched is no evidence (never a guess).
+    """
+
+    gateway: StoreGateway
+    dimension: str
+    domain: str
+    category: str
+    select_categories: List[str]
+    source_field: "QdrantFieldReader"
+    vocab: str
+    evidence_confidence: float = 0.6
+
+    def read(self, user_id: str) -> Iterable[EvidenceItem]:
+        for p in self.gateway.scroll(self.select_categories, SCROLL_FIELDS):
+            pl = p.get("payload", {})
+            text = self.source_field._value(pl)
+            for label in canonical_labels(text, self.vocab, strict=True):
+                yield EvidenceItem(
+                    preference_id=str(p.get("id")),
+                    user_id=user_id,
+                    domain=self.domain,
+                    dimension=self.dimension,
+                    value=label,
+                    value_qid=None,
+                    item_strength=_as_float(pl.get("strength"), 0.0),
+                    polarity_source=self.source_field.default_polarity,
+                    source=pl.get("source") or "",
+                    observed_at=_parse_dt(pl.get("observed_at")),
+                    enrichment_confidence=self.evidence_confidence,
+                    raw_subject=pl.get("subject") or "",
+                )
 
 
 @dataclass

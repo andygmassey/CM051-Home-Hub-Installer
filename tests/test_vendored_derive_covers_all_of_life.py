@@ -128,7 +128,7 @@ def fixture():
     many("mg", 3, "music", "song-{i}")
     for i in range(3):
         s.tag(f"mg{i}", "hasGenre", "synthetic-ambient")
-    expect["media.music.genre"] = ("synthetic-ambient", None)
+    expect["media.music.genre"] = ("electronic", None)
     many("ba", 2, "book", "Book {i}")
     for i in range(2):
         s.tag(f"ba{i}", "hasEntity", "synthetic-author", "author")
@@ -162,7 +162,7 @@ def fixture():
     for i in range(2):
         s.tag(f"fd{i}", "hasTopic", "synthetic-noodles")
         s.tag(f"fd{i}", "hasTopic", "Price: $$")
-    expect["food.cuisine"] = ("synthetic-noodles", "Price: $$")
+    expect["food.cuisine"] = ("chinese", "Price: $$")
     many("c", 2, "transportation", "Trip {i}", city="synthetic-city")
     many("c-one", 1, "transportation", "Trip", city="single-town")
     expect["place.city"] = ("synthetic-city", "single-town")

@@ -31,6 +31,7 @@ class AffinityView:
     because: Tuple[str, ...] = ()
     category: str = ""       # films / tv / music / ...; "" when the store did not say
     node: str = ""           # the derived node's URI, to resolve "because" later
+    tier: str = ""           # "broad" | "specific"; "" for graphs written before tiers
 
 
 @dataclass
@@ -87,13 +88,18 @@ def interleave_by_category(views: Sequence[AffinityView], limit: int) -> List[Af
     by_cat: Dict[str, List[AffinityView]] = {}
     for v in views:
         by_cat.setdefault(v.category, []).append(v)
+    # Types before things: inside a category a broad item leads a specific one
+    # (the sort is stable, so confidence order is kept within each tier).
+    for items in by_cat.values():
+        items.sort(key=lambda v: v.tier != "broad")
     out: List[AffinityView] = []
     rnd = 0
     while len(out) < limit:
         this_round = [items[rnd] for items in by_cat.values() if len(items) > rnd]
         if not this_round:
             break
-        this_round.sort(key=lambda v: (-v.confidence, -v.strength))
+        # Types before things: inside a round a broad item leads a specific one.
+        this_round.sort(key=lambda v: (v.tier != "broad", -v.confidence, -v.strength))
         out.extend(this_round[: limit - len(out)])
         rnd += 1
     return out

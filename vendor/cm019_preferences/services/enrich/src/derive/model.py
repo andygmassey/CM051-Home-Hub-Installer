@@ -122,6 +122,7 @@ class DerivedPreference:
     trend: Optional[str] = None
     # A few literal titles behind this node, for the "because" line.
     evidence_titles: list = field(default_factory=list)
+    tier: str = ""       # "broad" | "specific"; "" = not stated (older graphs)
 
     @property
     def uri(self) -> str:
@@ -175,6 +176,8 @@ class DerivedPreference:
         ):
             if dt is not None:
                 t.append(f'    pwg:{dt_prop} "{dt.isoformat()}"^^xsd:dateTime ;')
+        if self.tier:
+            t.append(f'    pwg:tier "{_esc(self.tier)}" ;')
         for title in self.evidence_titles:
             t.append(f'    pwg:evidenceTitle "{_esc(title)}" ;')
         # derivedFrom last; MANDATORY (SHACL sh:minCount 1).

@@ -66,6 +66,12 @@ pwg:evidenceCount a owl:DatatypeProperty ;
     rdfs:label "evidence count"@en ;
     rdfs:comment "Number of literal items rolled up."@en .
 
+pwg:tier a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "tier"@en ;
+    rdfs:comment "broad (a type of thing: genre, cuisine, topic) or specific (a single thing). Consumers lead with broad."@en .
+
 pwg:evidenceTitle a owl:DatatypeProperty ;
     rdfs:domain pwg:DerivedPreference ;
     rdfs:range xsd:string ;

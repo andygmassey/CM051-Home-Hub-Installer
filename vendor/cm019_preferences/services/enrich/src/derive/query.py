@@ -37,7 +37,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -47,6 +47,7 @@ class DerivedGraphReader:
             f'    ?s pwg:belongsToUser <{PWG_NS}user_{user_id}> .\n'
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
             "    OPTIONAL { ?s pwg:category ?category }\n"
+            "    OPTIONAL { ?s pwg:tier ?tier }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -67,6 +68,7 @@ class DerivedGraphReader:
                     because=because,
                     category=b.get("category", {}).get("value", ""),
                     node=subj,
+                    tier=b.get("tier", {}).get("value", ""),
                 )
             )
         return views
@@ -77,8 +79,10 @@ class DerivedGraphReader:
         min_confidence: float = 0.35,
         limit: int = 8,
         pool: int = 600,
+        tier: str = "all",
     ) -> List[AffinityView]:
-        """The top ``limit`` interleaved round-robin by category.
+        """The top ``limit`` interleaved round-robin by category, within ``tier``
+        (``broad``, ``specific`` or ``all``).
 
         Ranking by confidence alone lets one wide category (every TV series, every
         site) own the whole list. This reads a candidate pool WITHOUT evidence,
@@ -89,6 +93,10 @@ class DerivedGraphReader:
             user_id, min_confidence=min_confidence, limit=max(pool, limit),
             with_evidence=False,
         )
+        if tier != "all":
+            # A node with no tier (a graph written before tiers) is "specific":
+            # it is never a type, and the next derive run restamps it.
+            ranked = [v for v in ranked if (v.tier or "specific") == tier]
         picked = interleave_by_category(ranked, limit)
         return [replace(v, because=self._evidence_titles(v.node)) for v in picked]
 
