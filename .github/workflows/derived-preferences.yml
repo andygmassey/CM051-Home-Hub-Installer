@@ -28,6 +28,8 @@ on:
       - 'vendor/cm019_preferences/services/enrich/src/derive/**'
       - 'vendor/cm019_preferences/services/enrich/src/derive_runner.py'
       - 'vendor/cm019_preferences/services/common/strength.py'
+      - 'vendor/cm019_preferences/services/common/recency.py'
+      - 'vendor/cm041/ostler_hygiene/**'
       - 'vendor/cm019_preferences/ontology/**'
       - 'vendor/cm019_preferences/requirements.txt'
       - 'vendor/doctor/agent/derived_preferences_status.py'
@@ -40,6 +42,7 @@ on:
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
@@ -85,6 +88,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_tiers_and_rollup.py
+      - name: Derived preferences fade on the hygiene half-life table (540d, floor 0.35)
+        # Recent beats old, 540d weighs half, dietary dislikes never decay, the
+        # derive table equals HygieneConfig; a 10-year mutant and a drifted
+        # table must each turn it red.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_derive_half_life_matches_hygiene.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
