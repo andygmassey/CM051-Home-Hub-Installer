@@ -37,7 +37,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -48,6 +48,7 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
+            "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -69,6 +70,7 @@ class DerivedGraphReader:
                     category=b.get("category", {}).get("value", ""),
                     node=subj,
                     tier=b.get("tier", {}).get("value", ""),
+                    privacy=b.get("privacy", {}).get("value", ""),
                 )
             )
         return views

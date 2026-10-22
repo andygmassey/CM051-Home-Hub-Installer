@@ -47,6 +47,10 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
+      - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
+      - 'tests/test_vendored_stated_transcripts_reach_the_derive_engine.py'
+      - 'tests/test_stated_model_tick_yields.sh'
+      - 'scripts/ostler-stated-model-tick.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
@@ -114,6 +118,27 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings
           python3 tests/test_vendored_linkedin_career_reaches_the_derive_engine.py
+      - name: What the owner says in conversations reaches the derive engine
+        # CM048 preference facts -> stated evidence with polarity; coffee x3 vs x1,
+        # sichuan/cantonese as two opposite nodes under the shared cuisine keys, a
+        # friend's taste excluded, no message text, a dropped-row mutant, real SHACL.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_stated_preferences_reach_the_derive_engine.py
+      - name: The owner's own lines in extracted transcripts reach the derive engine
+        # Same privacy filters as the fact path (L3, deceased, minors; L2 admitted and
+        # inherited), owner lines only, quoted/forwarded/other people's tastes rejected,
+        # counts and polarity only, no message database opened, tier-model stage order.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_stated_transcripts_reach_the_derive_engine.py
+      - name: The stated-preference model stage yields to chat (tier defer, slot, tier model only)
+        # DISABLED BY DECISION (precision 33% on 6 graded hits); the wrapper's
+        # guarantees are pinned so enabling it later cannot skip them.
+        if: always()
+        run: bash tests/test_stated_model_tick_yields.sh
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py

@@ -32,6 +32,7 @@ class AffinityView:
     category: str = ""       # films / tv / music / ...; "" when the store did not say
     node: str = ""           # the derived node's URI, to resolve "because" later
     tier: str = ""           # "broad" | "specific"; "" for graphs written before tiers
+    privacy: str = ""        # highest privacy level of the evidence ("" = none stated)
 
 
 @dataclass

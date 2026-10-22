@@ -72,6 +72,12 @@ pwg:tier a owl:DatatypeProperty ;
     rdfs:label "tier"@en ;
     rdfs:comment "broad (a type of thing: genre, cuisine, topic) or specific (a single thing). Consumers lead with broad."@en .
 
+pwg:privacyLevel a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "privacy level"@en ;
+    rdfs:comment "The highest privacy level (L0-L3) of the evidence behind this node. A taste learned from an L2 conversation is itself L2, so consumers apply their L2 handling. Absent when no evidence stated a level."@en .
+
 pwg:evidenceTitle a owl:DatatypeProperty ;
     rdfs:domain pwg:DerivedPreference ;
     rdfs:range xsd:string ;
