@@ -151,7 +151,7 @@ wiki_search_snippet_capped	CM044	ced30d49	no	wiki_search_snippet_capped	capabili
 wiki_duplicates_need_signal	CM044	ced30d49	no	wiki_duplicates_need_signal	capability_matrix.sh gate	CM044 #391
 wiki_images_v0_1_59	CM051	a3dd9e1d	no	wiki_images_v0_1_59	capability_matrix.sh gate	CM051 #3114
 wiki_site_image_v0_1_59	CM051	a3dd9e1d	no	wiki_site_image_v0_1_59	capability_matrix.sh gate	CM051 #3114
-hub_v0_5_28_pinned	CM051	d9854a99	no	hub_v0_5_28_pinned	capability_matrix.sh gate	CM051 cut/v1.0.117
-q32_calendar_include_label	CM051	a1486033	no	q32_calendar_include_label	capability_matrix.sh gate	CM051 #3112
-q23_spoken_capture_copy_short	CM051	33949237	no	q23_spoken_capture_copy_short	capability_matrix.sh gate	CM051 #3108
-consent_survives_promote	CM051	89e0fd7b	no	consent_survives_promote	capability_matrix.sh gate	CM051 #3113
+hub_v0_5_28_pinned	CM051	c1298abc	no	hub_v0_5_28_pinned	capability_matrix.sh gate	CM051 cut/v1.0.117
+q32_calendar_include_label	CM051	da7e22ef	no	q32_calendar_include_label	capability_matrix.sh gate	CM051 #3112
+q23_spoken_capture_copy_short	CM051	250cd6b4	no	q23_spoken_capture_copy_short	capability_matrix.sh gate	CM051 #3108
+consent_survives_promote	CM051	d5806417	no	consent_survives_promote	capability_matrix.sh gate	CM051 #3113
