@@ -315,3 +315,33 @@ The two `_col` entries, the PHOTO line, the counter line and the three helpers.
 Guarded by `tests/test_address_book_photos_reach_photo_dir.py`. Which storage
 shape a real Mac uses is NOT INSTRUMENTED until a walk reads the counter line
 from `contact-resync.log`.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin f83d5aee -> 07a22b4c)
+
+Method: per-file 3-way merge (base source@f83d5aee, ours this tree, theirs
+source@07a22b4c), conflicts resolved by hand, decisions below. The ban on
+regeneration is retired with this re-pin (see the manifest comment): the pin is
+past the upstream scrub a0f3ca19.
+
+TAKEN FROM UPSTREAM (no longer a divergence): #84 module logger, #149
+trust_env formatting, #120 contact_type into the Qdrant payload, #138
+qdrant_collection.py self-create (new file), #164 last_contact bare-index fix,
+#172 a failed read never overwrites richer data, #109 modules
+(given_name_variants, identifier_quality, name_election, role_addresses).
+
+KEPT (CM051-side, still needed):
+- #108 settling producer is NOT taken. install.sh owns the `contacts` settling
+  channel (`settling_report contacts`), and upstream's top-level import
+  `_vendor.ostler_settling_progress` is not vendored, so taking it would be an
+  ImportError at syncer import. syncer.py has no settling import, helper or call.
+- RULE 2 icloud_contact_uid write guard, F6 facebook source_key reuse, the
+  v1.0.111 address-book photos, the BW-1 phone normalisation through
+  `self.resolver.default_country_code` (with the #182 seen_phones dedupe and the
+  #186 is_possible_phone gates in the vendored shape), usage.py's nested
+  `_vendor` import, requirements.txt (rapidfuzz plus pins).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (PII
+shape on the MINUS side: upstream syncer.py carries a US-format example number
+in a comment the vendored copy does not take). The checked-in patch is stale
+against the new pin and does not apply; the content gate reads RED for this
+tree, as it did on main before this change.

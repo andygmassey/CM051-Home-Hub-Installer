@@ -1411,3 +1411,33 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
+
+Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three
+was already grafted into ical-server.py. The three were 3-way cherry-picked onto
+the vendored file:
+- #215 (07a22b4c) GET /api/v1/preferences/derived, plus derived_preferences.py
+  and contract/derived_preferences_response.example.json (byte-identical to
+  upstream). hub_contract.yaml regenerated (265 routes). Supersedes CM051 #2956's
+  vendoring of the same route.
+- #232 (e33abeb) per-row privacy_level on /api/v1/commitments, applied to the
+  vendored allow-list scope (no read_across_graphs; see
+  tests/test_no_vendored_caller_of_read_across_graphs.py).
+- #231 (42d7310) the meeting brief reads the calendar in-process. CM051 ADAPTS
+  it: upstream's calendar_payload (iCloud script plus Google only) is NOT taken;
+  `_calendar_events_in_process` reads build_calendar_response (local store
+  first) and RAISES on a non-200, so /meeting/upcoming says degraded instead of
+  an empty 200.
+
+KEPT: everything recorded above in this file. browsing_enrich.py is the vendored
+copy unchanged. API.md keeps the vendored text (it drops upstream's
+/meeting/upcoming example section).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (a
+US-format example number in the API.md section the vendored copy drops would
+land on the MINUS side). The checked-in patch is stale against the new pin;
+the content gate reads RED for this tree, as on main before this change.
+
+Guarded by tests/test_vendored_cm041_revendor_07a22b4c_routes.py (5 pass here,
+5 fail on the pre-re-vendor tree).
