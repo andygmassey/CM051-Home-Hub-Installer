@@ -287,7 +287,7 @@ def test_run_all_stamps_who_wrote_a_fresh_entry(tmp_path, monkeypatch):
     from ostler_fda import extract_all
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, OK_PAYLOAD)))
     out = tmp_path / "fda"
-    assert extract_all.run_all(out, enabled_sources={"apple_music"})["sources"]["apple_music"]["writer"] == "install"
+    assert extract_all.run_all(out, enabled_sources={"apple_music"}, writer="install")["sources"]["apple_music"]["writer"] == "install"
     assert extract_all.run_all(out, enabled_sources={"apple_music"}, writer="music-refresh")[
         "sources"]["apple_music"]["writer"] == "music-refresh"
 
@@ -417,3 +417,69 @@ def test_ingest_is_additive_only(tmp_path, monkeypatch):
     assert {v["source"] for v in new.values()} == {"apple_music"}
     assert pipe.qdrant.deletes == 0
     assert all("DELETE" not in t.upper() for t in pipe.oxigraph.inserts)
+
+
+# ── every non-install run_all caller keeps the music read (review round 2) ──
+
+def _ladder_box(tmp_path, monkeypatch, pending):
+    """Synthetic box for backfill_ladder.finish_pending_first_windows: home,
+    state dir and XML path all under tmp, no helper, no grant, ingest stubbed."""
+    from ostler_fda import pwg_ingest
+    state = tmp_path / "state"
+    state.mkdir()
+    for src in pending:
+        (state / f"first_window_pending_{src}").write_text(src)
+    monkeypatch.setenv("OSTLER_STATE_DIR", str(state))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir(exist_ok=True)
+    monkeypatch.delenv("OSTLER_MUSIC_LIBRARY_HELPER", raising=False)
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(tmp_path / "no-such-library.xml"))
+    monkeypatch.setattr(pwg_ingest, "ingest_all", lambda *_a, **_k: {})
+
+
+@pytest.mark.parametrize("pending", [["imessage"], ["apple_music"], ["imessage", "apple_music"]])
+def test_the_ladder_path_keeps_the_music_read(tmp_path, monkeypatch, pending):
+    from ostler_fda import backfill_ladder
+    out = tmp_path / "fda"
+    before = _seed_prior_read(out)
+    _ladder_box(tmp_path, monkeypatch, pending)
+    res = backfill_ladder.finish_pending_first_windows(out, busy=lambda: None)
+    assert res["status"] == "ok", res
+    assert (out / "apple_music.json").read_bytes() == before
+    am = json.loads((out / "extraction_summary.json").read_text())["sources"]["apple_music"]
+    assert am == PRIOR_ENTRY, am  # the install's entry, writer and all
+
+
+def test_the_ladder_stamps_its_own_writer_on_what_it_writes(tmp_path, monkeypatch):
+    from ostler_fda import backfill_ladder
+    out = tmp_path / "fda"
+    out.mkdir()
+    _ladder_box(tmp_path, monkeypatch, ["imessage"])
+    backfill_ladder.finish_pending_first_windows(out, busy=lambda: None)
+    am = json.loads((out / "extraction_summary.json").read_text())["sources"]["apple_music"]
+    assert am["status"] == "not_tried" and am["writer"] == "backfill-ladder", am
+
+
+def test_a_caller_passing_no_writer_is_not_reported_as_install(tmp_path, monkeypatch):
+    from ostler_fda import extract_all
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, OK_PAYLOAD)))
+    am = extract_all.run_all(tmp_path / "fda", enabled_sources={"apple_music"})["sources"]["apple_music"]
+    assert am["writer"] == "unrecorded" and am["writer"] != "install"
+
+
+def test_the_install_call_passes_install_explicitly():
+    text = (ROOT / "install.sh").read_text()
+    lines = [ln for ln in text.splitlines() if ln.startswith("summary = run_all(Path('${OSTLER_DIR}/imports/fda')")]
+    assert len(lines) == 1 and "writer='install'" in lines[0], lines
+
+
+def test_the_extract_all_cli_skips_music_unless_asked(tmp_path, monkeypatch):
+    from ostler_fda import extract_all
+    out = tmp_path / "fda"
+    before = _seed_prior_read(out)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("OSTLER_MUSIC_LIBRARY_HELPER", raising=False)
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(tmp_path / "no-such-library.xml"))
+    monkeypatch.setattr(sys, "argv", ["extract_all", "--output-dir", str(out)])
+    extract_all.main()
+    assert (out / "apple_music.json").read_bytes() == before

@@ -20099,7 +20099,7 @@ import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'), writer='install')
 print(json.dumps(summary, default=str))
 " 2>&1)
     FDA_EXIT=$?

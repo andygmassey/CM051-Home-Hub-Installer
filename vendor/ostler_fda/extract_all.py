@@ -137,7 +137,7 @@ def run_all(
     output_dir: Optional[Path] = None,
     enabled_sources: Optional[Iterable[str]] = None,
     skip_sources: Optional[Iterable[str]] = None,
-    writer: str = "install",
+    writer: str = "unrecorded",
 ) -> dict:
     """Run enabled extractors and save results.
 
@@ -154,7 +154,10 @@ def run_all(
             Media & Apple Music grant, so the daily music-refresh owns it.
         writer: Which run wrote this summary's fresh entries, stamped on the
             apple_music entry as ``writer`` (install | fda-rerun |
-            music-refresh) so a walk probe can tell whose read it is judging.
+            backfill-ladder | music-refresh | extract-all-cli) so a walk
+            probe can tell whose read it is judging. Defaults to
+            "unrecorded": a caller that names nobody is never reported as
+            the install. install.sh passes "install" explicitly.
 
     Returns:
         A summary dict suitable for the installer's completion screen.
@@ -1058,7 +1061,11 @@ def main():
     if args.include_faces:
         enabled = (enabled or set(DEFAULT_SOURCES)) | {"photos_faces"}
 
-    summary = run_all(output, enabled_sources=enabled)
+    # The CLI has no music grant either: it re-reads apple_music only when
+    # the operator names it in --sources, never via the default set.
+    skip = None if args.sources and "apple_music" in (enabled or ()) else {"apple_music"}
+    summary = run_all(output, enabled_sources=enabled, skip_sources=skip,
+                      writer="extract-all-cli")
 
     # Print machine-readable summary for the installer to parse
     print(json.dumps(summary, default=str))
