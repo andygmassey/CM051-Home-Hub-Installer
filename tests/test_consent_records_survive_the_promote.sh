@@ -38,7 +38,7 @@ PROMOTE_FN="$(awk '/^_ostler_promote_prelaunch_tree\(\) \{$/{f=1} f{print} f&&/^
 
 PERSIST_BLOCK="$(awk '/^if \[\[ "\$HAS_SECURITY_MODULE" == true \]\]; then$/{getline nx; if (nx ~ /MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION/){f=1; print; print nx; next}} f{print} f&&/^fi$/{exit}' "$INSTALL_SH")"
 [ "$(printf '%s\n' "$PERSIST_BLOCK" | grep -c .)" -ge 40 ] || cannot_run "3.6b persist block not extracted"
-printf '%s\n' "$PERSIST_BLOCK" | grep -q 'consent_cli record' || cannot_run "extracted block has no consent_cli record call"
+grep -q 'consent_cli record' <<< "$PERSIST_BLOCK" || cannot_run "extracted block has no consent_cli record call"
 
 SANDBOX="$(mktemp -d)" || cannot_run "no sandbox"
 trap 'rm -rf "$SANDBOX"' EXIT
@@ -104,7 +104,7 @@ for tb in third_party_data_personal_records personal_use_only spoken_capture_rec
     if grep -q "\"$tb\"" "$FINAL/posture/consent.json" 2>/dev/null; then pass "tickbox $tb recorded in final consent.json"
     else failure "tickbox $tb not in final consent.json"; fi
 done
-if echo "$OUT" | grep -q '^RUN_ERRORS=0$'; then pass "no install error raised by the post-promote assertion"
+if grep -q '^RUN_ERRORS=0$' <<< "$OUT"; then pass "no install error raised by the post-promote assertion"
 else echo "note: post-promote assertion raised an error (expected on a baseline that loses consent)"; fi
 
 echo
