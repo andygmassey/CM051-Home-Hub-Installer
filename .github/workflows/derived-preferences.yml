@@ -18,6 +18,9 @@ name: derived-preferences
 #              prior graph; a below-floor fixture is the red control.
 #   doctor     the Doctor row distinguishes every state and knows every
 #              outcome the shipped runner can write.
+#   route      the REAL writer's graph, read by the REAL vendored CM041 route
+#              builder (GET /api/v1/preferences/derived), matches the shared
+#              contract; an empty derivation is served degraded (red control).
 #
 # Exit 2 is CANNOT-RUN and fails the step.
 
@@ -38,6 +41,10 @@ on:
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
+      - 'tests/test_derived_route_reads_what_the_engine_writes.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/contract/**'
       - '.github/workflows/derived-preferences.yml'
   push:
     branches: [main]
@@ -87,3 +94,11 @@ jobs:
       - name: The runner collects and invokes the derived-preferences probe (fake Hub)
         if: always()
         run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
+      - name: The hub route serves what the engine writes
+        # Arm 4 boots the REAL vendored ical-server as a subprocess, which
+        # needs cryptography + httpx (the same set memory-assert-answers-under-load
+        # installs for the other test that starts it).
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0' cryptography httpx
+          python3 tests/test_derived_route_reads_what_the_engine_writes.py
