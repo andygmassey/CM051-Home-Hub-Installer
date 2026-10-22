@@ -635,3 +635,33 @@ def test_probe_runs_not_cannot_run_over_the_seed_and_fails_on_two_cards(stores, 
         '?i pwg:identifierValue "%s" }' % (PWG, fx.card_uid(2), fx.card_uid(1)))
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
     assert v.startswith("FAIL"), text
+
+
+# v1.0.116 re-walk (walk34): once #3088 let this seed run, card 1 wrote a second
+# "Jane Doe", the grounding seed's person (grounding_seed.sh, "seed: asserted 5
+# fact(s) for 'Jane Doe'"). pwg_people resolved the card, not the seeded person,
+# and assistant_grounds_the_opening_turn went 10/10 -> 0/10 on the same DMG. Card 4
+# was "Raj Patel", which the owner-score persona also seeds. Seeds that share a
+# box must not share a person's name.
+GROUNDING_SEED_PERSON = "Jane Doe"
+
+
+def _persona_names():
+    text = (ROOT / "scripts" / "owner_score" / "persona.json").read_text(encoding="utf-8")
+    return {m.lower() for m in re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", text)}
+
+
+def _card_names(cards):
+    return {("%s %s" % (c[1], c[2])).lower() for c in cards if c[1] or c[2]}
+
+
+def test_no_card_shares_a_name_with_another_walk_seed():
+    other = _persona_names() | {GROUNDING_SEED_PERSON.lower()}
+    assert "raj patel" in other, "control: the persona must still read as names"
+    assert not (_card_names(fx.CARDS) & other), sorted(_card_names(fx.CARDS) & other)
+
+
+def test_the_name_check_goes_red_on_the_v1_0_116_cast():
+    old = [(1, "Jane", "Doe", [], [], ""), (4, "Raj", "Patel", [], [], "")]
+    hit = _card_names(old) & (_persona_names() | {GROUNDING_SEED_PERSON.lower()})
+    assert hit == {"jane doe", "raj patel"}
