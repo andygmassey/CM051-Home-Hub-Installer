@@ -182,12 +182,12 @@
     "yes_label_per_prompt": {
       "reuse_settings": "Use my previous answers",
       "calendar_review": "Yes, these look right",
-      "calendar_set_aside_include": "Use it for my brief"
+      "calendar_set_aside_include": "Include in my brief"
     },
     "no_label_per_prompt": {
       "reuse_settings": "Start over from the first question",
       "calendar_review": "Let me change something",
-      "calendar_set_aside_include": "Keep it set aside"
+      "calendar_set_aside_include": "Include in my brief"
     },
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
