@@ -237,6 +237,14 @@ cannot enter this public repository; the box gets its own runner instead.
 grafting the delegation once the box's ingest entrypoint puts `services/common`
 on `sys.path` (or upstream packages `strength` under `services/ingest`).
 
+### smart-prefs -- the derive registry spans all of life (ahead of the pin; personal-world-graph #422)
+
+`services/enrich/src/derive/{config,engine,model,query,readers}.py`,
+`dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are AHEAD
+of the pin: they carry upstream #422 (open). Not a divergence from intent: the
+same diff, to be re-pinned when #422 merges. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

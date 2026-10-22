@@ -27,6 +27,7 @@ def load_dimensions(path: Path = DIMENSIONS_YAML) -> List[DimensionConfig]:
             dimension=r["dimension"],
             category=r.get("category", r["dimension"].split(".")[0]),
             min_evidence=int(r.get("min_evidence", 3)),
+            max_items=int(r["max_items"]) if r.get("max_items") else None,
         )
         for r in rows
     ]
@@ -49,11 +50,24 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML) -> list:
                 OxigraphOverlayReader(
                     tag_predicate=r["tag_predicate"],
                     tag_entity_type=r.get("tag_entity_type"),
+                    value_exclude_regex=r.get("value_exclude_regex"),
                     **common,
                 )
             )
         elif kind == "qdrant_field":
-            readers.append(QdrantFieldReader(field_path=r["field"], **common))
+            readers.append(
+                QdrantFieldReader(
+                    field_path=r["field"],
+                    fallback_field=r.get("fallback_field"),
+                    split=r.get("split"),
+                    part=r.get("part", "first"),
+                    transform=r.get("transform"),
+                    strip_regex=r.get("strip_regex"),
+                    allowlist=tuple(str(a).lower() for a in r.get("allowlist", [])),
+                    evidence_confidence=float(r.get("evidence_confidence", 0.5)),
+                    **common,
+                )
+            )
         else:
             # Unknown kind: loud, never a silent skip.
             raise ValueError(f"unknown reader kind {kind!r} for dimension {r['dimension']!r}")

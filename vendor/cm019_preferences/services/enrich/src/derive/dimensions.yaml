@@ -1,10 +1,15 @@
 # Controlled-vocabulary REGISTER for derived dimensions (display + governance).
 # This is DATA, not code: adding a dimension never touches the engine. Unknown
 # dimensions are still accepted and logged into a counted "unknown" bucket by the
-# Aggregator; this file only governs labels, category and the min_evidence gate.
+# Aggregator; this file only governs labels, category and the gates.
 #
-# dimension: { label, category, min_evidence, min_evidence_strong? }
+# dimension: { label, category, min_evidence, max_items? }
+#   min_evidence  an item needs this many distinct literal preferences
+#   max_items     keep only the strongest N nodes of the dimension. Set on the
+#                 high-cardinality ones (every artist, every site) so they cannot
+#                 crowd the rest out of a top-N read.
 
+# --- Films -------------------------------------------------------------------
 - dimension: media.film.genre
   label: "Film genre"
   category: films
@@ -19,3 +24,115 @@
   label: "Film actor"
   category: films
   min_evidence: 3
+  max_items: 40
+
+- dimension: media.film.writer
+  label: "Film writer"
+  category: films
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.film.composer
+  label: "Film composer"
+  category: films
+  min_evidence: 2
+  max_items: 30
+
+# --- TV ----------------------------------------------------------------------
+- dimension: media.tv.series
+  label: "TV series"
+  category: tv
+  min_evidence: 3        # three episodes of one show
+  max_items: 40
+
+- dimension: media.tv.genre
+  label: "TV genre"
+  category: tv
+  min_evidence: 3
+
+- dimension: media.tv.actor
+  label: "TV cast"
+  category: tv
+  min_evidence: 3
+  max_items: 30
+
+# --- Music -------------------------------------------------------------------
+- dimension: media.music.artist
+  label: "Music artist"
+  category: music
+  min_evidence: 3
+  max_items: 40
+
+- dimension: media.music.genre
+  label: "Music genre"
+  category: music
+  min_evidence: 3
+
+# --- Books -------------------------------------------------------------------
+- dimension: media.book.author
+  label: "Book author"
+  category: books
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.book.genre
+  label: "Book genre"
+  category: books
+  min_evidence: 2
+
+- dimension: media.book.topic
+  label: "Book topic"
+  category: books
+  min_evidence: 3
+  max_items: 30
+
+# --- Podcasts ----------------------------------------------------------------
+- dimension: media.podcast.show
+  label: "Podcast"
+  category: podcasts
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.podcast.topic
+  label: "Podcast topic"
+  category: podcasts
+  min_evidence: 2
+  max_items: 20
+
+# --- Topics and interests ----------------------------------------------------
+- dimension: interests.topic
+  label: "Topic you follow"
+  category: interests
+  min_evidence: 3
+  max_items: 40
+
+- dimension: web.site
+  label: "Site you return to"
+  category: web
+  min_evidence: 4        # bookmarked or visited four separate times
+  max_items: 30
+
+- dimension: news.source
+  label: "News source"
+  category: news
+  min_evidence: 2
+  max_items: 20
+
+# --- Food, places, brands ----------------------------------------------------
+- dimension: food.cuisine
+  label: "Cuisine and venue type"
+  category: food
+  min_evidence: 2
+  max_items: 20
+
+- dimension: place.city
+  label: "City"
+  category: places
+  min_evidence: 2
+  max_items: 20
+
+- dimension: commerce.brand
+  label: "Brand"
+  category: brands
+  min_evidence: 2
+  max_items: 30

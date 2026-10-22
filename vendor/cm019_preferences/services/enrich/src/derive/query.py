@@ -67,8 +67,21 @@ class DerivedGraphReader:
         return views
 
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
-        """Resolve derivedFrom literal URIs to human titles via the overlay's
-        matchedTitle (default graph), best-effort. Empty tuple when none."""
+        """Titles behind a node: its own pwg:evidenceTitle first (written by the
+        engine, works for every source), else the overlay's matchedTitle for the
+        derivedFrom URIs (default graph), best-effort. Empty tuple when none."""
+        own = (
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?title WHERE {\n"
+            f"  GRAPH <{self._graph}> {{ <{node_uri}> pwg:evidenceTitle ?title . }}\n"
+            f"}} ORDER BY ?title LIMIT {int(limit)}"
+        )
+        try:
+            titles = [b["title"]["value"] for b in self._sparql(own) if b.get("title", {}).get("value")]
+        except Exception:
+            titles = []
+        if titles:
+            return tuple(titles)
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
             "SELECT ?title WHERE {\n"

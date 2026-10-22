@@ -120,6 +120,8 @@ class DerivedPreference:
     is_contested: bool = False
     is_hard_constraint: bool = False
     trend: Optional[str] = None
+    # A few literal titles behind this node, for the "because" line.
+    evidence_titles: list = field(default_factory=list)
 
     @property
     def uri(self) -> str:
@@ -173,6 +175,8 @@ class DerivedPreference:
         ):
             if dt is not None:
                 t.append(f'    pwg:{dt_prop} "{dt.isoformat()}"^^xsd:dateTime ;')
+        for title in self.evidence_titles:
+            t.append(f'    pwg:evidenceTitle "{_esc(title)}" ;')
         # derivedFrom last; MANDATORY (SHACL sh:minCount 1).
         froms = ",\n                    ".join(f"<{uri}>" for uri in self.evidence_from)
         if froms:

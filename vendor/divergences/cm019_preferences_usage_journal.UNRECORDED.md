@@ -332,3 +332,12 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3
 - Manifest: the nine derive shas leave `hold_ack_shas`; 5d1cdf13 stays.
 - These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
 - Retire: nothing to retire for the engine itself. It is source at the pin.
+
+## 2026-10-22 smart-prefs: derive across all of life (personal-world-graph #422)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE from source at the pin, because upstream #422 is open. It ACKS UPSTREAM andygmassey/personal-world-graph PR #422 (branch feat/smart-prefs-all-of-life): the same diff, byte for byte.
+
+- Changed, byte-identical to #422's head: `services/enrich/src/derive/{config,engine,model,query,readers}.py`, `services/enrich/src/derive/{dimensions,readers}.yaml`, `ontology/upper/pwg-derived.ttl` (declares `pwg:evidenceTitle`). The other 10 files grafted in #2954 are unchanged.
+- What it does: the registry goes from three film dimensions to 21 across films, tv, music, books, podcasts, interests, web, news, food, places and brands, same output contract. Engine guards: one preference is one observation of a value, `max_items` per dimension, evidence titles on the node, an overlay tag node with two labels is dropped, the gateway scrolls once per category set.
+- Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` (wired in `derived-preferences.yml`): RED on main, GREEN here.
+- Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
