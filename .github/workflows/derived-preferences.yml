@@ -33,6 +33,7 @@ on:
       - 'vendor/doctor/agent/derived_preferences_status.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_derive_preferences_is_scheduled.sh'
+      - 'tests/test_derive_is_kicked_once_after_install_and_upgrade.sh'
       - 'tests/test_derived_prefs_probe_is_run_by_the_walk.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
@@ -61,6 +62,9 @@ jobs:
       - name: A LaunchAgent the installer writes runs the derive engine
         if: always()
         run: bash tests/test_derive_preferences_is_scheduled.sh
+      - name: The derive agent is kicked once after install and after upgrade
+        if: always()
+        run: bash tests/test_derive_is_kicked_once_after_install_and_upgrade.sh
       - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
         # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
         # the other three are the shipped requirements the writer imports.

@@ -1039,6 +1039,12 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _upg_refresh_cm048
         _upg_repair_fda_venv
 
+        # One-shot derive pass, so an upgraded box does not wait up to 6 hours
+        # (the agent is RunAtLoad=false) for its derived graph to be rewritten
+        # by the new engine. Bounded and absent-label safe: a box whose derive
+        # agent was never installed just no-ops. See _ks_bounded.
+        _ks_bounded "${_UPG_DOMAIN}/com.ostler.derive-preferences"
+
         # THE INVARIANT, UPGRADE PATH. (#595 layer 1)
         # Same function, same moment in the lifecycle: the runtime has just
         # become final. #942 repaired the ONE module we knew about; this asks
@@ -3633,14 +3639,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8922) captures the path BY
+    # _ostler_write_store_curl_config (defined :8928) captures the path BY
     # VALUE and never re-reads it:
-    #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16675, both of which run
+    #     :8929   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8974   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8983 and :16681, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
-    # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :3625 above has just deleted
+    # that tree and :3629 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -3655,13 +3661,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17470, where the note reads
+    # WhatsApp Web session path did it again at :17476, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17487 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17493 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3676,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6251 against a definition at :8922. Top-level
+    # writer's own definition: :6257 against a definition at :8928. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16675) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8983, :16681) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19635 / :19813 / :19970 / :20415 path. There the
+    # :19641 / :19819 / :19976 / :20421 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -22636,6 +22642,15 @@ DERIVEPLIST
     # (see _install_enrichment_agent above).
     if launchctl print "gui/$(id -u)/${label}" >/dev/null 2>&1; then
         ok "$MSG_OK_DERIVE_AGENT_LOADED"
+        # ONE-SHOT KICK. The agent is RunAtLoad=false with a 6 hour interval, so
+        # without this a fresh install and a re-install both wait up to 6 hours
+        # before "What you like" has a graph (an upgraded box keeps serving the
+        # graph it had, written before any new dimension or tier). Only after
+        # launchctl print has confirmed the label is registered (`launchctl load`
+        # exits 0 on failure), and through _ks_bounded: a penalty-boxed job must
+        # never block the installer. An empty first pass is harmless (the writer
+        # keeps a proven-empty graph); the import kicks it again once it has data.
+        _ks_bounded "gui/$(id -u)/${label}"
     else
         warn "$MSG_WARN_DERIVE_AGENT_LOAD_FAILED"
     fi
