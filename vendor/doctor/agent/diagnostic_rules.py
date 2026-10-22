@@ -27,6 +27,10 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    MINORS_UNREADABLE_TITLE,
+    MINORS_UNREADABLE_DETAIL_FMT,
+    MINORS_UNREADABLE_FIX,
+    MINORS_UNREADABLE_FIX_COMMAND_FMT,
     TM_SECRETS_NOT_EXCLUDED_TITLE,
     TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
     TM_NOT_EXCLUDED_DETAIL_FMT,
@@ -2898,7 +2902,57 @@ def check_licence_expiry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _minors_registry_path():
+    """Same resolution as the ingest loader (PWG services/ingest/src/minors.py):
+    env OSTLER_MINORS_FILE, else ~/.ostler/minors.json."""
+    from pathlib import Path
+    return Path(os.environ.get("OSTLER_MINORS_FILE") or (Path.home() / ".ostler" / "minors.json"))
+
+
+def check_minors_registry(snapshot: Any) -> list[dict]:
+    """Doctor row for an unreadable under-18 list.
+
+    Mirrors ``MinorsRegistry.load``: file absent = nobody marked, no row.
+    Present but not a JSON object holding a ``minors`` list = the ingest
+    raises and imports stop, so say so. The file holds children's names:
+    nothing from it is logged or put in the finding (the exception CLASS
+    only).
+    """
+    import json
+    import shlex
+
+    findings: list[dict] = []
+    path = _minors_registry_path()
+    if not path.exists():
+        return findings
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data["minors"], list):
+            raise TypeError("minors must be a list")
+        # The ingest loader also builds the registry here, so an entry that is
+        # not an object, or whose names/identifiers cannot be iterated, stops
+        # imports too (it surfaces as a raw AttributeError/TypeError there).
+        for entry in data["minors"]:
+            entry.get("slug")
+            iter(entry.get("names", []))
+            iter(entry.get("identifiers", []))
+    except Exception as exc:
+        log.warning("under-18 list unreadable: %s", type(exc).__name__)
+        quoted = shlex.quote(str(path))
+        findings.append({
+            "severity": "critical",
+            "title": MINORS_UNREADABLE_TITLE,
+            "detail": MINORS_UNREADABLE_DETAIL_FMT.format(path=str(path)),
+            "fix": MINORS_UNREADABLE_FIX,
+            "fix_command": MINORS_UNREADABLE_FIX_COMMAND_FMT.format(path=quoted),
+            "risk": "low",
+            "category": "privacy",
+        })
+    return findings
+
+
 ALL_RULES = [
+    check_minors_registry,
     check_scheduled_agents,
     check_hydrate_ingest,
     check_first_install,
