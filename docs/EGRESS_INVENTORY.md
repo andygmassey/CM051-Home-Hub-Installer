@@ -15,8 +15,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 52
-digest: 0db3a3efdc1fea0587affb3375ba634d1b68e5b817ca1e43ffb94b3ed5973a22
+hosts: 55
+digest: 5518ec6cc14ea3c2ede0706a2253f47484c75244813ea422789bf2df062b70ac
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -88,6 +88,32 @@ the ledger; this is the shape.
 | Tailscale control plane, DERP relays | while the tailnet is up | yes, per feature | no, relayed payloads are end-to-end encrypted |
 | WhatsApp Web | only with the connector on | yes, off by default | it IS the customer's WhatsApp session |
 | public-data enrichment (~20 hosts) | during and after ingest | no, and see below | **yes** |
+| web search (ostler-vane: DuckDuckGo, Brave, Wikipedia) | only when the owner asks a web search | yes, per web-search use | the search query |
+
+## Web search (ostler-vane): three engines, nothing idle
+
+`ostler-vane` bundles SearXNG. The installer writes its own settings
+(`vane-searxng-settings.yml`, mounted read-only over `/etc/searxng/settings.yml`)
+instead of the image's, which loaded every default engine and Google
+autocomplete. Now: three engines (`duckduckgo` to `html.duckduckgo.com`, `brave`
+to `search.brave.com`, `wikipedia` to `en.wikipedia.org`, or `<lang>.wikipedia.org`
+for a non-English owner's locale, declared as the glob row `*.wikipedia.org`), and autocomplete,
+the favicon resolver, the image proxy, metrics and the tor-exit-list plugin are
+off. Each engine host is a ledger row. SearXNG and Vane run no timer or
+startup network check of their own with these engines (read from Vane v1.12.2
+and SearXNG source; not measured on a box). `tests/test_vane_searxng_has_no_idle_egress.py`
+fails if a feature is switched back on or an engine is added without a row.
+
+What the assistant can send: `web_search_tool` is in the egress gate's tool list
+(ostler-assistant `crates/zeroclaw-runtime/src/agent/egress_gate.rs:55`) and
+`requires_owner_approval` (`:77-80`, merged in #602, c23e22ca) lets it run
+unasked only when every word of the query is a word the owner typed this turn;
+an empty query, a non-owner turn or a forwarded message is denied.
+
+Not covered by the above: Vane's own browser UI (reached on `:3000` behind the
+credential) fetches a weather lookup, an IP-location lookup and favicons from
+the owner's browser when the owner opens it. That is the browser, not the
+container, and it is not an assistant path.
 
 ## The WhatsApp connector: settled, and the consent wording is wrong
 
