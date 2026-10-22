@@ -299,6 +299,23 @@ else
     bad "D5 no-plan install printed '${out}' or left a stale file"
 fi
 
+# ── Limb G. The months the installer SAYS match the plan ───────────
+awk '/^if \[\[ "\$OSTLER_INCLUDED_PLAN" == "founding" \]\]; then$/{on=1} on{print} on && /^fi$/{exit}' \
+    "$INSTALL_SH" >"${WORK}/months.sh"
+if [[ -s "${WORK}/months.sh" ]] && grep -q 'INCLUDED_PRO_MONTHS=6' "${WORK}/months.sh"; then
+    for pair in "founding:6" "standard:3" "gold:3"; do
+        plan="${pair%%:*}"; want="${pair##*:}"
+        got="$(env -i PATH="$PATH" /bin/bash -c 'OSTLER_INCLUDED_PLAN="$1"; . "$2"; . "$3"; printf "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED" "$INCLUDED_PRO_MONTHS"' _ "$plan" "${WORK}/months.sh" "$STRINGS" 2>&1)"
+        if [[ "$got" == "Ostler Pro is included free for ${want} months, then \$9.99/month. Cancel anytime in Settings. Save with yearly: \$79." ]]; then
+            ok "G1 plan '${plan}' is announced as ${want} months, with the renewal disclosed"
+        else
+            bad "G1 plan '${plan}': wanted ${want} months, got '${got}'"
+        fi
+    done
+else
+    bad "G1 could not find the INCLUDED_PRO_MONTHS selection in install.sh"
+fi
+
 # ── Limb E. The GUI parser, compiled ───────────────────────────────
 if ! command -v swiftc >/dev/null 2>&1; then
     echo "  CANNOT-RUN  E (GUI ProOffer parser): no swiftc on this host"; CANNOT=$((CANNOT + 1))
