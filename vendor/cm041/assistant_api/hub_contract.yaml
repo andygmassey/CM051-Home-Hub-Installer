@@ -2205,6 +2205,25 @@
     "admin_token"
    ],
    "body_limit_bytes": 65536,
+   "id": "gateway POST /admin/paircode/rotate",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/admin/paircode/rotate",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "admin_token"
+   ],
+   "body_limit_bytes": 65536,
    "id": "gateway POST /admin/shutdown",
    "listener": "gateway",
    "method": "POST",
@@ -3443,6 +3462,44 @@
     "path",
     "quick_notes"
    ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/invites/mint",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/invites/mint",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/invites/rewards",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/invites/rewards",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
   {
