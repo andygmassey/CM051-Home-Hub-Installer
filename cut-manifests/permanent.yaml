@@ -380,6 +380,9 @@ entries:
         - "^docs:"
         - "^chore\\(docs\\)"
         - "^chore\\(release\\)"
+      # (v1.0.117, 2026-10-23 ORM) RC pin 0.1.8 = tag remote-capture-v0.1.8 -> 4bc94fb8 (CM042 #23 consent: country
+      # first, escalate where the law varies; ec389bb8 is the diverging commit that 0.1.7 lacked). Pinned == main HEAD,
+      # measured PASS at 0.1.8 and FAIL at 0.1.7 (control). No hold_ack: nothing is held.
       # (v1.0.107 cut #15, 2026-10-09 Archie) RC pin 0.1.5. 1f47b619 is CM042 #30 (speakers/identify
       # sends the Hub service token to ical-server :8090). It is HELD to cut #16, where RemoteCapture
       # 0.1.6 (tag remote-capture-v0.1.6 -> 247fb8fd, CM051 #2735/#2736) ships with oa #486 and #2678
