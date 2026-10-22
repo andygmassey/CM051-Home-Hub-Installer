@@ -70,6 +70,9 @@ CONVERSATIONS = 3
 # payload locator, values). Four points per value clears every min_evidence
 # floor in dimensions.yaml.
 BROAD = [
+    ("films", "movie", "title", ["Walk Film One", "Walk Film Two"]),
+    ("books", "book", "title", ["Walk Book One", "Walk Book Two"]),
+    ("interests", "interest", "title", ["Walk Interest One", "Walk Interest Two"]),
     ("tv", "tv_show", "subject", ["Walk Series Alpha", "Walk Series Beta"]),
     ("music", "music", "extra.artist", ["Walk Artist One", "Walk Artist Two"]),
     ("podcasts", "podcast", "extra.podcast_name", ["Walk Podcast One", "Walk Podcast Two"]),
@@ -81,6 +84,19 @@ BROAD = [
     ("health", "fitness", "extra.activity", ["swimming", "cycling"]),
     ("work", "professional", "extra.skill_name", ["Walk Skill Alpha", "Walk Skill Beta"]),
 ]
+# The BROAD tier is types of things (genres, topics), not single things, and
+# those dimensions read an Oxigraph overlay tag joined to the point by id
+# (enrichment/ontology#hasGenre / hasTopic), not a payload field. One tag per
+# category, shared by both values, so each broad dimension has 8 pieces of
+# evidence. Labels are synthetic or plain genre words; the music one is in the
+# shipped music_style vocabulary.
+ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+TAG_NS = "urn:ostler-walk-fixture:smartprefs/tag/"
+OVERLAY = {"movie": ("hasGenre", "science fiction"), "book": ("hasGenre", "history"),
+           "interest": ("hasTopic", "photography"), "tv_show": ("hasGenre", "drama"),
+           "music": ("hasGenre", "hip hop"), "podcast": ("hasTopic", "technology")}
+EXPECTED_TAGS = len({l for _, l in OVERLAY.values()})
 POINTS_PER_VALUE = 4
 EXPECTED_POINTS = sum(len(v) for _, _, _, v in BROAD) * POINTS_PER_VALUE
 EXPECTED_FACTS = 3 * CONVERSATIONS
@@ -126,6 +142,8 @@ def qdrant_points(dim_vector):
                 extra, subject = {}, "Walk fixture %s" % cat
                 if loc == "subject":
                     subject = "%s - S01E0%d" % (v, i + 1)
+                elif loc == "title":
+                    subject = v
                 else:
                     extra = {loc.split(".", 1)[1]: v}
                 pts.append({
@@ -138,6 +156,25 @@ def qdrant_points(dim_vector):
                     },
                 })
     return pts
+
+
+def overlay_triples():
+    """Enrichment-overlay tags for the broad (genre / topic) dimensions, as
+    N-Triples lines for the DEFAULT graph (the overlay reader's SPARQL is not
+    graph-scoped), one tag node per label."""
+    lines, seen = [], set()
+    for p in qdrant_points([0.0]):
+        spec = OVERLAY.get(p["payload"]["category"])
+        if not spec:
+            continue
+        pred, label = spec
+        node = TAG_NS + label.replace(" ", "-")
+        lines.append("<urn:ostler:preference:%s> <%s%s> <%s> ." % (p["id"], ENRICH_NS, pred, node))
+        lines.append("<urn:ostler:preference:%s> <%senrichmentConfidence> \"0.8\" ." % (p["id"], ENRICH_NS))
+        if node not in seen:
+            seen.add(node)
+            lines.append("<%s> <%s> %s ." % (node, RDFS_LABEL, _lit(label)))
+    return lines
 
 
 def _lit(s):
@@ -248,7 +285,7 @@ def _status():
 
 def fixture_presence():
     """Read the fixture back out of both stores. -> dict of counts (None = could not look)."""
-    out = {"points": None, "facts": None, "error": ""}
+    out = {"points": None, "facts": None, "tags": None, "error": ""}
     code, body, err = _qdrant("POST", "/collections/%s/points/count" % COLLECTION,
                               {"exact": True, "filter": {"must": [{"key": "walk_fixture", "match": {"value": TAG}}]}})
     if code == 200 and isinstance(body, dict):
@@ -261,6 +298,12 @@ def fixture_presence():
         out["facts"] = int(body["results"]["bindings"][0]["n"]["value"])
     except Exception:
         out["error"] += "oxigraph count: status=%s %s; " % (code, err)
+    code, body, err = _oxi_select(
+        'SELECT (COUNT(DISTINCT ?t) AS ?n) WHERE { ?t <%s> ?l . FILTER(STRSTARTS(STR(?t), "%s")) }' % (RDFS_LABEL, TAG_NS))
+    try:
+        out["tags"] = int(body["results"]["bindings"][0]["n"]["value"])
+    except Exception:
+        out["error"] += "oxigraph tag count: status=%s %s; " % (code, err)
     return out
 
 
@@ -328,6 +371,10 @@ def seed_main():
         out["why"] = "oxigraph insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
     out["facts_written"] = EXPECTED_FACTS
+    code, _b, err = _oxi_update("INSERT DATA {\n%s\n}" % "\n".join(overlay_triples()))
+    if code not in (200, 204):
+        out["why"] = "oxigraph overlay insert refused: status=%s %s" % (code, err)
+        print(json.dumps(out)); return 0
     out["presence"] = fixture_presence()
     prev = _status().get("last_run_at")
     rc, kout = _kick()
@@ -347,6 +394,24 @@ def seed_main():
     return 0
 
 
+def _forget_brief_job():
+    """Delete the brief probe's cron job by id if one was recorded (a walk killed
+    mid-wait leaves the marker). -> HTTP status, or None when nothing to delete."""
+    try:
+        job = json.loads(_read(BRIEFJOB) or "null")["job"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import wow_moments as wm
+    admin = wm._secret("zeroclaw_admin_token")
+    code = _delete_brief_job(wm, job, {"Authorization": "Bearer " + admin} if admin else {})
+    try:
+        os.remove(BRIEFJOB)
+    except OSError:
+        pass
+    return code
+
+
 def forget_main():
     res = {}
     code, _b, err = _qdrant("POST", "/collections/%s/points/delete?wait=true" % COLLECTION,
@@ -354,6 +419,10 @@ def forget_main():
     res["qdrant_delete"] = code
     code, _b, err = _oxi_update("DROP SILENT GRAPH <%s>" % GRAPH)
     res["oxigraph_drop"] = code
+    res["overlay_delete"] = _oxi_update(
+        'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . FILTER(STRSTARTS(STR(?o), "%s") || STRSTARTS(STR(?s), "%s") '
+        '|| (STRSTARTS(STR(?s), "urn:ostler:preference:") && EXISTS { ?s <%shasGenre> ?x } ) ) }' % (TAG_NS, TAG_NS, ENRICH_NS))[0]
+    res["brief_job_deleted"] = _forget_brief_job()
     try:
         os.remove(MARKER)
     except OSError:
@@ -404,11 +473,32 @@ def box_runs_main():
     return 0
 
 
-def _route():
+def _route(tier=None):
     tok = _secret("service_token")
-    code, body, err = _http("GET", HUB + "/api/v1/preferences/derived?limit=200&min_confidence=0", None,
+    q = "limit=200&min_confidence=0" + ("&tier=%s" % tier if tier else "")
+    code, body, err = _http("GET", HUB + "/api/v1/preferences/derived?" + q, None,
                             {"Authorization": "Bearer " + tok} if tok else {})
     return code, body, err
+
+
+def broad_categories(body, items):
+    """Which categories are BROAD in what the route served for ?tier=broad.
+    -> (sorted categories, mode). Modes, each labelled in the probe output:
+      fallback  the route says tier_fallback (a graph written before tiers, so
+                it served every tier): NOT broad, zero broad categories.
+      item      items carry a tier field: count only tier == broad.
+      served    the payload says tier == broad: the route filtered, count all.
+      absent    no tier support in the payload (an older route): count every
+                category with a positive item. A labelled fallback, not a pass."""
+    b = body if isinstance(body, dict) else {}
+    pos = [i for i in items if (i.get("strength") or 0) > 0]
+    if b.get("tier_fallback"):
+        return [], "fallback"
+    if any("tier" in i for i in pos):
+        return sorted({category_of(i) for i in pos if i.get("tier") == "broad"}), "item"
+    if b.get("tier") == "broad":
+        return sorted({category_of(i) for i in pos}), "served"
+    return sorted({category_of(i) for i in pos}), "absent"
 
 
 def box_served_main():
@@ -419,20 +509,26 @@ def box_served_main():
                   "seed_state_env": os.environ.get("OSTLER_SMARTPREFS_SEED_STATE", "")},
          "engine_can_run": imp["rc"] == 0 and scheduled, "engine_why": "" if imp["rc"] == 0 and scheduled else
          ("not scheduled" if not scheduled else "import failed: %s" % imp["err"])}
-    code, body, err = _route()
-    if code is None:
-        f["route"] = {"status": None, "error": err}
+    # TWO READS. Breadth is a statement about the BROAD tier, so it reads the
+    # route's own broad tier (?tier=broad, CM041 #234). Everything else (the
+    # stated dislike, the owner's like, another person's like) reads ?tier=all,
+    # because a stated ingredient is legitimately not a broad item. A route that
+    # predates tiers ignores the parameter, which the tier_mode below records.
+    code, body, err = _route("all")
+    bcode, bbody, berr = _route("broad")
+    if code is None or bcode is None:
+        f["route"] = {"status": None, "error": err or berr}
         print(json.dumps(f)); return 0
     items = body.get("items") if isinstance(body, dict) else None
     items = [i for i in (items if isinstance(items, list) else []) if isinstance(i, dict)]
+    bitems = bbody.get("items") if isinstance(bbody, dict) else None
+    bitems = [i for i in (bitems if isinstance(bitems, list) else []) if isinstance(i, dict) and (i.get("strength") or 0) > 0]
     cats = {}
     for i in items:
         if (i.get("strength") or 0) > 0:
             cats.setdefault(category_of(i), 0)
             cats[category_of(i)] += 1
-    has_tier = any("tier" in i for i in items)
-    broad_cats = sorted({category_of(i) for i in items if (i.get("strength") or 0) > 0
-                         and (not has_tier or i.get("tier") == "broad")})
+    broad_cats, tier_mode = broad_categories(bbody, bitems)
 
     def find(stmt, other=False):
         hits = [i for i in items if str(i.get("label", "")).strip().lower() == stmt["label"].lower()]
@@ -441,10 +537,43 @@ def box_served_main():
                               if i.get("dimension") == stmt["dimension"]][:3]}
     f["route"] = {"status": code, "degraded": bool(body.get("degraded")) if isinstance(body, dict) else True,
                   "items": len(items), "categories": broad_cats, "categories_all": sorted(cats),
-                  "tier_field": has_tier,
+                  "tier_mode": tier_mode, "broad_status": bcode,
                   "dislike": find(DISLIKE), "owner_like": find(OWNER_LIKE), "other_like": find(OTHER_LIKE)}
     print(json.dumps(f))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# the brief reader. A walk probe must NEVER send outward: the job is created
+# with delivery mode none SET EXPLICITLY, read back, and deleted before it can
+# fire if the gateway did not keep it. The job id is recorded so that forget()
+# (normal path and abort trap) removes it even if this process was killed.
+# ---------------------------------------------------------------------------
+BRIEFJOB = os.path.join(OSTLER, "state", "smartprefs-brief-job.json")
+BRIEF_LEAD_S = 150   # cron has minute granularity: the minute is truncated, so >= 90 s of margin
+
+
+def _delivery_mode(job):
+    d = (job or {}).get("delivery")
+    if isinstance(d, dict):
+        return d.get("mode")
+    return d if isinstance(d, str) else None
+
+
+def _delete_brief_job(wm, job, auth):
+    return wm._http("DELETE", wm.GATEWAY + "/api/cron/%s" % job, headers=auth)[0]
+
+
+def _read_job(wm, job, auth):
+    code, body = wm._http("GET", wm.GATEWAY + "/api/cron/%s" % job, headers=auth)
+    if code == 200 and isinstance(body, dict):
+        return body.get("job") if isinstance(body.get("job"), dict) else body
+    code, body = wm._http("GET", wm.GATEWAY + "/api/cron", headers=auth)
+    rows = body if isinstance(body, list) else (body or {}).get("jobs") or []
+    for r in rows:
+        if isinstance(r, dict) and r.get("id") == job:
+            return r
+    return None
 
 
 def box_brief_main():
@@ -459,18 +588,39 @@ def box_brief_main():
     admin = wm._secret("zeroclaw_admin_token")
     auth = {"Authorization": "Bearer " + admin} if admin else {}
     positives = []
-    code, body, _e = _route()
+    code, body, _e = _route("all")
     if code == 200 and isinstance(body, dict):
         positives = [str(i.get("label", "")).strip() for i in body.get("items") or []
                      if isinstance(i, dict) and (i.get("strength") or 0) > 0 and len(str(i.get("label", "")).strip()) >= 4]
-    t = time.localtime(time.time() + 90)
+    t = time.localtime(time.time() + BRIEF_LEAD_S)
     expr = "%d %d %d %d *" % (t.tm_min, t.tm_hour, t.tm_mday, t.tm_mon)
     code, body = wm._http("POST", wm.GATEWAY + "/api/cron", body={
         "name": "smartprefs-brief-walk-probe", "schedule": expr, "job_type": "agent",
-        "prompt": prompt, "session_target": "isolated", "delete_after_run": False}, headers=auth)
+        "prompt": prompt, "session_target": "isolated", "delete_after_run": False,
+        "delivery": {"mode": "none"}}, headers=auth)
     job = ((body or {}).get("job") or {}).get("id")
     if code != 200 or not job:
         f["cannot"] = "could not add the probe's copy of the morning brief job (HTTP %s)" % code
+        print(json.dumps(f)); return 0
+    try:
+        os.makedirs(os.path.dirname(BRIEFJOB), exist_ok=True)
+        with open(BRIEFJOB, "w") as fh:
+            json.dump({"job": job}, fh)
+    except OSError:
+        pass
+    # READ IT BACK before it can fire. "Undelivered" is a property of the stored
+    # job, not of what we sent: a gateway that defaulted or ignored the field
+    # would send this brief out on the owner's channel or by email.
+    stored = _read_job(wm, job, auth)
+    mode = _delivery_mode(stored)
+    if mode != "none":
+        gone = _delete_brief_job(wm, job, auth)
+        try:
+            os.remove(BRIEFJOB)
+        except OSError:
+            pass
+        f["cannot"] = ("REFUSED: the gateway stored delivery mode %r (not 'none') for the probe's job; deleted it (HTTP %s) "
+                       "before it could fire, so nothing was sent" % (mode, gone))
         print(json.dumps(f)); return 0
     try:
         text, deadline = None, time.time() + float(os.environ.get("OSTLER_SMARTPREFS_BRIEF_WAIT_S", "600"))
@@ -490,7 +640,11 @@ def box_brief_main():
             f["positives_graded"] = len(positives)
             f["positives_named"] = names_any(text, positives)
     finally:
-        wm._http("DELETE", wm.GATEWAY + "/api/cron/%s" % job, headers=auth)
+        _delete_brief_job(wm, job, auth)
+        try:
+            os.remove(BRIEFJOB)
+        except OSError:
+            pass
     print(json.dumps(f))
     return 0
 
@@ -521,10 +675,12 @@ def _gate(f):
     fx, sd = f.get("fixture") or {}, f.get("seed") or {}
     if fx.get("points") is None or fx.get("facts") is None:
         return [("seed fixture is readable back from the stores", "CANNOT", fx.get("error") or "no reading")]
-    if fx["points"] < EXPECTED_POINTS or fx["facts"] < EXPECTED_FACTS:
+    if fx.get("tags") is None:
+        return [("seed fixture is readable back from the stores", "CANNOT", fx.get("error") or "no tag reading")]
+    if fx["points"] < EXPECTED_POINTS or fx["facts"] < EXPECTED_FACTS or fx["tags"] < EXPECTED_TAGS:
         return [("seed fixture is on the box", "CANNOT",
-                 "points %s/%s, facts %s/%s (seed state %r); the walk did not seed it, so nothing here was measured"
-                 % (fx["points"], EXPECTED_POINTS, fx["facts"], EXPECTED_FACTS, sd.get("seed_state_env")))]
+                 "points %s/%s, facts %s/%s, overlay tags %s/%s (seed state %r); the walk did not seed it, so nothing here was measured"
+                 % (fx["points"], EXPECTED_POINTS, fx["facts"], EXPECTED_FACTS, fx["tags"], EXPECTED_TAGS, sd.get("seed_state_env")))]
     if not sd.get("ran_after_seed"):
         if not f.get("engine_can_run"):
             return [("a derive pass ran after the seed", "FAIL",
@@ -573,7 +729,14 @@ def judge_breadth(f):
         return g
     r = f["route"]
     n = len(r.get("categories") or [])
-    note = "" if r.get("tier_field") else " (no tier field served yet: counted every category with a positive item)"
+    mode = r.get("tier_mode", "absent")
+    note = {"served": " (tier: the route served tier=broad)",
+            "item": " (tier: counted items with tier == broad)",
+            "fallback": " (tier_fallback: the graph predates tiers and the route served every tier, which is NOT broad)",
+            "absent": " (NO TIER in the payload, older route: fell back to counting every category with a positive item)"}.get(mode, "")
+    if mode == "fallback":
+        return [("route serves items from >= %d broad categories" % MIN_CATEGORIES, "FAIL",
+                 "0 broad categories%s; the next derive run must write tiers" % note)]
     if r.get("degraded") or not r.get("items"):
         return [("route serves items from >= %d broad categories" % MIN_CATEGORIES, "FAIL",
                  "status=200 degraded=%s items=%s; nothing derived is served" % (r.get("degraded"), r.get("items")))]
@@ -672,6 +835,7 @@ def engine_items(tree):
     pts = qdrant_points([0.0])
     ds = rdflib.Dataset()
     ds.graph(rdflib.URIRef(GRAPH)).parse(data="\n".join(fact_triples()), format="turtle")
+    (getattr(ds, "default_graph", None) or ds.default_context).parse(data="\n".join(overlay_triples()), format="nt")
 
     class Gw:
         def scroll(self, categories, fields):
@@ -682,25 +846,31 @@ def engine_items(tree):
             return [{str(k): {"value": str(v)} for k, v in r.asdict().items()} for r in ds.query(query)]
     now = datetime.datetime.now(datetime.timezone.utc)
     res = DerivationEngine(readers=build_readers(Gw()), aggregator=Aggregator(load_dimensions())).run_result("ostler", now=now)
-    return [{"dimension": n.dimension, "label": n.subject, "strength": n.preference_strength,
-             "confidence": n.confidence} for n in res.nodes], res
+    out = []
+    for n in res.nodes:
+        it = {"dimension": n.dimension, "label": n.subject, "strength": n.preference_strength, "confidence": n.confidence}
+        t = getattr(n, "tier", None)
+        if t:
+            it["tier"] = t
+        out.append(it)
+    return out, res
 
 
 def served_facts_from_items(items):
     """The facts box-served would produce for a route serving `items` on a box
     whose fixture is seeded and whose derive pass ran."""
     pos = [i for i in items if (i.get("strength") or 0) > 0]
-    cats = sorted({category_of(i) for i in pos})
+    cats, tier_mode = broad_categories({}, pos)
 
     def find(stmt):
         hits = [i for i in items if str(i["label"]).strip().lower() == stmt["label"].lower()]
         return {"count": len(hits), "dimension_match": any(i["dimension"] == stmt["dimension"] for i in hits),
                 "strengths": [round(float(i["strength"]), 3) for i in hits if i["dimension"] == stmt["dimension"]]}
-    return {"fixture": {"points": EXPECTED_POINTS, "facts": EXPECTED_FACTS, "error": ""},
+    return {"fixture": {"points": EXPECTED_POINTS, "facts": EXPECTED_FACTS, "tags": EXPECTED_TAGS, "error": ""},
             "seed": {"marker": True, "ran_after_seed": True, "outcome": "written", "seed_state_env": "seeded"},
             "engine_can_run": True, "engine_why": "",
             "route": {"status": 200, "degraded": not items, "items": len(items), "categories": cats,
-                      "categories_all": cats, "tier_field": False,
+                      "categories_all": cats, "tier_mode": tier_mode,
                       "dislike": find(DISLIKE), "owner_like": find(OWNER_LIKE), "other_like": find(OTHER_LIKE)}}
 
 
@@ -727,11 +897,11 @@ def engine_check_main(tree):
 
 def _good_served():
     cats = ["films", "tv", "music", "podcasts", "web", "news", "place", "brands", "food", "health", "work"]
-    return {"fixture": {"points": EXPECTED_POINTS, "facts": EXPECTED_FACTS, "error": ""},
+    return {"fixture": {"points": EXPECTED_POINTS, "facts": EXPECTED_FACTS, "tags": EXPECTED_TAGS, "error": ""},
             "seed": {"marker": True, "ran_after_seed": True, "outcome": "written", "seed_state_env": "seeded"},
             "engine_can_run": True, "engine_why": "",
             "route": {"status": 200, "degraded": False, "items": 40, "categories": cats, "categories_all": cats,
-                      "tier_field": False,
+                      "tier_mode": "served",
                       "dislike": {"count": 1, "dimension_match": True, "strengths": [-0.8]},
                       "owner_like": {"count": 1, "dimension_match": True, "strengths": [0.8]},
                       "other_like": {"count": 0, "dimension_match": False, "strengths": []}}}
@@ -779,8 +949,14 @@ def self_test():
     expect("breadth: films only (v1.0.116)", judge_breadth, served(categories=["films"], categories_all=["films"], items=5), EX_FAIL)
     expect("breadth: five categories", judge_breadth, served(categories=list("abcde")), EX_FAIL)
     expect("breadth: degraded empty route", judge_breadth, served(degraded=True, items=0, categories=[]), EX_FAIL)
-    expect("breadth: tier field, only 2 are broad", judge_breadth,
-           served(tier_field=True, categories=["films", "tv"]), EX_FAIL)
+    expect("breadth: tier served, only 2 broad categories", judge_breadth,
+           served(tier_mode="served", categories=["films", "tv"]), EX_FAIL)
+    expect("breadth: tier_fallback is NOT broad even with many categories", judge_breadth,
+           served(tier_mode="fallback", categories=[]), EX_FAIL)
+    expect("breadth: no tier in payload falls back to category count (labelled)", judge_breadth,
+           served(tier_mode="absent"), EX_PASS)
+    expect("breadth: overlay tags missing is CANNOT", judge_breadth,
+           _mut(G, lambda d: d["fixture"].update(tags=0)), EX_CANNOT)
     expect("breadth: fixture missing is CANNOT, not FAIL", judge_breadth,
            _mut(G, lambda d: d["fixture"].update(points=0)), EX_CANNOT)
     expect("breadth: route unmeasured is CANNOT", judge_breadth,

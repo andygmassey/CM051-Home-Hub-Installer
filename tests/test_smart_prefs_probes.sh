@@ -46,9 +46,10 @@ trap '[ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null; rm -rf "$WORK"' EXIT
 cat > "$WORK/fake.py" <<'PYEOF'
 import http.server, json, os, re, sys, time, urllib.parse
 MODE = sys.argv[2]; HOME = sys.argv[3]
-S = {"points": {}, "facts": [], "derived": [{"dimension": "media.film.genre", "label": "science fiction", "strength": 0.7, "confidence": 0.8}], "n": 0}
+S = {"tags": set(), "jobs": {}, "posted_delivery": [], "deleted": [], "points": {}, "facts": [], "derived": [{"dimension": "media.film.genre", "label": "science fiction", "strength": 0.7, "confidence": 0.8}], "n": 0}
 CATS = {"tv_show": "media.tv.series", "music": "media.music.artist", "podcast": "media.podcast.show", "bookmark": "web.site",
-        "place": "place.city", "product": "commerce.brand", "food": "food.restaurant", "fitness": "health.activity", "professional": "work.skill"}
+        "place": "place.city", "product": "commerce.brand", "food": "food.restaurant", "fitness": "health.activity", "professional": "work.skill",
+        "movie": "media.film.genre", "book": "media.book.genre", "interest": "interests.topic"}
 def derive():
     items = [S["derived"][0]]
     if MODE != "v116":
@@ -75,6 +76,19 @@ def derive():
               open(os.path.join(st, "derived-preferences.json"), "w"))
     lg = os.path.join(HOME, ".ostler", "logs"); os.makedirs(lg, exist_ok=True)
     open(os.path.join(lg, "derive-preferences.log"), "a").write("[x] tick finished: written (see state/derived-preferences.json)\n")
+BROAD3 = ("media.tv", "media.music", "web")
+def cat_ok(dim): return dim.startswith(BROAD3)
+def derived_for(q):
+    tier = (urllib.parse.parse_qs(q).get("tier") or [""])[0]
+    items = S["derived"]
+    if MODE not in ("tiered", "tiered_few", "fallback"):
+        return {"items": items, "degraded": False}          # a route that predates tiers ignores ?tier=
+    if tier == "broad":
+        if MODE == "fallback":
+            return {"items": items, "degraded": False, "tier": "all", "tier_fallback": True}
+        keep = items if MODE == "tiered" else [i for i in items if cat_ok(i["dimension"])]
+        return {"items": keep, "degraded": False, "tier": "broad"}
+    return {"items": items, "degraded": False, "tier": "all"}
 def brief():
     base = "Today: meetings and one open promise. "
     if MODE == "brief_bad": return base + "For dinner, try the coriander salad."
@@ -92,8 +106,14 @@ class H(http.server.BaseHTTPRequestHandler):
         if u.path == "/collections/preferences": return self.send(200, {"result": {"config": {"params": {"vectors": {"size": 4}}}}})
         if u.path == "/api/v1/preferences/derived":
             if self.headers.get("Authorization") != "Bearer tok": return self.send(401, {})
-            return self.send(200, {"items": S["derived"], "degraded": False})
-        if u.path == "/query": return self.send(200, {"results": {"bindings": [{"n": {"value": str(len(S["facts"]))}}]}})
+            return self.send(200, derived_for(u.query))
+        if u.path == "/query":
+            q = urllib.parse.parse_qs(u.query)["query"][0]
+            n = len(S["tags"]) if "smartprefs/tag" in q else len(S["facts"])
+            return self.send(200, {"results": {"bindings": [{"n": {"value": str(n)}}]}})
+        if u.path == "/__jobs": return self.send(200, {"live": list(S["jobs"]), "posted_delivery": S["posted_delivery"], "deleted": S["deleted"]})
+        m = re.match(r"/api/cron/(\w+)$", u.path)
+        if m: return self.send(200, {"job": S["jobs"][m.group(1)]}) if m.group(1) in S["jobs"] else self.send(404, {})
         if re.match(r"/api/cron/\w+/runs", u.path): return self.send(200, {"runs": [{"status": "ok", "output": brief()}]})
         if u.path == "/__derive": derive(); return self.send(200, {})
         self.send(404, {})
@@ -106,14 +126,26 @@ class H(http.server.BaseHTTPRequestHandler):
         if u.path.endswith("/points/delete"): S["points"].clear(); return self.send(200, {})
         if u.path == "/update":
             q = raw.decode()
-            if q.startswith("INSERT DATA"):
+            if q.startswith("INSERT DATA") and "GRAPH <" not in q:
+                S["tags"] |= set(re.findall(r"<(urn:ostler-walk-fixture:smartprefs/tag/[^>]+)> <http://www.w3.org/2000/01/rdf-schema#label>", q))
+            elif q.startswith("INSERT DATA"):
                 for m in re.finditer(r"<urn:ostler:about> <([^>]+)>.*?<urn:ostler:text> \"((?:[^\"\\]|\\.)*)\"", q):
                     S["facts"].append({"about": m.group(1), "text": m.group(2)})
             if q.startswith("DROP"): S["facts"].clear()
+            if q.startswith("DELETE"): S["tags"].clear()
             return self.send(204)
-        if u.path == "/api/cron": return self.send(200, {"job": {"id": "j1"}})
+        if u.path == "/api/cron":
+            b = json.loads(raw); S["jn"] = S.get("jn", 0) + 1; jid = "j%d" % S["jn"]
+            S["posted_delivery"].append(b.get("delivery"))
+            # delivery_ignored: a gateway that drops the field and defaults to announcing
+            b["delivery"] = {"mode": "announce"} if MODE == "delivery_ignored" else b.get("delivery")
+            b["id"] = jid; S["jobs"][jid] = b
+            return self.send(200, {"job": {"id": jid}})
         self.send(404, {})
-    def do_DELETE(self): self.send(200, {})
+    def do_DELETE(self):
+        m = re.match(r"/api/cron/(\w+)$", self.path)
+        if m: S["jobs"].pop(m.group(1), None); S["deleted"].append(m.group(1))
+        self.send(200, {})
 http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PYEOF
 
@@ -191,6 +223,48 @@ start brief_bad; seed; verdicts
 echo "  -- S3b: the brief names the disliked thing: only dislike_respected_in_brief goes red"
 for n in derived_preferences_runs derived_preferences_breadth derived_preferences_dislike derived_preferences_not_others; do want "$n" PASS; done
 want dislike_respected_in_brief FAIL
+
+# ---- S2b: the brief job was created undelivered and left nothing behind -----------
+start intended; seed; verdicts
+JOBS="$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/__jobs")"
+printf '%s' "$JOBS" | /usr/bin/grep -q '"posted_delivery": \[{"mode": "none"}\]' && ok "S2b the probe POSTed delivery {mode: none} explicitly" || bad "S2b delivery not sent as none: $JOBS"
+printf '%s' "$JOBS" | /usr/bin/grep -q '"live": \[\]' && ok "S2b the job is deleted after the run" || bad "S2b a cron job was left behind: $JOBS"
+
+# ---- S8: tiers. Breadth uses the served tier; the fallback is labelled -----------
+start tiered; seed; verdicts
+echo "  -- S8a: route serves tier=broad with 10 categories: breadth PASS, via the served tier"
+want derived_preferences_breadth PASS
+printf '%s\n' "$OUT_derived_preferences_breadth" | /usr/bin/grep -q "the route served tier=broad" && ok "S8a output labels the tier source" || bad "S8a tier source not labelled"
+want derived_preferences_dislike PASS
+start tiered_few; seed; verdicts
+echo "  -- S8b: tier=broad holds only 3 categories although 10 exist overall: breadth FAIL (a category count would have passed)"
+want derived_preferences_breadth FAIL
+start fallback; seed; verdicts
+echo "  -- S8c: tier_fallback (graph predates tiers) is NOT broad: breadth FAIL naming it"
+want derived_preferences_breadth FAIL
+printf '%s\n' "$OUT_derived_preferences_breadth" | /usr/bin/grep -q "tier_fallback" && ok "S8c names tier_fallback" || bad "S8c tier_fallback not named"
+start intended; seed; verdicts
+printf '%s\n' "$OUT_derived_preferences_breadth" | /usr/bin/grep -q "NO TIER in the payload" && ok "S8d an older route falls back to the category count and SAYS so" || bad "S8d fallback not labelled"
+
+# ---- S9: a gateway that ignores the delivery field: the probe refuses ---------------
+start delivery_ignored; seed; verdicts
+echo "  -- S9: gateway stores delivery=announce: dislike_respected_in_brief is CANNOT-RUN (REFUSED) and the job is deleted"
+want dislike_respected_in_brief CANNOT-RUN
+printf '%s\n' "$OUT_dislike_respected_in_brief" | /usr/bin/grep -q "REFUSED" && ok "S9 the refusal is named" || bad "S9 no REFUSED in output"
+JOBS="$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/__jobs")"
+printf '%s' "$JOBS" | /usr/bin/grep -q '"live": \[\]' && ok "S9 the job was deleted before it could fire" || bad "S9 job left live: $JOBS"
+
+# ---- S10: a walk killed mid-wait leaves no job: the seed cleanup deletes it by id --------
+start intended; seed
+JID="$(curl -s --noproxy '*' -X POST -d '{"delivery":{"mode":"none"}}' "http://127.0.0.1:$PORT/api/cron" | sed -n 's/.*"id": "\([a-z0-9]*\)".*/\1/p')"
+[ -n "$JID" ] && ok "S10 a job exists to be orphaned ($JID)" || bad "S10 could not create the job"
+printf '{"job": "%s"}' "$JID" > "$HOME/.ostler/state/smartprefs-brief-job.json"
+SMARTPREFS_SEED_STATE=seeded
+( smart_prefs_seed_forget >/dev/null 2>&1 )
+JOBS="$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/__jobs")"
+printf '%s' "$JOBS" | /usr/bin/grep -q '"live": \[\]' && [ ! -e "$HOME/.ostler/state/smartprefs-brief-job.json" ] \
+    && ok "S10 forget deleted the recorded brief job by id and removed its marker" || bad "S10 job or marker survived forget: $JOBS"
+# and the abort trap really calls the same forget (already pinned in S7: both cleanup lists)
 
 # ---- S4: no seed => CANNOT-RUN naming it, never a pass or a silent fail ------
 start intended
