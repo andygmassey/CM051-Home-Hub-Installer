@@ -26,7 +26,7 @@ def _now_iso(now: Optional[datetime]) -> str:
 
 
 def _item(view) -> dict:
-    return {
+    d = {
         "dimension": view.dimension,
         "label": view.subject,
         "strength": round(float(view.strength), 4),
@@ -34,6 +34,10 @@ def _item(view) -> dict:
         "intensity": view.intensity,
         "because": list(view.because),
     }
+    # Only when the evidence carried a level: consumers apply their L2 handling.
+    if getattr(view, "privacy", ""):
+        d["privacy_level"] = view.privacy
+    return d
 
 
 def build_derived_preferences_response(
