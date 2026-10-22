@@ -53,6 +53,9 @@ on:
       # install.sh's heredoc, so an install.sh edit is exactly the change that
       # can break it, and a step with no path entry never fires on it.
       - 'tests/test_a_failed_import_is_not_announced_as_done.sh'
+      # Exit 5 (paused_not_pro) is a Pro refusal, not a failure: real
+      # ostler-import + real scanner, both extracted from install.sh.
+      - 'tests/test_a_pro_refusal_is_not_an_import_failure.sh'
       # #30: the loose-file table both detectors read lives in the lib.
       - 'lib/ostler-detect-exports.sh'
       - 'tests/test_loose_exports_in_downloads_are_found_and_said.sh'
@@ -113,6 +116,16 @@ jobs:
       - name: a failed import is not announced as done (#1571)
         if: always()
         run: bash tests/test_a_failed_import_is_not_announced_as_done.sh
+
+      # Exit 5 (paused_not_pro, CM052 first_import.EXIT_PAUSED_NOT_PRO) is a
+      # Pro refusal. The real ostler-import and the real scanner must show the
+      # importer's refusal words, never "could not finish" or "Done", record
+      # the export set so the refusal is not repeated every tick, and never
+      # let a refusal hide a real failure. Controls: a real failure still
+      # fails, is still announced, and is still retried. /bin/bash 3.2.
+      - name: a Pro refusal (exit 5) is not an import failure
+        if: always()
+        run: /bin/bash tests/test_a_pro_refusal_is_not_an_import_failure.sh
 
       # #30. A loose calendar.ics, emails.mbox or contacts.vcf in Downloads
       # matched nothing in the watcher, which returned 0 before writing a
