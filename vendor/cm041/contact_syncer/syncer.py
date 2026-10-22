@@ -50,6 +50,82 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 
 
+# ---------------------------------------------------------------------------
+# v1.0.111 contact photos from the local AddressBook store.
+#
+# Before this, _read_abcddb_as_vcards selected no image column, so on every
+# customer install (ostler-contact-resync forces this path) no address-book
+# photo ever reached write_photo: the walk box had no PHOTO_DIR at all.
+#
+# Where macOS keeps a contact's image is NOT measured on a real store by this
+# change (reading one needs Full Disk Access, which no agent shell holds), so
+# every known shape is tried and the per-store counter line logged by the
+# reader is the instrument: a walk reads it from contact-resync.log.
+#   1. a blob that already starts with image magic (plain inline storage);
+#   2. CoreData external-storage framing: 0x01 + bytes (inline) or
+#      0x02 + UUID (bytes in .<store>_SUPPORT/_EXTERNAL_DATA/<UUID>);
+#   3. the legacy per-store Images/<uid without ':ABPerson'> file.
+# Full image first, thumbnail second. Anything that is not an image is
+# counted and dropped; vcard_parser sniffs again and enforces its 5 MiB cap.
+# ---------------------------------------------------------------------------
+_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a")
+_EXTERNAL_REF_RE = re.compile(rb"^[0-9A-Fa-f-]{36}$")
+
+
+def _is_image(data: Optional[bytes]) -> bool:
+    return bool(data) and any(data.startswith(m) for m in _IMAGE_MAGIC)
+
+
+def _abcddb_blob_image(db_path: Any, blob: Any) -> Tuple[Optional[bytes], str]:
+    if not blob:
+        return None, ""
+    data = bytes(blob)
+    if _is_image(data):
+        return data, "inline"
+    if data[:1] == b"\x01" and _is_image(data[1:]):
+        return data[1:], "inline"
+    if data[:1] == b"\x02":
+        ref = data[1:].split(b"\x00", 1)[0].strip()
+        if _EXTERNAL_REF_RE.match(ref):
+            ext = (db_path.parent / ("." + db_path.stem + "_SUPPORT")
+                   / "_EXTERNAL_DATA" / ref.decode("ascii"))
+            try:
+                body = ext.read_bytes() if ext.is_file() else b""
+            except OSError:
+                body = b""
+            if _is_image(body):
+                return body, "external"
+    return None, "not_image"
+
+
+def _abcddb_photo_bytes(db_path: Any, row: Any, uid: str,
+                        stats: Dict[str, int]) -> Optional[bytes]:
+    seen_bad = False
+    for key in ("image", "thumb"):
+        try:
+            blob = row[key]
+        except (KeyError, IndexError):
+            blob = None
+        data, how = _abcddb_blob_image(db_path, blob)
+        if data:
+            stats[how] += 1
+            return data
+        seen_bad = seen_bad or how == "not_image"
+    if uid:
+        name = uid.split(":", 1)[0]
+        if re.match(r"^[0-9A-Za-z-]+$", name):
+            f = db_path.parent / "Images" / name
+            try:
+                body = f.read_bytes() if f.is_file() else b""
+            except OSError:
+                body = b""
+            if _is_image(body):
+                stats["images_dir"] += 1
+                return body
+    stats["not_image" if seen_bad else "none"] += 1
+    return None
+
+
 class ContactSyncer:
     """Orchestrates the full contact sync pipeline."""
 
@@ -639,6 +715,8 @@ class ContactSyncer:
 
         vcards: List[str] = []
         for db_path in db_paths:
+            photo_stats = {"inline": 0, "external": 0, "images_dir": 0,
+                           "none": 0, "not_image": 0}
             try:
                 conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                 conn.row_factory = _sqlite3.Row
@@ -682,7 +760,13 @@ class ContactSyncer:
                     _col("ZBIRTHDAYDAY", "birth_day"),
                     _col("ZBIRTHDAY", "birth_day_only"),
                     _col("Z_PK", "pk"),
+                    # v1.0.111 contact photos. Neither column is guaranteed
+                    # on every macOS build, so both go through _col (absent
+                    # -> NULL) exactly like the birthday columns above.
+                    _col("ZIMAGEDATA", "image"),
+                    _col("ZTHUMBNAILIMAGEDATA", "thumb"),
                 ])
+                photo_cols = [c for c in ("ZIMAGEDATA", "ZTHUMBNAILIMAGEDATA") if c in avail]
                 try:
                     rows = conn.execute(
                         f"SELECT {sel} FROM ZABCDRECORD"
@@ -783,10 +867,22 @@ class ContactSyncer:
                                 )
                             except (TypeError, ValueError):
                                 pass
+                    photo = _abcddb_photo_bytes(db_path, r, uid, photo_stats)
+                    if photo:
+                        # vCard 3.0 ENCODING=b, one unfolded line: the shape
+                        # vcard_parser._PHOTO_LINE_RE extracts and sniffs, so
+                        # the existing _persist_photo path writes it to
+                        # PHOTO_DIR and foaf:img / profile_photo_path follow.
+                        lines.append(
+                            "PHOTO;ENCODING=b:" + base64.b64encode(photo).decode("ascii"))
                     if uid:
                         lines.append(f"UID:{uid}")
                     lines.append("END:VCARD")
                     vcards.append("\n".join(lines))
+                logger.warning(
+                    "abcddb photos in %s: columns=%s %s", db_path.parent.name or "top",
+                    ",".join(photo_cols) or "none",
+                    " ".join(f"{k}={v}" for k, v in sorted(photo_stats.items())))
             except Exception as exc:
                 logger.warning("Failed to read contacts from %s: %s", db_path, exc)
             finally:

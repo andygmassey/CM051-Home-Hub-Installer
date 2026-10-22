@@ -279,3 +279,39 @@ Location only: a bare handle (no separator) now returns `"@" + handle`
 instead of the handle itself, so a handle is never stored as a person's name
 (walk #27 shape sweep S9 row 3). Same edit in the shipped `contact_syncer/`
 copy. Hand-grafted; the tree is `regenerate_forbidden`.
+
+## Added 2026-10-19, CM051 v1.0.111: Apple Contacts photos on the abcddb path
+
+`vendor/cm041/contact_syncer/syncer.py`, hand-grafted (this tree is
+`regenerate_forbidden`, so the patch cannot record it). `_read_abcddb_as_vcards`
+is itself a CM051-side divergence with no CM041 counterpart, so there is no
+upstream commit to graft from.
+
+- `_read_abcddb_as_vcards` now selects `ZIMAGEDATA` and `ZTHUMBNAILIMAGEDATA`
+  through the existing `_col` (absent column -> NULL). It also emits
+  `PHOTO;ENCODING=b:<base64>` on the synthesised card, so the existing
+  `vcard_parser` -> `_persist_photo` -> `write_photo` path writes PHOTO_DIR
+  and `foaf:img` / `profile_photo_path` follow. It logs one counter line per
+  store: `abcddb photos in <store>: columns=... external= images_dir= inline=
+  none= not_image=`.
+- New module-level helpers `_is_image`, `_abcddb_blob_image` and
+  `_abcddb_photo_bytes` try every known storage shape:
+  - a raw image blob;
+  - CoreData framing, `0x01` inline or `0x02` + UUID into
+    `.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/`;
+  - the per-store `Images/<uid>` file.
+
+WHY: before this the abcddb reader selected no image column, so no customer
+install ever wrote a contact photo. The walk box had no PHOTO_DIR on
+2026-10-19.
+
+NOT GRAFTED into the repo-root dev twin `./contact_syncer/syncer.py`, which is
+not what `gui/project.yml` bundles. The walk box's installed `syncer.py` is
+byte-identical to the vendored copy (sha256 measured 2026-10-19).
+
+### What a future sync must preserve
+
+The two `_col` entries, the PHOTO line, the counter line and the three helpers.
+Guarded by `tests/test_address_book_photos_reach_photo_dir.py`. Which storage
+shape a real Mac uses is NOT INSTRUMENTED until a walk reads the counter line
+from `contact-resync.log`.

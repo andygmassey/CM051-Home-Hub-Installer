@@ -23,7 +23,10 @@
 #
 # Nothing here writes a triple or a vector by hand (#3072 r1 did, and graded a
 # vacuous pass). The outcome is written to ~/.walk-contact-cards-seed-run so a
-# CANNOT-RUN can be told from a seed that never applied.
+# CANNOT-RUN can be told from a seed that never applied. On "seeded" the BOX clock's
+# epoch is also written to ~/.walk-contact-cards-seed-ts on the box: the duplicate-
+# review probe waits for the Hub's cached /api/v1/contacts/diff report to be built
+# after it (same clock as the report's as_of), else it is CANNOT-RUN (stale).
 
 _ccs_box() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
@@ -33,6 +36,11 @@ _ccs_box() {
     fi
 }
 
+# PYTHONPATH=$PIPE (v1.0.116 walk34, failed-guard): the fixture runs BY PATH from
+# $D, so python puts $D on sys.path, not the cwd, and "from contact_syncer.syncer"
+# raised ModuleNotFoundError (guard.err, shown in the forget step). Not TCC, not
+# Contacts: the seed never touches the Contacts database, it feeds a synthetic vcf.
+#
 # Box-side prelude: paths, and the fixture staged from this repo. The pipeline
 # venv (contact_syncer) and the email-ingest venv (ostler_fda) are the two the
 # installer itself uses for these steps (install.sh _HYDRATE_PIPELINE_PY and
@@ -45,14 +53,16 @@ _ccs_prelude() {
 PY=\$PIPE/.venv/bin/python; FDAPY=\$O/services/email-ingest/.venv/bin/python
 OXI=\${OXIGRAPH_URL:-http://localhost:7878}
 mkdir -p \$D && printf %s '$(base64 < "${here}/contact_cards_fixture.py" | tr -d '\n')' | base64 -d > \$D/contact_cards_fixture.py || { echo failed-stage; exit 0; }
-[ -x \$PY ] || { echo failed-no-pipeline-venv; exit 0; }"
+[ -x \$PY ] || { echo failed-no-pipeline-venv; exit 0; }
+export PYTHONPATH=\$PIPE\${PYTHONPATH:+:\$PYTHONPATH}"
 }
 
 _ccs_apply_script() {
     printf '%s\n' "$(_ccs_prelude)
+rm -f \$HOME/.walk-contact-cards-seed-ts
 cd \$PIPE || { echo failed-no-pipeline-dir; exit 0; }
 real=\$(\$PY \$D/contact_cards_fixture.py guard 2>\$D/guard.err | tail -n 1)
-case \"\$real\" in ''|*[!0-9]*) echo failed-guard; exit 0 ;; 0) : ;; *) echo skipped-real-contacts; exit 0 ;; esac
+case \"\$real\" in ''|*[!0-9]*) cat \$D/guard.err >&2; echo failed-guard; exit 0 ;; 0) : ;; *) echo skipped-real-contacts; exit 0 ;; esac
 \$PY \$D/contact_cards_fixture.py stage \$D >/dev/null || { echo failed-stage-cards; exit 0; }
 j=\$(\$PY -m contact_syncer.syncer --vcf \$D/cards.vcf --graph-endpoint \"\$OXI\" 2>\$D/syncer.log | tail -n 1)
 n=\$(printf %s \"\$j\" | /usr/bin/python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get(\"imported\", -1)))')
@@ -64,7 +74,9 @@ r = pwg_ingest.ingest_imessage(Path(sys.argv[1])); m = dedupe_merge.run()
 q = pwg_ingest.ingest_people_to_qdrant()
 print(json.dumps({\"ingest\": r.get(\"status\"), \"merge\": m, \"vectors\": q.get(\"status\")}))' \$D >\$D/ingest.log 2>&1 || { echo failed-ingest-or-merge; exit 0; }
 cd \$PIPE && \$PY -m identity_resolver.repair_merge_consistency --oxigraph-url \"\$OXI\" --qdrant-url \"\${QDRANT_URL:-http://localhost:6333}\" --backup-dir \$D/backups --apply >\$D/repair.log 2>&1 || { cat \$D/repair.log >&2; echo failed-merge-consistency-repair; exit 0; }
-\$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1"
+v=\$(\$PY \$D/contact_cards_fixture.py verify 2>\$D/verify.err | tail -n 1)
+case \"\$v\" in seeded) date +%s > \$HOME/.walk-contact-cards-seed-ts ;; esac
+echo \"\$v\""
 }
 
 _ccs_stage_and_run() {
