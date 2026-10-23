@@ -104,10 +104,10 @@ EOF
     cat > "$b/stub/ssh" <<EOF
 #!/bin/bash
 body="\${@: -1}"
-HOME="$b/home" PATH="$b/stub:/usr/bin:/bin" exec "\$REMOTE_SHELL" -c "\$body"
+HOME="$b/fakehome" PATH="$b/stub:/usr/bin:/bin" exec "\$REMOTE_SHELL" -c "\$body"
 EOF
     chmod +x "$b/stub/ssh"
-    mkdir -p "$b/home"
+    mkdir -p "$b/fakehome"
 }
 
 run_reset() {  # $1 box, $2 shell -> prints output, returns rc
@@ -129,19 +129,19 @@ EOF
 
 box_walk() {  # the v1.0.117 box
     local b="$1"; mkstubs "$b"
-    mkdir -p "$b/home/.ostler/bin"
+    mkdir -p "$b/fakehome/.ostler/bin"
     printf 'com.ostler.engine-supervisor\ncom.creativemachines.ostler.assistant\ncom.creativemachines.ostler.wiki-recompile-catchup\n' > "$b/loaded"
     : > "$b/colima_running"
     # A fake uninstaller that, like the real one, unloads only what it knows.
     # It deliberately MISSES the assistant, so the bootout backstop is tested
     # too, not only the uninstaller.
-    cat > "$b/home/.ostler/bin/ostler-uninstall" <<EOF
+    cat > "$b/fakehome/.ostler/bin/ostler-uninstall" <<EOF
 #!/bin/bash
 echo "FAKE_UNINSTALLER_RAN assume_yes=\${OSTLER_UNINSTALL_ASSUME_YES:-}"
 launchctl bootout "gui/\$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" || true
 exit 0
 EOF
-    chmod +x "$b/home/.ostler/bin/ostler-uninstall"
+    chmod +x "$b/fakehome/.ostler/bin/ostler-uninstall"
 }
 
 for sh in "${SHELLS[@]}"; do
