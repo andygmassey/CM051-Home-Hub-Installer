@@ -186,6 +186,20 @@ for sh in "${SHELLS[@]}"; do
         bad "[$tag] OTHER ACCOUNT: rc=$rc; a listener invisible to lsof was read as a free port"
     fi
 
+    # ── STALE JOBS, NO UNINSTALLER (the v1.0.116 wiki-recompile evidence) ──
+    # The 117 walk box logged "wiki-recompile-tick.sh: No such file or
+    # directory" from ~/.ostler/logs/wiki-recompile.err: the previous build's
+    # wiki-recompile job was still loaded and fired after its script was gone.
+    # With no uninstaller to unload it, the bootout sweep must.
+    b="$WORK/stale.$tag"; mkstubs "$b"
+    printf 'com.creativemachines.ostler.wiki-recompile\ncom.ostler.fda-rerun\n' > "$b/loaded"
+    rc="$(run_reset "$b" "$sh")"
+    if [ "$rc" -eq 0 ] && [ ! -s "$b/loaded" ] && grep -q CONTINUED-TO-STAGE "$b/out"; then
+        ok "[$tag] STALE JOBS: with no uninstaller, the leftover wiki-recompile and fda-rerun jobs are booted out"
+    else
+        bad "[$tag] STALE JOBS: rc=$rc, still loaded: $(tr '\n' ' ' < "$b/loaded")"
+    fi
+
     # ── CONTROL ───────────────────────────────────────────────────────────
     b="$WORK/clean.$tag"; mkstubs "$b"; : > "$b/loaded"
     rc="$(run_reset "$b" "$sh")"
