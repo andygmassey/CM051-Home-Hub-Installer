@@ -319,6 +319,9 @@ final class InstallerCoordinator: ObservableObject {
         // did arrive the run still REACHED THE END; we simply did not
         // measure it, which is not a failure transition.
         case .some(.unmeasured): return .success
+        // v1.0.118: step-level only, like timeout. A run whose step handed
+        // work to a background job still reached the end.
+        case .some(.pending): return .success
         case .some(.error): return .failed(step: currentStepId)
         case .some(.fail): return .failed(step: currentStepId)
         }
@@ -2161,7 +2164,7 @@ final class InstallerCoordinator: ObservableObject {
         case .fail, .error:
             // install.sh already told us it failed. Honour it.
             return .confirmedFailure
-        case .timeout, .warn, .unmeasured:
+        case .timeout, .warn, .unmeasured, .pending:
             // A terminal `warn` finish is treated as a (non-fatal)
             // completion; require a clean exit to call it success.
             // #2318 puts `unmeasured` here for the same reason: the run

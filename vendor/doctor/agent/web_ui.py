@@ -71,6 +71,7 @@ from dashboard_components import (
 # in its own vendor-only module (CM051 probes a layout HR015 Doctor has
 # no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from documents_access_posture import render_documents_access_posture
+from web_search_status import render_web_search_status, retry_web_search
 # "What you like" status row (smart-prefs): is the preference-derivation agent
 # scheduled, when did it last run, how many tastes did it leave in the derived
 # graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
@@ -1601,6 +1602,12 @@ def render_dashboard(
     # Reminders runtime tile does, because the probe is live.
     documents_access_section = render_documents_access_posture()
 
+    # Local web search readiness (v1.0.118 W5): the Vane image downloads in
+    # the background after the install, so "not there yet" is a normal state
+    # with a Retry, not a silently missing tool. Empty string on an install
+    # from before the background fetcher existed.
+    web_search_section = render_web_search_status()
+
     # Reminders runtime push outcome (task #279, runtime half): reads
     # CM048's reminders_map SQLite table for what actually happened when
     # the assistant pushed extracted commitments to the Reminders app.
@@ -2184,6 +2191,8 @@ def render_dashboard(
         {reminders_section}
 
         {documents_access_section}
+
+        {web_search_section}
 
         {reminders_runtime_section}
 
@@ -4462,6 +4471,21 @@ async def api_reminders_turn_on(request: Request):
     from reminders_runtime import turn_reminders_back_on
 
     result = turn_reminders_back_on()
+    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
+
+
+@app.post("/api/v1/web-search/retry", response_class=JSONResponse)
+async def api_web_search_retry(request: Request):
+    """Retry the background web search download now (v1.0.118 W5).
+
+    Same guard as the other Doctor actions: Hub-local Host AND no cross-site
+    origin. Leaves an attempt that is already downloading alone; otherwise
+    kickstarts the com.ostler.vane-fetch LaunchAgent.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    result = retry_web_search()
     return JSONResponse(result, status_code=200 if result.get("ok") else 500)
 
 

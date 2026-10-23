@@ -1,0 +1,63 @@
+# Local web search (Vane) downloads in the BACKGROUND after the install
+# (v1.0.118, W5 + W8).
+#
+# v1.0.117 walks: the in-install pull blocked one install for 6515 s, and on a
+# console install it died with a short read at 40 MiB while the step closed
+# unmeasured and the install reported DONE with 0 failed steps. The pull now
+# runs from the com.ostler.vane-fetch LaunchAgent with bounded retry, the step
+# closes `pending`, the summary and the Doctor say "getting ready", and the
+# walk probes read CANNOT-RUN (pending) rather than pass or fail.
+#
+# These checks drive the shipped bytes: the fetcher is cut out of install.sh,
+# the vane_install step, health check and summary are cut out of install.sh
+# and run with the real progress emitter, and the Doctor tile and Retry route
+# are the real vendored modules. Each one fails against origin/main before
+# this change.
+#
+# macOS runner on purpose: the fetcher and the install run under /bin/bash
+# 3.2, and the plist is linted with plutil. WHOLE-REPO TRIGGER, like
+# consent-data-handling: the inputs span install.sh, lib/, the Doctor and the
+# probes, and a partial path list goes silently incomplete.
+name: vane-background-fetch
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  background-fetch:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies the real web_ui.py module imports
+        run: python3 -m pip install --quiet fastapi httpx
+      - name: the background fetcher retries a short read until the image lands, and stays bounded when it never does
+        if: always()
+        run: /bin/bash tests/test_vane_fetch_retries_until_pulled.sh
+      - name: the install does not wait for the Vane download, closes the step pending and says getting ready
+        if: always()
+        run: /bin/bash tests/test_vane_install_does_not_block.sh
+      - name: the Doctor shows web search not ready yet with a Retry that kicks the agent
+        if: always()
+        run: python3 tests/test_vane_background_fetch_doctor_row.py -v
+      - name: walk probes - the background fetch probe and the store-port probe self-tests go red as designed
+        if: always()
+        run: |
+          set -uo pipefail
+          for p in vane_background_fetch_settles no_store_port_is_tcp_reachable; do
+            out="$(bash "scripts/box_walk_probes/probes/${p}.sh" --self-test 2>&1)"
+            printf '%s\n' "$out" | tail -n 2
+            grep -q '^VERDICT: FAIL -- NEGATIVE CONTROL DEMONSTRATED' <<<"$out" || { echo "::error::${p} self-test did not demonstrate its negative control"; exit 1; }
+          done

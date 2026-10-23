@@ -41,6 +41,10 @@
 #               so this marker is informational only; installs
 #               without GUI handling silently ignore it.
 #   DONE        status=ok|fail   failed_steps=<n>  unmeasured_steps=<n>  failed_steps=<n>
+#               pending_steps=<n>
+#               `pending_steps` counts steps that handed their work to a
+#               background job which had NOT finished when the install did
+#               (status=pending on their STEP_END; see gui_step_mark_pending).
 #               `failed_steps` is ALWAYS present and counts the steps
 #               that ended with a status other than ok. It is printed
 #               even when it is zero, so a reader can tell "no step
@@ -153,7 +157,7 @@ _ostler_marker_field_is_public() {
             return 0
             ;;
         # Machine numerics.
-        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|unmeasured_steps|errors|total_permissions)
+        pct|idx|total|phase|elapsed_s|rc|count|failed_steps|unmeasured_steps|pending_steps|errors|total_permissions)
             return 0
             ;;
         # Operator narrative -- see "WHAT IS DELIBERATELY NOT REDACTED".
@@ -372,6 +376,15 @@ __OSTLER_FAILED_STEP_IDS=""
 # cannot be told apart from a build too old to report one.
 __OSTLER_UNMEASURED_STEPS=0
 __OSTLER_UNMEASURED_STEP_IDS=""
+# Count of steps closed `pending`, and their ids (v1.0.118 W5). A step is
+# pending when its work was handed to a background job that had not finished
+# by the time the step closed: the Vane download is the first. NOT a failure
+# (the install did its part, and the closing verdict must not tell a customer
+# on a slow link that their install failed) and NOT ok or unmeasured either
+# (the thing the step exists for is not there yet). It is the one state that
+# says so, and the summary reads it to print "getting ready".
+__OSTLER_PENDING_STEPS=0
+__OSTLER_PENDING_STEP_IDS=""
 
 # Message-level error counter. Companion to __OSTLER_FAILED_STEPS, and a
 # DIFFERENT question: that one counts steps that ended badly, this one counts
@@ -421,7 +434,7 @@ gui_step_record_rc() {
     if [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
         # timeout must not overwrite an already-recorded error, but it
         # must overwrite the absence of a measurement.
-        if [[ "$__OSTLER_STEP_STATUS" == "ok" || "$__OSTLER_STEP_STATUS" == "unmeasured" ]]; then
+        if [[ "$__OSTLER_STEP_STATUS" == "ok" || "$__OSTLER_STEP_STATUS" == "unmeasured" || "$__OSTLER_STEP_STATUS" == "pending" ]]; then
             __OSTLER_STEP_STATUS="timeout"
             __OSTLER_STEP_RC="$rc"
         fi
@@ -484,6 +497,22 @@ gui_step_measures_nothing() {
     return 0
 }
 
+# gui_step_mark_pending
+#
+# The open step handed its work to a background job that is still running.
+# Moves the step from unmeasured or ok to `pending`, and ONLY from those: a
+# recorded error or timeout outranks it, because "something failed, and also
+# a job is still going" is a failure. It is a measurement (the caller looked
+# and the work is not done), so measured=rc.
+gui_step_mark_pending() {
+    if [[ "$__OSTLER_STEP_STATUS" == "unmeasured" || "$__OSTLER_STEP_STATUS" == "ok" ]]; then
+        __OSTLER_STEP_STATUS="pending"
+        __OSTLER_STEP_RC=0
+        __OSTLER_STEP_MEASURED="rc"
+    fi
+    return 0
+}
+
 gui_step_begin() {
     # gui_step_begin <id> <title> [phase] [idx] [total]
     local id="$1" title="$2" phase="${3:-}" idx="${4:-}" total="${5:-}"
@@ -520,7 +549,7 @@ gui_step_end() {
     # looked". Both directions of laundering are refused: an argument may
     # escalate to a measured problem, never demote to a success and never
     # demote to the absence of a measurement.
-    if [[ -n "$requested" && "$requested" != "ok" && "$requested" != "unmeasured" ]]; then
+    if [[ -n "$requested" && "$requested" != "ok" && "$requested" != "unmeasured" && "$requested" != "pending" ]]; then
         status="$requested"
         # An escalation IS a measurement: the caller looked and decided.
         # #2313's `gui_step_end warn` for "ran but stored nothing" is
@@ -543,6 +572,14 @@ gui_step_end() {
         # The one thing it may not do is claim success.
         __OSTLER_UNMEASURED_STEPS=$(( __OSTLER_UNMEASURED_STEPS + 1 ))
         __OSTLER_UNMEASURED_STEP_IDS="${__OSTLER_UNMEASURED_STEP_IDS:+${__OSTLER_UNMEASURED_STEP_IDS} }${id}"
+        gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
+                          "measured=${measured}"
+    elif [[ "$status" == "pending" ]]; then
+        # Not failed, not unmeasured: a background job still owns the work.
+        # Counted on its own so the closing verdict can say "getting ready"
+        # without either calling the install failed or calling it complete.
+        __OSTLER_PENDING_STEPS=$(( __OSTLER_PENDING_STEPS + 1 ))
+        __OSTLER_PENDING_STEP_IDS="${__OSTLER_PENDING_STEP_IDS:+${__OSTLER_PENDING_STEP_IDS} }${id}"
         gui_emit STEP_END "id=$id" "status=$status" "elapsed_s=$elapsed" \
                           "measured=${measured}"
     elif [[ "$status" == "ok" ]]; then
@@ -908,11 +945,13 @@ gui_done() {
         gui_emit DONE "status=$status" "code=${OSTLER_LAST_ERROR_CODE}" \
                       "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
                       "unmeasured_steps=${__OSTLER_UNMEASURED_STEPS:-0}" \
+                      "pending_steps=${__OSTLER_PENDING_STEPS:-0}" \
                       "errors=${__OSTLER_ERROR_LINES:-0}"
     else
         gui_emit DONE "status=$status" \
                       "failed_steps=${__OSTLER_FAILED_STEPS:-0}" \
                       "unmeasured_steps=${__OSTLER_UNMEASURED_STEPS:-0}" \
+                      "pending_steps=${__OSTLER_PENDING_STEPS:-0}" \
                       "errors=${__OSTLER_ERROR_LINES:-0}"
     fi
 }

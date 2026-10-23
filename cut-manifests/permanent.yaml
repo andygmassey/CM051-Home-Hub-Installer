@@ -1278,6 +1278,17 @@ entries:
     proof:
       kind: box_walk_probe
       probe: doctor_page_renders_for_a_customer
+  - id: box-walk-vane-background-fetch-settles
+    title: "local web search finished downloading in the background, or the background download is alive and says why"
+    incident: >-
+      v1.0.117 console walk: the in-install Vane pull died at 40 MiB with a
+      short read, the step closed unmeasured, and the install said DONE with
+      0 failed steps while web search was missing. v1.0.118 moves the pull to
+      a background LaunchAgent; this probe keeps it from shipping dark.
+    proof:
+      kind: box_walk_probe
+      probe: "vane_background_fetch_settles"
+
   - id: box-walk-no-store-port-is-tcp-reachable
     title: no Ostler store or UI port accepts a TCP connection, so no second account can read the graph
     incident: >-

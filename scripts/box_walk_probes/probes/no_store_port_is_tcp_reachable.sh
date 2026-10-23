@@ -612,6 +612,7 @@ _resolve_credential_paths() {   # $1 the box's $HOME
     WIKI_PASSWORD_FILE="${OSTLER_PROBE_WIKI_PASSWORD_FILE:-$1/.ostler/secrets/wiki_password}"
     VANE_PASSWORD_FILE="${OSTLER_PROBE_VANE_PASSWORD_FILE:-$1/.ostler/secrets/vane_password}"
     REDIS_ENV_FILE="${OSTLER_PROBE_REDIS_ENV_FILE:-$1/.ostler/.env}"
+    VANE_FETCH_STATE_FILE="${OSTLER_PROBE_VANE_FETCH_STATE_FILE:-$1/.ostler/state/vane-fetch.json}"
     WIKI_GATE_CONF="${OSTLER_PROBE_WIKI_GATE_CONF:-$1/ostler-wiki-gate.conf}"
     case "$WIKI_GATE_CONF" in "$1/ostler-wiki-gate.conf") WIKI_GATE_CONF="$1/.ostler/ostler-wiki-gate.conf" ;; esac
 }
@@ -761,6 +762,33 @@ _forge_value_for() {   # $1 kind
 #      we could not ask has NOT passed.
 #   4. PASS only when every port was measured and every one behaved on BOTH
 #      arms.
+# ── 3000 WHILE WEB SEARCH IS STILL DOWNLOADING (v1.0.118 W5) ─────────────
+#
+# Vane now downloads in the BACKGROUND after the install (3.4 GB; close to two
+# hours on a slow link). Until it is up, the store-proxy still refuses an
+# uncredentialled request on 3000 (auth_basic runs before the upstream, so arm
+# 1 is graded exactly as before and a leak there still FAILS), but the
+# install's own credential gets a 502 from a proxy with no upstream. That is
+# not a lock-out and not a pass: the surface the credential is for does not
+# exist YET. So arm 2's reading on 3000 is labelled `pending` and lands in the
+# unmeasurable class, which makes the verdict CANNOT-RUN (pending) unless a
+# sibling FAILS. It is never folded into PASS.
+#
+#   _vane_pending_label <fetch-state>   -> "pending:<state>" | "" (not pending)
+# The fetch state is read from the fetcher's own state file on the box. A
+# `ready` state is NOT pending (a 502 then is a real defect and stays
+# unmeasurable with no excuse), and an unreadable state is not pending either:
+# "could not read why" must not borrow the pending label.
+_vane_pending_label() {
+    case "${1:-}" in
+        deferred|starting|pulling|retrying|waiting) printf 'pending:%s\n' "$1" ;;
+        *) printf '\n' ;;
+    esac
+}
+_vane_fetch_state_on_box() {
+    box_run "sed -n 's/.*\"state\":\"\([a-z]*\)\".*/\1/p' '${VANE_FETCH_STATE_FILE}' 2>/dev/null | head -n 1"
+}
+
 classify() {
     _c="$1"; _listening="$2"; _readable="$3"; _locked="$4"; _unmeasured="$5"
     case "$_c" in ''|*[!0-9]*) printf 'CANNOT_RUN\n'; return ;; esac
@@ -773,7 +801,7 @@ classify() {
 }
 
 run_probe() {
-    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""; forged_list=""
+    n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""; forged_list=""; pending_list=""
 
     c_state="$(port_state "$CONTROL_PORT")"
     case "$c_state" in open) c=1 ;; closed) c=0 ;; *) c="" ;; esac
@@ -874,7 +902,18 @@ run_probe() {
         case "$v2" in
             readable) served_list="${served_list} ${p}" ;;
             refused)  locked_list="${locked_list} ${p}(${r2% *})" ;;
-            *)        unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading})" ;;
+            *)
+                _pend=""
+                if [ "$kind" = vane ]; then
+                    _pend="$(_vane_pending_label "$(_vane_fetch_state_on_box)")"
+                fi
+                if [ -n "$_pend" ]; then
+                    pending_list="${pending_list} ${p}(${_pend})"
+                    unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading},${_pend})"
+                else
+                    unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading})"
+                fi
+                ;;
         esac
     done
 
@@ -899,6 +938,9 @@ run_probe() {
             probe_pass "none of the ${n_checked} store/UI surfaces served an uncredentialled request, and every surface that refused one served the install's own credential, read on the box:${served_list:- none}.${notserving_list:+ Not serving at all, which leaks nothing and is NOT a liveness verdict (fail-closed by design, or down; a separate probe answers that):${notserving_list}.}${MUST_NOT_LISTEN:+ The ${MUST_NOT_LISTEN} class refused a connection outright.} ${forged_list:+ Arm 1b satisfied the client-authored pre-auth gate on${forged_list} with NO credential and was still refused, so 8144-shaped surfaces are graded by their credential and not by a header the caller writes.} ${CONTROL_PORT} was confirmed open in the same run, so this is a measured result and not a blind probe. WHICH mechanism gated each surface is NOT asserted here -- read the per-port table in this file"
             ;;
         *)
+            if [ -n "$pending_list" ]; then
+                probe_cannot_run "pending: local web search is still downloading in the background, so the install's own credential cannot be graded on${pending_list} until it is ready (the fetcher's state file says so; arm 1, no credential, WAS graded there and refused). Not a pass. Rest of the run: served-with-credential='${served_list}' unmeasurable='${unmeasured_list}'."
+            fi
             probe_cannot_run "adjudication was inconclusive for control='${c}' listening='${listening_list}' served-without-credential='${readable_list}' refused-the-credential='${locked_list}' unmeasurable='${unmeasured_list}'. A surface that could not be asked, on either arm, has NOT passed."
             ;;
     esac
@@ -1111,6 +1153,21 @@ self_test() {
     # when the line executes, whatever the line looks like. A case added in any
     # shape counts itself by running; a case deleted stops counting by not
     # running. There is no pattern left to be wrong.
+    # ── v1.0.118: 3000 while web search downloads in the background ──────
+    # Every not-yet-ready fetch state labels the reading pending; `ready` and
+    # an unreadable state do NOT (a 502 with Vane claimed ready is a defect,
+    # and "could not read why" must not borrow the excuse).
+    for _vs in deferred starting pulling retrying waiting; do
+        _st_tick; [ "$(_vane_pending_label "$_vs")" = "pending:${_vs}" ] || fails="${fails} vane-${_vs}-not-pending"
+    done
+    _st_tick; [ -z "$(_vane_pending_label ready)" ] || fails="${fails} vane-ready-read-as-pending"
+    _st_tick; [ -z "$(_vane_pending_label '')" ]    || fails="${fails} vane-unreadable-state-read-as-pending"
+    _st_tick; [ -z "$(_vane_pending_label bogus)" ] || fails="${fails} vane-unknown-state-read-as-pending"
+    # A pending surface is unmeasurable: CANNOT_RUN, never PASS, and a
+    # sibling's FAIL still outranks it.
+    _st_tick; [ "$(classify 1 '' '' '' ' 3000(with-credential:502 0,pending:pulling)')" = "CANNOT_RUN" ] || fails="${fails} vane-pending-read-as-PASS"
+    _st_tick; [ "$(classify 1 '' ' 7878(200)' '' ' 3000(with-credential:502 0,pending:pulling)')" = "FAIL" ] || fails="${fails} fail-hidden-behind-vane-pending"
+
     _st_cases="$_st_n"
     if [ "${_st_cases:-0}" -lt 1 ]; then
         # With a runtime counter a zero can mean only one thing: not a single

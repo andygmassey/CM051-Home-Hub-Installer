@@ -112,7 +112,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// somebody has to look at, rather than a thing nobody owns.
     func testNoStatusGlyphCollidesWithAnUnfinishedStep() {
         let pendingSymbol = "circle"          // SidebarView: not started
-        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured]
+        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured, .pending]
 
         for status in all {
             let glyph = StepStatusGlyph.forStatus(status)
@@ -155,7 +155,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
     }
 
     func testEveryStatusMapsToADistinctSeverityBucketWhereIntended() {
-        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured]
+        let all: [StepStatus] = [.ok, .timeout, .warn, .error, .fail, .unmeasured, .pending]
         let glyphs = all.map { StepStatusGlyph.forStatus($0) }
 
         // warn and error intentionally share; everything else is unique.
@@ -182,6 +182,14 @@ final class SidebarStatusGlyphTests: XCTestCase {
         let symbols = Set(glyphs.map { $0.symbolName })
         XCTAssertEqual(symbols.count, 4,
                        "expected four distinct glyphs: ok+unmeasured share, warn+error share")
+
+        // v1.0.118: `pending` (still downloading in the background) shares
+        // timeout's informational clock. Not the tick: it is not done.
+        XCTAssertEqual(StepStatusGlyph.forStatus(.pending).symbolName,
+                       StepStatusGlyph.forStatus(.timeout).symbolName)
+        XCTAssertNotEqual(StepStatusGlyph.forStatus(.pending).symbolName,
+                          StepStatusGlyph.forStatus(.ok).symbolName,
+                          "a step still downloading in the background must not read as done")
 
         // THE CUSTOMER-FACING RULE, stated positively.
         XCTAssertEqual(StepStatusGlyph.forStatus(.unmeasured).symbolName,
@@ -246,7 +254,7 @@ final class SidebarStatusGlyphTests: XCTestCase {
     /// one renders the raw dotted key to VoiceOver at runtime.
     func testAccessibilityKeysResolveInTheCatalogue() throws {
         let sidebar = try sidebarCopy()
-        for status in [StepStatus.ok, .timeout, .warn, .error, .fail, .unmeasured] {
+        for status in [StepStatus.ok, .timeout, .warn, .error, .fail, .unmeasured, .pending] {
             let key = StepStatusGlyph.forStatus(status).accessibilityCopyKey
             // "sidebar.status_ok" -> "status_ok"
             let leaf = String(key.split(separator: ".").last ?? "")
