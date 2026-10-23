@@ -62,8 +62,11 @@ rm -rf "${WORK}/h"; mkdir -p "${WORK}/h"
 out_none="$(HOME="${WORK}/h" bash "${WORK}/blk" 2>&1)"
 grep -q 'This reset did NOT uninstall' <<< "$out_none" && r=0 || r=1
 chk "no uninstaller found -> the run says it did NOT uninstall" "$r"
-grep -q 'CARRIED OVER' <<< "$out_none" && r=0 || r=1
-chk "no uninstaller found -> it names the consequence for the stores" "$r"
+# v1.0.117 W4: the consequence is no longer "carried over". The reset deletes
+# the colima VM with its data disk below, so it must say the stores are still
+# removed, and must NOT claim they were kept (the old claim became a lie).
+grep -q 'still removed below, by colima delete --data' <<< "$out_none" && ! grep -q 'CARRIED OVER' <<< "$out_none" && r=0 || r=1
+chk "no uninstaller found -> it says the stores are still removed by colima delete --data, never carried over" "$r"
 
 # BEHAVIOUR: an uninstaller present -> it runs, and the warning does NOT fire.
 rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler"

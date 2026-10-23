@@ -40,7 +40,11 @@ WORK="$(mktemp -d)"
 MARK="${WORK}/remote_work_marker"
 cleanup() {
     pkill -9 -f "$MARK" 2>/dev/null
-    rm -f /tmp/ostler-walk-pg.early*p"$$"* 2>/dev/null
+    # The tag is the PASS's (early<epoch>p<its pid>), printed in its cleanup
+    # line, not this test's $$. Remove only pidfiles under tags this test saw.
+    for _t in $(grep -ho 'tag early[0-9]*p[0-9]*' "$WORK"/out* 2>/dev/null | sed 's/^tag //' | sort -u); do
+        rm -f /tmp/ostler-walk-pg."$_t".* 2>/dev/null
+    done
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -82,6 +86,7 @@ run_pass() {  # $1 = budget -> output in $WORK/out
         /bin/bash "$EP" --host fake@walkbox.invalid --walks-dir "$WORK/walks" \
         --prev-record "$WORK/walks/v1.0.117-20261022T100000Z.tsv" \
         --runner "$WORK/runner/run_box_walk.sh" > "$WORK/out" 2>&1
+    grep -o 'tag early[0-9]*p[0-9]*' "$WORK/out" >> "$WORK/out.tags" 2>/dev/null
 }
 
 remote_alive() { pgrep -f "$MARK" >/dev/null 2>&1; }
