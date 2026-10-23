@@ -20,6 +20,9 @@ on:
       - 'vendor/cm048_pipeline/src/reply_debt.py'
       - 'vendor/cm048_pipeline/src/reply_debt_adapters.py'
       - 'vendor/cm048_pipeline/src/reply_debt_service.py'
+      - 'vendor/cm048_pipeline/src/handle_identity.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_reply_debt_names_people_p13.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/imessage_source/**'
       - 'vendor/cm059_editor/compiler/signals.py'
@@ -77,3 +80,18 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_doctor_never_opens_chat_db.py -v -rs
+      # P13 (v1.0.118 MUST): the brief said "Waiting on a reply from you" and
+      # listed raw numbers, one the owner's own. Through the real ical-server
+      # with the People graph served over HTTP: Contacts names, the owner and
+      # short codes dropped and counted, no digit run in the brief line.
+      - name: Reply debt names people, never the owner, never digits
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_reply_debt_names_people_p13.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_reply_debt_names_people_p13.py -v -rs
