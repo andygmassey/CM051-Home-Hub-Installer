@@ -63,7 +63,7 @@ except ImportError as exc:
 
 EnrichmentService = enricher_module.EnrichmentService
 EnrichmentStats = enricher_module.EnrichmentStats
-SUBJECT = "A Book Sam Doe Wrote For Jane Smith"
+SUBJECT = "notes for Jane Smith from Sam Doe"
 FAILS = []
 
 
