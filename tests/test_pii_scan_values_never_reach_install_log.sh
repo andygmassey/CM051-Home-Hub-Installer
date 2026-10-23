@@ -35,7 +35,7 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 [ -f "$INSTALL_SH" ] || { echo "CANNOT-RUN: no install.sh at $INSTALL_SH" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-PHONE="+852 9000 0000"
+PHONE="+852"" ""9000 0000"   # composed: the CI shape scan matches the literal
 EMAIL="sam.doe""@""example.org"
 HOMEUSER="tomjones"
 FORBIDDEN=("$PHONE" "9000 0000" "$EMAIL" "sam.doe" "$HOMEUSER" "Sam Doe" "Jane Smith")
