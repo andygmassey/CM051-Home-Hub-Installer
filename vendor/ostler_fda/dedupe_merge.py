@@ -338,6 +338,13 @@ def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
     store, like every read in this module; ``run`` reports that.
     """
     index = phone_twins.load_index(_sparql_query)
+    # Instrumented (Archie #3144): which country the normalised compare ran
+    # with. None means DEFAULT_COUNTRY_CODE and USER_PHONE did not reach this
+    # process, and numbers are matched on a unique trailing 8 digits instead.
+    mode = {"phone_twins_country_code": index.default_cc,
+            "phone_twins_match": "e164" if index.default_cc is not None else "trailing8"}
+    logger.info("dedupe_merge: phone-twin pass country=%s match=%s",
+                mode["phone_twins_country_code"], mode["phone_twins_match"])
     merged = 0
     shared = 0
     for person in sorted(p for p in index.phones if index.is_unnamed(p)):
@@ -357,7 +364,7 @@ def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
         if not dry_run:
             _merge_pair(next(iter(holders)), person)
         merged += 1
-    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared}
+    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
 
 
 def run(dry_run: bool = False) -> Dict[str, int]:

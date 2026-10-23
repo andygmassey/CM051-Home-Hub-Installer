@@ -3340,7 +3340,7 @@ index 1744cb6d2..91eaba620 100644
      entries: list[HistoryEntry],
      limit: int = 50,
 diff --git a/dedupe_merge.py b/dedupe_merge.py
-index 8a352c8e8..ff2423803 100644
+index 8a352c8e8..257e2fa6c 100644
 --- a/dedupe_merge.py
 +++ b/dedupe_merge.py
 @@ -32,6 +32,13 @@ from typing import Dict, List, Set, Tuple
@@ -3462,7 +3462,7 @@ index 8a352c8e8..ff2423803 100644
      # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
      _sparql_update(
          f"DELETE {{ <{dupe}> ?p ?o }} "
-@@ -166,6 +219,145 @@ def _merge_pair(canonical: str, dupe: str) -> None:
+@@ -166,6 +219,152 @@ def _merge_pair(canonical: str, dupe: str) -> None:
          f"INSERT {{ ?s ?p <{canonical}> }} "
          f"WHERE  {{ ?s ?p <{dupe}> }}"
      )
@@ -3585,6 +3585,13 @@ index 8a352c8e8..ff2423803 100644
 +    store, like every read in this module; ``run`` reports that.
 +    """
 +    index = phone_twins.load_index(_sparql_query)
++    # Instrumented (Archie #3144): which country the normalised compare ran
++    # with. None means DEFAULT_COUNTRY_CODE and USER_PHONE did not reach this
++    # process, and numbers are matched on a unique trailing 8 digits instead.
++    mode = {"phone_twins_country_code": index.default_cc,
++            "phone_twins_match": "e164" if index.default_cc is not None else "trailing8"}
++    logger.info("dedupe_merge: phone-twin pass country=%s match=%s",
++                mode["phone_twins_country_code"], mode["phone_twins_match"])
 +    merged = 0
 +    shared = 0
 +    for person in sorted(p for p in index.phones if index.is_unnamed(p)):
@@ -3604,11 +3611,11 @@ index 8a352c8e8..ff2423803 100644
 +        if not dry_run:
 +            _merge_pair(next(iter(holders)), person)
 +        merged += 1
-+    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared}
++    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
  
  
  def run(dry_run: bool = False) -> Dict[str, int]:
-@@ -174,19 +366,93 @@ def run(dry_run: bool = False) -> Dict[str, int]:
+@@ -174,19 +373,93 @@ def run(dry_run: bool = False) -> Dict[str, int]:
      folded away)."""
      collisions = find_collisions()
      comps = _components(collisions)
@@ -11074,10 +11081,10 @@ index 000000000..c99581804
 +        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_REFUSED, label
 diff --git b/tests/test_whatsapp_lid_not_phone.py b/tests/test_whatsapp_lid_not_phone.py
 new file mode 100644
-index 000000000..9f3ac0ad8
+index 000000000..5655063cc
 --- /dev/null
 +++ b/tests/test_whatsapp_lid_not_phone.py
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,196 @@
 +"""CM051 #2543: a WhatsApp LID presented through the ordinary phone-JID
 +suffix must never become a "phone" identifier or a digit-shaped displayName.
 +
@@ -11175,6 +11182,11 @@ index 000000000..9f3ac0ad8
 +        assert p._whatsapp_phone_e164("alice@example.com") == "alice@example.com"
 +
 +
++from ostler_fda.phone_twins import PhoneTwinIndex as _PhoneTwinIndex  # noqa: E402
++
++_EMPTY_TWIN_INDEX = _PhoneTwinIndex(())
++
++
 +class TestIngestWhatsapp:
 +    """Integration-level: the actual writer, against THIS vendored module."""
 +
@@ -11196,6 +11208,9 @@ index 000000000..9f3ac0ad8
 +    # existence, and skips the person when the store cannot be read. No
 +    # store here, so that lookup is stubbed to "never merged".
 +    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
++    # P13: the writer asks who already holds a phone number (phone_twins).
++    # No store here, so that read is faked as "nobody holds it".
++    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
 +    @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
 +    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
 +    def test_lid_shaped_participant_is_never_tagged_phone(
@@ -11219,6 +11234,9 @@ index 000000000..9f3ac0ad8
 +    # existence, and skips the person when the store cannot be read. No
 +    # store here, so that lookup is stubbed to "never merged".
 +    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
++    # P13: the writer asks who already holds a phone number (phone_twins).
++    # No store here, so that read is faked as "nobody holds it".
++    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
 +    @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
 +    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
 +    def test_genuine_phone_participant_is_tagged_phone(
@@ -11242,6 +11260,9 @@ index 000000000..9f3ac0ad8
 +    # existence, and skips the person when the store cannot be read. No
 +    # store here, so that lookup is stubbed to "never merged".
 +    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
++    # P13: the writer asks who already holds a phone number (phone_twins).
++    # No store here, so that read is faked as "nobody holds it".
++    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
 +    @patch("ostler_fda.pwg_ingest._person_exists", return_value=True)
 +    @patch("ostler_fda.pwg_ingest._identifier_exists", return_value=False)
 +    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)

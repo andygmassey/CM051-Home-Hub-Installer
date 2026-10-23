@@ -216,3 +216,59 @@ def test_a_named_person_without_a_card_is_never_folded_by_the_number_alone(world
     stats = w.dm.run()
     assert stats["phone_twins_merged"] == 0, stats
     assert {JANE, TOM} <= _persons(w)
+
+
+# ── Archie review of #3144 ───────────────────────────────────────────────
+
+def test_the_fold_moves_the_twins_facts_both_ways_and_a_second_run_is_a_no_op(world):
+    """A delete-instead-of-move fold passed the first nine tests. The twin's
+    own facts (subject) and the facts pointing AT it (object) must land on
+    the card, and a second sweep must leave the graph quad-for-quad as is."""
+    w = world
+    _card(w, JANE, "Jane Smith", "UID-JANE", JANE_MOBILE_NATIONAL)
+    twin = _legacy_twin(w, JANE_MOBILE_E164)
+    w.store.update(f'INSERT DATA {{ <{twin}> <{PWG}lastSeen> "{WHEN}" . '
+                   f'<urn:msg:1> <{PWG}sentBy> <{twin}> . }}')
+    s1 = w.dm.run()
+    assert s1["phone_twins_merged"] == 1, s1
+    assert w.store.ask(f'ASK {{ <{JANE}> <{PWG}lastSeen> "{WHEN}" }}'), "outbound fact lost"
+    assert w.store.ask(f'ASK {{ <urn:msg:1> <{PWG}sentBy> <{JANE}> }}'), "inbound fact lost"
+    with w.store.lock:
+        before = sorted(str(q) for q in w.store.ds.quads_for_pattern(None, None, None, None))
+    s2 = w.dm.run()
+    assert s2["phone_twins_merged"] == 0 and s2["merged"] == 0, s2
+    with w.store.lock:
+        after = sorted(str(q) for q in w.store.ds.quads_for_pattern(None, None, None, None))
+    assert before == after, "a second run changed the graph"
+
+
+def test_with_the_country_known_a_foreign_number_never_matches_on_its_last_8_digits(world):
+    """Owner's country is +44. A +852 handle whose last 8 digits equal a UK
+    card's is a different number: no cross-country trailing-digit guess."""
+    w = world
+    _card(w, JANE, "Jane Smith", "UID-JANE", JANE_MOBILE_NATIONAL)   # ...00900123
+    twin = _legacy_twin(w, "+852" + "00900123")
+    stats = w.dm.run()
+    assert stats["phone_twins_merged"] == 0, stats
+    assert twin in _persons(w)
+
+
+def test_a_carded_person_named_by_a_number_is_never_folded(world):
+    """A Contacts card is a person in its own right even when its only name
+    is a number; it is never the twin."""
+    w = world
+    _card(w, JANE, "Jane Smith", "UID-JANE", JANE_MOBILE_NATIONAL)
+    _card(w, TOM, JANE_MOBILE_E164, "UID-NUMBER-CARD", JANE_MOBILE_E164)
+    stats = w.dm.run()
+    assert stats["phone_twins_merged"] == 0, stats
+    assert {JANE, TOM} <= _persons(w)
+
+
+def test_the_sweep_reports_the_country_it_matched_with(world, monkeypatch):
+    w = world
+    s = w.dm.run()
+    assert s["phone_twins_country_code"] == 44 and s["phone_twins_match"] == "e164", s
+    monkeypatch.delenv("DEFAULT_COUNTRY_CODE")
+    monkeypatch.delenv("USER_PHONE", raising=False)
+    s = w.dm.run()
+    assert s["phone_twins_country_code"] is None and s["phone_twins_match"] == "trailing8", s
