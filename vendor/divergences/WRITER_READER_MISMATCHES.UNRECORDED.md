@@ -1667,3 +1667,31 @@ The import, the `derived_preferences_section` call, and the
 `{derived_preferences_section}` placeholder in `web_ui.py`, plus the
 vendor-only module they depend on. Guarded by
 `tests/test_doctor_shows_derived_preferences_status.py`.
+
+## doctor: the web search readiness tile and its Retry route are wired into the dashboard (v1.0.118 W5) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from web_search_status import render_web_search_status, retry_web_search`,
+one `web_search_section = render_web_search_status()` call in the dashboard
+renderer beside the Documents-access tile, one `{web_search_section}`
+placeholder in the dashboard HTML after `{documents_access_section}`, and one
+route, `POST /api/v1/web-search/retry`, registered before
+`register_proxy_routes` behind the same `_not_hub_local` and
+`_cross_site_refusal` guards as the Reminders turn-on route.
+
+The reader, the copy and the retry live in a NEW vendor-only module,
+`vendor/doctor/agent/web_search_status.py`, declared in
+`vendor/VENDOR_ONLY.tsv`. This record covers only the `web_ui.py` wiring.
+
+### Why there is no patch
+
+Same as the Documents-access record above: `doctor` is `regenerate_forbidden`
+in `VENDOR_MANIFEST.toml`, so this divergence cannot be recorded in
+`doctor.patch`, and this file is the record instead.
+
+### What a future sync must preserve
+
+The import, the `web_search_section` call, the placeholder, and the retry
+route with both guards. Guarded by `tests/test_vane_background_fetch_doctor_row.py`,
+which renders the real tile from a real state file and drives the real
+route handler with a stubbed launchctl.

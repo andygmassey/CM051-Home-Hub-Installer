@@ -1386,6 +1386,7 @@ gui_step_record_rc() { :; }
 # still answers "fine" by default.
 gui_step_status() { printf 'unmeasured'; }
 gui_step_measures_nothing() { :; }
+gui_step_mark_pending() { :; }
 gui_log()         { :; }
 gui_warn()        { :; }
 gui_phase()       { :; }
@@ -4872,6 +4873,7 @@ else
     gui_step_record_rc() { :; }
     gui_step_status() { printf 'unmeasured'; }
     gui_step_measures_nothing() { :; }
+    gui_step_mark_pending() { :; }
     gui_read()        {
         # Mirrors the TTY half of the full helper so install.sh keeps
         # working when sourced direct from a terminal. Handles the
@@ -23318,40 +23320,389 @@ unset _qdrant_url _qdrant_ready _qdrant_last_status _qdrant_wait_s
 # wiki + assistant + graph; only the web-search tool surface
 # is unavailable until they re-run `docker compose up -d vane`.
 
+# ⚠️ v1.0.118 (W5 + W8): THE PULL NO LONGER BLOCKS THE INSTALL.
+#
+# MEASURED on the v1.0.117 walks, 2026-10-23: the image is 3.43 GB in 32
+# layers (one layer 2.61 GB). On a ~0.5 MB/s link this step took 6515 s, 67%
+# of the whole install. On a console install the pull died with "short read:
+# expected 237669906 bytes but got 41943040: unexpected EOF"; the step closed
+# `unmeasured` and the install said DONE with 0 failed steps while web search
+# was missing. A manual retry died at the same 41943040 bytes (exactly
+# 40 MiB) on a DIFFERENT blob, while curl on the macOS host fetched that blob
+# whole (51519305 bytes, 88 s). So the truncation is inside the VM's pull
+# path, and it is intermittent: the thin walk pulled the whole image at the
+# same rate. Its root cause is NOT INSTRUMENTED (the failing box's dockerd
+# log was not kept; no VM setting was found that names a 40 MiB or ~70 s
+# limit), so the fix is the one that works whatever the cause: a pull that
+# resumes per layer, retried with backoff, OUTSIDE the install.
+#
+# What happens now:
+#   1. ostler-vane-fetch is written to ~/.ostler/bin (body below).
+#   2. If the pinned image is ALREADY local (a re-run, a warm box), Vane is
+#      started here and checked with the install's own credential: seconds.
+#   3. Otherwise the LaunchAgent com.ostler.vane-fetch is loaded. It waits
+#      for this install to finish (the install-in-progress marker), then
+#      pulls with up to 8 tries over about two hours, and launchd re-runs it
+#      at login, boot and hourly until web search is ready.
+#   4. The step closes `pending` (not ok, not unmeasured, not failed), the
+#      health check and the final summary say "getting ready", and the
+#      Doctor shows a "Web search not ready yet" row with a Retry button.
+#
+# ALSO FIXED HERE: the old 60 s check was `curl -sf http://localhost:3000`.
+# Since #1660 :3000 demands a credential, so that check read 401 -> "not
+# responding" even when Vane was up, and VANE_OK could never be true. The
+# fetcher checks with the install's own credential.
+
 progress "Starting local web search (Vane)" "vane_install"
 
-# Warn BEFORE the pipe swallows the pull, not after. info() routes to
-# gui_log, so this reaches the installer window as well as the console.
-info "$MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS"
+mkdir -p "${OSTLER_DIR}/bin" "${OSTLER_DIR}/state" "${OSTLER_DIR}/logs" 2>/dev/null || true
+cat > "${OSTLER_DIR}/bin/ostler-vane-fetch" <<'OSTLER_VANE_FETCH_EOF'
+#!/bin/bash
+# ostler-vane-fetch -- download and start local web search (Vane) in the
+# background, so the install never waits on it.
+#
+# WHY THIS EXISTS (v1.0.117 walks, 2026-10-23). The Vane image is 3.43 GB
+# (one layer alone is 2.61 GB). install.sh used to pull it INSIDE the
+# install, blocking for 6515 s on a 0.5 MB/s link. On a console install the
+# pull died with "short read: expected N bytes but got 41943040: unexpected
+# EOF", the step closed `unmeasured`, and the install said DONE with 0
+# failed steps while web search was missing. A manual retry died at the same
+# 40 MiB on a different blob; curl on the host fetched that blob whole.
+#
+# What this does instead:
+#   * installed as the LaunchAgent com.ostler.vane-fetch (RunAtLoad, plus a
+#     StartInterval, so it re-runs at every login/boot and hourly, including
+#     after wake, until web search is ready);
+#   * waits while an install is still running (the install-in-progress
+#     marker), so it never competes with the install for the network;
+#   * `docker compose pull vane`, which resumes per layer, with bounded
+#     retries and backoff (default 8 tries over roughly 2 hours), then
+#     `up -d vane` and a CREDENTIALLED health check through :3000;
+#   * writes its state to ~/.ostler/state/vane-fetch.json for the Doctor,
+#     the install summary and the walk probes. "ready" is written ONLY after
+#     the credentialled check answered; nothing else may claim it.
+#
+# Subcommands:
+#   run              (default) the retry loop described above
+#   up-if-present    if the image is already local, start it and check it
+#                    (seconds, used by install.sh on a warm box). exit 0 ready
+#   present          exit 0 when the pinned image is already local
+#   image-ref        print the pinned image reference from the compose file
+#   healthy          exit 0 when Vane answers the install's own credential
+#   status           print the state file
+#
+# Exit codes for `run`: 0 ready, 75 not ready yet (will try again at the
+# next launchd start), 64 usage, 66 compose file missing.
+#
+# Runs under /bin/bash 3.2. No set -e: every failure is captured and
+# recorded, never allowed to kill the loop silently.
+set -u
 
-VANE_OK=false
-if docker compose up -d vane 2>&1 | tail -3; then
-    # Vane boots SearXNG inside the container then starts Next.js;
-    # the HTTP server listens before SearXNG is fully warm. Poll
-    # localhost:3000 until we get a 200, capped at 60 seconds so
-    # the install never wedges on a misbehaving container.
-    VANE_DEADLINE=$(( $(date +%s) + 60 ))
-    while (( $(date +%s) < VANE_DEADLINE )); do
-        if curl -sf -o /dev/null -m 3 http://localhost:3000; then
-            VANE_OK=true
-            break
-        fi
-        sleep 2
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+COMPOSE_FILE="${OSTLER_VANE_COMPOSE_FILE:-${OSTLER_DIR}/docker-compose.yml}"
+STATE_DIR="${OSTLER_DIR}/state"
+STATE_FILE="${STATE_DIR}/vane-fetch.json"
+LOCK_DIR="${STATE_DIR}/vane-fetch.lock"
+LOG_FILE="${OSTLER_VANE_FETCH_LOG:-${OSTLER_DIR}/logs/vane-fetch.log}"
+DOCKER="${OSTLER_VANE_DOCKER:-docker}"
+CURL="${OSTLER_VANE_CURL:-/usr/bin/curl}"
+MAX_TRIES="${OSTLER_VANE_FETCH_MAX_TRIES:-8}"
+# Gaps BETWEEN tries, in seconds. 7 gaps for 8 tries: 60+120+300+600+900+
+# 1200+1800 = 4980 s of waiting, about 83 minutes, plus the pulls
+# themselves, so roughly two hours per run. The last value repeats if
+# MAX_TRIES is raised.
+BACKOFF_S="${OSTLER_VANE_FETCH_BACKOFF_S:-60 120 300 600 900 1200 1800}"
+SLEEP_CMD="${OSTLER_VANE_FETCH_SLEEP:-sleep}"
+HEALTH_WAIT_S="${OSTLER_VANE_HEALTH_WAIT_S:-120}"
+INSTALL_MARKER="${OSTLER_VANE_INSTALL_MARKER:-${HOME}/.ostler/state/install-in-progress}"
+DEFER_POLL_S="${OSTLER_VANE_DEFER_POLL_S:-30}"
+PASSWORD_FILE="${OSTLER_VANE_PASSWORD_FILE:-${OSTLER_DIR}/secrets/vane_password}"
+VANE_URL="${OSTLER_VANE_URL:-http://127.0.0.1:3000/}"
+NOW_CMD="${OSTLER_VANE_NOW:-}"
+
+_now() {
+    if [ -n "$NOW_CMD" ]; then $NOW_CMD; else date +%s; fi
+}
+
+_log() {
+    mkdir -p "${LOG_FILE%/*}" 2>/dev/null || true
+    printf '%s vane-fetch: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$LOG_FILE" 2>/dev/null || true
+}
+
+# A value that goes into the JSON state file. Letters, digits and a few
+# separators only, capped: an error line from docker names a blob digest and
+# byte counts, never anything about the customer, and anything else is
+# dropped rather than escaped.
+_clean() {
+    printf '%s' "${1:-}" | LC_ALL=C tr -c 'A-Za-z0-9 :._/@=-' ' ' | tr -s ' ' | cut -c1-200
+}
+
+# _state <state> <attempt> <layers_done> <last_error> <next_try_at>
+_state() {
+    local _s="$1" _a="${2:-0}" _l="${3:-0}" _e _n="${5:-0}" _tmp
+    _e="$(_clean "${4:-}")"
+    mkdir -p "$STATE_DIR" 2>/dev/null || return 0
+    _tmp="${STATE_FILE}.tmp.$$"
+    printf '{"schema":1,"state":"%s","attempt":%s,"max_tries":%s,"layers_done":%s,"last_error":"%s","updated_at":%s,"next_try_at":%s}\n' \
+        "$_s" "$_a" "$MAX_TRIES" "$_l" "$_e" "$(_now)" "$_n" >"$_tmp" 2>/dev/null \
+        && mv -f "$_tmp" "$STATE_FILE" 2>/dev/null
+    rm -f "$_tmp" 2>/dev/null || true
+    return 0
+}
+
+image_ref() {
+    # The pinned reference is written ONCE, in the compose file install.sh
+    # generates; reading it from there means this can never drift from it.
+    [ -r "$COMPOSE_FILE" ] || return 1
+    awk '
+        /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { in_vane = ($1 == "vane:") ; next }
+        in_vane && $1 == "image:" { print $2; exit }
+    ' "$COMPOSE_FILE"
+}
+
+present() {
+    local _ref
+    _ref="$(image_ref)" || return 1
+    [ -n "$_ref" ] || return 1
+    "$DOCKER" image inspect "$_ref" >/dev/null 2>&1
+}
+
+_dc() {
+    "$DOCKER" compose -f "$COMPOSE_FILE" --project-directory "${COMPOSE_FILE%/*}" "$@"
+}
+
+# Healthy means the CUSTOMER's path works: the container runs AND :3000
+# serves the install's own credential. :3000 sits behind auth_basic in the
+# store-proxy, so an uncredentialled check reads 401 even when Vane is up
+# (that is how the old install check reported a running Vane as down), and
+# a 401/502 from the proxy alone says nothing about Vane.
+healthy() {
+    local _running _pw _code
+    _running="$("$DOCKER" inspect -f '{{.State.Running}}' ostler-vane 2>/dev/null || true)"
+    [ "$_running" = "true" ] || return 1
+    [ -r "$PASSWORD_FILE" ] || return 1
+    _pw="$(cat "$PASSWORD_FILE" 2>/dev/null || true)"
+    [ -n "$_pw" ] || return 1
+    # The credential goes through a curl config on stdin, never argv, so it
+    # does not show in `ps`.
+    _code="$(printf 'user = "ostler:%s"\n' "$_pw" \
+        | "$CURL" -s -o /dev/null -m 5 --noproxy '*' -w '%{http_code}' -K - "$VANE_URL" 2>/dev/null || true)"
+    case "$_code" in
+        2[0-9][0-9]|3[0-9][0-9]) return 0 ;;
+    esac
+    return 1
+}
+
+_wait_healthy() {
+    local _deadline=$(( $(_now) + HEALTH_WAIT_S ))
+    while :; do
+        healthy && return 0
+        [ "$(_now)" -ge "$_deadline" ] && return 1
+        "$SLEEP_CMD" 3
     done
-    if [[ "$VANE_OK" == true ]]; then
-        ok "$MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS"
-    else
-        warn "$MSG_WARN_VANE_CONTAINER_STARTED_BUT_HTTP_LOCALHOST"
-        warn "$MSG_WARN_TRY_DOCKER_LOGS_OSTLER_VANE"
-        warn "$(printf "$MSG_WARN_DOCKER_COMPOSE_F_DOCKER_COMPOSE_YML" "${OSTLER_DIR}")"
+}
+
+# The install that started us is still running: wait, so the 3.4 GB pull
+# never competes with the install's own downloads. A marker whose pid is
+# gone, or older than 6 h (its documented lifetime), is a dead install's
+# leftover and does not hold us back.
+_install_running() {
+    [ -f "$INSTALL_MARKER" ] || return 1
+    [ -n "$(find "$INSTALL_MARKER" -mmin -360 -print 2>/dev/null)" ] || return 1
+    local _pid
+    _pid="$(sed -n 's/^pid=\([0-9][0-9]*\)$/\1/p' "$INSTALL_MARKER" 2>/dev/null | head -n 1)"
+    [ -n "$_pid" ] || return 1
+    kill -0 "$_pid" 2>/dev/null
+}
+
+_lock() {
+    mkdir -p "$STATE_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+        return 0
     fi
-else
-    warn "$MSG_WARN_VANE_LOCAL_WEB_SEARCH_FAILED_START"
-    warn "$MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE"
-    warn "$MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE"
-    warn "$(printf "$MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP" "${OSTLER_DIR}")"
-    warn "$MSG_WARN_WEB_SEARCH_OPTIONAL_REST_OSTLER_WORKS"
+    local _holder
+    _holder="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+    if [ -n "$_holder" ] && kill -0 "$_holder" 2>/dev/null; then
+        return 1
+    fi
+    # Stale lock from a killed run: take it over.
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+    mkdir "$LOCK_DIR" 2>/dev/null || return 1
+    printf '%s\n' "$$" >"${LOCK_DIR}/pid"
+    return 0
+}
+
+_unlock() {
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+}
+
+_backoff_for() {   # $1 the try that just failed (1-based)
+    local _i=1 _v=60 _w
+    for _w in $BACKOFF_S; do
+        _v="$_w"
+        [ "$_i" -ge "$1" ] && break
+        _i=$((_i + 1))
+    done
+    printf '%s' "$_v"
+}
+
+up_if_present() {
+    present || return 1
+    _state starting 0 0 "" 0
+    local _out
+    _out="$(_dc up -d vane 2>&1)"
+    local _rc=$?
+    printf '%s\n' "$_out" >>"$LOG_FILE" 2>/dev/null || true
+    if [ "$_rc" -eq 0 ] && _wait_healthy; then
+        _state ready 0 0 "" 0
+        return 0
+    fi
+    _state waiting 0 0 "image present but Vane did not answer its credential (up rc=${_rc})" 0
+    return 1
+}
+
+run() {
+    [ -r "$COMPOSE_FILE" ] || { _log "compose file missing at ${COMPOSE_FILE}"; _state waiting 0 0 "compose file missing" 0; return 66; }
+    if ! _lock; then
+        _log "another run holds the lock; leaving it to finish"
+        return 0
+    fi
+    trap '_unlock' EXIT
+
+    if healthy; then
+        _state ready 0 0 "" 0
+        _log "already ready"
+        return 0
+    fi
+
+    while _install_running; do
+        _state deferred 0 0 "waiting for the install to finish" 0
+        "$SLEEP_CMD" "$DEFER_POLL_S"
+    done
+
+    local _try=1 _out _rc _layers _err _gap
+    while [ "$_try" -le "$MAX_TRIES" ]; do
+        _state pulling "$_try" 0 "" 0
+        _log "try ${_try} of ${MAX_TRIES}: pulling"
+        _out="$(_dc pull vane 2>&1)"
+        _rc=$?
+        printf '%s\n' "$_out" >>"$LOG_FILE" 2>/dev/null || true
+        _layers="$(printf '%s\n' "$_out" | grep -c -E 'Pull complete|Download complete|Already exists' || true)"
+        [ -n "$_layers" ] || _layers=0
+        if [ "$_rc" -eq 0 ]; then
+            _out="$(_dc up -d vane 2>&1)"
+            _rc=$?
+            printf '%s\n' "$_out" >>"$LOG_FILE" 2>/dev/null || true
+            if [ "$_rc" -eq 0 ] && _wait_healthy; then
+                _state ready "$_try" "$_layers" "" 0
+                _log "ready after try ${_try}"
+                return 0
+            fi
+            _err="pulled but Vane did not answer its credential (up rc=${_rc})"
+        else
+            _err="$(printf '%s\n' "$_out" | grep -i -E 'error|short read|EOF|timeout|denied|no space' | tail -n 1)"
+            [ -n "$_err" ] || _err="pull exited ${_rc}"
+        fi
+        _log "try ${_try} failed: $(_clean "$_err")"
+        if [ "$_try" -ge "$MAX_TRIES" ]; then
+            _state waiting "$_try" "$_layers" "$_err" 0
+            _log "out of tries for this run; launchd starts the next run at login, boot or the next interval"
+            return 75
+        fi
+        _gap="$(_backoff_for "$_try")"
+        _state retrying "$_try" "$_layers" "$_err" "$(( $(_now) + _gap ))"
+        "$SLEEP_CMD" "$_gap"
+        _try=$((_try + 1))
+    done
+    return 75
+}
+
+case "${1:-run}" in
+    run)            run ;;
+    up-if-present)  up_if_present ;;
+    present)        present ;;
+    image-ref)      image_ref ;;
+    healthy)        healthy ;;
+    status)         cat "$STATE_FILE" 2>/dev/null || { echo '{"schema":1,"state":"unknown"}'; exit 1; } ;;
+    *)              echo "usage: ostler-vane-fetch [run|up-if-present|present|image-ref|healthy|status]" >&2; exit 64 ;;
+esac
+OSTLER_VANE_FETCH_EOF
+chmod 755 "${OSTLER_DIR}/bin/ostler-vane-fetch" 2>/dev/null || true
+
+# VANE_STATE is what the health check and the summary read:
+#   ready    Vane answered the install's own credential
+#   pending  the background job is loaded and owns the download
+#   failed   neither: nothing will fetch web search without a re-run
+VANE_STATE=failed
+VANE_OK=false
+VANE_FETCH_PLIST="${HOME}/Library/LaunchAgents/com.ostler.vane-fetch.plist"
+if OSTLER_DIR="${OSTLER_DIR}" "${OSTLER_DIR}/bin/ostler-vane-fetch" up-if-present; then
+    VANE_STATE=ready
+    VANE_OK=true
 fi
+# The agent is loaded in BOTH cases: when Vane is ready its run is a no-op
+# that rewrites "ready", and it keeps the container's image honest after a
+# customer prunes it. Paths are under OSTLER_FINAL_DIR so the plist never
+# bakes a staging path (#573).
+mkdir -p "${HOME}/Library/LaunchAgents" "${OSTLER_FINAL_DIR}/logs" 2>/dev/null || true
+cat > "$VANE_FETCH_PLIST" <<VFPEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ostler.vane-fetch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${OSTLER_FINAL_DIR}/bin/ostler-vane-fetch</string>
+        <string>run</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_FINAL_DIR}</string>
+        <key>DOCKER_HOST</key>
+        <string>unix://${HOME}/.colima/default/docker.sock</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>${OSTLER_FINAL_DIR}/logs/vane-fetch.out</string>
+    <key>StandardErrorPath</key>
+    <string>${OSTLER_FINAL_DIR}/logs/vane-fetch.err</string>
+</dict>
+</plist>
+VFPEOF
+if _ostler_launchagent_load_verified "$VANE_FETCH_PLIST"; then
+    [[ "$VANE_STATE" == ready ]] || VANE_STATE=pending
+else
+    warn "$MSG_WARN_VANE_FETCH_AGENT_NOT_LOADED"
+fi
+
+case "$VANE_STATE" in
+    ready)
+        ok "$MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS"
+        gui_step_record_rc 0
+        ;;
+    pending)
+        info "$MSG_INFO_WEB_SEARCH_GETTING_READY"
+        gui_step_mark_pending
+        ;;
+    *)
+        warn "$MSG_WARN_VANE_LOCAL_WEB_SEARCH_FAILED_START"
+        warn "$(printf "$MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP" "${OSTLER_DIR}")"
+        warn "$MSG_WARN_WEB_SEARCH_OPTIONAL_REST_OSTLER_WORKS"
+        gui_step_record_rc 1
+        ;;
+esac
 
 # ── 3.9 AI models ─────────────────────────────────────────────────
 
@@ -27645,6 +27996,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.ostler.aiconv-resume
     com.ostler.colima
     com.ostler.engine-supervisor
+    com.ostler.vane-fetch
     com.ostler.meeting-brief-sender
     com.ostler.ollama-logrotate
     com.ostler.ollama-watchdog
@@ -40172,8 +40524,19 @@ fi
 # check so the customer can see whether it is running, but do NOT
 # flip the install-wide HEALTHY flag if it is missing -- the
 # rest of Ostler works without it (Phase 3.8b is warn-only too).
-if curl -sf -o /dev/null -m 3 http://localhost:3000; then
+#
+# v1.0.118: the old probe was an UNCREDENTIALLED `curl -sf` against :3000,
+# which has demanded a credential since #1660, so it read 401 and reported a
+# running Vane as not responding. The fetcher's `healthy` presents the
+# install's own credential. And a Vane that is still downloading in the
+# background is "getting ready", never "healthy" and never silently absent.
+if [[ -x "${OSTLER_DIR}/bin/ostler-vane-fetch" ]] \
+   && OSTLER_DIR="${OSTLER_DIR}" "${OSTLER_DIR}/bin/ostler-vane-fetch" healthy; then
     ok "$MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH"
+    VANE_STATE=ready
+    VANE_OK=true
+elif [[ "${VANE_STATE:-failed}" == "pending" ]]; then
+    info "$MSG_INFO_WEB_SEARCH_GETTING_READY"
 else
     info "$MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE"
 fi
@@ -42658,11 +43021,26 @@ if [[ "${CHANNEL_IMESSAGE_ENABLED:-false}" == "true" \
     fi
 fi
 echo ""
-if [[ "$VANE_OK" == true ]]; then
-    echo -e "  ${BOLD}Local web search:${NC} http://localhost:3000"
-    echo "     (your assistant uses this; you can also chat with it directly)"
-    echo ""
-fi
+# v1.0.118: a Vane still downloading in the background is SAID, in the
+# summary the customer reads last. It used to be omitted silently, which on
+# the v1.0.117 console walk read as an install with nothing missing.
+case "${VANE_STATE:-failed}" in
+    ready)
+        echo -e "  ${BOLD}Local web search:${NC} http://localhost:3000"
+        echo "     (your assistant uses this; you can also chat with it directly)"
+        echo ""
+        ;;
+    pending)
+        echo -e "  ${BOLD}${MSG_SUMMARY_WEB_SEARCH_LABEL}${NC} ${MSG_SUMMARY_WEB_SEARCH_GETTING_READY}"
+        echo "     ${MSG_SUMMARY_WEB_SEARCH_GETTING_READY_DETAIL}"
+        echo ""
+        ;;
+    *)
+        echo -e "  ${BOLD}${MSG_SUMMARY_WEB_SEARCH_LABEL}${NC} ${MSG_SUMMARY_WEB_SEARCH_NOT_INSTALLED}"
+        echo "     ${MSG_SUMMARY_WEB_SEARCH_NOT_INSTALLED_DETAIL}"
+        echo ""
+        ;;
+esac
 echo "  Developer dashboards:"
 echo "     - Qdrant:   http://localhost:6333/dashboard"
 echo "     - Oxigraph: http://localhost:7878"
