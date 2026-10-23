@@ -332,3 +332,13 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3
 - Manifest: the nine derive shas leave `hold_ack_shas`; 5d1cdf13 stays.
 - These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
 - Retire: nothing to retire for the engine itself. It is source at the pin.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate, UNMERGED upstream)
+
+Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
+
+- Added `services/enrich/src/privacy_gate.py`, byte-identical to the upstream PR head (sha256 87698fb4385bca3cca8728de6b605d7429e9af1943a28909eb4f40b01eee65e2 on both sides).
+- `services/enrich/src/enricher.py`: the upstream hunks applied by exact replacement, because the vendored file carries earlier CM051 divergence (eligibility gate, budget, wikidata_film routing). Measured: the sorted multiset of changed lines equals upstream's for this file (38 lines, identical sha256 of the sorted set).
+- NOT carried: upstream's `derive/readers.py` SCROLL_FIELDS change. The vendored derive tree predates SCROLL_FIELDS, and nothing in the vendored tree drives an online lookup from the derive scroll (representative-first enrichment, upstream #431, is not vendored). The vendored enricher reads the full Qdrant payload (`with_payload: True`), so `compartment_level` reaches the gate.
+- Proof: `tests/test_cm019_enrich_privacy_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/privacy_gate.py`; with the module present and the old enricher, the stats field it counts into does not exist).
+- Retire: re-pin past the upstream merge commit.
