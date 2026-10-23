@@ -8,7 +8,7 @@
   },
   "permissions_prewarm": {
     "_meta": "CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23): log-line strings emitted by PermissionsPrewarmer + customer-facing intro screen copy shown BEFORE the pre-warm fires. The intro screen names each of the four macOS TCC dialogs the customer is about to see, explains WHY each is needed, and offers Grant / Skip primary + secondary actions. The pre-warm then runs the four requests SERIALLY with an 800ms gap between each (CX-17 fix: the original concurrent burst fired all four popups in the same second and the customer missed two of them on Studio retest 2026-05-23). The log lines surface in the LogDrawer + lifecycle OSLog stream. Customer-facing copy in the macOS TCC dialog itself ('Ostler needs access to ...') lives in Info.plist's NS*UsageDescription strings, which macOS controls.",
-    "starting": "正在預先觸發權限提示:預先要求「通訊錄」、「日曆」、「提醒事項」、「相片」及 Apple Music 的取用權限。",
+    "starting": "正在預先觸發權限提示：預先要求「通訊錄」、「日曆」、「提醒事項」、「相片」及 Apple Music 的取用權限。",
     "contacts_granted": "已允許取用「通訊錄」。",
     "contacts_denied": "未允許取用「通訊錄」。你可以稍後在「系統設定」>「私隱與安全性」>「通訊錄」中更改。",
     "calendar_granted": "已允許取用「日曆」。",
@@ -19,7 +19,7 @@
     "photos_denied": "未允許取用「相片」。你可以稍後在「系統設定」>「私隱與安全性」>「相片」中更改。",
     "music_granted": "已允許取用 Apple Music。",
     "music_denied": "未允許取用 Apple Music。你的 Apple Music 聆聽記錄將不會被加入。你可以稍後在「系統設定」>「私隱與安全性」>「媒體與 Apple Music」中更改。",
-    "applescript_contacts_granted": "已允許「通訊錄」自動化取用(讓安裝程式在設定期間讀取你的聯絡人卡)。",
+    "applescript_contacts_granted": "已允許「通訊錄」自動化取用（讓安裝程式在設定期間讀取你的聯絡人卡）。",
     "applescript_contacts_denied": "未允許「通訊錄」自動化取用。安裝程式將改為由你手動輸入個人資料。你可以稍後在「系統設定」>「私隱與安全性」>「自動化」中重新允許。",
     "finished": "權限預先觸發已完成。繼續安裝。",
     "intro_heading": "Ostler 需要五項權限，才能讀取這部 Mac 上的資料",

@@ -107,7 +107,7 @@
     "why": "未經你明確同意，macOS 不會讓任何 App 讀取你的訊息、郵件、備忘錄、行事曆或照片。我們需要這項權限，Ostler 才能把這一切整合到你的知識圖譜中。所有內容都留在這部 Mac 上，不會傳送到任何地方。你只需在「系統設定」中授權一次，macOS 之後會記住。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
-    "long_running_copy": "如果你的「郵件」或「照片」資料庫很大,首次擷取可能需要幾分鐘。",
+    "long_running_copy": "如果你的「郵件」或「照片」資料庫很大，首次擷取可能需要幾分鐘。",
     "illustration": "fda_extract.pdf",
     "needs_fda": true
   },

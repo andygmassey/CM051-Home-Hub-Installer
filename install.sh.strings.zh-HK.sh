@@ -38,7 +38,7 @@ MSG_STEP_RUNNING_HEALTH_CHECK="正在執行健康檢查"
 # F2: the end-of-install step that holds the Tailscale browser sign-in.
 MSG_STEP_TAILSCALE_SIGNIN="連接你的 iPhone 和 Apple Watch"
 # NEEDS REVIEW: en-GB header asks for human translation of this key
-MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="設定(幾個簡單問題,之後會自行繼續)"
+MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="設定（幾個簡單問題，之後會自行繼續）"
 # 2026-08-20: this key used to end "...and needs nothing further from you, so
 # you can leave it running and check back later." Measured against Andy's
 # install log, that was false three times over. The message printed at
@@ -51,7 +51,7 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="設定(幾個簡單問題,之後�
 # Reminders prompt both moved to the END of the install (after the health
 # check), so the copy says "at the very end", not "near the end".
 # NEEDS REVIEW: en-GB header asks for human translation of this key
-MSG_STEP_SETUP_COMPLETE_WRAP_UP="問題已完成。Ostler 現在會在背景安裝,大約需要 45 分鐘至數小時。仍有三件事需要你處理:如果 macOS 詢問是否安裝開發者工具,請按「安裝」;接近尾聲時有一分鐘的設定(開啟「完整磁碟取用權限」);最後在健康檢查之後,你需要登入 Tailscale,並允許助理使用「提醒事項」。在這些步驟之間,你可以讓它自行運行。"
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="問題已完成。Ostler 現在會在背景安裝，大約需要 45 分鐘至數小時。仍有三件事需要你處理：如果 macOS 詢問是否安裝開發者工具，請按「安裝」；接近尾聲時有一分鐘的設定（開啟「完整磁碟取用權限」）；最後在健康檢查之後，你需要登入 Tailscale，並允許助理使用「提醒事項」。在這些步驟之間，你可以讓它自行運行。"
 # #613: the line above names a Tailscale sign-in that a customer who answered
 # "skip" to the remote-access question will never be asked for. Promising a step
 # we then do not perform is the same defect class as claiming success we did not
@@ -59,34 +59,34 @@ MSG_STEP_SETUP_COMPLETE_WRAP_UP="問題已完成。Ostler 現在會在背景安�
 # variant is emitted on the declined branch and names only what is left.
 # Kept as a separate string rather than a printf substitution so the shipped
 # copy of BOTH branches is readable in this file and gets its own review.
-MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="問題已完成。Ostler 現在會在背景安裝,大約需要 45 分鐘至數小時。仍有三件事需要你處理:如果 macOS 詢問是否安裝開發者工具,請按「安裝」;接近尾聲時有一分鐘的設定(開啟「完整磁碟取用權限」);最後你需要允許助理使用「提醒事項」。在這些步驟之間,你可以讓它自行運行。"
+MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="問題已完成。Ostler 現在會在背景安裝，大約需要 45 分鐘至數小時。仍有三件事需要你處理：如果 macOS 詢問是否安裝開發者工具，請按「安裝」；接近尾聲時有一分鐘的設定（開啟「完整磁碟取用權限」）；最後你需要允許助理使用「提醒事項」。在這些步驟之間，你可以讓它自行運行。"
 
 # ── Info messages (progress, context) ──
 
-MSG_INFO_AND_RE_RUN_OSTLER_FDA="然後重新執行:ostler-fda"
-MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="正在重新啟動助理,讓它可以使用「完整磁碟取用權限」讀取你的「訊息」記錄。剛授予的權限需要重新啟動才會生效;如果你尚未授權,Doctor 儀表板會繼續引導你。"
-MSG_OK_ASSISTANT_RUNNING_WITH_FDA="你的助理正在運行,並已獲得「完整磁碟取用權限」,因此可以讀取所需的檔案。"
-MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="你的助理正在運行,但尚未獲得「完整磁碟取用權限」。在你開啟之前,Ostler 無法保持「訊息」、「郵件」、「日曆」、「提醒事項」、「備忘錄」、「照片」、Safari、「通訊錄」或 WhatsApp 的資料為最新,也無法讀取你的「文稿」資料夾。已讀取的內容會保留。Doctor 儀表板會引導你開啟。"
-MSG_INFO_ASSISTANT_FDA_UNVERIFIED="你的助理正在運行。我們無法檢查它在這部 Mac 上是否已獲得「完整磁碟取用權限」,因此無法確認。Doctor 儀表板在可以檢查時會告訴你。"
-MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="可見的 Apple Mail 帳戶:%s(僅供參考)"
-MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail 似乎尚未有任何本機郵件。如果 24 小時內沒有郵件送達,Doctor 會提出後續提示。"
+MSG_INFO_AND_RE_RUN_OSTLER_FDA="然後重新執行：ostler-fda"
+MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="正在重新啟動助理，讓它可以使用「完整磁碟取用權限」讀取你的「訊息」記錄。剛授予的權限需要重新啟動才會生效；如果你尚未授權，Doctor 儀表板會繼續引導你。"
+MSG_OK_ASSISTANT_RUNNING_WITH_FDA="你的助理正在運行，並已獲得「完整磁碟取用權限」，因此可以讀取所需的檔案。"
+MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="你的助理正在運行，但尚未獲得「完整磁碟取用權限」。在你開啟之前，Ostler 無法保持「訊息」、「郵件」、「日曆」、「提醒事項」、「備忘錄」、「照片」、Safari、「通訊錄」或 WhatsApp 的資料為最新，也無法讀取你的「文稿」資料夾。已讀取的內容會保留。Doctor 儀表板會引導你開啟。"
+MSG_INFO_ASSISTANT_FDA_UNVERIFIED="你的助理正在運行。我們無法檢查它在這部 Mac 上是否已獲得「完整磁碟取用權限」，因此無法確認。Doctor 儀表板在可以檢查時會告訴你。"
+MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="可見的 Apple Mail 帳戶：%s（僅供參考）"
+MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail 似乎尚未有任何本機郵件。如果 24 小時內沒有郵件送達，Doctor 會提出後續提示。"
 MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST="Apple Mail 已有快取郵件。擷取程序會在下一個每小時週期處理這些郵件。"
-MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT="已選取 Apple Mail,但這部 Mac 上尚無可讀取的本機郵件。請開啟 Apple Mail 並新增帳戶(「系統設定」>「互聯網帳戶」,然後剔選「郵件」),並讓它完成首次同步。"
-MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN="郵件送達後,請重新執行:ostler-fda。Ostler 會自動處理,無需其他操作。"
+MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT="已選取 Apple Mail，但這部 Mac 上尚無可讀取的本機郵件。請開啟 Apple Mail 並新增帳戶（「系統設定」>「互聯網帳戶」，然後剔選「郵件」），並讓它完成首次同步。"
+MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN="郵件送達後，請重新執行：ostler-fda。Ostler 會自動處理，無需其他操作。"
 MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST="Gatekeeper 會在首次啟動時驗證 Apple 公證。"
-MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP="可用,安裝程式會自動略過此步驟。"
+MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP="可用，安裝程式會自動略過此步驟。"
 MSG_INFO_BASH_INSTALL_SNIPPET_SH="    bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_BASH_INSTALL_SNIPPET_SH_2="  bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET="有權限的 Beta 測試人員可以設定 PWG_PIPELINE_REPO=<url> 然後重新執行。"
 MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2="有權限的 Beta 測試人員可以設定 PWG_KNOWLEDGE_REPO=<url> 然後重新執行。"
-MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS="已略過瀏覽器擴充功能 (--no-extensions)"
+MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS="已略過瀏覽器擴充功能（--no-extensions）"
 MSG_INFO_CD="  cd %s"
 MSG_INFO_CLONED="  已複製到 %s。"
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture 僅支援 Apple 晶片。已在這部機器上略過安裝。"
-MSG_INFO_CM042_LOGS_AT="RemoteCapture 日誌:%s/ostler-remotecapture.log(及 .err)"
-MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="先前的安裝讓 Ostler RemoteCapture 在登入時啟動。它已停止,不會再次啟動。"
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="未安裝 Ostler RemoteCapture:你選擇了保持語音轉錄關閉。如果你改變主意,請在「設定」中開啟,然後再次執行安裝程式。"
-MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時,Ostler RemoteCapture 會向 macOS 要求「螢幕錄製」和「麥克風」權限。請同時允許,讓通話和會議可在本機轉錄。你的選單列不會出現紫色錄製指示燈,因為音訊擷取設計上是靜默的。"
+MSG_INFO_CM042_LOGS_AT="RemoteCapture 日誌：%s/ostler-remotecapture.log（及 .err）"
+MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="先前的安裝讓 Ostler RemoteCapture 在登入時啟動。它已停止，不會再次啟動。"
+MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="未安裝 Ostler RemoteCapture：你選擇了保持語音轉錄關閉。如果你改變主意，請在「設定」中開啟，然後再次執行安裝程式。"
+MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 macOS 要求「螢幕錄製」和「麥克風」權限。請同時允許，讓通話和會議可在本機轉錄。你的選單列不會出現紫色錄製指示燈，因為音訊擷取設計上是靜默的。"
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
@@ -98,89 +98,89 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時,Ostler RemoteCapture 會向 macOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話記錄儲存在這部 Mac 的「文稿」/Ostler 之中。這些內容屬於你,並且只會留在這部機器上。為了寫入這些內容,Ostler 需要取用你的「文稿」資料夾,因此 macOS 可能會在設定期間詢問,並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11,這是 Ostler 用來寫入檔案的內置輔助程式。每當出現時,請按「允許」。如果你錯過或拒絕了,可隨時在「系統設定」的「私隱與安全性」中,選擇「檔案和資料夾」開啟,之後你的維基和對話記錄便會繼續寫入。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話記錄儲存在這部 Mac 的「文稿」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文稿」資料夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內置輔助程式。每當出現時，請按「允許」。如果你錯過或拒絕了，可隨時在「系統設定」的「私隱與安全性」中，選擇「檔案和資料夾」開啟，之後你的維基和對話記錄便會繼續寫入。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  對話記憶引擎已安裝在 venv 中。"
 MSG_INFO_HUB_APP_VERIFYING="正在驗證位於 %s 的 Ostler.app"
 MSG_INFO_HUB_APP_STAGING="正在從 %s 將 Ostler.app 放置到 /Applications"
-MSG_INFO_HUB_APP_DRAG_HINT="請開啟安裝程式 DMG,將 Ostler.app 和 OstlerInstaller.app 都拖到「應用程式」捷徑上,然後重新執行安裝程式。"
-MSG_OK_HUB_APP_PRESENT="%s 已有 Ostler.app,簽章已驗證。"
+MSG_INFO_HUB_APP_DRAG_HINT="請開啟安裝程式 DMG，將 Ostler.app 和 OstlerInstaller.app 都拖到「應用程式」捷徑上，然後重新執行安裝程式。"
+MSG_OK_HUB_APP_PRESENT="%s 已有 Ostler.app，簽章已驗證。"
 MSG_OK_HUB_APP_STAGED="Ostler.app 已安裝於 %s"
-MSG_WARN_HUB_APP_NOT_FOUND="在 /Applications 中找不到 Ostler.app,也沒有可用的內附副本。"
-MSG_WARN_HUB_APP_VERIFY_FAILED="Ostler.app 的簽章或公證驗證失敗。已保留該套件,以便支援人員檢查。"
+MSG_WARN_HUB_APP_NOT_FOUND="在 /Applications 中找不到 Ostler.app，也沒有可用的內附副本。"
+MSG_WARN_HUB_APP_VERIFY_FAILED="Ostler.app 的簽章或公證驗證失敗。已保留該套件，以便支援人員檢查。"
 MSG_OK_UNINSTALLER_APP_STAGED="Ostler Uninstaller.app 已安裝於 %s"
-MSG_WARN_UNINSTALLER_APP_STAGE_FAILED="無法將 Ostler Uninstaller.app 放入「應用程式」資料夾(/Applications)。你仍可執行以下指令來解除安裝:~/.ostler/bin/ostler-uninstall"
+MSG_WARN_UNINSTALLER_APP_STAGE_FAILED="無法將 Ostler Uninstaller.app 放入「應用程式」資料夾（/Applications）。你仍可執行以下指令來解除安裝：~/.ostler/bin/ostler-uninstall"
 MSG_INFO_CLONING_DOCTOR_AGENT="正在複製 Doctor 代理程式⋯⋯"
 MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS="正在複製電郵匯入腳本⋯⋯"
 MSG_INFO_CLONING_HUB_POWER_SCRIPTS="正在複製 Hub 電源腳本⋯⋯"
 MSG_INFO_CLONING_IMPORT_PIPELINE="正在複製匯入流程⋯⋯"
 MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS="正在複製 Wiki 重新編譯腳本⋯⋯"
 MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima 已安裝但未運行。將會啟動它。"
-MSG_INFO_COLIMA_START_ATTEMPT="正在啟動 Colima(第 %s 次嘗試,共 %s 次)⋯⋯"
+MSG_INFO_COLIMA_START_ATTEMPT="正在啟動 Colima（第 %s 次嘗試，共 %s 次）⋯⋯"
 MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="無法匯出聯絡人。你稍後可以手動匯入。"
 MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="無法讀取聯絡人卡片。沒問題 – 我們會改為詢問你。"
-MSG_INFO_CONTACT_CARD_WILL_ASK="我們稍後會詢問你的姓名和所在國家或地區。你的聯絡人資料稍後會透過你授予的「完整磁碟取用權限」讀取,所有資料都不會離開這部 Mac。"
+MSG_INFO_CONTACT_CARD_WILL_ASK="我們稍後會詢問你的姓名和所在國家或地區。你的聯絡人資料稍後會透過你授予的「完整磁碟取用權限」讀取，所有資料都不會離開這部 Mac。"
 MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
 MSG_INFO_CREATING_PYTHON_VENV="  正在 %s 建立 Python venv⋯⋯"
 MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="正在 %s/ 建立面向用戶的內容目錄樹"
 MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ="  curl -fL -o /tmp/ostler.tgz %s"
-MSG_INFO_DAILY_TICK_MANUAL_RUN_BASH_BIN="每日定時執行。手動執行:bash %s/bin/wiki-recompile-tick.sh"
-MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING="偵測到桌面式 Hub(沒有電池):正在全系統停用睡眠"
+MSG_INFO_DAILY_TICK_MANUAL_RUN_BASH_BIN="每日定時執行。手動執行：bash %s/bin/wiki-recompile-tick.sh"
+MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING="偵測到桌面式 Hub（沒有電池）：正在全系統停用睡眠"
 MSG_INFO_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compile run --rm wiki-compiler"
-MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA="尚未安裝 Docker。將會安裝 Colima + Docker CLI + docker-compose 外掛程式(輕量,無需 Docker Desktop)。"
+MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA="尚未安裝 Docker。將會安裝 Colima + Docker CLI + docker-compose 外掛程式（輕量，無需 Docker Desktop）。"
 MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH="安裝程式未附帶 Doctor 代理程式檔案。"
 MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH="安裝程式未附帶電郵匯入腳本。"
-MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN="安裝程式套件缺少電郵匯入腳本。請從 ostler.ai/install 重新下載 .app,然後再試一次。"
-MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT="未附帶電郵匯入腳本,而且已傳入 --allow-plaintext;將略過 LaunchAgent 安裝。日後的電郵將不會被匯入。"
-MSG_INFO_EXISTING_CHECKOUT_UPDATING="  %s 已有現成的檢出內容;正在更新⋯⋯"
-MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="正在從 Takeout zip 解壓 Gmail mbox(大型封存可能需要一分鐘)⋯⋯"
+MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN="安裝程式套件缺少電郵匯入腳本。請從 ostler.ai/install 重新下載 .app，然後再試一次。"
+MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT="未附帶電郵匯入腳本，而且已傳入 --allow-plaintext；將略過 LaunchAgent 安裝。日後的電郵將不會被匯入。"
+MSG_INFO_EXISTING_CHECKOUT_UPDATING="  %s 已有現成的檢出內容；正在更新⋯⋯"
+MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="正在從 Takeout zip 解壓 Gmail mbox（大型封存可能需要一分鐘）⋯⋯"
 MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING="未附帶 FDA 擷取模組。略過即時資料擷取。"
 MSG_INFO_FIRST_MONTH_FREE_ACTIVATING="正在啟用你的首 30 天 Ostler Pro⋯⋯"
-MSG_INFO_SUBSCRIPTION_PRICING_HINT="試用期後,Ostler Pro 每月收費 9.99 美元。請在 iPhone 上的 Ostler app 訂閱。"
+MSG_INFO_SUBSCRIPTION_PRICING_HINT="試用期後，Ostler Pro 每月收費 9.99 美元。請在 iPhone 上的 Ostler app 訂閱。"
 MSG_INFO_FOUND_GMAIL_MBOX_MB="在 %s 找到 Gmail mbox(%s MB)"
 MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="在 %s 找到 Google Takeout zip(%s MB)"
 MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="已偵測到「全磁碟取用權」– 可進行完整擷取。"
-MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="已偵測到 GDPR 匯出檔案,但匯入流程尚未推出。"
-MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="流程推出後,即可匯入 GDPR 匯出檔案。"
-MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="即將掃描「下載項目」、「桌面」和「文件」資料夾,尋找你可能已儲存的 AI 匯出檔案(Google Takeout、Meta 下載檔案、LinkedIn 等)。macOS 會顯示三次資料夾取用提示,請逐一允許。整個過程約需 5 至 10 秒。掃描期間不會移動或複製任何內容,我們只會檢查有哪些檔案。"
-MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS 可能會要求取得讀取「日曆」的權限。請允許,讓 Ostler 建立你知識圖譜中的會議和活動部分。(日曆資料只會留在這部 Mac 上。)"
+MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="已偵測到 GDPR 匯出檔案，但匯入流程尚未推出。"
+MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="流程推出後，即可匯入 GDPR 匯出檔案。"
+MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="即將掃描「下載項目」、「桌面」和「文件」資料夾，尋找你可能已儲存的 AI 匯出檔案（Google Takeout、Meta 下載檔案、LinkedIn 等）。macOS 會顯示三次資料夾取用提示，請逐一允許。整個過程約需 5 至 10 秒。掃描期間不會移動或複製任何內容，我們只會檢查有哪些檔案。"
+MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS 可能會要求取得讀取「日曆」的權限。請允許，讓 Ostler 建立你知識圖譜中的會議和活動部分。（日曆資料只會留在這部 Mac 上。）"
 MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS 正在要求「下載項目」的權限。請按「好」。"
 MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS 正在要求「桌面」的權限。請按「好」。"
 MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS 正在要求「文件」的權限。請按「好」。"
-MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="已授予「全磁碟取用權」。正在準備下一個 macOS 提示(「訊息」自動化)⋯⋯"
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="已授予「全磁碟取用權」。正在準備下一個 macOS 提示（「訊息」自動化）⋯⋯"
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
 # and Ostler asks again later, so this is a "not yet", not a failure.
-MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="「訊息」權限提示沒有回應,所以我們繼續下一步。在允許之前,你的訊息不會被讀取。Ostler 會再次詢問,你也可以在「系統設定」>「私隱與安全性」>「自動化」中授予權限。"
+MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="「訊息」權限提示沒有回應，所以我們繼續下一步。在允許之前，你的訊息不會被讀取。Ostler 會再次詢問，你也可以在「系統設定」>「私隱與安全性」>「自動化」中授予權限。"
 MSG_INFO_GIT_CLONE="  git clone %s %s"
 MSG_INFO_GIT_CLONE_2="  git clone %s %s"
 MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
-MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="需要 Xcode 命令行工具。macOS 會請求你允許安裝 – 請留意一個灰色的小對話框(如果看不到,請按 Cmd+Tab 或查看 Dock)。按一下「安裝」。你回答下面的問題時,工具會在背景下載。"
-MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  仍在設定命令行工具(%s 秒)。如果有灰色的 macOS 小對話框詢問是否安裝開發者工具,請按一下「安裝」– 此步驟正在等待這個操作。(如果看不到,請按 Cmd+Tab 或查看 Dock。)"
-MSG_INFO_WAITING_FOR_CLT_TO_FINISH="正在等待命令行工具安裝完成(快完成了)..."
+MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="需要 Xcode 命令行工具。macOS 會請求你允許安裝 – 請留意一個灰色的小對話框（如果看不到，請按 Cmd+Tab 或查看 Dock）。按一下「安裝」。你回答下面的問題時，工具會在背景下載。"
+MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  仍在設定命令行工具（%s 秒）。如果有灰色的 macOS 小對話框詢問是否安裝開發者工具，請按一下「安裝」– 此步驟正在等待這個操作。（如果看不到，請按 Cmd+Tab 或查看 Dock。）"
+MSG_INFO_WAITING_FOR_CLT_TO_FINISH="正在等待命令行工具安裝完成（快完成了）..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="每小時執行一次。首次執行會擷取過去 5 年的郵件。"
-MSG_INFO_IMESSAGE_BRIDGE_STARTED="正在停用舊版 iMessage 橋接 LaunchAgent(單一機器 v1.0)"
-MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="此 Hub 僅使用交流電(未偵測到電池),略過 hub-power LaunchAgent。"
+MSG_INFO_IMESSAGE_BRIDGE_STARTED="正在停用舊版 iMessage 橋接 LaunchAgent（單一機器 v1.0）"
+MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="此 Hub 僅使用交流電（未偵測到電池），略過 hub-power LaunchAgent。"
 MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="安裝程式未附帶 Hub 電源指令碼。"
 # Laptop-Hub recap lines (task #339). Kept to one whole sentence per key so a
 # translator gets sentences rather than fragments, and each one short enough to
 # sit inside the recap's five-space indent on an 80-column terminal.
-MSG_INFO_HUB_RECAP_LAPTOP_AWAKE="手提電腦 Hub。在螢幕打開並接上交流電時,它會持續運作。"
-MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS="合上螢幕,或在使用電池時閒置,macOS 就會讓它進入睡眠。"
-MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING="睡眠期間,助理不會接收任何內容。"
-MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED="在這段時間內送達的訊息,喚醒後不會被擷取。"
-MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY="在合蓋模式下,螢幕可以保持合上。"
-MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS="這需要接上交流電,以及外接顯示器、鍵盤和滑鼠。"
-MSG_INFO_HUB_RECAP_LAPTOP_PAUSES="Docker 和 Ollama 在使用電池時會暫停,接上交流電後恢復。"
-MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN="重新啟動後,FileVault 會讓這部 Mac 停留在登入畫面。"
-MSG_INFO_HUB_RECAP_FILEVAULT_STARTS="你登入後,Ostler 就會啟動。"
-MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="安裝程式已附帶助理 API,正在使用內附的原始碼。"
-MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="安裝程式未附帶助理 API 原始碼,你 iPhone 上的 Ostler app 將只能有限度存取。"
-MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="正在安裝助理 API 的執行時期相依項目(phonenumbers、httpx)..."
-MSG_WARN_ICAL_SERVER_DEPS_FAILED="無法安裝助理 API 的執行時期相依項目(phonenumbers/httpx);在下次執行安裝前,「人物」和「時間線」可能仍然是空白。"
-MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="Tailscale 視窗出現後,請使用 Apple / Google / Microsoft 登入。"
-MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="正在打開 Tailscale,讓你登入..."
+MSG_INFO_HUB_RECAP_LAPTOP_AWAKE="手提電腦 Hub。在螢幕打開並接上交流電時，它會持續運作。"
+MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS="合上螢幕，或在使用電池時閒置，macOS 就會讓它進入睡眠。"
+MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING="睡眠期間，助理不會接收任何內容。"
+MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED="在這段時間內送達的訊息，喚醒後不會被擷取。"
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY="在合蓋模式下，螢幕可以保持合上。"
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS="這需要接上交流電，以及外接顯示器、鍵盤和滑鼠。"
+MSG_INFO_HUB_RECAP_LAPTOP_PAUSES="Docker 和 Ollama 在使用電池時會暫停，接上交流電後恢復。"
+MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN="重新啟動後，FileVault 會讓這部 Mac 停留在登入畫面。"
+MSG_INFO_HUB_RECAP_FILEVAULT_STARTS="你登入後，Ostler 就會啟動。"
+MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="安裝程式已附帶助理 API，正在使用內附的原始碼。"
+MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="安裝程式未附帶助理 API 原始碼，你 iPhone 上的 Ostler app 將只能有限度存取。"
+MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="正在安裝助理 API 的執行時期相依項目（phonenumbers、httpx）..."
+MSG_WARN_ICAL_SERVER_DEPS_FAILED="無法安裝助理 API 的執行時期相依項目（phonenumbers/httpx）；在下次執行安裝前，「人物」和「時間線」可能仍然是空白。"
+MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="Tailscale 視窗出現後，請使用 Apple / Google / Microsoft 登入。"
+MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="正在打開 Tailscale，讓你登入..."
 # WALK-1 (Wave 2.1): pre-announce the one late, optional Tailscale sign-in
 # step so the unattended middle holds no surprise prompts. TODO(i18n):
 # de/fr/es/it translations needed -- do NOT machine-translate.
@@ -189,28 +189,28 @@ MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="正在打開 Tailscale,讓你登入..."
 # 13:04:20 and 13:04:51). Optional-but-blocking is the worst of both. It also
 # named only that step, while Full Disk Access and the developer-tools dialog
 # were the two that actually surprised him.
-MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="明白了 – 從這裡開始,Ostler 大部分會自行安裝。接近尾聲時,它需要你回來約兩分鐘:開啟「全磁碟取用權」,然後登入 Tailscale,讓你的 iPhone 和 Apple Watch 可以隨時隨地連接這部 Mac。我們會為你打開瀏覽器進行登入。"
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="明白了 – 從這裡開始，Ostler 大部分會自行安裝。接近尾聲時，它需要你回來約兩分鐘：開啟「全磁碟取用權」，然後登入 Tailscale，讓你的 iPhone 和 Apple Watch 可以隨時隨地連接這部 Mac。我們會為你打開瀏覽器進行登入。"
 MSG_INFO_TAILSCALE_SKIPPED="已略過 Tailscale – 你 iPhone 上的 Ostler app 只能在家中 Wi-Fi 使用。你日後可以在「設定」中設定。"
-MSG_INFO_TAILSCALE_STILL_WAITING="仍在等待 Tailscale 登入(已過 %s 秒)– 請在 Tailscale 視窗中完成登入。"
-MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="已授予「全磁碟取用權」;正在重新啟動助理以套用新權限。"
-MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="正在打開「系統設定」和 Finder,引導你為助理授予「全磁碟取用權」..."
-MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="正在向 macOS 註冊 Ostler 助理,讓它在「全磁碟取用權」中顯示為開關..."
-MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="「全磁碟取用權」仍待處理。在授予權限之前,Doctor 儀表板會一直顯示該卡片。"
-MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant 已擁有「全磁碟取用權」,無需再做任何操作。"
-MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="這一步需要你花約兩分鐘:現在為助理開啟「全磁碟取用權」,然後在下一步登入 Tailscale。之後,你就可以讓 Ostler 自行完成其餘部分。"
+MSG_INFO_TAILSCALE_STILL_WAITING="仍在等待 Tailscale 登入（已過 %s 秒）– 請在 Tailscale 視窗中完成登入。"
+MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="已授予「全磁碟取用權」；正在重新啟動助理以套用新權限。"
+MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="正在打開「系統設定」和 Finder，引導你為助理授予「全磁碟取用權」..."
+MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="正在向 macOS 註冊 Ostler 助理，讓它在「全磁碟取用權」中顯示為開關..."
+MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="「全磁碟取用權」仍待處理。在授予權限之前，Doctor 儀表板會一直顯示該卡片。"
+MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant 已擁有「全磁碟取用權」，無需再做任何操作。"
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="這一步需要你花約兩分鐘：現在為助理開啟「全磁碟取用權」，然後在下一步登入 Tailscale。之後，你就可以讓 Ostler 自行完成其餘部分。"
 # #613: the declined-remote-access variant of the line above. On the v1.0.60
 # walk this was the SECOND time a customer who had answered "skip" was told a
 # Tailscale sign-in was coming. Emitted only when the answer is known to be
 # skip; an unknown answer keeps the original wording, because the late-ask path
 # means the question genuinely is still to come.
-MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="這一步需要你花約一分鐘:為助理開啟「全磁碟取用權」。之後,你就可以讓 Ostler 自行完成其餘部分。"
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="這一步需要你花約一分鐘：為助理開啟「全磁碟取用權」。之後，你就可以讓 Ostler 自行完成其餘部分。"
 # WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
 # assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
 # "Ostler is already listed" while the row said OstlerAssistant, so the
 # customer went hunting in Finder for a row this line says is there.
-MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="「%s」已列在「全磁碟取用權」中,你只需將它開啟。無需從 Finder 拖放任何項目。"
+MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="「%s」已列在「全磁碟取用權」中，你只需將它開啟。無需從 Finder 拖放任何項目。"
 MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="正在檢查 Ostler 助理是否擁有「全磁碟取用權」..."
-MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="助理可以讀取「訊息」記錄;iMessage 頻道將可正常使用。"
+MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="助理可以讀取「訊息」記錄；iMessage 頻道將可正常使用。"
 MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="Ostler 助理尚未獲得「完整磁碟取用權限」。助理需要此權限，才能讓你 Mac 內置的 App 保持最新，不論有沒有使用「訊息」。如果你現在略過，Doctor 儀表板會引導你前往「系統設定」。"
 MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON="助理 LaunchAgent 未能載入，略過 iMessage 完整磁碟取用權限檢查。"
 MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="Doctor 內的 Evernote 匯入介面會顯示「服務無法使用」"
@@ -464,7 +464,7 @@ MSG_OK_EMAIL_INGEST_SCRIPTS_CLONED_FROM="已從 %s 複製電郵擷取指令碼"
 MSG_PROGRESS_WHATSAPP_BUNDLE="正在設定 WhatsApp 對話記憶"
 MSG_OK_WHATSAPP_SOURCE_INSTALLED="  已安裝 WhatsApp 對話讀取程式。"
 MSG_WARN_WHATSAPP_SOURCE_FAILED="WhatsApp 對話讀取程式安裝失敗，WhatsApp 對話來源將不會運行。請參閱上方輸出內容。"
-MSG_WARN_WHATSAPP_SOURCE_SRC_NOT_FOUND="找不到 WhatsApp 對話讀取程式的來源,已略過 WhatsApp 對話來源。"
+MSG_WARN_WHATSAPP_SOURCE_SRC_NOT_FOUND="找不到 WhatsApp 對話讀取程式的來源，已略過 WhatsApp 對話來源。"
 MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING="此安裝程式內找不到 WhatsApp 對話來源套件，已略過。WhatsApp 訊息記錄（你曾與誰在何時傳訊息）不受影響。"
 MSG_OK_WHATSAPP_BUNDLE_LOADED="已載入 WhatsApp 對話來源 LaunchAgent（標籤 com.creativemachines.ostler.whatsapp-bundle）"
 MSG_INFO_WHATSAPP_BUNDLE_TICK="  首次執行會讀取你的 Mac 已同步的近期 WhatsApp 對話（約過去一年），資料只會留在你的 Mac 上。"
@@ -583,7 +583,7 @@ MSG_OK_PYTHON_INSTALLED="Python %s 已安裝"
 MSG_OK_QDRANT_HEALTHY="Qdrant healthy"
 # v1.0.10 P1: loopback control-plane liveness (pairing + data tab).
 MSG_OK_GATEWAY_HEALTHY="配對服務運作正常"
-MSG_WARN_GATEWAY_NOT_RESPONDING="配對服務沒有回應（127.0.0.1:8000） - 手機/瀏覽器配對和聊天助理可能暫時無法使用"
+MSG_WARN_GATEWAY_NOT_RESPONDING="配對服務沒有回應（127.0.0.1:8000）- 手機/瀏覽器配對和聊天助理可能暫時無法使用"
 MSG_OK_DOCTOR_HEALTHY="Doctor 運作正常"
 MSG_WARN_DOCTOR_NOT_RESPONDING="Doctor 沒有回應（127.0.0.1:8089）- App 和瀏覽器透過它連接 Ostler，所以資料和配對可能無法使用"
 MSG_OK_WIKI_HEALTHY="你的 wiki 運作正常"
@@ -591,7 +591,7 @@ MSG_OK_ICAL_SERVER_HEALTHY="助理 API 運作正常"
 MSG_WARN_ICAL_SERVER_NOT_RESPONDING="助理 API 沒有回應（127.0.0.1:8090）- 在它啟動前，「人物」、「會議」和「時間線」可能會是空白"
 MSG_OK_READY="%s 已就緒"
 MSG_OK_RECOMMENDED_SOURCES_SELECTED="已選取建議的來源"
-MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="復原金鑰已儲存到「鑰匙圈」(在「密碼」App 中搜尋「Ostler」)"
+MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="復原金鑰已儲存到「鑰匙圈」（在「密碼」App 中搜尋「Ostler」）"
 MSG_OK_REDIS_HEALTHY="Redis healthy"
 MSG_OK_SAFARI_EXTENSION_INSTALLED="Safari 擴充功能已安裝於 %s"
 MSG_OK_SAFARI_EXTENSION_PAIRED="Safari 擴充功能已與此 Hub 配對"
@@ -600,38 +600,38 @@ MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV="安全模組已安裝到 venv"
 MSG_OK_SEEDED_FRESH_JWT_SECRET="已在 %s 建立全新的 JWT_SECRET"
 MSG_OK_SEEDED_PWG_SERVICE_TOKEN="已在 %s 建立 PWG 服務權杖"
 MSG_OK_SEEDED_EXTENSION_TOKEN="已在 %s 建立瀏覽器擴充功能金鑰"
-MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="服務已啟動(Qdrant :6333、Oxigraph :7878、Redis :6379)"
+MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="服務已啟動（Qdrant :6333、Oxigraph :7878、Redis :6379）"
 # ── Qdrant collection pre-create + import gate (#606 / v1061-D003) ──
-MSG_INFO_QDRANT_COLLECTION_PRECREATED="  已準備搜尋集合:%s"
-MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="暫時未能準備 %s 搜尋集合;下方的資料匯入會再試一次,如果仍然未能準備好,會停止而不會丟棄你的資料。"
-MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="搜尋索引尚未及時準備好;下方的資料匯入會等待它、準備好各個集合,如果儲存庫仍未就緒,會停止而不會丟棄你的資料。"
+MSG_INFO_QDRANT_COLLECTION_PRECREATED="  已準備搜尋集合：%s"
+MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="暫時未能準備 %s 搜尋集合；下方的資料匯入會再試一次，如果仍然未能準備好，會停止而不會丟棄你的資料。"
+MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="搜尋索引尚未及時準備好；下方的資料匯入會等待它、準備好各個集合，如果儲存庫仍未就緒，會停止而不會丟棄你的資料。"
 MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS="你的資料尚未匯入。搜尋儲存庫未能準備好來存放資料（缺少：%s），而強行匯入會在無聲無息間丟失資料。沒有任何資料遺失。請在這部 Mac 閒置時重新執行安裝程式，或設定 OSTLER_QDRANT_READY_WAIT_S 以等待更長時間。"
-MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="你的資料匯入處理了 %s 筆記錄,但一筆都沒有儲存;搜尋儲存庫拒絕了每一筆,結果會是一個空的知識圖譜卻顯示為已完成。因此已停止,不會向你顯示這樣的結果。請在這部 Mac 閒置時重新執行安裝程式。"
-MSG_WARN_IMPORT_YIELD_UNMEASURABLE="無法讀取匯入本身的記錄檔,因此未能檢查資料是否確實已存入。這並不表示匯入失敗,也不表示匯入成功。"
-MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="已停用接電源時的睡眠,保留電池睡眠,並已啟用網絡喚醒"
-MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="已停用睡眠,並已啟用網絡喚醒"
+MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="你的資料匯入處理了 %s 筆記錄，但一筆都沒有儲存；搜尋儲存庫拒絕了每一筆，結果會是一個空的知識圖譜卻顯示為已完成。因此已停止，不會向你顯示這樣的結果。請在這部 Mac 閒置時重新執行安裝程式。"
+MSG_WARN_IMPORT_YIELD_UNMEASURABLE="無法讀取匯入本身的記錄檔，因此未能檢查資料是否確實已存入。這並不表示匯入失敗，也不表示匯入成功。"
+MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="已停用接電源時的睡眠，保留電池睡眠，並已啟用網絡喚醒"
+MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="已停用睡眠，並已啟用網絡喚醒"
 MSG_OK_TAILSCALE_ALREADY_INSTALLED="Tailscale 已安裝"
 MSG_OK_TAILSCALE_INSTALLED="Tailscale 已安裝完成"
 MSG_OK_TAILSCALE_ENV_PERSISTED="Tailscale IP 已儲存到 .env – 你 iPhone 上的 Ostler app 首次開啟時會使用它。"
 MSG_OK_TAILSCALE_IP="Tailscale IP:%s"
 # ── Tailscale userspace formula path (#604) ──
-MSG_OK_TAILSCALED_USERSPACE_STARTED="Tailscale 背景服務已啟動(使用者空間模式,無系統擴充功能)"
+MSG_OK_TAILSCALED_USERSPACE_STARTED="Tailscale 背景服務已啟動（使用者空間模式，無系統擴充功能）"
 MSG_WARN_TAILSCALED_USERSPACE_START_FAILED="無法啟動 Tailscale 背景服務。你稍後可以在「設定」中重新執行設定。"
 MSG_INFO_TAILSCALE_SIGN_IN_URL="正在開啟瀏覽器以登入 Tailscale:%s"
 MSG_INFO_TAILSCALE_SERVE_PORT="已在你的 tailnet 上開放 Hub 連接埠 %s"
-MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="無法在你的 tailnet 上開放 Hub 連接埠 %s;在區域網絡以外的連接可能受限"
+MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="無法在你的 tailnet 上開放 Hub 連接埠 %s；在區域網絡以外的連接可能受限"
 # ── Wiki on the tailnet, owner-gated (v1.0.17) ──
-MSG_OK_WIKI_TAILNET_SERVED="你現在可以在自己的裝置上透過 %s 閱讀 wiki – 以你的身分登入,只有你能存取。"
-MSG_INFO_WIKI_TAILNET_OWNER="Wiki 存取權限只限你的 Tailscale 帳戶(%s)。你 tailnet 上的其他人會收到 403。"
-MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="你的 wiki 只會留在這部 Mac 上。開啟 Ostler,在側邊欄選擇「Wiki」即可閱讀。"
-MSG_INFO_WIKI_TAILNET_BANNER="%s  (從你自己的裝置經 Tailscale 連接。這是唯一會要求你使用上述登入資料的途徑。)"
+MSG_OK_WIKI_TAILNET_SERVED="你現在可以在自己的裝置上透過 %s 閱讀 wiki – 以你的身分登入，只有你能存取。"
+MSG_INFO_WIKI_TAILNET_OWNER="Wiki 存取權限只限你的 Tailscale 帳戶（%s）。你 tailnet 上的其他人會收到 403。"
+MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="你的 wiki 只會留在這部 Mac 上。開啟 Ostler，在側邊欄選擇「Wiki」即可閱讀。"
+MSG_INFO_WIKI_TAILNET_BANNER="%s（從你自己的裝置經 Tailscale 連接。這是唯一會要求你使用上述登入資料的途徑。）"
 # CM051 #1980. Where the wiki actually opens. :8044 answers an
 # uncredentialled browser with a signpost and no challenge (see the
 # `listen 8044` server block in install.sh), so the address is named for
 # what it is rather than offered as a destination.
-MSG_INFO_WIKI_IN_THE_APP="在 Ostler app 中。開啟 Ostler,在側邊欄選擇「Wiki」;你的頁面就在那裡,已自動登入。"
-MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler 會從這部 Mac 上的 http://localhost:8044 擷取這些頁面。該位址屬內部使用,沒有任何需要你登入的內容。"
-MSG_INFO_WIKI_SIGN_IN="你的 wiki 登入資料是 %s,密碼是 %s。Ostler 會代你提交,所以在這部 Mac 上無需輸入任何內容;只有當你從其他裝置經 Tailscale 開啟 wiki 時,才需要親自使用它。"
+MSG_INFO_WIKI_IN_THE_APP="在 Ostler app 中。開啟 Ostler，在側邊欄選擇「Wiki」；你的頁面就在那裡，已自動登入。"
+MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler 會從這部 Mac 上的 http://localhost:8044 擷取這些頁面。該位址屬內部使用，沒有任何需要你登入的內容。"
+MSG_INFO_WIKI_SIGN_IN="你的 wiki 登入資料是 %s，密碼是 %s。Ostler 會代你提交，所以在這部 Mac 上無需輸入任何內容；只有當你從其他裝置經 Tailscale 開啟 wiki 時，才需要親自使用它。"
 MSG_INFO_WIKI_SIGN_IN_WITHHELD="你的 wiki 登入資料是 %s。密碼不會寫入此記錄；它已在你的剪貼簿，也存放在下方所列的檔案中。Ostler 會代你填入，所以在這部 Mac 上無需輸入任何內容。"
 MSG_INFO_WIKI_PORT_LAST_STATUS="wiki 連接埠最後的 HTTP 狀態：%s（000 代表沒有回應；403 代表有回應但拒絕了憑證）。"
 # HR015 #943. The four lines below are the readiness half of the wiki handover.
@@ -728,77 +728,77 @@ MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="無法更改睡眠設定。請�
 MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="無法更改睡眠設定。請在「系統設定」>「能源」中開啟「防止自動進入睡眠」。"
 MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="無法下載 ostler-assistant v%s（來源：%s）"
 MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="無法從 Takeout zip 中提取 Gmail mbox – 已略過。"
-MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="無法解開 ostler-assistant tarball,已略過 LaunchAgent。"
+MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="無法解開 ostler-assistant tarball，已略過 LaunchAgent。"
 MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU="找不到 Tailscale CLI。你可以稍後手動設定。"
 MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Could not install legal/ consent-strings package; continuing"
-MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON="無法安裝 LICENSES/ 目錄(不影響安裝)。"
+MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON="無法安裝 LICENSES/ 目錄（不影響安裝）。"
 MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO="無法將 ostler_security 安裝到 Hub 的 venv。"
-MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES="無法安裝 THIRD_PARTY_NOTICES.md(不影響安裝)。"
-MSG_WARN_COULD_NOT_OBTAIN_DOCTOR_AGENT_BUNDLED="無法取得 Doctor 代理程式(內附版本及複製均失敗)。"
-MSG_WARN_DOCTOR_NOT_BUNDLED_HARD_FAIL="找不到 Ostler Doctor 檔案。iOS 配對流程需要這些檔案(Ostler.app iframes :8089/pair-ios)。"
-MSG_WARN_DOCTOR_LOOKED_FOR_PATH="  已尋找:%s/doctor/agent/"
+MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES="無法安裝 THIRD_PARTY_NOTICES.md（不影響安裝）。"
+MSG_WARN_COULD_NOT_OBTAIN_DOCTOR_AGENT_BUNDLED="無法取得 Doctor 代理程式（內附版本及複製均失敗）。"
+MSG_WARN_DOCTOR_NOT_BUNDLED_HARD_FAIL="找不到 Ostler Doctor 檔案。iOS 配對流程需要這些檔案（Ostler.app iframes :8089/pair-ios）。"
+MSG_WARN_DOCTOR_LOOKED_FOR_PATH="  已尋找：%s/doctor/agent/"
 MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE="  這通常表示安裝程式 .app 建置時沒有附上"
-MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2="  內含的 doctor/agent/ 原始碼,應位於"
-MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/。請重新下載安裝程式,或"
-MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4="  加上 --allow-plaintext 重新執行,以進行開發/CI 安裝。"
-MSG_FAIL_DOCTOR_INSTALL_REQUIRED="Doctor 安裝已中止:iOS 配對流程需要它。請重新下載安裝程式,或加上 --allow-plaintext 以進行開發/CI 安裝。"
-MSG_WARN_COULD_NOT_OBTAIN_EMAIL_INGEST_SCRIPTS="無法取得電郵匯入腳本(內附版本及複製均失敗)。"
-MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS="無法取得 hub-power 腳本(內附版本及複製均失敗)。"
-MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="無法取得 wiki-recompile 腳本(內附版本及複製均失敗)。"
-MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="無法自動開啟 Chrome 網上應用程式商店網址:%s"
-MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="無法儲存 region.json(繼續進行,Doctor 會顯示此問題)"
-MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="無法記下復原密鑰已交付。今次執行的摘要仍然正確,但之後的執行可能無法得知,並可能再次提醒你。這已是出錯時較安全的結果。"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2="  內含的 doctor/agent/ 原始碼，應位於"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/。請重新下載安裝程式，或"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4="  加上 --allow-plaintext 重新執行，以進行開發/CI 安裝。"
+MSG_FAIL_DOCTOR_INSTALL_REQUIRED="Doctor 安裝已中止：iOS 配對流程需要它。請重新下載安裝程式，或加上 --allow-plaintext 以進行開發/CI 安裝。"
+MSG_WARN_COULD_NOT_OBTAIN_EMAIL_INGEST_SCRIPTS="無法取得電郵匯入腳本（內附版本及複製均失敗）。"
+MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS="無法取得 hub-power 腳本（內附版本及複製均失敗）。"
+MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="無法取得 wiki-recompile 腳本（內附版本及複製均失敗）。"
+MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="無法自動開啟 Chrome 網上應用程式商店網址：%s"
+MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="無法儲存 region.json（繼續進行，Doctor 會顯示此問題）"
+MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="無法記下復原密鑰已交付。今次執行的摘要仍然正確，但之後的執行可能無法得知，並可能再次提醒你。這已是出錯時較安全的結果。"
 MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="無法自動啟動 Ollama。"
-MSG_FAIL_OLLAMA_PORT_IN_USE="另一個程式已在使用埠 11434,而 Ostler 的本機 AI 需要使用此埠。Ostler 無法啟動自己的副本,因此安裝在此停止,而不是只完成一半。
+MSG_FAIL_OLLAMA_PORT_IN_USE="另一個程式已在使用埠 11434，而 Ostler 的本機 AI 需要使用此埠。Ostler 無法啟動自己的副本，因此安裝在此停止，而不是只完成一半。
 
-  佔用此埠的是:%s
-  詳細錯誤載於:%s
+  佔用此埠的是：%s
+  詳細錯誤載於：%s
 
-這通常是你原本已有的 Ollama,或是先前 Ostler 安裝後仍在運行的副本。請將它結束(或重新啟動這部 Mac),然後再次執行安裝程式。"
-MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="無法更新管線(是否離線?)"
-MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="無法寫入 pipeline_signals.json。在下次安裝或定時執行前,Doctor 的空白「郵件」診斷會使用安全預設值。"
-MSG_WARN_CURL_SAID="Curl 回應:"
-MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT="找不到目錄:%s – 已略過匯入。"
+這通常是你原本已有的 Ollama，或是先前 Ostler 安裝後仍在運行的副本。請將它結束（或重新啟動這部 Mac），然後再次執行安裝程式。"
+MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="無法更新管線（是否離線？）"
+MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="無法寫入 pipeline_signals.json。在下次安裝或定時執行前，Doctor 的空白「郵件」診斷會使用安全預設值。"
+MSG_WARN_CURL_SAID="Curl 回應："
+MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT="找不到目錄：%s – 已略過匯入。"
 MSG_WARN_DOCKER_COMPOSE_F_DOCKER_COMPOSE_YML="       docker compose -f %s/docker-compose.yml restart vane"
 MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compile run --rm wiki-compiler"
 MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2="    docker compose --profile compile run --rm wiki-compiler"
 MSG_WARN_DOCKER_COMPOSE_UP_D_WIKI_SITE="    docker compose up -d wiki-site"
 MSG_WARN_DOCKER_DID_NOT_START_WITHIN_SECONDS="Docker 未能在 %s 秒內啟動。"
-MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL="Docker 已安裝但未運行,需要啟動它。"
-MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="這部 Mac 上有 Docker 指令,但背後沒有任何運行中的引擎。在 macOS 上,Docker 指令只是客戶端,需要 Colima 或 Docker Desktop 等引擎才能實際運行。安裝程式會為你設定一個。"
-MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="容器運行環境診斷 - docker 客戶端:%s | colima:%s | Docker Desktop:%s"
-MSG_WARN_WIKI_PORT_NOT_ANSWERING="Wiki 容器已啟動,但 60 秒內 http://localhost:8044 沒有任何回應。請視 Wiki 為未運行,因為啟動指令的結束碼並不能證明頁面可以載入。"
-MSG_WARN_WIKI_NOT_RESPONDING="你的 Wiki 沒有回應(127.0.0.1:8044)。它在容器中運行,所以這通常表示容器運行環境已停止。請開啟 http://localhost:8089/doctor 的 Ostler Doctor 查看原因。"
-MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama 安裝途中,令就緒探測卡住。"
-MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  早期標記(頻道仍在連接 + Apple"
+MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL="Docker 已安裝但未運行，需要啟動它。"
+MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="這部 Mac 上有 Docker 指令，但背後沒有任何運行中的引擎。在 macOS 上，Docker 指令只是客戶端，需要 Colima 或 Docker Desktop 等引擎才能實際運行。安裝程式會為你設定一個。"
+MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="容器運行環境診斷 - docker 客戶端：%s | colima:%s | Docker Desktop:%s"
+MSG_WARN_WIKI_PORT_NOT_ANSWERING="Wiki 容器已啟動，但 60 秒內 http://localhost:8044 沒有任何回應。請視 Wiki 為未運行，因為啟動指令的結束碼並不能證明頁面可以載入。"
+MSG_WARN_WIKI_NOT_RESPONDING="你的 Wiki 沒有回應（127.0.0.1:8044）。它在容器中運行，所以這通常表示容器運行環境已停止。請開啟 http://localhost:8089/doctor 的 Ostler Doctor 查看原因。"
+MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama 安裝途中，令就緒探測卡住。"
+MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  早期標記（頻道仍在連接 + Apple"
 MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE="電郵擷取 LaunchAgent 安裝失敗。請參閱上方輸出。"
-MSG_WARN_IMESSAGE_BRIDGE_FAILED="iMessage 橋接 LaunchAgent 安裝失敗。在你重新執行安裝程式或手動執行 INSTALL_SNIPPET.sh 之前,助理使用者的 iMessage 回覆將無法使用。"
-MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="iMessage 橋接腳本未有隨附,而且已傳入 --allow-plaintext;LaunchAgent 安裝將會略過。助理使用者的 iMessage 回覆將無法使用。"
+MSG_WARN_IMESSAGE_BRIDGE_FAILED="iMessage 橋接 LaunchAgent 安裝失敗。在你重新執行安裝程式或手動執行 INSTALL_SNIPPET.sh 之前，助理使用者的 iMessage 回覆將無法使用。"
+MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="iMessage 橋接腳本未有隨附，而且已傳入 --allow-plaintext;LaunchAgent 安裝將會略過。助理使用者的 iMessage 回覆將無法使用。"
 MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="加密將無法使用。"
-MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="加密將無法使用,而且"
+MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="加密將無法使用，而且"
 MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="請確保已固定的 PWG_KNOWLEDGE_REPO 標籤包含它。"
 MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  「訊息」App 的事件權限)。"
-MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="FDA 擷取程式以非零狀態結束(%s)。輸出的最後 20 行:"
+MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="FDA 擷取程式以非零狀態結束（%s）。輸出的最後 20 行："
 MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="此安裝程式未有隨附 FDA 擷取模組。"
-MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="預期位置:Contents/Resources/ostler_fda/(位於 .app 內)。"
-MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="最可能的原因:建置回歸令隨附的模組副本遺失。請從 ostler.ai/install 重新下載 .app。"
-MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA 擷取模組未有隨附。由於已傳入 --allow-plaintext,安裝會繼續 – 即時資料擷取將會略過。"
-MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="資料擷取模組已在磁碟上,但其相依項目未能安裝,因此無法載入:"
-MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="由於已傳入 --allow-plaintext,安裝會繼續 – 排程資料更新每次執行都會失敗。"
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="預期位置：Contents/Resources/ostler_fda/（位於 .app 內）。"
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="最可能的原因：建置回歸令隨附的模組副本遺失。請從 ostler.ai/install 重新下載 .app。"
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA 擷取模組未有隨附。由於已傳入 --allow-plaintext，安裝會繼續 – 即時資料擷取將會略過。"
+MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="資料擷取模組已在磁碟上，但其相依項目未能安裝，因此無法載入："
+MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="由於已傳入 --allow-plaintext，安裝會繼續 – 排程資料更新每次執行都會失敗。"
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault 尚未啟用。"
-MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="暫時無法啟用首月免費;安裝會繼續。配對後,請在 iPhone 上開啟 Ostler app 解決。"
+MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="暫時無法啟用首月免費；安裝會繼續。配對後，請在 iPhone 上開啟 Ostler app 解決。"
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="「終端機」未獲「全盤取用權限」。"
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="偵測到 %s GB RAM。你會使用精簡版助理(gemma4:e2b):可靠、準確,短問題可在一秒內回應,支援工具呼叫,不懂時會坦白說「我不知道」。如要為較長的問題提供更豐富的答案,24 GB 或以上可使用標準版助理(qwen3.5:9b)。你日後可重新安裝以更換 Mac。"
-MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR 匯入出現錯誤。你可以用以下指令重新執行:"
-MSG_WARN_GRAPH_DB_PULL_RETRY="資料庫下載未能完成(第 %s 次嘗試,共 %s 次)。將於 %s 秒後重試..."
-MSG_WARN_GRAPH_DB_UP_RETRY="知識圖譜資料庫未能啟動(第 %s 次嘗試,共 %s 次)。正在重試..."
-MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL="GDPR 匯入是產品化安裝的一部分。沒有它,你的社交圖譜(LinkedIn、Facebook、Instagram、WhatsApp、Twitter、Google 日曆)將無法匯入。"
-MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE="在重新安裝匯入管線之前,此實例將無法使用 GDPR 匯入。"
-MSG_WARN_GIT_SAID="Git 表示:"
-MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  健康檢查失敗:ostler-knowledge --version 沒有產生輸出。"
-MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  健康檢查失敗:對話記憶引擎無法載入(pwg-convo 或其管線匯入未能正常返回)。"
-MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew 安裝程式以 %s 結束。%s 的最後 30 行如下:"
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="偵測到 %s GB RAM。你會使用精簡版助理（gemma4:e2b）：可靠、準確，短問題可在一秒內回應，支援工具呼叫，不懂時會坦白說「我不知道」。如要為較長的問題提供更豐富的答案，24 GB 或以上可使用標準版助理（qwen3.5:9b）。你日後可重新安裝以更換 Mac。"
+MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR 匯入出現錯誤。你可以用以下指令重新執行："
+MSG_WARN_GRAPH_DB_PULL_RETRY="資料庫下載未能完成（第 %s 次嘗試，共 %s 次）。將於 %s 秒後重試..."
+MSG_WARN_GRAPH_DB_UP_RETRY="知識圖譜資料庫未能啟動（第 %s 次嘗試，共 %s 次）。正在重試..."
+MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL="GDPR 匯入是產品化安裝的一部分。沒有它，你的社交圖譜（LinkedIn、Facebook、Instagram、WhatsApp、Twitter、Google 日曆）將無法匯入。"
+MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE="在重新安裝匯入管線之前，此實例將無法使用 GDPR 匯入。"
+MSG_WARN_GIT_SAID="Git 表示："
+MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  健康檢查失敗：ostler-knowledge --version 沒有產生輸出。"
+MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  健康檢查失敗：對話記憶引擎無法載入（pwg-convo 或其管線匯入未能正常返回）。"
+MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew 安裝程式以 %s 結束。%s 的最後 30 行如下："
 MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="--- Homebrew 安裝記錄（末段）---"
 MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip 安裝以 %s 結束。%s 的最後 30 行如下："
 MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES="--- Doctor pip 安裝記錄（末段）---"
@@ -812,9 +812,9 @@ MSG_WARN_ICAL_SERVER_FAILED="無法啟動助理 API；在下次執行安裝之�
 MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE="  - 映像檔拉取失敗（網絡、磁碟空間或登錄庫逾時）"
 MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="無法將 iMessage 的「全碟取用權限」訊號寫入 pipeline_signals.json。Doctor 儀表板可能不會自動顯示「全碟取用權限」卡片。"
 MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP 主機為空 – 請再試一次。"
-MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage 自動化權限：未授權 (-1743)。"
+MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage 自動化權限：未授權（-1743）。"
 MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage 自動化權限：探測結果不明確。"
-MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="無法讀取 iMessage 記錄 (chat.db)：Ostler 常駐程式尚未獲授「全碟取用權限」。在「系統設定」>「私隱與安全性」>「全碟取用權限」中授權之前，讀取 iMessage 記錄會保持關閉。"
+MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="無法讀取 iMessage 記錄（chat.db）：Ostler 常駐程式尚未獲授「全碟取用權限」。在「系統設定」>「私隱與安全性」>「全碟取用權限」中授權之前，讀取 iMessage 記錄會保持關閉。"
 MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="正在打開「系統設定」>「私隱與安全性」>「自動化」。請剔選 OstlerInstaller（或「終端機」）的「訊息」一列，以接通 iMessage 傳送功能。"
 MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="不是完整的電郵地址，已略過：%s"
 MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="請至少輸入一個完整的電郵地址（例如 you@example.com）。"
@@ -961,7 +961,7 @@ MSG_WARN_TRY_DOCKER_LOGS_OSTLER_VANE="  請嘗試：docker logs ostler-vane"
 MSG_WARN_UNRECOGNISED_CHOICE_DEFAULTING_IMESSAGE_EMAIL="無法識別的選擇「%s」；將預設使用 iMessage + 電郵。"
 MSG_WARN_UNRECOGNISED_CHOICE_USING_RECOMMENDED="無法識別的選擇。將使用建議選項。"
 MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT="  更新失敗；繼續使用現有的檢出版本。"
-MSG_WARN_USE_APPLE_MAIL_RECOMMENDED_ABOVE_THAT="該帳戶請使用 Apple Mail（見上方建議） – Ostler 絕不會儲存雲端密碼。"
+MSG_WARN_USE_APPLE_MAIL_RECOMMENDED_ABOVE_THAT="該帳戶請使用 Apple Mail（見上方建議）– Ostler 絕不會儲存雲端密碼。"
 MSG_WARN_USING_INBOX_ASSISTANT_WILL_READ_EVERY="使用 INBOX。助理會讀取每一封收到的電郵。"
 MSG_WARN_VANE_CONTAINER_STARTED_BUT_HTTP_LOCALHOST="Vane 容器已啟動，但 http://localhost:3000 在 60 秒內沒有回應。"
 MSG_WARN_VANE_LOCAL_WEB_SEARCH_FAILED_START="Vane（本機網絡搜尋）啟動失敗。常見原因："
@@ -981,7 +981,7 @@ MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="你可能需要手動安裝：%s
 
 # ── Error messages (security / integrity, hard-fail context) ──
 
-MSG_ERR_ACTUAL="  實際值：   %s"
+MSG_ERR_ACTUAL="  實際值：%s"
 MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT="解壓後，在 %s 找不到 Ostler RemoteCapture 套件。發佈的 tarball 可能已損壞。"
 # Added 2026-09-24 after ERR-24-CM042-EXTRACT took a whole install down on a
 # console walk. The two causes below were previously indistinguishable from a
@@ -1012,35 +1012,35 @@ MSG_ERR_URL="  url:      %s"
 
 MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="不支援 Intel Mac。Ostler 需要 Apple 晶片（M1、M2、M3 或 M4）。"
 MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="需要至少 16 GB 記憶體。你的 Mac 有 %s GB。建議 24 GB。"
-MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture 安裝已中止:簽署或公證檢查失敗。套件已保留在 /Applications 供支援人員查看。請電郵至 support@ostler.ai,然後重新執行安裝程式。"
-MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="嘗試 3 次後仍無法拉取 %s。請檢查網絡,然後重新執行安裝程式。"
-MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="嘗試 3 次後仍無法拉取 nomic-embed-text。請檢查網絡,然後重新執行安裝程式。"
+MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture 安裝已中止：簽署或公證檢查失敗。套件已保留在 /Applications 供支援人員查看。請電郵至 support@ostler.ai，然後重新執行安裝程式。"
+MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="嘗試 3 次後仍無法拉取 %s。請檢查網絡，然後重新執行安裝程式。"
+MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="嘗試 3 次後仍無法拉取 nomic-embed-text。請檢查網絡，然後重新執行安裝程式。"
 MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker 無法使用。請重新執行安裝程式以安裝 Colima。"
-MSG_FAIL_CONTAINER_CLIENT_MISSING="這部 Mac 上沒有 docker 指令,Ostler 無法啟動所需的服務。請重新執行安裝程式;如再次失敗,請把記錄檔 %s 寄給我們。"
-MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler 需要容器執行環境,但這部 Mac 上沒有任何執行環境回應。你的 wiki、知識圖譜和搜尋索引都在容器內運行,所以安裝在此停止,而不是完成後讓它們缺失。解決方法:開啟「終端機」並執行 'colima start',然後再次執行此安裝程式。如果你改用 Docker Desktop,請開啟它,等鯨魚圖示穩定後再重新執行。完整記錄位於 %s。"
-MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY="Docker 未能及時就緒,無法啟動知識圖譜資料庫。請確保 Colima 或 Docker 正在運行,然後重新執行安裝程式。"
-MSG_FAIL_GRAPH_DB_PULL_FAILED="嘗試多次後仍無法下載知識圖譜資料庫映像檔。這通常是網絡問題。請檢查你的互聯網連線,然後重新執行安裝程式。"
-MSG_FAIL_GRAPH_DB_UP_FAILED="知識圖譜資料庫已下載,但無法啟動。請重新執行安裝程式;如問題持續,請開啟「終端機」並執行:cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
-MSG_FAIL_STORE_AUTH_LEAK="Ostler 無法完成向知識圖譜資料庫發出的已驗證請求。它嘗試了兩次,每次相隔兩秒,兩次都被拒絕。我們暫時未知原因:資料庫可能仍在啟動,或 Ostler 持有的憑證可能並非資料庫預期的那一個。你的資料並未被改動。重新執行安裝程式通常會成功;即使成功,我們仍希望你告知我們 – 請把安裝記錄寄給我們,因為這是我們正積極嘗試重現的故障。"
-MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="安裝程式套件中缺少 FDA 擷取模組。請從 ostler.ai/install 重新下載 .app,或在開發/CI 環境以 --allow-plaintext 重新執行。"
-MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="資料擷取模組已安裝但無法載入,因此背景更新每次執行都會失敗。完整輸出已儲存至 %s – 請重新執行安裝程式,如聯絡支援人員,請附上該檔案(參考編號:ERR-10-FDA-DEPS-IMPORT)。"
-MSG_FAIL_FDA_DEPS_UNSAFE_PATH="內部錯誤:資料擷取模組被暫存在應用程式套件內,這會破壞其簽署。這是建置故障,並非你的 Mac 出現問題。請從 ostler.ai/install 重新下載 .app(參考編號:ERR-10-FDA-DEPS-UNSAFE-PATH)。"
-MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor 相依項目安裝失敗。完整輸出已儲存至 %s – 電郵至 support@ostler.ai 時請附上(參考編號:ERR-17-DOCTOR-PIP)。"
-MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="匯入管線相依項目安裝失敗。完整輸出已儲存至 %s – 電郵至 support@ostler.ai 時請附上(參考編號:ERR-14-PIPELINE-PIP)。"
+MSG_FAIL_CONTAINER_CLIENT_MISSING="這部 Mac 上沒有 docker 指令，Ostler 無法啟動所需的服務。請重新執行安裝程式；如再次失敗，請把記錄檔 %s 寄給我們。"
+MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler 需要容器執行環境，但這部 Mac 上沒有任何執行環境回應。你的 wiki、知識圖譜和搜尋索引都在容器內運行，所以安裝在此停止，而不是完成後讓它們缺失。解決方法：開啟「終端機」並執行 'colima start'，然後再次執行此安裝程式。如果你改用 Docker Desktop，請開啟它，等鯨魚圖示穩定後再重新執行。完整記錄位於 %s。"
+MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY="Docker 未能及時就緒，無法啟動知識圖譜資料庫。請確保 Colima 或 Docker 正在運行，然後重新執行安裝程式。"
+MSG_FAIL_GRAPH_DB_PULL_FAILED="嘗試多次後仍無法下載知識圖譜資料庫映像檔。這通常是網絡問題。請檢查你的互聯網連線，然後重新執行安裝程式。"
+MSG_FAIL_GRAPH_DB_UP_FAILED="知識圖譜資料庫已下載，但無法啟動。請重新執行安裝程式；如問題持續，請開啟「終端機」並執行：cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
+MSG_FAIL_STORE_AUTH_LEAK="Ostler 無法完成向知識圖譜資料庫發出的已驗證請求。它嘗試了兩次，每次相隔兩秒，兩次都被拒絕。我們暫時未知原因：資料庫可能仍在啟動，或 Ostler 持有的憑證可能並非資料庫預期的那一個。你的資料並未被改動。重新執行安裝程式通常會成功；即使成功，我們仍希望你告知我們 – 請把安裝記錄寄給我們，因為這是我們正積極嘗試重現的故障。"
+MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="安裝程式套件中缺少 FDA 擷取模組。請從 ostler.ai/install 重新下載 .app，或在開發/CI 環境以 --allow-plaintext 重新執行。"
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="資料擷取模組已安裝但無法載入，因此背景更新每次執行都會失敗。完整輸出已儲存至 %s – 請重新執行安裝程式，如聯絡支援人員，請附上該檔案（參考編號：ERR-10-FDA-DEPS-IMPORT）。"
+MSG_FAIL_FDA_DEPS_UNSAFE_PATH="內部錯誤：資料擷取模組被暫存在應用程式套件內，這會破壞其簽署。這是建置故障，並非你的 Mac 出現問題。請從 ostler.ai/install 重新下載 .app（參考編號：ERR-10-FDA-DEPS-UNSAFE-PATH）。"
+MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor 相依項目安裝失敗。完整輸出已儲存至 %s – 電郵至 support@ostler.ai 時請附上（參考編號：ERR-17-DOCTOR-PIP）。"
+MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="匯入管線相依項目安裝失敗。完整輸出已儲存至 %s – 電郵至 support@ostler.ai 時請附上（參考編號：ERR-14-PIPELINE-PIP）。"
 MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew 安裝失敗。完整輸出已儲存至 %s – 電郵至 support@ostler.ai 時請附上。"
-MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="匯入管線安裝失敗。產品化安裝需要 contact_syncer 套件。請在開發/CI 環境以 --allow-plaintext 重新執行,或重新下載安裝程式後再試。"
+MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="匯入管線安裝失敗。產品化安裝需要 contact_syncer 套件。請在開發/CI 環境以 --allow-plaintext 重新執行，或重新下載安裝程式後再試。"
 MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="需要 sudo 權限才能停用睡眠並安裝 Homebrew。準備好後請重新執行。"
 MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Colima 和 Docker Desktop 都無法啟動。請安裝 Docker Desktop 後重新執行。"
-MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE="磁碟空間不足(%s GB)。請釋出空間後再試。"
-MSG_FAIL_MACOS_BELOW_FLOOR="macOS %s 版本低於 Ostler 支援的版本。Ostler 需要 macOS %s 或更高版本:安裝程式 app 是為其建置的,在更舊的系統上無法開啟。請更新 macOS,然後再次執行安裝程式。"
-MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="未設定密碼匙,亦沒有現有的安全設定。請在開發/CI 環境以 --allow-plaintext 重新執行,或重新執行安裝程式並確認 Touch ID 說明。"
-MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="需要對話記憶引擎。請在開發/CI 環境以 --allow-plaintext 重新執行,或修正上述缺少的套件後再試。"
-MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="內附的 Ostler 常駐程式(v%s,位於 %s)不支援此安裝程式所需的 'run-source' 指令,無法透過「全磁碟存取權」處理擷取。這是安裝程式套件內的版本不一致:若照樣安裝,所有擷取來源都會在無聲無息下失效,產品會過時而不顯示任何錯誤。請從 ostler.ai/install 重新下載 .app 後再試(參考編號:ERR-11-DAEMON-RUN-SOURCE-SKEW)。"
-MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security 安裝失敗。請在開發/CI 環境以 --allow-plaintext 重新執行,或修正上述 pip 錯誤後再試。"
-MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="密碼匙設定失敗。請在開發/CI 環境以 --allow-plaintext 重新執行,或修正上述錯誤後再試。"
-MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="加密資料庫需要 sqlcipher3。請在開發/CI 環境以 --allow-plaintext 重新執行,或修正上述 pip 錯誤後再試。"
+MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE="磁碟空間不足（%s GB）。請釋出空間後再試。"
+MSG_FAIL_MACOS_BELOW_FLOOR="macOS %s 版本低於 Ostler 支援的版本。Ostler 需要 macOS %s 或更高版本：安裝程式 app 是為其建置的，在更舊的系統上無法開啟。請更新 macOS，然後再次執行安裝程式。"
+MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="未設定密碼匙，亦沒有現有的安全設定。請在開發/CI 環境以 --allow-plaintext 重新執行，或重新執行安裝程式並確認 Touch ID 說明。"
+MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="需要對話記憶引擎。請在開發/CI 環境以 --allow-plaintext 重新執行，或修正上述缺少的套件後再試。"
+MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="內附的 Ostler 常駐程式（v%s，位於 %s）不支援此安裝程式所需的 'run-source' 指令，無法透過「全磁碟存取權」處理擷取。這是安裝程式套件內的版本不一致：若照樣安裝，所有擷取來源都會在無聲無息下失效，產品會過時而不顯示任何錯誤。請從 ostler.ai/install 重新下載 .app 後再試（參考編號：ERR-11-DAEMON-RUN-SOURCE-SKEW）。"
+MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security 安裝失敗。請在開發/CI 環境以 --allow-plaintext 重新執行，或修正上述 pip 錯誤後再試。"
+MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="密碼匙設定失敗。請在開發/CI 環境以 --allow-plaintext 重新執行，或修正上述錯誤後再試。"
+MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="加密資料庫需要 sqlcipher3。請在開發/CI 環境以 --allow-plaintext 重新執行，或修正上述 pip 錯誤後再試。"
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="此安裝程式只適用於 macOS。"
-MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools 未能在 15 分鐘內完成安裝。請開啟「終端機」並執行 'xcode-select --install',在 macOS 對話框中按「安裝」,等待完成後再重新執行此安裝程式。"
+MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools 未能在 15 分鐘內完成安裝。請開啟「終端機」並執行 'xcode-select --install'，在 macOS 對話框中按「安裝」，等待完成後再重新執行此安裝程式。"
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
 #    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
@@ -1051,19 +1051,19 @@ MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools 未能�
 #    despite the GUI flowing to "end". The strings below back the new
 #    fail_with_code callsites. Reference codes use ERR-NN-DMG48-PKG-MISSING
 #    so they sort next to each other in the support catalogue. ──
-MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="Homebrew 安裝顯示成功,但找不到 /opt/homebrew/bin/brew。請查看 %s 取得完整記錄。復原方法:開啟「終端機」並執行 '/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"',然後重新執行安裝程式。"
-MSG_FAIL_HOMEBREW_NOT_ON_PATH="Homebrew 已安裝在 /opt/homebrew/bin/brew,但執行 shellenv 後,PATH 中仍找不到 'brew' 指令。請開啟新的「終端機」視窗,再重新執行安裝程式。"
-MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 顯示成功,但 PATH 中找不到 colima。請查看 %s 了解 Homebrew 的失敗原因。復原方法:開啟「終端機」並手動執行 'brew install colima docker docker-compose',然後重新執行安裝程式。"
-MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 顯示成功,但 PATH 中找不到 docker CLI。請查看 %s。復原方法:手動執行 'brew install docker',然後重新執行安裝程式。"
+MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="Homebrew 安裝顯示成功，但找不到 /opt/homebrew/bin/brew。請查看 %s 取得完整記錄。復原方法：開啟「終端機」並執行 '/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"'，然後重新執行安裝程式。"
+MSG_FAIL_HOMEBREW_NOT_ON_PATH="Homebrew 已安裝在 /opt/homebrew/bin/brew，但執行 shellenv 後，PATH 中仍找不到 'brew' 指令。請開啟新的「終端機」視窗，再重新執行安裝程式。"
+MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 顯示成功，但 PATH 中找不到 colima。請查看 %s 了解 Homebrew 的失敗原因。復原方法：開啟「終端機」並手動執行 'brew install colima docker docker-compose'，然後重新執行安裝程式。"
+MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 顯示成功，但 PATH 中找不到 docker CLI。請查看 %s。復原方法：手動執行 'brew install docker'，然後重新執行安裝程式。"
 MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="The Ollama install reported success but its binary is missing. Check %s, then re-run the installer."
 MSG_FAIL_OLLAMA_PIN_DOWNLOAD="Could not download Ollama %s. Check your internet connection, then re-run the installer. Details: %s"
 MSG_FAIL_OLLAMA_PIN_SHA256="The Ollama %s download did not match its recorded fingerprint, so it was not installed. This can mean the download was damaged or altered. Re-run the installer; if it happens again, contact support. Details: %s"
 MSG_FAIL_OLLAMA_PIN_UNPACK="Ollama %s downloaded but could not be unpacked. Check free disk space, then re-run the installer. Details: %s"
 MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="The local AI service is set to run %s instead of the copy of Ollama this installer verified (%s), so it would not stay on a tested version. The install has stopped. Re-run the installer; if this repeats, contact support. Details: %s"
-MSG_FAIL_EMBED_HEALTHCHECK="Ollama 正在運行,但嵌入模型沒有傳回向量(HTTP 不是 200,或結果為空)。「人物」卡片、搜尋和瀏覽都會是空白。請查看 %s。復原方法:確保已安裝並運行 Ollama app(而非 Homebrew formula),然後重新執行安裝程式。"
-MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' 顯示成功,但 PATH 中找不到 sqlcipher。請查看 %s。復原方法:手動執行 'brew install sqlcipher',然後重新執行安裝程式。"
-MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' 沒有產生 /Applications/Tailscale.app。請查看 %s。復原方法:從 https://tailscale.com/download/macos 下載 Tailscale 並拖到 /Applications,然後重新執行安裝程式。"
-MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' 顯示成功,但 /opt/homebrew/opt/python@3.11/bin/python3.11 中找不到 python3.11 執行檔。請查看 %s。復原方法:執行 'brew reinstall python@3.11',然後重新執行安裝程式。"
+MSG_FAIL_EMBED_HEALTHCHECK="Ollama 正在運行，但嵌入模型沒有傳回向量（HTTP 不是 200，或結果為空）。「人物」卡片、搜尋和瀏覽都會是空白。請查看 %s。復原方法：確保已安裝並運行 Ollama app（而非 Homebrew formula），然後重新執行安裝程式。"
+MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' 顯示成功，但 PATH 中找不到 sqlcipher。請查看 %s。復原方法：手動執行 'brew install sqlcipher'，然後重新執行安裝程式。"
+MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' 沒有產生 /Applications/Tailscale.app。請查看 %s。復原方法：從 https://tailscale.com/download/macos 下載 Tailscale 並拖到 /Applications，然後重新執行安裝程式。"
+MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' 顯示成功，但 /opt/homebrew/opt/python@3.11/bin/python3.11 中找不到 python3.11 執行檔。請查看 %s。復原方法：執行 'brew reinstall python@3.11'，然後重新執行安裝程式。"
 
 # ── Prompts (gui_read titles + help text) ──
 #
@@ -1075,17 +1075,17 @@ MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' 顯示成功,�
 # country code, detected timezone).
 
 MSG_PROMPT_REUSE_SETTINGS_TITLE="我們找到你之前的回答"
-MSG_PROMPT_REUSE_SETTINGS_HELP="我們偵測到這部 Mac 上有較早的安裝嘗試。你已回答的問題(姓名、助理名稱、時區、國家代碼、頻道等)會被沿用,無需重新輸入。選「是」從上次中斷的地方繼續,選「否」則從頭重新回答問題。"
-MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT="我們找到的先前回答:姓名 = %s,助理 = %s,時區 = %s。"
+MSG_PROMPT_REUSE_SETTINGS_HELP="我們偵測到這部 Mac 上有較早的安裝嘗試。你已回答的問題（姓名、助理名稱、時區、國家代碼、頻道等）會被沿用，無需重新輸入。選「是」從上次中斷的地方繼續，選「否」則從頭重新回答問題。"
+MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT="我們找到的先前回答：姓名 = %s，助理 = %s，時區 = %s。"
 
-MSG_PROMPT_PERMS_OK_TITLE="準備好繼續了嗎?"
-MSG_PROMPT_PERMS_OK_HELP="macOS 會要求「通訊錄」和「檔案和檔案夾」的取用權限。「完整磁碟取用權限」為選用,可稍後再授權。"
+MSG_PROMPT_PERMS_OK_TITLE="準備好繼續了嗎？"
+MSG_PROMPT_PERMS_OK_HELP="macOS 會要求「通訊錄」和「檔案和檔案夾」的取用權限。「完整磁碟取用權限」為選用，可稍後再授權。"
 
-MSG_PROMPT_USER_NAME_DETECTED_TITLE="全名(與通訊錄中顯示的相同)"
-MSG_PROMPT_USER_NAME_FALLBACK_TITLE="全名(例如:陳大文)"
+MSG_PROMPT_USER_NAME_DETECTED_TITLE="全名（與通訊錄中顯示的相同）"
+MSG_PROMPT_USER_NAME_FALLBACK_TITLE="全名（例如：陳大文）"
 
-MSG_PROMPT_USER_ID_TITLE="你希望助理怎樣稱呼你?"
-MSG_PROMPT_USER_ID_HELP="助理用來稱呼你的簡短名稱(例如「Andy」、「Andrew」、「陳太」)。早晨簡報和聊天回覆中會顯示這個名稱。與上面的全名不同。"
+MSG_PROMPT_USER_ID_TITLE="你希望助理怎樣稱呼你？"
+MSG_PROMPT_USER_ID_HELP="助理用來稱呼你的簡短名稱（例如「Andy」、「Andrew」、「陳太」）。早晨簡報和聊天回覆中會顯示這個名稱。與上面的全名不同。"
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1100,9 +1100,9 @@ MSG_PROMPT_USER_ID_HELP="助理用來稱呼你的簡短名稱(例如「Andy」�
 # runtime values (calendar name, event count/samples, the evidence that
 # links or separates a profile). EVENTS_ONE / EVENTS_MANY are the singular
 # and plural of the event count ("1 event", "2 events").
-MSG_CONFIRM_CALENDARS_REVIEW_TITLE="以下是你的日曆。看起來正確嗎?"
-MSG_CONFIRM_CALENDARS_REVIEW_INTRO="我們已推測每個日曆屬於誰,這樣你的簡報就不會混淆誰的行程是誰的。"
-MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="已自動擱置,不會用於你的簡報:"
+MSG_CONFIRM_CALENDARS_REVIEW_TITLE="以下是你的日曆。看起來正確嗎？"
+MSG_CONFIRM_CALENDARS_REVIEW_INTRO="我們已推測每個日曆屬於誰，這樣你的簡報就不會混淆誰的行程是誰的。"
+MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="已自動擱置，不會用於你的簡報："
 MSG_CONFIRM_CALENDAR_ROW="%s: %s, %s (%s)"
 MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"
 MSG_CONFIRM_CALENDAR_OWNER_YOU="你的"
@@ -1113,40 +1113,40 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="生日"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri 建議"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="你訂閱的日曆"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="提醒事項"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="要在簡報中使用「%s」嗎?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="我們擱置了這個日曆,因為它看起來像是%s。如果它其實是某人的日程,請回答「是」。"
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="要在簡報中使用「%s」嗎？"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="我們擱置了這個日曆，因為它看起來像是%s。如果它其實是某人的日程，請回答「是」。"
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
-MSG_CONFIRM_CALENDAR_OWNER_TITLE="「%s」是誰的日曆?"
-MSG_CONFIRM_CALENDAR_TYPE_TITLE="「%s」是哪種日曆?"
-MSG_CONFIRM_CALENDAR_TYPE_HELP="請選擇其中一項:個人、工作、家庭、共享、其他。這會決定其活動的敏感程度。"
+MSG_CONFIRM_CALENDAR_OWNER_TITLE="「%s」是誰的日曆？"
+MSG_CONFIRM_CALENDAR_TYPE_TITLE="「%s」是哪種日曆？"
+MSG_CONFIRM_CALENDAR_TYPE_HELP="請選擇其中一項：個人、工作、家庭、共享、其他。這會決定其活動的敏感程度。"
 MSG_CONFIRM_CALENDARS_SAVED="已儲存日曆擁有者"
-MSG_CONFIRM_CALENDARS_FAILED="無法儲存日曆擁有者(不影響安裝,你可稍後再設定)"
-MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="我們認為這些個人檔案全都是你(%s)。要合併為一個嗎?"
-MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="這些個人檔案與你有確切的身分關聯(電郵網域、LinkedIn 個人檔案或僱主)。合併後,助理就不會把你自己的紀錄當成幾個不同的人。你可稍後還原。"
-MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="有人與你同名,但看來是另一個人(%s)。這是你本人,還是別人?"
-MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="選擇「不同」會將對方保留為獨立人物(你的助理絕不會把對方合併到你身上)。只有確實是你本人,才選擇「我」。"
+MSG_CONFIRM_CALENDARS_FAILED="無法儲存日曆擁有者（不影響安裝，你可稍後再設定）"
+MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="我們認為這些個人檔案全都是你（%s）。要合併為一個嗎？"
+MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="這些個人檔案與你有確切的身分關聯（電郵網域、LinkedIn 個人檔案或僱主）。合併後，助理就不會把你自己的紀錄當成幾個不同的人。你可稍後還原。"
+MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="有人與你同名，但看來是另一個人（%s）。這是你本人，還是別人？"
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="選擇「不同」會將對方保留為獨立人物（你的助理絕不會把對方合併到你身上）。只有確實是你本人，才選擇「我」。"
 MSG_CONFIRM_IDENTITY_SAVED="已儲存身分選擇"
-MSG_CONFIRM_IDENTITY_FAILED="無法儲存身分選擇(不影響安裝,你可以稍後再確認)"
+MSG_CONFIRM_IDENTITY_FAILED="無法儲存身分選擇（不影響安裝，你可以稍後再確認）"
 
 # NEEDS REVIEW: en-GB header asks for human translation of this key
-MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="正在背景安裝(約需 45 分鐘至數小時)"
+MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="正在背景安裝（約需 45 分鐘至數小時）"
 
 MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="使用 +%s?"
-MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="輸入國家或地區編號(例如英國為 44,美國為 1)"
+MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="輸入國家或地區編號（例如英國為 44，美國為 1）"
 MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE="預設國家或地區編號"
-MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP="用於在匯入聯絡人時統一電話號碼格式,並設定你的地區(英國/歐盟/美國/其他),以套用合規預設值。"
-MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE="我們偵測到 +%s。要用於你的 Hub 嗎?"
-MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="根據上方的電話號碼偵測所得。選擇「是」即使用此編號,選擇「否」則輸入其他國家或地區編號。"
+MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP="用於在匯入聯絡人時統一電話號碼格式，並設定你的地區（英國/歐盟/美國/其他），以套用合規預設值。"
+MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE="我們偵測到 +%s。要用於你的 Hub 嗎？"
+MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="根據上方的電話號碼偵測所得。選擇「是」即使用此編號，選擇「否」則輸入其他國家或地區編號。"
 
-MSG_PROMPT_TZ_CONFIRM_TITLE="使用此時區?"
-MSG_PROMPT_TZ_CONFIRM_HELP="偵測到的時區:%s"
-MSG_PROMPT_USER_TZ_TITLE="輸入時區(例如 Europe/London、Asia/Hong_Kong)"
+MSG_PROMPT_TZ_CONFIRM_TITLE="使用此時區？"
+MSG_PROMPT_TZ_CONFIRM_HELP="偵測到的時區：%s"
+MSG_PROMPT_USER_TZ_TITLE="輸入時區（例如 Europe/London、Asia/Hong_Kong）"
 
-MSG_PROMPT_ASSISTANT_NAME_TITLE="你想為你的助理取什麼名字?"
-MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="欄位中的名字只是隨機建議,你可以改成任何喜歡的名字。Marvin、Samantha、Joshua、Friday、Athena、Sage 和 Rosie 都是熱門選擇。" # assistant-name-exempt: F6.1 suggestion-pool exemplar
-MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="可輸入任何你喜歡的名字,建議只是起點。"
+MSG_PROMPT_ASSISTANT_NAME_TITLE="你想為你的助理取什麼名字？"
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="欄位中的名字只是隨機建議，你可以改成任何喜歡的名字。Marvin、Samantha、Joshua、Friday、Athena、Sage 和 Rosie 都是熱門選擇。" # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="可輸入任何你喜歡的名字，建議只是起點。"
 
-MSG_PROMPT_CHANNEL_CHOICE_TITLE="你的助理該如何聯絡你?"
+MSG_PROMPT_CHANNEL_CHOICE_TITLE="你的助理該如何聯絡你？"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="選擇你想讓助理使用的訊息渠道。你可以稍後在 App 的 Doctor 部分更改。"
 
 MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
@@ -1158,7 +1158,7 @@ MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="你的 WhatsApp 電話號碼"
 # inbound allowlist and the brief delivery address could not use, while pairing
 # still worked because that one field strips non-digits. Example and rule now
 # agree, and install.sh normalises whatever is typed either way.
-MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="含國家或地區編號的國際號碼,例如 +447700900123。只可輸入數字及開頭的 +,不要有空格、括號或連字號。"
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="含國家或地區編號的國際號碼，例如 +447700900123。只可輸入數字及開頭的 +，不要有空格、括號或連字號。"
 MSG_INFO_WHATSAPP_NUMBER_NORMALISED="已儲存為 %s。WhatsApp 需要不含空格或括號的號碼。"
 
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="為 Ostler 助理開啟「完整磁碟取用權限」"
@@ -1182,18 +1182,18 @@ MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="「系統設定」已開啟至「完整磁
 # (install.sh: _ostler_fda_entry_name), so a bundle rename moves the copy
 # with it. Do NOT reintroduce a literal product name here -- it is
 # mutation-tested by tests/test_fda_dialog_tells_the_truth.sh case-4.
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="在列表中找到「%s」,然後開啟它的「完整磁碟取用權限」開關。"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="列表中沒有?請將「%s」從 Finder 視窗拖到列表中,然後開啟它的開關。先後次序不影響:你可以在之前或之後按「完成」,安裝程式會等到開關真正開啟為止。"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER="列表中沒有?Ostler 無法為你開啟 Finder 視窗。請在 Finder 按 ⌘⇧G,輸入下方路徑,然後將「%s」拖到列表中並開啟它的開關。先後次序不影響:你可以在之前或之後按「完成」,安裝程式會等到開關真正開啟為止。"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH="App 位於:%s"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD="App 位於:%s – 此路徑已拷貝到剪貼板,請在 Finder 按 ⌘⇧G,再按 ⌘V,然後按 Return。"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="在列表中找到「%s」，然後開啟它的「完整磁碟取用權限」開關。"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="列表中沒有？請將「%s」從 Finder 視窗拖到列表中，然後開啟它的開關。先後次序不影響：你可以在之前或之後按「完成」，安裝程式會等到開關真正開啟為止。"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER="列表中沒有？Ostler 無法為你開啟 Finder 視窗。請在 Finder 按 ⌘⇧G，輸入下方路徑，然後將「%s」拖到列表中並開啟它的開關。先後次序不影響：你可以在之前或之後按「完成」，安裝程式會等到開關真正開啟為止。"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH="App 位於：%s"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD="App 位於：%s – 此路徑已拷貝到剪貼板，請在 Finder 按 ⌘⇧G，再按 ⌘V，然後按 Return。"
 MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="完成"
-MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="你可以在開啟開關之前或之後按「完成」,安裝程式會等到開關真正開啟為止。"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="你可以在開啟開關之前或之後按「完成」，安裝程式會等到開關真正開啟為止。"
 
 MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="允許 Ostler 讀取你的 Mac 資料"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="「系統設定」已開啟至「完整磁碟取用權限」。"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2="在列表中找到「OstlerInstaller」並將它開啟。"
-MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="完成後按「完成」,Ostler 便會讀取你的 Safari 瀏覽記錄、備忘錄、iMessage 訊息和郵件。"
+MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="完成後按「完成」，Ostler 便會讀取你的 Safari 瀏覽記錄、備忘錄、iMessage 訊息和郵件。"
 MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON="完成"
 
 # CX-87 (DMG #48g, 2026-05-29): pre-warn before the FDA grant flow.
@@ -1203,10 +1203,10 @@ MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON="完成"
 # dialog as a choice and clicks Later, which silently breaks the FDA
 # grant for OstlerInstaller.app and lands the install at the
 # extraction step with no Safari / Mail / iMessage access.
-MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE="下一步:為安裝程式開啟「完整磁碟取用權限」"
-MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1="接下來,macOS 會要求你向 OstlerInstaller 授予「完整磁碟取用權限」。"
-MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2="開啟開關後,macOS 會彈出對話框,讓你選擇「結束並重新開啟」或「稍後」。"
-MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3="按一下「結束並重新開啟」。安裝程式會自動重新啟動,並從這一步繼續。"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE="下一步：為安裝程式開啟「完整磁碟取用權限」"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1="接下來，macOS 會要求你向 OstlerInstaller 授予「完整磁碟取用權限」。"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2="開啟開關後，macOS 會彈出對話框，讓你選擇「結束並重新開啟」或「稍後」。"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3="按一下「結束並重新開啟」。安裝程式會自動重新啟動，並從這一步繼續。"
 MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON="好"
 MSG_INFO_INSTALLER_FDA_PREWARN="正在向你說明「完整磁碟取用權限」的授權步驟⋯⋯"
 MSG_INFO_INSTALLER_FDA_ASSIST_OPENING="正在打開「系統設定」，讓你為安裝程式授予「完整磁碟取用權限」⋯⋯"
@@ -1222,7 +1222,7 @@ MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED="仍未授予「完整磁碟取用權
 # three false unattended promises (Andy's log, 12:39:51). Same fix: say what
 # is still wanted rather than promising none of it.
 MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE="安裝程式的「完整磁碟取用權限」已設定好。接下來的步驟較長，大部分會自行執行，但請留意 macOS 可能會彈出要求安裝開發者工具的對話框，而且接近尾聲時需要你回來花幾分鐘完成設定。"
-MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="還有一項權限(讓你的助理讀取「訊息」記錄)會在接近尾聲、助理安裝完成後出現,屆時我們會引導你前往設定。"
+MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="還有一項權限（讓你的助理讀取「訊息」記錄）會在接近尾聲、助理安裝完成後出現，屆時我們會引導你前往設定。"
 # WALK-1 (Wave 2.1): the single late recovery modal. It fires ONLY for a
 # customer who saw the upfront FDA ask but did not grant it, just before
 # extraction. Granting now, or continuing with less data, both let the
@@ -1234,26 +1234,26 @@ MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE="仍需要「完整磁碟取用權限」"
 # verified line the modal opens with, so this line only has to name the
 # row and the switch.
 MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler 即將讀取你 Mac 上的資料，但 OstlerInstaller 的「完整磁碟取用權限」仍未開啟。請在列表中找到「OstlerInstaller」並將它開啟。"
-MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="或者直接按「繼續」,以較少的資料完成安裝。你之後可以授予權限,再重新執行擷取程式。"
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="或者直接按「繼續」，以較少的資料完成安裝。你之後可以授予權限，再重新執行擷取程式。"
 MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON="繼續"
 
 MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="允許的聯絡人"
-MSG_PROMPT_IMESSAGE_ALLOWED_HELP="信任的人:電話號碼和 Apple ID 電郵地址(以逗號分隔)。%s 只會回覆此列表中的人,其他人的訊息會被忽略。至少需要填寫一項。
+MSG_PROMPT_IMESSAGE_ALLOWED_HELP="信任的人：電話號碼和 Apple ID 電郵地址（以逗號分隔）。%s 只會回覆此列表中的人，其他人的訊息會被忽略。至少需要填寫一項。
 
-例如:
+例如：
 +447700900000, you@example.com"
 
-MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="透過 Apple Mail 讀取電郵?"
+MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="透過 Apple Mail 讀取電郵？"
 MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用「完整磁碟取用權限」讀取你已加入 Apple Mail 的任何電郵帳户（iCloud、Gmail、Outlook 等）。不會儲存密碼。建議幾乎所有人使用。"
 
-MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="要在 Apple Mail 加入電郵帳户嗎?"
-MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="這部 Mac 上的 Apple Mail 尚未連接任何帳户,因此 Ostler 沒有電郵可讀取。選擇「是」會立即打開「系統設定」>「互聯網帳户」(你可以在那裡加入 iCloud、Gmail 或 Outlook)。選擇「否」則略過;你可以稍後再加入帳户,若 24 小時內仍沒有郵件送達,Doctor 會提醒你跟進。"
+MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="要在 Apple Mail 加入電郵帳户嗎？"
+MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="這部 Mac 上的 Apple Mail 尚未連接任何帳户，因此 Ostler 沒有電郵可讀取。選擇「是」會立即打開「系統設定」>「互聯網帳户」（你可以在那裡加入 iCloud、Gmail 或 Outlook）。選擇「否」則略過；你可以稍後再加入帳户，若 24 小時內仍沒有郵件送達，Doctor 會提醒你跟進。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="要擷取完整的 Apple Mail 記錄嗎?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Ostler 預設會讀取你 Apple Mail 最近五年的郵件。如果你在這部 Mac 上保存的郵件超過五年,而且想把全部郵件放進你的知識圖譜,請選擇「是」立即擷取完整的本機記錄(郵箱較大時可能需要多一點時間)。選擇「否」則維持五年範圍;你隨時可以在 Doctor 中延長。"
+MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="要擷取完整的 Apple Mail 記錄嗎？"
+MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Ostler 預設會讀取你 Apple Mail 最近五年的郵件。如果你在這部 Mac 上保存的郵件超過五年，而且想把全部郵件放進你的知識圖譜，請選擇「是」立即擷取完整的本機記錄（郵箱較大時可能需要多一點時間）。選擇「否」則維持五年範圍；你隨時可以在 Doctor 中延長。"
 
-MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同時設定自訂 IMAP+SMTP 伺服器?"
-MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="僅適用於自行架設的郵箱。如果你的帳户是 Gmail、iCloud 或 Outlook,請保持「否」,因為透過上述 Apple Mail 效果更好。"
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同時設定自訂 IMAP+SMTP 伺服器？"
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="僅適用於自行架設的郵箱。如果你的帳户是 Gmail、iCloud 或 Outlook，請保持「否」，因為透過上述 Apple Mail 效果更好。"
 
 MSG_PROMPT_IMAP_HOST_TITLE="IMAP 主機"
 MSG_PROMPT_IMAP_HOST_HELP="僅適用於自行架設或自訂的 IMAP 伺服器。Gmail / iCloud / Outlook 請使用上述 Apple Mail。"
@@ -1262,27 +1262,27 @@ MSG_PROMPT_IMAP_PORT_TITLE="IMAP 連接埠"
 MSG_PROMPT_SMTP_HOST_TITLE="SMTP 主機"
 MSG_PROMPT_SMTP_PORT_TITLE="SMTP 連接埠"
 
-MSG_PROMPT_EMAIL_USERNAME_TITLE="電郵地址(同時用作 IMAP/SMTP 用戶名稱)"
+MSG_PROMPT_EMAIL_USERNAME_TITLE="電郵地址（同時用作 IMAP/SMTP 用戶名稱）"
 
-MSG_PROMPT_EMAIL_ALLOWED_TITLE="誰可以發電郵給你的助理?"
-MSG_PROMPT_EMAIL_ALLOWED_HELP="你自己的電郵地址,以逗號分隔。%s 只會回覆此列表中地址的電郵,其他人的郵件會被忽略。至少需要填寫一個地址。系統已為你填入你自己的地址:你可以修改,或再加入其他地址。"
+MSG_PROMPT_EMAIL_ALLOWED_TITLE="誰可以發電郵給你的助理？"
+MSG_PROMPT_EMAIL_ALLOWED_HELP="你自己的電郵地址，以逗號分隔。%s 只會回覆此列表中地址的電郵，其他人的郵件會被忽略。至少需要填寫一個地址。系統已為你填入你自己的地址：你可以修改，或再加入其他地址。"
 
-MSG_PROMPT_EMAIL_PASSWORD_TITLE="密碼(已隱藏)"
+MSG_PROMPT_EMAIL_PASSWORD_TITLE="密碼（已隱藏）"
 MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally in ~/.ostler/secrets/, not in your settings file, and never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="確認密碼"
 
-MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="助理應該監察哪個資料夾?"
-MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP="建議:使用專用的標籤或資料夾(例如 Ostler)。我們只會讀取該處的郵件,不會動你的主收件箱。"
+MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="助理應該監察哪個資料夾？"
+MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP="建議：使用專用的標籤或資料夾（例如 Ostler）。我們只會讀取該處的郵件，不會動你的主收件箱。"
 
-MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="再次輸入 INBOX 以確認,或按「繼續」使用「Ostler」"
+MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="再次輸入 INBOX 以確認，或按「繼續」使用「Ostler」"
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX 表示助理會讀取你收到的每一封電郵。我們強烈建議改用專用的標籤或資料夾。"
 
-MSG_PROMPT_EXPORTS_ACK_TITLE="你已經申請資料匯出了嗎?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可從約 20 個平台匯入資料。完整列表及各服務供應商申請頁面的直接連結,請見 docs.ostler.ai/data-exports。
+MSG_PROMPT_EXPORTS_ACK_TITLE="你已經申請資料匯出了嗎？"
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可從約 20 個平台匯入資料。完整列表及各服務供應商申請頁面的直接連結，請見 docs.ostler.ai/data-exports。
 
-大多數封存檔需要 1 至 3 天才會透過電郵送達。收到 ZIP 檔後,把它們放進「下載項目」資料夾,Ostler 會自動找到。
+大多數封存檔需要 1 至 3 天才會透過電郵送達。收到 ZIP 檔後，把它們放進「下載項目」資料夾，Ostler 會自動找到。
 
-你沒有使用的平台可以略過;之後隨時可以匯入更多。"
+你沒有使用的平台可以略過；之後隨時可以匯入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟靜態資料「未加密」的情況下繼續嗎？"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未進行靜態加密。
@@ -1850,21 +1850,21 @@ MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler 是長期開啟的 Hub，所以在停電或�
 
 如果你選擇不儲存，就不會儲存任何內容，其他設定也不會改變。停電後你照常登入，Ostler 的服務會隨你的工作階段啟動。你日後可以在「系統設定」>「用户與群組」>「自動登入」中更改。"
 MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
-MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler 會把這個密碼寫入這部 Mac 上的 /etc/kcpassword 檔案。密碼在檔案中以固定模式混淆,該模式在每部 Mac 上都相同且已公開記載,所以這不是加密,可以被還原。任何能使用這部 Mac 管理員帳户的人,或能取出磁碟並在別處讀取的人,都可以把該檔案還原成 %s 的登入密碼。
+MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler 會把這個密碼寫入這部 Mac 上的 /etc/kcpassword 檔案。密碼在檔案中以固定模式混淆，該模式在每部 Mac 上都相同且已公開記載，所以這不是加密，可以被還原。任何能使用這部 Mac 管理員帳户的人，或能取出磁碟並在別處讀取的人，都可以把該檔案還原成 %s 的登入密碼。
 
-FileVault 可以防止這種情況,因為沒有啟動密碼就完全無法讀取磁碟。同樣原因,FileVault 也會阻止自動登入,所以 Ostler 只會在 FileVault 關閉時提供此選項。
+FileVault 可以防止這種情況，因為沒有啟動密碼就完全無法讀取磁碟。同樣原因，FileVault 也會阻止自動登入，所以 Ostler 只會在 FileVault 關閉時提供此選項。
 
-安裝程式可以控制的部分:輸入密碼時不會顯示密碼,也不會把密碼寫入安裝記錄。安裝程式只會建立這一份混淆後的檔案。
+安裝程式可以控制的部分：輸入密碼時不會顯示密碼，也不會把密碼寫入安裝記錄。安裝程式只會建立這一份混淆後的檔案。
 
 留空即可略過自動登入。"
 MSG_PROMPT_AUTOLOGIN_PASSWORD="%s 的登入密碼"
-MSG_OK_AUTOLOGIN_CONFIGURED="已為 %s 開啟自動登入,該登入密碼現以混淆形式儲存在這部 Mac 的 /etc/kcpassword。重新啟動後,這部 Mac 會自動登入,Ostler 的服務會隨該工作階段啟動。如要還原,請在「系統設定」>「用户與群組」中關閉「自動登入」。"
-MSG_INFO_AUTOLOGIN_ALREADY="已為 %s 設定自動登入,所以這部 Mac 已在 /etc/kcpassword 儲存該登入密碼。兩者均保持不變。如要還原,請在「系統設定」>「用户與群組」中關閉「自動登入」。"
-MSG_INFO_AUTOLOGIN_DECLINED="未開啟自動登入,也沒有儲存任何密碼。重新啟動或停電後,請照常登入,Ostler 的服務會隨你的工作階段啟動。"
-MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="已略過自動登入設定:此處無法要求輸入登入密碼,也沒有儲存任何內容。如果你想讓這部 Mac 在重新啟動後無人看管也能自行恢復,日後可在「系統設定」>「用户與群組」中開啟「自動登入」。這會把你的登入密碼以混淆且可還原的形式儲存在 Mac 上,建議先了解清楚再決定。"
-MSG_WARN_AUTOLOGIN_NO_PASSWORD="由於沒有輸入密碼,自動登入未開啟,也沒有儲存任何內容。如日後需要,請在「系統設定」>「用户與群組」中開啟「自動登入」。"
-MSG_WARN_AUTOLOGIN_FAILED="無法開啟自動登入(%s)。系統不會再重試。如果這部 Mac 上有 /etc/kcpassword,即使此功能已關閉,該檔案仍以混淆形式保存該登入密碼;你可以在「終端機」中以此指令移除:sudo rm /etc/kcpassword。如要再試一次,請在「系統設定」>「用户與群組」中開啟「自動登入」。"
-MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault 已開啟,所以這部 Mac 在啟動畫面會先要求輸入密碼解鎖磁碟,之後才能登入。自動登入無法回應此要求,因此停電後,這部 Mac 會停在 FileVault 解鎖畫面,直到有人輸入密碼。自動登入未開啟,也沒有儲存任何密碼。這是兩種安排中較安全的一種:FileVault 開啟時無法在無人看管下於重新啟動後自行恢復,但作為交換,沒有該密碼的人無法讀取磁碟。"
+MSG_OK_AUTOLOGIN_CONFIGURED="已為 %s 開啟自動登入，該登入密碼現以混淆形式儲存在這部 Mac 的 /etc/kcpassword。重新啟動後，這部 Mac 會自動登入，Ostler 的服務會隨該工作階段啟動。如要還原，請在「系統設定」>「用户與群組」中關閉「自動登入」。"
+MSG_INFO_AUTOLOGIN_ALREADY="已為 %s 設定自動登入，所以這部 Mac 已在 /etc/kcpassword 儲存該登入密碼。兩者均保持不變。如要還原，請在「系統設定」>「用户與群組」中關閉「自動登入」。"
+MSG_INFO_AUTOLOGIN_DECLINED="未開啟自動登入，也沒有儲存任何密碼。重新啟動或停電後，請照常登入，Ostler 的服務會隨你的工作階段啟動。"
+MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="已略過自動登入設定：此處無法要求輸入登入密碼，也沒有儲存任何內容。如果你想讓這部 Mac 在重新啟動後無人看管也能自行恢復，日後可在「系統設定」>「用户與群組」中開啟「自動登入」。這會把你的登入密碼以混淆且可還原的形式儲存在 Mac 上，建議先了解清楚再決定。"
+MSG_WARN_AUTOLOGIN_NO_PASSWORD="由於沒有輸入密碼，自動登入未開啟，也沒有儲存任何內容。如日後需要，請在「系統設定」>「用户與群組」中開啟「自動登入」。"
+MSG_WARN_AUTOLOGIN_FAILED="無法開啟自動登入（%s）。系統不會再重試。如果這部 Mac 上有 /etc/kcpassword，即使此功能已關閉，該檔案仍以混淆形式保存該登入密碼；你可以在「終端機」中以此指令移除：sudo rm /etc/kcpassword。如要再試一次，請在「系統設定」>「用户與群組」中開啟「自動登入」。"
+MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault 已開啟，所以這部 Mac 在啟動畫面會先要求輸入密碼解鎖磁碟，之後才能登入。自動登入無法回應此要求，因此停電後，這部 Mac 會停在 FileVault 解鎖畫面，直到有人輸入密碼。自動登入未開啟，也沒有儲存任何密碼。這是兩種安排中較安全的一種：FileVault 開啟時無法在無人看管下於重新啟動後自行恢復，但作為交換，沒有該密碼的人無法讀取磁碟。"
 
 # ── WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37) ──────────
 # The Full Disk Access modal opened with "System Settings is open at
@@ -1877,7 +1877,7 @@ MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault 已開啟,所以這部 Mac 在啟動畫�
 # up. It ESTABLISHES the state instead of asserting it, and it does not
 # pretend the installer did something it did not do.
 # NEEDS REVIEW: HK Apple uses 私隱; Full Disk Access term needs verification against zh-HK macOS.
-MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler 無法為你開啟「系統設定」。請自行開啟「系統設定」,然後前往「私隱與安全性」>「全磁碟取用權」。"
+MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler 無法為你開啟「系統設定」。請自行開啟「系統設定」，然後前往「私隱與安全性」>「全磁碟取用權」。"
 # ── Container-engine ownership disclosure ─────────────────────────────────
 # DISCLOSURE, NOT DISCLAIMER. Andy asked (2026-08-24) whether we could write
 # something to absolve us if a customer disrupts what we install. A clause
@@ -1887,8 +1887,8 @@ MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler 無法為你開啟「系統設定�
 # Deliberately says "will tell you and try to restart it" because both halves
 # are now true (periodic liveness + a real restart path); do not weaken either
 # sentence without removing the corresponding capability.
-MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler 以容器運行你的 wiki 和搜尋,因此會在這部 Mac 上安裝並管理容器引擎(Colima)。如果該引擎被移除或重新設定,你的 wiki 和搜尋將無法運作 – Ostler 會通知你並嘗試重新啟動它。"
-MSG_INFO_ENGINE_ALREADY_PRESENT="這部 Mac 已安裝容器引擎。Ostler 會使用它,而不會另外安裝,也不會管理或修改它。"
+MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler 以容器運行你的 wiki 和搜尋，因此會在這部 Mac 上安裝並管理容器引擎（Colima）。如果該引擎被移除或重新設定，你的 wiki 和搜尋將無法運作 – Ostler 會通知你並嘗試重新啟動它。"
+MSG_INFO_ENGINE_ALREADY_PRESENT="這部 Mac 已安裝容器引擎。Ostler 會使用它，而不會另外安裝，也不會管理或修改它。"
 
 # OS003 #233: model weight pins (install.sh OSTLER_MODEL_PINS).
 MSG_OK_MODEL_DIGEST_VERIFIED="%s verified against its pinned digest (%s)"
