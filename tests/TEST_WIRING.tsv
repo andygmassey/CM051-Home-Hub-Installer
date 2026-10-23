@@ -899,7 +899,10 @@ test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/store-host-exposure.ym
 test_v1010_store_front_proxy.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
+test_vane_background_fetch_doctor_row.py	WIRED	.github/workflows/vane-background-fetch.yml
 test_vane_bundle.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_vane_fetch_retries_until_pulled.sh	WIRED	.github/workflows/vane-background-fetch.yml
+test_vane_install_does_not_block.sh	WIRED	.github/workflows/vane-background-fetch.yml
 test_vane_searxng_has_no_idle_egress.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_vane_web_search_credential_reaches_config.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_vendor_cm052_ai_conversations.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
