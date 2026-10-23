@@ -184,6 +184,8 @@ test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-reco
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_cm019_enrich_consent_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_cm019_enrich_privacy_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_cm019_explicit_l0_survives_ingest_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_local_store_ignores_proxy.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -611,6 +613,7 @@ test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manif
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
 test_photo_events_reach_the_graph.py	WIRED	.github/workflows/privacy-spine.yml
 test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_pii_scan_values_never_reach_install_log.sh	WIRED	.github/workflows/install-log-pii.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
