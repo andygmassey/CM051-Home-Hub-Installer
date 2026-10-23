@@ -86,8 +86,8 @@ jobs:
           python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
           n="$(python3 -m pytest tests/test_dedupe_merge_shared_phone_needs_same_name.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 6 ]; then
-            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 10 ]; then
+            echo "REFUSING: expected at least 10 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python3 -m pytest tests/test_dedupe_merge_shared_phone_needs_same_name.py -v
