@@ -11,10 +11,11 @@
 # with HOME in a temp dir and a fake wiki-recompile-tick.sh that leaves a
 # marker when invoked, in three shapes:
 #
-#   A. A REAL process whose command line holds "/install.sh" is running (the
-#      same pgrep predicate the engine supervisor and the assistant watchdog
-#      use). The wrapper must exit 0, NOT invoke the tick, NOT spend a try,
-#      and log why.
+#   A. install.sh's own marker (state/install-in-progress, pid=N), fresh, with
+#      a live pid: exit 0, no tick, no try spent, reason logged.
+#   A2/A3. the same marker with a dead pid, or older than 6 h: the tick RUNS.
+#   A4. a process with "/install.sh" in its argv and no marker (a pager on
+#      the file): the tick RUNS. The old pgrep skipped forever on this.
 #   B. The test seam says an install is running: same expectations.
 #   C. CONTROL: the seam says nothing is running. The tick MUST run and one
 #      try MUST be spent. Without this, a wrapper that never ticks passes A+B.
@@ -29,7 +30,6 @@ ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 [ -f "$INSTALL_SH" ] || { echo "CANNOT-RUN: no install.sh at $INSTALL_SH" >&2; exit 2; }
-command -v pgrep >/dev/null 2>&1 || { echo "CANNOT-RUN: no pgrep" >&2; exit 2; }
 
 TMP="$(mktemp -d)"; FAKE_PID=""
 cleanup() { [ -n "$FAKE_PID" ] && kill "$FAKE_PID" 2>/dev/null; wait 2>/dev/null; rm -rf "$TMP"; }
@@ -58,24 +58,51 @@ tries_of() { cat "$1/.ostler/state/wiki-recompile-catchup.tries" 2>/dev/null || 
 judge_skip() {  # $1 home, $2 rc, $3 label
     local h="$1" rc="$2" label="$3"
     if [ "$rc" -eq 0 ] && [ ! -e "$h/tick-ran" ] && [ "$(tries_of "$h")" = "none" ] \
-       && grep -q 'install or uninstall is running' "$h/.ostler/logs/wiki-recompile-catchup.log" 2>/dev/null; then
+       && grep -q 'an install is running' "$h/.ostler/logs/wiki-recompile-catchup.log" 2>/dev/null; then
         ok "$label: exited 0, tick not run, no try spent, reason logged"
     else
         bad "$label: rc=$rc tick_ran=$([ -e "$h/tick-ran" ] && echo yes || echo no) tries=$(tries_of "$h")"
     fi
 }
 
-# ── A. a real installer-shaped process ────────────────────────────────────
+judge_runs() {  # $1 home, $2 rc, $3 label: the tick MUST run
+    local h="$1" rc="$2" label="$3"
+    if [ "$rc" -eq 0 ] && [ -e "$h/tick-ran" ] && [ "$(tries_of "$h")" = "1" ]; then
+        ok "$label: not treated as an install; the tick ran and spent try 1"
+    else
+        bad "$label: rc=$rc tick_ran=$([ -e "$h/tick-ran" ] && echo yes || echo no) tries=$(tries_of "$h")"
+    fi
+}
+marker() {  # $1 home, $2 pid
+    mkdir -p "$1/.ostler/state"; printf 'pid=%s\n' "$2" > "$1/.ostler/state/install-in-progress"
+}
+
+# ── A. the installer's marker, fresh, naming a LIVE pid -> skip ─────────────
+/bin/bash -c 'sleep 60' & FAKE_PID=$!
+hA="$(new_home a)"; marker "$hA" "$FAKE_PID"
+HOME="$hA" PATH="$hA/stub:/usr/bin:/bin" "$TMP/catchup"; rcA=$?
+judge_skip "$hA" "$rcA" "MARKER + LIVE PID"
+
+# ── A2. marker naming a DEAD pid -> run (an aborted install cannot wedge it) ─
+kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null; DEAD="$FAKE_PID"; FAKE_PID=""
+hA2="$(new_home a2)"; marker "$hA2" "$DEAD"
+HOME="$hA2" PATH="$hA2/stub:/usr/bin:/bin" "$TMP/catchup"; judge_runs "$hA2" $? "MARKER + DEAD PID"
+
+# ── A3. marker older than 6 h, pid alive -> run (bounded by age) ─────────────
+/bin/bash -c 'sleep 60' & FAKE_PID=$!
+hA3="$(new_home a3)"; marker "$hA3" "$FAKE_PID"
+touch -t "$(date -v-7H +%Y%m%d%H%M 2>/dev/null || date -d '7 hours ago' +%Y%m%d%H%M)" "$hA3/.ostler/state/install-in-progress"
+HOME="$hA3" PATH="$hA3/stub:/usr/bin:/bin" "$TMP/catchup"; judge_runs "$hA3" $? "MARKER 7 H OLD"
+kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null; FAKE_PID=""
+
+# ── A4. Archie's case: a process with /install.sh in its argv, NO marker ─────
+# (a pager or an editor on the file). Must NOT hold the skip forever.
 mkdir -p "$TMP/fake/Ostler.app/Contents/Resources"
 printf '#!/bin/bash\nsleep 60\n' > "$TMP/fake/Ostler.app/Contents/Resources/install.sh"
 /bin/bash "$TMP/fake/Ostler.app/Contents/Resources/install.sh" & FAKE_PID=$!
 sleep 0.3
-if ! pgrep -f '/install\.sh' >/dev/null 2>&1; then
-    echo "CANNOT-RUN: pgrep cannot see the fake installer process" >&2; exit 2
-fi
-hA="$(new_home a)"
-HOME="$hA" PATH="$hA/stub:/usr/bin:/bin" "$TMP/catchup"; rcA=$?
-judge_skip "$hA" "$rcA" "REAL PROCESS"
+hA4="$(new_home a4)"
+HOME="$hA4" PATH="$hA4/stub:/usr/bin:/bin" "$TMP/catchup"; judge_runs "$hA4" $? "ARGV MATCH, NO MARKER"
 kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null; FAKE_PID=""
 
 # ── B. the seam says an install is running ────────────────────────────────

@@ -23,6 +23,8 @@ on:
       - 'tests/test_wiki_compile_has_a_page_count_oracle.sh'
       - 'tests/test_wiki_count_survives_a_concurrent_writer.sh'
       - 'tests/test_wiki_catchup_skips_while_installer_runs.sh'
+      - 'tests/test_wiki_baseline_holds_the_tick_lock.sh'
+      - 'wiki-recompile/**'
       - '.github/workflows/wiki-compile-oracle.yml'
   push:
     branches: [main]
@@ -62,3 +64,6 @@ jobs:
       - name: The first-day wiki catch-up skips while an installer runs
         if: always()
         run: /bin/bash tests/test_wiki_catchup_skips_while_installer_runs.sh
+      - name: The baseline compile holds the tick lock, and every racer goes through the tick
+        if: always()
+        run: /bin/bash tests/test_wiki_baseline_holds_the_tick_lock.sh

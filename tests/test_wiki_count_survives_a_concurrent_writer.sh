@@ -19,6 +19,8 @@
 #      was actually hit; if it never was, this limb is CANNOT-RUN, not PASS.
 #   B. DETERMINISTIC: a `find` that lists some pages and exits 1 with ENOENT,
 #      every time. The block must not say ZERO and must not set HEALTHY=false.
+#   B3. Archie's repro: the REAL find on empty dirs plus a chmod 000 subdir.
+#      Unknown must close HEALTHY=false with step rc 2, never ok.
 #   C. CONTROL: a genuinely empty tree (directories, no files) with a working
 #      find MUST still say ZERO pages and set HEALTHY=false. Without this, a
 #      fix that silenced the zero check entirely would pass A and B.
@@ -42,10 +44,11 @@ TMP="$(mktemp -d)"; WRITER=""
 cleanup() { [ -n "$WRITER" ] && kill "$WRITER" 2>/dev/null; wait 2>/dev/null; rm -rf "$TMP"; }
 trap cleanup EXIT
 
-awk '/^WIKI_DOCS_DIR="\$\{OSTLER_WIKI_DIR/{p=1} /^gui_step_record_rc "\$\{WIKI_BASELINE_RC/{exit} p' \
+awk '/^WIKI_DOCS_DIR="\$\{OSTLER_WIKI_DIR/{p=1} /^gui_step_record_rc "\$\{WIKI_/{exit} p' \
     "$INSTALL_SH" > "$TMP/block.sh"
 n_lines="$(wc -l < "$TMP/block.sh" | tr -d ' ')"
-if [ "$n_lines" -lt 5 ] || ! grep -q 'ZERO pages' "$TMP/block.sh"; then
+# BOUNDED: a missed end anchor would carve (and execute) the rest of install.sh.
+if [ "$n_lines" -lt 5 ] || [ "$n_lines" -gt 200 ] || ! grep -q 'ZERO pages' "$TMP/block.sh"; then
     echo "CANNOT-RUN: could not carve the wiki count block ($n_lines lines)" >&2; exit 2
 fi
 printf '  carved count block: %s lines\n' "$n_lines"
@@ -60,7 +63,7 @@ warn() { printf 'WARN %s\n' "$*"; }
 HEALTHY=true
 WIKI_BASELINE_RC=0
 . "$1"
-printf 'RESULT HEALTHY=%s RC=%s\n' "$HEALTHY" "$WIKI_BASELINE_RC"
+printf 'RESULT HEALTHY=%s RC=%s STEP=%s\n' "$HEALTHY" "$WIKI_BASELINE_RC" "${WIKI_COUNT_STEP_RC:-$WIKI_BASELINE_RC}"
 EOF
 
 # find shim: run the real find, record its rc, pass everything through.
@@ -140,9 +143,31 @@ echo "find: $2: Permission denied" >&2
 exit 1
 EOF
 out_b2="$(run_block "$TMP/wiki_b" "$TMP/badfind")"
-judge_healthy "$out_b2" "DETERMINISTIC: find listed nothing and exited 1; reported as could-not-count, not ZERO"
-if grep -q 'Could not count' <<<"$out_b2"; then ok "DETERMINISTIC: the log says it could not count"
-else bad "DETERMINISTIC: no could-not-count line: $(grep -E 'INFO|WARN' <<<"$out_b2" | head -1)"; fi
+judge_unknown() {  # $1 output, $2 label: could-not-count must be neither ZERO nor ok
+    if grep -q 'ERR-TRAP-FIRED' <<<"$1"; then bad "$2: the ERR trap fired during the count"; return; fi
+    if grep -q 'ZERO pages' <<<"$1"; then bad "$2: an unknown count was reported as ZERO pages"; return; fi
+    if ! grep -q 'Could not count' <<<"$1"; then bad "$2: no could-not-count line: $(grep -E 'INFO|WARN' <<<"$1" | head -1)"; return; fi
+    # Archie review, blocker 1: unknown must not close healthy/ok. The
+    # compiler's rc stays 0 (publish still runs on it); the STEP is rc 2.
+    if grep -q 'RESULT HEALTHY=false RC=0 STEP=2' <<<"$1"; then
+        ok "$2: reported as could-not-count, HEALTHY=false, step rc 2 (not ok), compiler rc kept for the publish"
+    else
+        bad "$2: an unknown count closed as: $(grep RESULT <<<"$1")"
+    fi
+}
+judge_unknown "$out_b2" "DETERMINISTIC: find listed nothing and exited 1"
+
+# B3: Archie's repro, with the REAL find. A tree of empty dirs plus one
+# chmod 000 subdir: find exits 1 on every try and lists nothing.
+mkdir -p "$TMP/wiki_d/People" "$TMP/wiki_d/Years" "$TMP/wiki_d/Locked"
+chmod 000 "$TMP/wiki_d/Locked"
+out_b3="$(run_block "$TMP/wiki_d" "/usr/bin")"
+chmod 755 "$TMP/wiki_d/Locked"
+if [ "$(id -u)" -eq 0 ]; then
+    printf '  CANNOT-RUN  REAL find + chmod 000: running as root, which reads the locked dir\n'; CANNOT=$((CANNOT+1))
+else
+    judge_unknown "$out_b3" "REAL find + chmod 000 subdir + no pages"
+fi
 
 # ── C. CONTROL: a real empty tree must still be ZERO and unhealthy ────────
 mkdir -p "$TMP/wiki_c/People" "$TMP/wiki_c/Years"

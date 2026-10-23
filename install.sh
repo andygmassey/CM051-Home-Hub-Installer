@@ -30554,9 +30554,11 @@ remove_self() {
 # written mid-install with StartInterval 1800, so its first tick can land
 # while the installer's own baseline compile is still running: two compiles
 # in parallel, and this one's Obsidian rewrite mutated the tree while the
-# installer counted it. Skip, exactly as the engine supervisor and the
-# assistant watchdog do (same pgrep predicate). Checked BEFORE the tries
-# counter, so a skipped tick does not spend one of the bounded tries.
+# installer counted it. Skip while the installer's own marker says it is
+# running (bounded: marker age and a live pid, see below). Checked BEFORE the
+# tries counter, so a skipped tick does not spend one of the bounded tries.
+# install.sh also holds the tick lock around its compile, which covers this
+# job and every other tick caller; this check is the cheap first line.
 # OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD is the test seam, as
 # OSTLER_ENGINE_INSTALL_RUNNING_CMD is for the supervisor.
 catchup_install_running() {
@@ -30564,12 +30566,22 @@ catchup_install_running() {
         eval "$OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD"
         return $?
     fi
-    pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
-    pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
-    return 1
+    # The installer's own marker, not a pgrep: `pgrep -f /install.sh` matched
+    # ANY process with that string in its argv (an editor, a pager), forever,
+    # and a skipped tick spends no try. Running = the marker install.sh
+    # writes (state/install-in-progress, pid=N) exists, is under 6 h old (its
+    # own lifetime, as _hydrating reads it), AND its pid is alive. ps, not
+    # kill -0, so a live pid owned by another uid still reads as alive.
+    local m="${STATE_DIR}/install-in-progress" pid=""
+    [[ -f "$m" ]] || return 1
+    [[ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ]] || { log "install-in-progress marker is over 6 h old; ignoring it"; return 1; }
+    pid="$(sed -n 's/^pid=//p' "$m" 2>/dev/null | head -n 1)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || { log "install-in-progress marker has no pid; ignoring it"; return 1; }
+    ps -p "$pid" >/dev/null 2>&1 || { log "install-in-progress marker names pid ${pid}, which is gone; ignoring it"; return 1; }
+    return 0
 }
 if catchup_install_running; then
-    log "an install or uninstall is running; not judging or recompiling the wiki (this tick does not count)"
+    log "an install is running; not judging or recompiling the wiki (this tick does not count)"
     exit 0
 fi
 
@@ -39508,6 +39520,45 @@ ostler_public_lookups_flag() {
 }
 export -f ostler_public_lookups_flag
 
+# ── W6 (v1.0.117 walk): HOLD THE TICK'S OWN LOCK FOR THE BASELINE COMPILE ──
+# Every job that recompiles the wiki goes through wiki-recompile-tick.sh: the
+# daily agent, the first-day catch-up, ostler-contact-resync and
+# ostler-dedupe-catchup all call it, and the tick skips while
+# ${OSTLER_DIR}/.wiki-recompile.lock is held by a live pid. This compile used
+# to run WITHOUT that lock, so a tick fired mid-install ran a second compile
+# that rewrote the tree while the count below read it. Taking the same lock
+# here makes every one of those jobs wait for the install, without a check
+# in each. The tick reclaims a lock whose pid is dead, so an aborted install
+# cannot wedge it. Bounded wait for a tick already running; on timeout the
+# install goes on (the count tolerates a concurrent writer) and says so.
+# Exported for the test, which drives this function on its own.
+WIKI_TICK_LOCK="${OSTLER_DIR}/.wiki-recompile.lock"
+WIKI_TICK_LOCK_HELD=0
+wiki_tick_lock_take() {
+    local lock="$1" waited=0 max="${OSTLER_WIKI_LOCK_WAIT_S:-900}" step="${OSTLER_WIKI_LOCK_POLL_S:-5}" holder=""
+    while :; do
+        if mkdir "$lock" 2>/dev/null; then
+            printf '%s\n' "$$" > "${lock}/pid" 2>/dev/null || true
+            return 0
+        fi
+        holder="$(cat "${lock}/pid" 2>/dev/null || true)"
+        if [ -n "$holder" ] && ! ps -p "$holder" >/dev/null 2>&1; then
+            rm -rf "$lock" 2>/dev/null || true
+            continue
+        fi
+        if [ "$waited" -ge "$max" ]; then
+            return 1
+        fi
+        sleep "$step"
+        waited=$((waited + step))
+    done
+}
+if wiki_tick_lock_take "$WIKI_TICK_LOCK"; then
+    WIKI_TICK_LOCK_HELD=1
+else
+    warn "A wiki recompile still held ${WIKI_TICK_LOCK} after ${OSTLER_WIKI_LOCK_WAIT_S:-900}s; compiling anyway. The page count below tolerates a concurrent writer."
+fi
+
 # `-T </dev/null` cures the `compose run --rm` exit-hang (see the
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
@@ -39596,6 +39647,7 @@ wiki_count_pages() {
 WIKI_PAGE_COUNT=0
 WIKI_COUNT_STATE=ok
 WIKI_COUNT_WHY=""
+WIKI_COUNT_STEP_RC=""
 if [ -d "$WIKI_DOCS_DIR" ]; then
     # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
     # That is the exact shape the box walk found: directories present,
@@ -39610,7 +39662,14 @@ if [ "$WIKI_COUNT_STATE" = "cannot_count" ]; then
     else
         # COULD NOT COUNT is not ZERO. Do not fail the run on a measurement
         # that did not happen; the compiler's own rc still decides.
-        warn "Could not count wiki pages under ${WIKI_DOCS_DIR}: find failed on every try (${WIKI_COUNT_WHY}). This is NOT a zero-page wiki; the page count is unknown. Compiler exit: ${WIKI_BASELINE_RC}."
+        # NOT OK EITHER. CM044 exits 0 on a total failure, so the compiler's
+        # rc cannot vouch for the wiki, and the count that could did not
+        # happen. Unknown is recorded as unknown: the run is not healthy and
+        # the step does not close ok (rc 2, the could-not-judge code), while
+        # the publish below still runs on the compiler's own rc.
+        warn "Could not count wiki pages under ${WIKI_DOCS_DIR}: find failed on every try (${WIKI_COUNT_WHY}). This is NOT a zero-page wiki, and NOT a verified one either: the page count is unknown. Compiler exit: ${WIKI_BASELINE_RC}."
+        HEALTHY=false
+        WIKI_COUNT_STEP_RC=2
     fi
 else
     info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
@@ -39622,11 +39681,15 @@ if [ "$WIKI_COUNT_STATE" = "ok" ] && [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
     HEALTHY=false
     WIKI_BASELINE_RC=1
 fi
+if [ "${WIKI_TICK_LOCK_HELD:-0}" = "1" ]; then
+    rm -rf "$WIKI_TICK_LOCK" 2>/dev/null || true
+    WIKI_TICK_LOCK_HELD=0
+fi
 
 # #839: carry the compile's verdict onto the step's STEP_END. The count
 # above is the honest oracle; this is what stops that verdict dying in
 # the log body while the step line says ok.
-gui_step_record_rc "${WIKI_BASELINE_RC:-0}"
+gui_step_record_rc "${WIKI_COUNT_STEP_RC:-${WIKI_BASELINE_RC:-0}}"
 
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
