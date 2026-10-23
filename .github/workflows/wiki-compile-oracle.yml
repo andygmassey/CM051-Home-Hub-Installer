@@ -60,4 +60,5 @@ jobs:
       - name: A find error during the page count is could-not-count, never zero
         run: /bin/bash tests/test_wiki_count_survives_a_concurrent_writer.sh
       - name: The first-day wiki catch-up skips while an installer runs
+        if: always()
         run: /bin/bash tests/test_wiki_catchup_skips_while_installer_runs.sh
