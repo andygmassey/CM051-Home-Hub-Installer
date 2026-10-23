@@ -1484,3 +1484,26 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "call_audio_never_retained"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv, the three send-safety rows): the
+  # assistant send-safety fixes ostler-assistant #626 (S4, 1476bbeb) and #627
+  # (C1, 4f9f7f24) are MERGED, which is not PROVEN. Declared here so the cut
+  # re-drives each one and because every probe on disk must be invoked by the cut.
+  - id: box-walk-stranger-cannot-trigger-send
+    title: "box-walk probe must PASS: stranger_cannot_trigger_send"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "stranger_cannot_trigger_send"
+  - id: box-walk-tainted-owner-send-needs-exact-approval
+    title: "box-walk probe must PASS: tainted_owner_send_needs_exact_approval"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "tainted_owner_send_needs_exact_approval"
+  - id: box-walk-cron-run-makes-no-sends
+    title: "box-walk probe must PASS: cron_run_makes_no_sends"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "cron_run_makes_no_sends"
