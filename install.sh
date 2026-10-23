@@ -30550,6 +30550,29 @@ remove_self() {
     launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
+# v1.0.117 THIN WALK, W6: an install in progress owns the wiki. This agent is
+# written mid-install with StartInterval 1800, so its first tick can land
+# while the installer's own baseline compile is still running: two compiles
+# in parallel, and this one's Obsidian rewrite mutated the tree while the
+# installer counted it. Skip, exactly as the engine supervisor and the
+# assistant watchdog do (same pgrep predicate). Checked BEFORE the tries
+# counter, so a skipped tick does not spend one of the bounded tries.
+# OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD is the test seam, as
+# OSTLER_ENGINE_INSTALL_RUNNING_CMD is for the supervisor.
+catchup_install_running() {
+    if [[ -n "${OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD:-}" ]]; then
+        eval "$OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD"
+        return $?
+    fi
+    pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
+    pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
+    return 1
+}
+if catchup_install_running; then
+    log "an install or uninstall is running; not judging or recompiling the wiki (this tick does not count)"
+    exit 0
+fi
+
 # Bounded run counter: once we exceed the cap, give up and remove the
 # agent so the first-day catch-up can never run forever. The daily
 # recompile agent remains the long-term steady state.
@@ -39530,19 +39553,69 @@ set -e
 # unrecorded. An empty wiki is still non-fatal to the install and still shows
 # the customer the same screen; it now also closes its step honestly.
 WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+# v1.0.117 THIN WALK, W6: "ZERO pages" on a wiki that had pages.
+# The old count was `find | wc -l | tr` under pipefail with
+# `|| WIKI_PAGE_COUNT=""`, and an empty value was then read as 0. The
+# first-day catch-up agent fired its first tick while this compile was
+# running, its Obsidian rewrite removed a directory under find's feet, find
+# exited 1 ("No such file or directory"), and a FIND ERROR became "the
+# compile produced ZERO pages" plus HEALTHY=false. A find error means
+# "could not count", never "counted zero".
+#
+# wiki_count_pages prints "<state> <count> [reason]":
+#   ok <n>                 find exited 0; n is the count.
+#   cannot_count <n> <why> find kept failing (3 tries); n is a LOWER BOUND
+#                          from what it did list.
+# Retried because the usual cause is a concurrent writer, which is transient.
+# OSTLER_WIKI_COUNT_RETRY_S exists so the test can retry without sleeping.
+wiki_count_pages() {
+    local dir="$1" list="" errf="" rc=0 n=0 attempt=1 why=""
+    list="$(mktemp -t ostler-wikicount)" || { printf 'cannot_count 0 mktemp-failed\n'; return 0; }
+    errf="${list}.err"
+    while :; do
+        rc=0
+        find "$dir" -type f \( -name '*.md' -o -name '*.html' \) >"$list" 2>"$errf" || rc=$?
+        n="$(wc -l <"$list" | tr -d ' ')" || n=0
+        case "$n" in ''|*[!0-9]*) n=0 ;; esac
+        if [ "$rc" -eq 0 ]; then
+            printf 'ok %s\n' "$n"
+            break
+        fi
+        if [ "$attempt" -ge 3 ]; then
+            why="$(head -n 1 "$errf" 2>/dev/null | tr -s ' \t' '__')" || why=""
+            printf 'cannot_count %s find-rc-%s:%s\n' "$n" "$rc" "${why:-no-stderr}"
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep "${OSTLER_WIKI_COUNT_RETRY_S:-2}"
+    done
+    rm -f "$list" "$errf"
+    return 0
+}
+
 WIKI_PAGE_COUNT=0
+WIKI_COUNT_STATE=ok
+WIKI_COUNT_WHY=""
 if [ -d "$WIKI_DOCS_DIR" ]; then
     # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
     # That is the exact shape the box walk found: directories present,
-    # contents absent.
-    # `find` exits non-zero when the tree is absent, which is precisely the
-    # state the check below exists to report: line 28018 already treats an
-    # empty value as zero. Aborting here would kill the install instead of
-    # letting it say "no pages on disk".
-    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')" || WIKI_PAGE_COUNT=""
+    # contents absent. An ABSENT tree skips this and stays 0, which is the
+    # honest answer for it.
+    read -r WIKI_COUNT_STATE WIKI_PAGE_COUNT WIKI_COUNT_WHY <<<"$(wiki_count_pages "$WIKI_DOCS_DIR")" || true
+    case "${WIKI_PAGE_COUNT:-}" in ''|*[!0-9]*) WIKI_COUNT_STATE=cannot_count; WIKI_PAGE_COUNT=0 ;; esac
 fi
-info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
-if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
+if [ "$WIKI_COUNT_STATE" = "cannot_count" ]; then
+    if [ "$WIKI_PAGE_COUNT" -gt 0 ]; then
+        info "Wiki pages on disk after the baseline compile: at least ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR}); the count was disturbed by a concurrent writer (${WIKI_COUNT_WHY}), so this is a lower bound"
+    else
+        # COULD NOT COUNT is not ZERO. Do not fail the run on a measurement
+        # that did not happen; the compiler's own rc still decides.
+        warn "Could not count wiki pages under ${WIKI_DOCS_DIR}: find failed on every try (${WIKI_COUNT_WHY}). This is NOT a zero-page wiki; the page count is unknown. Compiler exit: ${WIKI_BASELINE_RC}."
+    fi
+else
+    info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
+fi
+if [ "$WIKI_COUNT_STATE" = "ok" ] && [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
     # NAME THE ARTEFACT MEASURED, not the symptom. A reader must be able to
     # go and look at the same thing this line looked at.
     warn "The wiki compile exited ${WIKI_BASELINE_RC} but produced ZERO pages under ${WIKI_DOCS_DIR}. The compiler's exit code is not evidence: CM044 discards its own result, so a total failure also exits 0. Treat the wiki as NOT built."
