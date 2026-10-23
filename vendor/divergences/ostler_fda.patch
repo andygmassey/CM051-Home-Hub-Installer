@@ -3340,22 +3340,24 @@ index 1744cb6d2..91eaba620 100644
      entries: list[HistoryEntry],
      limit: int = 50,
 diff --git a/dedupe_merge.py b/dedupe_merge.py
-index 8a352c8e8..8c9752919 100644
+index 8a352c8e8..ff2423803 100644
 --- a/dedupe_merge.py
 +++ b/dedupe_merge.py
-@@ -32,6 +32,11 @@ from typing import Dict, List, Set, Tuple
+@@ -32,6 +32,13 @@ from typing import Dict, List, Set, Tuple
  
  import httpx
  
 +try:
 +    from .person_audit import record_person_removal
++    from . import phone_twins
 +except ImportError:  # run as a script, not as a package
 +    from person_audit import record_person_removal
++    import phone_twins  # type: ignore
 +
  logger = logging.getLogger(__name__)
  
  OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://localhost:7878")
-@@ -42,22 +47,22 @@ PWG = "https://schema.ostler.ai/ontology#"
+@@ -42,22 +49,22 @@ PWG = "https://schema.ostler.ai/ontology#"
  # name-fuzzy signals only, never an exact-merge key.
  EXACT_KEY_TYPES: Tuple[str, ...] = ("email", "phone")
  
@@ -3391,7 +3393,7 @@ index 8a352c8e8..8c9752919 100644
      v = value.strip()
      if v.lower().endswith("@s.whatsapp.net"):
          local = v.split("@", 1)[0]
-@@ -107,8 +112,6 @@ def find_collisions() -> Dict[Tuple[str, str], List[str]]:
+@@ -107,8 +114,6 @@ def find_collisions() -> Dict[Tuple[str, str], List[str]]:
          groups: Dict[str, Set[str]] = {}
          for r in rows:
              value = r["v"]["value"]
@@ -3400,7 +3402,7 @@ index 8a352c8e8..8c9752919 100644
              key = _canonical_phone(value) if typ == "phone" else value
              groups.setdefault(key, set()).add(r["p"]["value"])
          for value, persons in groups.items():
-@@ -151,9 +154,57 @@ def _components(collisions: Dict[Tuple[str, str], List[str]]) -> Dict[str, Set[s
+@@ -151,9 +156,57 @@ def _components(collisions: Dict[Tuple[str, str], List[str]]) -> Dict[str, Set[s
      return comps
  
  
@@ -3460,7 +3462,7 @@ index 8a352c8e8..8c9752919 100644
      # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
      _sparql_update(
          f"DELETE {{ <{dupe}> ?p ?o }} "
-@@ -166,6 +217,112 @@ def _merge_pair(canonical: str, dupe: str) -> None:
+@@ -166,6 +219,145 @@ def _merge_pair(canonical: str, dupe: str) -> None:
          f"INSERT {{ ?s ?p <{canonical}> }} "
          f"WHERE  {{ ?s ?p <{dupe}> }}"
      )
@@ -3570,10 +3572,43 @@ index 8a352c8e8..8c9752919 100644
 +            f"DELETE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }} "
 +            f"WHERE {{ <{canonical}> <{PWG}displayNameProvisional> ?f }}"
 +        )
++
++
++def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
++    """P13: fold each number-named person (no human name, no Contacts card)
++    into the ONE named person who holds the same number, compared in
++    normalised form. A number held by two or more named people is shared (a
++    household landline) and is left alone, counted. See phone_twins.py.
++
++    The exact-string sweep above cannot do this: a card stored in national
++    form never string-matches the "+44..." handle. Raises on an unreadable
++    store, like every read in this module; ``run`` reports that.
++    """
++    index = phone_twins.load_index(_sparql_query)
++    merged = 0
++    shared = 0
++    for person in sorted(p for p in index.phones if index.is_unnamed(p)):
++        holders: Set[str] = set()
++        for v in index.phones[person]:
++            holders |= index.named_holders(v)
++        holders.discard(person)
++        if not holders:
++            continue
++        if len(holders) > 1:
++            shared += 1
++            logger.info(
++                "dedupe_merge: a number-named person shares its number with %d "
++                "named people; not merged (household rule)", len(holders),
++            )
++            continue
++        if not dry_run:
++            _merge_pair(next(iter(holders)), person)
++        merged += 1
++    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared}
  
  
  def run(dry_run: bool = False) -> Dict[str, int]:
-@@ -174,19 +331,86 @@ def run(dry_run: bool = False) -> Dict[str, int]:
+@@ -174,19 +366,93 @@ def run(dry_run: bool = False) -> Dict[str, int]:
      folded away)."""
      collisions = find_collisions()
      comps = _components(collisions)
@@ -3657,8 +3692,15 @@ index 8a352c8e8..8c9752919 100644
          " (dry-run, no writes)" if dry_run else "",
      )
 -    return {"collision_keys": len(collisions), "merged": merged}
-+    return {"collision_keys": len(collisions), "merged": merged,
-+            "refused_rule2": refused, "refused_unreadable": False}
++    out = {"collision_keys": len(collisions), "merged": merged,
++           "refused_rule2": refused, "refused_unreadable": False}
++    # P13: the number-named twins the exact-string pass cannot see.
++    try:
++        out.update(merge_provisional_phone_twins(dry_run=dry_run))
++    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
++        logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
++        out["phone_twins_unreadable"] = True
++    return out
  
  
  def main() -> int:
@@ -5478,6 +5520,203 @@ index 000000000..f3dc7f264
 +    except Exception as exc:  # noqa: BLE001 -- must never stop the caller
 +        logger.warning("person removal audit NOT written: %s", type(exc).__name__)
 +        return False
+diff --git b/phone_twins.py b/phone_twins.py
+new file mode 100644
+index 000000000..bee8b1103
+--- /dev/null
++++ b/phone_twins.py
+@@ -0,0 +1,191 @@
++"""A number-named (provisional) person is the Contacts person who holds that
++number, when exactly one named person holds it.
++
++WHY (P13, v1.0.117 walk). The Front Page and the brief showed raw numbers for
++people the owner HAS in Contacts. Measured on the walk box (counts only): 41
++Person nodes named by a "+" number, all ``displayNameProvisional``, 39 from
++WhatsApp and 2 from iMessage; 14 of them carry a phone identifier that sits on
++another Person, and for all 14 the other Person is a Contacts card, created
++FIRST, and the only other holder of that number.
++
++Root cause: ``pwg_ingest.ingest_whatsapp`` and ``ingest_imessage`` mint
++``uuid5(handle)`` and ask only "did I already create this URI?" (``_live_person``),
++never "does somebody already hold this number?", so a contact who messages the
++owner after their card was written got a second, number-named node. The one
++sweep that folds exact twins (``dedupe_merge.run``) runs once, at install,
++so twins minted later stay split. And it compares identifier STRINGS, so a
++card stored in national form ("07700 900123") never meets the "+44..." handle.
++
++THE HOUSEHOLD RULE. Same name plus a shared detail is one person; a shared
++detail alone is not (a household landline on two family cards). A provisional
++node has no name of its own, only the number, so it is folded ONLY when
++exactly ONE named person holds that number. Two or more named holders means
++the number is shared, and the node is left alone: guessing would hand one
++person's messages to another.
++
++Stdlib only. The phone canonicalisation is the same as CM048
++``handle_identity.canon_phone`` (the owner's country from
++``DEFAULT_COUNTRY_CODE``, else read from the owner's own "+" number in
++``USER_PHONE``; a unique trailing-8-digit match when no country is known).
++"""
++from __future__ import annotations
++
++import os
++import re
++from typing import Callable, Dict, Iterable, Mapping, Optional, Set
++
++PWG = "https://schema.ostler.ai/ontology#"
++_PHONE_CHARS = re.compile(r"^\+?[\d\s\-().]+$")
++_SUFFIX_LEN = 8
++_CALLING_CODES = frozenset(
++    {1, 7, 20, 27, 30, 31, 32, 33, 34, 36, 39, 40, 41, 43, 44, 45, 46, 47, 48,
++     49, 51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 81, 82, 84,
++     86, 90, 91, 92, 93, 94, 95, 98, 212, 213, 216, 234, 254, 255, 256, 260,
++     263, 351, 352, 353, 354, 355, 356, 357, 358, 359, 370, 371, 372, 380, 381,
++     385, 386, 420, 421, 852, 853, 855, 880, 886, 960, 961, 962, 965, 966, 971,
++     972, 973, 974, 977}
++)
++
++# The one SELECT the index needs: every live Person's phone identifiers, its
++# display name(s), whether its name is provisional, and whether it is carded.
++INDEX_QUERY = (
++    f"PREFIX pwg: <{PWG}>\n"
++    "SELECT ?p ?v ?name ?prov ?uid WHERE {\n"
++    "  ?p a pwg:Person ; pwg:hasIdentifier ?i .\n"
++    '  ?i pwg:identifierType "phone" ; pwg:identifierValue ?v .\n'
++    "  OPTIONAL { ?p pwg:displayName ?name }\n"
++    "  OPTIONAL { ?p pwg:displayNameProvisional ?prov }\n"
++    "  OPTIONAL { ?p pwg:hasIdentifier ?u . "
++    '?u pwg:identifierType "icloud_contact_uid" ; pwg:identifierValue ?uid }\n'
++    "}"
++)
++
++
++def _val(binding) -> str:
++    if isinstance(binding, Mapping):
++        binding = binding.get("value", "")
++    return str(binding or "").strip()
++
++
++def default_country_code(env: Mapping[str, str] = os.environ) -> Optional[int]:
++    raw = (env.get("DEFAULT_COUNTRY_CODE") or "").strip().lstrip("+")
++    if raw.isdigit():
++        return int(raw)
++    owner = (env.get("USER_PHONE") or "").strip()
++    if owner.startswith("+"):
++        digits = re.sub(r"\D", "", owner)
++        for n in (1, 2, 3):
++            if digits[:n] and int(digits[:n]) in _CALLING_CODES:
++                return int(digits[:n])
++    return None
++
++
++def canon_phone(raw: str, default_cc: Optional[int] = None) -> str:
++    h = (raw or "").strip()
++    if h.lower().endswith("@s.whatsapp.net"):
++        h = "+" + h.split("@", 1)[0]
++    if not h or "@" in h or not _PHONE_CHARS.match(h):
++        return ""
++    digits = re.sub(r"\D", "", h)
++    if len(digits) < 7:
++        return ""
++    if h.startswith("+"):
++        return "+" + digits
++    if digits.startswith("00"):
++        return "+" + digits[2:]
++    if default_cc:
++        cc = str(default_cc)
++        if digits.startswith("0"):
++            return "+" + cc + digits[1:]
++        if digits.startswith(cc) and len(digits) >= len(cc) + 8:
++            return "+" + digits
++        return "+" + cc + digits
++    return ""
++
++
++def phone_suffix(raw: str) -> str:
++    h = (raw or "").split("@", 1)[0]
++    digits = re.sub(r"\D", "", h)
++    return digits[-_SUFFIX_LEN:] if len(digits) >= _SUFFIX_LEN else ""
++
++
++def is_real_name(name: str) -> bool:
++    n = (name or "").strip()
++    if not n or "@" in n:
++        return False
++    if re.fullmatch(r"\+?[\d \-().]+", n):
++        return False
++    return any(c.isalpha() for c in n)
++
++
++class PhoneTwinIndex:
++    """Who holds each phone number, split into NAMED holders (a real human
++    name that is not marked provisional) and everyone else."""
++
++    def __init__(self, rows: Iterable[Mapping], default_cc: Optional[int] = None):
++        self.default_cc = default_cc
++        names: Dict[str, Set[str]] = {}
++        prov: Set[str] = set()
++        carded: Set[str] = set()
++        phones: Dict[str, Set[str]] = {}
++        for r in rows:
++            p = _val(r.get("p"))
++            if not p:
++                continue
++            v = _val(r.get("v"))
++            if v:
++                phones.setdefault(p, set()).add(v)
++            n = _val(r.get("name"))
++            if n:
++                names.setdefault(p, set()).add(n)
++            if _val(r.get("prov")).lower() in ("true", "1"):
++                prov.add(p)
++            if _val(r.get("uid")):
++                carded.add(p)
++        self.phones = phones
++        self.carded = carded
++        self.named: Set[str] = {
++            p for p in phones
++            if any(is_real_name(n) for n in names.get(p, ())) and (p not in prov or p in carded)
++        }
++        self._by_canon: Dict[str, Set[str]] = {}
++        self._by_suffix: Dict[str, Set[str]] = {}
++        for p in self.named:
++            for v in phones[p]:
++                c = canon_phone(v, default_cc)
++                if c:
++                    self._by_canon.setdefault(c, set()).add(p)
++                s = phone_suffix(v)
++                if s:
++                    self._by_suffix.setdefault(s, set()).add(p)
++
++    def named_holders(self, phone: str) -> Set[str]:
++        c = canon_phone(phone, self.default_cc)
++        if c and c in self._by_canon:
++            return set(self._by_canon[c])
++        if self.default_cc is not None:
++            # With the owner's country known every stored form canonicalises,
++            # so a miss is a miss: no trailing-digit guess across countries.
++            return set()
++        s = phone_suffix(phone)
++        return set(self._by_suffix.get(s, ())) if s else set()
++
++    def holder_for(self, phone: str, exclude: str = "") -> Optional[str]:
++        """The single named person holding ``phone``, else None (nobody, or a
++        shared number: the household rule)."""
++        holders = self.named_holders(phone) - {exclude}
++        return next(iter(holders)) if len(holders) == 1 else None
++
++    def is_unnamed(self, person: str) -> bool:
++        return person in self.phones and person not in self.named and person not in self.carded
++
++
++def load_index(query: Callable[[str], list], env: Mapping[str, str] = os.environ) -> PhoneTwinIndex:
++    """Build the index with ``query`` (a SPARQL SELECT returning bindings).
++    Lets the caller's store errors propagate: "could not look" must never be
++    read as "nobody holds it"."""
++    return PhoneTwinIndex(query(INDEX_QUERY), default_country_code(env))
++
++
++__all__ = ["PhoneTwinIndex", "load_index", "canon_phone", "phone_suffix",
++           "default_country_code", "is_real_name", "INDEX_QUERY"]
 diff --git a/photos_metadata.py b/photos_metadata.py
 index 8bf9fcfc3..09a3f759d 100644
 --- a/photos_metadata.py
@@ -5771,16 +6010,17 @@ index 8bf9fcfc3..09a3f759d 100644
 +    finally:
 +        conn.close()
 diff --git a/pwg_ingest.py b/pwg_ingest.py
-index 0b1e92370..c842712be 100644
+index 0b1e92370..b1f9a4ae8 100644
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -30,8 +30,14 @@ from pathlib import Path
+@@ -30,8 +30,15 @@ from pathlib import Path
  from typing import Optional
  
  import httpx
 +import phonenumbers
  
 +from . import forget_tombstone
++from . import phone_twins as _phone_twins
 +from .person_audit import record_person_removal
  from .role_addresses import is_role_identifier  # noqa: F401
 +from .role_addresses import is_sender_id_identifier
@@ -5789,7 +6029,7 @@ index 0b1e92370..c842712be 100644
  from .identifier_quality import observe as _observe_identifier
  from .usage_journal import record_usage as _record_usage
  from .usage_journal import tokens_from_ollama as _tokens_from_ollama
-@@ -71,6 +77,8 @@ def _record_embed_usage(response: dict) -> None:
+@@ -71,6 +78,8 @@ def _record_embed_usage(response: dict) -> None:
          purpose="ingesting",
          session_id=_USAGE_SESSION_ID,
      )
@@ -5798,7 +6038,7 @@ index 0b1e92370..c842712be 100644
  QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
  DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
  
-@@ -125,6 +133,380 @@ def _wiki_slug(name: str) -> str:
+@@ -125,6 +134,380 @@ def _wiki_slug(name: str) -> str:
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
  
@@ -6179,7 +6419,7 @@ index 0b1e92370..c842712be 100644
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -216,16 +598,22 @@ def _embed_text(text: str) -> list[float]:
+@@ -216,16 +599,22 @@ def _embed_text(text: str) -> list[float]:
      return embs[0]
  
  
@@ -6204,7 +6444,7 @@ index 0b1e92370..c842712be 100644
          raise ValueError(
              f"refusing to key a person on the role address {clean!r}: "
              "it is a sender, not a person, and keying on it merges everyone "
-@@ -238,30 +626,164 @@ def _person_uri(person_id: str) -> str:
+@@ -238,30 +627,164 @@ def _person_uri(person_id: str) -> str:
      return f"https://schema.ostler.ai/ontology#person_{person_id}"
  
  
@@ -6229,12 +6469,7 @@ index 0b1e92370..c842712be 100644
 +        values.append("+" + local)
 +    return forget_tombstone.is_forgotten(values=values, uri=uri, name=name)
 +
- 
--    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
--    a `+`-prefixed phone so the placeholder reads as a phone contact rather
--    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
--    are returned unchanged. A real name replaces this once contact_syncer or
--    CM046 email enrichment supplies one.
++
 +# Sentinel for "the store could not answer". Distinct from None, which
 +# means "asked, and nobody holds this". Collapsing the two is the
 +# manufactured-clean-input failure: a store that refused to answer would
@@ -6335,7 +6570,12 @@ index 0b1e92370..c842712be 100644
 +        return False
 +    return phonenumbers.is_valid_number(parsed)
 +
-+
+ 
+-    The local-part of an `@s.whatsapp.net` JID is an E.164 number. Show it as
+-    a `+`-prefixed phone so the placeholder reads as a phone contact rather
+-    than a bare "random number" (BW-4). Non-numeric local-parts (defensive)
+-    are returned unchanged. A real name replaces this once contact_syncer or
+-    CM046 email enrichment supplies one.
 +def _whatsapp_display_name(jid: str) -> str:
 +    """Placeholder display name for an un-named WhatsApp contact.
 +
@@ -6380,16 +6620,17 @@ index 0b1e92370..c842712be 100644
  
  
  # ── iMessage ingestion ────────────────────────────────────────────
-@@ -280,6 +802,8 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -280,6 +803,9 @@ def ingest_imessage(fda_dir: Path) -> dict:
      conversations = json.loads(conversations_file.read_text())
      people_created = 0
      people_enriched = 0
 +    owner_addrs = load_owner_addresses(fda_dir)
 +    lookup_failed = 0
++    twins = _TwinLookup()
  
      for convo in conversations:
          participants = convo.get("participants", [])
-@@ -294,19 +818,36 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -294,19 +820,47 @@ def ingest_imessage(fda_dir: Path) -> dict:
              if not participant:
                  continue
  
@@ -6414,9 +6655,7 @@ index 0b1e92370..c842712be 100644
              uri = _person_uri(person_id)
 +            if _is_forgotten(participant, uri):
 +                continue
- 
--            # Check if person already exists in Oxigraph
--            exists = _person_exists(uri)
++
 +            # Check if person already exists in Oxigraph. A merged URI
 +            # resolves to its live survivor (DMG #27 S2); a store error skips
 +            # this participant rather than minting a duplicate.
@@ -6426,9 +6665,22 @@ index 0b1e92370..c842712be 100644
 +                lookup_failed += 1
 +                continue
  
+-            # Check if person already exists in Oxigraph
+-            exists = _person_exists(uri)
++            # P13: a contact the owner already has in Contacts is THAT person,
++            # not a new number-named one (phone_twins.py).
++            if not exists and _identifier_kind(participant) == "phone":
++                holder = twins.holder(participant)
++                if holder is _LOOKUP_FAILED:
++                    lookup_failed += 1
++                    continue
++                if holder:
++                    uri, exists = holder, True
++                    twins.linked += 1
+ 
              if not exists:
                  # Create a minimal person node
-@@ -315,13 +856,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -315,13 +869,19 @@ def ingest_imessage(fda_dir: Path) -> dict:
  
                  triples = [
                      f"<{uri}> a pwg:Person",
@@ -6449,7 +6701,7 @@ index 0b1e92370..c842712be 100644
                  # Add identifier
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -358,31 +905,109 @@ def ingest_imessage(fda_dir: Path) -> dict:
+@@ -358,31 +918,140 @@ def ingest_imessage(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6475,6 +6727,7 @@ index 0b1e92370..c842712be 100644
          "people_created": people_created,
          "people_enriched": people_enriched,
 +        "people_lookup_failed": lookup_failed,
++        "people_linked_to_contact": twins.linked,
      }
  
  
@@ -6564,10 +6817,40 @@ index 0b1e92370..c842712be 100644
 +    Raises ``_StoreUnavailable``."""
 +    live = _resolve_merged(uri)
 +    return live, _person_exists(live)
++
++
++class _TwinLookup:
++    """P13: before minting a person for a phone handle, ask who already holds
++    that number (normalised), once per ingest run. See phone_twins.py for the
++    root cause and the household rule. ``holder(phone)`` returns the single
++    named holder, None, or ``_LOOKUP_FAILED`` when the index could not be
++    read (the caller then skips the participant rather than mint a twin)."""
++
++    def __init__(self):
++        self._index = None
++        self._failed = False
++        self.linked = 0
++
++    def holder(self, phone: Optional[str]):
++        if not phone:
++            return None
++        if self._index is None and not self._failed:
++            try:
++                self._index = _phone_twins.load_index(_sparql_query)
++            except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
++                logger.warning(
++                    "phone-twin index could not be read (%s); participants with "
++                    "a phone handle are skipped this run rather than duplicated",
++                    type(exc).__name__,
++                )
++                self._failed = True
++        if self._failed:
++            return _LOOKUP_FAILED
++        return self._index.holder_for(phone)
  
  
  def _identifier_exists(id_uri: str) -> bool:
-@@ -394,7 +1019,8 @@ def _identifier_exists(id_uri: str) -> bool:
+@@ -394,7 +1063,8 @@ def _identifier_exists(id_uri: str) -> bool:
          )
          return len(result) > 0
      except Exception:
@@ -6577,7 +6860,7 @@ index 0b1e92370..c842712be 100644
  
  
  # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
-@@ -476,6 +1102,87 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
+@@ -476,6 +1146,87 @@ def _update_last_contact(person_uri: str, timestamp: str, source: str) -> None:
          logger.debug("Could not update last_contact: %s", e)
  
  
@@ -6665,17 +6948,18 @@ index 0b1e92370..c842712be 100644
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
  #
  # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
-@@ -523,7 +1230,9 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -523,7 +1274,10 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
      chats = json.loads(chats_file.read_text())
      people_created = 0
      people_enriched = 0
 +    lookup_failed = 0
++    twins = _TwinLookup()
      tier_t1 = 0
 +    owner_addrs = load_owner_addresses(fda_dir)
      tier_t2_intimate = 0
      tier_t2_active = 0
      tier_t3_skipped = 0
-@@ -571,34 +1280,66 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -571,34 +1325,77 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
              # right call -- it consults what OTHER sources have already learned
              # about this identifier, so a channel exposed by mail is refused
              # here too.
@@ -6719,6 +7003,17 @@ index 0b1e92370..c842712be 100644
 +            # phone-JID suffix). The caller must not write that value under
 +            # identifierType "phone" -- see _whatsapp_phone_e164.
 +            phone_e164 = _whatsapp_phone_e164(participant)
++
++            # P13: a contact the owner already has in Contacts is THAT person,
++            # not a new number-named one (phone_twins.py).
++            if not exists and phone_e164 is not None:
++                holder = twins.holder(phone_e164)
++                if holder is _LOOKUP_FAILED:
++                    lookup_failed += 1
++                    continue
++                if holder:
++                    uri, exists = holder, True
++                    twins.linked += 1
  
              if not exists:
 -                # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is
@@ -6752,7 +7047,7 @@ index 0b1e92370..c842712be 100644
                      f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                      f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                  ])
-@@ -627,11 +1368,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -627,11 +1424,19 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                  # renderer picks the highest one.
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  if not _identifier_exists(id_uri):
@@ -6774,7 +7069,7 @@ index 0b1e92370..c842712be 100644
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -647,6 +1396,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -647,6 +1452,12 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6787,7 +7082,7 @@ index 0b1e92370..c842712be 100644
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -656,14 +1411,16 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
+@@ -656,14 +1467,17 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                  _update_last_contact(uri, last_msg, "whatsapp")
  
      logger.info(
@@ -6804,10 +7099,11 @@ index 0b1e92370..c842712be 100644
          "people_created": people_created,
          "people_enriched": people_enriched,
 +        "people_lookup_failed": lookup_failed,
++        "people_linked_to_contact": twins.linked,
          "tier_t1_dm_chats": tier_t1,
          "tier_t2_intimate_chats": tier_t2_intimate,
          "tier_t2_active_chats": tier_t2_active,
-@@ -688,6 +1445,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -688,6 +1502,13 @@ def ingest_calendar(fda_dir: Path) -> dict:
      people_seen: set[str] = set()
      events_processed = 0
      meetings_created = 0
@@ -6821,7 +7117,7 @@ index 0b1e92370..c842712be 100644
  
      for event in events:
          attendees = event.get("attendees", [])
-@@ -704,31 +1468,101 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -704,31 +1525,101 @@ def ingest_calendar(fda_dir: Path) -> dict:
              # calendar attendee who shared it into ONE node (#659). An invite
              # carries no attendee display name, so this contributes nothing to
              # the structural rule -- but it still honours it.
@@ -6928,7 +7224,7 @@ index 0b1e92370..c842712be 100644
  
              # Update last contact from meeting date
              if start_date:
-@@ -780,14 +1614,28 @@ def ingest_calendar(fda_dir: Path) -> dict:
+@@ -780,14 +1671,28 @@ def ingest_calendar(fda_dir: Path) -> dict:
          events_processed += 1
  
      logger.info(
@@ -6959,7 +7255,7 @@ index 0b1e92370..c842712be 100644
      }
  
  
-@@ -814,20 +1662,30 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -814,20 +1719,30 @@ def ingest_photos_people(fda_dir: Path) -> dict:
  
          person_id = _person_id_from_identifier(f"photos_face_{name}")
          uri = _person_uri(person_id)
@@ -6992,7 +7288,7 @@ index 0b1e92370..c842712be 100644
  
              if first_seen:
                  triples.append(
-@@ -846,12 +1704,168 @@ def ingest_photos_people(fda_dir: Path) -> dict:
+@@ -846,12 +1761,168 @@ def ingest_photos_people(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -7161,7 +7457,7 @@ index 0b1e92370..c842712be 100644
  def ingest_mail_contacts(fda_dir: Path) -> dict:
      """Ingest frequent email contacts into the people graph.
  
-@@ -865,9 +1879,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -865,9 +1936,15 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
  
      contacts = json.loads(contacts_file.read_text())
      people_created = 0
@@ -7178,7 +7474,7 @@ index 0b1e92370..c842712be 100644
              # Skip very infrequent senders
              continue
  
-@@ -875,20 +1895,61 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -875,20 +1952,61 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
          # email correspondent who shared it into ONE node (#659). The frequency
          # map is address->count with no names, so this consults the learned set
          # rather than adding to it.
@@ -7245,7 +7541,7 @@ index 0b1e92370..c842712be 100644
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -907,8 +1968,29 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
+@@ -907,8 +2025,29 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
              _sparql_update(sparql)
              people_created += 1
  
@@ -7277,7 +7573,7 @@ index 0b1e92370..c842712be 100644
  
  
  # ── Browser history ingestion (direct path, v1.0) ─────────────────
-@@ -1104,6 +2186,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
+@@ -1104,6 +2243,63 @@ def _qdrant_upsert_points(collection: str, points: list[dict]) -> int:
      return upserted
  
  
@@ -7341,7 +7637,7 @@ index 0b1e92370..c842712be 100644
  def _load_browsing_visits(fda_dir: Path) -> list[dict]:
      """Read safari_history.json + chrome_history.json from ``fda_dir``.
  
-@@ -1250,6 +2389,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+@@ -1250,6 +2446,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
              "points_created": sent,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7352,7 +7648,7 @@ index 0b1e92370..c842712be 100644
          }
  
      if sent == 0:
-@@ -1266,6 +2409,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
+@@ -1266,6 +2466,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
              "points_created": 0,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7360,7 +7656,7 @@ index 0b1e92370..c842712be 100644
          }
  
      logger.info(
-@@ -1898,6 +3042,9 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1898,6 +3099,9 @@ def _load_people_from_oxigraph() -> list[dict]:
          "?givenName ?familyName ?createdAt WHERE {\n"
          "  ?uri a pwg:Person ;\n"
          "       pwg:displayName ?displayName .\n"
@@ -7370,7 +7666,7 @@ index 0b1e92370..c842712be 100644
          "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
          "  OPTIONAL { ?uri pwg:organization ?org }\n"
          "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
-@@ -1916,6 +3063,58 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1916,6 +3120,58 @@ def _load_people_from_oxigraph() -> list[dict]:
          "}"
      )
  
@@ -7429,7 +7725,7 @@ index 0b1e92370..c842712be 100644
      # Second query: identifiers grouped per person.
      id_rows = _sparql_query(
          "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-@@ -1984,10 +3183,48 @@ def _load_people_from_oxigraph() -> list[dict]:
+@@ -1984,10 +3240,48 @@ def _load_people_from_oxigraph() -> list[dict]:
              # can place this person. Empty -> omitted from those views (no
              # now() fabrication).
              "created_at": created_at,
@@ -7478,7 +7774,7 @@ index 0b1e92370..c842712be 100644
  def _person_embed_doc(person: dict) -> str:
      """Build the descriptive text embedded for semantic people-search.
  
-@@ -2003,6 +3240,29 @@ def _person_embed_doc(person: dict) -> str:
+@@ -2003,6 +3297,29 @@ def _person_embed_doc(person: dict) -> str:
      return " ".join(p for p in parts if p).strip()
  
  
@@ -7508,7 +7804,7 @@ index 0b1e92370..c842712be 100644
  def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      """Populate the Qdrant ``people`` collection from Oxigraph (#600).
  
-@@ -2024,11 +3284,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2024,11 +3341,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      stably from the person URI so a re-install is idempotent) with a
      payload matching the reader contract, (5) returns a counts-only
      dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
@@ -7533,7 +7829,7 @@ index 0b1e92370..c842712be 100644
        ``sent``           : points upserted into Qdrant
        ``points_created`` : alias of ``sent``
        ``total``          : Person nodes considered (with a display name)
-@@ -2099,7 +3371,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2099,7 +3428,23 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
              # diverges from one that recomputes it (iOS Identifiable id + URL).
              "slug": _wiki_slug(person["display_name"]),
              "source": "fda_people_index",
@@ -7558,7 +7854,7 @@ index 0b1e92370..c842712be 100644
          }
          # Surface the REAL pwg:createdAt date so the time-ordered wiki
          # views (year pages, person timeline, "recent people") can place
-@@ -2148,6 +3436,120 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2148,6 +3493,120 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
              "total": len(people),
          }
  
@@ -7679,7 +7975,7 @@ index 0b1e92370..c842712be 100644
      logger.info(
          "People: %d of %d Person nodes indexed into Qdrant '%s'.",
          sent, len(people), PEOPLE_QDRANT_COLLECTION,
-@@ -2157,6 +3559,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
+@@ -2157,6 +3616,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
          "sent": sent,
          "points_created": sent,
          "total": len(people),
@@ -7687,7 +7983,7 @@ index 0b1e92370..c842712be 100644
      }
  
  
-@@ -2178,7 +3581,7 @@ _INGEST_DISPATCH = (
+@@ -2178,7 +3638,7 @@ _INGEST_DISPATCH = (
      ("imessage", "ingest_imessage"),
      ("whatsapp", "ingest_whatsapp"),
      ("calendar", "ingest_calendar"),
@@ -7696,7 +7992,7 @@ index 0b1e92370..c842712be 100644
      ("apple_mail", "ingest_mail_contacts"),
      ("browser_history", "ingest_browser_history"),
      ("bookmarks", "ingest_bookmarks"),
-@@ -2195,6 +3598,10 @@ _DISPATCH_EXEMPT = frozenset({
+@@ -2195,6 +3655,10 @@ _DISPATCH_EXEMPT = frozenset({
      # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
      # not itself a writer the loop should call.
      "ingest_all",
@@ -7707,7 +8003,7 @@ index 0b1e92370..c842712be 100644
  })
  
  
-@@ -2244,6 +3651,14 @@ def main():
+@@ -2244,6 +3708,14 @@ def main():
      fda_dir = Path(args.fda_dir) if args.fda_dir else None
      results = ingest_all(fda_dir)
      print(json.dumps(results, indent=2))
