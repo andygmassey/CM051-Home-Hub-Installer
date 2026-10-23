@@ -188,11 +188,21 @@ echo "PASS: install.sh brings vane up via docker compose"
 # The image bundles SearXNG which warms after Next.js binds the
 # port. A retry loop rather than a single curl is the difference
 # between "works on slow Macs" and "looks broken on slow Macs".
-if ! grep -q 'curl -sf -o /dev/null -m 3 http://localhost:3000' "$INSTALL_SCRIPT"; then
-    echo "FAIL [vane-health-poll]: install.sh does not poll http://localhost:3000 in 3.8b" >&2
+#
+# v1.0.118: this used to assert the literal `curl -sf ... http://localhost:3000`.
+# Since #1660 :3000 demands a credential, so that exact line read 401 and
+# reported a running Vane as down; this test was pinning the defect. The poll
+# now lives in the background fetcher (~/.ostler/bin/ostler-vane-fetch, a
+# heredoc in install.sh): a deadline loop over a check that presents the
+# install's own credential. Behaviour is covered end to end by
+# tests/test_vane_fetch_retries_until_pulled.sh; this asserts the shape.
+if ! grep -q 'VANE_URL="${OSTLER_VANE_URL:-http://127.0.0.1:3000/}"' "$INSTALL_SCRIPT" \
+   || ! grep -q '^vf_wait_healthy() {' "$INSTALL_SCRIPT" \
+   || ! grep -q "printf 'user = \"ostler:%s\"\\\\n' \"\$_pw\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [vane-health-poll]: install.sh does not poll :3000 for Vane readiness with the install's credential" >&2
     exit 1
 fi
-echo "PASS: install.sh polls http://localhost:3000 for Vane readiness"
+echo "PASS: install.sh polls :3000 for Vane readiness with the install's own credential"
 
 # ── Port conflict pre-check includes 3000 ──────────────────────
 # The pre-flight scan was refactored from per-port `_check_port 3000`

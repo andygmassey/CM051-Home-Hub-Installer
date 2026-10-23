@@ -182,7 +182,7 @@ class TheTileReadsTheRealFetchersState(unittest.TestCase):
         text = INSTALL.read_text(encoding="utf-8")
         body = text[text.index("<<'OSTLER_VANE_FETCH_EOF'"):text.index("\nOSTLER_VANE_FETCH_EOF\n")]
         import re
-        written = set(re.findall(r"_state ([a-z]+) ", body))
+        written = set(re.findall(r"vf_state ([a-z]+) ", body))
         self.assertTrue(written >= {"ready", "pulling", "retrying", "waiting", "deferred"}, written)
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "state").mkdir()

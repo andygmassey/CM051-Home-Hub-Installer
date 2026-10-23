@@ -89,11 +89,11 @@ chmod 755 "${T}/bin/"*
 # setup <case> <fail_times>: a fresh fake box
 setup() {
     FAKE="${T}/$1"; export FAKE
-    rm -rf "$FAKE"; mkdir -p "${FAKE}/home/.ostler/secrets" "${FAKE}/home/.ostler/state"
+    rm -rf "$FAKE"; mkdir -p "${FAKE}/hm/.ostler/secrets" "${FAKE}/hm/.ostler/state"
     printf '%s\n' "$2" > "${FAKE}/fail_times"
     printf 'synthetic-pass-word' > "${FAKE}/secret"
-    printf 'synthetic-pass-word\n' > "${FAKE}/home/.ostler/secrets/vane_password"
-    cat > "${FAKE}/home/.ostler/docker-compose.yml" <<'EOF'
+    printf 'synthetic-pass-word\n' > "${FAKE}/hm/.ostler/secrets/vane_password"
+    cat > "${FAKE}/hm/.ostler/docker-compose.yml" <<'EOF'
 services:
   qdrant:
     image: example.invalid/qdrant@sha256:1111
@@ -106,13 +106,13 @@ EOF
 }
 
 fetch() {   # runs the shipped fetcher against the current fake box
-    HOME="${FAKE}/home" OSTLER_DIR="${FAKE}/home/.ostler" \
+    HOME="${FAKE}/hm" OSTLER_DIR="${FAKE}/hm/.ostler" \
     OSTLER_VANE_DOCKER="${T}/bin/docker" OSTLER_VANE_CURL="${T}/bin/curl" \
     OSTLER_VANE_FETCH_SLEEP="${T}/bin/fakesleep" OSTLER_VANE_HEALTH_WAIT_S=0 \
     OSTLER_VANE_INSTALL_MARKER="${FAKE}/marker" \
     "$@"
 }
-field() { sed -n "s/.*\"$1\":\"\{0,1\}\([^,\"}]*\)\"\{0,1\}[,}].*/\1/p" "${FAKE}/home/.ostler/state/vane-fetch.json" 2>/dev/null; }
+field() { sed -n "s/.*\"$1\":\"\{0,1\}\([^,\"}]*\)\"\{0,1\}[,}].*/\1/p" "${FAKE}/hm/.ostler/state/vane-fetch.json" 2>/dev/null; }
 
 echo "== 1. three short reads, then the pull lands =="
 setup c1 3
@@ -123,7 +123,7 @@ fetch /bin/bash "$FETCH" run; rc=$?
 [ "$(tr '\n' ' ' < "${FAKE}/sleeps" 2>/dev/null)" = "60 120 300 " ] && ok "backoff 60 120 300 between tries" \
     || bad "sleeps were '$(tr '\n' ' ' < "${FAKE}/sleeps" 2>/dev/null)'"
 grep -q 'up -d vane' "${FAKE}/calls" && ok "started the container after the pull" || bad "never ran up -d vane"
-grep -q 'short read' "${FAKE}/home/.ostler/logs/vane-fetch.log" && ok "each failed try is logged with docker's own error" \
+grep -q 'short read' "${FAKE}/hm/.ostler/logs/vane-fetch.log" && ok "each failed try is logged with docker's own error" \
     || bad "the log does not carry the short read"
 
 echo "== CONTROL: one try only, same fake, must NOT reach ready =="
@@ -170,12 +170,12 @@ fetch env OSTLER_VANE_FETCH_MAX_TRIES=2 /bin/bash "$FETCH" run; rc=$?
 echo "== 5. one run at a time =="
 setup c5 0
 sleep 300 & holder=$!
-mkdir -p "${FAKE}/home/.ostler/state/vane-fetch.lock"; printf '%s\n' "$holder" > "${FAKE}/home/.ostler/state/vane-fetch.lock/pid"
+mkdir -p "${FAKE}/hm/.ostler/state/vane-fetch.lock"; printf '%s\n' "$holder" > "${FAKE}/hm/.ostler/state/vane-fetch.lock/pid"
 fetch /bin/bash "$FETCH" run; rc=$?
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 [ "$rc" -eq 0 ] && [ ! -f "${FAKE}/pull_count" ] && ok "a live lock holder is left alone; no second pull" || bad "rc=${rc} pulls=$(cat "${FAKE}/pull_count" 2>/dev/null)"
 setup c5b 0
-mkdir -p "${FAKE}/home/.ostler/state/vane-fetch.lock"; printf '999999\n' > "${FAKE}/home/.ostler/state/vane-fetch.lock/pid"
+mkdir -p "${FAKE}/hm/.ostler/state/vane-fetch.lock"; printf '999999\n' > "${FAKE}/hm/.ostler/state/vane-fetch.lock/pid"
 fetch /bin/bash "$FETCH" run
 [ "$(field state)" = ready ] && ok "a dead holder's stale lock is taken over" || bad "stale lock blocked it (state=$(field state))"
 

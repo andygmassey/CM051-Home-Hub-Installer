@@ -76,19 +76,19 @@ chmod 755 "${T}/bin/"*
 
 # run_case <name> <warm:0|1> <load_rc>
 run_case() {
-    FAKE="${T}/$1"; mkdir -p "${FAKE}/home/.ostler/secrets"
-    printf 'synthetic-pass-word\n' > "${FAKE}/home/.ostler/secrets/vane_password"
-    printf 'services:\n  vane:\n    image: example.invalid/vane@sha256:2222\n' > "${FAKE}/home/.ostler/docker-compose.yml"
+    FAKE="${T}/$1"; mkdir -p "${FAKE}/hm/.ostler/secrets"
+    printf 'synthetic-pass-word\n' > "${FAKE}/hm/.ostler/secrets/vane_password"
+    printf 'services:\n  vane:\n    image: example.invalid/vane@sha256:2222\n' > "${FAKE}/hm/.ostler/docker-compose.yml"
     [ "$2" = 1 ] && : > "${FAKE}/image_present"
     cat > "${FAKE}/harness.sh" <<EOF
 set -Eeuo pipefail
 trap 'echo "ERR trap fired at line \$LINENO" >&2; exit 99' ERR
 export FAKE='${FAKE}'
-export HOME='${FAKE}/home'
+export HOME='${FAKE}/hm'
 export PATH='${T}/bin':"\$PATH"
 export OSTLER_GUI=1
 export OSTLER_VANE_DOCKER='${T}/bin/docker' OSTLER_VANE_CURL='${T}/bin/curl' OSTLER_VANE_HEALTH_WAIT_S=0
-OSTLER_DIR='${FAKE}/home/.ostler'; OSTLER_FINAL_DIR="\$OSTLER_DIR"
+OSTLER_DIR='${FAKE}/hm/.ostler'; OSTLER_FINAL_DIR="\$OSTLER_DIR"
 BOLD=''; NC=''
 source '${REPO}/lib/progress_emitter.sh'
 source '${REPO}/install.sh.strings.en-GB.sh'
@@ -130,11 +130,11 @@ grep -q '^\[info\] Web search: getting ready (downloading in the background)$' "
 grep -q '^  Web search: getting ready (downloading in the background)$' "${FAKE}/out" && ok "final summary: Web search: getting ready (downloading in the background)" \
     || bad "summary did not say getting ready"
 grep -q 'Vane healthy' "${FAKE}/out" && bad "claimed Vane healthy while it was downloading" || ok "never claimed healthy"
-PLIST="${FAKE}/home/Library/LaunchAgents/com.ostler.vane-fetch.plist"
+PLIST="${FAKE}/hm/Library/LaunchAgents/com.ostler.vane-fetch.plist"
 [ "$(cat "${FAKE}/loads" 2>/dev/null)" = "$PLIST" ] && ok "loaded the LaunchAgent" || bad "agent not loaded: $(cat "${FAKE}/loads" 2>/dev/null)"
 if [ -f "$PLIST" ]; then
     grep -q '<string>com.ostler.vane-fetch</string>' "$PLIST" && grep -A1 'RunAtLoad' "$PLIST" | grep -q '<true/>' \
-        && grep -q '<key>StartInterval</key>' "$PLIST" && grep -q "<string>${FAKE}/home/.ostler/bin/ostler-vane-fetch</string>" "$PLIST" \
+        && grep -q '<key>StartInterval</key>' "$PLIST" && grep -q "<string>${FAKE}/hm/.ostler/bin/ostler-vane-fetch</string>" "$PLIST" \
         && ok "plist: label, RunAtLoad, StartInterval, the staged fetcher" || bad "plist is missing a key: $(cat "$PLIST")"
     if command -v plutil >/dev/null 2>&1; then
         plutil -lint "$PLIST" >/dev/null && ok "plutil -lint OK" || bad "plutil rejects the plist"
@@ -144,7 +144,7 @@ if [ -f "$PLIST" ]; then
 else
     bad "no plist written"
 fi
-[ -x "${FAKE}/home/.ostler/bin/ostler-vane-fetch" ] && ok "fetcher staged executable" || bad "fetcher not staged"
+[ -x "${FAKE}/hm/.ostler/bin/ostler-vane-fetch" ] && ok "fetcher staged executable" || bad "fetcher not staged"
 
 echo "== 2. warm box: image already local =="
 run_case warm 1 0

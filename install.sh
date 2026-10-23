@@ -23420,18 +23420,18 @@ PASSWORD_FILE="${OSTLER_VANE_PASSWORD_FILE:-${OSTLER_DIR}/secrets/vane_password}
 VANE_URL="${OSTLER_VANE_URL:-http://127.0.0.1:3000/}"
 NOW_CMD="${OSTLER_VANE_NOW:-}"
 
-_now() {
+vf_now() {
     if [ -n "$NOW_CMD" ]; then $NOW_CMD; else date +%s; fi
 }
 
-_log() {
-    _append "$(date -u +%Y-%m-%dT%H:%M:%SZ) vane-fetch: $*"
+vf_log() {
+    vf_append "$(date -u +%Y-%m-%dT%H:%M:%SZ) vane-fetch: $*"
 }
 
 # The braces are load-bearing: redirections apply left to right, so without
 # the group a missing log directory reports its failure to stderr BEFORE the
 # 2>/dev/null takes effect.
-_append() {
+vf_append() {
     mkdir -p "${LOG_FILE%/*}" 2>/dev/null || true
     { printf '%s\n' "$1" >>"$LOG_FILE"; } 2>/dev/null || true
 }
@@ -23440,24 +23440,24 @@ _append() {
 # separators only, capped: an error line from docker names a blob digest and
 # byte counts, never anything about the customer, and anything else is
 # dropped rather than escaped.
-_clean() {
+vf_clean() {
     printf '%s' "${1:-}" | LC_ALL=C tr -c 'A-Za-z0-9 :._/@=-' ' ' | tr -s ' ' | cut -c1-200
 }
 
-# _state <state> <attempt> <layers_done> <last_error> <next_try_at>
-_state() {
+# vf_state <state> <attempt> <layers_done> <last_error> <next_try_at>
+vf_state() {
     local _s="$1" _a="${2:-0}" _l="${3:-0}" _e _n="${5:-0}" _tmp
-    _e="$(_clean "${4:-}")"
+    _e="$(vf_clean "${4:-}")"
     mkdir -p "$STATE_DIR" 2>/dev/null || return 0
     _tmp="${STATE_FILE}.tmp.$$"
     printf '{"schema":1,"state":"%s","attempt":%s,"max_tries":%s,"layers_done":%s,"last_error":"%s","updated_at":%s,"next_try_at":%s}\n' \
-        "$_s" "$_a" "$MAX_TRIES" "$_l" "$_e" "$(_now)" "$_n" >"$_tmp" 2>/dev/null \
+        "$_s" "$_a" "$MAX_TRIES" "$_l" "$_e" "$(vf_now)" "$_n" >"$_tmp" 2>/dev/null \
         && mv -f "$_tmp" "$STATE_FILE" 2>/dev/null
     rm -f "$_tmp" 2>/dev/null || true
     return 0
 }
 
-image_ref() {
+vf_image_ref() {
     # The pinned reference is written ONCE, in the compose file install.sh
     # generates; reading it from there means this can never drift from it.
     [ -r "$COMPOSE_FILE" ] || return 1
@@ -23467,14 +23467,14 @@ image_ref() {
     ' "$COMPOSE_FILE"
 }
 
-present() {
+vf_present() {
     local _ref
-    _ref="$(image_ref)" || return 1
+    _ref="$(vf_image_ref)" || return 1
     [ -n "$_ref" ] || return 1
     "$DOCKER" image inspect "$_ref" >/dev/null 2>&1
 }
 
-_dc() {
+vf_dc() {
     "$DOCKER" compose -f "$COMPOSE_FILE" --project-directory "${COMPOSE_FILE%/*}" "$@"
 }
 
@@ -23483,7 +23483,7 @@ _dc() {
 # store-proxy, so an uncredentialled check reads 401 even when Vane is up
 # (that is how the old install check reported a running Vane as down), and
 # a 401/502 from the proxy alone says nothing about Vane.
-healthy() {
+vf_healthy() {
     local _running _pw _code
     _running="$("$DOCKER" inspect -f '{{.State.Running}}' ostler-vane 2>/dev/null || true)"
     [ "$_running" = "true" ] || return 1
@@ -23500,11 +23500,11 @@ healthy() {
     return 1
 }
 
-_wait_healthy() {
-    local _deadline=$(( $(_now) + HEALTH_WAIT_S ))
+vf_wait_healthy() {
+    local _deadline=$(( $(vf_now) + HEALTH_WAIT_S ))
     while :; do
-        healthy && return 0
-        [ "$(_now)" -ge "$_deadline" ] && return 1
+        vf_healthy && return 0
+        [ "$(vf_now)" -ge "$_deadline" ] && return 1
         "$SLEEP_CMD" 3
     done
 }
@@ -23513,7 +23513,7 @@ _wait_healthy() {
 # never competes with the install's own downloads. A marker whose pid is
 # gone, or older than 6 h (its documented lifetime), is a dead install's
 # leftover and does not hold us back.
-_install_running() {
+vf_install_running() {
     [ -f "$INSTALL_MARKER" ] || return 1
     [ -n "$(find "$INSTALL_MARKER" -mmin -360 -print 2>/dev/null)" ] || return 1
     local _pid
@@ -23522,7 +23522,7 @@ _install_running() {
     kill -0 "$_pid" 2>/dev/null
 }
 
-_lock() {
+vf_lock() {
     mkdir -p "$STATE_DIR" 2>/dev/null || true
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         printf '%s\n' "$$" >"${LOCK_DIR}/pid"
@@ -23540,11 +23540,11 @@ _lock() {
     return 0
 }
 
-_unlock() {
+vf_unlock() {
     rm -rf "$LOCK_DIR" 2>/dev/null || true
 }
 
-_backoff_for() {   # $1 the try that just failed (1-based)
+vf_backoff_for() {   # $1 the try that just failed (1-based)
     local _i=1 _v=60 _w
     for _w in $BACKOFF_S; do
         _v="$_w"
@@ -23554,56 +23554,55 @@ _backoff_for() {   # $1 the try that just failed (1-based)
     printf '%s' "$_v"
 }
 
-up_if_present() {
-    present || return 1
-    _state starting 0 0 "" 0
-    local _out
-    _out="$(_dc up -d vane 2>&1)"
-    local _rc=$?
-    _append "$_out"
-    if [ "$_rc" -eq 0 ] && _wait_healthy; then
-        _state ready 0 0 "" 0
+vf_up_if_present() {
+    vf_present || return 1
+    vf_state starting 0 0 "" 0
+    local _out _rc=0
+    _out="$(vf_dc up -d vane 2>&1)" || _rc=$?
+    vf_append "$_out"
+    if [ "$_rc" -eq 0 ] && vf_wait_healthy; then
+        vf_state ready 0 0 "" 0
         return 0
     fi
-    _state waiting 0 0 "image present but Vane did not answer its credential (up rc=${_rc})" 0
+    vf_state waiting 0 0 "image present but Vane did not answer its credential (up rc=${_rc})" 0
     return 1
 }
 
-run() {
-    [ -r "$COMPOSE_FILE" ] || { _log "compose file missing at ${COMPOSE_FILE}"; _state waiting 0 0 "compose file missing" 0; return 66; }
-    if ! _lock; then
-        _log "another run holds the lock; leaving it to finish"
+vf_run() {
+    [ -r "$COMPOSE_FILE" ] || { vf_log "compose file missing at ${COMPOSE_FILE}"; vf_state waiting 0 0 "compose file missing" 0; return 66; }
+    if ! vf_lock; then
+        vf_log "another run holds the lock; leaving it to finish"
         return 0
     fi
-    trap '_unlock' EXIT
+    trap 'vf_unlock' EXIT
 
-    if healthy; then
-        _state ready 0 0 "" 0
-        _log "already ready"
+    if vf_healthy; then
+        vf_state ready 0 0 "" 0
+        vf_log "already ready"
         return 0
     fi
 
-    while _install_running; do
-        _state deferred 0 0 "waiting for the install to finish" 0
+    while vf_install_running; do
+        vf_state deferred 0 0 "waiting for the install to finish" 0
         "$SLEEP_CMD" "$DEFER_POLL_S"
     done
 
     local _try=1 _out _rc _layers _err _gap
     while [ "$_try" -le "$MAX_TRIES" ]; do
-        _state pulling "$_try" 0 "" 0
-        _log "try ${_try} of ${MAX_TRIES}: pulling"
-        _out="$(_dc pull vane 2>&1)"
-        _rc=$?
-        _append "$_out"
+        vf_state pulling "$_try" 0 "" 0
+        vf_log "try ${_try} of ${MAX_TRIES}: pulling"
+        _rc=0
+        _out="$(vf_dc pull vane 2>&1)" || _rc=$?
+        vf_append "$_out"
         _layers="$(printf '%s\n' "$_out" | grep -c -E 'Pull complete|Download complete|Already exists' || true)"
         [ -n "$_layers" ] || _layers=0
         if [ "$_rc" -eq 0 ]; then
-            _out="$(_dc up -d vane 2>&1)"
-            _rc=$?
-            _append "$_out"
-            if [ "$_rc" -eq 0 ] && _wait_healthy; then
-                _state ready "$_try" "$_layers" "" 0
-                _log "ready after try ${_try}"
+            _rc=0
+            _out="$(vf_dc up -d vane 2>&1)" || _rc=$?
+            vf_append "$_out"
+            if [ "$_rc" -eq 0 ] && vf_wait_healthy; then
+                vf_state ready "$_try" "$_layers" "" 0
+                vf_log "ready after try ${_try}"
                 return 0
             fi
             _err="pulled but Vane did not answer its credential (up rc=${_rc})"
@@ -23611,14 +23610,14 @@ run() {
             _err="$(printf '%s\n' "$_out" | grep -i -E 'error|short read|EOF|timeout|denied|no space' | tail -n 1)"
             [ -n "$_err" ] || _err="pull exited ${_rc}"
         fi
-        _log "try ${_try} failed: $(_clean "$_err")"
+        vf_log "try ${_try} failed: $(vf_clean "$_err")"
         if [ "$_try" -ge "$MAX_TRIES" ]; then
-            _state waiting "$_try" "$_layers" "$_err" 0
-            _log "out of tries for this run; launchd starts the next run at login, boot or the next interval"
+            vf_state waiting "$_try" "$_layers" "$_err" 0
+            vf_log "out of tries for this run; launchd starts the next run at login, boot or the next interval"
             return 75
         fi
-        _gap="$(_backoff_for "$_try")"
-        _state retrying "$_try" "$_layers" "$_err" "$(( $(_now) + _gap ))"
+        _gap="$(vf_backoff_for "$_try")"
+        vf_state retrying "$_try" "$_layers" "$_err" "$(( $(vf_now) + _gap ))"
         "$SLEEP_CMD" "$_gap"
         _try=$((_try + 1))
     done
@@ -23626,11 +23625,11 @@ run() {
 }
 
 case "${1:-run}" in
-    run)            run ;;
-    up-if-present)  up_if_present ;;
-    present)        present ;;
-    image-ref)      image_ref ;;
-    healthy)        healthy ;;
+    run)            vf_run ;;
+    up-if-present)  vf_up_if_present ;;
+    present)        vf_present ;;
+    image-ref)      vf_image_ref ;;
+    healthy)        vf_healthy ;;
     status)         cat "$STATE_FILE" 2>/dev/null || { echo '{"schema":1,"state":"unknown"}'; exit 1; } ;;
     *)              echo "usage: ostler-vane-fetch [run|up-if-present|present|image-ref|healthy|status]" >&2; exit 64 ;;
 esac
