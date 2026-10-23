@@ -649,6 +649,30 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         _df_kb() { df -k "$HOME" 2>/dev/null | awk "NR==2{print \$4}"; }
         _df_before="$(_df_kb)"
         echo "free space before the reset: ${_df_before:-unknown} KB available on the home volume"
+        # THE LICENCE (Archie re-review). The --wipe-stores block used to save
+        # and restore it; that left with the block. The shipped uninstaller is
+        # meant to keep ~/.ostler/license, but nothing checked that it did: an
+        # uninstaller that deletes it still exits 0, and the install after the
+        # reset dies at ERR-02-LICENCE-REQUIRED. So: copy it out first (mode and
+        # owner recorded), put it back afterwards if it is gone or changed, and
+        # refuse the walk if it cannot be restored exactly.
+        _LIC="$HOME/.ostler/license/license.json"
+        _LIC_BAK=""; _LIC_MODE=""; _LIC_OWNER=""; _LIC_DMODE=""
+        if [[ -f "$_LIC" ]]; then
+            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
+            _LIC_MODE="$(stat -f "%Lp" "$_LIC" 2>/dev/null)"
+            _LIC_OWNER="$(stat -f "%u:%g" "$_LIC" 2>/dev/null)"
+            _LIC_DMODE="$(stat -f "%Lp" "${_LIC%/*}" 2>/dev/null)"
+            if cp -p "$_LIC" "$_LIC_BAK" 2>/dev/null; then
+                echo "licence saved before the uninstall: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes, mode ${_LIC_MODE:-?}, owner ${_LIC_OWNER:-?}"
+            else
+                echo "LICENCE PRESENT BUT COULD NOT BE COPIED: ${_LIC}"
+                _reset_fail="${_reset_fail} licence-not-saved"
+                _LIC_BAK=""
+            fi
+        else
+            echo "no licence on the box at ${_LIC} (the licence preflight decides whether that matters)"
+        fi
         _ran_uninstaller=""
         _u_rc=""
         for u in ~/.ostler/bin/ostler-uninstall \
@@ -722,6 +746,25 @@ if [[ "$DO_RESET" -eq 1 ]]; then
                 fi
             done
             echo "  store volumes (qdrant/oxigraph/redis/wiki/vane): removed below with the colima data disk"
+        fi
+        if [[ -n "$_LIC_BAK" ]]; then
+            if [[ -f "$_LIC" ]] && cmp -s "$_LIC" "$_LIC_BAK"; then
+                echo "licence survived the uninstall unchanged"
+            else
+                echo "LICENCE GONE OR CHANGED after the uninstall; restoring it"
+                mkdir -p "${_LIC%/*}" && chmod "${_LIC_DMODE:-700}" "${_LIC%/*}" \
+                    && cp -p "$_LIC_BAK" "$_LIC" && chmod "${_LIC_MODE:-600}" "$_LIC" \
+                    && { [[ -z "$_LIC_OWNER" ]] || chown "$_LIC_OWNER" "$_LIC"; } 2>/dev/null
+                if [[ -f "$_LIC" ]] && cmp -s "$_LIC" "$_LIC_BAK" \
+                   && [[ "$(stat -f "%Lp" "$_LIC" 2>/dev/null)" == "$_LIC_MODE" ]] \
+                   && [[ "$(stat -f "%u:%g" "$_LIC" 2>/dev/null)" == "$_LIC_OWNER" ]]; then
+                    echo "licence restored: $(wc -c < "$_LIC" | tr -d " ") bytes, mode ${_LIC_MODE}, owner ${_LIC_OWNER}"
+                else
+                    echo "LICENCE COULD NOT BE RESTORED to ${_LIC} with mode ${_LIC_MODE} and owner ${_LIC_OWNER}"
+                    _reset_fail="${_reset_fail} licence-lost"
+                fi
+            fi
+            rm -f "$_LIC_BAK"
         fi
         # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
         # this block extracts it with an awk RANGE that ends at the first

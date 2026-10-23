@@ -33,6 +33,8 @@
 #            /Applications/Ostler.app or /Applications/Ostler still there, and
 #            a non-zero uninstaller rc each end the walk CANNOT-RUN, with no
 #            provenance written.
+#   LICENCE: a fake uninstaller deletes license/ and exits 0. The reset must
+#            restore it (bytes, mode, owner); when it cannot, CANNOT-RUN.
 #   OTHER ACCOUNT: the same, but lsof cannot see it (permission-scoped);
 #            only a TCP connect can. Must still refuse.
 #   CONTROL: nothing installed, nothing loaded, ports free. Must continue
@@ -183,6 +185,23 @@ launchctl bootout "gui/\$(id -u)/com.creativemachines.ostler.wiki-recompile-catc
 exit \$(cat "$b/uninstall_rc" 2>/dev/null || echo 0)
 EOF
     chmod +x "$b/fakehome/.ostler/bin/ostler-uninstall"
+    # The licence the next install needs (synthetic content), owner-only.
+    mkdir -p "$b/fakehome/.ostler/license"; chmod 700 "$b/fakehome/.ostler/license"
+    printf '{"licence":"synthetic-walk-fixture"}\n' > "$b/fakehome/.ostler/license/license.json"
+    chmod 600 "$b/fakehome/.ostler/license/license.json"
+}
+# An uninstaller that eats the licence (and exits 0, which is the danger).
+eat_licence() {  # $1 box, $2 = "dir" (delete it) or "block" (delete it and put a FILE where the dir was)
+    local b="$1"
+    cat > "$b/fakehome/.ostler/bin/ostler-uninstall" <<EOF
+#!/bin/bash
+echo "FAKE_UNINSTALLER_RAN assume_yes=\${OSTLER_UNINSTALL_ASSUME_YES:-}"
+launchctl bootout "gui/\$(id -u)/com.creativemachines.ostler.wiki-recompile-catchup" || true
+rm -rf "\$HOME/.ostler/license"
+[ "$2" = block ] && echo not-a-directory > "\$HOME/.ostler/license"
+exit 0
+EOF
+    chmod +x "$b/fakehome/.ostler/bin/ostler-uninstall"
 }
 
 for sh in "${SHELLS[@]}"; do
@@ -237,6 +256,17 @@ for sh in "${SHELLS[@]}"; do
         bad "[$tag] LEAKY DELETE: rc=$rc, continued=$(grep -c CONTINUED-TO-STAGE "$b/out"); the leftover disk was not refused"
     fi
 
+    # ── LICENCE (Archie re-review): an uninstaller that deletes license/ ──
+    b="$WORK/liceat.$tag"; box_walk "$b"; eat_licence "$b" dir
+    rc="$(run_reset "$b" "$sh")"
+    L="$b/fakehome/.ostler/license/license.json"
+    if [ "$rc" -eq 0 ] && grep -q CONTINUED-TO-STAGE "$b/out" && grep -q 'synthetic-walk-fixture' "$L" 2>/dev/null \
+       && [ "$(stat -f '%Lp' "$L")" = 600 ] && [ "$(stat -f '%u' "$L")" = "$(id -u)" ] && grep -q 'licence restored' "$b/out"; then
+        ok "[$tag] LICENCE EATEN: the uninstaller deleted license/ and exited 0; the reset restored it (same bytes, mode 600, same owner)"
+    else
+        bad "[$tag] LICENCE EATEN: rc=$rc present=$([ -f "$L" ] && echo yes || echo no) $(grep -i licen "$b/out" | tail -2 | tr '\n' ' ')"
+    fi
+
     # ── REFUSALS that used to only print (Archie review item 2) ───────────
     refused() {  # $1 box, $2 label, $3 expected reason token
         local b="$1" rc
@@ -258,6 +288,8 @@ for sh in "${SHELLS[@]}"; do
     refused "$b" "/APPLICATIONS/OSTLER STILL PRESENT" "app-present"
     b="$WORK/urc.$tag"; box_walk "$b"; echo 1 > "$b/uninstall_rc"
     refused "$b" "UNINSTALLER RC 1" "uninstaller-rc-1"
+    b="$WORK/licblock.$tag"; box_walk "$b"; eat_licence "$b" block
+    refused "$b" "LICENCE CANNOT BE RESTORED" "licence-lost"
 
     # ── STUCK ─────────────────────────────────────────────────────────────
     b="$WORK/stuck.$tag"; box_walk "$b"; : > "$b/stuck"
