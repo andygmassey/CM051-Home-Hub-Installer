@@ -613,6 +613,7 @@ test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manif
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
 test_photo_events_reach_the_graph.py	WIRED	.github/workflows/privacy-spine.yml
 test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_pii_scan_values_never_reach_install_log.sh	WIRED	.github/workflows/install-log-pii.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
