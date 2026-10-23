@@ -238,7 +238,7 @@
     "id": "spoken_bundle",
     "title": "محادثات الاجتماعات والمحادثات الصوتية",
     "subtitle": "ذاكرة المحادثات",
-    "why": "Ostler turns the meetings and voice notes you capture into short summaries, to-dos, clean transcripts and metadata. These are your own conversations, captured with consent. Everything stays on your Mac.",
+    "why": "يحوّل Ostler الاجتماعات والملاحظات الصوتية التي تلتقطها إلى ملخصات قصيرة ومهام ونصوص مفرّغة نظيفة وبيانات وصفية. هذه محادثاتك الخاصة، وقد التُقطت بموافقة. يبقى كل شيء على جهاز Mac لديك.",
     "duration_estimate_s": 10,
     "long_running_threshold_s": 60,
     "illustration": null,
