@@ -271,7 +271,7 @@ cmd="$*"
 printf '%s\n' "$cmd" >> "$STUB_LOG"
 case "$cmd" in
     'bash -s') exec env -i PATH=/usr/bin:/bin HOME="$STUB_HOME" /bin/bash -s ;;
-    *scutil*)  printf 'Fixture Box\nMac16,10\nwalker\n'; exit 0 ;;
+    *scutil*)  printf 'fixture-box-01\nMac16,10\nwalker\n'; exit 0 ;;
     *)         echo "stub: refusing unexpected command" >&2; exit 97 ;;
 esac
 SH
@@ -279,7 +279,7 @@ SH
     run_tw() {  # run_tw <home> -> rc; output in ${TMP}/tw.out
         : > "${TMP}/stub.log"
         STUB_LOG="${TMP}/stub.log" STUB_HOME="$1" PATH="${STUB}:/usr/bin:/bin" \
-            /bin/bash "$TW" --host walker@fixture --expect-name "Fixture Box" --require-cold \
+            /bin/bash "$TW" --host walker@fixture --expect-name "fixture-box-01" --require-cold \
             > "${TMP}/tw.out" 2>&1 < /dev/null
         echo $?
     }
