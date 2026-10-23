@@ -57,7 +57,7 @@ jobs:
         run: |
           set -uo pipefail
           for p in vane_background_fetch_settles no_store_port_is_tcp_reachable; do
-            out="$(bash "scripts/box_walk_probes/probes/${p}.sh" --self-test 2>&1)"
+            out="$(bash "scripts/box_walk_probes/probes/${p}.sh" --self-test 2>&1)" || true  # the self-test exits non-zero BY DESIGN; the VERDICT line is the check
             printf '%s\n' "$out" | tail -n 2
             grep -q '^VERDICT: FAIL -- NEGATIVE CONTROL DEMONSTRATED' <<<"$out" || { echo "::error::${p} self-test did not demonstrate its negative control"; exit 1; }
           done
