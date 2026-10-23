@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8994 and :16692, both of which run
+    # Its two top-level arming calls are :8994 and :16731, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17487, where the note reads
+    # WhatsApp Web session path did it again at :17526, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17504 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17543 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8994, :16692) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8994, :16731) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19660 / :19838 / :19995 / :20440 path. There the
+    # :19699 / :19877 / :20034 / :20479 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -15852,6 +15852,10 @@ MAX_S="${OSTLER_LISTENER_WD_MAX_S:-5}"
 VERIFY_S="${OSTLER_LISTENER_WD_VERIFY_S:-60}"
 VERIFY_POLL_S="${OSTLER_LISTENER_WD_VERIFY_POLL_S:-3}"
 SAMPLE_S="${OSTLER_LISTENER_WD_SAMPLE_S:-5}"
+# The WHOLE diagnostic capture is bounded by this, because the listener is
+# dead while it runs. v1.0.116c: `sample` on the wedged daemon took 60 s and
+# the restart waited behind it.
+CAPTURE_MAX_S="${OSTLER_LISTENER_WD_CAPTURE_MAX_S:-10}"
 CAPTURE_KEEP="${OSTLER_LISTENER_WD_CAPTURE_KEEP:-5}"
 CAPTURE_FILE_MAX="${OSTLER_LISTENER_WD_CAPTURE_FILE_MAX:-2097152}"
 LWD_STATE_DIR="${OSTLER_LISTENER_WD_STATE_DIR:-${LWD_OSTLER_DIR}/state}"
@@ -15862,7 +15866,14 @@ ASSISTANT_CONFIG="${OSTLER_LISTENER_WD_CONFIG:-${LWD_OSTLER_DIR}/assistant-confi
 DAEMON_ERR="${OSTLER_LISTENER_WD_DAEMON_ERR:-${LWD_LOGS_DIR}/ostler-assistant.err}"
 INSTALL_RUNNING_CMD="${OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD:-}"
 LWD_STATE_FILE="${LWD_STATE_DIR}/listener_watchdog.json"
+# The walk probe derives its wait budget from THIS, so the two cannot drift
+# apart. The launchd StartInterval is read from the installed plist.
+if [ "${1:-}" = "--print-config" ]; then
+    printf 'fail_n=%s\nmax_s=%s\ncapture_max_s=%s\nverify_s=%s\n' "$FAIL_N" "$MAX_S" "$CAPTURE_MAX_S" "$VERIFY_S"
+    exit 0
+fi
 FAILS="${LWD_STATE_DIR}/listener_watchdog.fails"
+FAILS_AT="${LWD_STATE_DIR}/listener_watchdog.fails_at"
 RESTARTS="${LWD_STATE_DIR}/listener_watchdog.restarts"
 LOCK="${LWD_STATE_DIR}/listener_watchdog.lock"
 
@@ -15975,7 +15986,15 @@ if [ "$LAST_CODE" != "000" ]; then
 fi
 n=$((prev_fails + 1))
 echo "$n" > "$FAILS"
-lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"
+# Strike spacing is logged so drift under load is MEASURED (v1.0.116c: 74-82 s
+# gaps on a 60 s StartInterval), not inferred.
+_now="$(lwd_now)"; _gap=""
+if [ "$n" -gt 1 ]; then
+    _prev_at="$(cat "$FAILS_AT" 2>/dev/null || echo "")"
+    case "$_prev_at" in ''|*[!0-9]*) ;; *) _gap=", $((_now - _prev_at))s since the previous strike" ;; esac
+fi
+echo "$_now" > "$FAILS_AT"
+lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})${_gap}"
 if [ "$n" -lt "$FAIL_N" ]; then
     lwd_write_state "failing" "$n" "no HTTP status from the listener"
     exit 0
@@ -16006,13 +16025,33 @@ mkdir -p "$CAP"
     echo "captured_at=$(lwd_iso "$(lwd_now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
     printf '%s\n' "$lc_out"
 } > "$CAP/launchctl.txt" 2>&1
+# lwd_bounded <seconds> <cmd...>: run cmd, SIGKILL it after <seconds>; rc 124 on
+# a timeout. Output goes wherever the caller redirected it.
+lwd_bounded() {
+    local limit="$1" p ticks=0; shift
+    "$@" & p=$!
+    while kill -0 "$p" 2>/dev/null; do
+        if [ "$ticks" -ge $((limit * 10)) ]; then
+            kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 124
+        fi
+        sleep 0.1; ticks=$((ticks + 1))
+    done
+    wait "$p"
+}
+CAP_DEADLINE=$(( $(lwd_now) + CAPTURE_MAX_S ))
+lwd_cap_left() { local l=$(( CAP_DEADLINE - $(lwd_now) )); [ "$l" -lt 1 ] && l=1; echo "$l"; }
 if [ -n "$PID" ]; then
-    sample "$PID" "$SAMPLE_S" -file "$CAP/sample.txt" > "$CAP/sample.stdout" 2>&1 \
-        || echo "sample rc=$? (see sample.stdout)" >> "$CAP/launchctl.txt"
+    # sample runs alongside the rest so one slow tool cannot eat the whole cap.
+    ( lwd_bounded "$CAPTURE_MAX_S" sample "$PID" "$SAMPLE_S" -file "$CAP/sample.txt" > "$CAP/sample.stdout" 2>&1 \
+        || echo "sample rc=$? (see sample.stdout)" >> "$CAP/launchctl.txt" ) &
+    SAMPLE_BG=$!
+    lwd_bounded "$(lwd_cap_left)" lsof -nP -p "$PID" > "$CAP/lsof.txt" 2>&1 \
+        || echo "[lsof incomplete: rc=$? within the ${CAPTURE_MAX_S}s capture cap]" >> "$CAP/lsof.txt"
+    lwd_bounded "$(lwd_cap_left)" ps -o pid,stat,etime,pcpu,rss,command -p "$PID" > "$CAP/ps.txt" 2>&1 || true
+    wait "$SAMPLE_BG" 2>/dev/null
     [ -s "$CAP/sample.txt" ] || mv -f "$CAP/sample.stdout" "$CAP/sample.txt" 2>/dev/null
+    [ -s "$CAP/sample.txt" ] || echo "[sample produced nothing within the ${CAPTURE_MAX_S}s capture cap]" > "$CAP/sample.txt"
     rm -f "$CAP/sample.stdout"
-    lsof -nP -p "$PID" > "$CAP/lsof.txt" 2>&1 || true
-    ps -o pid,stat,etime,pcpu,rss,command -p "$PID" > "$CAP/ps.txt" 2>&1 || true
 else
     echo "no pid from launchctl print; sample and lsof skipped" > "$CAP/sample.txt"
     echo "no pid from launchctl print" > "$CAP/lsof.txt"
@@ -16024,12 +16063,12 @@ tail -n 200 "$DAEMON_ERR" > "$CAP/daemon-err-tail.txt" 2>&1 || true
 } > "$CAP/load.txt"
 {
     echo "== vm_stat"; vm_stat 2>&1
-    echo "== memory_pressure -Q"; memory_pressure -Q 2>&1
+    echo "== memory_pressure -Q"; lwd_bounded "$(lwd_cap_left)" memory_pressure -Q 2>&1
     echo "== hw.memsize"; sysctl -n hw.memsize 2>&1
 } > "$CAP/memory.txt"
 for _f in "$CAP"/*; do lwd_cap_file "$_f"; done
 LAST_CAPTURE="$CAP"
-lwd_log "CAPTURE ${CAP}"
+lwd_log "CAPTURE ${CAP} ($(( $(lwd_now) - CAP_DEADLINE + CAPTURE_MAX_S ))s of a ${CAPTURE_MAX_S}s cap)"
 ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
 
 # ── Restart ──────────────────────────────────────────────────────────
@@ -16040,7 +16079,7 @@ ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" '
 t0="$(lwd_now)"
 echo "$t0" >> "$RESTARTS"
 LAST_RESTART_AT="$(lwd_iso "$t0")"
-rm -f "$FAILS"
+rm -f "$FAILS" "$FAILS_AT"
 ks_rc=0; ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)" || ks_rc=$?
 lwd_log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
 if [ "$ks_rc" -ne 0 ]; then
