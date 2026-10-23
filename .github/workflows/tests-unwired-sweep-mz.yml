@@ -264,6 +264,10 @@ jobs:
         if: always()
         run: python -m pytest tests/test_ostler_fda_staging_cleanup_vendored.py -q -rs -p no:cacheprovider
 
+      - name: Vendored ostler_fda carries the Instagram DM route and the one G7 gate (HR015 #1164, #1169 re-vendor at fd10f28)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_instagram_dms_vendored.py tests/test_ostler_fda_subscription_gate_parity_vendored.py tests/test_ostler_fda_facebook_routing_unchanged_vendored.py -q -rs -p no:cacheprovider
+
       - name: A paused AI conversation is never watermarked as done (CM052 #18 backport)
         if: always()
         run: python -m pytest tests/test_cm052_paused_conversation_is_not_watermarked.py -q -rs -p no:cacheprovider

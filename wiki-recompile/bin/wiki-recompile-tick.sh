@@ -274,14 +274,33 @@ cd "$OSTLER_DIR"
 # macOS has no flock(1), so we use an atomic mkdir mutex with a PID file for
 # stale-lock recovery (a tick killed mid-run leaves the dir behind; if its
 # holder PID is gone we reclaim it).
+#
+# AGE CAP (v1.0.117 W6, Archie review). A live pid alone is not proof the
+# holder is still the tick that took the lock: after a reboot the recorded pid
+# can be reused by an unrelated process, and with no age bound every tick
+# then skips forever and the daily recompile never runs again. A lock older
+# than WIKI_LOCK_MAX_AGE_MIN (default 360 min = 6 h) is reclaimed whatever its
+# pid. Why 6 h: the holder's longest legitimate hold is one baseline compile
+# plus publish, and this tick hard-kills its baseline at WIKI_COMPILE_TIMEOUT
+# (1800 s); the installer, which takes the same lock for its own baseline,
+# lives inside the 6 h install-in-progress marker lifetime. 6 h is 12x the
+# watchdog and the installer's own bound, and still under the 24 h daily
+# cadence, so a stale lock costs at most one missed daily run.
 LOCK_DIR="${OSTLER_DIR}/.wiki-recompile.lock"
+WIKI_LOCK_MAX_AGE_MIN="${WIKI_LOCK_MAX_AGE_MIN:-360}"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     _holder_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
-    if [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
+    _lock_aged=""
+    if [ -n "$(find "$LOCK_DIR" -maxdepth 1 -mmin -"$WIKI_LOCK_MAX_AGE_MIN" -print 2>/dev/null)" ]; then :; else _lock_aged=1; fi
+    if [ -z "$_lock_aged" ] && [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
         log "another wiki-recompile tick (pid ${_holder_pid}) is already running; skipping this tick"
         exit 0
     fi
-    log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    if [ -n "$_lock_aged" ]; then
+        log "reclaiming wiki-recompile lock older than ${WIKI_LOCK_MAX_AGE_MIN} min (pid ${_holder_pid:-unknown}; a live pid this old is a reused pid, not the holder)"
+    else
+        log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    fi
     rm -rf "$LOCK_DIR"
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         log "could not acquire wiki-recompile lock after reclaim; another tick won the race -- skipping"

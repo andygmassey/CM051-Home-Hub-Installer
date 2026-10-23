@@ -16,7 +16,7 @@ ICAL = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_
 SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/people_rules.py"
 WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS", "_digit_count",
         "_is_bare_phone_shape", "_is_short_code", "_is_sender_id_handle", "_all_handles_are_sender_ids",
-        "_is_provisional_phone_name"}
+        "_is_provisional_phone_name", "_is_short_code_shape", "_SHORT_CODE_MAX_DIGITS"}
 
 try:
     text = SRC.read_text()
