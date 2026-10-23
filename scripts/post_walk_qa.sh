@@ -600,6 +600,22 @@ if [[ -n "$CUT_VERSION" ]]; then
     esac
     echo "  seed:   ${GROUNDING_SEED}"
 
+    # COLD STATE. Same discipline, one step earlier in the walk: was anything
+    # the install would normally DOWNLOAD or CREATE already on the box? The
+    # v1.0.117 walk reused 4.5 GB of Ollama models and a 30 GiB colima data
+    # disk, and its record had no field to say so. ttywalk.sh measures it just
+    # before install.sh starts (~/.walk-cold-state); walk_cold_state_rows ties
+    # that marker to THIS install by the install.sh run header, and anything it
+    # cannot tie is not-recorded(...), never "cold".
+    # shellcheck source=scripts/lib_walk_cold_state.sh
+    source "${REPO_ROOT}/scripts/lib_walk_cold_state.sh"
+    COLD_ROWS="$( { declare -f walk_cold_state_read_box; printf 'walk_cold_state_read_box\n'; } \
+        | ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" 'bash -s' 2>/dev/null \
+        | walk_cold_state_rows)"
+    [[ -n "$COLD_ROWS" ]] || COLD_ROWS="$(printf 'cold_state\tnot-recorded(the cold-state read produced nothing)')"
+    echo "  cold:   $(awk -F'\t' '$1=="cold_state"{print $2; exit}' <<< "$COLD_ROWS")"
+    awk -F'\t' '$1=="not_cold"{print "          not cold: " $2 ": " $3}' <<< "$COLD_ROWS"
+
     INSTALLED_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
         'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
     if [[ -n "$INSTALLED_VERSION" ]]; then
@@ -890,6 +906,15 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf '# skipped, absent, failed, unrun -- plus not-recorded when the\n'
         printf '# marker could not be read, which is NOT the same as unrun.\n'
         printf 'grounding_seed\t%s\n' "$GROUNDING_SEED"
+        printf '#\n'
+        printf '# cold_state answers: was anything this install would normally\n'
+        printf '# DOWNLOAD or CREATE already on the box? cold means every surface\n'
+        printf '# (colima VM, colima data disk, Ollama models) was looked at just\n'
+        printf '# before install.sh started and was absent. NOT-COLD lists, one\n'
+        printf '# not_cold row each, what was reused instead of exercised. A warm\n'
+        printf '# walk is a fast iteration walk; it is NOT the final pre-ship walk,\n'
+        printf '# and scripts/verify_walk_record.sh refuses it as promote evidence.\n'
+        printf '%s\n' "$COLD_ROWS"
         printf 'counts_scope\tbox_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases\n'
         printf 'pass\t%s\n'        "${n_pass:-0}"
         printf 'fail\t%s\n'        "${n_fail:-0}"

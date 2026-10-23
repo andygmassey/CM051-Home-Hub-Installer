@@ -82,6 +82,12 @@
 #                        record this as a CONSOLE walk. Without it the record
 #                        says walk_kind=thin and does NOT authorise repointing
 #                        the customer download. Reads OSTLER_CONSOLE_WALK too.
+#   --require-cold       refuse (CANNOT-RUN) unless the box is COLD: no colima
+#                        VM, no colima data disk, no Ollama models. For the
+#                        final pre-ship walk. Without it the walk still MEASURES
+#                        this and writes cold_state / not_cold into the record
+#                        (scripts/lib_walk_cold_state.sh), so a warm, fast
+#                        iteration walk can never read as a cold one.
 #
 # EXIT CODES, and they are three not two:
 #   0  PASS        install.sh reached its end and said so on the marker wire
@@ -131,6 +137,9 @@ NO_RECORD=0
 # never reaches WALK_VERDICT or walks/. --no-early-pass declines it, announced.
 NO_EARLY_PASS=0
 CONSOLE_WALK="${OSTLER_CONSOLE_WALK:-}"
+# Cold is MEASURED on every walk (see lib_walk_cold_state.sh). This only says
+# whether a warm box is a refusal (the final pre-ship walk) or a declaration.
+REQUIRE_COLD=0
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
 say() { printf '%s\n' "$*"; }
@@ -149,6 +158,7 @@ while [[ $# -gt 0 ]]; do
         --no-record)    NO_RECORD=1; shift ;;
         --no-early-pass) NO_EARLY_PASS=1; shift ;;
         --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
+        --require-cold) REQUIRE_COLD=1; shift ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
         -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
@@ -348,6 +358,34 @@ if [[ "$REPORT_ONLY" -eq 1 ]]; then
 fi
 
 identity_check "before staging"
+
+# ── COLD STATE: measured on the box, never assumed ───────────────────
+# shellcheck source=scripts/lib_walk_cold_state.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_cold_state.sh"
+# cold_state_measure <write:0|1> -> prints the marker; with 1 it is also
+# written to ~/.walk-cold-state on the box (the record reads it from there).
+cold_state_measure() {
+    local _w="$1"
+    if [[ "$_w" -eq 1 ]]; then
+        { declare -f walk_cold_state_measure
+          printf 'walk_cold_state_measure > ~/.walk-cold-state.tmp && mv -f ~/.walk-cold-state.tmp ~/.walk-cold-state && cat ~/.walk-cold-state\n'
+        } | "${SSH[@]}" 'bash -s'
+    else
+        { declare -f walk_cold_state_measure; printf 'walk_cold_state_measure\n'; } | "${SSH[@]}" 'bash -s'
+    fi
+}
+# --require-cold refuses BEFORE the wipe, the reset or the staging touch the
+# box: a cold walk asked for on a warm box is answered before anything moves.
+if [[ "$REQUIRE_COLD" -eq 1 ]]; then
+    _COLD_EARLY="$(cold_state_measure 0)" || die "--require-cold: could not measure the box's cold state; refusing rather than assume it."
+    if [[ "$(awk -F'\t' '$1=="cold_state"{print $2; exit}' <<< "$_COLD_EARLY")" != "cold" ]]; then
+        die "--require-cold: ${HOST} is NOT cold. What would be reused instead of exercised:
+$(awk -F'\t' '$1=="cold_state"{print "       cold_state " $2} $1=="not_cold"{print "       " $2 ": " $3}' <<< "$_COLD_EARLY")
+       Make it cold (scripts/box_pristine.sh on the box removes the colima VM
+       and its data disk; Ollama models need \`ollama rm\`), then walk again."
+    fi
+    say "cold state before staging: cold (all surfaces looked at and absent)"
+fi
 
 # ── LICENCE PREFLIGHT ────────────────────────────────────────────────
 #
@@ -1555,6 +1593,19 @@ else
         say "safari seed: could not build the fixture locally; Safari will be graded SOURCE-ABSENT if the box has none"
     fi
     rm -f "$_SAFARI_FX_LOCAL"
+fi
+
+# ── COLD STATE, measured as late as possible before install.sh starts ─
+# Written to ~/.walk-cold-state; post_walk_qa.sh ties it to THIS install by the
+# install.sh run header and writes cold_state / not_cold into the walk record.
+rule "COLD STATE (what this install will reuse instead of exercise)"
+_COLD="$(cold_state_measure 1)" || die "could not measure and record the box's cold state. A walk that cannot say whether it was cold must not produce a record that looks like it was."
+_COLD_STATE="$(awk -F'\t' '$1=="cold_state"{print $2; exit}' <<< "$_COLD")"
+[[ -n "$_COLD_STATE" ]] || die "the cold-state measurement printed no cold_state line; refusing rather than record a blank."
+say "cold_state: ${_COLD_STATE}"
+awk -F'\t' '$1=="not_cold"{print "  NOT-COLD " $2 ": " $3}' <<< "$_COLD"
+if [[ "$REQUIRE_COLD" -eq 1 && "$_COLD_STATE" != "cold" ]]; then
+    die "--require-cold: the box stopped being cold between the first check and the run (${_COLD_STATE}). Refusing."
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────
