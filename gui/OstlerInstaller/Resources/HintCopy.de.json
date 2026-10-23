@@ -238,7 +238,7 @@
     "id": "spoken_bundle",
     "title": "Besprechungen und Sprachunterhaltungen",
     "subtitle": "Gesprächsgedächtnis",
-    "why": "Ostler macht aus deinen eigenen aufgenommenen Besprechungen und Sprachnotizen kurze Zusammenfassungen, Aufgaben, saubere Transkripte und Metadaten. Es sind deine eigenen Aufnahmen, für die bei der Aufnahme eine Einwilligung vorlag. Alles bleibt auf deinem Mac.",
+    "why": "Ostler turns the meetings and voice notes you capture into short summaries, to-dos, clean transcripts and metadata. These are your own conversations, captured with consent. Everything stays on your Mac.",
     "duration_estimate_s": 10,
     "long_running_threshold_s": 60,
     "illustration": null,

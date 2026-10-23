@@ -59,13 +59,12 @@ install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_INFO_AUTOLOGIN_EXPLAIN	needs_review	Verify Apple's exact German label for the Automatic login option in current macOS; security disclosure wording should be checked.
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
+gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
+gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	German WhatsApp likely labels "Link a device" as „Gerät hinzufügen“. Please verify both labels against the current German WhatsApp UI.
 gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/subtitle	needs_review	Glossary forbids 'record'; changed to transcribing. Consent-related heading, product/legal should confirm.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Consent statement about recordings; legal force should be checked by a lawyer. 'Aufnahmen' kept since source refers to user's own pre-existing recordings.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
-gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
-gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	German WhatsApp likely labels "Link a device" as „Gerät hinzufügen“. Please verify both labels against the current German WhatsApp UI.

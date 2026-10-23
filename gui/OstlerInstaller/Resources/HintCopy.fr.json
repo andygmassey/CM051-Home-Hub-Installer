@@ -238,7 +238,7 @@
     "id": "spoken_bundle",
     "title": "Réunions et conversations vocales",
     "subtitle": "Mémoire des conversations",
-    "why": "Ostler transforme vos propres réunions et notes vocales enregistrées en courts résumés, tâches, transcriptions propres et métadonnées. Ce sont vos propres enregistrements, réalisés avec consentement au moment de la capture. Tout reste sur votre Mac.",
+    "why": "Ostler turns the meetings and voice notes you capture into short summaries, to-dos, clean transcripts and metadata. These are your own conversations, captured with consent. Everything stays on your Mac.",
     "duration_estimate_s": 10,
     "long_running_threshold_s": 60,
     "illustration": null,

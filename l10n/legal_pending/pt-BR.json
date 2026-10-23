@@ -94,6 +94,11 @@
   "src_hash": "af70b93fbd80",
   "src": "No problem. Nothing has been installed."
  },
+ "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
+  "text": "      (Artigo 9 do GDPR do Reino Unido - exigido para dados de categoria especial).",
+  "src_hash": "6592e60a90f7",
+  "src": "      (UK GDPR Article 9 - required for special-category data)."
+ },
  "install_sh::MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE": {
   "text": "Registros de consentimento e região gravados em ~/.ostler/posture/",
   "src_hash": "0932ef0c10b1",

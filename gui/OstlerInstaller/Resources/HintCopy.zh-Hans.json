@@ -238,7 +238,7 @@
     "id": "spoken_bundle",
     "title": "会议和语音对话",
     "subtitle": "对话记忆",
-    "why": "Ostler 会把你自己录制的会议和语音备忘录整理为简短摘要、待办事项、整洁的文字记录和元数据。这些是你自己的录音，在你录制时已获得同意。所有内容都保留在你的 Mac 上。",
+    "why": "Ostler turns the meetings and voice notes you capture into short summaries, to-dos, clean transcripts and metadata. These are your own conversations, captured with consent. Everything stays on your Mac.",
     "duration_estimate_s": 10,
     "long_running_threshold_s": 60,
     "illustration": null,

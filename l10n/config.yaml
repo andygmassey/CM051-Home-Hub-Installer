@@ -52,7 +52,7 @@ keep_english:
 # Ruling 2026-10-22: legal and consent strings stay ENGLISH in every locale.
 # A translation of one never ships, whatever legal_reviews.tsv says.
 legal_english_only: true
-legal_patterns: [consent, verbatim, "legal/", "article 9", '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
+legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
 
 # The en-GB header asks for a human translation of these.
 human_review_keys:

@@ -786,8 +786,21 @@ YN_LABELLED = re.compile(r"\b[Yy] = [^/\n]{1,20} / [Nn] = ")
 LIT = re.compile(r"https?://\S+|[\w.+-]+@[\w-]+\.[\w.]+|~/\S+|\b(?:127\.0\.0\.1|localhost):\d+")
 
 
+MARKER = re.compile(r"\{([^{}]+)\}")
+
+
 def mech(u, out, cfg):
     src, errs = u.src, []
+    if u.key in set(cfg.get("emphasis_marker_keys", [])):
+        # {braces} in these keys mark the emphasised word (the app renders it
+        # italic), so they wrap a word of the TARGET language and are not
+        # placeholders. Exactly one marker, and never the English word.
+        ms, mo = MARKER.findall(src), MARKER.findall(out)
+        if len(mo) != len(ms):
+            errs.append(f"emphasis markers {ms} -> {mo} (need {len(ms)})")
+        elif out != src and any(x.strip().casefold() == y.strip().casefold() for x, y in zip(ms, mo)):
+            errs.append(f"emphasis marker still wraps the English word {mo}")
+        src, out = MARKER.sub("", src), MARKER.sub("", out)
     a, b = SPEC.findall(src), SPEC.findall(out)
     if collections.Counter(a) != collections.Counter(b):
         errs.append(f"placeholders {a} -> {b}")
@@ -807,7 +820,7 @@ def mech(u, out, cfg):
             errs.append(f"verbatim token {tok!r} lost")
     for m in YN.findall(src):
         # The cue stays, or is spelled out in the language: "(Y = oui / N = non)",
-        # "[y = ja / N = nein]" (the installer still accepts Y/N; reviewer Veinand, 2026-10-19).
+        # "[y = ja / N = nein]" (the installer still accepts Y/N; legal reviewer, 2026-10-19).
         if m not in out and not YN_LABELLED.search(out):
             errs.append(f"y/n cue {m!r} lost")
     for m in LIT.findall(src):
@@ -1412,6 +1425,25 @@ def cmd_self_test(cfg):
         t = open(en_sh).read().replace('MSG_CONSENT_X="I agree to %s"', 'MSG_CONSENT_X="I fully agree to %s"')
         open(en_sh, "w").write(t)
         results["a review of OLD English does not cover new English"] = quiet(cmd_check, c2) == 1
+        # legal_english_only (ruling 2026-10-22): the reviewed translation above no
+        # longer ships; check fails until `stale` puts the English back.
+        open(en_sh, "w").write(t.replace("I fully agree", "I agree"))
+        c3 = dict(c2, legal_english_only=True)
+        results["legal_english_only: a REVIEWED legal translation fails"] = quiet(cmd_check, c3) == 1
+        quiet(cmd_stale, c3)
+        results["legal_english_only: stale ships the English"] = ShellCatalogue(c3["catalogues"][1]).read("de").get("MSG_CONSENT_X") == "I agree to %s"
+        results["legal_english_only: check passes with English"] = quiet(cmd_check, c3) == 0
+        results["legal_english_only: legal-approve refuses"] = _refused(cmd_legal_approve, c3, ["de", "sh::MSG_CONSENT_X", "--by", "R00", "--date", "2026-10-23"])
+        # emphasis markers: {braces} wrap a target-language word, not a placeholder
+        c4 = dict(c2, emphasis_marker_keys=["tag"])
+        _t = types.SimpleNamespace(src="The world {does} revolve around you.", key="tag", ctx="", uid="x::tag", kind="other")
+        results["marker: local emphasis word passes"] = mech(_t, "Die Welt dreht sich {DOCH} um dich.", c4) == []
+        results["marker: multi-word / non-Latin emphasis passes"] = mech(_t, "世界は、{やっぱり}あなたを中心に回っている。", c4) == []
+        results["marker: English word left in fails"] = any("English word" in e for e in mech(_t, "Die Welt dreht sich {does} um dich.", c4))
+        results["marker: dropped marker fails"] = any("emphasis markers" in e for e in mech(_t, "Die Welt dreht sich doch um dich.", c4))
+        results["marker: without the exemption {DOCH} is a placeholder defect"] = any("placeholders" in e for e in mech(_t, "Die Welt dreht sich {DOCH} um dich.", c2))
+        _p = types.SimpleNamespace(src="Hi {name}, the world {does} turn.", key="tag", ctx="", uid="x::tag", kind="other")
+        results["marker: a real {placeholder} beside it is still checked"] = any("placeholders" in e or "emphasis markers" in e for e in mech(_p, "Hallo, die Welt dreht sich {DOCH}.", c4))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     for k, v in results.items():
@@ -1419,6 +1451,14 @@ def cmd_self_test(cfg):
     ok = all(results.values())
     print(f"SELF-TEST {'PASS' if ok else 'FAIL'} ({sum(results.values())}/{len(results)})")
     return 0 if ok else 1
+
+
+def _refused(f, *a):
+    try:
+        _quiet(f, *a)
+    except SystemExit as e:
+        return bool(e.code) and e.code != 0
+    return False
 
 
 def _quiet(f, *a):

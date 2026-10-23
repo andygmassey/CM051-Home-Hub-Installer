@@ -63,10 +63,9 @@ install.sh.strings.en-GB.sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	needs_revie
 install.sh.strings.en-GB.sh	MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED	needs_review	legal/consent wording: needs a qualified human check
 install.sh.strings.en-GB.sh	MSG_PROMPT_AUTOLOGIN_CONSENT	needs_review	legal/consent wording: needs a qualified human check
+gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	Quoted labels must match WhatsApp's current French UI exactly; second label unverified.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-gui/OstlerInstaller/Resources/HintCopy.json	spoken_bundle/why	needs_review	Source itself uses 'recorded/recordings' (conflicts with transcribe-not-record policy) and contains consent wording; needs human/legal check of source and translation.
-gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	Quoted labels must match WhatsApp's current French UI exactly; second label unverified.
