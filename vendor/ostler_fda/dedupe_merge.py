@@ -34,8 +34,10 @@ import httpx
 
 try:
     from .person_audit import record_person_removal
+    from . import phone_twins
 except ImportError:  # run as a script, not as a package
     from person_audit import record_person_removal
+    import phone_twins  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,46 @@ def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List
         )
 
 
+def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
+    """P13: fold each number-named person (no human name, no Contacts card)
+    into the ONE named person who holds the same number, compared in
+    normalised form. A number held by two or more named people is shared (a
+    household landline) and is left alone, counted. See phone_twins.py.
+
+    The exact-string sweep above cannot do this: a card stored in national
+    form never string-matches the "+44..." handle. Raises on an unreadable
+    store, like every read in this module; ``run`` reports that.
+    """
+    index = phone_twins.load_index(_sparql_query)
+    # Instrumented (Archie #3144): which country the normalised compare ran
+    # with. None means DEFAULT_COUNTRY_CODE and USER_PHONE did not reach this
+    # process, and numbers are matched on a unique trailing 8 digits instead.
+    mode = {"phone_twins_country_code": index.default_cc,
+            "phone_twins_match": "e164" if index.default_cc is not None else "trailing8"}
+    logger.info("dedupe_merge: phone-twin pass country=%s match=%s",
+                mode["phone_twins_country_code"], mode["phone_twins_match"])
+    merged = 0
+    shared = 0
+    for person in sorted(p for p in index.phones if index.is_unnamed(p)):
+        holders: Set[str] = set()
+        for v in index.phones[person]:
+            holders |= index.named_holders(v)
+        holders.discard(person)
+        if not holders:
+            continue
+        if len(holders) > 1:
+            shared += 1
+            logger.info(
+                "dedupe_merge: a number-named person shares its number with %d "
+                "named people; not merged (household rule)", len(holders),
+            )
+            continue
+        if not dry_run:
+            _merge_pair(next(iter(holders)), person)
+        merged += 1
+    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
+
+
 def run(dry_run: bool = False) -> Dict[str, int]:
     """Sweep the graph and merge all exact-identifier-colliding Persons.
     Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
@@ -409,8 +451,15 @@ def run(dry_run: bool = False) -> Dict[str, int]:
         refused,
         " (dry-run, no writes)" if dry_run else "",
     )
-    return {"collision_keys": len(collisions), "merged": merged,
-            "refused_rule2": refused, "refused_unreadable": False}
+    out = {"collision_keys": len(collisions), "merged": merged,
+           "refused_rule2": refused, "refused_unreadable": False}
+    # P13: the number-named twins the exact-string pass cannot see.
+    try:
+        out.update(merge_provisional_phone_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
+        out["phone_twins_unreadable"] = True
+    return out
 
 
 def main() -> int:
