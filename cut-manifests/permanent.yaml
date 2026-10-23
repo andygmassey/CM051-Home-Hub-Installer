@@ -1162,6 +1162,42 @@ entries:
       kind: box_walk_probe
       probe: "derived_preferences_reach_digest_and_tool"
 
+  # BLOCKING (scripts/walk_promote_scope.tsv, the five smart-prefs rows): Andy
+  # 2026-10-22, Smart Preferences is CORE and kept slipping. Declared here so the
+  # cut re-drives each one (verify_cut_manifest --require-runtime-proofs) and
+  # because every probe on disk must be invoked by the cut. NOT advisory: a RED or
+  # a CANNOT-RUN in any of the five makes the walk not clean.
+  - id: box-walk-derived-preferences-runs
+    title: "box-walk probe must PASS: derived_preferences_runs"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_runs"
+  - id: box-walk-derived-preferences-breadth
+    title: "box-walk probe must PASS: derived_preferences_breadth"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_breadth"
+  - id: box-walk-derived-preferences-dislike
+    title: "box-walk probe must PASS: derived_preferences_dislike"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_dislike"
+  - id: box-walk-derived-preferences-not-others
+    title: "box-walk probe must PASS: derived_preferences_not_others"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_not_others"
+  - id: box-walk-dislike-respected-in-brief
+    title: "box-walk probe must PASS: dislike_respected_in_brief"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "dislike_respected_in_brief"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
