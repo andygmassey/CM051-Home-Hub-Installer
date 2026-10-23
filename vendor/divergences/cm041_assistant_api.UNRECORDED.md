@@ -1422,9 +1422,9 @@ Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry 
 
 ## 2026-10-23 118: the under-18 setter, suggestion and dismissal routes (CM041 #236)
 
-Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 72a44ce6594c1a08d15ffd5fdc832a157a1b464e.
+Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 6249d1fe5ccea7d44deabfbca19c4bcc21ffe256.
 
-- `ical-server.py`: `_personal_identifiers_for` factored out of `api_people_suppress_suggestions`; the minors block (`MinorsRegistryUnreadable` through `api_minors_dismiss`); GET `/api/v1/minors` and `/api/v1/minors/suggestions`; POST `/api/v1/people/{slug}/minor` and `.../minor-suggestion/dismiss`. Applied with patch(1) at fuzz 0, 0 rejected hunks. `API.md` likewise.
+- `ical-server.py`: `_personal_identifiers_for` factored out of `api_people_suppress_suggestions`; the minors block (`MinorsRegistryUnreadable` through `api_minors_dismiss`, placed after `api_people_forget` so the forget tests that slice from `_forget_audit_has` do not pick it up); GET `/api/v1/minors` and `/api/v1/minors/suggestions`; POST `/api/v1/people/{slug}/minor` and `.../minor-suggestion/dismiss`. Applied with patch(1) at fuzz 0, 0 rejected hunks. `API.md` likewise.
 - `tests/test_minors_setter.py` copied verbatim (27 tests). It needs the real `ostler_security`, so the workflow installs `./vendor/ostler_security` first.
 - `hub_contract.yaml` regenerated against hub-v0.5.23; the four Doctor rows now resolve to `ical` rows instead of `upstream_missing`.
 - Proof: 27 passed in a clean venv with only pytest, httpx, fastapi, rapidfuzz and `./vendor/ostler_security` installed. Wired in minors-registry-row.yml.

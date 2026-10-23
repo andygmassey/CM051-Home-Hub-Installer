@@ -3460,6 +3460,289 @@ def api_people_suppress_suggestions(slug, payload):
     }, 200
 
 
+def api_people_forget(slug):
+    """Handle POST /api/v1/people/{slug}/forget.
+
+    Customer's GDPR Art. 17 + UK GDPR right-of-erasure one-click
+    commitment from `legal-privacy.html:213`. Deletes the person's
+    records across the customer-Mac stores:
+
+      - Oxigraph: every triple where this person is subject OR object
+      - Qdrant: every vector in `people` with payload.person_uri match
+      - Wiki: queue a recompile so the person's page disappears
+
+    Idempotent: a second call with no matching person returns 200 with
+    `forgotten=False` + `already_forgotten=True`. The iOS Companion
+    (PR #90 ForgetPersonService) treats both as benign success.
+
+    Response shape matches the iOS contract:
+      `{forgotten, wiki_recompile_queued, stores_purged: [...]}`
+    """
+    # Validate slug (rejects path traversal, SPARQL injection, empty).
+    if not _SLUG_PATTERN.match(slug or ""):
+        return {
+            "error": "Invalid slug. Expected lowercase ASCII letters, "
+                     "digits, hyphens (max 80 chars)."
+        }, 400
+
+    # Look up the person URI by recomputing _wiki_slug(displayName) and
+    # filtering to the exact match. We don't store slug in the graph
+    # directly; it's derived from displayName by the wiki compiler.
+    #
+    # Merge-aware (walk #27): the slug resolves to the LIVE survivor, and the
+    # erasure covers every node merged into it. Erasing only the node whose
+    # name happened to match left the survivor (or the retired nodes, with
+    # their names, emails and identifiers) behind.
+    try:
+        person_uri, forget_name = _resolve_person_by_slug(slug)
+        cluster = _merged_cluster(person_uri) if person_uri else []
+    except Exception as exc:
+        return {
+            "forgotten": False,
+            "wiki_recompile_queued": False,
+            "stores_purged": [],
+            "degraded": True,
+            "reason": f"oxigraph_lookup_failed: {exc}",
+        }, 503
+
+    # A retry after a 503: the graph half already went, so the person no longer
+    # resolves, but the vectors may still be in Qdrant. The cluster was written
+    # to forget_pending.json BEFORE the graph delete, and it is the only record
+    # of which person_uri values to purge. Without it a retry took the
+    # not-found branch below, sent no Qdrant delete and left the vectors for
+    # good.
+    pending = _forget_pending_load().get(slug)
+    resumed = person_uri is None and isinstance(pending, dict) and bool(pending.get("cluster"))
+    if resumed:
+        person_uri = pending.get("person_uri") or pending["cluster"][0]
+        cluster = list(pending["cluster"])
+    elif person_uri is not None and isinstance(pending, dict):
+        cluster = list(dict.fromkeys(cluster + list(pending.get("cluster") or [])))
+
+    if person_uri is None:
+        # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
+        #
+        # This branch used to return already_forgotten=True for EVERY
+        # unresolved slug, and the docstring above says why it was written
+        # that way: idempotency, so a second call is benign for the iOS
+        # client. The reasoning is right and the implementation could not
+        # tell the two cases apart, because BOTH produce "no matching
+        # person":
+        #
+        #   a SECOND call, after we really did erase them   -> benign
+        #   a FIRST call whose lookup could not resolve the
+        #     person at all                                 -> NOT benign
+        #
+        # MEASURED ON THE WALK BOX 2026-09-18. A person present in the
+        # graph with five triples, asked to be forgotten, got HTTP 200 and
+        #
+        #   {"forgotten": false, "already_forgotten": true,
+        #    "stores_purged": []}
+        #
+        # and all five triples were still there afterwards. The customer is
+        # told the erasure happened. It did not. That is the same shape as
+        # CM051 #960 -- a deletion request the product ACCEPTS AND DOES NOT
+        # HONOUR -- surviving in the reporting after the SPARQL half was
+        # fixed.
+        #
+        # THE DISCRIMINATOR ALREADY EXISTED AND NOTHING READ IT.
+        # _queue_wiki_recompile appends one audit line per slug to
+        # forget_audit.log on every forget. So a slug that has been
+        # forgotten before HAS a line, and one that has not does not. That
+        # is precisely the fact this branch needed and never consulted.
+        #
+        # An unreadable audit log does NOT become a benign answer. It
+        # becomes "unknown", because a reader that cannot see the evidence
+        # must not rule in the reassuring direction.
+        #
+        # 🔴 THE STATUS CODE STAYS 200 AND THAT IS A DELIBERATE CHOICE, NOT
+        # AN OVERSIGHT. 404 is the more honest transport answer and it is
+        # also a CONTRACT CHANGE to a client that is already in customers'
+        # hands: the iOS Companion's ForgetPersonService was written against
+        # this endpoint returning 200 for both cases, and it cannot be
+        # re-tested from here tonight. Changing the transport could turn a
+        # wrong message into a broken screen.
+        #
+        # The BODY is what lied, so the body is what changes. A client that
+        # reads `forgotten` or `already_forgotten` now sees neither is true
+        # and can say so; one that only checks the HTTP code behaves exactly
+        # as it did yesterday. When the iOS side can be exercised, 404 is
+        # the right end state and this comment is the note to whoever does it.
+        prior = _forget_audit_has(slug)
+        queued = _queue_wiki_recompile(slug)
+        if prior is True:
+            return {
+                "forgotten": False,
+                "already_forgotten": True,
+                "wiki_recompile_queued": queued,
+                "stores_purged": [],
+            }, 200
+        return {
+            "forgotten": False,
+            "already_forgotten": False,
+            "not_found": True,
+            "audit_readable": prior is not None,
+            "reason": (
+                "no person matching this slug could be found, and there is no "
+                "record of them having been forgotten before"
+                if prior is False else
+                "no person matching this slug could be found, and the forget "
+                "audit log could not be read, so whether they were forgotten "
+                "earlier is unknown"
+            ),
+            "wiki_recompile_queued": queued,
+            "stores_purged": [],
+        }, 200
+
+    stores_purged = []
+    degraded_reasons = []
+
+    # TOMBSTONE FIRST, THEN ERASE. Forget deletes every triple, so a people
+    # syncer whose source still lists this person would read "nobody holds
+    # this identifier" on its next run and mint them again. The tombstone
+    # (identity_resolver/forget_tombstone.py: salted digests only, no clear
+    # identifier) is what every syncer's create path consults. It is written
+    # BEFORE the delete so the identifiers can still be read from the graph,
+    # and so a crash in between leaves the person tombstoned, never erased
+    # and resurrectable. A failed write does not stop the erasure; it is
+    # reported (tombstone_written false + degraded) so the caller can say so.
+    tombstone_written = False
+    if resumed:
+        # The first call wrote the tombstone before it erased; do not
+        # re-derive identifiers from a graph that is already empty.
+        try:
+            from identity_resolver import forget_tombstone
+            tombstone_written = bool(forget_tombstone.is_forgotten(uri=person_uri))
+        except Exception as exc:  # noqa: BLE001
+            degraded_reasons.append(f"tombstone_failed: {exc}")
+    else:
+        try:
+            from identity_resolver import forget_tombstone
+            # Identifiers from the whole cluster: a retired node's phone or
+            # email must be tombstoned too, or a syncer mints the person again.
+            id_values = []
+            for node in cluster:
+                id_rows = _sparql_select(
+                    'PREFIX pwg: <{ns}>\n'
+                    'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
+                    '?id pwg:identifierValue ?v }}'.format(
+                        ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
+                )
+                id_values.extend(r.get("v", "") for r in id_rows)
+            tombstone_written = forget_tombstone.record(
+                person_uri,
+                id_values,
+                display_name=forget_name,
+            )
+            if not tombstone_written:
+                # An unreadable tombstone file is left in place (it keeps every
+                # syncer fail-closed) and is never overwritten. Say so by name.
+                why = forget_tombstone.problem()
+                if why:
+                    degraded_reasons.append(why)
+        except Exception as exc:  # never block the erasure on the tombstone
+            degraded_reasons.append(f"tombstone_failed: {exc}")
+        if not tombstone_written and not any(
+            r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
+        ):
+            degraded_reasons.append("tombstone_failed: could not write the tombstone file")
+
+    # Oxigraph: delete every triple where this URI is subject, then
+    # every triple where it's object (incoming relationships, mentions).
+    # All in one UPDATE so partial-failure is less likely.
+    #
+    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
+    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
+    # signals and conversation links into the NAMED graph
+    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
+    # and compartment.py requires it stays off) an unqualified DELETE
+    # cannot see them. The erasure therefore silently under-deleted and
+    # left the person's records behind. Each named graph in this user's
+    # scope needs its own explicitly-scoped pair.
+    #
+    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
+    # span -- so a forget removes everything any Ostler surface could
+    # still show, without deleting out of another user's compartment.
+    ox_failed = False
+    if not resumed:
+        # Record the cluster BEFORE the graph delete: once the graph is empty a
+        # retry cannot re-derive it, and Qdrant is purged by these URIs.
+        pend = _forget_pending_load()
+        pend[slug] = {"person_uri": person_uri, "cluster": list(cluster)}
+        if not _forget_pending_save(pend):
+            degraded_reasons.append("forget_pending_not_written")
+        for node in cluster:
+            _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
+            try:
+                _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
+            except Exception as exc:
+                ox_failed = True
+                degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+    # READ BACK. A successful UPDATE is not proof the person is gone, so ask
+    # the graph, through the same scoped reader the customer's surfaces use.
+    if not ox_failed:
+        try:
+            still = _forget_graph_left(cluster)
+        except Exception as exc:
+            still = None
+            degraded_reasons.append(f"oxigraph_readback_failed: {exc}")
+        if still:
+            degraded_reasons.append(f"oxigraph_still_holds_triples: {len(still)} node(s)")
+        elif still is not None:
+            stores_purged.append("oxigraph")
+
+    # Qdrant: delete every point in `people` whose payload.person_uri matches
+    # (wait=true), then count what is left. On a retry this runs even though
+    # the graph is already empty.
+    qdrant_ok, qdrant_why = _forget_qdrant(cluster)
+    if qdrant_ok:
+        stores_purged.append("qdrant")
+    else:
+        degraded_reasons.append(qdrant_why)
+
+    # DONE MEANS BOTH STORES. This used to answer forgotten:true / 200 when
+    # EITHER store was purged, so a failed graph delete (or a failed vector
+    # delete) was reported to the customer as an erasure while their records
+    # were still on the Mac (status-honesty sweep V17). Now a partial purge is
+    # a 503 naming what remains, and the call is safe to retry: each half is
+    # idempotent and the cluster is re-resolved from the graph.
+    remaining = [s for s in ("oxigraph", "qdrant") if s not in stores_purged]
+    forgotten = not remaining
+
+    # The wiki page is compiled from the graph, so a recompile is worth
+    # queueing whenever the graph half went, complete or not.
+    queued = _queue_wiki_recompile(slug) if "oxigraph" in stores_purged else False
+    if forgotten:
+        pend = _forget_pending_load()
+        if slug in pend:
+            pend.pop(slug)
+            _forget_pending_save(pend)
+        # The "already forgotten" answer on a later call reads this line, so
+        # it is written only for a real, complete erasure.
+        if not _record_forget_audit(slug):
+            degraded_reasons.append("forget_audit_not_written")
+
+    response = {
+        "forgotten": forgotten,
+        "wiki_recompile_queued": queued,
+        "stores_purged": stores_purged,
+        "tombstone_written": tombstone_written,
+        "nodes_erased": len(cluster) if forgotten else 0,
+    }
+    if remaining:
+        response["stores_remaining"] = remaining
+        response["retry"] = True
+    if degraded_reasons:
+        response["degraded"] = True
+        response["reason"] = "; ".join(degraded_reasons)
+
+    # 200 only when both stores were purged; 503 otherwise, so the iOS
+    # Companion shows its gatewayError banner (PR #90 contract) and the
+    # customer can try again, instead of being told it is done.
+    status_code = 200 if forgotten else 503
+    return response, status_code
+
+
 # ── Under-18 registry: owner-set "mark as minor" (Andy 2026-10-19, 118) ──
 #
 # project_minors_flag: a minor is stored and searchable, but never nudged, never
@@ -3469,7 +3752,7 @@ def api_people_suppress_suggestions(slug, payload):
 # services/ingest/src/minors.py):
 #
 #     {"version": 1, "minors": [
-#         {"slug": "sam-example", "names": ["Sam Example"],
+#         {"slug": "sam-doe", "names": ["Sam Doe"],
 #          "identifiers": ["+447700900123", "sam@example.test"]}]}
 #
 # PRIVACY. The file holds CHILDREN'S NAMES. It is written mode 0600 (owner
@@ -3783,289 +4066,6 @@ def api_minors_dismiss(slug):
             _atomic_write_private_json(
                 path, {"version": 1, "dismissed": sorted(dismissed)})
     return {"slug": slug, "dismissed": True}, 200
-
-
-def api_people_forget(slug):
-    """Handle POST /api/v1/people/{slug}/forget.
-
-    Customer's GDPR Art. 17 + UK GDPR right-of-erasure one-click
-    commitment from `legal-privacy.html:213`. Deletes the person's
-    records across the customer-Mac stores:
-
-      - Oxigraph: every triple where this person is subject OR object
-      - Qdrant: every vector in `people` with payload.person_uri match
-      - Wiki: queue a recompile so the person's page disappears
-
-    Idempotent: a second call with no matching person returns 200 with
-    `forgotten=False` + `already_forgotten=True`. The iOS Companion
-    (PR #90 ForgetPersonService) treats both as benign success.
-
-    Response shape matches the iOS contract:
-      `{forgotten, wiki_recompile_queued, stores_purged: [...]}`
-    """
-    # Validate slug (rejects path traversal, SPARQL injection, empty).
-    if not _SLUG_PATTERN.match(slug or ""):
-        return {
-            "error": "Invalid slug. Expected lowercase ASCII letters, "
-                     "digits, hyphens (max 80 chars)."
-        }, 400
-
-    # Look up the person URI by recomputing _wiki_slug(displayName) and
-    # filtering to the exact match. We don't store slug in the graph
-    # directly; it's derived from displayName by the wiki compiler.
-    #
-    # Merge-aware (walk #27): the slug resolves to the LIVE survivor, and the
-    # erasure covers every node merged into it. Erasing only the node whose
-    # name happened to match left the survivor (or the retired nodes, with
-    # their names, emails and identifiers) behind.
-    try:
-        person_uri, forget_name = _resolve_person_by_slug(slug)
-        cluster = _merged_cluster(person_uri) if person_uri else []
-    except Exception as exc:
-        return {
-            "forgotten": False,
-            "wiki_recompile_queued": False,
-            "stores_purged": [],
-            "degraded": True,
-            "reason": f"oxigraph_lookup_failed: {exc}",
-        }, 503
-
-    # A retry after a 503: the graph half already went, so the person no longer
-    # resolves, but the vectors may still be in Qdrant. The cluster was written
-    # to forget_pending.json BEFORE the graph delete, and it is the only record
-    # of which person_uri values to purge. Without it a retry took the
-    # not-found branch below, sent no Qdrant delete and left the vectors for
-    # good.
-    pending = _forget_pending_load().get(slug)
-    resumed = person_uri is None and isinstance(pending, dict) and bool(pending.get("cluster"))
-    if resumed:
-        person_uri = pending.get("person_uri") or pending["cluster"][0]
-        cluster = list(pending["cluster"])
-    elif person_uri is not None and isinstance(pending, dict):
-        cluster = list(dict.fromkeys(cluster + list(pending.get("cluster") or [])))
-
-    if person_uri is None:
-        # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
-        #
-        # This branch used to return already_forgotten=True for EVERY
-        # unresolved slug, and the docstring above says why it was written
-        # that way: idempotency, so a second call is benign for the iOS
-        # client. The reasoning is right and the implementation could not
-        # tell the two cases apart, because BOTH produce "no matching
-        # person":
-        #
-        #   a SECOND call, after we really did erase them   -> benign
-        #   a FIRST call whose lookup could not resolve the
-        #     person at all                                 -> NOT benign
-        #
-        # MEASURED ON THE WALK BOX 2026-09-18. A person present in the
-        # graph with five triples, asked to be forgotten, got HTTP 200 and
-        #
-        #   {"forgotten": false, "already_forgotten": true,
-        #    "stores_purged": []}
-        #
-        # and all five triples were still there afterwards. The customer is
-        # told the erasure happened. It did not. That is the same shape as
-        # CM051 #960 -- a deletion request the product ACCEPTS AND DOES NOT
-        # HONOUR -- surviving in the reporting after the SPARQL half was
-        # fixed.
-        #
-        # THE DISCRIMINATOR ALREADY EXISTED AND NOTHING READ IT.
-        # _queue_wiki_recompile appends one audit line per slug to
-        # forget_audit.log on every forget. So a slug that has been
-        # forgotten before HAS a line, and one that has not does not. That
-        # is precisely the fact this branch needed and never consulted.
-        #
-        # An unreadable audit log does NOT become a benign answer. It
-        # becomes "unknown", because a reader that cannot see the evidence
-        # must not rule in the reassuring direction.
-        #
-        # 🔴 THE STATUS CODE STAYS 200 AND THAT IS A DELIBERATE CHOICE, NOT
-        # AN OVERSIGHT. 404 is the more honest transport answer and it is
-        # also a CONTRACT CHANGE to a client that is already in customers'
-        # hands: the iOS Companion's ForgetPersonService was written against
-        # this endpoint returning 200 for both cases, and it cannot be
-        # re-tested from here tonight. Changing the transport could turn a
-        # wrong message into a broken screen.
-        #
-        # The BODY is what lied, so the body is what changes. A client that
-        # reads `forgotten` or `already_forgotten` now sees neither is true
-        # and can say so; one that only checks the HTTP code behaves exactly
-        # as it did yesterday. When the iOS side can be exercised, 404 is
-        # the right end state and this comment is the note to whoever does it.
-        prior = _forget_audit_has(slug)
-        queued = _queue_wiki_recompile(slug)
-        if prior is True:
-            return {
-                "forgotten": False,
-                "already_forgotten": True,
-                "wiki_recompile_queued": queued,
-                "stores_purged": [],
-            }, 200
-        return {
-            "forgotten": False,
-            "already_forgotten": False,
-            "not_found": True,
-            "audit_readable": prior is not None,
-            "reason": (
-                "no person matching this slug could be found, and there is no "
-                "record of them having been forgotten before"
-                if prior is False else
-                "no person matching this slug could be found, and the forget "
-                "audit log could not be read, so whether they were forgotten "
-                "earlier is unknown"
-            ),
-            "wiki_recompile_queued": queued,
-            "stores_purged": [],
-        }, 200
-
-    stores_purged = []
-    degraded_reasons = []
-
-    # TOMBSTONE FIRST, THEN ERASE. Forget deletes every triple, so a people
-    # syncer whose source still lists this person would read "nobody holds
-    # this identifier" on its next run and mint them again. The tombstone
-    # (identity_resolver/forget_tombstone.py: salted digests only, no clear
-    # identifier) is what every syncer's create path consults. It is written
-    # BEFORE the delete so the identifiers can still be read from the graph,
-    # and so a crash in between leaves the person tombstoned, never erased
-    # and resurrectable. A failed write does not stop the erasure; it is
-    # reported (tombstone_written false + degraded) so the caller can say so.
-    tombstone_written = False
-    if resumed:
-        # The first call wrote the tombstone before it erased; do not
-        # re-derive identifiers from a graph that is already empty.
-        try:
-            from identity_resolver import forget_tombstone
-            tombstone_written = bool(forget_tombstone.is_forgotten(uri=person_uri))
-        except Exception as exc:  # noqa: BLE001
-            degraded_reasons.append(f"tombstone_failed: {exc}")
-    else:
-        try:
-            from identity_resolver import forget_tombstone
-            # Identifiers from the whole cluster: a retired node's phone or
-            # email must be tombstoned too, or a syncer mints the person again.
-            id_values = []
-            for node in cluster:
-                id_rows = _sparql_select(
-                    'PREFIX pwg: <{ns}>\n'
-                    'SELECT ?v WHERE {{ <{uri}> pwg:hasIdentifier ?id . '
-                    '?id pwg:identifierValue ?v }}'.format(
-                        ns=PWG_NS, uri=node.replace("\\", "\\\\").replace(">", "%3E"))
-                )
-                id_values.extend(r.get("v", "") for r in id_rows)
-            tombstone_written = forget_tombstone.record(
-                person_uri,
-                id_values,
-                display_name=forget_name,
-            )
-            if not tombstone_written:
-                # An unreadable tombstone file is left in place (it keeps every
-                # syncer fail-closed) and is never overwritten. Say so by name.
-                why = forget_tombstone.problem()
-                if why:
-                    degraded_reasons.append(why)
-        except Exception as exc:  # never block the erasure on the tombstone
-            degraded_reasons.append(f"tombstone_failed: {exc}")
-        if not tombstone_written and not any(
-            r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
-        ):
-            degraded_reasons.append("tombstone_failed: could not write the tombstone file")
-
-    # Oxigraph: delete every triple where this URI is subject, then
-    # every triple where it's object (incoming relationships, mentions).
-    # All in one UPDATE so partial-failure is less likely.
-    #
-    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
-    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
-    # signals and conversation links into the NAMED graph
-    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
-    # and compartment.py requires it stays off) an unqualified DELETE
-    # cannot see them. The erasure therefore silently under-deleted and
-    # left the person's records behind. Each named graph in this user's
-    # scope needs its own explicitly-scoped pair.
-    #
-    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
-    # span -- so a forget removes everything any Ostler surface could
-    # still show, without deleting out of another user's compartment.
-    ox_failed = False
-    if not resumed:
-        # Record the cluster BEFORE the graph delete: once the graph is empty a
-        # retry cannot re-derive it, and Qdrant is purged by these URIs.
-        pend = _forget_pending_load()
-        pend[slug] = {"person_uri": person_uri, "cluster": list(cluster)}
-        if not _forget_pending_save(pend):
-            degraded_reasons.append("forget_pending_not_written")
-        for node in cluster:
-            _audit_person_removal(node, "assistant_api.forget_person", "user_forget")
-            try:
-                _sparql_update(_forget_person_update(node, _USER_GRAPH_URIS))
-            except Exception as exc:
-                ox_failed = True
-                degraded_reasons.append(f"oxigraph_update_failed: {exc}")
-    # READ BACK. A successful UPDATE is not proof the person is gone, so ask
-    # the graph, through the same scoped reader the customer's surfaces use.
-    if not ox_failed:
-        try:
-            still = _forget_graph_left(cluster)
-        except Exception as exc:
-            still = None
-            degraded_reasons.append(f"oxigraph_readback_failed: {exc}")
-        if still:
-            degraded_reasons.append(f"oxigraph_still_holds_triples: {len(still)} node(s)")
-        elif still is not None:
-            stores_purged.append("oxigraph")
-
-    # Qdrant: delete every point in `people` whose payload.person_uri matches
-    # (wait=true), then count what is left. On a retry this runs even though
-    # the graph is already empty.
-    qdrant_ok, qdrant_why = _forget_qdrant(cluster)
-    if qdrant_ok:
-        stores_purged.append("qdrant")
-    else:
-        degraded_reasons.append(qdrant_why)
-
-    # DONE MEANS BOTH STORES. This used to answer forgotten:true / 200 when
-    # EITHER store was purged, so a failed graph delete (or a failed vector
-    # delete) was reported to the customer as an erasure while their records
-    # were still on the Mac (status-honesty sweep V17). Now a partial purge is
-    # a 503 naming what remains, and the call is safe to retry: each half is
-    # idempotent and the cluster is re-resolved from the graph.
-    remaining = [s for s in ("oxigraph", "qdrant") if s not in stores_purged]
-    forgotten = not remaining
-
-    # The wiki page is compiled from the graph, so a recompile is worth
-    # queueing whenever the graph half went, complete or not.
-    queued = _queue_wiki_recompile(slug) if "oxigraph" in stores_purged else False
-    if forgotten:
-        pend = _forget_pending_load()
-        if slug in pend:
-            pend.pop(slug)
-            _forget_pending_save(pend)
-        # The "already forgotten" answer on a later call reads this line, so
-        # it is written only for a real, complete erasure.
-        if not _record_forget_audit(slug):
-            degraded_reasons.append("forget_audit_not_written")
-
-    response = {
-        "forgotten": forgotten,
-        "wiki_recompile_queued": queued,
-        "stores_purged": stores_purged,
-        "tombstone_written": tombstone_written,
-        "nodes_erased": len(cluster) if forgotten else 0,
-    }
-    if remaining:
-        response["stores_remaining"] = remaining
-        response["retry"] = True
-    if degraded_reasons:
-        response["degraded"] = True
-        response["reason"] = "; ".join(degraded_reasons)
-
-    # 200 only when both stores were purged; 503 otherwise, so the iOS
-    # Companion shows its gatewayError banner (PR #90 contract) and the
-    # customer can try again, instead of being told it is done.
-    status_code = 200 if forgotten else 503
-    return response, status_code
 
 
 # ── Speaker naming + chunked conversation upload ─────────────────────
@@ -13227,6 +13227,21 @@ class Handler(BaseHTTPRequestHandler):
         if (parsed.path.startswith("/api/v1/people/")
                 and parsed.path.endswith("/minor-suggestion/dismiss")):
             slug = parsed.path[len("/api/v1/people/"):-len("/minor-suggestion/dismiss")]
+            # Drain the body before replying. The oa client sends `{}`; an
+            # unread body on a keep-alive socket made the reply race the
+            # client's write and reset the connection. Cap it, as forget does.
+            try:
+                _dismiss_clen = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                _dismiss_clen = 0
+            if _dismiss_clen > 65536:
+                self.send_response(413)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
+                return
+            if _dismiss_clen > 0:
+                self.rfile.read(_dismiss_clen)
             try:
                 result, status = api_minors_dismiss(slug)
             except Exception as exc:

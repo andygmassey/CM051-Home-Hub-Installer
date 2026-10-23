@@ -4,7 +4,7 @@ Product rule (project_minors_flag): a minor is stored and searchable, but never
 nudged, never sent to Reminders, never used for facts or suggestions. PWG #434
 stamps extra.about_minor from ~/.ostler/minors.json; these tests pin the WRITER.
 
-Synthetic names only (Sam Example, Ada Example, Ben Patel).
+Synthetic names only (Sam Doe, Jane Smith, Ben Patel).
 """
 from __future__ import annotations
 
@@ -60,18 +60,18 @@ spec.loader.exec_module(server)
 NS = "https://schema.ostler.ai/ontology#"
 TODAY = date(2026, 10, 23)
 
-SAM = "Sam Example"            # under 18 on TODAY
+SAM = "Sam Doe"            # under 18 on TODAY
 SAM_URI = NS + "person_samexample01"
 SAM_SLUG = server._wiki_slug(SAM)
 SAM_PHONE = "+447700900123"
 SAM_EMAIL = "sam.example" + "@" + "example.test"
 SAM_CARD = "FIXTURE-CARD-SAM"
-ADA = "Ada Example"            # adult control
+ADA = "Jane Smith"            # adult control
 ADA_URI = NS + "person_adaexample01"
 ADA_SLUG = server._wiki_slug(ADA)
-NOYEAR = "Kit Example"         # birthday without a year
+NOYEAR = "Tom Jones"         # birthday without a year
 NOYEAR_URI = NS + "person_kitexample01"
-GONE = "Mum Example"           # already do-not-suggest (deceased)
+GONE = "Mum Jones"           # already do-not-suggest (deceased)
 GONE_URI = NS + "person_mumexample01"
 GONE_SLUG = server._wiki_slug(GONE)
 ALL_SECRETS = (SAM, SAM_SLUG, SAM_PHONE, SAM_EMAIL, SAM_CARD)
@@ -438,8 +438,8 @@ class TestRoutesBehindAuth(unittest.TestCase):
         for method, path, body in (
                 ("GET", "/api/v1/minors", None),
                 ("GET", "/api/v1/minors/suggestions", None),
-                ("POST", "/api/v1/people/sam-example/minor", b'{"minor": true}'),
-                ("POST", "/api/v1/people/sam-example/minor-suggestion/dismiss", b"{}")):
+                ("POST", "/api/v1/people/sam-doe/minor", b'{"minor": true}'),
+                ("POST", "/api/v1/people/sam-doe/minor-suggestion/dismiss", b"{}")):
             self.assertEqual(self.req(method, path, auth=False, body=body)[0], 401, path)
         self.assertFalse((Path(self.tmp.name) / "m.json").exists())
         self.assertFalse((Path(self.tmp.name) / "d.json").exists())
@@ -447,10 +447,10 @@ class TestRoutesBehindAuth(unittest.TestCase):
     def test_routes_are_reachable_with_the_token(self):
         self.assertEqual(self.req("GET", "/api/v1/minors"),
                          (200, {"registry": "ok", "minors": []}))
-        code, _ = self.req("POST", "/api/v1/people/sam-example/minor-suggestion/dismiss",
+        code, _ = self.req("POST", "/api/v1/people/sam-doe/minor-suggestion/dismiss",
                            body=b"{}")
         self.assertEqual(code, 200)
-        code, _ = self.req("POST", "/api/v1/people/sam-example/minor",
+        code, _ = self.req("POST", "/api/v1/people/sam-doe/minor",
                            body=b'{"minor": "x"}')
         self.assertEqual(code, 400)
 
