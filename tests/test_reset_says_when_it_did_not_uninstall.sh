@@ -15,9 +15,10 @@
 # compiled wiki carried over, so every store-reading probe measures history
 # rather than the artefact under test.
 #
-# This asserts the skip is ANNOUNCED. It deliberately does NOT assert that the
-# real path is searched: adding it would make the next walk wipe stores, which
-# is an operator decision and not a side effect of a logging fix.
+# This asserts the skip is ANNOUNCED. Since v1.0.117 W4 the real path
+# (~/.ostler/bin/ostler-uninstall) IS searched first; that it runs, and what
+# the reset does after it, is pinned by
+# tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh.
 # ===========================================================================
 set -uo pipefail
 

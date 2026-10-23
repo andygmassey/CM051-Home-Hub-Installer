@@ -1065,15 +1065,19 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
 fi
 
 if [[ "$DO_RESET" -eq 1 ]]; then
-    rule "RESET (uninstall + port survey; this is NOT a wipe)"
-    "${SSH[@]}" 'set -u
+    rule "RESET (uninstall + bootout + port check)"
+    if ! "${SSH[@]}" 'set -u
         _ran_uninstaller=""
-        for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
+        for u in ~/.ostler/bin/ostler-uninstall \
+                 ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  /Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
-                OSTLER_UNINSTALL_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                # CAPTURE, THEN PRINT, so the rc is the uninstaller and not tail.
+                _u_out="$(OSTLER_UNINSTALL_ASSUME_YES=1 bash "$u" 2>&1)" && _u_rc=0 || _u_rc=$?
+                echo "$_u_out" | tail -25
+                echo "uninstaller rc=${_u_rc}"
                 _ran_uninstaller="$u"
                 break
             fi
@@ -1090,19 +1094,24 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # to ssh inside a SINGLE-QUOTED shell string, so one typed apostrophe
         # closes it and bash -n dies at EOF. Measured: it happened writing this.
         #
-        # DELIBERATELY NOT FIXED BY ADDING bin/ostler-uninstall TO THE LIST.
-        # The store teardown lives inside that uninstaller (docker compose
-        # down -v over qdrant_data, oxigraph_data, redis_data, wiki-docs,
-        # vane_data). Adding the real path would make the NEXT walk wipe stores
-        # that are currently the subject of an open investigation into 543
-        # absent person nodes. Whether a walk should wipe is a decision for the
-        # operator, not a side effect of making a log line honest.
+        # v1.0.117 THIN WALK, W4: bin/ostler-uninstall IS NOW FIRST IN THE LIST.
+        # This block used to leave it out on purpose, because that uninstaller
+        # runs docker compose down -v and a 2026-09 investigation needed the
+        # stores kept. That left the installed assistant (KeepAlive) loaded: it
+        # restarted colima 22s after the VM delete, held all six store ports,
+        # and walk attempt 1 was CANNOT-RUN. The shipped uninstaller is the one
+        # thing that knows every job it installed, writes the deliberate-stop
+        # marker first, and keeps the licence (install.sh, its find excludes
+        # license/). CONSEQUENCE, stated: a plain --reset on a box whose VM is
+        # up now removes the store volumes, and the provenance line below says
+        # wiped-by-shipped-uninstaller. On the cold box the launch directive
+        # walks, the VM is already gone and there is nothing to remove.
         if [[ -z "$_ran_uninstaller" ]]; then
             echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
-            echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "  searched: ~/.ostler/bin/ostler-uninstall"
+            echo "            ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
             echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
             echo "            ~/.ostler/uninstall.sh"
-            echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
             echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
             echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
             echo "  measuring history, not this artefact."
@@ -1171,8 +1180,28 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # A reset that stops colima without stopping its supervisor is racing
         # a component designed to win that race.
         # Booting it out is not destructive: the install re-loads it.
-        echo "booting out the engine supervisor so it cannot restart colima under us"
-        launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>&1 | head -2 || true
+        # v1.0.117 W4: NOT ONLY THE SUPERVISOR. com.creativemachines.ostler.assistant
+        # is KeepAlive and restarts colima too; it did, 22s after the VM delete.
+        # Boot out EVERY Ostler job still loaded (the uninstaller should have
+        # left none; when it is absent or failed, this is the backstop). The two
+        # known restarters are named explicitly as well, in case launchctl list
+        # itself fails. An unquoted command substitution, not a variable,
+        # because the remote login shell is zsh and zsh does not word-split
+        # a plain variable expansion.
+        echo "booting out every Ostler launchd job so nothing can restart colima under us"
+        _uid="$(id -u)"
+        for _l in com.ostler.engine-supervisor com.creativemachines.ostler.assistant \
+                  $(launchctl list 2>/dev/null | awk "{print \$3}" | grep -E "^(com[.]creativemachines[.]ostler[.]|com[.]ostler[.])" | sort -u); do
+            if launchctl bootout "gui/${_uid}/${_l}" >/dev/null 2>&1; then
+                echo "  booted out ${_l}"
+            fi
+        done
+        _left_jobs="$(launchctl list 2>/dev/null | awk "{print \$3}" | grep -E "^(com[.]creativemachines[.]ostler[.]|com[.]ostler[.])" | tr "\n" " ")"
+        if [[ -n "$_left_jobs" ]]; then
+            echo "STILL LOADED after bootout: ${_left_jobs}"
+        else
+            echo "no Ostler launchd job is loaded"
+        fi
         COLIMA=""
         for c in /opt/homebrew/bin/colima /usr/local/bin/colima; do
             [[ -x "$c" ]] && { COLIMA="$c"; break; }
@@ -1222,17 +1251,41 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         fi
         echo "--- install.sh processes still up ---"
         pgrep -fl "install.sh" || echo "none"
-        echo "--- preflight ports still held ---"
-        for p in 3000 6333 6379 7878 8044 8144; do
-            if lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1; then
-                echo "  $p HELD"
-            else
-                echo "  $p free"
-            fi
+        # v1.0.117 W4: VERIFY, DO NOT SURVEY. This used to print HELD and carry
+        # on, so the walk started, the installer preflight found all six ports
+        # held, and the attempt was CANNOT-RUN after staging. Now the reset
+        # waits for the ports to clear (colima stop is not instant) and FAILS
+        # LOUDLY if they do not. A port is held if lsof sees a listener OR a
+        # TCP connect succeeds: lsof is permission-scoped and cannot see a
+        # listener owned by another account, a connect can.
+        echo "--- preflight ports (must all be free) ---"
+        _try=0
+        while :; do
+            _held=""
+            for p in 3000 6333 6379 7878 8044 8144; do
+                if lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 || nc -z -G 1 127.0.0.1 $p >/dev/null 2>&1; then
+                    _held="${_held} ${p}"
+                fi
+            done
+            [[ -z "$_held" ]] && break
+            _try=$((_try + 1))
+            [[ "$_try" -ge 10 ]] && break
+            sleep 3
         done
-        echo "NOTE: lsof is PERMISSION-SCOPED. A port held by ANOTHER account is"
-        echo "invisible here. This survey is evidence about THIS account only."
-    ' 2>&1
+        if [[ -n "$_held" ]]; then
+            echo "RESET FAILED: port(s)${_held} still held after the uninstall, the bootout and 30s."
+            for p in $(echo "$_held"); do
+                lsof -nP -iTCP:$p -sTCP:LISTEN 2>/dev/null | tail -n +2 | head -3
+            done
+            echo "  Something is still serving the stores. Walking now would be CANNOT-RUN at"
+            echo "  the installer preflight, after staging. Refusing here instead."
+            exit 3
+        fi
+        echo "  all six ports free: 3000 6333 6379 7878 8044 8144"
+        exit 0
+    ' 2>&1; then
+        die "--reset did not leave the box clean (see RESET FAILED above, or the ssh session failed); refusing to stage or walk"
+    fi
 fi
 
 # ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────

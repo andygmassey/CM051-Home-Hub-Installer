@@ -32,6 +32,7 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
+      - 'tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh'
       - 'tests/test_a_volume_count_is_not_a_wiped_box.sh'
       - 'tests/test_the_wipe_preserves_the_licence.sh'
       - 'scripts/dev-wipe-studio.sh'
@@ -133,3 +134,17 @@ jobs:
         if: always()
         run: /bin/bash tests/test_a_dev_wipe_verdict_is_not_inverted.sh
 
+  # v1.0.117 thin walk, W4. --reset booted out only the engine supervisor;
+  # the KeepAlive assistant restarted colima 22s after the VM delete and held
+  # all six store ports, so walk attempt 1 was CANNOT-RUN. The reset now runs
+  # the shipped ~/.ostler/bin/ostler-uninstall, boots out every Ostler job and
+  # refuses to continue while a port is held. macOS on purpose: the reset body
+  # runs in the walk box's login shell, which is zsh, and the test drives it
+  # under /bin/zsh as well as /bin/bash through a fake ssh.
+  ttywalk-reset-clears-the-box:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: The reset leaves no Ostler job loaded and every store port free
+        run: /bin/bash tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh
