@@ -60,7 +60,7 @@ bash -n "$WORK/reset_block.sh" || { echo "CANNOT-RUN: extracted reset block does
 # box, and refuse to run at all if any Homebrew path survives the rewrite.
 sed -e 's#/opt/homebrew/bin/colima#__STUB_COLIMA__#g' -e 's#/usr/local/bin/colima#__STUB_COLIMA__#g' \
     "$WORK/reset_block.sh" > "$WORK/reset_block.tmpl"
-if grep -v '^[[:space:]]*#' "$WORK/reset_block.tmpl" | grep -q -e '/opt/homebrew' -e '/usr/local/bin'; then
+if [ "$(grep -v '^[[:space:]]*#' "$WORK/reset_block.tmpl" | grep -c -e '/opt/homebrew' -e '/usr/local/bin')" -gt 0 ]; then
     echo "CANNOT-RUN: the reset block names a Homebrew path this test does not sandbox" >&2; exit 2
 fi
 grep -q '__STUB_COLIMA__' "$WORK/reset_block.tmpl" || { echo "CANNOT-RUN: no colima path found to sandbox" >&2; exit 2; }
