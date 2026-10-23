@@ -342,3 +342,11 @@ Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstrea
 - NOT carried: upstream's `derive/readers.py` SCROLL_FIELDS change. The vendored derive tree predates SCROLL_FIELDS, and nothing in the vendored tree drives an online lookup from the derive scroll (representative-first enrichment, upstream #431, is not vendored). The vendored enricher reads the full Qdrant payload (`with_payload: True`), so `compartment_level` reaches the gate.
 - Proof: `tests/test_cm019_enrich_privacy_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/privacy_gate.py`; with the module present and the old enricher, the stats field it counts into does not exist).
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives, UNMERGED upstream)
+
+Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
+
+- `services/ingest/src/pipeline.py` (3 sites), `services/ingest/src/parsers/email.py` (1), `services/ingest/src/parsers/apple.py` (1): `x or default` became `x if x is not None else default`, so compartment_level 0 (L0Personal) is no longer stored as 2. Applied by exact replacement; the changed lines equal upstream's for each file.
+- Proof: `tests/test_cm019_explicit_l0_survives_ingest_vendored.py` (wired in `enrichment-reaches-corpus.yml`); on origin/main 5 of 11 arms FAIL (explicit 0 stored as 2).
+- Retire: re-pin past the upstream merge commit.
