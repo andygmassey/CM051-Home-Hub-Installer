@@ -258,3 +258,13 @@ Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas
 - Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
 - Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
 - Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. `privacy_gate.py` byte-identical; `enricher.py` changed lines equal upstream's; `derive/readers.py` SCROLL_FIELDS not carried (the vendored derive tree predates it and drives no online lookup). Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
