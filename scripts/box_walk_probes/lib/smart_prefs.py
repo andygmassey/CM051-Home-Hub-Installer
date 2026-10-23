@@ -63,26 +63,26 @@ DISLIKE = {"dimension": "food.ingredient", "label": "Coriander",
 OWNER_LIKE = {"dimension": "food.cuisine", "label": "Sichuan",
               "text": "WalkOwner loves Sichuan food."}
 OTHER_LIKE = {"dimension": "media.music.genre", "label": "Jazz",
-              "text": "Walk Alex loves jazz."}
+              "text": "WalkOther loves jazz."}
 CONVERSATIONS = 3
 
 # Broad evidence, one row per category: (route category, qdrant category,
 # payload locator, values). Four points per value clears every min_evidence
 # floor in dimensions.yaml.
 BROAD = [
-    ("films", "movie", "title", ["Walk Film One", "Walk Film Two"]),
-    ("books", "book", "title", ["Walk Book One", "Walk Book Two"]),
-    ("interests", "interest", "title", ["Walk Interest One", "Walk Interest Two"]),
-    ("tv", "tv_show", "subject", ["Walk Series Alpha", "Walk Series Beta"]),
-    ("music", "music", "extra.artist", ["Walk Artist One", "Walk Artist Two"]),
-    ("podcasts", "podcast", "extra.podcast_name", ["Walk Podcast One", "Walk Podcast Two"]),
+    ("films", "movie", "title", ["WalkFilm One", "WalkFilm Two"]),
+    ("books", "book", "title", ["WalkBook One", "WalkBook Two"]),
+    ("interests", "interest", "title", ["WalkInterest One", "WalkInterest Two"]),
+    ("tv", "tv_show", "subject", ["WalkSeries Alpha", "WalkSeries Beta"]),
+    ("music", "music", "extra.artist", ["WalkArtist One", "WalkArtist Two"]),
+    ("podcasts", "podcast", "extra.podcast_name", ["WalkPodcast One", "WalkPodcast Two"]),
     ("web", "bookmark", "extra.domain", ["walk-example-one.test", "walk-example-two.test"]),
     ("news", "bookmark", "extra.domain", ["bbc.com", "reuters.com"]),
     ("place", "place", "extra.city", ["Walkton", "Fixtureville"]),
     ("brands", "product", "extra.brand", ["WalkBrand Alpha", "WalkBrand Beta"]),
-    ("food", "food", "extra.restaurant", ["Walk Noodle House", "Walk Trattoria"]),
+    ("food", "food", "extra.restaurant", ["WalkNoodle House", "WalkTrattoria"]),
     ("health", "fitness", "extra.activity", ["swimming", "cycling"]),
-    ("work", "professional", "extra.skill_name", ["Walk Skill Alpha", "Walk Skill Beta"]),
+    ("work", "professional", "extra.skill_name", ["WalkSkill Alpha", "WalkSkill Beta"]),
 ]
 # The BROAD tier is types of things (genres, topics), not single things, and
 # those dimensions read an Oxigraph overlay tag joined to the point by id
