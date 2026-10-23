@@ -21165,7 +21165,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4f11ef5051828290eed9b1b620951ee28d04f1fe10102e73cd58b15234105635
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:29c97480ce9b7200d82df2ca1c32fef56ed136a5157f168864849da8b1243b15
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21209,7 +21209,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:87689b8179c1fb06363fa2fb3b8b356ae46a15e584beefb1b9b9f6e9ed1d085a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5e3b157404bee2d983f5b6057025e6b5c79279a4ed948770c1899aec81a544a3
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -39524,13 +39524,25 @@ ostler_public_lookups_flag() {
 }
 export -f ostler_public_lookups_flag
 
+# v1.0.117 THIN WALK, S6: the wiki compiler's pii_scan printed every hit as
+# `path:line: [category] 'value' | line`, so the full phone numbers, email
+# addresses and home paths it found landed in plain text in install.log (and
+# in the GUI's raw "Copy log"). CM044 now logs counts only, but the image this
+# file pins may predate that fix. So every compile whose output install.sh
+# writes to a log goes through this scrub: a hit line becomes its category,
+# never its value or its file name (wiki pages are named after people).
+# The detached summary compile below carries its own copy (it runs from a
+# single-quoted bash -c body that tests drive on its own);
+# tests/test_pii_scan_values_never_reach_install_log.sh holds the two equal.
+OSTLER_PII_HIT_SCRUB_SED='s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/'
+
 # `-T </dev/null` cures the `compose run --rm` exit-hang (see the
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
 # `set -euo pipefail`.
 set +e
 OSTLER_PUBLIC_LOOKUPS="$(ostler_public_lookups_flag "$OSTLER_DIR")" docker compose --profile compile run --rm -T \
-    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
+    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | sed -E "$OSTLER_PII_HIT_SCRUB_SED" | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
 
@@ -39758,6 +39770,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
             set -u
             _slot="$1"; _wd="$2"; _lib="$3"
+            # S6: pii_scan hit lines lose their value before reaching the log.
+            _scrub="s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/"
             cd "$_wd" || exit 1
             # Re-read the recorded public look-up answer NOW, when this compile
             # starts (Ostler #30). Function missing (an older caller): off.
@@ -39819,7 +39833,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
                     > "$_slot/unbounded_reason" 2>/dev/null || true
                 trap "ostler_slot_release 2>/dev/null || true" EXIT
                 printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+                if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                     printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                     exit 0
                 fi
@@ -39844,7 +39859,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s\n" "$$" > "$_slot/pid"
             trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
             printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+            if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 exit 0
             fi
