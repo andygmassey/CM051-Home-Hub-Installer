@@ -62,14 +62,56 @@ else
     L="$TMP/dead.lock"; mkdir "$L"; echo "$DEAD" > "$L/pid"
     run_take "$L" 2; rc=$?
     if [ "$rc" -eq 0 ] && [ "$(cat "$L/pid")" != "$DEAD" ]; then ok "a DEAD holder's lock is reclaimed, so an aborted run cannot wedge it"; else bad "dead holder: rc=$rc"; fi
+
+    # Archie re-review: after a reboot the recorded pid can be REUSED by an
+    # unrelated live process. A lock dated 1 Oct with a live pid must be
+    # reclaimed by age, not waited on.
+    L="$TMP/stale.lock"; mkdir "$L"; /bin/bash -c 'sleep 60' & HOLDER=$!; echo "$HOLDER" > "$L/pid"
+    touch -t 202610010000 "$L/pid" "$L"
+    run_take "$L" 2; rc=$?
+    if [ "$rc" -eq 0 ] && [ "$(cat "$L/pid")" != "$HOLDER" ]; then ok "INSTALLER: a lock older than 6 h is reclaimed even though its pid is alive (pid reuse)"; else bad "INSTALLER stale+live: rc=$rc pid=$(cat "$L/pid" 2>/dev/null) (holder $HOLDER)"; fi
+    kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null; HOLDER=""
 fi
+
+# ── 1b. the TICK's lock section, carved and executed ─────────────────────
+awk '/^LOCK_DIR="\$\{OSTLER_DIR\}\/.wiki-recompile.lock"$/{p=1} p{print} p && /^trap .rm -rf "\$LOCK_DIR". EXIT$/{exit}' "$TICK_SH" > "$TMP/tick_lock.sh"
+if ! grep -q 'mkdir "\$LOCK_DIR"' "$TMP/tick_lock.sh" || [ "$(wc -l < "$TMP/tick_lock.sh")" -gt 80 ]; then
+    bad "could not carve the tick's lock section"
+else
+    tick_lock() {  # $1 OSTLER_DIR -> prints log lines; rc
+        OSTLER_DIR="$1" /bin/bash -c 'log() { echo "LOG $*"; }; . "$1"; echo ACQUIRED' _ "$TMP/tick_lock.sh"
+    }
+    D="$TMP/tickfresh"; mkdir -p "$D/.wiki-recompile.lock"; /bin/bash -c 'sleep 60' & HOLDER=$!; echo "$HOLDER" > "$D/.wiki-recompile.lock/pid"
+    out="$(tick_lock "$D")"
+    if grep -q 'skipping this tick' <<<"$out" && ! grep -q ACQUIRED <<<"$out"; then ok "TICK: a fresh lock with a live pid is respected (skip)"; else bad "TICK fresh+live: $out"; fi
+    D="$TMP/tickstale"; mkdir -p "$D/.wiki-recompile.lock"; echo "$HOLDER" > "$D/.wiki-recompile.lock/pid"
+    touch -t 202610010000 "$D/.wiki-recompile.lock/pid" "$D/.wiki-recompile.lock"
+    out="$(tick_lock "$D")"
+    if grep -q ACQUIRED <<<"$out" && grep -q 'older than 360 min' <<<"$out"; then ok "TICK: a lock dated 1 Oct with a live (reused) pid is reclaimed by age, not skipped forever"; else bad "TICK stale+live: $out"; fi
+    kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null; HOLDER=""
+fi
+
+# ── 1c. released on an ABNORMAL exit ──────────────────────────────────────
+awk '/^wiki_tick_lock_release\(\) \{/{p=1} p{print} p && /^\}/{exit}' "$INSTALL_SH" > "$TMP/rel.sh"
+cc="$(awk '/^composite_cleanup\(\) \{/{p=1} p{print} p && /^\}$/{exit}' "$INSTALL_SH")"
+if [ -s "$TMP/rel.sh" ] && grep -q 'wiki_tick_lock_release' <<<"$cc"; then
+    ok "composite_cleanup (the install EXIT trap) releases the wiki tick lock"
+else
+    bad "the install EXIT trap does not release the wiki tick lock"
+fi
+L="$TMP/abnormal.lock"
+/bin/bash -c 'set -Eeuo pipefail; . "$1"; . "$2"; WIKI_TICK_LOCK="$3"; trap wiki_tick_lock_release EXIT
+  OSTLER_WIKI_LOCK_WAIT_S=1 OSTLER_WIKI_LOCK_POLL_S=1 wiki_tick_lock_take "$WIKI_TICK_LOCK" && WIKI_TICK_LOCK_HELD=1
+  [ -d "$WIKI_TICK_LOCK" ] || exit 9
+  false   # the install dies mid-compile' _ "$TMP/fn.sh" "$TMP/rel.sh" "$L" >/dev/null 2>&1; rc=$?
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 9 ] && [ ! -e "$L" ]; then ok "an install that dies holding the lock releases it on exit (rc $rc)"; else bad "abnormal exit: rc=$rc lock_left=$([ -e "$L" ] && echo yes || echo no)"; fi
 
 # ── 2. order in install.sh ────────────────────────────────────────────────
 ln() { /usr/bin/grep -n -- "$1" "$INSTALL_SH" | head -1 | cut -d: -f1; }
 l_take="$(ln '^if wiki_tick_lock_take "\$WIKI_TICK_LOCK"; then')"
 l_comp="$(ln 'OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1')"
 l_count="$(ln 'wiki_count_pages "\$WIKI_DOCS_DIR"')"
-l_rel="$(ln '    rm -rf "\$WIKI_TICK_LOCK"')"
+l_rel="$(ln '^if declare -F wiki_tick_lock_release >/dev/null 2>&1; then wiki_tick_lock_release; fi$')"
 if [ -n "$l_take" ] && [ -n "$l_comp" ] && [ -n "$l_count" ] && [ -n "$l_rel" ] \
    && [ "$l_take" -lt "$l_comp" ] && [ "$l_comp" -lt "$l_count" ] && [ "$l_count" -lt "$l_rel" ]; then
     ok "order: take ($l_take) < baseline compile ($l_comp) < count ($l_count) < release ($l_rel)"
