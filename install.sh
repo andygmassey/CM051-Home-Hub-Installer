@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8922) captures the path BY
+    # _ostler_write_store_curl_config (defined :8939) captures the path BY
     # VALUE and never re-reads it:
-    #     :8923   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8968   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8977 and :16675, both of which run
+    #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :8994 and :16692, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17470, where the note reads
+    # WhatsApp Web session path did it again at :17487, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17487 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17504 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6251 against a definition at :8922. Top-level
+    # writer's own definition: :6268 against a definition at :8939. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8977, :16675) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8994, :16692) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19635 / :19813 / :19970 / :20415 path. There the
+    # :19660 / :19838 / :19995 / :20440 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -3705,6 +3705,23 @@ _ostler_promote_prelaunch_tree() {
     fi
 
     OSTLER_PRELAUNCH_PROMOTED=true
+
+    # POST-PROMOTE ASSERTION: a consent decision recorded this run must have
+    # survived the replace above. The persist block (3.6b) once wrote into the
+    # final posture/ while staged, and the promote then replaced posture/ with
+    # the staged copy: every record lost, install reported ok (v1.0.116).
+    if [[ -n "${_OSTLER_CONSENT_RECORDED_TICKBOXES:-}" ]]; then
+        local _cp_tb _cp_file="${OSTLER_FINAL_DIR}/posture/consent.json"
+        if [[ ! -s "$_cp_file" ]]; then
+            err "Consent was recorded during this install but ${_cp_file} is missing after the staging promote. The consent records were lost."  # i18n-exempt
+        else
+            for _cp_tb in $_OSTLER_CONSENT_RECORDED_TICKBOXES; do
+                if ! /usr/bin/grep -q -F "\"${_cp_tb}\"" "$_cp_file"; then
+                    err "Consent tickbox ${_cp_tb} was recorded during this install but is absent from ${_cp_file} after the staging promote."  # i18n-exempt
+                fi
+            done
+        fi
+    fi
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
     #
@@ -18407,7 +18424,13 @@ if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # design (block header above), so this changes only HOW a failure is shown,
     # not the step's ok status.
     _region_stderr="$(mktemp)"
-    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
+    # OSTLER_HOME="${OSTLER_DIR}": save_region() and consent_cli resolve their
+    # posture/ dir from OSTLER_HOME (vendor/ostler_security/consent.py:70), which
+    # defaults to the FINAL ~/.ostler. This block runs while OSTLER_DIR is still
+    # the prelaunch staging tree, and the promote then rm -rf's the final
+    # posture/ and replaces it with the staged one. Writing to the final dir
+    # here lost consent.json and region.json on every fresh install (v1.0.116).
+    if ! OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -18447,13 +18470,15 @@ PY
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
         local stderr_file
         stderr_file=$(mktemp)
-        if USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
+        if OSTLER_HOME="${OSTLER_DIR}" \
+           USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
            "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
                 --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
+            _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then
@@ -21101,7 +21126,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4f11ef5051828290eed9b1b620951ee28d04f1fe10102e73cd58b15234105635
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:29c97480ce9b7200d82df2ca1c32fef56ed136a5157f168864849da8b1243b15
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21145,7 +21170,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:87689b8179c1fb06363fa2fb3b8b356ae46a15e584beefb1b9b9f6e9ed1d085a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5e3b157404bee2d983f5b6057025e6b5c79279a4ed948770c1899aec81a544a3
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -32953,7 +32978,7 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
     mkdir -p "$LICENSES_DEST"
     LICENSES_BASE="${NOTICES_BASE_URL}/LICENSES"
     LICENSES_FETCHED=0
-    for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
+    for f in Apache-2.0.txt AGPL-3.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
         if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
             LICENSES_FETCHED=$((LICENSES_FETCHED + 1))
         fi
@@ -39460,13 +39485,25 @@ ostler_public_lookups_flag() {
 }
 export -f ostler_public_lookups_flag
 
+# v1.0.117 THIN WALK, S6: the wiki compiler's pii_scan printed every hit as
+# `path:line: [category] 'value' | line`, so the full phone numbers, email
+# addresses and home paths it found landed in plain text in install.log (and
+# in the GUI's raw "Copy log"). CM044 now logs counts only, but the image this
+# file pins may predate that fix. So every compile whose output install.sh
+# writes to a log goes through this scrub: a hit line becomes its category,
+# never its value or its file name (wiki pages are named after people).
+# The detached summary compile below carries its own copy (it runs from a
+# single-quoted bash -c body that tests drive on its own);
+# tests/test_pii_scan_values_never_reach_install_log.sh holds the two equal.
+OSTLER_PII_HIT_SCRUB_SED='s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/'
+
 # `-T </dev/null` cures the `compose run --rm` exit-hang (see the
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
 # `set -euo pipefail`.
 set +e
 OSTLER_PUBLIC_LOOKUPS="$(ostler_public_lookups_flag "$OSTLER_DIR")" docker compose --profile compile run --rm -T \
-    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
+    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | sed -E "$OSTLER_PII_HIT_SCRUB_SED" | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
 
@@ -39694,6 +39731,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
             set -u
             _slot="$1"; _wd="$2"; _lib="$3"
+            # S6: pii_scan hit lines lose their value before reaching the log.
+            _scrub="s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/"
             cd "$_wd" || exit 1
             # Re-read the recorded public look-up answer NOW, when this compile
             # starts (Ostler #30). Function missing (an older caller): off.
@@ -39755,7 +39794,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
                     > "$_slot/unbounded_reason" 2>/dev/null || true
                 trap "ostler_slot_release 2>/dev/null || true" EXIT
                 printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+                if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                     printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                     exit 0
                 fi
@@ -39780,7 +39820,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s\n" "$$" > "$_slot/pid"
             trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
             printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+            if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 exit 0
             fi

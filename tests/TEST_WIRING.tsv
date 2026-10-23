@@ -184,6 +184,7 @@ test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-reco
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_cm019_enrich_consent_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_cm019_enrich_privacy_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_local_store_ignores_proxy.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -229,6 +230,7 @@ test_confirm_identity_helper.py	WIRED	.github/workflows/install-gui-contract.yml
 test_connect_whatsapp_is_on_the_first_screen.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
 test_console_only_register_names_real_probes.py	WIRED	.github/workflows/walk-record-gate.yml
@@ -610,6 +612,7 @@ test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manif
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
 test_photo_events_reach_the_graph.py	WIRED	.github/workflows/privacy-spine.yml
 test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_pii_scan_values_never_reach_install_log.sh	WIRED	.github/workflows/install-log-pii.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -651,6 +654,7 @@ test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh	WIRED	.github/workflows/cut-
 test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_q23_spoken_capture_copy_fits_the_window.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -809,6 +813,7 @@ test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-man
 test_the_retention_tier_is_written_and_read_by_nothing.py	WIRED	.github/workflows/privacy-spine.yml
 test_the_reuse_path_still_asks_the_licence_terms.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_run_at_commit_gate_is_wired_into_the_cut.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_the_searxng_source_offer_ships.sh	WIRED	.github/workflows/third-party-notices.yml
 test_the_seed_forgets_what_the_walk_taught.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_sentinel_vocabulary_is_declared_and_complete.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_shipped_compose_mounts_ai_conversations.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml

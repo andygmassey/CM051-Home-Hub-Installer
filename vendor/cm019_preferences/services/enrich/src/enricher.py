@@ -15,6 +15,7 @@ import httpx
 from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
+from .privacy_gate import outbound_refusal
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -96,6 +97,10 @@ class EnrichmentStats:
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
     skipped_ineligible: int = 0
+    # Withheld by the per-item privacy gate (L0/L1/L3, unknown level, minor).
+    # Counts only, keyed by reason code; never a subject.
+    skipped_private: int = 0
+    by_privacy_reason: Dict[str, int] = field(default_factory=dict)
 
     # True when the pass stopped because it ran out of its wall-clock
     # allowance rather than because it ran out of work. The distinction
@@ -138,6 +143,7 @@ class EnrichmentStats:
             f"  No match: {self.no_match}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
+            f"  Withheld (privacy): {self.skipped_private} {self.by_privacy_reason}\n"
             f"  Not sendable: {self.skipped_ineligible}\n"
             f"  Budget exhausted: {self.budget_exhausted}\n"
             f"  By source: {self.by_source}\n"
@@ -334,6 +340,10 @@ class EnrichmentService:
 
         # Track already-enriched preferences (in memory for this run)
         self._enriched_ids: Set[str] = set()
+
+        # Items refused by the per-item privacy gate in enrich_preference,
+        # by reason code. Counts only.
+        self.privacy_refusals: Dict[str, int] = {}
 
     @property
     def _foursquare(self) -> FoursquareClient:
@@ -613,6 +623,13 @@ INSERT DATA {{
             EnrichmentResult or None
         """
         if not self._consent_or_log("enrich_preference"):
+            return None
+
+        # Per-item privacy gate, AFTER consent: L0/L1/L3, an unknown or
+        # missing level, or an item about a minor never leaves the Mac.
+        refusal = outbound_refusal(preference)
+        if refusal is not None:
+            self.privacy_refusals[refusal] = self.privacy_refusals.get(refusal, 0) + 1
             return None
 
         pref_id = preference.get("id", "")
@@ -906,6 +923,17 @@ INSERT DATA {{
                 stats.skipped_no_client += 1
                 continue
 
+            # Per-item privacy gate (see privacy_gate.py). Counted here so the
+            # run summary says how many were withheld and why; never logged
+            # with the subject.
+            refusal = outbound_refusal(pref)
+            if refusal is not None:
+                stats.skipped_private += 1
+                stats.by_privacy_reason[refusal] = (
+                    stats.by_privacy_reason.get(refusal, 0) + 1
+                )
+                continue
+
             # The classifier decided this subject is a book/film/artist. It
             # is sometimes wrong, and when it is wrong the subject still
             # goes out as a query. Refuse anything shaped like prose before
@@ -966,6 +994,11 @@ INSERT DATA {{
                 if len(stats.errors) < 100:
                     stats.errors.append(f"{pref_id}: {str(e)}")
 
+        if stats.skipped_private:
+            logger.info(
+                "Privacy gate withheld %d item(s) from public lookups: %s",
+                stats.skipped_private, stats.by_privacy_reason,
+            )
         return results
 
     async def enrich_all(
@@ -1208,6 +1241,11 @@ INSERT DATA {{
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
             combined_stats.skipped_ineligible += stats.skipped_ineligible
+            combined_stats.skipped_private += stats.skipped_private
+            for reason, count in stats.by_privacy_reason.items():
+                combined_stats.by_privacy_reason[reason] = (
+                    combined_stats.by_privacy_reason.get(reason, 0) + count
+                )
             combined_stats.budget_exhausted = (
                 combined_stats.budget_exhausted or stats.budget_exhausted
             )
