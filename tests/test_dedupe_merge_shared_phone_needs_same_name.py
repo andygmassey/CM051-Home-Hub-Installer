@@ -173,3 +173,29 @@ def test_control_a_kinship_word_and_an_uncarded_name_still_merge(world):
     _person(w, JANE, "Jane Smith", JANE_MOBILE)
     stats = w.dm.run()
     assert stats["merged"] == 1 and stats["refused_kinship_phone"] == 0, stats
+
+
+def test_an_unreadable_card_lookup_for_the_kinship_check_fails_closed(world, monkeypatch):
+    """ONLY the kinship check's card read fails (the later RULE 2 read is
+    fine). "Mum" plus an uncarded Jane Smith would normally merge (the #2556
+    case), but with the card keys unknown the kinship holder joins nobody
+    this run: a missed merge is retried next sweep, a wrong one is not."""
+    w = world
+    _person(w, MUM, "Mum", JANE_MOBILE)
+    _person(w, JANE, "Jane Smith", JANE_MOBILE)
+    real = w.dm.canonical_keys_of
+    calls = {"n": 0}
+
+    def first_read_fails(persons):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("store unreachable for the kinship card read")
+        return real(persons)
+
+    monkeypatch.setattr(w.dm, "canonical_keys_of", first_read_fails)
+    stats = w.dm.run()
+    assert calls["n"] >= 2, "harness: the RULE 2 read did not happen after the kinship read"
+    assert stats["refused_unreadable"] is False, stats
+    assert stats["merged"] == 0, stats
+    assert stats["refused_kinship_phone"] == 1, stats
+    assert _alive(w, MUM) and _alive(w, JANE)
