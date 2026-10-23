@@ -33,6 +33,7 @@ on:
       - 'tests/test_dedupe_merge_enforces_rule_2.py'
       - 'tests/test_dedupe_merge_name_tier_upward_only.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_dedupe_merge_shared_phone_needs_same_name.py'
       - '.github/workflows/dedupe-merge-rule-2.yml'
   push:
     branches: [main]
@@ -75,3 +76,18 @@ jobs:
         run: |
           python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client nameparser
           python3 tests/test_dedupe_merge_name_tier_upward_only.py
+
+      # P16: RULE 1 used to merge two NAMED people on a shared phone string,
+      # so two family cards listing the household landline became one
+      # person. A shared phone now joins only same-named people.
+      - name: A shared phone joins two named people only when their names match too
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          n="$(python3 -m pytest tests/test_dedupe_merge_shared_phone_needs_same_name.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_dedupe_merge_shared_phone_needs_same_name.py -v
