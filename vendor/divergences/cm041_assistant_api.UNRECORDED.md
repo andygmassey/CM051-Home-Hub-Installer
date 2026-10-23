@@ -1411,3 +1411,16 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-23 P13: a short code is up to 8 digits with no country code (cm041/assistant_api people_rules.py)
+
+Tree `cm041/assistant_api`, file `people_rules.py` (CM051-only, see the 2026-10-12
+move above; no upstream copy). v1.0.117 walk: a 7-digit SMS short code was
+listed as a person. `_is_short_code` / `_is_sender_id_handle` treated only 6
+digits or fewer as a short code. Now `_is_short_code_shape`: 6 or fewer whatever
+the punctuation, or 7 to 8 with no leading "+"; `_is_provisional_phone_name`
+excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
+`PersonNameFilter` (their P13 PRs). `tests/fixtures/people_rules_golden.json`:
+11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
+measured by recomputing the table and checking each delta's input. Pinned by
+`tests/test_people_rules_short_codes_up_to_8_digits.py`.
