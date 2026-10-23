@@ -185,6 +185,15 @@ struct StepStatusGlyph: Equatable {
                 severity: .done,
                 accessibilityCopyKey: "sidebar.status_unmeasured"
             )
+        case .pending:
+            // v1.0.118: still going in the background (web search download).
+            // The same informational clock as `timeout`, never the green
+            // tick (it is not done) and never the triangle (nothing broke).
+            return StepStatusGlyph(
+                symbolName: "clock.arrow.circlepath",
+                severity: .informational,
+                accessibilityCopyKey: "sidebar.status_pending_background"
+            )
         case .warn, .error:
             return StepStatusGlyph(
                 symbolName: "exclamationmark.triangle.fill",

@@ -185,6 +185,12 @@ enum StepStatus: String, Equatable {
     case timeout
     /// #839: a child exited non-zero for a reason other than its cap.
     case error
+    /// v1.0.118 (W5): the step handed its work to a background job that
+    /// had not finished when the step closed (the local web search
+    /// download is the first). Not ok -- the thing is not there yet -- and
+    /// not a problem either: the install did its part, and a slow link
+    /// must not read as a failed install. Drawn like `timeout`.
+    case pending
 
     /// True when the step did not do its job, whatever the reason.
     ///
@@ -197,7 +203,7 @@ enum StepStatus: String, Equatable {
     /// clean install into a wall of warnings.
     var isProblem: Bool {
         switch self {
-        case .ok, .unmeasured: return false
+        case .ok, .unmeasured, .pending: return false
         default: return true
         }
     }

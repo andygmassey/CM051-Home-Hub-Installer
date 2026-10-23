@@ -230,6 +230,24 @@ final class ProgressDecoderTests: XCTestCase {
         XCTAssertFalse(status.isMeasured)
     }
 
+    func testPendingDecodesAsItsOwnStateNotOKAndNotAProblem() {
+        // v1.0.118 (W5): web search downloads in the background, and its
+        // step closes `pending`. It must not decode as ok (it is not there
+        // yet), must not fall into the unknown -> warn fail-safe (that
+        // would draw a slow link as an alarm), and is not a problem.
+        let event = ProgressDecoder.decode(
+            line: "#OSTLER\tSTEP_END\tid=vane_install\tstatus=pending\telapsed_s=4\tmeasured=rc"
+        )
+        guard case .stepEnd(let id, let status, _) = event else {
+            return XCTFail("expected .stepEnd, got \(event)")
+        }
+        XCTAssertEqual(id, "vane_install")
+        XCTAssertEqual(status, .pending)
+        XCTAssertNotEqual(status, .ok)
+        XCTAssertTrue(status.isMeasured)
+        XCTAssertFalse(status.isProblem)
+    }
+
     func testUnmeasuredIsNotCountedAsAProblem() {
         // It is an absence of instrumentation, not a fault on the box.
         // If this flips, every clean install renders 42 warnings and the
