@@ -1411,3 +1411,11 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-23 v1.0.118: hub contract regenerated for the Doctor's web search Retry route (W5)
+
+Tree: `cm041/assistant_api`. Pin unchanged. One generated file, no code.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: regenerated with `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.23>` (264 -> 265 routes). The single new entry is `doctor POST /api/v1/web-search/retry` (source `vendor/doctor/agent/web_ui.py`, auth none, cross_site_refusal true), the Retry button behind the Doctor's "Web search not ready yet" row. `--check` reports it current.
+- Recorded HERE for the same reason as the entries above: `regenerate_divergence_patch.sh --write` refuses this tree.
+- Retire: the contract is regenerated from source on every change; nothing to retire upstream.

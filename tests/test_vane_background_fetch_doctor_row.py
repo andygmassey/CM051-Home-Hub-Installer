@@ -160,7 +160,7 @@ class TheTileReadsTheRealFetchersState(unittest.TestCase):
             html = WSS.render_web_search_status(box.ostler)
             self.assertIn("Web search not ready yet", html)
             self.assertIn("/api/v1/web-search/retry", html, "no Retry on a not-ready tile")
-            self.assertIn("Press Retry", html)
+            self.assertIn("use the Retry button", html)
             self.assertNotIn("Web search ready", html)
         finally:
             box.close()

@@ -148,7 +148,7 @@ def _detail_for(st: dict) -> str:
         return (
             "Several download attempts stopped early. Ostler tries again within the "
             "hour and each time your Mac starts, keeping what it has already "
-            "downloaded. Press Retry to try now."
+            "downloaded. To try now, use the Retry button."
         )
     return "Web search is getting ready."
 
@@ -166,7 +166,7 @@ def render_web_search_status(ostler_dir: Optional[os.PathLike] = None) -> str:
         title, detail = _TITLE_NOT_READY, _detail_for(st)
     else:
         title = _TITLE_CHECK_FAILED
-        detail = "Ostler could not read the web search download status. Press Retry to check again."
+        detail = "Ostler could not read the web search download status. To check again, use the Retry button."
         status = STATUS_CHECK_FAILED
 
     retry = ""
