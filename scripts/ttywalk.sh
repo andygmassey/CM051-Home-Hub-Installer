@@ -1065,7 +1065,7 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
 fi
 
 if [[ "$DO_RESET" -eq 1 ]]; then
-    rule "RESET (uninstall + bootout + port check)"
+    rule "RESET (uninstall + bootout + VM and data disk delete + port check)"
     if ! "${SSH[@]}" 'set -u
         _ran_uninstaller=""
         for u in ~/.ostler/bin/ostler-uninstall \
@@ -1245,10 +1245,31 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             # that catches it is a grep for a quote inside the block.
             echo "$_stop_out" | tail -3
             echo "colima stop rc=${_stop_rc}"
+            # v1.0.117 W4: DELETE THE VM AND ITS DATA DISK. A plain
+            # `colima delete -f` (colima 0.10.3) KEEPS the data disk at
+            # ~/.colima/_lima/_disks/colima, so the images and store volumes of
+            # earlier walks survived every "cold" walk. --data removes it. The
+            # assertion below reads the DISK path, not ~/.colima/_lima/colima
+            # (the instance directory), which is gone even when the disk is not.
+            _del_out="$(PATH="${_colima_bin_dir}:${PATH}" "$COLIMA" delete --data -f 2>&1)" \
+                && _del_rc=0 || _del_rc=$?
+            echo "$_del_out" | tail -3
+            echo "colima delete --data -f rc=${_del_rc}"
         else
             echo "no colima binary found at either Homebrew prefix."
             echo "If the ports below are HELD, THAT is why -- not a clean box."
         fi
+        # THE DISK, ASSERTED. With or without a colima binary: a disk left by
+        # an earlier walk is carried-over store data whatever deleted the VM.
+        _colima_disk="${HOME}/.colima/_lima/_disks/colima"
+        if [[ -e "$_colima_disk" ]]; then
+            echo "RESET FAILED: the colima data disk is still present at ${_colima_disk}"
+            du -sh "$_colima_disk" 2>/dev/null | tail -1
+            echo "  Images and store volumes from earlier walks would be carried into this one,"
+            echo "  so it would not be a cold walk. Refusing here instead."
+            exit 4
+        fi
+        echo "colima data disk absent: ${_colima_disk}"
         echo "--- install.sh processes still up ---"
         pgrep -fl "install.sh" || echo "none"
         # v1.0.117 W4: VERIFY, DO NOT SURVEY. This used to print HELD and carry

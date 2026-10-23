@@ -27,6 +27,8 @@
 #            leave no Ostler job loaded, find the ports free, continue (rc 0).
 #   STUCK:   a listener that survives everything. Must exit non-zero via die,
 #            loudly, before staging.
+#   LEAKY DELETE: colima leaves ~/.colima/_lima/_disks/colima behind (what a
+#            plain `colima delete -f` does on 0.10.3). Must refuse.
 #   OTHER ACCOUNT: the same, but lsof cannot see it (permission-scoped);
 #            only a TCP connect can. Must still refuse.
 #   CONTROL: nothing installed, nothing loaded, ports free. Must continue
@@ -81,9 +83,18 @@ case "\$1" in
 esac
 exit 0
 EOF
+    # colima 0.10.3 semantics: delete removes the VM; ONLY --data removes the
+    # data disk. A box with "$b/leaky_colima" models a delete that leaves the
+    # disk whatever it is asked (the refusal path).
     cat > "$b/stub/colima" <<EOF
 #!/bin/bash
-[ "\$1" = stop ] && rm -f "$b/colima_running" && echo "msg=done"
+echo "colima \$*" >> "$b/colima.calls"
+case "\$1" in
+  stop) rm -f "$b/colima_running"; echo "msg=done" ;;
+  delete) rm -f "$b/colima_running"; rm -rf "$b/fakehome/.colima/_lima/colima"
+          case " \$* " in *" --data "*) [ -e "$b/leaky_colima" ] || rm -rf "$b/fakehome/.colima/_lima/_disks/colima" ;; esac
+          echo "msg=deleted" ;;
+esac
 exit 0
 EOF
     cat > "$b/stub/held" <<EOF
@@ -132,6 +143,9 @@ box_walk() {  # the v1.0.117 box
     mkdir -p "$b/fakehome/.ostler/bin"
     printf 'com.ostler.engine-supervisor\ncom.creativemachines.ostler.assistant\ncom.creativemachines.ostler.wiki-recompile-catchup\n' > "$b/loaded"
     : > "$b/colima_running"
+    # A VM and its 30 GB data disk from the previous walk.
+    mkdir -p "$b/fakehome/.colima/_lima/colima" "$b/fakehome/.colima/_lima/_disks/colima"
+    : > "$b/fakehome/.colima/_lima/_disks/colima/datadisk"
     # A fake uninstaller that, like the real one, unloads only what it knows.
     # It deliberately MISSES the assistant, so the bootout backstop is tested
     # too, not only the uninstaller.
@@ -165,6 +179,21 @@ for sh in "${SHELLS[@]}"; do
         ok "[$tag] WALK: ports verified free and the walk continues"
     else
         bad "[$tag] WALK: rc=$rc; $(grep -E 'HELD|FAILED|free|CANNOT' "$b/out" | head -3 | tr '\n' ' ')"
+    fi
+
+    if grep -q 'colima delete --data -f' "$b/colima.calls" 2>/dev/null && [ ! -e "$b/fakehome/.colima/_lima/_disks/colima" ]; then
+        ok "[$tag] WALK: colima delete --data -f ran and the data disk is gone"
+    else
+        bad "[$tag] WALK: data disk survived or delete --data never ran: $(tr '\n' ';' < "$b/colima.calls" 2>/dev/null)"
+    fi
+
+    # ── LEAKY DELETE: the data disk survives the delete ───────────────────
+    b="$WORK/leaky.$tag"; box_walk "$b"; : > "$b/leaky_colima"
+    rc="$(run_reset "$b" "$sh")"
+    if [ "$rc" -ne 0 ] && ! grep -q CONTINUED-TO-STAGE "$b/out" && grep -q 'colima data disk is still present' "$b/out"; then
+        ok "[$tag] LEAKY DELETE: a surviving data disk stops the walk (rc=$rc), so a warm box is never walked as cold"
+    else
+        bad "[$tag] LEAKY DELETE: rc=$rc, continued=$(grep -c CONTINUED-TO-STAGE "$b/out"); the leftover disk was not refused"
     fi
 
     # ── STUCK ─────────────────────────────────────────────────────────────
