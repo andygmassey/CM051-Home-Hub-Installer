@@ -90,8 +90,8 @@ jobs:
           n="$(python -m pytest tests/test_reply_debt_names_people_p13.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 3 ]; then
-            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_reply_debt_names_people_p13.py -v -rs
