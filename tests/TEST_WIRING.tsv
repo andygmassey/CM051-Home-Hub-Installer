@@ -606,6 +606,7 @@ test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evi
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
 test_people_rules_is_stdlib_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_people_rules_short_codes_up_to_8_digits.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_people_status_honesty.py	WIRED	.github/workflows/status-honesty-people.yml
 test_people_sweep_partial_landing_is_not_success.py	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_person_removal_audit.py	WIRED	.github/workflows/person-removal-audit.yml
