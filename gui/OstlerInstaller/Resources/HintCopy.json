@@ -125,7 +125,7 @@
     "id": "vane_install",
     "title": "Starting local web search",
     "subtitle": "Vane container (bundles SearXNG)",
-    "why": "Vane is the local web-search front end. It runs in a container on your Mac and talks to your local Ollama – web searches never leave your machine. If the container fails to start, the rest of Ostler keeps working; you can retry web search later.",
+    "why": "Vane is the local web-search front end. It runs in a container on your Mac and talks to your local Ollama – web searches never leave your machine. On a first install its download (about 3.5 GB) carries on in the background after setup finishes, and web search switches on by itself when it is done. The rest of Ostler works meanwhile.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
     "long_running_copy": "First-time pull is ~3.6 GB (SearXNG bundled in). Subsequent starts are seconds.",
