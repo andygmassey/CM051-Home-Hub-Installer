@@ -607,6 +607,7 @@ test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.ym
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_passive_plays_are_not_likes.py	WIRED	.github/workflows/misclassified-things.yml
 test_pause_expiry_reenables_cron.py	WIRED	.github/workflows/status-honesty-pause.yml
+test_payload_app_icons_gate.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_carded_names_show_and_tiers_hold_in_every_path.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
@@ -625,6 +626,7 @@ test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-un
 test_pii_scan_values_never_reach_install_log.sh	WIRED	.github/workflows/install-log-pii.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
+test_pinned_remotecapture_has_an_icon.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinned_wiki_images_are_arm64_only.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinterest_parser.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
