@@ -25393,6 +25393,16 @@ if isinstance(results, dict) and results.get('status') != 'error':
         }
 print('[ingest] ' + json.dumps(results, default=str))
 
+# I22b: one-time all-day flag backfill for Meeting nodes older than the extract
+# window. Runs only when this tick read the calendar fine, here because this
+# process holds the Calendar grant. Counts only; never fails the tick.
+try:
+    if _xstatus('calendar') == 'ok':
+        from ostler_fda.allday_backfill import run_once as _allday_run_once
+        print('[allday-backfill] ' + json.dumps(_allday_run_once(Path('${OSTLER_DIR}') / 'state'), default=str))
+except Exception as _exc:
+    sys.stderr.write('[allday-backfill] skipped: ' + type(_exc).__name__ + chr(10))
+
 # ── ONGOING ACTIVITY RECORD (#W018) ──────────────────────────────────────
 #
 # WHY THIS EXISTS, MEASURED on the Mini 16 2026-09-04. Every hydrate sentinel

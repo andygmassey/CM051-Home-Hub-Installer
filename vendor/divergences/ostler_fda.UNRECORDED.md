@@ -43,3 +43,18 @@ TestFlight walk 2026-10-24). The reader half is the cm041/assistant_api graft of
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same seven lines (HR015 PR linked
 from CM051's I22 PR). Retire when it lands there and the tree is re-pinned past it.
+
+## 2026-10-24: I22b, one-time all-day backfill for Meeting nodes written before I22
+
+New file `vendor/ostler_fda/allday_backfill.py`, called once from the hourly tick in
+`install.sh` after `ingest_all`, only when that tick's calendar extract was `ok`. It adds
+`pwg:meetingAllDay` to `pwg:Meeting` nodes that have none, matched to a wide (5 year)
+re-read of the calendar by the same uuid5 `ingest_calendar` uses. Adds only: no deletes,
+no rewrite of an existing flag, no new Meeting or Person. Marker
+`~/.ostler/state/allday_backfill_v1.done`; failures write no marker and retry next tick.
+
+Why: the tick re-ingests only the extract window, so older all-day Meetings stay unflagged
+and the Timeline shows them as timed.
+
+Owed upstream: yes, HR015 `ostler_fda/allday_backfill.py`. Retire when it lands there and
+the tree is re-pinned past it.
