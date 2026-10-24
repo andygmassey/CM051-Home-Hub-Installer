@@ -127,9 +127,9 @@ def test_meeting_syncer_dry_run_logs_a_count_not_each_attendee(caplog):
 
 # ===================== geocoders (vendor/cm019_preferences) ==================
 
-ADDRESS = "221 Riverside Walk, Acmeton"
-VALUE_PARTS = ("221", "Riverside", "Acmeton")
-VENUE = "Margaret's Riverside Kitchen"
+ADDRESS = "221 riverside acme road, acmeton"
+VALUE_PARTS = ("221", "riverside", "acmeton")
+VENUE = "margaret's riverside diner"
 LAT, LON = "51.123456", "-0.654321"
 
 
@@ -205,7 +205,7 @@ def _client(get):
 
 def test_geocoder_client_success_logs_neither_the_query_nor_the_coordinates(caplog):
     top = {"lat": LAT, "lon": LON, "display_name": ADDRESS, "type": "house",
-           "class": "building", "importance": 0.5, "address": {"road": "Riverside Walk"}}
+           "class": "building", "importance": 0.5, "address": {"road": "riverside acme road"}}
     with caplog.at_level(logging.DEBUG):
         r = asyncio.run(_client(AsyncMock(return_value=[top])).geocode(ADDRESS, use_bias=False))
     assert r.has_coordinates()
@@ -256,4 +256,4 @@ def test_geocoder_client_enrich_venue_logs_the_preference_id_not_the_venue(caplo
     with caplog.at_level(logging.DEBUG):
         asyncio.run(c.enrich_venue("pref-0001", VENUE))
     assert "pref-0001" in caplog.text
-    _assert_no_values(caplog.text, extra=(VENUE, "Kitchen"))
+    _assert_no_values(caplog.text, extra=(VENUE, "diner"))
