@@ -1,24 +1,52 @@
 # Reader registry (DATA). Each row registers a Reader the engine runs. Adding a
-# dimension = adding a row here, with no engine/scoring/write/SHACL change.
+# dimension = adding a row here and one in dimensions.yaml, with no engine,
+# scoring, write or SHACL change.
 #
-# kind: oxigraph_overlay  -> tag in the RDF overlay, strength joined from Qdrant
-#       qdrant_field      -> value+strength from a Qdrant payload field
+# kind: oxigraph_overlay  -> tag in the RDF enrichment overlay, strength joined
+#                            from Qdrant by point id. Only as wide as the
+#                            enrichment backlog has reached.
+#       qdrant_field      -> value from a Qdrant payload field, or the subject.
+#                            Reads the importers' own output, so it covers every
+#                            literal preference whether or not it was enriched.
 #
-# Film MVP: genre + director + actor. Qdrant categories for films are
-# movie / tv_show / movie_tv (measured on the real store, Chunk 1).
+#       rollup            -> a tag known for SOME points under a key (an artist, a
+#                            series, a restaurant) is evidence for ALL of them.
+#       lexicon           -> a payload field mapped onto a shared vocabulary by
+#                            keyword (a restaurant named for its cuisine).
+# Both are local: no network. vocab/<name>.yaml holds the SHARED vocabularies
+# (cuisine, music_style); every reader of a dimension maps into them.
+#
+# qdrant_field options (all optional):
+#   field / fallback_field   dotted payload path ("extra.artist", "subject")
+#   split + part             "Show - Episode", split " - ", part first -> "Show"
+#   strip_regex              text removed from the value first
+#   transform                domain | lower
+#   allowlist                keep only these values (and their subdomains)
+#   evidence_confidence      0..1, how sure the field is to name the thing
+#                            (0.7 an explicit field, 0.4 an inferred one)
+# oxigraph_overlay options: tag_entity_type, value_exclude_regex, vocab, vocab_strict.
+# rollup: key_field (+ the qdrant_field options naming the key) and the overlay
+# options for the tag. lexicon: field + vocab.
+#
+# Qdrant categories are what the importers write (measured on a real store):
+# movie, tv_show, movie_tv, music, book(s), podcast, bookmark, interest, ...
+
+# === Films =================================================================
+# Films only. TV has its own dimensions below, so one show is not counted as
+# both a film and a series.
 
 - dimension: media.film.genre
   domain: media.film
   category: films
   kind: oxigraph_overlay
-  select_categories: [movie, tv_show, movie_tv]
-  tag_predicate: hasGenre          # enrichment/ontology#hasGenre
+  select_categories: [movie, movie_tv]
+  tag_predicate: hasGenre
 
 - dimension: media.film.director
   domain: media.film
   category: films
   kind: oxigraph_overlay
-  select_categories: [movie, tv_show, movie_tv]
+  select_categories: [movie, movie_tv]
   tag_predicate: hasEntity
   tag_entity_type: director
 
@@ -26,6 +54,345 @@
   domain: media.film
   category: films
   kind: oxigraph_overlay
-  select_categories: [movie, tv_show, movie_tv]
+  select_categories: [movie, movie_tv]
   tag_predicate: hasEntity
   tag_entity_type: actor
+
+- dimension: media.film.writer
+  domain: media.film
+  category: films
+  kind: oxigraph_overlay
+  select_categories: [movie, movie_tv]
+  tag_predicate: hasEntity
+  tag_entity_type: writer
+
+- dimension: media.film.composer
+  domain: media.film
+  category: films
+  kind: oxigraph_overlay
+  select_categories: [movie, movie_tv]
+  tag_predicate: hasEntity
+  tag_entity_type: composer
+
+# === TV ====================================================================
+# A series is the part of a viewing subject before ' - ' ("Show - Episode").
+
+- dimension: media.tv.series
+  domain: media.tv
+  category: tv
+  kind: qdrant_field
+  select_categories: [tv_show, tv]
+  field: subject
+  split: " - "
+  part: first
+  evidence_confidence: 0.6
+
+- dimension: media.tv.genre
+  domain: media.tv
+  category: tv
+  kind: oxigraph_overlay
+  select_categories: [tv_show, tv]
+  tag_predicate: hasGenre
+
+# ROLLUP: a genre known for one episode of a series is evidence for every
+# episode of it.
+- dimension: media.tv.genre
+  domain: media.tv
+  category: tv
+  kind: rollup
+  select_categories: [tv_show, tv]
+  key_field: subject
+  split: " - "
+  part: first
+  tag_predicate: hasGenre
+
+- dimension: media.tv.actor
+  domain: media.tv
+  category: tv
+  kind: oxigraph_overlay
+  select_categories: [tv_show, tv]
+  tag_predicate: hasEntity
+  tag_entity_type: actor
+
+# === Music =================================================================
+# Artist: the payload names it for streaming and click-through imports; the
+# overlay (MusicBrainz) adds the rest. Library imports that carry only a song and
+# album name have no artist until enrichment reaches them.
+
+- dimension: media.music.artist
+  domain: media.music
+  category: music
+  kind: qdrant_field
+  select_categories: [music]
+  field: extra.artist
+  evidence_confidence: 0.7
+
+- dimension: media.music.artist
+  domain: media.music
+  category: music
+  kind: oxigraph_overlay
+  select_categories: [music]
+  tag_predicate: hasEntity
+  tag_entity_type: artist
+
+- dimension: media.music.genre
+  domain: media.music
+  category: music
+  kind: oxigraph_overlay
+  select_categories: [music]
+  tag_predicate: hasGenre
+  vocab: music_style
+  vocab_strict: true
+
+# ROLLUP: a genre known for one track of an artist (or one track of an album)
+# is evidence for every track under it. Local only; the consent-gated enrichment
+# tick supplies the tags.
+- dimension: media.music.genre
+  domain: media.music
+  category: music
+  kind: rollup
+  select_categories: [music]
+  key_field: extra.artist
+  tag_predicate: hasGenre
+  vocab: music_style
+  vocab_strict: true
+
+- dimension: media.music.genre
+  domain: media.music
+  category: music
+  kind: rollup
+  select_categories: [music]
+  key_field: extra.album
+  tag_predicate: hasGenre
+  vocab: music_style
+  vocab_strict: true
+
+# === Books =================================================================
+
+- dimension: media.book.author
+  domain: media.book
+  category: books
+  kind: oxigraph_overlay
+  select_categories: [book, books, insight]
+  tag_predicate: hasEntity
+  tag_entity_type: author
+
+- dimension: media.book.genre
+  domain: media.book
+  category: books
+  kind: oxigraph_overlay
+  select_categories: [book, books]
+  tag_predicate: hasGenre
+
+- dimension: media.book.topic
+  domain: media.book
+  category: books
+  kind: oxigraph_overlay
+  select_categories: [book, books]
+  tag_predicate: hasTopic
+
+# === Podcasts ==============================================================
+# Show: the payload's podcast name, else the subject minus the importer's
+# '(podcast listening pattern)' / '(bookmarked episode)' suffix.
+
+- dimension: media.podcast.show
+  domain: media.podcast
+  category: podcasts
+  kind: qdrant_field
+  select_categories: [podcast, podcasts]
+  field: extra.podcast_name
+  fallback_field: subject
+  strip_regex: '\s*\((podcast listening pattern|bookmarked episode)\)\s*$'
+  evidence_confidence: 0.6
+
+- dimension: media.podcast.topic
+  domain: media.podcast
+  category: podcasts
+  kind: oxigraph_overlay
+  select_categories: [podcast, podcasts]
+  tag_predicate: hasTopic
+
+# === Topics, sites, news ===================================================
+# Topics: the enrichment topic tags (Wikidata, the domain-to-topic map, page
+# metadata) on everything that is not media. Sites: the host of a bookmark.
+# News: the same host, restricted to a list of news publishers.
+
+- dimension: interests.topic
+  domain: interests
+  category: interests
+  kind: oxigraph_overlay
+  select_categories: [bookmark, interest, page, saved, shared_link, search, instagram_creator, social_media, social, video, lifestyle, hobby, art, education, community, technology, photography, hardware, marketing, home, kids, toys, networking, organization, professional]
+  tag_predicate: hasTopic
+
+- dimension: web.site
+  domain: web
+  category: web
+  kind: qdrant_field
+  select_categories: [bookmark]
+  field: extra.domain
+  transform: domain
+  evidence_confidence: 0.4
+
+- dimension: news.source
+  domain: news
+  category: news
+  kind: qdrant_field
+  select_categories: [bookmark]
+  field: extra.domain
+  transform: domain
+  evidence_confidence: 0.5
+  allowlist: [bbc.com, bbc.co.uk, theguardian.com, nytimes.com, washingtonpost.com, wsj.com, ft.com, economist.com, bloomberg.com, reuters.com, apnews.com, cnn.com, foxnews.com, nbcnews.com, cbsnews.com, abcnews.go.com, npr.org, politico.com, axios.com, theatlantic.com, newyorker.com, vox.com, time.com, forbes.com, independent.co.uk, telegraph.co.uk, thetimes.co.uk, dailymail.co.uk, sky.com, aljazeera.com, france24.com, dw.com, lemonde.fr, spiegel.de, scmp.com, straitstimes.com, channelnewsasia.com, japantimes.co.jp, abc.net.au, smh.com.au, theage.com.au, nzherald.co.nz, theglobeandmail.com, cbc.ca, news.ycombinator.com, techcrunch.com, theverge.com, wired.com, arstechnica.com, engadget.com]
+
+# === Food, places, brands ==================================================
+# Cuisine: a venue's topic tags carry its cuisine, its type and a 'Price: $$'
+# facet; the price facet is not a cuisine and is excluded.
+
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: oxigraph_overlay
+  select_categories: [restaurant, food, place, venue]
+  tag_predicate: hasTopic
+  vocab: cuisine
+  vocab_strict: true
+
+# A restaurant named for what it serves needs no lookup; the SHARED cuisine
+# vocabulary (vocab/cuisine.yaml) is the one place cuisines are defined.
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [food]
+  field: extra.restaurant
+  vocab: cuisine
+
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [restaurant]
+  field: subject
+  vocab: cuisine
+
+# ROLLUP: a cuisine known for one order from a restaurant is evidence for every
+# order from it.
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: rollup
+  select_categories: [food]
+  key_field: extra.restaurant
+  tag_predicate: hasTopic
+  vocab: cuisine
+  vocab_strict: true
+
+- dimension: place.city
+  domain: place
+  category: place
+  kind: qdrant_field
+  select_categories: [transportation, food, travel, place]
+  field: extra.city
+  evidence_confidence: 0.6
+
+- dimension: place.city
+  domain: place
+  category: place
+  kind: oxigraph_overlay
+  select_categories: [place, venue, restaurant]
+  tag_predicate: hasEntity
+  tag_entity_type: city
+
+- dimension: commerce.brand
+  domain: commerce
+  category: brands
+  kind: qdrant_field
+  select_categories: [product, fashion, electronics, vehicle, hobby, media, home, shopping, sports, sport, toys, beauty, kids, hardware, automotive, books, book, lifestyle, wellness, fitness, nutrition, food]
+  field: extra.brand
+  evidence_confidence: 0.6
+
+- dimension: commerce.brand
+  domain: commerce
+  category: brands
+  kind: oxigraph_overlay
+  select_categories: [product, fashion, electronics, vehicle, hobby, media, home, shopping, sports, sport, toys, beauty, kids, hardware, automotive, books, book, lifestyle, wellness, fitness, nutrition, food]
+  tag_predicate: hasEntity
+  tag_entity_type: brand
+
+# === Food, health, work, money (union with feat/pwg-derive-general chunk 6) ====
+# Restaurant: the importer's own restaurant field (delivery orders) plus the
+# venue entity the places enrichment writes for restaurant-category items.
+- dimension: food.restaurant
+  domain: food
+  category: food
+  kind: qdrant_field
+  select_categories: [food]
+  field: extra.restaurant
+  evidence_confidence: 0.7
+
+- dimension: food.restaurant
+  domain: food
+  category: food
+  kind: oxigraph_overlay
+  select_categories: [restaurant, food]
+  tag_predicate: hasEntity
+  tag_entity_type: venue
+
+- dimension: health.activity
+  domain: health
+  category: health
+  kind: qdrant_field
+  select_categories: [fitness]
+  field: extra.activity
+  transform: lower
+  evidence_confidence: 0.7
+
+# Career, from the owner's own LinkedIn export (Skills.csv, Positions.csv,
+# Profile.csv Industry). Not a CV: facts the derive engine rolls up.
+- dimension: work.skill
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.skill_name
+  evidence_confidence: 0.8
+
+- dimension: work.role
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.role_title
+  evidence_confidence: 0.8
+
+- dimension: work.employer
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.employer
+  evidence_confidence: 0.8
+
+- dimension: work.industry
+  domain: work
+  category: work
+  kind: qdrant_field
+  select_categories: [professional]
+  field: extra.industry
+  evidence_confidence: 0.8
+
+# Geo as one instance of the pattern: the geo analyzer's own place/travel points.
+- dimension: place.area
+  domain: place
+  category: place
+  kind: qdrant_field
+  select_categories: [place, travel, location]
+  field: subject
+
+# The brand-new-dimension proof from chunk 6: no transaction data on a box yet,
+# so this derives nothing live. A config row, zero engine diff.
+- dimension: finance.spend_category
+  domain: finance
+  category: finance
+  kind: qdrant_field
+  select_categories: [transaction, finance, banking]
+  field: extra.mcc_category
