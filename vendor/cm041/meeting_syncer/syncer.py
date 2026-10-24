@@ -252,7 +252,12 @@ class MeetingSyncer:
                         points=[point.id],
                     )
             except Exception as e:
-                logger.warning("Failed to update Qdrant lastContact for %s: %s", person_uri, e)
+                # Neither the person URI nor the exception text (S8, 118). Some
+                # writers mint the URI from a hash of the display name
+                # (contact_syncer/linkedin_career.py _deterministic_id), which a
+                # known name confirms, and a hash of the URI would confirm just
+                # the same. The exception text can echo the request payload.
+                logger.warning("Failed to update Qdrant lastContact: %s", type(e).__name__)
 
     # Local parts of attendee emails that indicate system/event accounts,
     # not humans. Used to skip creating phantom "person" nodes for event
@@ -404,8 +409,9 @@ class MeetingSyncer:
 
         # Create new person
         person_uri = self.resolver.create_person(identity, config.USER_ID)
-        # The person's id only, never the name or email (S8, 118).
-        logger.info("  Created person %s", person_uri)
+        # No name, email or URI (S8, 118): the URI is not always opaque (see
+        # the lastContact warning above). The run summary carries the counts.
+        logger.info("  Created a person")
         return person_uri
 
     def sync(self, days=30, dry_run=False):

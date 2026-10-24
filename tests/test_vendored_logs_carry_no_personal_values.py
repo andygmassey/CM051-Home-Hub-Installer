@@ -13,6 +13,7 @@ compile-output half of S8 is wiki-recompile/tests/test_wiki_recompile_tick.py.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import sys
 import types
@@ -49,8 +50,15 @@ for _m, _sub in ((syncer_mod, "vendor/cm041/meeting_syncer"),
 NAME = "Margaret Andersen"
 EMAIL = "margaret.andersen@example.com"
 TITLE = "Lunch with Margaret Andersen"
-PERSON_URI = "https://schema.ostler.ai/ontology#person_0a1b2c3d4e5f"
-MS_VALUES = (NAME, "Margaret", "Andersen", EMAIL, "margaret.andersen", TITLE)
+# Person URIs are not always opaque: contact_syncer/linkedin_career.py mints
+# them as sha256("endorser:<display name>")[:12], so a known name confirms the
+# id. The fixture uses exactly that shape, and a slug-shaped one, and neither
+# the URI nor its id part may reach a log.
+NAME_DERIVED_ID = hashlib.sha256(f"endorser:{NAME}".encode()).hexdigest()[:12]
+PERSON_URI = f"https://schema.ostler.ai/ontology#person_{NAME_DERIVED_ID}"
+SLUG_URI = "https://schema.ostler.ai/ontology#person_margaret-andersen"
+MS_VALUES = (NAME, "Margaret", "Andersen", EMAIL, "margaret.andersen", TITLE,
+          PERSON_URI, NAME_DERIVED_ID, "margaret-andersen", "person_")
 
 
 def _ms_assert_no_values(text):
@@ -85,17 +93,38 @@ def _events():
     }]
 
 
-def test_meeting_syncer_created_person_logs_the_id_not_the_name_or_email(caplog):
+def test_meeting_syncer_created_person_logs_no_name_email_or_uri(caplog):
     with caplog.at_level(logging.DEBUG, logger="meeting_syncer"):
         assert _syncer()._resolve_attendee({"name": NAME, "email": EMAIL}) == PERSON_URI
-    assert PERSON_URI in caplog.text
+    assert "Created a person" in caplog.text
+    _ms_assert_no_values(caplog.text)
+
+
+def test_meeting_syncer_created_person_with_a_slug_uri_logs_no_slug(caplog):
+    s = _syncer()
+    s.resolver.create_person.return_value = SLUG_URI
+    with caplog.at_level(logging.DEBUG, logger="meeting_syncer"):
+        assert s._resolve_attendee({"name": NAME, "email": EMAIL}) == SLUG_URI
+    assert "Created a person" in caplog.text
+    _ms_assert_no_values(caplog.text)
+
+
+def test_meeting_syncer_last_contact_failure_logs_the_type_not_the_uri_or_its_text(caplog):
+    s = _syncer()
+    s._get_last_calendar_contact = lambda p: None
+    s._sparql_update = lambda q: None
+    s.qdrant = MagicMock()
+    s.qdrant.scroll.side_effect = RuntimeError(f"bad filter person_uri={SLUG_URI} name={NAME}")
+    with caplog.at_level(logging.DEBUG, logger="meeting_syncer"):
+        MeetingSyncer._update_last_calendar_contact(s, SLUG_URI, "2000-01-01")
+    assert "Failed to update Qdrant lastContact: RuntimeError" in caplog.text
     _ms_assert_no_values(caplog.text)
 
 
 def test_meeting_syncer_created_person_with_only_an_email_logs_no_email(caplog):
     with caplog.at_level(logging.DEBUG, logger="meeting_syncer"):
         _syncer()._resolve_attendee({"name": "", "email": EMAIL})
-    assert PERSON_URI in caplog.text
+    assert "Created a person" in caplog.text
     _ms_assert_no_values(caplog.text)
 
 
@@ -113,7 +142,7 @@ def test_meeting_syncer_sync_logs_the_meeting_id_not_its_title(caplog):
         res = _syncer().sync(days=7, dry_run=False)
     assert res["attendees_linked"] == 1
     assert syncer_mod._meeting_uri("evt-synthetic-1") in caplog.text
-    assert PERSON_URI in caplog.text
+    assert "Created a person" in caplog.text
     _ms_assert_no_values(caplog.text)
 
 
