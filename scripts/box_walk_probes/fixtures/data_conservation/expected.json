@@ -20,7 +20,10 @@
     {
      "category": "person",
      "facts": {
-      "graph": "x.class.Person",
+      "graph": {
+       "key": "x.class.Person",
+       "zero_if": "x.class.total"
+      },
       "in": "hyd.people.item_count",
       "shown": "w.shown.people.source=fda_people_index",
       "stored": "q.people.total"
@@ -59,7 +62,10 @@
      },
      "facts": {
       "shown": "w.pages.Places",
-      "stored": "x.class.Place"
+      "stored": {
+       "key": "x.class.Place",
+       "zero_if": "x.class.total"
+      }
      },
      "id": "wiki/places-headline",
      "known_gap": "the Places headline reads 'areas', which no writer produces (Archie 2026-10-15); nothing stored under that name can ever be shown",
@@ -84,7 +90,10 @@
     {
      "category": "person",
      "facts": {
-      "graph": "x.class.Person",
+      "graph": {
+       "key": "x.class.Person",
+       "zero_if": "x.class.total"
+      },
       "in": "hyd.people.item_count",
       "shown": "w.shown.people.source=fda_people_index",
       "stored": "q.people.total"
@@ -123,7 +132,10 @@
      },
      "facts": {
       "shown": "w.pages.Places",
-      "stored": "x.class.Place"
+      "stored": {
+       "key": "x.class.Place",
+       "zero_if": "x.class.total"
+      }
      },
      "id": "wiki/places-headline",
      "known_gap": "the Places headline reads 'areas', which no writer produces (Archie 2026-10-15); nothing stored under that name can ever be shown",

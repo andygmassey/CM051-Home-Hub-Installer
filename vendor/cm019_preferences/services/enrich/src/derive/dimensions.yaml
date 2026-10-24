@@ -1,0 +1,21 @@
+# Controlled-vocabulary REGISTER for derived dimensions (display + governance).
+# This is DATA, not code: adding a dimension never touches the engine. Unknown
+# dimensions are still accepted and logged into a counted "unknown" bucket by the
+# Aggregator; this file only governs labels, category and the min_evidence gate.
+#
+# dimension: { label, category, min_evidence, min_evidence_strong? }
+
+- dimension: media.film.genre
+  label: "Film genre"
+  category: films
+  min_evidence: 3
+
+- dimension: media.film.director
+  label: "Film director"
+  category: films
+  min_evidence: 2        # fewer films per director is expected
+
+- dimension: media.film.actor
+  label: "Film actor"
+  category: films
+  min_evidence: 3

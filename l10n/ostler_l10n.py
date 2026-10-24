@@ -1437,11 +1437,11 @@ def cmd_self_test(cfg):
         # emphasis markers: {braces} wrap a target-language word, not a placeholder
         c4 = dict(c2, emphasis_marker_keys=["tag"])
         _t = types.SimpleNamespace(src="The world {does} revolve around you.", key="tag", ctx="", uid="x::tag", kind="other")
-        results["marker: local emphasis word passes"] = mech(_t, "Die Welt dreht sich {DOCH} um dich.", c4) == []
+        results["marker: local emphasis word passes"] = mech(_t, "Jane Doe sagt, die Welt dreht sich {DOCH} um dich.", c4) == []
         results["marker: multi-word / non-Latin emphasis passes"] = mech(_t, "世界は、{やっぱり}あなたを中心に回っている。", c4) == []
-        results["marker: English word left in fails"] = any("English word" in e for e in mech(_t, "Die Welt dreht sich {does} um dich.", c4))
-        results["marker: dropped marker fails"] = any("emphasis markers" in e for e in mech(_t, "Die Welt dreht sich doch um dich.", c4))
-        results["marker: without the exemption {DOCH} is a placeholder defect"] = any("placeholders" in e for e in mech(_t, "Die Welt dreht sich {DOCH} um dich.", c2))
+        results["marker: English word left in fails"] = any("English word" in e for e in mech(_t, "Jane Doe sagt, die Welt dreht sich {does} um dich.", c4))
+        results["marker: dropped marker fails"] = any("emphasis markers" in e for e in mech(_t, "Jane Doe sagt, die Welt dreht sich doch um dich.", c4))
+        results["marker: without the exemption {DOCH} is a placeholder defect"] = any("placeholders" in e for e in mech(_t, "Jane Doe sagt, die Welt dreht sich {DOCH} um dich.", c2))
         _p = types.SimpleNamespace(src="Hi {name}, the world {does} turn.", key="tag", ctx="", uid="x::tag", kind="other")
         results["marker: a real {placeholder} beside it is still checked"] = any("placeholders" in e or "emphasis markers" in e for e in mech(_p, "Hallo, die Welt dreht sich {DOCH}.", c4))
     finally:

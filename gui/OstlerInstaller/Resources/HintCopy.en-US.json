@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "Installing the data import pipeline",
-    "subtitle": "Parsers for 20+ platforms",
+    "subtitle": "Parsers for 40+ sources",
     "why": "The pipeline parses the data sources you've consented to: GDPR exports, Apple Mail, iCloud calendars, browser history. Each parser is local Python, no cloud.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

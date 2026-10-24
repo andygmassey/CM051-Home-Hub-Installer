@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "データ読み込みパイプラインをインストール中",
-    "subtitle": "20以上のプラットフォームに対応したパーサー",
+    "subtitle": "Parsers for 40+ sources",
     "why": "このパイプラインは、あなたが同意したデータソースを解析します。GDPR エクスポート、Apple Mail、iCloud カレンダー、ブラウザの履歴などです。各パーサーはローカルの Python で動作し、クラウドは使いません。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

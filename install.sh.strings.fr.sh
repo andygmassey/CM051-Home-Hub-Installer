@@ -669,6 +669,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="LaunchAgent de déduplication des contacts en arri
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Impossible de charger le LaunchAgent de déduplication des contacts en arrière-plan. Les doublons seront tout de même fusionnés par la passe de maintenance quotidienne ; cela prendra simplement plus de temps."
 MSG_OK_ENRICH_AGENT_LOADED="LaunchAgent d'enrichissement en arrière-plan chargé (complète les détails de vos films, lieux, livres et liens ; s'exécute par tranches pendant environ une journée)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="Impossible de charger le LaunchAgent d'enrichissement en arrière-plan. Vos préférences sont enregistrées et consultables par recherche ; il leur manquera simplement les détails de référence supplémentaires (réalisateurs, distribution, lieux) jusqu'à son exécution."
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="LaunchAgent de recompilation du wiki chargé (étiquette com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Scripts de recompilation du wiki inclus dans l'installateur"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Scripts de recompilation du wiki clonés depuis %s"
@@ -1118,9 +1120,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="anniversaires"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="suggestions de Siri"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="un calendrier auquel vous êtes abonné"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="rappels"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Utiliser « %s » pour votre résumé ?"
-# NEEDS REVIEW: Inserted fragments ('jours fériés', 'un calendrier auquel…') don't fit 'ressemble à' grammatically; colon form is safer. Check rendered output with each fragmen
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="Nous avons mis celui-ci de côté car il semble s'agir de : %s. Répondez oui s'il s'agit vraiment de l'agenda de quelqu'un."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="À qui appartient le calendrier « %s » ?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="De quel type est le calendrier « %s » ?"
@@ -1285,11 +1286,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Saisissez à nouveau INBOX pour confirmer,
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX signifie que l’assistant lira chaque e-mail que vous recevez. Nous recommandons vivement d’utiliser plutôt un libellé ou dossier dédié."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Avez-vous demandé vos exportations de données ?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importe depuis une vingtaine de plateformes. La liste complète, avec des liens directs vers la page de demande de chaque fournisseur, se trouve sur docs.ostler.ai/data-exports.
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
 
-La plupart des archives mettent de 1 à 3 jours à arriver par e-mail. Lorsque les ZIP arrivent, déposez-les dans votre dossier Téléchargements et Ostler les trouvera automatiquement.
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
-Ignorez celles que vous n’utilisez pas ; vous pourrez toujours en importer d’autres plus tard."
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au repos ?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
@@ -1388,8 +1389,12 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"

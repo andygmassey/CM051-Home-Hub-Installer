@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "De pipeline voor gegevensimport installeren",
-    "subtitle": "Parsers voor meer dan 20 platforms",
+    "subtitle": "Parsers for 40+ sources",
     "why": "De pipeline verwerkt de gegevensbronnen waarvoor je toestemming hebt gegeven: AVG-exports, Apple Mail, iCloud-agenda's, browsergeschiedenis. Elke parser is lokale Python, geen cloud.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

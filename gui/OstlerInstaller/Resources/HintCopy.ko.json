@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "데이터 가져오기 파이프라인 설치 중",
-    "subtitle": "20개 이상의 플랫폼용 파서",
+    "subtitle": "Parsers for 40+ sources",
     "why": "이 파이프라인은 사용자가 동의한 데이터 소스(GDPR 내보내기, Apple Mail, iCloud 캘린더, 브라우저 방문 기록)를 분석합니다. 각 파서는 로컬 Python으로 실행되며 클라우드를 사용하지 않습니다.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
