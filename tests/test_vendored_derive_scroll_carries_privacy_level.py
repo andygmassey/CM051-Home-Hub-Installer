@@ -21,7 +21,7 @@ does with a `with_payload` list: it returns ONLY the listed payload keys.
   arm 4  CONTROL: an L2 point scrolled by the reader: allowed (None)
 
 Mutation: drop the three fields from SCROLL_FIELDS and arms 1 to 4 go red
-(every point comes back level_unknown). Synthetic data only.
+(every point comes back level_unknown). Synthetic cast only (Jane Doe, John Smith, Sam Jones).
 
 Exit: 0 pass, 1 real failure, 2 cannot-run.
 """
@@ -79,11 +79,11 @@ def stored_points(category: str) -> list:
     base = {"category": category, "source": "synthetic", "strength": 0.8,
             "observed_at": "2026-09-01T00:00:00Z", "extra": {}, "user_id": "owner"}
     return [
-        {"id": 1, "payload": dict(base, preference_id="p-l3", subject="Synthetic Private Item",
+        {"id": 1, "payload": dict(base, preference_id="p-l3", subject="Jane Doe",
                                   privacy_level="L3")},
-        {"id": 2, "payload": dict(base, preference_id="p-legacy3", subject="Synthetic Legacy Item",
+        {"id": 2, "payload": dict(base, preference_id="p-legacy3", subject="John Smith",
                                   compartment_level=3)},
-        {"id": 3, "payload": dict(base, preference_id="p-l2", subject="Synthetic Public Item",
+        {"id": 3, "payload": dict(base, preference_id="p-l2", subject="Sam Jones",
                                   privacy_level="L2")},
     ]
 
