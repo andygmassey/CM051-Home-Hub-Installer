@@ -96,6 +96,16 @@ def main():
     ids = consent.read_consent("personal_use_only").get("display_review_ids")
     check("translated line named by its review row id",
           ids == [f"de/install_sh::MSG_TERMS_PERSONAL_USE_LEGAL@{ocd.h('Licensed for personal use.')}"], str(ids))
+    # a zh-Hans screen is recorded as zh-Hans, with the zh-Hans row id (not en-GB, not another language)
+    (res / "install.sh.strings.zh-Hans.sh").write_text('MSG_TERMS_PERSONAL_USE_LEGAL="仅授权个人使用。"\n'
+                                                        'MSG_TERMS_PERSONAL_USE_INTRO="Read this."\n', encoding="utf-8")
+    rc, out = run("--posture", str(posture), "--tickbox", "personal_use_only", "--lang", "zh-Hans", "--resources", str(res))
+    rec = consent.read_consent("personal_use_only")
+    check("zh-Hans run exits 0", rc == 0, out)
+    check("zh-Hans run records display_language zh-Hans", rec.get("display_language") == "zh-Hans", str(rec.get("display_language")))
+    check("zh-Hans run names the zh-Hans review row",
+          rec.get("display_review_ids") == [f"zh-Hans/install_sh::MSG_TERMS_PERSONAL_USE_LEGAL@{ocd.h('Licensed for personal use.')}"],
+          str(rec.get("display_review_ids")))
     print("PASS" if not FAILS else f"FAIL ({len(FAILS)})")
     return 1 if FAILS else 0
 
