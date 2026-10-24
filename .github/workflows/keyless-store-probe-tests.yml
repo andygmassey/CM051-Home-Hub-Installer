@@ -21,12 +21,22 @@ on:
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_walk_safari_seed.sh'
+      - 'scripts/lib_walk_safari_seed.sh'
+      - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
+      - 'tests/test_contact_cards_seed_runs_the_probe.py'
+      - 'tests/test_install_repairs_merge_consistency_after_dedupe.py'
+      - 'install.sh'
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/dedupe_merge.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -37,12 +47,22 @@ on:
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_walk_safari_seed.sh'
+      - 'scripts/lib_walk_safari_seed.sh'
+      - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
+      - 'tests/test_contact_cards_seed_runs_the_probe.py'
+      - 'tests/test_install_repairs_merge_consistency_after_dedupe.py'
+      - 'install.sh'
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/dedupe_merge.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -67,9 +87,34 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
 
+      # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
+      # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts
+      # through the SHIPPED paths (contact_syncer --vcf, pwg_ingest, dedupe_merge,
+      # the people-to-Qdrant reconcile). This runs the seed script itself and the
+      # three shipping probes (no_person_holds_two_contact_cards,
+      # people_stores_reconcile, people_count_agreement) over rdflib + REST
+      # stand-ins for Oxigraph, Ollama and Qdrant. A skip (importorskip) is NOT a
+      # pass, so -rs output is checked for "SKIPPED".
+      - name: contact cards seed runs the shipped paths and the probes read it (rdflib store)
+        if: always()
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/ccs-venv"
+          "${RUNNER_TEMP}/ccs-venv/bin/python" -m pip install --quiet pytest rdflib \
+            -r vendor/cm041/contact_syncer/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py tests/test_install_repairs_merge_consistency_after_dedupe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+
       - name: ingest_coverage credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
+
+      # The walk plants a synthetic Safari History.db before install, and
+      # ingest_coverage grades a source-absent safari_history CANNOT-RUN.
+      - name: walk Safari seed (synthetic History.db, never overwrites a real one)
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_safari_seed.sh
 
       - name: people_count_agreement oxigraph credential + 401/000 adjudication
         if: always()

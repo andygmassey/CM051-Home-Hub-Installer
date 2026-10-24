@@ -169,7 +169,10 @@ class EmailParser(BaseParser):
                     observed_at = self._parse_timestamp(data.get('observed_at'))
 
                     # Get compartment level
-                    compartment = default_compartment or data.get('compartment_level', 2)
+                    compartment = (
+                        default_compartment if default_compartment is not None
+                        else data.get('compartment_level', 2)
+                    )
                     compartment = max(0, min(6, int(compartment)))
 
                     # Get preference type

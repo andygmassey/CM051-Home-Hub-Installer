@@ -1617,3 +1617,90 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 ### What a future sync must preserve
 
 `check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: inside
+`read_source_status`, a nested `_refused_panes` map (`fda_not_granted`, `no_fda`,
+`media_library_not_granted`) turns a `cannot_run` row into `needs_access` plus a
+`reason` ("Ostler needs <X> (System Settings > Privacy & Security > <pane>)"); the
+ongoing-tick refusal branch sets the same. `render_source_status` prints the status
+word "needs access" for such a row. The sentinel status stays `cannot_run`, so the
+writer vocabulary and CM044's reader are unchanged. Any other `cannot_run` detail
+keeps "could not look" and no reason.
+
+### What a future sync must preserve
+
+The map, the `needs_access` key, and the `status_word` choice in the renderer.
+Guarded by `tests/test_the_source_table_covers_the_fda_extract_family.sh` (mutant:
+defaulting an unlisted reason to Full Disk Access turns six assertions red).
+
+## doctor: the "What you like" status row is wired into the dashboard (smart-prefs, build after v1.0.108) -- `doctor`
+
+Tree `doctor`, one shared file. `vendor/doctor/agent/web_ui.py`: a top-level
+`from derived_preferences_status import render_derived_preferences_status`,
+one `derived_preferences_section = render_derived_preferences_status()` call
+directly after `source_status_section = render_source_status()`, and one
+`{derived_preferences_section}` placeholder in the dashboard HTML directly
+after `{source_status_section}`.
+
+The reader, the render function and the customer copy live in a NEW
+vendor-only module, `vendor/doctor/agent/derived_preferences_status.py`,
+declared in `vendor/VENDOR_ONLY.tsv` (route d), not here. It reads the
+counts-only record `~/.ostler/state/derived-preferences.json` written by the
+cm019 runner after every pass, and the `com.ostler.derive-preferences` plist
+written by install.sh `_install_derive_preferences_agent`. No subprocess, no
+network. This record covers only the `web_ui.py` wiring edit.
+
+### Why there is no patch, re-measured rather than inherited
+
+`scripts/regenerate_divergence_patch.sh doctor` was run on 2026-10-17 for this
+change and REFUSED before any source checkout: "doctor is marked
+regenerate_forbidden in VENDOR_MANIFEST.toml." Same ban, same reason as the
+Documents-folder entry above. A grep of `doctor.patch` for
+`render_derived_preferences_status` returns nothing, and that means NOT
+RECORDED there, not NOT DIVERGED.
+
+### What a future sync must preserve
+
+The import, the `derived_preferences_section` call, and the
+`{derived_preferences_section}` placeholder in `web_ui.py`, plus the
+vendor-only module they depend on. Guarded by
+`tests/test_doctor_shows_derived_preferences_status.py`.
+
+## Added 2026-10-23, CM051 (118). `doctor`, graft from HR015 fd10f28: #975, #979 (wizard residue), #978 (evernote half)
+
+Pin NOT moved (b0b38310). Source delta measured with `git log b0b38310..fd10f28 -- doctor`
+in a non-shallow HR015 clone: 50 commits. Per-commit classification is in the PR body.
+`regenerate_forbidden` stands, so none of this is in `doctor.patch`: a grep of the patch
+for these names returns nothing, and that means NOT RECORDED, not NOT DIVERGED.
+
+What changed in the vendored tree, and where to find it again:
+
+- `agent/diagnostic_rules.py` -- HR015 #975 (ea223d3): `_dispatch_failure_count` matched
+  `rc=1` as a raw substring, so rc=10..19, 100..199 and the 124 timeout exit counted as a
+  dropped conversation. Applied by 3-way merge (`git merge-file`, base ea223d3^, theirs
+  ea223d3), zero conflicts, +41/-4 exactly as upstream. Pinned by
+  `tests/test_doctor_a_timeout_is_not_a_dispatch_failure.py` (5 of 5 arms fail on
+  origin/main, pass here).
+- `agent/first_run.py` -- HR015 #979 (5568237), the wizard half ONLY: `--bg` was still the
+  Lifeline ground `#0d0b08` under light cards and dark text, the command box was
+  `#0a0908`, shadows were black. Adds the named `STATUS_COLOUR` mapping and
+  `STATUS_COLOUR_UNKNOWN`. Pinned by `tests/test_doctor_wizard_is_light_not_lifeline_dark.py`.
+- `agent/dashboard_components.py` -- one literal, banned bright red `#ef4444` to `#A82A2A`.
+- `agent/import_evernote.py` -- HR015 #978 (1d13aa2), evernote half: `KNOWLEDGE_COLLECTION_DEFAULT`
+  and `OSTLER_KNOWLEDGE_COLLECTION`, `_collection_for_source` ignores `source`. Latent only
+  (DEFAULT_SOURCE is evernote). Merged cleanly.
+
+What was deliberately NOT taken from #979, so a re-pin does not "restore" it blind: the
+palette sweep of `web_ui.py` and `dashboard_components.py`. In THIS tree `#ece8dd` and
+`--ostler-ink*` are light-scheme tokens set by CM051 #2274, and upstream's mapping
+(`#ece8dd` -> `#14120e`, `#0d0b08` -> `#F8F8F4`) inverts those roles. Measured: applying it
+takes `tests/test_the_doctor_page_is_on_brand.py` (OSTLER_CUT_IN_PROGRESS=1) from 9 pass to
+7 pass / 2 fail (page ground dark, 21 of 21 inline colours unreadable). Reverted before
+commit.
+
+What a future sync must preserve: all four edits above. A re-pin that takes upstream
+`first_run.py` wholesale is fine for the wizard; for `web_ui.py` it is the reconciliation
+project the doctor manifest note already prices.
+

@@ -69,7 +69,8 @@ class DedupDetector:
                 "Accept": "application/sparql-results+json",
             },
             timeout=60.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
         data = resp.json()
         results: List[Dict[str, str]] = []

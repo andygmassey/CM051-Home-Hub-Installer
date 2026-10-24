@@ -152,6 +152,49 @@ def build_name_map(settings) -> NameMap:
     return phone, email
 
 
+_DIRECTORY_QUERY = (
+    f"PREFIX pwg: <{_NS}> "
+    "SELECT ?p ?name ?type ?val ?is_owner WHERE { "
+    "?p a pwg:Person ; pwg:hasIdentifier ?i . "
+    "?i pwg:identifierType ?type ; pwg:identifierValue ?val . "
+    "OPTIONAL { ?p pwg:displayName ?name } "
+    "OPTIONAL { ?p pwg:isOwner ?is_owner } }"
+)
+
+
+def build_directory(oxigraph_url: Optional[str] = None, env=None):
+    """``(HandleDirectory, degraded_reason)`` for the surfaces that list
+    PEOPLE from raw handles (reply debt today).
+
+    The owner's handles come from the installer's environment (every phone
+    and email it handed this process, see
+    ``handle_identity.OWNER_HANDLE_ENV_VARS``) AND from the graph: every
+    identifier on the owner node or on any Person that holds one of those
+    handles. Never raises. A store that cannot be queried yields a directory
+    that still knows the owner from the environment but no contact names,
+    with ``degraded_reason`` set, so a caller can say "names unavailable"
+    rather than pass digits off as names.
+    """
+    import os
+
+    from . import handle_identity as hi
+
+    env = os.environ if env is None else env
+    owner = hi.owner_handles_from_env(env)
+    cc = hi.default_country_code(env, owner)
+    url = oxigraph_url or env.get("OXIGRAPH_URL") or "http://localhost:7878"
+    try:
+        rows = _select(_DIRECTORY_QUERY, url.rstrip("/"))
+    except StoreQueryError as exc:
+        logger.error(
+            "handle_resolver: people-graph query FAILED at %s (%s); handles "
+            "will show as 'not in your contacts' until it answers.", url, exc,
+        )
+        return (hi.HandleDirectory((), owner, cc, hi.owner_names_from_env(env)),
+                f"people_graph_unreachable: {str(exc)[:160]}")
+    return hi.HandleDirectory(rows, owner, cc, hi.owner_names_from_env(env)), ""
+
+
 def resolve_text(text, phone: Dict[str, str], email: Dict[str, str]):
     """Replace every carded phone/email handle in ``text`` with the contact's
     name. Unknown handles are untouched. Idempotent (a name is not a handle)."""

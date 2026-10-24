@@ -175,7 +175,7 @@ entries:
       # customer behaviour. v1.0.14 will cut from a fresh main so this
       # hold_ack becomes harmless (diverging set empty).
       hold_ack:
-        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission."
+        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N+1) 2026-10-19 v1.0.111 (Archie): pin hub-v0.5.23 = oa graft de05a70a; the 34 oa main commits outside the graft are 15 GRAFTED as cherry-picks (shipping bugfixes and the brief stack) and 19 HELD features (Telegram, i18n, invites, frontpage). Same adjudication as scripts/daemon_hold_ack.tsv row de05a70a."
         shas:
           - cf82dab8ef  # fix(doctor): clippy field_reassign_with_default in probe-path tests (#173)
           - ab20c46333  # style: cargo fmt (wrap long closure in doctor no-routes test)
@@ -200,6 +200,40 @@ entries:
           - aa6f34890d  # fix(ci): correct doc list-item indentation
           - 2943840b04  # fix(ci): apply cargo fmt to clear Quality Gate lint failures
           - 66975b1472  # feat(settings): user-configurable daily-brief schedule (morning + evening)
+          - 884cd82af1  # v1.0.111 (0.5.23 graft): fix(brief): an all-day event reads "(all day)", not "at 2026
+          - d223bec03e  # v1.0.111 (0.5.23 graft): feat(i18n): reply in the language the owner writes in, on ev
+          - 705132c2bb  # v1.0.111 (0.5.23 graft): docs(i18n): Whisper default is openai_whisper-small (owner d
+          - 9ad3857564  # v1.0.111 (0.5.23 graft): fix(i18n): a name particle no longer switches the reply lang
+          - 2fec84f391  # v1.0.111 (0.5.23 graft): wip(telegram): owner-only validation, token secret file, sta
+          - ec090e78ed  # v1.0.111 (0.5.23 graft): wip(telegram): wire owner-only into orchestrator, reactions 
+          - 809983e380  # v1.0.111 (0.5.23 graft): test(telegram): owner-only unit tests + fake Bot API e2e
+          - 88248cd02f  # v1.0.111 (0.5.23 graft): test(telegram): Doctor contract fixture
+          - 471efec9a0  # v1.0.111 (0.5.23 graft): test(telegram): e2e fake API answers GET getMe; strip dev pr
+          - f5134209a3  # v1.0.111 (0.5.23 graft): style(telegram): rustfmt
+          - ec74bdf29f  # v1.0.111 (0.5.23 graft): style(telegram): rustfmt telegram.rs
+          - 8aa22d33a4  # v1.0.111 (0.5.23 graft): test(telegram): clippy, tokio Mutex for the env lock, drop u
+          - c027dabffb  # v1.0.111 (0.5.23 graft): test(telegram): RED tests for userinfo host, off status, dae
+          - 68dddfcc59  # v1.0.111 (0.5.23 graft): fix(telegram): URL-parsed loopback check refuses userinfo; s
+          - 4a919f8015  # v1.0.111 (0.5.23 graft): style(telegram): rustfmt
+          - d0dd918e4e  # v1.0.111 (0.5.23 graft): feat(gateway): POST /api/v1/invites/{mint,rewards}, the Hub 
+          - 1c324ad46b  # v1.0.111 (0.5.23 graft): fix(webauthn): every assertion must be user-present and user
+          - 89ff7b19de  # v1.0.111 (0.5.23 graft): style(webauthn): no em dash in the flags-refused log line (r
+          - 23d4b42150  # v1.0.111 (0.5.23 graft): feat(frontpage): route the setup cards' actions and let them
+          - 2e1a5c89a6  # v1.0.111 (0.5.23 graft): test(frontpage): type the invoke mock so tsc -b passes
+          - 5fd84c21de  # v1.0.111 (0.5.23 graft): fix(frontpage): RemoteCapture (the app's own name); rustfmt 
+          - dbb3e63dd9  # v1.0.111 (0.5.23 graft): style: rustfmt (CI toolchain) on ostler_apps tests
+          - c74c372530  # v1.0.111 (0.5.23 graft): fix(brief): catch-up uses local time, marks overdue, routes 
+          - e5cdad1224  # v1.0.111 (0.5.23 graft): fix(brief): format the 12-hour time with chrono, as human_st
+          - a66d6f721d  # v1.0.111 (0.5.23 graft): fix(brief): one event is one line, a stale store says so, da
+          - cfabf1ea5c  # v1.0.111 (0.5.23 graft): fix(brief): calendar lines in day order, all-day first then 
+          - 2f3af31653  # v1.0.111 (0.5.23 graft): feat(brief): locked facts, a validator with deterministic fa
+          - 3e4424b46c  # v1.0.111 (0.5.23 graft): style(brief): clippy identity_op and needless_range_loop in 
+          - d5efd982f0  # v1.0.111 (0.5.23 graft): test(brief): eval trap, a reminder the model leaves out is c
+          - 022dadcf59  # v1.0.111 (0.5.23 graft): fix(brief): a shared bare number is not a shared event (Arch
+          - d1cfb8ba62  # v1.0.111 (0.5.23 graft): style(brief): clippy in the eval, an unused helper and a typ
+          - 7b7dacf267  # v1.0.111 (0.5.23 graft): test(brief): three eval mutants that were not red now are
+          - a2f35974c2  # v1.0.111 (0.5.23 graft): feat(brief): the model is shown how the last briefs opened, 
+          - d3b8de6c71  # v1.0.111 (0.5.23 graft): fix(brief): every section counts what it cuts, long-overdue 
           # ---- v1.0.49 addition (2026-08-28, Archie). TWO crates/ commits
           # landed on oa/main DURING the v1.0.49 cut and staled the pin. The
           # first was 3464215b at 03:26:02Z.
@@ -531,6 +565,18 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "no_person_holds_two_contact_cards"
+
+  - id: box-walk-front-page-not-me-is-saved
+    title: a Not me tap from the Hub app must still be there after a reload
+    incident: >-
+      v1.0.105 walk (CM051 #2470); a Front Page card marked Not me came back on
+      the next visit because the Hub posted nothing and the route refused the
+      app's own origin, and no walk step ever tapped it. The probe POSTs from
+      tauri://localhost, re-reads interest_corrections.json and card_states.json
+      from disk, and requires a foreign origin to be refused
+    proof:
+      kind: box_walk_probe
+      probe: "front_page_not_me_is_saved"
 
   - id: box-walk-freshness-panel-has-dates
     title: every freshness-panel source must report a real date rather than 'unknown'
@@ -1106,6 +1152,52 @@ entries:
       kind: box_walk_probe
       probe: "owner_knowledge_score"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, derived_preferences_reach_digest_and_tool
+  # row): smart-prefs, first cut. Declared here because every probe on disk must
+  # be invoked by the cut; the promote scope decides it never refuses a promote.
+  - id: box-walk-derived-preferences-reach-digest-and-tool
+    title: "advisory: derived preferences (What you like) are served by the Hub route, named in the assistant digest, and named by the assistant when asked"
+    incident: "smart-prefs: the derive engine shipped dark, so derived preferences were empty on every box"
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_reach_digest_and_tool"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv, the five smart-prefs rows): Andy
+  # 2026-10-22, Smart Preferences is CORE and kept slipping. Declared here so the
+  # cut re-drives each one (verify_cut_manifest --require-runtime-proofs) and
+  # because every probe on disk must be invoked by the cut. NOT advisory: a RED or
+  # a CANNOT-RUN in any of the five makes the walk not clean.
+  - id: box-walk-derived-preferences-runs
+    title: "box-walk probe must PASS: derived_preferences_runs"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_runs"
+  - id: box-walk-derived-preferences-breadth
+    title: "box-walk probe must PASS: derived_preferences_breadth"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_breadth"
+  - id: box-walk-derived-preferences-dislike
+    title: "box-walk probe must PASS: derived_preferences_dislike"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_dislike"
+  - id: box-walk-derived-preferences-not-others
+    title: "box-walk probe must PASS: derived_preferences_not_others"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_not_others"
+  - id: box-walk-dislike-respected-in-brief
+    title: "box-walk probe must PASS: dislike_respected_in_brief"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "dislike_respected_in_brief"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
@@ -1392,3 +1484,26 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "call_audio_never_retained"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv, the three send-safety rows): the
+  # assistant send-safety fixes ostler-assistant #626 (S4, 1476bbeb) and #627
+  # (C1, 4f9f7f24) are MERGED, which is not PROVEN. Declared here so the cut
+  # re-drives each one and because every probe on disk must be invoked by the cut.
+  - id: box-walk-stranger-cannot-trigger-send
+    title: "box-walk probe must PASS: stranger_cannot_trigger_send"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "stranger_cannot_trigger_send"
+  - id: box-walk-tainted-owner-send-needs-exact-approval
+    title: "box-walk probe must PASS: tainted_owner_send_needs_exact_approval"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "tainted_owner_send_needs_exact_approval"
+  - id: box-walk-cron-run-makes-no-sends
+    title: "box-walk probe must PASS: cron_run_makes_no_sends"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "cron_run_makes_no_sends"

@@ -65,6 +65,7 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
+      - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -91,6 +92,9 @@ on:
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_front_page_not_me_probe_end_to_end.sh'
+      - 'scripts/box_walk_probes/probes/front_page_not_me_is_saved.sh'
+      - 'scripts/box_walk_probes/lib/front_page_not_me.py'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       - 'tests/test_the_doctor_page_is_on_brand.py'
       # The four files that carry the Doctor's palette. The brand gate reads all
@@ -151,6 +155,7 @@ on:
       # tests are RUN below, so both are watched here.
       - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
       - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'tests/test_listener_watchdog_budget.sh'
       - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
@@ -475,6 +480,12 @@ jobs:
         if: always()
         run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
 
+      # smart-prefs P1: the import itself kicks the compile, so preferences
+      # reach the digest and pwg_preferences now, not at the hourly tick.
+      - name: an import reaches the digest and pwg_preferences straight away
+        if: always()
+        run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
+
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
       # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
@@ -628,6 +639,14 @@ jobs:
         if: always()
         run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
 
+      # CM051 #2470 (v1.0.105 walk: Not me came back on the next visit). The walk
+      # probe POSTs a Not me from Origin tauri://localhost to the REAL Doctor,
+      # re-reads both stores, and must FAIL against a no-persist server, a server
+      # that refuses the app origin, and a mutant Doctor with that origin removed.
+      - name: The Not me walk probe passes the real route and fails every broken one
+        if: always()
+        run: bash tests/test_front_page_not_me_probe_end_to_end.sh
+
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only
       # because someone was asked to open the URL. Before the fix, the entire
@@ -716,6 +735,10 @@ jobs:
       - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
         if: always()
         run: bash tests/test_listener_watchdog_walk_probe.sh
+
+      - name: The listener watchdog probe budget is derived, and the capture cannot hold the restart
+        if: always()
+        run: bash tests/test_listener_watchdog_budget.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #

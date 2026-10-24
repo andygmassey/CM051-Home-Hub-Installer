@@ -2416,7 +2416,10 @@ def _resolve_fallback_conversation_id(base_id, transcript):
     conversation re-posted and reuses base_id (idempotent, no
     duplicate).
     """
-    existing = PROCESSING_DIR / base_id / "00_raw_transcript.md"
+    base_dir = _safe_conversation_dir(base_id)
+    if base_dir is None:
+        return base_id
+    existing = base_dir / "00_raw_transcript.md"
     if not existing.exists():
         return base_id
     try:
@@ -2454,7 +2457,9 @@ def _conversation_process_background(conversation_id, transcript, metadata):
     var). The CLI runs src.processor.process() with the full pipeline
     (classify, enrich, signals, coach, facts, sinks).
     """
-    state_dir = PROCESSING_DIR / conversation_id
+    state_dir = _safe_conversation_dir(conversation_id)
+    if state_dir is None:
+        return
     state_dir.mkdir(parents=True, exist_ok=True)
 
     # Save raw transcript
@@ -2961,6 +2966,31 @@ def api_conversation_retry_failed(payload=None):
     return {"queued": queued, "status": "accepted"}, 202
 
 
+def _id_token(value):
+    """One id component from a client-supplied value: word characters and
+    '-' only (everything else, '/', '.', whitespace, NUL, becomes '_'),
+    capped at 64. Keeps a date / type / name out of the path grammar."""
+    return re.sub(r"[^\w-]", "_", str(value))[:64]
+
+
+def _participant_slug_label(participant):
+    """Slug part for one participant, whatever shape the producer sent.
+
+    iPhone / Watch send strings (sorted speaker labels). CM052's wire sends
+    dicts (``{"id", "display", "role", "handle"}``). This used to call
+    ``str.replace`` on every entry, so a dict was a 500
+    "'dict' object has no attribute 'replace'" and no CM052 conversation that
+    carried participants ever reached CM048 (measured 2026-10-19 with
+    tests/test_conversation_process_privacy_passthrough.py on b9e38dd).
+    Anything else yields "" and is skipped.
+    """
+    if isinstance(participant, dict):
+        participant = participant.get("display") or participant.get("id") or ""
+    if not isinstance(participant, str):
+        return ""
+    return participant.strip().replace(" ", "_").lower()
+
+
 def api_conversation_process(payload):
     """Handle POST /api/v1/conversation/process.
 
@@ -3010,18 +3040,32 @@ def api_conversation_process(payload):
     # fails validation, and guard that fallback against the same
     # collision (see _resolve_fallback_conversation_id).
     meeting_id = metadata.get("meeting_id")
-    date = metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
+    date = _id_token(metadata.get("date", datetime.utcnow().strftime("%Y-%m-%d")))
     participants = metadata.get("participants", [])
-    conv_type = metadata.get("type", "conversation")
+    conv_type = _id_token(metadata.get("type", "conversation"))
+    producer_id = metadata.get("conversation_id")
     if meeting_id and _is_safe_meeting_id(meeting_id):
         conversation_id = meeting_id
+    elif producer_id and _is_safe_meeting_id(producer_id):
+        # A producer with its own STABLE id (CM052's wire sends one on every
+        # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
+        # away for the date+participant scheme below, whose collision guard
+        # gives a CHANGED re-post (a Slack day that grew, an edited thread)
+        # a fresh random suffix, so CM048 wrote a second bundle beside the
+        # stale one instead of updating it. Same id rules as meeting_id.
+        conversation_id = producer_id
     elif participants:
-        slug = "_".join(p.replace(" ", "_").lower() for p in participants[:2])
+        labels = [_participant_slug_label(p) for p in participants]
+        labels = [_id_token(label) for label in labels if label]
+        slug = "_".join(labels[:2]) or uuid.uuid4().hex[:8]
         conversation_id = _resolve_fallback_conversation_id(
             f"{date}_{slug}_{conv_type}", transcript
         )
     else:
         conversation_id = f"{date}_{uuid.uuid4().hex[:8]}"
+
+    if not _valid_conversation_id(conversation_id):
+        return {"error": "Invalid conversation id"}, 400
 
     # Spawn background processing
     thread = threading.Thread(
@@ -4699,9 +4743,12 @@ def _assert_resolve_and_write(subject, fact_text, relationship, asserted_via,
 
 def api_conversation_status(conversation_id):
     """Handle GET /api/v1/conversation/status/{id}."""
-    state_file = PROCESSING_DIR / conversation_id / "state.json"
-    if not state_file.exists():
-        return {"error": f"Conversation '{conversation_id}' not found"}, 404
+    conv_dir = _safe_conversation_dir(conversation_id)
+    if conv_dir is None:
+        return {"error": "Invalid conversation_id"}, 400
+    state_file = conv_dir / "state.json"
+    if state_file.is_symlink() or not state_file.is_file():
+        return {"error": "Conversation not found"}, 404
     try:
         state = json.loads(state_file.read_text())
     except Exception as exc:
@@ -4709,19 +4756,41 @@ def api_conversation_status(conversation_id):
     return state, 200
 
 
-def _safe_conversation_dir(conversation_id):
-    """Resolve PROCESSING_DIR/<conversation_id> with path-traversal defence.
+# One path segment: starts with a word character, then word chars, '.' or
+# '-'. No '/', no NUL, no leading '.', no whitespace; '..' is refused
+# separately. Unicode word characters stay legal because the date+name
+# fallback id can carry an accented display name.
+_SAFE_CONVERSATION_ID_RE = re.compile(r"^\w[\w.-]{0,254}$")
 
-    The conversation_id arrives in the URL path and is used as a directory
-    name. A malformed id ('../', absolute path, separators) must not let a
-    caller read outside the processing root. Returns the resolved Path or
-    None if it would escape PROCESSING_DIR.
+
+def _valid_conversation_id(conversation_id):
+    if not isinstance(conversation_id, str):
+        return False
+    if ".." in conversation_id:
+        return False
+    return bool(_SAFE_CONVERSATION_ID_RE.match(conversation_id))
+
+
+def _safe_conversation_dir(conversation_id):
+    """PROCESSING_DIR/<conversation_id>, or None if the id is unsafe.
+
+    The id arrives in a URL path or a POST body and becomes a directory
+    name. Refused: anything that is not a single plain path segment (see
+    _SAFE_CONVERSATION_ID_RE), a candidate that resolves outside
+    PROCESSING_DIR, and a candidate that is itself a symlink.
     """
-    candidate = (PROCESSING_DIR / conversation_id).resolve()
+    if not _valid_conversation_id(conversation_id):
+        return None
     root = PROCESSING_DIR.resolve()
+    raw = PROCESSING_DIR / conversation_id
+    if raw.is_symlink():
+        return None
+    candidate = raw.resolve()
     try:
         candidate.relative_to(root)
     except ValueError:
+        return None
+    if candidate == root:
         return None
     return candidate
 
@@ -7234,6 +7303,22 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
     }, 200
 
 
+# Level served for a todo that carries no urn:ostler:privacyLevel (every
+# node CM048 wrote before it began tagging todos; measured 93 of 93 on the
+# box). L2 = the default person tag (see the contact-card note above), so an
+# untagged legacy row is served at the level the operator's own data has
+# always been treated at, and is never silently promoted to L0/L1.
+_COMMITMENT_DEFAULT_PRIVACY_LEVEL = "L2"
+
+
+def _commitment_privacy_level(raw):
+    """Per-row level: tagged+valid -> that level; untagged -> the default;
+    tagged but unparseable -> L3 (fail closed)."""
+    if raw is None or str(raw).strip() == "":
+        return _COMMITMENT_DEFAULT_PRIVACY_LEVEL
+    return pwg_privacy.parse_privacy_level(raw) or "L3"
+
+
 def commitments_list(owner=None, due_before=None, status="open",
                      limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
@@ -7259,9 +7344,16 @@ def commitments_list(owner=None, due_before=None, status="open",
         ``deadline`` strictly before it (undated commitments are dropped
         when this filter is set, kept otherwise).
 
+    Each row carries ``privacy_level`` read from the todo's own
+    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
+    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
+    present but unparseable -> "L3" (fail closed, never visible). Rows are
+    still served ungated: the consumer (ostler-assistant promise filter)
+    applies the level.
+
     Newest first by deadline then created-at. Returns
-    ``({"commitments": [{action, owner, due, status, source}], "count":
-    N}, 200)`` or the 503 degraded shape on Oxigraph failure.
+    ``({"commitments": [{action, owner, due, status, source,
+    privacy_level}], "count": N}, 200)`` or the 503 degraded shape on Oxigraph failure.
     """
     status_norm = (status or "").strip().lower()
     status_filter = ''
@@ -7328,7 +7420,7 @@ def commitments_list(owner=None, due_before=None, status="open",
         # DISTINCT is new and is load-bearing: without it a todo present in
         # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
-            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
             + (
                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                 '        <urn:ostler:todoText> ?action ;\n'
@@ -7337,6 +7429,7 @@ def commitments_list(owner=None, due_before=None, status="open",
                 '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
                 '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
                 '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
+                '  OPTIONAL { ?todo <urn:ostler:privacyLevel> ?plevel }\n'
                 + status_filter
             )
             + '\n}'
@@ -7367,6 +7460,7 @@ def commitments_list(owner=None, due_before=None, status="open",
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
+            "privacy_level": _commitment_privacy_level(r.get("plevel")),
             "_created": r.get("createdAt", ""),
         })
 
@@ -8989,6 +9083,18 @@ def api_suggestions():
     return out
 
 
+def _calendar_events_in_process(days):
+    """Events for the next ``days`` days, read IN-PROCESS for the pre-meeting
+    brief (CM041 #231: a handler must never HTTP-call this single-threaded
+    server). CM051 serves /calendar from build_calendar_response (local store
+    first), so this reads the same function. A failed read raises, so
+    api_meeting_upcoming reports degraded instead of an empty 200."""
+    status, body = build_calendar_response(days)
+    if status != 200:
+        raise RuntimeError("calendar unavailable: %s" % (body.get("detail") or status))
+    return body.get("events", [])
+
+
 def api_meeting_upcoming(within_minutes=120):
     """Return enriched pre-meeting briefs for events starting within
     ``within_minutes`` from now.
@@ -9045,8 +9151,18 @@ def api_meeting_upcoming(within_minutes=120):
     # miss an event right at the boundary).
     days_lookahead = max(1, int((within_minutes + 1439) // 1440))
 
+    # In-process calendar read (CM041 #231): never HTTP-call our own port from
+    # a handler. CM051: an explicitly configured CALENDAR_API_URL names a
+    # different calendar source and is still read over HTTP by the brief; the
+    # default resolves to this server's own /api/v1/calendar, which is
+    # build_calendar_response, so it is read in-process.
+    _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
+                 else _calendar_events_in_process)
     try:
-        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
+        all_briefs = _brief.pre_meeting_brief(
+            days=days_lookahead,
+            events_provider=_provider,
+        )
     except Exception as exc:
         return {
             "meetings": [],
@@ -11721,6 +11837,56 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     }
 
 
+def _sparql_select_unscoped(sparql):
+    """Like ``_sparql_select`` but WITHOUT the CM048 user-graph UNION scoper.
+
+    The derived-preferences read names its own graph (the derived named graph),
+    and ``_graph_scoped`` wraps the WHERE body in a UNION that would match an
+    explicitly-named graph once per user graph in scope -- doubling every row.
+    Store auth is injected by the ``ostler_store_auth`` .pth shim, same as
+    ``_sparql_select``. Returns flat binding dicts ({var: value})."""
+    req = urllib.request.Request(
+        OXIGRAPH_URL.rstrip("/") + "/query",
+        data=sparql.encode("utf-8"),
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    data = json.loads(resp.read())
+    return [{k: v["value"] for k, v in b.items()}
+            for b in data.get("results", {}).get("bindings", [])]
+
+
+def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph, built through the CM019 producer builder
+    (vendored verbatim in derived_preferences.py beside this file).
+
+    Read-only; ALWAYS returns 200 with a ``degraded`` flag on any failure
+    (silent-empty rule), never 5xx. An absent/empty derived graph degrades with
+    a reason rather than returning a healthy-looking empty list."""
+    import os as _os
+    import sys as _sys
+    _ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # Sibling module; the server's own dir is on sys.path (run as a script),
+        # but insert it explicitly so a test harness importing the handler also
+        # resolves it. A normal import registers it in sys.modules, which the
+        # @dataclass machinery needs under `from __future__ import annotations`.
+        _d = _os.path.dirname(_os.path.abspath(__file__))
+        if _d not in _sys.path:
+            _sys.path.insert(0, _d)
+        import derived_preferences as _dp
+    except Exception as exc:  # noqa: BLE001
+        return {"generated_at": _ts, "items": [], "degraded": True,
+                "cannot_check": "derived module unavailable: " + type(exc).__name__}
+    reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
+    return _dp.build_derived_preferences_response(
+        reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
@@ -12659,6 +12825,44 @@ class Handler(BaseHTTPRequestHandler):
         # sorted. Absent artefact -> empty list + 200 so the daemon degrades
         # gracefully; provenance (sources/confidence/polarity) is preserved.
         # Sits behind the Doctor auth proxy at /api/v1/* like the rest.
+        # Derived preferences ("What you like"): abstract affinities derived
+        # from the compiled interests, read from the derived named graph via
+        # the CM019 producer builder. Degrades (200 + degraded) when the graph
+        # is empty/unavailable so the digest + pwg_ tool never see a fake empty.
+        if parsed.path == "/api/v1/preferences/derived":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 8)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            min_conf, err = _safe_float(params, "min_confidence", 0.4)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            # No ?tier= means "not asked": broad, falling back to all while a
+            # pre-tier graph waits for the next derive run. An explicit value is strict.
+            raw_tier = (params.get("tier", [""])[0] or "").strip().lower()
+            tier = raw_tier or None
+            if tier is not None and tier not in ("broad", "specific", "all"):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(
+                    {"error": "tier must be broad, specific or all"}).encode())
+                return
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/preferences":
             params = parse_qs(parsed.query)
             limit, err = _safe_int(params, "limit", 0)

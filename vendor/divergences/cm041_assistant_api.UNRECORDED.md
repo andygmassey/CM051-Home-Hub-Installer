@@ -1392,6 +1392,91 @@ Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 
 
 `_writer_interval_s`, `local_store_stale_after_s`, `_stale_detail`, `_same_calendar_event`, `collapse_duplicate_events`, their use in `build_calendar_response` and `fetch_recent_emails`. Guarded by `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py` (five tests under "Staleness" and "Duplicates"; four fail against the pre-change server, the fresh-store one is the negative control). Retire by landing the local-store path in CM041 (`CM041 #220` covers the dedup) and re-pinning.
 
+## 2026-10-19 v1.0.111: conversation/process takes CM052's shape; privacy_level proven intact (CM041 #221, 2615d915)
+
+Tree: `cm041/assistant_api`. Pin HELD; 2615d915 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of upstream 2615d915 for this file. `_participant_slug_label` (CM052 sends participants as dicts; `str.replace` on a dict was a 500, so no CM052 conversation with participants reached CM048), and `api_conversation_process` keeping a producer's stable `conversation_id` (a changed re-post updates the bundle instead of writing a second one beside it).
+- Method: patch(1) at fuzz 0 failed the second hunk on line offset only, so both were applied by exact string replacement. Measured: the sorted multiset of changed lines equals upstream #221's (31 lines).
+- Recorded HERE, not in the patch: `regenerate_divergence_patch.sh --write` refuses this tree because upstream still carries a phone-shaped value the vendored copy has scrubbed (minus side). Recording the patch would publish it.
+- Proof: `tests/test_cm041_conversation_process_privacy_passthrough_vendored.py` (6), ported from #221's own test with three named vendored differences (the subscription gate, the `pwg-convo --help` probe, the `PWG_CONVO_BIN` argv) and the CM051 synthetic cast. 6 pass on the graft; 5 of 6 fail on the pre-graft vendor.
+- Retire: re-pin `cm041/assistant_api` past 2615d915.
+
+## 2026-10-19 v1.0.112: conversation routes refuse path traversal (CM041 #225, e2dffc09)
+
+Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all eight upstream hunks of e2dffc09 for this file: `_id_token`, `_SAFE_CONVERSATION_ID_RE`, `_valid_conversation_id`, the stricter `_safe_conversation_dir` (single segment, no symlink, not the root), its use in `_conversation_process_background`, `_resolve_fallback_conversation_id` and `api_conversation_status`, and the 400 on an invalid id in `api_conversation_process`.
+- Method: patch(1) at fuzz 0 failed 2 of 8 hunks on layout (the vendored file orders these functions differently), so all were applied by exact string replacement, each asserted to occur once. Diffstat +54/-14, equal to upstream's for this file.
+- Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
+- Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
+- Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
+
+Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three
+was already grafted into ical-server.py. The three were 3-way cherry-picked onto
+the vendored file:
+- #215 (07a22b4c) GET /api/v1/preferences/derived, plus derived_preferences.py
+  and contract/derived_preferences_response.example.json (byte-identical to
+  upstream). hub_contract.yaml regenerated (265 routes). Supersedes CM051 #2956's
+  vendoring of the same route.
+- #232 (e33abeb) per-row privacy_level on /api/v1/commitments, applied to the
+  vendored allow-list scope (no read_across_graphs; see
+  tests/test_no_vendored_caller_of_read_across_graphs.py).
+- #231 (42d7310) the meeting brief reads the calendar in-process. CM051 ADAPTS
+  it: upstream's calendar_payload (iCloud script plus Google only) is NOT taken;
+  `_calendar_events_in_process` reads build_calendar_response (local store
+  first) and RAISES on a non-200, so /meeting/upcoming says degraded instead of
+  an empty 200.
+
+KEPT: everything recorded above in this file. browsing_enrich.py is the vendored
+copy unchanged. API.md keeps the vendored text (it drops upstream's
+/meeting/upcoming example section).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (a
+US-format example number in the API.md section the vendored copy drops would
+land on the MINUS side). The checked-in patch is stale against the new pin;
+the content gate reads RED for this tree, as on main before this change.
+
+Guarded by tests/test_vendored_cm041_revendor_07a22b4c_routes.py (5 pass here,
+5 fail on the pre-re-vendor tree).
+
+## 2026-10-23: round 2, pin 07a22b4c -> f2ef7891 (CM041 #233, #234, #235)
+
+All three commits touch only assistant_api. derived_preferences.py is byte-identical
+to upstream at f2ef7891 (#235: L3 and unparseable levels never served, privacy_level emitted) (it was byte-identical at 07a22b4c too). ical-server.py
+takes #234 (the ?tier= parameter, 400 on an unknown tier, tier passed to the
+builder) by 3-way merge, clean, 14 of 14 added lines present. hub_contract.yaml
+regenerated. No new divergence. Guarded by
+tests/test_vendored_cm041_revendor_07a22b4c_routes.py (4 tier/round-robin
+arms red on the 07a22b4c tree) and, for #225 already grafted in v1.0.112,
+tests/test_vendored_conversation_routes_refuse_path_traversal.py.
+
+## 2026-10-23 P13: a short code is up to 8 digits with no country code (cm041/assistant_api people_rules.py)
+
+Tree `cm041/assistant_api`, file `people_rules.py` (CM051-only, see the 2026-10-12
+move above; no upstream copy). v1.0.117 walk: a 7-digit SMS short code was
+listed as a person. `_is_short_code` / `_is_sender_id_handle` treated only 6
+digits or fewer as a short code. Now `_is_short_code_shape`: 6 or fewer whatever
+the punctuation, or 7 to 8 with no leading "+"; `_is_provisional_phone_name`
+excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
+`PersonNameFilter` (their P13 PRs). `tests/fixtures/people_rules_golden.json`:
+11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
+measured by recomputing the table and checking each delta's input. Pinned by
+`tests/test_people_rules_short_codes_up_to_8_digits.py`.
+
+## 2026-10-23: vendored test_people_list_endpoint.py agrees with P13 (people-list-correctness)
+
+Tree `cm041/assistant_api`, file `tests/test_people_list_endpoint.py`. After the
+re-vendor met main's P13 rule (CM051 #3143, `people_rules.py`: a 7 to 8 digit
+sender with no leading "+" is a short code), the upstream test still asserted
+the 7-digit sender 4477009 appears in `names` (line 337), so people-list-correctness
+failed on Python 3.11, 3.12 and 3.13. The rule is unchanged; the test now asserts
+that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
+57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
+next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
+this assertion, and the re-vendor makes the file byte-identical.
 ## An empty-but-present calendar store is no data, and one shared word is not one event (CM051, 2026-10-19, edge-case matrix)
 
 Tree `cm041/assistant_api`. Extends the section above. `read_local_calendar_events` raises `LocalStoreError` when `calendar_events.json` is present but holds no rows at all: an extractor that wrote nothing (no Full Disk Access, an empty Calendar database) read as a free day, which is a claim on no data; the brief now hears "could not be checked" (503 degraded with the reason) and a populated store with nothing today is still a 200 free day. `_same_calendar_event`'s containment rule needs two or more significant words of the shorter title inside the longer ("Budget review" in "Budget review with finance"); one shared word ("Lunch" and "Lunch with Sam") keeps both rows.
