@@ -69,7 +69,7 @@ this change.
 
 ## 2026-10-02, same day: estimate on miss, never drop a call
 
-Andy's product rule, same review: "I'd rather Bursar overcounted, than
+The owner's product rule, same review: "I'd rather Bursar overcounted, than
 undercounted." `RollingUsageRecorder.add()` gained an optional
 `estimated_input_tokens` kwarg: when Ollama reports no `prompt_eval_count` at
 all, `vectorizer.py` now computes a chars/4 estimate of the text it actually
@@ -84,7 +84,7 @@ this walk-defect review actually touched. The other four #2472 producers
 `cm059_scout_newsletters`) are UNCHANGED and still write nothing on a miss --
 whether to roll this rule out estate-wide, and whether to add a real
 "estimated" field to the Rust `TokenUsage` schema so the UI can show it
-honestly, are decisions for Archie/Andy, not assumed here.
+honestly, are decisions for Archie/the owner, not assumed here.
 
 Proven by execution, same two files: both now also assert that an
 unmeasured call writes one ESTIMATED row (not zero), with the `-est` suffix
@@ -130,7 +130,7 @@ macmini16-walk's own `preferences` collection (a test/walk box): 95 of
 more with zero candidates found both times (idempotent, proven by
 execution, not asserted). NOT wired into install.sh as an automatic
 upgrade step in this PR -- that decision (same shape as `repair_lid_as_
-phone`'s install.sh wiring) is flagged for Archie/Andy, not assumed here.
+phone`'s install.sh wiring) is flagged for Archie/the owner, not assumed here.
 Retire the parser-fix portion by landing CM019 PR #396 and re-pinning;
 the repair script has no upstream to retire against since it is native
 to this repo.
@@ -216,7 +216,7 @@ filter weighs play_count. Last played is the LATEST event (`_later`), not the
 first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
 rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
 Test: `tests/test_music_services_score_on_one_scale.py`.
-## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
+## No per-source storage cap (CM051 #28, the owner 2026-10-14: "Need everything.")
 
 **File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
 - `PreferenceFilter.MAX_PREFS_PER_SOURCE`: 5000 -> `None` (no cap).
