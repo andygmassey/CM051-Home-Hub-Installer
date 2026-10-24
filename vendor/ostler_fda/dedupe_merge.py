@@ -34,8 +34,10 @@ import httpx
 
 try:
     from .person_audit import record_person_removal
+    from . import phone_twins
 except ImportError:  # run as a script, not as a package
     from person_audit import record_person_removal
+    import phone_twins  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -325,11 +327,128 @@ def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List
         )
 
 
+# ── P16: A SHARED PHONE ALONE IS NOT IDENTITY ───────────────────────────
+# RULE 1 merged every Person sharing a phone STRING, whatever their names, so
+# two family cards that both list the household landline became one person.
+# The household rule (the same one the number-named twin fold uses, P13):
+# same name plus a shared detail is one person; a shared detail alone is not.
+# For a PHONE collision, people with real names are joined only to people
+# with the SAME name; a number held by two differently named people joins
+# nobody (an unnamed holder of it is not handed to either). Email collisions
+# are unchanged.
+
+def _is_real_name(name: str) -> bool:
+    """A human name by the SAME ladder the name election uses
+    (pwg_ingest._display_name_tier): a phone, an email, a placeholder or a
+    kinship word ("Mum") is not a name, so it never splits a household."""
+    tier, tier_name, _ = _tier_fn()
+    return tier((name or "").strip()) >= tier_name
+
+
+def _name_key(name: str) -> str:
+    return " ".join((name or "").casefold().split())
+
+
+def _real_names_of(persons: Set[str]) -> Dict[str, Set[str]]:
+    """``{person: {normalised real display name, ...}}`` in one query."""
+    if not persons:
+        return {}
+    values = " ".join(f"<{p}>" for p in sorted(persons))
+    rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        f"SELECT ?p ?n WHERE {{ VALUES ?p {{ {values} }} ?p pwg:displayName ?n . }}"
+    )
+    out: Dict[str, Set[str]] = {}
+    for r in rows:
+        n = r["n"]["value"]
+        if _is_real_name(n):
+            out.setdefault(r["p"]["value"], set()).add(_name_key(n))
+    return out
+
+
+def apply_household_rule(
+    collisions: Dict[Tuple[str, str], List[str]],
+    names: Dict[str, Set[str]],
+) -> Tuple[Dict[Tuple[str, str], List[str]], int]:
+    """Rewrite PHONE collisions so only same-named people are joined.
+    Returns ``(collisions, refused)``; ``refused`` counts phone values held by
+    two or more differently named people (left unjoined, counted)."""
+    out: Dict[Tuple[str, str], List[str]] = {}
+    refused = 0
+    for (typ, value), persons in collisions.items():
+        if typ != "phone":
+            out[(typ, value)] = persons
+            continue
+        named = [p for p in persons if names.get(p)]
+        common = set.intersection(*(names[p] for p in named)) if named else set()
+        if len(named) <= 1 or common:
+            # Nobody named, one named holder, or every named holder shares a
+            # name: the old RULE 1 behaviour.
+            out[(typ, value)] = persons
+            continue
+        # Two or more differently named people hold this number. Join only
+        # people who share a name; unnamed holders join nobody.
+        refused += 1
+        groups: Dict[str, Set[str]] = {}
+        for p in named:
+            for key in names[p]:
+                groups.setdefault(key, set()).add(p)
+        for key, members in sorted(groups.items()):
+            if len(members) > 1:
+                out[("phone", f"{value}#name={key}")] = sorted(members)
+    return out, refused
+
+
+def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
+    """P13: fold each number-named person (no human name, no Contacts card)
+    into the ONE named person who holds the same number, compared in
+    normalised form. A number held by two or more named people is shared (a
+    household landline) and is left alone, counted. See phone_twins.py.
+
+    The exact-string sweep above cannot do this: a card stored in national
+    form never string-matches the "+44..." handle. Raises on an unreadable
+    store, like every read in this module; ``run`` reports that.
+    """
+    index = phone_twins.load_index(_sparql_query)
+    # Instrumented (Archie #3144): which country the normalised compare ran
+    # with. None means DEFAULT_COUNTRY_CODE and USER_PHONE did not reach this
+    # process, and numbers are matched on a unique trailing 8 digits instead.
+    mode = {"phone_twins_country_code": index.default_cc,
+            "phone_twins_match": "e164" if index.default_cc is not None else "trailing8"}
+    logger.info("dedupe_merge: phone-twin pass country=%s match=%s",
+                mode["phone_twins_country_code"], mode["phone_twins_match"])
+    merged = 0
+    shared = 0
+    for person in sorted(p for p in index.phones if index.is_unnamed(p)):
+        holders: Set[str] = set()
+        for v in index.phones[person]:
+            holders |= index.named_holders(v)
+        holders.discard(person)
+        if not holders:
+            continue
+        if len(holders) > 1:
+            shared += 1
+            logger.info(
+                "dedupe_merge: a number-named person shares its number with %d "
+                "named people; not merged (household rule)", len(holders),
+            )
+            continue
+        if not dry_run:
+            _merge_pair(next(iter(holders)), person)
+        merged += 1
+    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
+
+
 def run(dry_run: bool = False) -> Dict[str, int]:
     """Sweep the graph and merge all exact-identifier-colliding Persons.
     Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
     folded away)."""
     collisions = find_collisions()
+    # P16: a shared phone joins only same-named people. A store error here is
+    # a store error: it propagates like find_collisions' own read.
+    phone_people = {p for (t, _), ps in collisions.items() if t == "phone" for p in ps}
+    collisions, refused_shared_phone = apply_household_rule(
+        collisions, _real_names_of(phone_people))
     comps = _components(collisions)
 
     # ── RULE 2 VETO. THIS MODULE HAD NONE, AND IT IS WHY THE OVER-MERGE
@@ -409,8 +528,16 @@ def run(dry_run: bool = False) -> Dict[str, int]:
         refused,
         " (dry-run, no writes)" if dry_run else "",
     )
-    return {"collision_keys": len(collisions), "merged": merged,
-            "refused_rule2": refused, "refused_unreadable": False}
+    out = {"collision_keys": len(collisions), "merged": merged,
+           "refused_rule2": refused, "refused_unreadable": False,
+           "refused_shared_phone": refused_shared_phone}
+    # P13: the number-named twins the exact-string pass cannot see.
+    try:
+        out.update(merge_provisional_phone_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
+        out["phone_twins_unreadable"] = True
+    return out
 
 
 def main() -> int:

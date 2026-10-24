@@ -1452,3 +1452,16 @@ regenerated. No new divergence. Guarded by
 tests/test_vendored_cm041_revendor_07a22b4c_routes.py (4 tier/round-robin
 arms red on the 07a22b4c tree) and, for #225 already grafted in v1.0.112,
 tests/test_vendored_conversation_routes_refuse_path_traversal.py.
+
+## 2026-10-23 P13: a short code is up to 8 digits with no country code (cm041/assistant_api people_rules.py)
+
+Tree `cm041/assistant_api`, file `people_rules.py` (CM051-only, see the 2026-10-12
+move above; no upstream copy). v1.0.117 walk: a 7-digit SMS short code was
+listed as a person. `_is_short_code` / `_is_sender_id_handle` treated only 6
+digits or fewer as a short code. Now `_is_short_code_shape`: 6 or fewer whatever
+the punctuation, or 7 to 8 with no leading "+"; `_is_provisional_phone_name`
+excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
+`PersonNameFilter` (their P13 PRs). `tests/fixtures/people_rules_golden.json`:
+11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
+measured by recomputing the table and checking each delta's input. Pinned by
+`tests/test_people_rules_short_codes_up_to_8_digits.py`.

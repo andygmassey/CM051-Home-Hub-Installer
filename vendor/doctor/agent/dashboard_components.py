@@ -566,7 +566,7 @@ def render_observability_posture(now_dt=None) -> str:
             # 1 KiB string.
             short = error_msg if len(error_msg) <= 200 else error_msg[:197] + "..."
             error_line = (
-                f'<div class="status-detail" style="color:#ef4444">'
+                f'<div class="status-detail" style="color:#A82A2A">'
                 f'{_html_escape(short)}</div>'
             )
         # Click-through expand: full marker JSON wrapped in a
