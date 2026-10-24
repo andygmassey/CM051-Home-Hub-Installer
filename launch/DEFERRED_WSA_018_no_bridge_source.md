@@ -51,7 +51,7 @@ In rough order:
 
 1. **The owner commits / authors `bridge.py`** somewhere upstream (HR015 likely; possibly a new repo like `ostler-ai/ostler-imessage-bridge` to mirror the RemoteCapture pattern). Schema for `inbox.jsonl` documented in an accompanying `SCHEMA.md`. Idempotency model + chat.db polling cadence pinned.
 2. **The owner picks the architecture-detection model:** (a) install-time question, (b) auto-detect on assistant user presence, or (c) always install but no-op when single-user.
-3. **The owner decides ownership / permissions** on `/Users/Shared/imessage-bridge/` (POSIX mode + owner + group).
+3. **The owner decides ownership / permissions** on the `imessage-bridge/` directory in the macOS Shared folder (POSIX mode + owner + group).
 4. **Then this PR can be written.** Pattern mirrors the existing email-ingest LaunchAgent install (Phase 3.14a-ish). Estimated ~3-4 hours once the upstream + decisions exist.
 
 ## What this PR ships instead
