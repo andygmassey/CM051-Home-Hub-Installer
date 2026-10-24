@@ -1,0 +1,84 @@
+# The WHOLE vendored cm041 suite, in one process, on every change under
+# vendor/cm041/.
+#
+# Until this workflow, each vendor/cm041 test file was collected only by the
+# workflow written for it, and 9 of the 28 test files were collected by none
+# (test_ical_server_wire_shape.py, tests/test_identifier_match_guard.py,
+# test_subscription_endpoint.py, test_subscription_gate.py,
+# contact_syncer/test_carddav_snapshot.py, meeting_syncer/test_non_human_filter.py,
+# tests/test_dedupe_register_person.py, tests/test_fuzzy_candidate_load_split.py,
+# and the two test_vendor_import.sh scripts). Two of those had gone stale on
+# deliberate product changes (Rule 0.8 pause on /ingest/ios, CM051 #1978; the
+# people_stale graph recheck, CM051 #2521; the BW-1 guard reading every
+# displayName, CM051 #3073) and nobody saw it: a red file that no workflow
+# runs is not red anywhere. Measured 2026-10-24 on main 3f8b886d: 8 failed,
+# 315 passed with the per-file workflows all green.
+#
+# One run, one total, a collected-count floor, so a new red or a shrinking
+# suite is visible on the PR that causes it.
+name: vendored-cm041-suite
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_security/**'
+      - '.github/workflows/vendored-cm041-suite.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/**'
+      - 'vendor/ostler_security/**'
+      - '.github/workflows/vendored-cm041-suite.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # The shipped interpreter. The per-file workflows carry the matrix.
+          python-version: '3.11'
+      - name: Install
+        # Union of what the per-file cm041 workflows install, plus the
+        # ostler_security runtime (cryptography, sqlcipher3) that
+        # test_row_factory_on_sqlcipher_connection.py needs with
+        # PYTHONPATH=vendor, pinned as db-key-delivery-and-recovery.yml pins it.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r vendor/cm041/identity_resolver/requirements.txt \
+            "cryptography>=50.0.0,<51.0.0" \
+            "sqlcipher3>=0.6.0,<0.7.0" \
+            pytest rapidfuzz phonenumbers httpx fastapi rdflib pyoxigraph \
+            qdrant-client pyyaml vobject nameparser
+      - name: Whole vendored cm041 pytest suite
+        env:
+          PYTHONPATH: vendor
+        run: |
+          set -eu
+          n="$(python -m pytest vendor/cm041 --collect-only -q -p no:cacheprovider | grep -cE '::test_')" || n=0
+          echo "vendor/cm041: collected ${n} test(s)"
+          if [ "${n:-0}" -lt 324 ]; then
+            echo "REFUSING: expected at least 324 collected tests under vendor/cm041, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041 -q -p no:cacheprovider -rfEs
+      - name: Script-style tests (not pytest-collected)
+        if: always()
+        run: |
+          set -eu
+          python vendor/cm041/meeting_syncer/test_non_human_filter.py
+          bash vendor/cm041/test_vendor_import.sh
+          bash vendor/cm041/assistant_api/test_vendor_import.sh
