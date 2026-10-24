@@ -40,6 +40,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_hung_slot_test_leaves_no_burners.sh'
       - 'tests/test_background_qos_yields_to_chat.sh'
       - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
@@ -58,6 +59,7 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_hung_slot_test_leaves_no_burners.sh'
       - 'tests/test_background_qos_yields_to_chat.sh'
       - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
@@ -100,6 +102,13 @@ jobs:
       - name: A hung slot holder is stopped, a busy one is not
         if: success() || failure()
         run: bash tests/test_a_hung_slot_holder_is_stopped.sh
+
+      # 2026-10-22: that test's CPU burners were orphaned when it was killed or
+      # timed out (six of them, load ~600). Signals it mid-run and counts the
+      # burners left behind.
+      - name: The hung-slot test leaves no CPU burners behind
+        if: success() || failure()
+        run: bash tests/test_hung_slot_test_leaves_no_burners.sh
 
       # v1.0.108: ostler_slot_run launches every feed + wiki-backfill payload
       # at macOS background QoS (taskpolicy -b, nice fallback) so interactive
