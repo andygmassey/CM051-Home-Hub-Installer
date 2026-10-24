@@ -37,6 +37,13 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
+      - 'tests/test_vendored_derive_covers_all_of_life.py'
+      - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
+      - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
+      - 'tests/test_vendored_derive_scroll_carries_privacy_level.py'
+      - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_ingest_contract.py'
@@ -72,6 +79,31 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
           python3 tests/test_derive_engine_writes_a_derived_preference.py
+      - name: The vendored registry derives across all of life, not only films
+        # Tv, music, books, podcasts, topics, sites, news, food, places and
+        # brands, each with an under-gate control and a dropped-row mutant.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_derive_covers_all_of_life.py
+      - name: Types before things (tiers) and rollup into broad groups
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_derive_tiers_and_rollup.py
+      - name: The endpoint's top-N interleaves by category
+        if: always()
+        run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
+      - name: The owner's LinkedIn career reaches the derive engine
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings
+          python3 tests/test_vendored_linkedin_career_reaches_the_derive_engine.py
+      - name: A derive reader's scroll carries the privacy level, so L3 is refused as L3
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_derive_scroll_carries_privacy_level.py
       - name: Every importer declares and keeps the ingest contract (entity, category, real event time, owner, privacy, item key)
         # Derivation can only roll up and decay what ingest kept. The registry
         # refuses an unregistered parser; the fixtures refuse a dropped field;
