@@ -149,6 +149,10 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             self._send(200, _EMPLOYER)
         elif path == "/api/v1/preferences":
             self._send(200, _PREFERENCES)
+        elif path == "/api/v1/commitments":
+            self._send(200, {"commitments": [], "count": 0})
+        elif path == "/api/v1/memory":
+            self._send(200, {"facts": [], "count": 0})
         else:
             self._send(404, {"error": "not found"})
 
@@ -351,7 +355,7 @@ def test_exits_non_zero_when_token_absent(hub, tmp_path):
     result = _run(hub, workspace, token=None)
 
     assert result.returncode != 0, (
-        "a run that produced zero of seven sections exited 0 -- this is the "
+        "a run that produced zero of eleven sections exited 0 -- this is the "
         "original defect.\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
@@ -384,7 +388,7 @@ def test_failure_message_names_the_measured_status(hub, tmp_path):
         f"stderr={result.stderr}"
     )
     assert "/api/v1/timeline" in result.stderr
-    assert "0 of 7 sections produced content" in result.stderr
+    assert "0 of 11 sections produced content" in result.stderr
 
 
 def test_failure_message_does_not_invent_a_cause(hub, tmp_path):

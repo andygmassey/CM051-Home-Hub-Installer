@@ -37,7 +37,7 @@
 #
 #   0  digest written, every source answered
 #   1  digest built but could not be written to disk
-#   2  zero of seven sections; nothing to write (prior copy kept)
+#   2  zero of eleven sections; nothing to write (prior copy kept)
 #   3  digest written, but one or more sources failed
 #
 # A prior CONTEXT.md is still left untouched on 2 -- a stale digest
