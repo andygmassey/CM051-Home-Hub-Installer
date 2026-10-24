@@ -1,0 +1,367 @@
+{
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_ASK_1": {
+  "text": "Obtén el consentimiento que exija tu ley local antes de captar una conversación hablada.",
+  "src_hash": "f7a280a578c6",
+  "src": "Obtain whatever consent your local law requires before you capture a spoken conversation."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_ASK_2": {
+  "text": "Deja claro a las personas con las que estás que se está captando audio; por ejemplo, dilo al principio o mantén un indicador visible.",
+  "src_hash": "06ecc7bcd0e7",
+  "src": "Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_ASK_3": {
+  "text": "Si tienes dudas, deja desactivada la transcripción de voz. Tus conversaciones de texto funcionan igual.",
+  "src_hash": "bd0dad7e64d6",
+  "src": "If in doubt, leave spoken transcription off. Your text conversations work either way."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING": {
+  "text": "Lo que te pedimos:",
+  "src_hash": "a9ee506ee301",
+  "src": "What we ask of you:"
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL": {
+  "text": "Tu decisión:",
+  "src_hash": "992e8279ff4c",
+  "src": "Your decision:"
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N": {
+  "text": "[N] Ahora no: mantener desactivada la transcripción de voz. (Puedes activarla más tarde en Ajustes.)",
+  "src_hash": "4f73b1e31745",
+  "src": "[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y": {
+  "text": "[Y] Lo entiendo y obtendré el consentimiento que exija mi ley local.",
+  "src_hash": "28a3a81dc6f4",
+  "src": "[Y] I understand, and I will obtain any consent my local law requires."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_HEADING": {
+  "text": "Convertir conversaciones habladas en texto",
+  "src_hash": "2da95e895990",
+  "src": "Turning spoken conversations into text"
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_INTRO": {
+  "text": "En resumen: cuando captas audio hablado para transcribirlo, obtener el consentimiento que exija la ley es responsabilidad tuya, no nuestra. Escribir y enviar mensajes no se ve afectado.",
+  "src_hash": "4a4e9aa167bd",
+  "src": "In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LAW": {
+  "text": "Ostler puede convertir en texto con función de búsqueda las conversaciones habladas que captes, como llamadas y reuniones; esto solo se refiere al audio que decidas transcribir. Las normas sobre grabar a personas mientras hablan varían según el país; en algunos (Alemania y Francia, por ejemplo) todos los participantes deben estar de acuerdo antes.",
+  "src_hash": "c37b6c70c7a5",
+  "src": "Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL": {
+  "text": "Nota legal: grabar la palabra hablada puede estar regulado por la ley nacional, por ejemplo el artículo 201 del Código Penal alemán (Verletzung der Vertraulichkeit des Wortes) o el artículo 226-1 del Código Penal francés, con independencia de la ley de protección de datos. Como persona que realiza la grabación en este Mac, eres responsable de su cumplimiento. Creative Machines nunca recibe tus grabaciones y no es parte en ellas.",
+  "src_hash": "03eef4cb097a",
+  "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LOCAL": {
+  "text": "Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it.",
+  "src_hash": "70e664660797",
+  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
+ },
+ "install_sh::MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT": {
+  "text": "Conversaciones de correo: no configuradas, porque no aceptaste que Ostler lea los mensajes de otras personas.",
+  "src_hash": "32aca8898998",
+  "src": "Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+ },
+ "install_sh::MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT": {
+  "text": "Conversaciones de Mensajes: no configuradas, porque no aceptaste que Ostler lea los mensajes de otras personas.",
+  "src_hash": "3ab3616bba3d",
+  "src": "Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+ },
+ "install_sh::MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT": {
+  "text": "Conversaciones de WhatsApp: no configuradas, porque no aceptaste que Ostler lea los mensajes de otras personas.",
+  "src_hash": "604b85f9ff82",
+  "src": "WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+ },
+ "install_sh::MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL": {
+  "text": "Licencia: %s – consulta los términos originales antes de usarlo comercialmente.",
+  "src_hash": "753246eaa2a6",
+  "src": "Licence: %s – check upstream terms before commercial use."
+ },
+ "install_sh::MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN": {
+  "text": "      Ostler mostrará una pantalla de consentimiento adicional antes de instalar",
+  "src_hash": "116402d2a371",
+  "src": "      Ostler will show an extra consent screen before installing"
+ },
+ "install_sh::MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION": {
+  "text": "Guardando registros de consentimiento y región...",
+  "src_hash": "266dfb05b1bb",
+  "src": "Persisting consent records and region..."
+ },
+ "install_sh::MSG_INFO_TERMS_PERSONAL_USE_DECLINED": {
+  "text": "No hay problema. No se ha instalado nada.",
+  "src_hash": "af70b93fbd80",
+  "src": "No problem. Nothing has been installed."
+ },
+ "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
+  "text": "      (Artículo 9 del RGPD del Reino Unido: obligatorio para datos de categoría especial).",
+  "src_hash": "6592e60a90f7",
+  "src": "      (UK GDPR Article 9 - required for special-category data)."
+ },
+ "install_sh::MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE": {
+  "text": "Registros de consentimiento y región guardados en ~/.ostler/posture/",
+  "src_hash": "0932ef0c10b1",
+  "src": "Consent records and region persisted to ~/.ostler/posture/"
+ },
+ "install_sh::MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED": {
+  "text": "El conector de WhatsApp se activará (consentimiento registrado)",
+  "src_hash": "f44636dd314f",
+  "src": "WhatsApp connector will be enabled (consent recorded)"
+ },
+ "install_sh::MSG_PROMPT_AUTOLOGIN_CONSENT": {
+  "text": "¿Guardar tu contraseña de inicio de sesión en este Mac para que pueda iniciar sesión por sí mismo tras un reinicio? [y = sí / N = no]",
+  "src_hash": "85e979bb28a6",
+  "src": "Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_ARTICLE_9_HELP": {
+  "text": "Consentimiento de categoría especial del artículo 9 (RGPD del Reino Unido). Necesario para la base jurídica del tratamiento.",
+  "src_hash": "1c87b49a060c",
+  "src": "Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_ARTICLE_9_TITLE": {
+  "text": "Tu decisión (Y = sí / N = no)",
+  "src_hash": "10561852e436",
+  "src": "Your decision (Y / N)"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_ENRICHMENT_HELP": {
+  "text": "Ostler puede añadir información de referencia pública a lo que encuentra: un libro, una película, un álbum, un lugar. Para ello envía el NOMBRE de ese elemento a servicios de referencia públicos como Wikidata, MusicBrainz y OpenLibrary, y guarda la respuesta en este Mac.\n\nLo que sale de tu Mac: el nombre del elemento que se busca. Nada más. Ni tus mensajes, ni tus contactos, ni tus archivos, ni quién lo mencionó.\n\nLo que puede ver el servicio al otro lado: tu dirección IP y que la solicitud viene de Ostler. La consulta va directamente de tu Mac a ellos, sin pasar por nuestros servidores, así que no hay forma de preguntar sin que sepan que alguien ha preguntado.\n\nSi dices No: no se hace ninguna consulta y el proceso de enriquecimiento en segundo plano no se instala. Todo lo demás funciona exactamente igual. Tu biblioteca simplemente contendrá lo que tú le diste, en lugar de lo que añade un catálogo público.\n\nPuedes decir No ahora y cambiar de opinión más tarde volviendo a ejecutar el instalador.",
+  "src_hash": "ca9e94ba8ae7",
+  "src": "Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.\n\nWhat leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.\n\nWhat the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.\n\nIf you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.\n\nYou can say No now and change your mind later by re-running the installer."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_ENRICHMENT_TITLE": {
+  "text": "¿Buscar datos públicos sobre lo que guardas?",
+  "src_hash": "a8a9dd1428b5",
+  "src": "Look up public facts about things you save?"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL": {
+  "text": "Cancelar",
+  "src_hash": "19766ed6ccb2",
+  "src": "Cancel"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY": {
+  "text": "Instalar Ostler",
+  "src_hash": "01c3622c44fe",
+  "src": "Install Ostler"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_INSTALL_HELP": {
+  "text": "Escribe INSTALL para confirmar que aceptas los términos.",
+  "src_hash": "6d496494d861",
+  "src": "Please type INSTALL to confirm you accept the terms."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_INSTALL_TITLE": {
+  "text": "¿Listo para instalar?",
+  "src_hash": "e3bcf1821c05",
+  "src": "Ready to install?"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER": {
+  "text": "Escribe INSTALL",
+  "src_hash": "4e6b08248d2f",
+  "src": "Type INSTALL"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP": {
+  "text": "En resumen: cuando captas audio hablado para transcribirlo, obtener el consentimiento que exija la ley es responsabilidad tuya. Escribir y enviar mensajes no se ve afectado.\n\nOstler puede convertir en texto con función de búsqueda las conversaciones habladas que captes, como llamadas y reuniones. Esto solo se refiere al audio que decidas transcribir.\n\nLo que te pedimos:\n• Obtén el consentimiento que exija tu ley local antes de captar audio.\n• Deja claro que se está captando audio: dilo o mantén un indicador visible.\n• Si tienes dudas, déjalo desactivado. Tus conversaciones de texto funcionan igual, y puedes activarlo más tarde en Ajustes.\n\nNota legal: grabar la palabra hablada puede estar regulado por la ley nacional, con independencia de la ley de protección de datos; por ejemplo, el artículo 201 del Código Penal alemán o el artículo 226-1 del Código Penal francés. Como persona que realiza la grabación, eres responsable de su cumplimiento. Creative Machines nunca recibe tus grabaciones.",
+  "src_hash": "ffeffc552826",
+  "src": "In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.\n\nOstler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.\n\nWhat we ask of you:\n• Get whatever consent your local law requires before you capture audio.\n• Make it clear audio is being captured – say so, or keep a visible indicator on.\n• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.\n\nLegal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE": {
+  "text": "¿Convertir conversaciones habladas en texto?",
+  "src_hash": "15e0737d2f25",
+  "src": "Turn spoken conversations into text?"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_THIRD_PARTY_HELP": {
+  "text": "Cualquier dato que importes de terceros (Google Takeout, descargas de Meta, exportaciones de LinkedIn, etc.) permanece en este Mac. Ostler lo guarda en tu grafo de conocimiento local; nada sale de tu dispositivo.\n\nAl continuar, entiendes y aceptas que eres el único responsable del tratamiento y la conservación de estos datos en tu equipo, igual que ocurre con los mensajes de correo que ya tienes en tu disco duro.\n\nNota legal: respecto a los registros que importas a este Mac, eres el responsable y el encargado del tratamiento según la legislación del Reino Unido y de la UE (RGPD del Reino Unido, artículo 4(7) y 4(8)). Creative Machines nunca recibe estos datos y no es el responsable del tratamiento. Tu tratamiento con fines personales y domésticos queda dentro del artículo 2(2)(c) del RGPD del Reino Unido y de la UE.\n\nMás información en docs.ostler.ai/privacy/third-party-data.",
+  "src_hash": "c965a6c0cea3",
+  "src": "Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.\n\nLegal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).\n\nRead more at docs.ostler.ai/privacy/third-party-data."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE": {
+  "text": "Una última cosa: cómo funcionan los datos de terceros",
+  "src_hash": "cae4f74e6a10",
+  "src": "One last thing: how third-party data works"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_VOICE_EU_HELP": {
+  "text": "El reconocimiento de hablantes permanece en este Mac. Creative Machines nunca recibe las huellas de voz.",
+  "src_hash": "d8913cfc929d",
+  "src": "Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
+ },
+ "install_sh::MSG_PROMPT_CONSENT_VOICE_EU_TITLE": {
+  "text": "¿Reconocer voces en las llamadas que captures?",
+  "src_hash": "6d4787ec8649",
+  "src": "Recognise voices on the calls you capture?"
+ },
+ "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_HELP": {
+  "text": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.",
+  "src_hash": "dda97d718608",
+  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
+ },
+ "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_TITLE": {
+  "text": "Ostler es para uso personal",
+  "src_hash": "64b3951866e2",
+  "src": "Ostler is for personal use"
+ },
+ "install_sh::MSG_PROMPT_WHATSAPP_CONSENT_HELP": {
+  "text": "WhatsApp Web es un servicio de terceros. Al activarlo, aceptas que tus mensajes pasen por la propia infraestructura de WhatsApp antes de llegar a tu instancia local de Ostler, y que WhatsApp (Meta Platforms Ireland Ltd) pueda suspender, restringir o cancelar tu cuenta de WhatsApp por el uso automatizado. Puedes desactivarlo más tarde en Ajustes.",
+  "src_hash": "966f1027ee61",
+  "src": "WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
+ },
+ "install_sh::MSG_PROMPT_WHATSAPP_CONSENT_TITLE": {
+  "text": "¿Activar la mensajería de WhatsApp para tu asistente?",
+  "src_hash": "84520b19fc3e",
+  "src": "Enable WhatsApp messaging for your assistant?"
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_ASK_1": {
+  "text": "No grabes a menores sin el acuerdo de un progenitor o tutor. Un menor no puede dar ese acuerdo por sí mismo, y tu propia garantía no sustituye la suya.",
+  "src_hash": "d1d639c369be",
+  "src": "Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_ASK_2": {
+  "text": "No grabes en lugares donde las personas esperan una privacidad real: una consulta médica, una reunión con un abogado, una sesión de terapia, una confesión religiosa, un baño o un vestuario.",
+  "src_hash": "61b3a5f3ff4c",
+  "src": "Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_ASK_3": {
+  "text": "No uses Ostler para grabar a nadie a escondidas cuando la ley de tu país no lo permita.",
+  "src_hash": "6f08d1ae08d8",
+  "src": "Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_ASK_HEADING": {
+  "text": "Te pedimos que no hagas tres cosas:",
+  "src_hash": "572700e99c5a",
+  "src": "Three things we ask you not to do:"
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_BUSINESS": {
+  "text": "No está pensado para uso empresarial. Por favor, no implantes Ostler entre empleados ni lo uses en tu trabajo para captar datos de compañeros, clientes, pacientes o usuarios. Si una organización lo hace, pasa a ser responsable de todas las personas cuya información recopila, y Ostler no está diseñado para asumir eso.",
+  "src_hash": "532e1677520b",
+  "src": "It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_HEADING": {
+  "text": "Para qué sirve Ostler",
+  "src_hash": "920bde25f4bc",
+  "src": "What Ostler is for"
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_INTRO": {
+  "text": "Ostler está pensado para una sola persona, en su propio Mac, para entender su propia vida. Ese es todo el diseño, y por eso tus datos nunca salen de este equipo.",
+  "src_hash": "12a4715a684f",
+  "src": "Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_LEGAL": {
+  "text": "Ostler se licencia para uso personal y no comercial por parte de una persona física. Creative Machines no es responsable ni encargada del tratamiento de la información que guardas en tu Mac, no recibe nada de ella y no garantiza que una grabación o captura concreta sea legal en tu jurisdicción.",
+  "src_hash": "02aa266c82e2",
+  "src": "Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_RECORDER": {
+  "text": "Tú eres quien graba. Ostler es la herramienta. Cuando la ley de tu país exija consentimiento antes de grabar una conversación, obtenerlo es cosa tuya, y desde aquí no podemos saber si una grabación concreta es legal donde estás.",
+  "src_hash": "b8feb4137957",
+  "src": "You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
+ },
+ "install_sh::MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS": {
+  "text": "  stderr de consent_cli (primeros 400 caracteres):",
+  "src_hash": "32fe9b2cc1c4",
+  "src": "  consent_cli stderr (first 400 chars):"
+ },
+ "install_sh::MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH": {
+  "text": "Escribe INSTALL exactamente (no importan las mayúsculas) para confirmar, o haz clic en Cancelar para volver.",
+  "src_hash": "43a9ac0e9253",
+  "src": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
+ },
+ "install_sh::MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED": {
+  "text": "%s no se ha configurado: Ostler no tiene constancia de tu respuesta a la pregunta que lo regula, así que no ha supuesto ninguna.",
+  "src_hash": "b11c0612c98c",
+  "src": "%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+ },
+ "install_sh::MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY": {
+  "text": "  Vuelve a ejecutar Ostler y elige responder de nuevo a las preguntas para activarlo. (registro de consentimiento: %s)",
+  "src_hash": "a69aa27cf6f5",
+  "src": "  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
+ },
+ "install_sh::MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS": {
+  "text": "No se pudo instalar el paquete legal/ de textos de consentimiento; se continúa",
+  "src_hash": "d76e73b0ac9b",
+  "src": "Could not install legal/ consent-strings package; continuing"
+ },
+ "install_sh::MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED": {
+  "text": "El paquete legal no está incluido en el instalador. Los controles de consentimiento del Artículo 9, WhatsApp y voz generarán ModuleNotFoundError hasta que se reinstale.",
+  "src_hash": "925de39a061f",
+  "src": "legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
+ },
+ "viewcopy::consent_article_9/legal_note": {
+  "text": "Nota legal: Tú eres el responsable del tratamiento de todos los datos de categoría especial que Ostler procesa en este Mac (artículo 4(7) del RGPD del Reino Unido). Creative Machines nunca recibe ninguno de estos datos. Tu consentimiento explícito anterior (artículo 9(2)(a) del RGPD del Reino Unido) es la base jurídica del tratamiento. Para uso personal y doméstico, el artículo 2(2)(c) limita aún más el alcance. Este consentimiento es revocable en cualquier momento sin afectar al tratamiento ya realizado.",
+  "src_hash": "a4fc71a80e6c",
+  "src": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
+ },
+ "viewcopy::consent_spoken_capture/ask_heading": {
+  "text": "Lo que te pedimos:",
+  "src_hash": "a9ee506ee301",
+  "src": "What we ask of you:"
+ },
+ "viewcopy::consent_spoken_capture/bullet_1": {
+  "text": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
+  "src_hash": "69bce80e15ec",
+  "src": "Get any consent your local law requires before you capture a conversation."
+ },
+ "viewcopy::consent_spoken_capture/bullet_2": {
+  "text": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
+  "src_hash": "bbbfaf424637",
+  "src": "Tell people audio is being captured, or keep a visible indicator on."
+ },
+ "viewcopy::consent_spoken_capture/bullet_3": {
+  "text": "Si tienes dudas, déjalo desactivado. Puedes activarlo más tarde en Ajustes.",
+  "src_hash": "d55967910b85",
+  "src": "If in doubt, leave this off. You can turn it on later in Settings."
+ },
+ "viewcopy::consent_spoken_capture/intro_body": {
+  "text": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
+  "src_hash": "c153e5ce5e30",
+  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac."
+ },
+ "viewcopy::consent_spoken_capture/legal_note": {
+  "text": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.",
+  "src_hash": "00aee79eb6b2",
+  "src": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "viewcopy::consent_third_party/intro_body": {
+  "text": "Los datos que importes de terceros (Google Takeout, descargas de Meta, exportaciones de LinkedIn, etc.) permanecen en este Mac. Ostler los guarda en tu grafo de conocimiento local; nada sale de tu dispositivo.\n\nAl continuar, entiendes y aceptas que eres el único responsable del tratamiento y la conservación de estos datos en tu equipo, igual que ocurre con los mensajes de correo que ya están en tu disco duro.",
+  "src_hash": "7a178c030124",
+  "src": "Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive."
+ },
+ "viewcopy::consent_third_party/legal_note": {
+  "text": "Nota legal: respecto a los registros que importes a este Mac, eres el responsable y el encargado del tratamiento conforme a la legislación del Reino Unido y de la UE (artículo 4, apartados 7 y 8, del RGPD del Reino Unido). Creative Machines nunca recibe estos datos y no es el responsable del tratamiento. Tu tratamiento con fines personales y domésticos queda comprendido en el artículo 2, apartado 2, letra c), del RGPD del Reino Unido y de la UE. Más información en docs.ostler.ai/privacy/third-party-data.",
+  "src_hash": "f501ce001078",
+  "src": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
+ },
+ "viewcopy::onboarding_question/consent_install_body_middle": {
+  "text": " para confirmar que aceptas los ",
+  "src_hash": "20cc231b87c4",
+  "src": " to confirm you accept the "
+ },
+ "viewcopy::onboarding_question/consent_install_body_prefix": {
+  "text": "Escribe ",
+  "src_hash": "c10ba3c52c12",
+  "src": "Please type "
+ },
+ "viewcopy::onboarding_question/consent_install_cancel": {
+  "text": "Cancelar",
+  "src_hash": "19766ed6ccb2",
+  "src": "Cancel"
+ },
+ "viewcopy::onboarding_question/consent_install_primary": {
+  "text": "Instalar Ostler",
+  "src_hash": "01c3622c44fe",
+  "src": "Install Ostler"
+ },
+ "viewcopy::onboarding_question/consent_install_terms_link_label": {
+  "text": "términos",
+  "src_hash": "51d2361f4fae",
+  "src": "terms"
+ },
+ "viewcopy::onboarding_question/consent_install_typed_mismatch": {
+  "text": "Escribe INSTALL exactamente (no importan las mayúsculas) para confirmar, o haz clic en Cancelar para volver.",
+  "src_hash": "43a9ac0e9253",
+  "src": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
+ },
+ "viewcopy::onboarding_question/consent_install_typed_placeholder": {
+  "text": "Escribe INSTALL",
+  "src_hash": "4e6b08248d2f",
+  "src": "Type INSTALL"
+ }
+}

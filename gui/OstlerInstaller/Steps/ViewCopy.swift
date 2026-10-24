@@ -31,6 +31,11 @@ final class ViewCopy {
         load()
     }
 
+    /// The same tree in the installer's language (InstallerLanguage),
+    /// when one ships. Looked up first; any key it lacks falls back to
+    /// `root`, so a partial translation shows English, never a dotted key.
+    private var localized: [String: Any] = [:]
+
     private func load() {
         guard let url = Bundle.main.url(forResource: "ViewCopy", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -40,6 +45,32 @@ final class ViewCopy {
             return
         }
         self.root = parsed
+        if let name = InstallerLanguage.resourceName("ViewCopy") {
+            if let lurl = Bundle.main.url(forResource: name, withExtension: "json"),
+               let ldata = try? Data(contentsOf: lurl),
+               let lparsed = try? JSONSerialization.jsonObject(with: ldata) as? [String: Any] {
+                self.localized = lparsed
+            } else {
+                NSLog("\(name).json missing or malformed -- view copy stays in English")
+            }
+        }
+    }
+
+    /// Test seam: build a catalogue from in-memory trees.
+    init(root: [String: Any], localized: [String: Any]) {
+        self.root = root
+        self.localized = localized
+    }
+
+    private static func lookup(_ parts: [String], in tree: [String: Any]) -> String? {
+        var node: Any = tree
+        for part in parts {
+            guard let dict = node as? [String: Any], let next = dict[part] else {
+                return nil
+            }
+            node = next
+        }
+        return node as? String
     }
 
     /// Resolve a dotted key (`license_entry.heading`) against the
@@ -48,14 +79,9 @@ final class ViewCopy {
     /// QA rather than silently rendering empty.
     func string(for key: String) -> String {
         let parts = key.split(separator: ".").map(String.init)
-        var node: Any = root
-        for part in parts {
-            guard let dict = node as? [String: Any], let next = dict[part] else {
-                return key
-            }
-            node = next
-        }
-        return (node as? String) ?? key
+        return ViewCopy.lookup(parts, in: localized)
+            ?? ViewCopy.lookup(parts, in: root)
+            ?? key
     }
 
     /// Resolve + substitute `{placeholder}` slots in the catalogue

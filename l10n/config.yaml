@@ -1,0 +1,64 @@
+# l10n/config.yaml -- what gets translated in THIS repo, into what.
+# English is the source of truth; every catalogue here falls back to English
+# at run time, so a missing translation never blocks a PR or a cut.
+
+languages: [de, fr, es, it, nl, pt-BR, pt-PT, ja, ko, zh-Hans, zh-Hant, zh-HK, ar, en-US]
+
+# Chinese in traditional script for Taiwan (zh-Hant) is ADAPTED from the reviewed zh-HK set, not
+# translated from scratch; a missing or stale HK string is translated fresh.
+derive_from:
+  zh-Hant: zh-HK
+
+models:
+  translate: claude-sonnet-5-5
+  review: claude-opus-5-5
+
+# A run refuses to start if its estimate is above this (USD, batch pricing).
+budget_usd: 25
+
+catalogues:
+  - id: install_sh
+    type: shell
+    source: install.sh.strings.en-GB.sh
+    target: install.sh.strings.{lang}.sh
+  - id: viewcopy
+    type: json-tree
+    source: gui/OstlerInstaller/Resources/ViewCopy.json
+    target: gui/OstlerInstaller/Resources/ViewCopy.{lang}.json
+  - id: hintcopy
+    type: json-tree
+    source: gui/OstlerInstaller/Resources/HintCopy.json
+    target: gui/OstlerInstaller/Resources/HintCopy.{lang}.json
+    skip_fields: [id, illustration]
+
+# Must survive verbatim: install.sh compares typed input to them (install.sh:12495).
+verbatim_tokens: [INSTALL, CANCEL, "[Y]", "[N]", "[y]", "[n]"]
+
+# The GUI pattern-matches these lines IN ENGLISH (InstallCompleteView.swift
+# serviceChecks), so a translation would turn healthy rows amber.
+keep_english:
+  - MSG_OK_QDRANT_HEALTHY
+  - MSG_OK_OXIGRAPH_HEALTHY
+  - MSG_OK_REDIS_HEALTHY
+  - MSG_OK_OLLAMA_HEALTHY
+  - MSG_OK_VANE_HEALTHY
+  - MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED
+
+# Shell keys matching these (key or developer comment) ship needs_review.
+# Legal / consent keys (regex on key + developer comment). A translation of
+# one ships only with a legal_reviews.tsv row (reviewed_by + date) for its
+# current English; otherwise English ships and the translation waits in
+# l10n/legal_pending/ (`legal-list`, `legal-approve`).
+# Ruling 2026-10-22: legal and consent strings stay ENGLISH in every locale.
+# A translation of one never ships, whatever legal_reviews.tsv says.
+legal_english_only: true
+legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
+
+# The en-GB header asks for a human translation of these.
+human_review_keys:
+  - MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK
+  - MSG_STEP_SETUP_COMPLETE_WRAP_UP
+  - MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE
+  - MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES
+  - MSG_OK_POWER_SOURCE_AC_GOOD_10_15
+  - MSG_WARN_PHASE_3_TAKES_10_15_MINUTES

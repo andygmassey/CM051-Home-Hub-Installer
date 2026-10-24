@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8939) captures the path BY
+    # _ostler_write_store_curl_config (defined :8945) captures the path BY
     # VALUE and never re-reads it:
-    #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8994 and :16744, both of which run
+    #     :8946   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8991   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9000 and :16762, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17539, where the note reads
+    # WhatsApp Web session path did it again at :17557, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17556 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17574 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6268 against a definition at :8939. Top-level
+    # writer's own definition: :6274 against a definition at :8945. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8994, :16744) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9000, :16762) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19712 / :19890 / :20047 / :20492 path. There the
+    # :19730 / :19908 / :20065 / :20510 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4769,12 +4769,10 @@ fi
 # extracted tarball where the catalogue ships, not at the empty
 # stdin process of the first pipe.
 OSTLER_LANG="${OSTLER_LANG:-en-GB}"
-_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
-if [[ ! -f "$_STRINGS_FILE" ]]; then
-    # Fall back to en-GB if the requested language file is missing,
-    # so a stale OSTLER_LANG env var does not brick the installer.
-    _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
-fi
+# English first, ALWAYS: every MSG_ key then exists even when a translation
+# lacks it (a key added to en-GB after the last translation run), so a missing
+# translation prints English -- never an empty line, never a set -u abort.
+_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
 if [[ -f "$_STRINGS_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$_STRINGS_FILE"
@@ -4783,7 +4781,15 @@ else
     printf 'install.sh: this is a packaging bug; please report it.\n' >&2
     exit 1
 fi
+# Then the installer language (OSTLER_LANG, from the GUI) overrides the keys it
+# translates. A missing file -- a stale or unknown OSTLER_LANG -- leaves English.
+_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
+if [[ "$OSTLER_LANG" != "en-GB" && -f "$_STRINGS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$_STRINGS_FILE"
+fi
 unset _STRINGS_FILE
+
 
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
@@ -16501,6 +16507,18 @@ if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
 fi
 printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
 
+# l10n: the wiki speaks the installer's language. OSTLER_LANG (set by the GUI
+# from the Mac's languages, InstallerLanguage.swift) goes into this compose .env
+# for the same reason as USER_FIRST_NAME above: every compose invocation, the
+# install-time compile and the recompile LaunchAgent alike, reads it from here.
+# The wiki compiler and wiki-site fall back to English for any value they do
+# not ship. Idempotent: replace any prior line, preserve the rest.
+if grep -q '^OSTLER_LANG=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^OSTLER_LANG=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'OSTLER_LANG=%s\n' "${OSTLER_LANG:-en-GB}" >> "$OSTLER_ENV_FILE"
+
 # #259 (the load-bearing half): the wiki-compiler compose block references
 # ${AI_MODEL:-qwen3.5:9b}. docker-compose.yml is a QUOTED heredoc, so that
 # literal is NOT baked at write time -- docker compose interpolates it at
@@ -21197,6 +21215,9 @@ services:
     # compiler.identity_label.first_name_to_pedia_label.
     environment:
       USER_FIRST_NAME: "${USER_FIRST_NAME:-}"
+      # l10n: theme chrome language (CM044 picks mkdocs Material's language
+      # and text direction from it; unknown -> English). From the compose .env.
+      OSTLER_LANG: "${OSTLER_LANG:-en-GB}"
     volumes:
       - wiki-docs:/docs/docs:ro
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
@@ -21417,6 +21438,9 @@ services:
       # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
       # compile. Empty -> the compiler labels its times UTC.
       - OSTLER_TZ=${OSTLER_TZ:-}
+      # l10n: CM044 loads compiler/locale.<lang>.yaml when it ships one,
+      # else its English locale.yaml. From the compose .env (see OSTLER_LANG there).
+      - OSTLER_LANG=${OSTLER_LANG:-en-GB}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian

@@ -472,6 +472,7 @@ test_install_refuses_below_the_macos_floor.sh	WIRED	.github/workflows/background
 test_install_repairs_merge_consistency_after_dedupe.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_install_strings_translations.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
@@ -488,6 +489,7 @@ test_junk_names_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_kinship_label_write_guard_vendored.py	WIRED	.github/workflows/kinship-label-write-guard.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_l10n_legal_strings_stay_english.py	WIRED	.github/workflows/l10n-check.yml
 test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
@@ -1001,6 +1003,7 @@ gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/
 gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallFailedBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/InstallerLanguageTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryDropzoneTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryShortIdHeuristicTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicensePersistenceTests.swift	WIRED	.github/workflows/swift-tests.yml
