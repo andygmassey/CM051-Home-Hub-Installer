@@ -94,6 +94,22 @@ PY" > "${boxf}" 2>/dev/null
     owner_src="$(box_run "if [ -s \$HOME/.walk-owner-source ]; then cat \$HOME/.walk-owner-source; elif [ -e \$HOME/.walk-log ]; then echo unknown-walk; fi" | tr -d '[:space:]')"
     [ -s "${selff}" ] || probe_note "could not read the owner's own handles on the box: the owner-in-People arm will be CANNOT-RUN"
 
+    # The box-clock time the contact-cards seed finished (contact_cards_seed.sh).
+    # The collector waits for a /api/v1/contacts/diff report built after it.
+    seedf="${out}/seed_ts.txt"
+    # Three outcomes, not two: ABSENT (rc 4, an older walk box: refreshing-only),
+    # READ (rc 0), and COULD NOT LOOK (ssh failure, read error: the duplicate arm
+    # is CANNOT-RUN). An empty or unparseable file is judged by customer_read.py.
+    seed_unreadable=""
+    box_run "if [ -e \$HOME/.walk-contact-cards-seed-ts ]; then cat \$HOME/.walk-contact-cards-seed-ts || exit 3; else exit 4; fi" > "${seedf}"
+    seed_rc=$?
+    case "${seed_rc}" in
+        0)  ;;
+        4)  probe_note "no contact-cards seed time on the box: the duplicate-review report is checked for refreshing only, not for staleness" ;;
+        *)  seed_unreadable="seed ts unreadable (box command rc=${seed_rc})"
+            probe_note "${seed_unreadable}: the duplicate-review arm will be CANNOT-RUN" ;;
+    esac
+
     port="$(( 20000 + RANDOM % 20000 ))"; dport="$(( port + 1 ))"
     ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 \
         -N -L "${port}:127.0.0.1:8000" -L "${dport}:127.0.0.1:8089" "${OSTLER_BOX_HOST}" &
@@ -109,6 +125,8 @@ PY" > "${boxf}" 2>/dev/null
     [ -s "${boxf}" ] && set -- "$@" --box-facts "${boxf}"
     [ -s "${selff}" ] && set -- "$@" --self-handles-file "${selff}"
     [ -s "${fresh}" ] && set -- "$@" --freshness-file "${fresh}"
+    [ "${seed_rc}" -eq 0 ] && set -- "$@" --seed-ts-file "${seedf}"
+    [ -n "${seed_unreadable}" ] && set -- "$@" --seed-ts-unreadable "${seed_unreadable}"
     [ -n "${owner_src}" ] && set -- "$@" --owner-source "${owner_src}"
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}

@@ -433,6 +433,10 @@ def _username_to_display_name(username: str) -> str:
     # Title case if contains spaces (looks like a real name)
     if " " in clean:
         clean = clean.title()
+    elif clean:
+        # A bare handle is not a name. Keep it recognisably a handle so it
+        # never reads as the person's real name downstream (S9 row 3).
+        clean = "@" + clean.lstrip("@")
     return clean
 
 

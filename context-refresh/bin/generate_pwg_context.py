@@ -716,8 +716,15 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
         f'  FILTER(SUBSTR(STR(?d), 1, 10) >= "{since}")\n'
         f"}} GROUP BY ?p ORDER BY DESC(?last) LIMIT {_RANK_POOL}"
     )
-    if msg_rows is None or meet_rows is None or recent_rows is None:
+    if msg_rows is None or meet_rows is None:
         return None
+    # The recency arm is an ADDITION. If its read fails, the counted ranking
+    # (messages, meetings) still stands: a LinkedIn or calendar customer must
+    # not lose a People section that rendered before this arm existed. The
+    # failure is already recorded by _sparql_select, so the digest still says
+    # a read failed while it ran; only the recency-only people are missing.
+    if recent_rows is None:
+        recent_rows = []
 
     def _int(v) -> int:
         try:

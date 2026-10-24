@@ -15,8 +15,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 49
-digest: 721aa8a98ebfbf104f49202e610bb01475d1372250817be2d0a2bdb93fe9b85c
+hosts: 55
+digest: 5518ec6cc14ea3c2ede0706a2253f47484c75244813ea422789bf2df062b70ac
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -88,6 +88,32 @@ the ledger; this is the shape.
 | Tailscale control plane, DERP relays | while the tailnet is up | yes, per feature | no, relayed payloads are end-to-end encrypted |
 | WhatsApp Web | only with the connector on | yes, off by default | it IS the customer's WhatsApp session |
 | public-data enrichment (~20 hosts) | during and after ingest | no, and see below | **yes** |
+| web search (ostler-vane: DuckDuckGo, Brave, Wikipedia) | only when the owner asks a web search | yes, per web-search use | the search query |
+
+## Web search (ostler-vane): three engines, nothing idle
+
+`ostler-vane` bundles SearXNG. The installer writes its own settings
+(`vane-searxng-settings.yml`, mounted read-only over `/etc/searxng/settings.yml`)
+instead of the image's, which loaded every default engine and Google
+autocomplete. Now: three engines (`duckduckgo` to `html.duckduckgo.com`, `brave`
+to `search.brave.com`, `wikipedia` to `en.wikipedia.org`, or `<lang>.wikipedia.org`
+for a non-English owner's locale, declared as the glob row `*.wikipedia.org`), and autocomplete,
+the favicon resolver, the image proxy, metrics and the tor-exit-list plugin are
+off. Each engine host is a ledger row. SearXNG and Vane run no timer or
+startup network check of their own with these engines (read from Vane v1.12.2
+and SearXNG source; not measured on a box). `tests/test_vane_searxng_has_no_idle_egress.py`
+fails if a feature is switched back on or an engine is added without a row.
+
+What the assistant can send: `web_search_tool` is in the egress gate's tool list
+(ostler-assistant `crates/zeroclaw-runtime/src/agent/egress_gate.rs:55`) and
+`requires_owner_approval` (`:77-80`, merged in #602, c23e22ca) lets it run
+unasked only when every word of the query is a word the owner typed this turn;
+an empty query, a non-owner turn or a forwarded message is denied.
+
+Not covered by the above: Vane's own browser UI (reached on `:3000` behind the
+credential) fetches a weather lookup, an IP-location lookup and favicons from
+the owner's browser when the owner opens it. That is the browser, not the
+container, and it is not an assistant path.
 
 ## The WhatsApp connector: settled, and the consent wording is wrong
 
@@ -220,14 +246,52 @@ and the instrument reports such a connection in its own bucket, headed OWNER
 ATTRIBUTED, SERVICE NOT, so a reader can see how much of the attribution rests
 on who owns an address rather than on which service answered.
 
-### Still unattributed
+### `limactl`'s destinations: attributed from the code, 2026-10-21
 
-1. `limactl`'s install-phase destinations, which change between samples.
+They were listed here as unattributed because they changed between samples.
+The cause is not mysterious and it is not one thing:
 
-Publishing an inventory with unexplained rows is better than publishing one
-that quietly drops them, and better again is going back and explaining one.
-This is still not finished, and the enrichment measurement above is the
-blocker, not this.
+* **`limactl` is carrying the VM's traffic, not its own.** colima starts the
+  VM with lima's `user-v2` network, which is a userspace network run by a
+  `limactl` process. A TCP connection opened by a container inside the VM
+  therefore shows on the Mac as a socket owned by `limactl`. What the probe
+  saw under `limactl` is what the containers were talking to.
+* **The image pulls are all `ghcr.io`.** Every compose image in the installer
+  is a `ghcr.io/...@sha256:` digest. Layers are served from a CDN, so the
+  addresses differ sample to sample. `ghcr.io` and
+  `pkg-containers.githubusercontent.com` were already declared.
+* **The Wikimedia address was a missing name.** `208.80.154.224` held by
+  `limactl` on 2026-08-17 is `text-lb.eqiad.wikimedia.org`, the front end that
+  `en.wikipedia.org` resolves to in some regions (a Hong Kong lookup returns
+  `103.102.166.224`, 2026-10-21). The wiki-compiler container looks artists
+  and organisations up on Wikipedia, MusicBrainz and OpenStreetMap, but only
+  when `OSTLER_PUBLIC_LOOKUPS=agreed`, which the launcher sets from the
+  customer's recorded yes. `en.wikipedia.org` and `overpass-api.de` were not
+  in the ledger. They are now, and the `musicbrainz.org` and
+  `nominatim.openstreetmap.org` rows now say the compiler path is live when
+  consented (the host-side enricher for Nominatim is still dead code).
+* **The VM image comes from GitHub.** colima's pinned image
+  (`abiosoft/colima-core`, sha512-checked) is fetched by colima's own curl
+  downloader, so it shows under `curl`, via a redirect to
+  `release-assets.githubusercontent.com`, now declared.
+
+What the VM does **not** fetch, read from the generated `lima.yaml` and
+colima's embedded image table: no containerd or nerdctl archive
+(`containerd.system` and `user` are false), no k3s (Kubernetes is off), no
+`apt` in any provision script (Docker is baked into the image), and no
+`docker.io` or `registry-1` pull.
+
+Because the probe joins by name resolved in the same loop as the socket read,
+none of this needs an IP range. A host that rotates addresses is matched by its
+name, so the fix for a `limactl` row is always to declare the name.
+
+**Not settled by reading, and not published as rows:** that a walk box really
+uses `user-v2` (the version read was colima 0.10.3; the installer does not pin
+colima, so `brew install colima` can change it), and whether the guest sends
+NTP over UDP, which a TCP probe cannot see. On a walk box mid-install, run
+`lsof -nP -iTCP -sTCP:ESTABLISHED -a -c limactl` and compare each remote's
+reverse name with the ledger; if a row there matches nothing declared, that is
+a new finding. `ps -ef | grep '[l]imactl usernet'` confirms the carrier.
 
 ## Verify it yourself
 

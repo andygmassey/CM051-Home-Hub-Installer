@@ -216,3 +216,59 @@ Update: no vector snapshot, no merge. `record_merge` raises `SnapshotUnavailable
 when Qdrant cannot be read; `execute()` skips the pair, journals a `skip`
 (reason `qdrant_unavailable`), and the next converge retries. Not a RULE 2
 refusal, not a pin.
+
+## Nameless pair on one number resolves to one person (CM051 #2545, 2026-10-21)
+
+NO UPSTREAM COUNTERPART (checked CM041 origin/main e2dffc0, 2026-10-21):
+`_identifier_match_trustworthy` and the BW-1 name-agreement guard exist only in this
+vendored tree (graft from CM051 #2663); upstream `resolve()` Tier 1 merges on a shared
+exact identifier after RULE 2 alone, so the nameless pair already merges there and
+there is nothing to port. Upstreaming this change means upstreaming the whole BW-1
+guard first, which reverses upstream's RULE 1 and is a decision for Andy/Archie, not
+a like-for-like port. This record stays until that decision is made.
+
+Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
+gains one early return, a new `_person_display_names` reads EVERY displayName on the
+node (the old unordered LIMIT 1 let store order decide whether a node holding both a
+phone-shaped and a human name read as nameless; `_person_display_name` stays as a
+deterministic wrapper), and the module imports `name_tier` and `NAME_TIER_HUMAN`
+from `canonical_name.py` (already in the tree, nothing there touched).
+
+Why: the BW-1 guard trusted a shareable (phone/email) match only when both display
+names were present and equal. A Contacts card with no name (job title only) and a
+messaging handle on the same number are both nameless, so the guard declined and a
+second person was minted: two "Unknown contact" rows on one number on the v1.0.106
+walk box. Measured by reproduction against the shipped syncer and resolver over an
+rdflib store: card `""` + phone, then handle `""`/phone-as-name + same phone gave
+`match_type=new`.
+
+Fix: when NEITHER the incoming name nor the matched node's name is human-tier
+(blank, phone, email or system alias), there is no name to disagree about and the
+match is trusted. RULE 2 runs first and is untouched, so two Contacts cards with
+different `icloud_contact_uid` still never merge. A human name on either side keeps
+the existing name-agreement rule: different human names on one line stay two people,
+and a nameless handle beside a NAMED card still declines.
+
+Guarded by `tests/test_nameless_records_sharing_a_number_are_one_person.py` (3 red on
+the unmodified resolver for the single-name cases and 3 more for the two-name node
+in every store order; all green here; mutant dropping the matched-node side goes
+red on the named-card control). Does NOT repair duplicates already in an installed
+graph: the BatchResolver exact-identifier tier requires the same full name, so
+existing nameless pairs are not collapsed by this change.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 5cb0c24a -> 07a22b4c)
+
+3-way merge result is byte-identical to the tree before the re-pin: every
+upstream change in the range (#186 to #191, #200, #210) was already grafted.
+KEPT: exact_identifier / merge_journal imports in batch_resolver.py,
+rename_survivor_upward and the degraded-resolve wrapper in resolver.py, the
+upward_name import in repair_merge_consistency.py, the unreadable-tombstone
+set-aside in forget_tombstone.py, the composed 15-digit control in
+repair_lid_as_phone.py. NOT VENDORED, now declared in `exclude`:
+repair_kinship_display_names.py, repair_misformatted_phones.py,
+reconcile_people_stores.py (operator repair tools, never shipped).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses
+(the 15-digit literal upstream keeps in repair_lid_as_phone.py would land on
+the MINUS side). The checked-in patch is stale against the new pin; the
+content gate reads RED for this tree, as on main before this change.

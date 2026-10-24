@@ -390,6 +390,23 @@ def neighbour_forget_update():
             "DELETE WHERE { <%s> ?p ?o }" % (NEIGHBOUR_FACT, NEIGHBOUR_URI))
 
 
+def forget_neighbour_vector(qdrant, home, post=None):
+    """Delete the neighbour's projection in the Qdrant `people` collection.
+
+    seed_neighbour writes a Person node; the people sweep then projects it to a
+    vector (source=fda_people_index). Forgetting only the graph side left an
+    orphan vector: v1.0.112 walk33 people_stores_reconcile B=1 and
+    people_count_agreement oxigraph=2 doctor=3. Filter-delete by the exact
+    person_uri, so no customer point can match. -> state word."""
+    post = post or (lambda url, body: _post(url, body, _qdrant_headers(home)))
+    try:
+        post("%s/collections/people/points/delete?wait=true" % qdrant,
+             {"filter": {"must": [{"key": "person_uri", "match": {"value": NEIGHBOUR_URI}}]}})
+        return "forgotten"
+    except Exception as e:
+        return "failed-%s" % type(e).__name__
+
+
 def forget_neighbour(home, store="http://127.0.0.1:7878"):
     import urllib.request
     tok = os.environ.get("OXIGRAPH_TOKEN") or ""
@@ -432,7 +449,8 @@ def main(argv=None):
     fg.add_argument("--home", default=os.path.expanduser("~"))
     a = ap.parse_args(argv)
     if a.cmd == "forget":
-        res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home)}
+        res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home),
+               "neighbour_vector": forget_neighbour_vector(a.qdrant.rstrip("/"), a.home)}
         print(json.dumps(res))
         ok = all(v.get("left") == 0 for v in res["points"].values()) and res["neighbour"] == "forgotten"
         return 0 if ok else 1

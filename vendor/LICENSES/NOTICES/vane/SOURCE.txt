@@ -1,0 +1,5 @@
+Licence text (LICENSE, verbatim): https://raw.githubusercontent.com/ItzCrazyKns/Vane/v1.12.2/LICENSE
+Upstream repo: https://github.com/ItzCrazyKns/Vane (tag v1.12.2)
+Licence: MIT. Copyright (c) 2026 ItzCrazyKns.
+Shipped as ghcr.io/ostler-ai/vane@sha256:61f2bbf3386ff3df08911fb3de0e1893b04702a4d49ef13fbadbda937b47ab7c,
+a mirror of itzcrazykns1337/vane:v1.12.2. The image also contains SearXNG: see ../searxng/NOTICE.

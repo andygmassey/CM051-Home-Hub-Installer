@@ -18,7 +18,7 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `c355c30ddba9c3c02440dcec70305fd3d6b25fe5be78ad1f5fa5af3feff715e9` (post-graft, this repo, after item 11 and the owner brief, item 12) |
+| Current SHA-256 | `a4e8b0909eb26569e40bf5a43f00b025fb6a584f93ff0bfe604acae57133677e` (post-graft, this repo, after item 11 and the owner brief, item 12) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
 | Last divergence | 2026-10-18 (people ranked from per-channel last-contact dates, walk #31, item 11); merged with the owner brief (Lane 7, 2026-10-07, item 12). NOT upstream. |
@@ -202,6 +202,9 @@ the kind of blanket claim that goes stale one item at a time:
    `test_green_people_ranked_from_last_contact_dates` and the producer
    contract `test_every_shipped_last_contact_predicate_is_read` in
    `tests/test_digest_knows_its_owner.py`.
+   The recency arm is an addition: if its read fails the counted ranking
+   still renders (the failure stays recorded). Pinned by
+   `test_green_a_failed_recency_read_keeps_the_counted_ranking`.
 
 12. **The owner brief** (2026-10-07, Lane 7). NOT upstream. Four sections
    added to the digest, each read from a shipped source: `Routines and

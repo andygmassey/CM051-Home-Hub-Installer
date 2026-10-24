@@ -871,3 +871,94 @@ def test_every_shipped_last_contact_predicate_is_read():
     gen = _load(_SCRIPT, "gen_contract")
     read = {pred for pred, _label in gen._LAST_CONTACT_CHANNELS}
     assert written <= read, f"written but never ranked: {sorted(written - read)}"
+
+
+# ── The recency arm is an addition: its failure must not take the ranking ────
+
+_PREFIX_SHA_RECENCY_STRICT = "992fb55f1e98a3bf3bead14805aea113e36da44d"  # #2966 as merged to main (byte-identical generator to its head): a failed recency read blanked People
+
+
+def _oxigraph_server_failing_recency(store: ox.Store, *, token: str | None = STORE_TOKEN):
+    """The real engine, except the recency read (the only query naming
+    pwg:lastContactIMessage) gets HTTP 500, as from a store under load."""
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _send(self, code, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):  # noqa: N802
+            n = int(self.headers.get("Content-Length") or 0)
+            query = self.rfile.read(n).decode("utf-8") if n else ""
+            if token is not None and (
+                    self.headers.get("Authorization") or "") != f"Bearer {token}":
+                self._send(401, {"error": "unauthorised"})
+                return
+            if "lastContactIMessage" in query:
+                self._send(500, {"error": "injected: recency read failed"})
+                return
+            try:
+                self._send(200, _serialise(store.query(query)))
+            except Exception as exc:
+                self._send(400, {"error": str(exc)})
+
+    return _serve(H)
+
+
+def _build_failing_recency(env, module_path: Path, store: ox.Store, name: str):
+    ox_srv = _oxigraph_server_failing_recency(store)
+    ical_srv = _ical_server(_routes())
+    try:
+        env.setenv("OXIGRAPH_URL", f"http://127.0.0.1:{ox_srv.server_address[1]}")
+        env.setenv("OSTLER_ICAL_BASE_URL", f"http://127.0.0.1:{ical_srv.server_address[1]}")
+        gen = _load(module_path, name)
+        return gen, gen.build_digest()
+    finally:
+        ox_srv.shutdown()
+        ical_srv.shutdown()
+
+
+@pytest.fixture()
+def prefix_module_recency_strict(tmp_path) -> Path:
+    try:
+        src = subprocess.run(
+            ["git", "-C", str(_REPO), "show",
+             f"{_PREFIX_SHA_RECENCY_STRICT}:context-refresh/bin/generate_pwg_context.py"],
+            capture_output=True, text=True, check=True, timeout=30,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError) as exc:
+        pytest.fail(f"CANNOT-RUN: generator not readable at "
+                    f"{_PREFIX_SHA_RECENCY_STRICT} (needs full history): {exc}")
+    out = tmp_path / "generate_pwg_context_recency_strict.py"
+    out.write_text(src, encoding="utf-8")
+    return out
+
+
+def test_red_a_failed_recency_read_blanks_the_counted_ranking(env, prefix_module_recency_strict):
+    gen, digest = _build_failing_recency(env, prefix_module_recency_strict, _seed_store(), "gen_strict")
+    assert digest is not None
+    assert "Mary Smith" not in _section_or_empty(digest, "People you interact with most")
+
+
+def test_green_a_failed_recency_read_keeps_the_counted_ranking(env):
+    gen, digest = _build_failing_recency(env, _SCRIPT, _seed_store(), "gen_fallback")
+    assert digest is not None
+    rows = [ln for ln in _section(digest, "People you interact with most").splitlines()
+            if ln.startswith("- ")]
+    assert rows and rows[0].startswith("- Mary Smith, Acme Corp"), rows
+    assert any(r.startswith("- Bob Jones") for r in rows), rows
+    assert _section(digest, "Key organisations").strip().splitlines()[0] == "- Acme Corp (2 people)"
+    # Honest, not silent: the failed read is still on the record.
+    assert any("HTTP 500" in f for f in gen._FAILURES), gen._FAILURES
+
+
+def _section_or_empty(digest: str, heading: str) -> str:
+    if f"## {heading}" not in digest:
+        return ""
+    return digest.split(f"## {heading}", 1)[1].split("\n## ", 1)[0]

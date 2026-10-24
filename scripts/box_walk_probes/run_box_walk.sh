@@ -391,8 +391,10 @@ walk_cleanup() {
         declare -F conversation_seed_forget >/dev/null && { conversation_seed_forget || true; }
         declare -F usage_seed_forget >/dev/null && { usage_seed_forget || true; }
         declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
+        declare -F smart_prefs_seed_forget >/dev/null && { smart_prefs_seed_forget || true; }
         declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
         declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F contact_cards_forget >/dev/null && { contact_cards_forget || true; }
         declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
     fi
 }
@@ -475,8 +477,26 @@ fi
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
 preference_seed_apply || true
+OSTLER_PREF_SEED_STATE="${PREFERENCE_SEED_STATE:-unrun}"; export OSTLER_PREF_SEED_STATE
 else
     printf '  SKIPPED (read-only): preference seed not applied.\n\n'
+fi
+
+# ── AND THE SMART PREFERENCES FIXTURE (v1.0.118, five BLOCKING probes) ──
+# derived_preferences_{runs,breadth,dislike,not_others} and
+# dislike_respected_in_brief measure what the derive engine made of a known,
+# synthetic fixture: ten broad categories of evidence, an owner dislike, the
+# owner's own like (the control) and ANOTHER person's like. Without this step
+# they would read whatever the box happened to hold. lib/smart_prefs_seed.sh
+# writes it, reads it back out of the stores, kicks the derive agent and waits
+# for a pass; a seed that fails leaves the probes at CANNOT-RUN naming why.
+. "$HERE/lib/smart_prefs_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+smart_prefs_seed_apply || true
+else
+    OSTLER_SMARTPREFS_SEED_STATE="skipped-read-only"; export OSTLER_SMARTPREFS_SEED_STATE
+    printf '  SKIPPED (read-only): smart-preferences seed not applied.\n\n'
 fi
 
 # ── AND THE OWNER'S EMPLOYER, through the customer's own import path ──
@@ -592,6 +612,18 @@ if [ "$READ_ONLY" -eq 0 ]; then
 scale_fixture_apply || true
 else
     printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
+fi
+
+# ── AND THE CONTACT CARDS, so no_person_holds_two_contact_cards can run ──
+# lib/contact_cards_seed.sh: v1.0.115 (walk34) graded that BLOCKING probe
+# CANNOT-RUN, "ZERO icloud_contact_uid identifiers in the graph", because a cold
+# account has no Contacts. Six synthetic cards are written when the graph holds
+# none; real contacts are never touched. Gated on READ_ONLY like every writer.
+. "$HERE/lib/contact_cards_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+contact_cards_apply || true
+else
+    printf '  SKIPPED (read-only): contact cards not seeded.\n\n'
 fi
 
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
@@ -746,7 +778,7 @@ WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
 # reads OSTLER_OWNER_SEED_STATE (lib/owner_employer_seed.sh). Both seeds are
 # forgotten before the replay, so a phase 2 re-run reads "unrun" and reports
 # CANNOT-RUN over a measured phase 1 verdict (walk #10, v1.0.107).
-SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner"
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner derived_preferences_reach_digest_and_tool"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
     local fixture=live
@@ -948,9 +980,11 @@ preference_seed_forget || true
 conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
+smart_prefs_seed_forget || true
 conversation_capture_seed_forget || true
 if [ "$READ_ONLY" -eq 0 ]; then
 scale_fixture_forget || true
+contact_cards_forget || true
 companion_walk_unpair || true
 fi
 # Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an

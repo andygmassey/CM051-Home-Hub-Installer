@@ -183,6 +183,11 @@ from diagnostic_copy import (
     LAST_UPGRADE_FAILED_DETAIL,
     LAST_UPGRADE_FAILED_FIX,
     LAST_UPGRADE_FAILED_TITLE,
+    OLLAMA_NOT_PINNED_DETAIL_FMT,
+    OLLAMA_NOT_PINNED_FIX,
+    OLLAMA_NOT_PINNED_REASON_UNKNOWN,
+    OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
     LAST_UPGRADE_ROLLED_BACK_TITLE,
@@ -1712,6 +1717,46 @@ def _format_upgrade_applied(timestamp: str | None) -> str | None:
     return parsed.strftime("%Y-%m-%d %H:%M")
 
 
+def _ollama_pin_state_path():
+    return _ostler_engine_root() / "state" / "ollama-pin"
+
+
+def check_ollama_pin(snapshot: Any) -> list[dict]:
+    """Ollama is not on Ostler's pinned version (CM051 #2977).
+
+    install.sh writes ``~/.ostler/state/ollama-pin`` on every pin attempt:
+    ``ollama_pin=installed`` when the tested engine went in, ``deferred``
+    when the download, fingerprint check or unpack failed on a working
+    existing install and the old engine was kept. Only ``deferred`` is a
+    row. A missing file means an install that predates the record: quiet,
+    because "no record" is not "unpinned". READ-ONLY.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    try:
+        text = _ollama_pin_state_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    kv = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            kv[k.strip()] = v.strip()
+    if kv.get("ollama_pin") != "deferred":
+        return []
+    rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
+    reason = OLLAMA_NOT_PINNED_REASONS.get(rc, OLLAMA_NOT_PINNED_REASON_UNKNOWN)
+    return [{
+        "severity": "warning",
+        "title": OLLAMA_NOT_PINNED_TITLE,
+        "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
+            version=kv.get("ollama_pin_version") or "?", reason=reason),
+        "fix": OLLAMA_NOT_PINNED_FIX,
+        "risk": "low",
+        "category": "installation",
+    }]
+
+
 def check_last_upgrade(snapshot: Any) -> list[dict]:
     """(B-lite) upgrade audit-trail Doctor row.
 
@@ -1916,6 +1961,42 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
 # customer already dealt with weeks ago.
 _DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
 
+# 🔴 AND rc=1 AS A RAW SUBSTRING COUNTS rc=10, rc=124 AND rc=199 AS FAILURES.
+# Board row 967. The tuple above is the vocabulary and is still correct; the
+# MATCH was not. `"rc=1" in line` is true of every return code from 10 to 19,
+# 100 to 199, and of 124 in particular, which is the conventional timeout exit
+# code and the one a 90-second watchdog produces. The first time the
+# conversation processor is killed rather than failing, a raw substring tells
+# the owner a dispatch FAILED.
+#
+# rc=124 is not hypothetical here: this very file carries it as the worked
+# example of the log format these rules read, in the shape
+# `status=error rc=124 sent=0,skipped=0`.
+#
+# WHY AN INFLATED COUNT IS THE SAME HARM AS A DEFLATED ONE. This rule exists
+# because Doctor once said "Everything looks healthy" while the bundle error
+# log carried a fresh failure, and the number it produces is shown to the owner
+# as how many conversations were READ and could not be PROCESSED. A number that
+# is too high makes the page just as unusable as one that is too low, and the
+# second time a product reports a wrong state is the time it stops being
+# trusted.
+#
+# 🗿 AND IT IS DELIBERATELY NOT WIDENED TO rc=<non-zero>. sessions_failed is a
+# separate token with its own meaning and the two are different shapes on
+# purpose. The change is exactly one of intent: rc=1 counts only when the 1 is
+# the whole number. A negative lookahead does that and nothing else.
+_DISPATCH_FAIL_RE = re.compile(r"rc=1(?!\d)|sessions_failed")
+
+
+def _is_dispatch_failure(line: str) -> bool:
+    """True when a log line records a dispatch that failed.
+
+    Named rather than inlined so the tokens, the reason and the match live in
+    one place; the previous version had the vocabulary at one line and the
+    predicate twenty lines away, which is how the two came to disagree.
+    """
+    return _DISPATCH_FAIL_RE.search(line) is not None
+
 
 def _dispatch_failure_count() -> int:
     """How many dispatch failures appear in the tail of the bundle error log.
@@ -1936,10 +2017,7 @@ def _dispatch_failure_count() -> int:
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return 0
-    return sum(
-        1 for line in tail.splitlines()
-        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
-    )
+    return sum(1 for line in tail.splitlines() if _is_dispatch_failure(line))
 
 
 def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
@@ -2877,6 +2955,7 @@ ALL_RULES = [
     check_backfill_progress,
     check_imessage_fda,
     check_last_upgrade,
+    check_ollama_pin,
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
     check_licence_expiry,

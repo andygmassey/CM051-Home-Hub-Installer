@@ -316,6 +316,51 @@ if [[ $SELF_TEST -eq 1 ]]; then
         printf '  ----  17 OVERRIDE arm NOT RUN here (no PlistBuddy). Not counted as a pass.\n'
     fi
 
+    # THE LIVE TAG ARM, END TO END (arm A). Drives the real script against a
+    # fixture git repo and a local bare remote, so the REFUSED line is the
+    # script's own output. Before this, arm A's refusal was only covered by
+    # predicate tests; deleting the `exit 1` after the FAIL banner left 26/26.
+    # Synthetic: a throwaway repo and the system git only, no network.
+    if [[ -x /usr/libexec/PlistBuddy ]]; then
+        _tx="$(mktemp -d "${TMPDIR:-/tmp}/vergate-tag.XXXXXX")"
+        _txv="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+                  "${REPO_ROOT}/gui/OstlerInstaller/Info.plist" 2>/dev/null)"
+        _tg() { git -c user.name=t -c user.email=t@example.com "$@"; }
+        git init -q --bare "$_tx/remote.git"
+        git init -q "$_tx/work"
+        mkdir -p "$_tx/work/gui/OstlerInstaller" "$_tx/work/cuts/v${_txv}"
+        cp "${REPO_ROOT}/gui/OstlerInstaller/Info.plist" "$_tx/work/gui/OstlerInstaller/Info.plist"
+        touch "$_tx/work/cuts/v${_txv}/.keep"
+        _tg -C "$_tx/work" add -A; _tg -C "$_tx/work" commit -q -m first
+        _tg -C "$_tx/work" tag "v${_txv}"            # the spent tag, on commit one
+        _tg -C "$_tx/work" tag other-line
+        echo x > "$_tx/work/x"; _tg -C "$_tx/work" add -A; _tg -C "$_tx/work" commit -q -m second
+        git -C "$_tx/work" remote add origin "$_tx/remote.git"
+        git -C "$_tx/work" push -q origin --tags 2>/dev/null
+        bash "${BASH_SOURCE[0]}" --repo-root "$_tx/work" >"$_tx/out1" 2>&1; _rc_t1=$?
+        _total=$((_total + 1))
+        if [ "$_rc_t1" -eq 1 ] && /usr/bin/grep -q 'ALREADY TAGGED' "$_tx/out1"; then
+            printf '  ok    18 END-TO-END: tag at another commit REFUSED (exit 1, ALREADY TAGGED printed)\n'
+        else
+            printf '  FAIL  18 already-tagged version not refused (rc=%s)\n' "$_rc_t1"
+            _fails=$((_fails + 1))
+        fi
+        # Tag moved onto HEAD: this cut's own tag, must pass.
+        _tg -C "$_tx/work" tag -f "v${_txv}" >/dev/null 2>&1
+        git -C "$_tx/work" push -q -f origin "v${_txv}" 2>/dev/null
+        bash "${BASH_SOURCE[0]}" --repo-root "$_tx/work" >"$_tx/out2" 2>&1; _rc_t2=$?
+        _total=$((_total + 1))
+        if [ "$_rc_t2" -eq 0 ]; then
+            printf '  ok    19 CONTROL: the same tree with the tag AT HEAD passes (this cut'"'"'s own tag)\n'
+        else
+            printf '  FAIL  19 tag at HEAD should pass, got rc=%s\n' "$_rc_t2"
+            _fails=$((_fails + 1))
+        fi
+        rm -rf "$_tx"
+    else
+        printf '  ----  18/19 live tag arm NOT RUN here (no PlistBuddy). Not counted as a pass.\n'
+    fi
+
     # CONTROL. Arms 1 and 2 must DISAGREE. If both returned the same value the
     # fourteen arms above could all be satisfied by a constant, and would be.
     version_is_already_tagged "1.0.72" "$REAL_TAGS"; _a=$?

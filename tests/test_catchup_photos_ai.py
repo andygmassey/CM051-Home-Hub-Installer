@@ -311,7 +311,12 @@ def test_forward_cli_counts_are_unchanged_by_the_shared_step(env, monkeypatch):
     monkeypatch.setattr(cli, "_emit_json", lambda counts, enabled: lines.append(counts))
     assert cli.run(_cli_args(cli, 0)) == 0
     c = lines[-1]
-    assert c["l3_skipped"] == 1 and c["written"] == N_CHATS - 1 and c["ingested"] == N_CHATS, c
+    # v1.0.111 (CM052 #18 watermark backport): the paused conversation is
+    # counted as paused and is NOT handled. This line used to assert
+    # written == N_CHATS - 1 and ingested == N_CHATS, i.e. it pinned the defect
+    # that counted (and watermarked) a paused conversation as delivered.
+    assert c["l3_skipped"] == 1 and c["paused"] == 1, c
+    assert c["written"] == N_CHATS - 2 and c["ingested"] == N_CHATS - 1, c
 
 
 # ── SIGKILL mid-walk, real processes ────────────────────────────────────────

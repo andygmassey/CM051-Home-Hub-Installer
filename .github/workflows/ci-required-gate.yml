@@ -46,6 +46,11 @@ on:
 permissions:
   contents: read
   checks: read
+  # actions: read lists the workflow RUNS at the head commit, the only place a
+  # check-run's workflow FILE can be read. The gate keys every check-run by
+  # (workflow file, name) and requires each EXPECTED check by that identity;
+  # see resolve_expected in the script.
+  actions: read
 
 concurrency:
   # Supersede in-flight runs for the same workflow on the same branch/PR.
@@ -85,6 +90,10 @@ jobs:
           # unauthenticated and the gate exits 2 CANNOT-RUN on every PR --
           # measured as a real incident in this same repo's cut.yml history.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Which unconditional workflows are guaranteed to fire depends on
+          # their `branches:` and `types:` filters, so the gate must know both.
+          OSTLER_GATE_BASE_REF: ${{ github.base_ref }}
+          OSTLER_GATE_EVENT_ACTION: ${{ github.event.action }}
         run: |
           chmod +x scripts/verify_pr_gate_aggregate.sh
           scripts/verify_pr_gate_aggregate.sh \
