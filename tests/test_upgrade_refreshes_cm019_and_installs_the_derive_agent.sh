@@ -46,7 +46,7 @@ lift() { # file name indent -> function text
 
 run_upgrade() { # $1 install.sh to lift from, $2 = ok|pipfail, $3 = workdir -> prints rc
     local isf="$1" mode="$2" w="$3"
-    local home="${w}/home" bin="${w}/bin" payload="${w}/payload" cm="${w}/home/.ostler/services/cm019"
+    local home="${w}/hm" bin="${w}/bin" payload="${w}/payload" cm="${w}/hm/.ostler/services/cm019"
     mkdir -p "$bin" "$payload/services/cm019/services/enrich/src/derive" \
              "$cm/services/enrich/src" "$cm/.venv/bin" "$cm/state" "$home/Library/LaunchAgents" "$home/.ostler/logs"
     # payload (the new build), in the layout gui/Makefile stage-payload really produces
@@ -103,14 +103,14 @@ echo "arm 1: a 116-shaped box upgrades"
 W1="${SANDBOX}/a1"; mkdir -p "$W1"
 RC1="$(run_upgrade "$INSTALL_SH" ok "$W1")"
 [ "$RC1" = "2" ] && exit 2
-CM1="${W1}/home/.ostler/services/cm019"
+CM1="${W1}/hm/.ostler/services/cm019"
 [ "$RC1" = "0" ] && ok "refresh + agent install returned 0" || bad "rc=$RC1 (11 = refresh failed, 12 = agent not registered): $(tail -3 "${W1}/out.txt" | tr '\n' '|')"
 [ -f "${CM1}/services/enrich/src/derive/engine.py" ] && ok "the derive tree is in place" || bad "no derive tree after the upgrade"
 [ -e "${CM1}/.venv/installed/pyyaml" ] && grep -q 'pip install --quiet -r .*requirements.txt' "${W1}/pip.log" \
     && ok "pip install -r requirements.txt ran in the cm019 venv (pyyaml installed)" || bad "requirements were not installed: $(cat "${W1}/pip.log" 2>/dev/null | tr '\n' '|')"
 [ "$(cat "${CM1}/state/user-data.txt" 2>/dev/null)" = "keep me" ] && [ -f "${CM1}/services/enrich/src/old.py" ] \
     && ok "user data and existing files untouched (copied over, never deleted)" || bad "existing files were lost"
-[ -f "${W1}/home/Library/LaunchAgents/com.ostler.derive-preferences.plist" ] && ok "the derive agent plist was written" || bad "no derive agent plist"
+[ -f "${W1}/hm/Library/LaunchAgents/com.ostler.derive-preferences.plist" ] && ok "the derive agent plist was written" || bad "no derive agent plist"
 L1="$(cat "${W1}/launchctl.log" 2>/dev/null)"
 B="$(printf '%s\n' "$L1" | grep -n '^bootstrap ' | head -1 | cut -d: -f1)"
 P="$(printf '%s\n' "$L1" | grep -n '^print ' | head -1 | cut -d: -f1)"
@@ -123,13 +123,13 @@ echo "arm 2: pip fails"
 W2="${SANDBOX}/a2"; mkdir -p "$W2"
 RC2="$(run_upgrade "$INSTALL_SH" pipfail "$W2")"
 [ "$RC2" = "2" ] && exit 2
-CM2="${W2}/home/.ostler/services/cm019"
+CM2="${W2}/hm/.ostler/services/cm019"
 [ "$RC2" = "11" ] && ok "the refresh returned non-zero" || bad "rc=$RC2, wanted 11"
 grep -q '^.*ERROR: cm019 pip install' "${W2}/upgrade.log" 2>/dev/null && ok "ERROR logged to the upgrade log" || bad "no ERROR in the upgrade log"
 [ ! -e "${CM2}/services/enrich/src/derive/engine.py" ] && [ "$(cat "${CM2}/services/enrich/src/old.py" 2>/dev/null)" = "OLD" ] \
     && [ "$(cat "${CM2}/state/user-data.txt" 2>/dev/null)" = "keep me" ] \
     && ok "the previous tree is restored exactly (new file removed, old and user data intact)" || bad "tree not restored"
-[ ! -e "${W2}/home/Library/LaunchAgents/com.ostler.derive-preferences.plist" ] && [ ! -s "${W2}/launchctl.log" ] \
+[ ! -e "${W2}/hm/Library/LaunchAgents/com.ostler.derive-preferences.plist" ] && [ ! -s "${W2}/launchctl.log" ] \
     && ok "no agent plist and no launchctl call on a failed refresh" || bad "an agent was installed on top of a failed refresh"
 
 echo "arm 3: mutant, the pip step removed"
@@ -144,7 +144,7 @@ PY
 [ -s "$MUT" ] || { echo "CANNOT-RUN: the mutant did not apply"; exit 2; }
 W3="${SANDBOX}/a3"; mkdir -p "$W3"
 RC3="$(run_upgrade "$MUT" ok "$W3")"
-CM3="${W3}/home/.ostler/services/cm019"
+CM3="${W3}/hm/.ostler/services/cm019"
 if [ "$RC3" = "2" ]; then echo "CANNOT-RUN: the mutant would not lift"; exit 2
 elif [ -e "${CM3}/.venv/installed/pyyaml" ]; then bad "the mutant still installed pyyaml; arm 1 is not measuring the pip step"
 else ok "without the pip step pyyaml is not installed, so arm 1 would fail"; fi

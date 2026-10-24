@@ -50,7 +50,7 @@ lift() { # file name indent -> function text
 # scenario: ok | api500 | ctxfail ; $1 = install.sh to lift from ; $2 = scenario ; $3 = workdir
 run_upgrade() {
     local isf="$1" mode="$2" w="$3"
-    local home="${w}/home" bin="${w}/bin" payload="${w}/payload" os="${w}/home/.ostler"
+    local home="${w}/hm" bin="${w}/bin" payload="${w}/payload" os="${w}/hm/.ostler"
     local ical="${os}/services/ical-server" ctx="${os}/context-refresh"
     mkdir -p "$bin" "$payload/services/assistant_api" "$payload/services/context-refresh/bin" \
              "$ical" "$ctx/bin" "$os/secrets" "$os/logs" "$home/Library/LaunchAgents"
@@ -114,21 +114,21 @@ mkw() { local d="${SANDBOX}/$1"; mkdir -p "$d"; echo "$d"; }
 
 echo "A: success"
 WA="$(mkw a)"; RA="$(run_upgrade "$INSTALL_SH" ok "$WA")"; [ "$RA" = "2" ] && exit 2
-ICAL="${WA}/home/.ostler/services/ical-server"
+ICAL="${WA}/hm/.ostler/services/ical-server"
 [ "$RA" = "0" ] && ok "both refreshes returned 0" || bad "rc=$RA ($(tail -3 "${WA}/out.txt" | tr '\n' '|'); log: $(tail -3 "${WA}/upgrade.log" 2>/dev/null | tr '\n' '|'))"
-[ "$(cat "$ICAL/ical-server.py")" = "NEW" ] && [ ! -e "$ICAL/people_rules.py" ] && [ "$(cat "${WA}/home/.ostler/services/pwg_privacy.py" 2>/dev/null)" = "NEWPRIVACY" ] \
+[ "$(cat "$ICAL/ical-server.py")" = "NEW" ] && [ ! -e "$ICAL/people_rules.py" ] && [ "$(cat "${WA}/hm/.ostler/services/pwg_privacy.py" 2>/dev/null)" = "NEWPRIVACY" ] \
     && ok "new ical-server.py in place, people_rules.py removed, pwg_privacy.py refreshed" || bad "assistant_api tree wrong"
 grep -qE "^kickstart -k gui/[0-9]+/com\.ostler\.ical-server$" "${WA}/launchctl.log" \
     && ok "kickstart -k com.ostler.ical-server (a plain kickstart of a running job is a no-op)" || bad "no kickstart -k of the ical-server: $(tr '\n' '|' < "${WA}/launchctl.log")"
 grep -q "preferences/derived?tier=all" "${WA}/curl.argv" && ! grep -q SECRETTOKEN123 "${WA}/curl.argv" && grep -q "Bearer SECRETTOKEN123" "${WA}/curl.stdin" \
     && ok "health probe GET /api/v1/preferences/derived?tier=all, token on stdin and never in argv" || bad "health probe wrong: argv=$(cat "${WA}/curl.argv" 2>/dev/null)"
-grep -q "new-snippet root=${WA}/home/.ostler/context-refresh" "${WA}/snippet.log" \
+grep -q "new-snippet root=${WA}/hm/.ostler/context-refresh" "${WA}/snippet.log" \
     && grep -q "print gui/[0-9]*/com.creativemachines.ostler.context-refresh" "${WA}/launchctl.log" \
     && ok "context-refresh: the tree's installer ran and the label was confirmed by launchctl print" || bad "context-refresh not installed/verified"
 
 echo "B: the new ical-server answers 500"
 WB="$(mkw b)"; RB="$(run_upgrade "$INSTALL_SH" api500 "$WB")"; [ "$RB" = "2" ] && exit 2
-ICB="${WB}/home/.ostler/services/ical-server"
+ICB="${WB}/hm/.ostler/services/ical-server"
 [ "$RB" -ne 0 ] && [ $((RB % 10)) -eq 1 ] && ok "assistant_api refresh returned non-zero" || bad "rc=$RB"
 [ "$(cat "$ICB/ical-server.py")" = "OLD" ] && [ "$(cat "$ICB/people_rules.py")" = "old rules" ] && [ ! -e "$ICB/derived_preferences.py" ] \
     && ok "previous code restored exactly (the added file is gone)" || bad "not restored"
@@ -139,7 +139,7 @@ grep -q "ERROR: ical-server did not come back healthy" "${WB}/upgrade.log" && ok
 echo "C: the new context-refresh installer fails"
 WC="$(mkw c)"; RC="$(run_upgrade "$INSTALL_SH" ctxfail "$WC")"; [ "$RC" = "2" ] && exit 2
 [ "$RC" -ge 10 ] && ok "context-refresh refresh returned non-zero" || bad "rc=$RC"
-[ "$(grep -c 'old-snippet' "${WC}/snippet.log")" -ge 1 ] && ! [ -e "${WC}/home/.ostler/context-refresh/bin/new-only" ] \
+[ "$(grep -c 'old-snippet' "${WC}/snippet.log")" -ge 1 ] && ! [ -e "${WC}/hm/.ostler/context-refresh/bin/new-only" ] \
     && ok "the previous tree was restored and its installer re-run" || bad "no restore: $(cat "${WC}/snippet.log" | tr '\n' '|')"
 
 echo "D: mutants"
