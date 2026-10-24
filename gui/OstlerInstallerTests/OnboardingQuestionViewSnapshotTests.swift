@@ -284,3 +284,43 @@ final class LegalRegionContractTests: XCTestCase {
         XCTAssertEqual(LegalRegion.currentAppleLocale(environment: ["OSTLER_APPLE_LOCALE": "en_HK"]), "en_HK")
     }
 }
+
+/// Article 9 and third-party-data legal notes (CM051 row L7). SAME fixture
+/// tests/test_article_9_third_party_notes_follow_region.sh runs against
+/// install.sh: region picks the line, language never does. The XCTest run is
+/// CI only; the bash side is the one run locally.
+final class LegalRegionBasicContractTests: XCTestCase {
+    private func rows() throws -> [(locale: String, variant: String)] {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/legal_region_basic_contract.tsv")
+        let text = try String(contentsOf: fixture, encoding: .utf8)
+        var out: [(String, String)] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.hasPrefix("#") { continue }
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            XCTAssertEqual(f.count, 3, "malformed fixture row: \(line)")
+            guard f.count == 3 else { continue }
+            out.append((f[0], f[1]))
+        }
+        return out
+    }
+
+    func testEveryRowPicksTheSameVariantAsInstallSh() throws {
+        let all = try rows()
+        XCTAssertGreaterThanOrEqual(all.count, 15, "fixture shrank; denominator matters")
+        for r in all {
+            let key = LegalRegion.basicRegionKey(forCountry: LegalRegion.country(fromAppleLocale: r.locale))
+            XCTAssertEqual(key ?? "core", r.variant, "variant for \(r.locale)")
+            for section in ["consent_article_9", "consent_third_party"] {
+                let copy = ViewCopy.shared
+                let note = LegalRegion.legalNote(section: section, appleLocale: r.locale, copy: copy)
+                XCTAssertFalse(note.contains(section + "."), "a ViewCopy key did not resolve: \(note)")
+                for other in ["gb", "eu", "hk"] where other != r.variant {
+                    XCTAssertFalse(note.contains(copy.string(for: section + ".legal_region_" + other)),
+                                   "\(r.locale) showed the \(other) line in \(section)")
+                }
+            }
+        }
+    }
+}

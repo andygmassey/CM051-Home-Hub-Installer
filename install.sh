@@ -6094,6 +6094,10 @@ OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
 # that stored it (an install from before this existed): the recorder then
 # writes the old record shape rather than pin a note nobody was shown.
 OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION=""
+# Same pin for the Article 9 and third-party-data screens (CM051 row L7):
+# the region their legal note was chosen for, empty when never shown.
+OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION=""
+OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION=""
 
 # LEGAL NOTE BY REGION (Andy, 2026-10-24). The legal note under the
 # spoken-capture screen is chosen by the Mac's REGION, never its language: a Chinese reader living
@@ -6207,6 +6211,53 @@ _ostler_spoken_capture_legal_note() {
     local cc
     cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
     _ostler_spoken_capture_legal_note_for "${cc:-none}"
+}
+
+# Article 9 and third-party-data legal notes (CM051 row L7). Same region rule
+# as the spoken-capture note: the Mac's REGION, never its language. GB and
+# EU/EEA get the GDPR articles, HK a neutral PDPO line, US and every other
+# region the neutral core only. BEST-EFFORT DRAFTS pending local professional
+# sign-off. The variant is what the consent record pins
+# (legal.consent_strings LEGAL_NOTE_VARIANTS): core | gb | eu | hk.
+_ostler_basic_legal_variant() {
+    # $1 = ISO region or "none".
+    case "$(_ostler_legal_jurisdiction "$1")" in
+        gb) printf 'gb' ;;
+        eu) printf 'eu' ;;
+        hk) printf 'hk' ;;
+        *) printf 'core' ;;
+    esac
+}
+
+_ostler_article_9_legal_note_for() {
+    # $1 = ISO region or "none". The whole Article 9 legal note, byte for byte
+    # what the GUI renders (LegalRegion.legalNote) for the same region.
+    local note="${MSG_CONSENT_ARTICLE_9_LEGAL_PREFIX} ${MSG_CONSENT_ARTICLE_9_LEGAL_CORE}"
+    case "$(_ostler_basic_legal_variant "$1")" in
+        gb) note="${note} ${MSG_CONSENT_ARTICLE_9_LEGAL_REGION_GB}" ;;
+        eu) note="${note} ${MSG_CONSENT_ARTICLE_9_LEGAL_REGION_EU}" ;;
+        hk) note="${note} ${MSG_CONSENT_ARTICLE_9_LEGAL_REGION_HK}" ;;
+    esac
+    printf '%s' "${note}"
+}
+
+_ostler_third_party_legal_note_for() {
+    # $1 = ISO region or "none". As above, for the third-party-data screen.
+    # The "Read more" link is not part of the note: it is shown to everyone.
+    local note="${MSG_CONSENT_THIRD_PARTY_LEGAL_PREFIX} ${MSG_CONSENT_THIRD_PARTY_LEGAL_CORE}"
+    case "$(_ostler_basic_legal_variant "$1")" in
+        gb) note="${note} ${MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_GB}" ;;
+        eu) note="${note} ${MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_EU}" ;;
+        hk) note="${note} ${MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_HK}" ;;
+    esac
+    printf '%s' "${note}"
+}
+
+_ostler_legal_region_now() {
+    # This Mac's region now: ISO alpha-2, or "none" when unknown.
+    local cc
+    cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+    printf '%s' "${cc:-none}"
 }
 
 
@@ -12424,19 +12475,14 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo "    [N] I do not consent. (cancels and removes the installer;"
     echo "        nothing is stored on this Mac)"
     echo ""
-    echo -e "  ${DIM}Legal note: You are the data controller for all"
-    echo -e "  special-category data Ostler processes on this Mac (UK GDPR"
-    echo -e "  Article 4(7)). Creative Machines never receives any of this"
-    echo -e "  data. Your explicit consent above (UK GDPR Article 9(2)(a))"
-    echo -e "  is the lawful basis for processing. For personal and household"
-    echo -e "  use, Article 2(2)(c) further limits scope. This consent is"
-    echo -e "  revocable at any time without affecting processing that has"
-    echo -e "  already taken place.${NC}"
+    OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION="$(_ostler_legal_region_now)"
+    _ART9_LEGAL_NOTE="$(_ostler_article_9_legal_note_for "${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION}")"
+    echo -e "${DIM}$(printf '%s' "${_ART9_LEGAL_NOTE}" | fold -s -w 62 | sed 's/^/  /')${NC}"
     echo ""
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
-        ART9="$(gui_read "$MSG_PROMPT_CONSENT_ARTICLE_9_TITLE" yesno "" "$MSG_PROMPT_CONSENT_ARTICLE_9_HELP" "" "consent_article_9")"
+        ART9="$(gui_read "$MSG_PROMPT_CONSENT_ARTICLE_9_TITLE" yesno "" "${MSG_PROMPT_CONSENT_ARTICLE_9_HELP}"$'\n\n'"${_ART9_LEGAL_NOTE}" "" "consent_article_9")"
         case "${ART9:-}" in
             y|Y)
                 OSTLER_CONSENT_ARTICLE_9_DECISION="accepted"
@@ -12651,11 +12697,9 @@ echo "    [Y] I understand. Continue."
 echo "    [N] I do not consent. (cancels and removes the installer;"
 echo "        nothing is stored on this Mac)"
 echo ""
-echo -e "  ${DIM}Legal note: For records you keep on this Mac, you are"
-echo -e "  the data controller under UK and EU law (UK GDPR Article"
-echo -e "  4(7)). Creative Machines never receives this data and is not"
-echo -e "  the controller. Your processing for personal and household"
-echo -e "  purposes falls within UK/EU GDPR Article 2(2)(c).${NC}"
+OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION="$(_ostler_legal_region_now)"
+_TP_LEGAL_NOTE="$(_ostler_third_party_legal_note_for "${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION}")"
+echo -e "${DIM}$(printf '%s' "${_TP_LEGAL_NOTE}" | fold -s -w 62 | sed 's/^/  /')${NC}"
 echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
@@ -12664,7 +12708,7 @@ while true; do
     # Default seeded as "n" so the customer must explicitly toggle to Yes
     # (the GUI's yesValue() returns true for empty strings, which would
     # otherwise pre-check the Yes toggle and amount to a pre-ticked box).
-    THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
+    THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "n" "${MSG_PROMPT_CONSENT_THIRD_PARTY_HELP}"$'\n\n'"${_TP_LEGAL_NOTE}" "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
             OSTLER_CONSENT_THIRD_PARTY_DECISION="accepted"
@@ -16413,6 +16457,8 @@ OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
 OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION="${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}"
+OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION="${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION:-}"
+OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION="${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION:-}"
 OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
 OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 
@@ -18684,12 +18730,28 @@ PY
         return 0
     }
 
-    # Article 9 (EU branch only).
+    # Article 9 (EU branch only). The record PINS the region-chosen legal
+    # note that was shown (region, variant, verbatim note, sha256). A reuse
+    # run whose stored answers predate the region (empty) keeps the old shape.
     if [[ -n "$OSTLER_CONSENT_ARTICLE_9_DECISION" ]]; then
+        _art9_legal_args=()
+        _art9_legal_file=""
+        if [[ -n "${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION:-}" ]]; then
+            _art9_legal_file="$(mktemp)"
+            _ostler_article_9_legal_note_for "${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION}" > "${_art9_legal_file}"
+            _art9_legal_args=(
+                --legal-region "${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION}"
+                --legal-variant "$(_ostler_basic_legal_variant "${OSTLER_CONSENT_ARTICLE_9_LEGAL_REGION}")"
+                --legal-note-file "${_art9_legal_file}"
+            )
+        fi
         _consent_cli_record blocking \
             article_9_special_category_consent \
             "$OSTLER_CONSENT_ARTICLE_9_DECISION" \
-            "Could not persist Article 9 consent (continuing)"
+            "Could not persist Article 9 consent (continuing)" \
+            ${_art9_legal_args[@]+"${_art9_legal_args[@]}"}
+        if [[ -n "${_art9_legal_file}" ]]; then rm -f "${_art9_legal_file}"; fi
+        unset _art9_legal_args _art9_legal_file
     fi
 
     # WhatsApp tickbox.
@@ -18722,10 +18784,24 @@ PY
     # that skipped the screen, in which case we omit the record and
     # Doctor's Consent tile will surface "missing" as a posture marker).
     if [[ -n "$OSTLER_CONSENT_THIRD_PARTY_DECISION" ]]; then
+        _tp_legal_args=()
+        _tp_legal_file=""
+        if [[ -n "${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION:-}" ]]; then
+            _tp_legal_file="$(mktemp)"
+            _ostler_third_party_legal_note_for "${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION}" > "${_tp_legal_file}"
+            _tp_legal_args=(
+                --legal-region "${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION}"
+                --legal-variant "$(_ostler_basic_legal_variant "${OSTLER_CONSENT_THIRD_PARTY_LEGAL_REGION}")"
+                --legal-note-file "${_tp_legal_file}"
+            )
+        fi
         _consent_cli_record blocking \
             third_party_data_personal_records \
             "$OSTLER_CONSENT_THIRD_PARTY_DECISION" \
-            "Could not persist third-party-data acknowledgement (continuing)"
+            "Could not persist third-party-data acknowledgement (continuing)" \
+            ${_tp_legal_args[@]+"${_tp_legal_args[@]}"}
+        if [[ -n "${_tp_legal_file}" ]]; then rm -f "${_tp_legal_file}"; fi
+        unset _tp_legal_args _tp_legal_file
     fi
 
     # Personal-use-only licence term.

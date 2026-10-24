@@ -52,8 +52,9 @@ except ImportError as exc:  # pragma: no cover - smoke
     sys.exit(2)
 try:
     from legal.consent_strings import (  # noqa: E402
+        LEGAL_NOTE_VARIANTS,
         SPOKEN_CAPTURE_LEGAL_VARIANTS,
-        spoken_capture_recorded_version,
+        legal_note_recorded_version,
     )
 except ImportError as exc:  # pragma: no cover - smoke
     print(
@@ -127,9 +128,17 @@ def _cmd_record(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        if cs is not SPOKEN_CAPTURE_RECORDING_CONSENT:
+        if cs.tickbox_id not in LEGAL_NOTE_VARIANTS:
             print(
                 f"[consent_cli] {cs.tickbox_id} has no region-chosen legal note",
+                file=sys.stderr,
+            )
+            return 2
+        if args.legal_variant not in LEGAL_NOTE_VARIANTS[cs.tickbox_id]:
+            print(
+                f"[consent_cli] --legal-variant {args.legal_variant!r} is not "
+                f"a {cs.tickbox_id} variant; known: "
+                f"{LEGAL_NOTE_VARIANTS[cs.tickbox_id]}",
                 file=sys.stderr,
             )
             return 2
@@ -144,7 +153,7 @@ def _cmd_record(args: argparse.Namespace) -> int:
             "text": note_text,
             "sha256": hashlib.sha256(note_text.encode("utf-8")).hexdigest(),
         }
-        wording_version = spoken_capture_recorded_version(args.legal_variant)
+        wording_version = legal_note_recorded_version(cs, args.legal_variant)
     consent.record_consent(
         tickbox_id=cs.tickbox_id,
         wording_text=cs.text,
