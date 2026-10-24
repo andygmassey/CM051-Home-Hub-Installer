@@ -33,6 +33,13 @@ on:
       - 'vendor/doctor/agent/derived_preferences_status.py'
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_derive_preferences_is_scheduled.sh'
+      - 'tests/test_derive_is_kicked_once_after_install_and_upgrade.sh'
+      - 'tests/test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh'
+      - 'tests/test_upgrade_refreshes_assistant_api_and_context_refresh.sh'
+      - 'tests/test_upgrade_payload_carries_what_the_upgrade_refreshes.sh'
+      - 'gui/Makefile'
+      - 'tests/test_cold_staged_trees_and_agents_have_an_upgrade_path.py'
+      - 'scripts/upgrade_parity.tsv'
       - 'tests/test_derived_prefs_probe_is_run_by_the_walk.sh'
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
@@ -61,6 +68,21 @@ jobs:
       - name: A LaunchAgent the installer writes runs the derive engine
         if: always()
         run: bash tests/test_derive_preferences_is_scheduled.sh
+      - name: An upgraded 116-shaped box gets the cm019 tree, its requirements and the derive agent
+        if: always()
+        run: bash tests/test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh
+      - name: An upgraded box gets the new assistant_api (derived route) and context-refresh, with rollback
+        if: always()
+        run: bash tests/test_upgrade_refreshes_assistant_api_and_context_refresh.sh
+      - name: The upgrade payload carries every tree the upgrade refreshes (gui/Makefile stage-payload)
+        if: always()
+        run: bash tests/test_upgrade_payload_carries_what_the_upgrade_refreshes.sh
+      - name: RATCHET, every cold-staged tree and agent has an upgrade path or a recorded decision
+        if: always()
+        run: python3 tests/test_cold_staged_trees_and_agents_have_an_upgrade_path.py
+      - name: The derive agent is kicked once after install and after upgrade
+        if: always()
+        run: bash tests/test_derive_is_kicked_once_after_install_and_upgrade.sh
       - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
         # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
         # the other three are the shipped requirements the writer imports.

@@ -146,7 +146,7 @@ if [ -n "$DERIVE_PLIST" ]; then
     fn="$(for f in $FUNCS; do
             grep -q 'derive_runner' "${SANDBOX}/${f}.sh" && echo "$f"; done | head -1)"
     setup_line="$(grep -n 'progress "Setting up preference enrichment" "cm019_setup"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
-    call_line="$(grep -nE "^[[:space:]]*${fn}[[:space:]]*$" "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    call_line="$(grep -nE "^[[:space:]]*${fn}[[:space:]]*$" "$INSTALL_SH" | cut -d: -f1 | awk -v s="${setup_line:-0}" '$1 > s { print; exit }')"
     if [ -n "$call_line" ] && [ -n "$setup_line" ] && [ "$call_line" -gt "$setup_line" ]; then
         ok "${fn} is called (line ${call_line}) after cm019_setup (line ${setup_line})"
     else
