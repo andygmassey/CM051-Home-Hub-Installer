@@ -306,6 +306,7 @@ test_dmg_contains_bundled_python.sh	UNWIRED	-
 test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_minors_registry_row.py	WIRED	.github/workflows/minors-registry-row.yml
 test_doctor_never_opens_chat_db.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_doctor_oracle_fallback_is_off.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -529,6 +530,7 @@ test_merge_survivor_takes_highest_name_tier.py	WIRED	.github/workflows/walk-reco
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_merged_people_are_not_recreated.py	WIRED	.github/workflows/forget-tombstone.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_minors_registry_is_inside_the_at_rest_exclusion.py	WIRED	.github/workflows/minors-registry-row.yml
 test_model_digest_pins.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
