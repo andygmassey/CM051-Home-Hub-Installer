@@ -1527,6 +1527,10 @@ final class InstallerCoordinator: ObservableObject {
             // sets the prefix. One mechanism, not two fighting.
             "PYTHONPYCACHEPREFIX": (NSHomeDirectory() as NSString)
                 .appendingPathComponent(".ostler/cache/pycache"),
+            // install.sh sources install.sh.strings.${OSTLER_LANG}.sh (en-GB
+            // fallback when the file is absent). Same value the GUI's own
+            // ViewCopy/HintCopy use, so the screens and the log agree.
+            "OSTLER_LANG": InstallerLanguage.current,
         ]
         let env = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }

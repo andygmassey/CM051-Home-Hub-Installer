@@ -1,0 +1,1901 @@
+#!/usr/bin/env bash
+# install.sh.strings.en-GB.sh translated to en-US by l10n/ostler_l10n.py.
+# Generated: edit the en-GB source, never this file. '# NEEDS REVIEW' marks a key
+# awaiting a native speaker; a key with no current translation carries English.
+# CM051 install.sh -- en-GB strings catalogue
+# Generated 2026-05-19 as part of Rule 0.9
+# (customer strings extractable from day one).
+#
+# Sourced by install.sh near the top, before any
+# info/warn/step/ok/err/fail call. To add a new
+# language: copy this file to install.sh.strings.<lang>.sh,
+# translate the right-hand side of each MSG_* assignment,
+# and invoke the installer with OSTLER_LANG=<lang>.
+#
+# Format-string entries use printf %s placeholders;
+# install.sh wraps them in $(printf "$KEY" "$arg1" "$arg2").
+# Translators: keep the same number of %s placeholders,
+# in the same order, as the English source.
+#
+# TODO (Wave 2.1 / W7, #596/#573): the completion/"walk away" and
+# install-time-estimate copy below was reworded in en-GB only, to stop
+# users walking away mid-install and to make the ETAs honest. If other
+# locale catalogues (de/fr/es/it) are added later, re-translate the
+# updated values for these keys (do not machine-translate):
+#   MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK
+#   MSG_STEP_SETUP_COMPLETE_WRAP_UP (new key)
+#   MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE
+#   MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES
+#   MSG_OK_POWER_SOURCE_AC_GOOD_10_15
+#   MSG_WARN_PHASE_3_TAKES_10_15_MINUTES
+# The same softening applies to gui/OstlerInstaller/Resources/HintCopy.json
+# (setup_questions, setup_complete_wrap_up).
+
+# ── Step (top-level phase) banners ──
+
+MSG_STEP_CHECKING_PREREQUISITES="Checking prerequisites"
+MSG_STEP_RUNNING_HEALTH_CHECK="Running health check"
+# F2: the end-of-install step that holds the Tailscale browser sign-in.
+MSG_STEP_TAILSCALE_SIGNIN="Connect your iPhone and Watch"
+MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, then it keeps going on its own)"
+# 2026-08-20: this key used to end "...and needs nothing further from you, so
+# you can leave it running and check back later." Measured against Andy's
+# install log, that was false three times over. The message printed at
+# 12:41:43; then 12:42:13-12:45:14 asked him seven times to click Install on a
+# macOS developer-tools dialog, 13:01:20 said "This part needs you for about
+# two minutes" for Full Disk Access, and 13:04:20 waited up to three minutes
+# for a Tailscale sign-in. A customer who does what this sentence says comes
+# back to a stalled install. It now names what is still wanted.
+# F2 (console walk of DMG #16): the Tailscale sign-in and the assistant's
+# Reminders prompt both moved to the END of the install (after the health
+# check), so the copy says "at the very end", not "near the end".
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end, after the health check, you sign in to Tailscale and allow the assistant to use Reminders. Between those you can leave it running."
+# #613: the line above names a Tailscale sign-in that a customer who answered
+# "skip" to the remote-access question will never be asked for. Promising a step
+# we then do not perform is the same defect class as claiming success we did not
+# have: the customer plans their time around a sentence that is not true. This
+# variant is emitted on the declined branch and names only what is left.
+# Kept as a separate string rather than a printf substitution so the shipped
+# copy of BOTH branches is readable in this file and gets its own review.
+MSG_STEP_SETUP_COMPLETE_WRAP_UP_NO_REMOTE="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end you allow the assistant to use Reminders. Between those you can leave it running."
+
+# ── Info messages (progress, context) ──
+
+MSG_INFO_AND_RE_RUN_OSTLER_FDA="and re-run: ostler-fda"
+MSG_INFO_ASSISTANT_FINAL_RESTART_FDA="Restarting the assistant so it can use Full Disk Access to read your Messages history. A restart is what makes a just-granted permission take effect; if you have not granted it yet, the Doctor dashboard will keep guiding you."
+MSG_OK_ASSISTANT_RUNNING_WITH_FDA="Your assistant is running and has Full Disk Access, so it can read the files it needs."
+MSG_WARN_ASSISTANT_RUNNING_WITHOUT_FDA="Your assistant is running, but it does not have Full Disk Access yet. Until you turn it on, Ostler cannot keep Messages, Mail, Calendar, Reminders, Notes, Photos, Safari, Contacts or WhatsApp up to date, and cannot read your Documents folder. Anything it has already read stays. The Doctor dashboard will guide you through turning it on."
+MSG_INFO_ASSISTANT_FDA_UNVERIFIED="Your assistant is running. We could not check whether it has Full Disk Access on this Mac, so this is not a confirmation either way. The Doctor dashboard will tell you once it can look."
+MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL="Apple Mail accounts visible: %s (informational)"
+MSG_INFO_APPLE_MAIL_DOES_NOT_APPEAR_HOLD="Apple Mail does not appear to hold any local messages yet. Doctor will surface a follow-up if no mail arrives within 24 hours."
+MSG_INFO_APPLE_MAIL_HAS_CACHED_MESSAGES_INGEST="Apple Mail has cached messages. Ingest will pick them up on the next hourly tick."
+MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT="Apple Mail is selected, but there are no local messages to read on this Mac yet. Open Apple Mail and add an account (System Settings > Internet Accounts, then tick Mail), and let it finish a first sync."
+MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN="Once mail has arrived, re-run: ostler-fda. Ostler will pick it up automatically; nothing else is needed."
+MSG_INFO_APPLE_NOTARISATION_WILL_VERIFIED_GATEKEEPER_FIRST="Apple notarization will be verified by Gatekeeper on first launch."
+MSG_INFO_AVAILABLE_INSTALLER_WILL_SKIP_THIS_STEP="available the installer will skip this step automatically."
+MSG_INFO_BASH_INSTALL_SNIPPET_SH="    bash %s/INSTALL_SNIPPET.sh"
+MSG_INFO_BASH_INSTALL_SNIPPET_SH_2="  bash %s/INSTALL_SNIPPET.sh"
+MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET="Beta testers with access can set PWG_PIPELINE_REPO=<url> and re-run."
+MSG_INFO_BETA_TESTERS_WITH_ACCESS_CAN_SET_2="Beta testers with access can set PWG_KNOWLEDGE_REPO=<url> and re-run."
+MSG_INFO_BROWSER_EXTENSIONS_SKIPPED_NO_EXTENSIONS="Browser extensions skipped (--no-extensions)"
+MSG_INFO_CD="  cd %s"
+MSG_INFO_CLONED="  Cloned to %s."
+MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
+MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
+MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
+MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
+MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
+# Shown during setup to pre-explain the macOS Documents (Files and Folders)
+# consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
+# customer may meet it more than once and not always during setup: the
+# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# bundled python3.11 that organises the wiki writes here later from its own
+# launchd jobs, prompting separately and possibly the next day. The copy is
+# therefore honest about timing rather than promising an immediate prompt, and
+# it carries the System Settings remediation for a decline. Paired with the
+# live Documents-access tile in the dashboard
+# (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
+# whenever it happens.
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organizes your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please click Allow whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
+MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
+MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
+MSG_INFO_HUB_APP_DRAG_HINT="Open the installer DMG and drag both Ostler.app and OstlerInstaller.app onto the Applications shortcut, then re-run the installer."
+MSG_OK_HUB_APP_PRESENT="Ostler.app already present at %s; signature verified."
+MSG_OK_HUB_APP_STAGED="Ostler.app installed at %s"
+MSG_WARN_HUB_APP_NOT_FOUND="Ostler.app was not found in /Applications and no bundled copy is available."
+MSG_WARN_HUB_APP_VERIFY_FAILED="Ostler.app signature or notarization verification failed. Leaving the bundle in place so support can inspect."
+MSG_OK_UNINSTALLER_APP_STAGED="Ostler Uninstaller.app installed at %s"
+MSG_WARN_UNINSTALLER_APP_STAGE_FAILED="Could not place Ostler Uninstaller.app in /Applications. You can still uninstall by running: ~/.ostler/bin/ostler-uninstall"
+MSG_INFO_CLONING_DOCTOR_AGENT="Cloning Doctor agent..."
+MSG_INFO_CLONING_EMAIL_INGEST_SCRIPTS="Cloning email-ingest scripts..."
+MSG_INFO_CLONING_HUB_POWER_SCRIPTS="Cloning hub-power scripts..."
+MSG_INFO_CLONING_IMPORT_PIPELINE="Cloning import pipeline..."
+MSG_INFO_CLONING_WIKI_RECOMPILE_SCRIPTS="Cloning wiki-recompile scripts..."
+MSG_INFO_COLIMA_INSTALLED_BUT_NOT_RUNNING_WILL="Colima installed but not running. Will start it."
+MSG_INFO_COLIMA_START_ATTEMPT="Starting Colima (attempt %s of %s)..."
+MSG_INFO_COULD_NOT_EXPORT_CONTACTS_YOU_CAN="Could not export contacts. You can import manually later."
+MSG_INFO_COULD_NOT_READ_CONTACT_CARD_NO="Could not read contact card. No problem – we will ask instead."
+MSG_INFO_CONTACT_CARD_WILL_ASK="We will ask you for your name and country in a moment. Your contacts are read later using the Full Disk Access you grant, and nothing leaves this Mac."
+MSG_INFO_CP_R_TMP_DOCTOR_SRC_DOCTOR="  cp -R /tmp/doctor-src/doctor/agent/* %s/"
+MSG_INFO_CREATING_PYTHON_VENV="  Creating Python venv at %s..."
+MSG_INFO_CREATING_USER_FACING_CONTENT_TREE="Creating user-facing content tree at %s/"
+MSG_INFO_CURL_FL_O_TMP_OSTLER_TGZ="  curl -fL -o /tmp/ostler.tgz %s"
+MSG_INFO_DAILY_TICK_MANUAL_RUN_BASH_BIN="Daily tick. Manual run: bash %s/bin/wiki-recompile-tick.sh"
+MSG_INFO_DESKTOP_HUB_NO_BATTERY_DETECTED_DISABLING="Desktop Hub (no battery) detected: disabling sleep system-wide"
+MSG_INFO_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compile run --rm wiki-compiler"
+MSG_INFO_DOCKER_NOT_INSTALLED_WILL_INSTALL_COLIMA="Docker not installed. Will install Colima + Docker CLI + docker-compose plugin (lightweight, no Docker Desktop required)."
+MSG_INFO_DOCTOR_AGENT_FILES_NOT_BUNDLED_WITH="Doctor agent files not bundled with installer."
+MSG_INFO_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_WITH="Email-ingest scripts not bundled with installer."
+MSG_FAIL_EMAIL_INGEST_VENDOR_MISSING_RE_RUN="Email-ingest scripts are missing from the installer bundle. Re-download the .app from ostler.ai/install and try again."
+MSG_WARN_EMAIL_INGEST_SCRIPTS_NOT_BUNDLED_PLAINTEXT="Email-ingest scripts not bundled and --allow-plaintext was passed; LaunchAgent install will be skipped. Future emails will not be drained."
+MSG_INFO_EXISTING_CHECKOUT_UPDATING="  Existing checkout at %s; updating..."
+MSG_INFO_EXTRACTING_GMAIL_MBOX_FROM_TAKEOUT_ZIP="Extracting Gmail mbox from Takeout zip (this can take a minute for large archives)..."
+MSG_INFO_FDA_EXTRACTION_MODULE_NOT_BUNDLED_SKIPPING="FDA extraction module not bundled. Skipping instant data extraction."
+MSG_INFO_FIRST_MONTH_FREE_ACTIVATING="Activating your first 30 days of Ostler Pro..."
+MSG_INFO_SUBSCRIPTION_PRICING_HINT="Ostler Pro is \$9.99 USD per month after the trial. Subscribe in the Ostler app on your iPhone."
+MSG_INFO_FOUND_GMAIL_MBOX_MB="Found Gmail mbox at %s (%s MB)"
+MSG_INFO_FOUND_GOOGLE_TAKEOUT_ZIP_MB="Found Google Takeout zip at %s (%s MB)"
+MSG_INFO_FULL_DISK_ACCESS_DETECTED_FULL_EXTRACTION="Full Disk Access detected – full extraction available."
+MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR exports detected but import pipeline not yet available."
+MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR-export import will be available when the pipeline ships."
+MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="About to scan Downloads, Desktop, and Documents for AI exports (Google Takeout, Meta downloads, LinkedIn, etc.) you may have saved. macOS will show three folder-access prompts – please allow each one. It takes about 5-10 seconds in total. Nothing is moved or copied during the scan; we only check what is there."
+MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS may ask permission to read your Calendar. Allow it so Ostler can build the meetings + events part of your knowledge graph. (Calendar data stays on this machine.)"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Click OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
+MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
+# #664: the Automation prompt went unanswered and we stopped waiting. Says what
+# was missed, what it costs, and that it is recoverable -- the install carries on
+# and Ostler asks again later, so this is a "not yet", not a failure.
+MSG_WARN_IMESSAGE_AUTOMATION_PROBE_TIMEOUT="No answer to the Messages permission prompt, so we moved on. Your messages will not be read until it is allowed. Ostler will ask again, or you can grant it in System Settings > Privacy & Security > Automation."
+MSG_INFO_GIT_CLONE="  git clone %s %s"
+MSG_INFO_GIT_CLONE_2="  git clone %s %s"
+MSG_INFO_GIT_CLONE_TMP_DOCTOR_SRC="  git clone %s /tmp/doctor-src"
+MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
+MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
+MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small gray dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
+MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small gray macOS dialog is asking to install developer tools, click Install on it – this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
+MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
+MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
+MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
+MSG_INFO_HUB_POWER_AC_ONLY_HUB_SKIPPING_LAUNCHAGENT="AC-only hub (no battery detected), skipping hub-power LaunchAgent."
+MSG_INFO_HUB_POWER_SCRIPTS_NOT_BUNDLED_WITH="Hub power scripts not bundled with installer."
+# Laptop-Hub recap lines (task #339). Kept to one whole sentence per key so a
+# translator gets sentences rather than fragments, and each one short enough to
+# sit inside the recap's five-space indent on an 80-column terminal.
+MSG_INFO_HUB_RECAP_LAPTOP_AWAKE="Laptop Hub. It keeps working while the lid is open and plugged in."
+MSG_INFO_HUB_RECAP_LAPTOP_SLEEPS="Close the lid, or leave it idle on battery, and macOS sleeps it."
+MSG_INFO_HUB_RECAP_LAPTOP_RECEIVES_NOTHING="While it sleeps the assistant receives nothing."
+MSG_INFO_HUB_RECAP_LAPTOP_MESSAGES_MISSED="Messages that arrive in that time are not picked up when it wakes."
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY="The lid can stay closed in closed-display mode."
+MSG_INFO_HUB_RECAP_LAPTOP_CLOSED_DISPLAY_NEEDS="That needs AC power plus an external display, keyboard and mouse."
+MSG_INFO_HUB_RECAP_LAPTOP_PAUSES="Docker and Ollama pause on battery and resume when plugged in."
+MSG_INFO_HUB_RECAP_FILEVAULT_LOGIN="After a restart, FileVault holds this Mac at the login screen."
+MSG_INFO_HUB_RECAP_FILEVAULT_STARTS="Ostler starts once you sign in."
+MSG_INFO_ICAL_SERVER_BUNDLED_WITH_INSTALLER="Assistant API bundled with installer; using vendored source."
+MSG_INFO_ICAL_SERVER_SOURCE_NOT_BUNDLED="Assistant API source not bundled; the Ostler app on your iPhone will have limited access."
+MSG_INFO_ICAL_SERVER_DEPS_INSTALLING="Installing Assistant API runtime dependencies (phonenumbers, httpx)..."
+MSG_WARN_ICAL_SERVER_DEPS_FAILED="Could not install Assistant API runtime dependencies (phonenumbers/httpx); People and Timeline may stay empty until the next install run."
+MSG_INFO_IF_TAILSCALE_WINDOW_APPEARS_SIGN_WITH="When the Tailscale window appears, sign in with Apple / Google / Microsoft."
+MSG_INFO_OPENING_TAILSCALE_FOR_SIGNIN="Opening Tailscale so you can sign in..."
+# WALK-1 (Wave 2.1): pre-announce the one late, optional Tailscale sign-in
+# step so the unattended middle holds no surprise prompts. TODO(i18n):
+# de/fr/es/it translations needed -- do NOT machine-translate.
+# 2026-08-20: called the Tailscale step "optional", but the installer then
+# waits up to three minutes for it and re-opens the browser (Andy's log,
+# 13:04:20 and 13:04:51). Optional-but-blocking is the worst of both. It also
+# named only that step, while Full Disk Access and the developer-tools dialog
+# were the two that actually surprised him.
+MSG_INFO_TAILSCALE_SIGNIN_LATER_PREANNOUNCE="Noted – Ostler mostly installs on its own from here. Near the end it will want you back for about two minutes: switching on Full Disk Access, then signing in to Tailscale so your iPhone and Watch can reach this Mac from anywhere. We will open your browser for the sign-in."
+MSG_INFO_TAILSCALE_SKIPPED="Tailscale skipped – the Ostler app on your iPhone will only work on your home Wi-Fi. You can set this up later from Settings."
+MSG_INFO_TAILSCALE_STILL_WAITING="Still waiting for Tailscale sign-in (%ss elapsed) – please complete sign-in in the Tailscale window."
+MSG_INFO_IMESSAGE_FDA_ASSIST_GRANTED="Full Disk Access granted; restarting the assistant to pick up the new permission."
+MSG_INFO_IMESSAGE_FDA_ASSIST_OPENING="Opening System Settings + Finder to walk you through granting Full Disk Access to the assistant..."
+MSG_INFO_IMESSAGE_FDA_REGISTER_NUDGE="Registering the Ostler assistant with macOS so it appears as a toggle in Full Disk Access..."
+MSG_INFO_IMESSAGE_FDA_ASSIST_STILL_NEEDED="Full Disk Access is still pending. The Doctor dashboard will keep the card visible until access is granted."
+MSG_INFO_IMESSAGE_FDA_DAEMON_TCC_GRANTED="ostler-assistant already has Full Disk Access; no further action needed."
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE="This part needs you for about two minutes: switch on Full Disk Access for the assistant now, then sign in to Tailscale on the next step. After that, you can leave Ostler to finish on its own."
+# #613: the declined-remote-access variant of the line above. On the v1.0.60
+# walk this was the SECOND time a customer who had answered "skip" was told a
+# Tailscale sign-in was coming. Emitted only when the answer is known to be
+# skip; an unknown answer keeps the original wording, because the late-ask path
+# means the question genuinely is still to come.
+MSG_INFO_IMESSAGE_FDA_INTERACTION_GATE_NO_REMOTE="This part needs you for about a minute: switch on Full Disk Access for the assistant. After that, you can leave Ostler to finish on its own."
+# WALK-874(b): %s is the Full Disk Access row name, DERIVED from the
+# assistant .app bundle (install.sh: _ostler_fda_entry_name). It read
+# "Ostler is already listed" while the row said OstlerAssistant, so the
+# customer went hunting in Finder for a row this line says is there.
+MSG_INFO_IMESSAGE_FDA_ALREADY_LISTED="\"%s\" is already listed in Full Disk Access, so you can just switch it on. No need to drag anything from Finder."
+MSG_INFO_IMESSAGE_FDA_PROBE_BEGIN="Checking whether the Ostler assistant has Full Disk Access..."
+MSG_INFO_IMESSAGE_FDA_PROBE_GRANTED="Assistant can read Messages history; iMessage channel will work."
+MSG_INFO_IMESSAGE_FDA_PROBE_NEEDS_GRANT="The Ostler assistant does not have Full Disk Access yet. It needs it to keep your Mac's own apps up to date, Messages or not. If you skip it now, the Doctor dashboard will guide you through System Settings."
+MSG_INFO_IMESSAGE_FDA_PROBE_SKIPPED_NO_DAEMON="Assistant LaunchAgent did not load; skipping the iMessage Full Disk Access probe."
+MSG_INFO_IMPORT_EVERNOTE_UI_DOCTOR_WILL_SURFACE="Import-Evernote UI in Doctor will surface a 'service unavailable'"
+MSG_INFO_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Import pipeline not bundled with installer."
+MSG_INFO_INSTALLING_CM042="Installing Ostler RemoteCapture v%s (call + meeting transcription)..."
+MSG_INFO_INSTALLING_CM048_PIPELINE_FROM="Installing conversation memory engine from %s..."
+MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV="  Installing conversation memory engine into venv..."
+MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI="Installing Colima + Docker CLI..."
+MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT="Installing GNU coreutils (for timeout caps on long steps)..."
+MSG_INFO_INSTALLING_HOMEBREW="Installing Homebrew..."
+MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM="Installing Knowledge service from %s..."
+MSG_INFO_INSTALLING_OLLAMA="Installing Ollama..."
+MSG_INFO_INSTALLING_OLLAMA_PINNED="Installing Ollama %s (verified release)..."
+MSG_INFO_INSTALLING_FDA_DEPENDENCIES="  Installing the data-extraction module's dependencies..."
+MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV="  Installing the Apple Mail reader into a dedicated venv..."
+MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV="  Installing ostler-knowledge into venv..."
+MSG_INFO_INSTALLING_OSTLER_SECURITY_INTO_CM048_VENV="  Installing the encrypted-storage dependency into the conversation memory venv..."
+MSG_INFO_INSTALLING_SAFARI_EXTENSION_APPLICATIONS="Installing Safari extension to /Applications"
+MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES="Installing security Python dependencies..."
+MSG_INFO_INSTALLING_SQLCIPHER="Installing SQLCipher..."
+MSG_INFO_INSTALLING_TAILSCALE="Installing Tailscale..."
+MSG_INFO_INTEL_SUPPORT_NOT_ROADMAP_RAISE_REQUEST="Intel support is not on the roadmap; raise a request if required."
+MSG_INFO_KNOWLEDGE_SERVICE_BUNDLED_WITH_INSTALLER="Knowledge service bundled with installer; using vendored source."
+MSG_INFO_KNOWLEDGE_SERVICE_NOT_INSTALLED_PWG_KNOWLEDGE="Knowledge service not installed: PWG_KNOWLEDGE_REPO empty."
+# Laptop-Hub posture, stated in Phase 1 while changing your mind is still cheap
+# (task #339). Fires on every laptop, on mains power or not; a desktop Mac never
+# sees these lines.
+MSG_INFO_LAPTOP_HUB_AWAKE_CONDITIONS="This Mac is a laptop. As your Hub it keeps working while the lid is open and the Mac is on mains power."
+MSG_INFO_LAPTOP_HUB_SLEEP_COST="Close the lid, or leave it idle on battery, and macOS puts it to sleep. The assistant receives nothing while it sleeps, and messages that arrive in that time are not picked up when it wakes."
+MSG_INFO_LAPTOP_HUB_CLOSED_DISPLAY="The lid can stay closed in closed-display mode, which needs mains power plus an external display, keyboard and mouse."
+MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="A Mac Mini or Mac Studio Hub stays awake on its own, if you would rather install on one of those."
+MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="later in System Settings > Privacy & Security > Full Disk Access"
+MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  launch to verify cron-delivery + imessage-tcc posture)."
+MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT="License: %s is Apache 2.0. Full text: %s/LICENSES/Apache-2.0.txt"
+MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="Licence: %s – check upstream terms before commercial use."
+MSG_INFO_LOCAL_STORE_GOOGLE_NEVER_SEES_THAT="local store – Google never sees that Ostler exists."
+MSG_INFO_LOGS_EMAIL_INGEST_LOG_ERR="Logs: %s/email-ingest.log (and .err)"
+MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR="Logs: %s/ostler-assistant.log (and .err)"
+MSG_INFO_LOGS_WIKI_RECOMPILE_LOG_ERR="Logs: %s/wiki-recompile.log (and .err)"
+MSG_INFO_MACBOOK_HUBS_SET_PWG_HUB_POWER="MacBook hubs: set PWG_HUB_POWER_REPO=<url> and re-run."
+MSG_INFO_MACBOOK_HUB_DETECTED_SETTING_NEVER_SLEEP="MacBook Hub detected: setting never-sleep on AC only (hub-power handles battery transitions)"
+MSG_INFO_MAC_MINI_STUDIO_DEPLOYMENTS_ARE_UNAFFECTED="Mac Mini / Studio deployments are unaffected (always-on AC)."
+MSG_INFO_MAC_SIDE_DATA_IMESSAGE_SAFARI_ETC="Mac-side data (iMessage, Safari, etc.) was extracted above."
+MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI="Manual restart: launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.assistant"
+MSG_INFO_MANUAL_RUN_BASH_BIN_EMAIL_INGEST="Manual run: bash %s/bin/email-ingest-tick.sh"
+MSG_INFO_MEETING_BRIEF_AGENT_SKIPPED="Skipping com.ostler.meeting-brief-sender install (v1.0.1 feature; endpoints not yet shipped)."
+MSG_INFO_MEMORY_HYGIENE_SKIPPED_NOT_STAGED="Skipping the memory-hygiene pass (not bundled with this installer); nothing is down-weighted automatically until it is."
+MSG_INFO_MESSAGE_WHEN_FEATURE_FLAG_LATER_FLIPPED="message when the feature flag is later flipped on."
+MSG_INFO_NEED_HELP_EMAIL_SUPPORT_OSTLER_AI="Need help? Email support@ostler.ai. We aim to reply within 2 business days."
+MSG_INFO_MKDIR_P_CP_R_TMP_HUB="  mkdir -p %s && cp -R /tmp/hub-power-src/hub-power/* %s/"
+MSG_INFO_MKDIR_P_CP_R_TMP_HUB_2="  mkdir -p %s && cp -R /tmp/hub-src/email-ingest/* %s/"
+MSG_INFO_NO_CHANNELS_CONFIGURED_RUN_LATER_BIN="No channels configured. Run later: %s/bin/ostler-assistant setup channels --interactive"
+MSG_INFO_REMOVED_LEGACY_ROOT_CONFIG_TOML="Removed a stale legacy config.toml at the workspace root; the live assistant config lives under assistant-config/."
+MSG_INFO_NO_FDA_SOURCES_AVAILABLE_RIGHT_NOW="No FDA sources available right now. You can grant Full Disk Access"
+MSG_INFO_NO_GDPR_EXPORTS_FOUND_DOWNLOADS_DESKTOP="No GDPR exports found in Downloads, Desktop, or Documents."
+MSG_WARN_FOLDER_ACCESS_DENIED_SCAN="Could not read %s to look for data exports. macOS is blocking access to that folder."
+MSG_INFO_FOLDER_ACCESS_DENIED_GUIDANCE="Grant access in System Settings > Privacy & Security > Files and Folders (or Full Disk Access) and re-run, or point Ostler at your exports folder manually below."
+MSG_INFO_GDPR_SCAN_BLOCKED_BY_PERMISSIONS="Could not scan one or more folders for data exports because macOS blocked access. Grant access and re-run, or point me at your exports folder manually."
+MSG_INFO_OPENING_CHROME_WEB_STORE="Opening Chrome Web Store: %s"
+MSG_INFO_OSTLER_ASSISTANT_BINARY_NOT_INSTALLED_SKIPPING="ostler-assistant binary not installed; skipping doctor probe"
+MSG_INFO_OSTLER_ASSISTANT_DOCTOR_DEFERRED_DAEMON_MAY="ostler-assistant doctor: deferred (daemon may still be"
+MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="Using ostler-assistant binary bundled in this DMG (offline-capable install path)."
+MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
+MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
+MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge installed in venv."
+MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Override the source repo for the conversation memory engine via the env var documented in ./install.sh --help."
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  Override the source repo with PWG_DOCTOR_REPO=<url> ./install.sh"
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  Override the source repo with PWG_HUB_POWER_REPO=<url> ./install.sh"
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  Override the source repo with PWG_KNOWLEDGE_REPO=<url> ./install.sh"
+MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  Override the source repo with PWG_PIPELINE_REPO=<url> ./install.sh"
+MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
+MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="Phase 3 battery watcher armed (PID %s)"
+MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Reading your address book (large libraries can take a couple of minutes – please don't close the installer)..."
+MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="Policy override: edit ~/.ostler/power.conf (normal / aggressive / eco)"
+MSG_INFO_PROBING_IMESSAGE_AUTOMATION_PERMISSION_READ_ONLY="Probing iMessage Automation permission (read-only)..."
+MSG_INFO_PULLING_GRAPH_DB_IMAGES="Downloading the knowledge-graph databases (first run only). This can take a minute on a fresh install..."
+MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB="Pulling nomic-embed-text (274 MB)..."
+MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES="Pulling %s (%s)... this may take a few minutes."
+MSG_INFO_QUARANTINE_XATTR_CLEARED_ONCE_DEVELOPER_ID="Quarantine xattr cleared. Once the Developer-ID build is"
+MSG_INFO_READING_SAFARI_IMESSAGE_NOTES_CALENDAR_PHOTOS="Reading Safari, iMessage, Notes, Calendar, Photos, Reminders, Mail..."
+MSG_INFO_READING_YOUR_CONTACT_CARD_PRE_FILL="Reading your contact card to pre-fill your details..."
+MSG_INFO_REGION_EU_EEA_SOURCE="Region: EU/EEA (%s, source: %s)"
+MSG_INFO_REGION_SOURCE="Region: %s (source: %s)"
+MSG_INFO_REGION_UNITED_KINGDOM_SOURCE="Region: United Kingdom (source: %s)"
+MSG_INFO_REGION_UNITED_STATES_SOURCE="Region: United States (source: %s)"
+MSG_INFO_REPO_URL="Repo URL: %s"
+MSG_INFO_REPO_URL_2="Repo URL: %s"
+MSG_INFO_REPO_URL_3="Repo URL: %s"
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose the passphrase that will unlock your Hub. You'll type this each time you start the Hub UI."
+MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (Deprecated: v1.0 always requires a passphrase.)"
+MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
+MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
+MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Reusing existing hub-power install at %s"
+MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Reusing existing browser extension key at %s"
+MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="The Ostler extension for Chrome is not part of this release."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="Email conversations: not set up, because Apple Mail is not set up on this Mac."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="Messages conversations: not set up, because there is no Messages history on this Mac."
+MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Record a call with Ostler and this turns itself on."
+MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="Spoken conversations: not set up yet, because there are no recordings to read."
+MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="Spoken conversations: switched off, because the Transcripts folder has been removed since Ostler was installed."
+MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  Recreate %s to turn it back on. Ostler will not recreate it for you."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp conversations: not set up, because WhatsApp is switched off."
+MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler still reads your Chrome history, so pages you have visited are remembered. Live capture as you browse is Safari only for now."
+MSG_INFO_REUSING_EXISTING_JWT_SECRET="Reusing existing JWT_SECRET in %s"
+MSG_INFO_REUSING_EXISTING_PWG_SERVICE_TOKEN="Reusing existing PWG service token at %s"
+MSG_INFO_REUSING_EXISTING_WIKI_RECOMPILE_INSTALL="Reusing existing wiki-recompile install at %s"
+MSG_INFO_SAFARI_EXTENSION_BUNDLE_NOT_PRESENT_THIS="Safari extension bundle not present in this installer build (skipping)"
+MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="One manual step left: open Safari, choose Safari > Settings > Extensions, and tick Ostler to enable it."
+MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="Scanning for GDPR data exports..."
+MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="Set PWG_DOCTOR_REPO=<url> and re-run to install."
+MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: ollama pull %s"
+MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Starting Colima (lightweight Docker runtime)..."
+MSG_INFO_STARTING_DOCKER_DESKTOP="Starting Docker Desktop..."
+MSG_INFO_STARTING_OLLAMA="Starting Ollama..."
+MSG_INFO_REMOVING_STALE_COLIMA_LAUNCHAGENT="Removing a stale Colima start-up item left by an older version..."
+MSG_INFO_REMOVING_BROKEN_OLLAMA_FORMULA="Removing the legacy Ollama formula (no llama-server); switching to the Ollama app..."
+MSG_INFO_VERIFYING_EMBEDDINGS="Verifying the embedding engine returns vectors..."
+MSG_INFO_OLLAMA_MANUAL_START_HINT="Could not start Ollama automatically. Load it with: launchctl bootstrap gui/\$(id -u) %s – then re-run the installer."
+MSG_WARN_OLLAMA_BOOTSTRAP_FALLBACK_DIRECT="Ollama did not come up via the background service; starting it directly for this run..."
+MSG_INFO_STARTING_RUN_OSTLER_ASSISTANT_DOCTOR_AFTER="  starting; run \`ostler-assistant doctor\` after first"
+MSG_INFO_SYMLINKING="  Symlinking %s -> %s"
+MSG_INFO_SYSTEM_SETTINGS_INTERNET_ACCOUNTS_OSTLER_READS="(System Settings > Internet Accounts). Ostler reads from Mail's"
+MSG_INFO_TAR_XZF_TMP_OSTLER_TGZ_C="  tar xzf /tmp/ostler.tgz -C %s/bin"
+MSG_INFO_THE_REST_OSTLER_RUNS_WITHOUT_DOCTOR="(The rest of Ostler runs without the Doctor dashboard.)"
+MSG_INFO_THIS_EXPECTED_NOW_GDPR_IMPORT_WILL="This is expected for now. GDPR import will be available in a future update."
+MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES="This usually takes 15 to 45 minutes, and can run longer if you have a lot of history or a slower Mac. That is normal – it is working, not stuck, so feel free to leave it running..."
+MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="This reads macOS databases directly – no export needed."
+MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="Tip: to include your Gmail, add it to Mac Mail first"
+MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="To install later once you have access:"
+MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="Triggering iCloud sync for %s (silent, first-run only)..."
+MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (UK GDPR Article 9 - required for special-category data)."
+MSG_INFO_UPDATING_EXISTING_PIPELINE="Updating existing pipeline..."
+MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL="User-facing tree already announced (sentinel present); skipping"
+MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS="Downloading the local web search engine (about 3.5 GB). On a first install this is the longest step and can take up to an hour. There is no progress bar for it, so a long silence here is expected and does not mean the install has stalled."
+MSG_INFO_VANE_NOT_RESPONDING_OPTIONAL_SEE_PHASE="Vane not responding (optional; see Phase 3.8b warnings)"
+MSG_INFO_VIEW_ANY_TIME_WITH_BASH_INSTALL="View any time with: bash install.sh --licenses"
+MSG_INFO_VOICE_RECOGNITION_WILL_STAY_OFF_YOU="Voice recognition will stay off. You can enable later in Settings."
+MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3="Waiting for you to sign in to Tailscale (up to 3 minutes)..."
+MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS="Tailscale remote access was not set up. The Ostler app on your iPhone will work on your home Wi-Fi; you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_ALREADY_CONFIGURED="This Mac is already connected to your Tailscale network, so there is nothing to set up. Keeping your existing connection."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SKIP="Remote access: keeping the answer you gave last time, which was to skip it. Your iOS app will work on your home Wi-Fi, and you can set up remote access later from Settings."
+MSG_INFO_TAILSCALE_REUSED_ANSWER_SETUP="Remote access: keeping the answer you gave last time, which was to set it up."
+MSG_INFO_WHATSAPP_CONNECTOR_LEFT_OFF_YOU_CAN="WhatsApp connector left off. You can enable it later via Settings."
+MSG_INFO_WHATSAPP_KEEPALIVE_SCHEDULED_08_50_17="WhatsApp keepalive scheduled at 8:50 AM + 5:50 PM (label com.creativemachines.ostler.whatsapp-keepalive)"
+MSG_INFO_WIKI_RECOMPILE_CATCHUP_SKIPPED_NO_TICK="Skipping first-day wiki catch-up: the wiki-recompile tick is not installed. The daily wiki rebuild, if installed, still runs."
+MSG_INFO_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED_WITH="Wiki-recompile scripts not bundled with installer."
+MSG_INFO_WIKI_WILL_NOT_AUTO_UPDATE_YOU="Wiki will not auto-update; you can re-run the first-compile manually:"
+MSG_INFO_WROTE_POSTURE_MARKER_INSTALL_JSON="Wrote posture marker: %s/install.json"
+MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM="Your exports are safe. Import them later with: ostler-import %s"
+MSG_INFO_YOUR_MAC_DATA_IMESSAGE_SAFARI_ETC="Your Mac data (iMessage, Safari, etc.) was already extracted above."
+MSG_INFO_YOU_CAN_ADD_IT_LATER_INSTANT="You can add it later for instant onboarding from Safari, iMessage, etc."
+
+# ── Success messages ──
+
+MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM="AI model: %s (%s) – selected for your %s GB RAM"
+
+# ── Hardware-fit model picker (REUSE-4) ──
+# Pills shown against each candidate model.
+MSG_MODELFIT_PILL_FITS="Fits"
+MSG_MODELFIT_PILL_SLOW="May be slow"
+MSG_MODELFIT_PILL_NOFIT="Will not fit"
+# Header for the per-model fit assessment block. Args: chip, RAM GB, num_ctx.
+MSG_MODELFIT_HEADER="Matching the assistant model to your Mac (%s, %s GB RAM, assistant context %s tokens):"
+# One row per candidate. Args: pill, model tag, size label, quant tier.
+MSG_MODELFIT_ROW="  %s  %s (%s, %s)"
+# Suffix appended to the recommended row.
+MSG_MODELFIT_RECOMMENDED_TAG="  <- Recommended"
+# Final selection line. Args: model tag, size label, RAM GB.
+MSG_MODELFIT_SELECTED="AI model: %s (%s) – best fit for your %s GB RAM at the assistant's required context window"
+MSG_OK_ALL_SOURCES_SELECTED_FACE_RECOGNITION_STILL="All sources selected (face recognition still off)"
+MSG_OK_ALREADY_AVAILABLE="%s already available"
+MSG_OK_APPLE_SILICON_DETECTED="Apple Silicon detected"
+MSG_OK_APPS_LAUNCHED_TRIGGER_ICLOUD_SYNC="Apps launched to trigger iCloud sync"
+MSG_OK_APP_DATABASES_ALREADY_PRESENT_SKIPPING_PRE="App databases already present (skipping pre-launch)"
+MSG_OK_ASSISTANT_CONFIG_SAVED_MODE_0600="Assistant config saved to %s (mode 0600)"
+MSG_OK_BACKED_UP_CONTACTS="Backed up %s contacts to %s"
+MSG_OK_CM042_INSTALLED="Ostler RemoteCapture v%s installed at %s"
+MSG_OK_CM042_LAUNCHAGENT_LOADED="Ostler RemoteCapture LaunchAgent loaded (label %s)"
+MSG_OK_COLIMA_DOCKER_CLI_INSTALLED="Colima and Docker CLI installed"
+# v1.0.38 walk (2026-08-23): the container engine was killed by macOS
+# mid-life and nothing checked again for a day, because the only thing that
+# could restart it ran once at daemon startup. These cover the agent that
+# supplies the missing cadence.
+MSG_OK_ENGINE_SUPERVISOR_INSTALLED="Container-runtime supervisor installed (checks every 5 minutes and restarts the runtime if it stops)"
+MSG_WARN_ENGINE_SUPERVISOR_NOT_LOADED="The container-runtime supervisor could not be scheduled. Ostler will still install, but if the runtime stops later nothing will bring it back on its own - your wiki would stay down until you re-run the installer."
+MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="The container-runtime supervisor files are missing from this installer, so it was not scheduled. Ostler will still install, but automatic recovery of the runtime is not active."
+# v1.0.44 walk (2026-08-24), #876 and the #800 class behind it. Five
+# background helpers used to announce themselves as running with no way for
+# the code to be wrong: `launchctl … || true` and then an unconditional `ok`.
+# On Andy's walk the Doctor line printed while com.ostler.doctor was not
+# loaded at all. These are the sentences the installer now says when launchd
+# does NOT report the agent registered. Each names what the customer loses,
+# not what failed internally, and none of them claims the install is ruined:
+# these are helpers, and the machine still works without them.
+MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="The Ostler Doctor dashboard could not be started, so http://localhost:8089 will not answer. The app's own pages that read from it - People, Timeline, Governor, channel status - will show as unavailable until it is running. Re-run the installer to try again."
+MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="The keep-awake helper could not be scheduled. Ostler still works, but this Mac may sleep during long background jobs and they will resume when it wakes rather than finishing overnight."
+MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="The background top-up helper could not be scheduled, so new messages, mail and calendar entries will not be picked up on their own. Re-run the installer to restore it."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
+MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="The daily brief could not be scheduled, so you will not receive the morning summary. Everything else works; re-run the installer to restore it."
+MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="The memory-hygiene pass could not be scheduled, so stale or superseded facts will not be down-weighted automatically. Everything else works; re-run the installer to restore it."
+MSG_WARN_EXPORT_SCAN_NOT_LOADED="The Downloads watcher could not be started, so files you drop into Downloads will not be picked up automatically. Everything already imported is unaffected, and you can still add files from inside the app. Re-run the installer to restore it."
+MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="The retry helper for device registration could not be scheduled. If your iPhone registered during setup this changes nothing; if it did not, you will need to pair again from the app rather than it completing on its own."
+# v1.0.38 walk (2026-08-23): a green install finished on a Mac with the
+# Docker CLI present and no engine behind it. On macOS `docker` is a client;
+# these strings keep the two apart in everything the customer reads.
+MSG_OK_CONTAINER_ENGINE_ANSWERED="Container runtime responding"
+MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Removed a stale Colima start-up item left by an older version"
+MSG_OK_CONFIG_SAVED_ENV="Config saved to %s/.env"
+MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_OK_AT_REST_EXCLUDED="Kept out of Spotlight and Time Machine (checked): %s"
+MSG_WARN_AT_REST_NOT_EXCLUDED="%s is NOT excluded from Time Machine or Spotlight: %s. Its contents, including Ostler's secrets, may be copied to your backup disk. The Doctor will keep showing this until it is fixed."
+MSG_INFO_AT_REST_FOLDER_ABSENT="%s does not exist yet, so there is nothing to exclude from backups."
+MSG_WARN_DB_KEY_NOT_EXCLUDED="The database key file %s is NOT excluded from Time Machine, so it may be copied to your backup disk."
+MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enrichment choice to ~/.ostler/posture/. Your choice is still being applied to this install; it simply will not appear in a support report."
+# The old text read "Databases encrypted. Passphrase required at each
+# startup." Both halves were false. Nothing delivered the key to the
+# services, so the databases were plaintext; and no service, agent or UI
+# has ever asked for the passphrase at startup, so nothing was required
+# at any startup. The key ID is left alone: renaming it would churn every
+# translation catalogue for a copy fix.
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
+MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
+MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
+MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
+MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
+MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
+MSG_OK_DOCKER_RUNNING="Docker running"
+MSG_OK_DOCKER_RUNNING_TOOK_S="Docker running (took %ss)"
+MSG_OK_DOCTOR_AGENT_CLONED_FROM="Doctor agent cloned from %s"
+MSG_OK_DOCTOR_AGENT_FILES_BUNDLED_WITH_INSTALLER="Doctor agent files bundled with installer"
+MSG_OK_DOCTOR_DEPENDENCIES_INSTALLED="Doctor dependencies installed"
+MSG_OK_EMAIL_CHANNEL_FOLDER="Email channel: %s (folder: %s)"
+MSG_OK_EMAIL_INGEST_LAUNCHAGENT_LOADED_LABEL_COM="Email-ingest LaunchAgent loaded (label com.creativemachines.ostler.email-ingest)"
+MSG_OK_EMAIL_INGEST_SCRIPTS_BUNDLED_WITH_INSTALLER="Email-ingest scripts bundled with installer"
+MSG_OK_EMAIL_INGEST_SCRIPTS_CLONED_FROM="Email-ingest scripts cloned from %s"
+# Conversation-memory body feeds (4-artefact). One MSG_* set per feed,
+# keyed by the uppercased feed name so _install_conversation_feed can
+# derive them. WhatsApp copy keeps the locked depth framing ("about the
+# last year"); never "full history" or "every message".
+MSG_PROGRESS_WHATSAPP_BUNDLE="Setting up WhatsApp conversation memory"
+MSG_OK_WHATSAPP_SOURCE_INSTALLED="  WhatsApp conversation reader installed."
+MSG_WARN_WHATSAPP_SOURCE_FAILED="WhatsApp conversation reader install failed; the WhatsApp conversation feed will not run. See output above."
+MSG_WARN_WHATSAPP_SOURCE_SRC_NOT_FOUND="WhatsApp conversation reader source not found; skipping the WhatsApp conversation feed."
+MSG_WARN_WHATSAPP_BUNDLE_VENDOR_MISSING="WhatsApp conversation feed package not found in this installer; skipping. WhatsApp message history (who you messaged and when) is unaffected."
+MSG_OK_WHATSAPP_BUNDLE_LOADED="WhatsApp conversation feed LaunchAgent loaded (label com.creativemachines.ostler.whatsapp-bundle)"
+MSG_INFO_WHATSAPP_BUNDLE_TICK="  First tick reads recent WhatsApp conversations your Mac has synced (about the last year); it stays on your Mac."
+MSG_INFO_WHATSAPP_BUNDLE_LOGS="  Logs: %s/whatsapp-bundle.log and whatsapp-bundle.err"
+MSG_WARN_WHATSAPP_BUNDLE_FAILED="WhatsApp conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
+# Shared by all four conversation feeds: the refusal that keeps a LaunchAgent
+# from being started against a program that is not on disk yet. It names the
+# exact path it looked for, because a refusal that does not say what was
+# missing sends the reader hunting.
+MSG_WARN_BUNDLE_DAEMON_BINARY_MISSING="  Not started yet: the assistant program this agent runs is not on disk. Looked for: %s"
+# Email body feed (Apple Mail). Reads recent threads (about the last month).
+MSG_PROGRESS_EMAIL_BUNDLE="Setting up email conversation memory"
+MSG_OK_EMAIL_SOURCE_INSTALLED="  Email conversation reader installed."
+MSG_WARN_EMAIL_SOURCE_FAILED="Email conversation reader install failed; the email conversation feed will not run. See output above."
+MSG_WARN_EMAIL_SOURCE_SRC_NOT_FOUND="Email conversation reader source not found; skipping the email conversation feed."
+MSG_WARN_EMAIL_BUNDLE_VENDOR_MISSING="Email conversation feed package not found in this installer; skipping. The hourly email-ingest is unaffected."
+MSG_OK_EMAIL_BUNDLE_LOADED="Email conversation feed LaunchAgent loaded (label com.creativemachines.ostler.email-bundle)"
+MSG_INFO_EMAIL_BUNDLE_TICK="  Reads your recent email threads from Apple Mail's local store; everything stays on your Mac."
+MSG_INFO_EMAIL_BUNDLE_LOGS="  Logs: %s/email-bundle.log and email-bundle.err"
+MSG_WARN_EMAIL_BUNDLE_FAILED="Email conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
+# Meeting / voice body feed (your own CM042 recordings).
+MSG_PROGRESS_SPOKEN_BUNDLE="Setting up meeting and voice conversation memory"
+MSG_OK_SPOKEN_SOURCE_INSTALLED="  Meeting and voice conversation reader installed."
+MSG_WARN_SPOKEN_SOURCE_FAILED="Meeting and voice conversation reader install failed; the feed will not run. See output above."
+MSG_WARN_SPOKEN_SOURCE_SRC_NOT_FOUND="Meeting and voice conversation reader source not found; skipping the feed."
+MSG_WARN_SPOKEN_BUNDLE_VENDOR_MISSING="Meeting and voice conversation feed package not found in this installer; skipping."
+MSG_OK_SPOKEN_BUNDLE_LOADED="Meeting and voice conversation feed LaunchAgent loaded (label com.creativemachines.ostler.spoken-bundle)"
+MSG_INFO_SPOKEN_BUNDLE_TICK="  Transcribes your own meetings and voice notes into searchable conversations; everything stays on your Mac."
+MSG_INFO_SPOKEN_BUNDLE_LOGS="  Logs: %s/spoken-bundle.log and spoken-bundle.err"
+MSG_WARN_SPOKEN_BUNDLE_FAILED="Meeting and voice conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
+# iMessage body feed (Messages chat.db). Reads recent threads (about the last month).
+MSG_PROGRESS_IMESSAGE_BUNDLE="Setting up iMessage conversation memory"
+MSG_OK_IMESSAGE_SOURCE_INSTALLED="  iMessage conversation reader installed."
+MSG_WARN_IMESSAGE_SOURCE_FAILED="iMessage conversation reader install failed; the iMessage conversation feed will not run. See output above."
+MSG_WARN_IMESSAGE_SOURCE_SRC_NOT_FOUND="iMessage conversation reader source not found; skipping the iMessage conversation feed."
+MSG_WARN_IMESSAGE_BUNDLE_VENDOR_MISSING="iMessage conversation feed package not found in this installer; skipping."
+MSG_OK_IMESSAGE_BUNDLE_LOADED="iMessage conversation feed LaunchAgent loaded (label com.creativemachines.ostler.imessage-bundle)"
+MSG_INFO_IMESSAGE_BUNDLE_TICK="  Reads your recent iMessage conversations from this Mac's Messages store; everything stays on your Mac."
+MSG_INFO_IMESSAGE_BUNDLE_LOGS="  Logs: %s/imessage-bundle.log and imessage-bundle.err"
+MSG_WARN_IMESSAGE_BUNDLE_FAILED="iMessage conversation feed LaunchAgent install failed. See output above; the rest of the install is unaffected."
+MSG_OK_EMBEDDING_MODEL_READY="Embedding model ready"
+MSG_OK_EXPORTED_CONTACTS_WILL_IMPORT_AUTOMATICALLY="Exported %s contacts (will import automatically)"
+MSG_OK_EXPORT_WATCHER_INSTALLED_SCANS_DOWNLOADS_EVERY="Export watcher installed (scans Downloads every 4 hours)"
+# The export watcher's refusal names the exact path it looked for, so the
+# install log does not send the reader hunting for what was missing.
+MSG_WARN_EXPORT_SCAN_DAEMON_BINARY_MISSING="  Export watcher not started yet: the assistant program it runs is not on disk. Looked for: %s"
+MSG_OK_MEETING_BRIEF_SENDER_INSTALLED="Pre-meeting brief sender installed (polls every 10 minutes during waking hours)"
+MSG_OK_MEMORY_HYGIENE_INSTALLED="Memory-hygiene pass scheduled (runs daily to keep stale facts from crowding out current ones)"
+MSG_OK_STAY_AWAKE_AGENT_INSTALLED="Your Mac will stay awake on mains power so Ostler keeps working (it still sleeps on battery)"
+MSG_OK_EXTRACTED="Extracted to %s"
+MSG_OK_EXTRACTED_FROM_SOURCE_S_DATA_SAVED="Extracted from %s source(s). Data saved to %s/imports/fda/"
+MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING="FDA re-run scheduled every %s minutes (catches slow iCloud syncs and finishes the calendar backfill)"
+MSG_OK_FIRST_MONTH_FREE_ACTIVATED="Ostler Pro active for 30 days. Subscribe in the Ostler app on your iPhone to extend after the trial."
+MSG_OK_FOUND="Found: %s"
+MSG_OK_FOUND_EXPORTS="Found exports at %s"
+MSG_OK_FOUND_GDPR_EXPORT_S="Found %s GDPR export(s):"
+MSG_OK_GB_FREE_DISK_SPACE="%s GB free disk space"
+MSG_OK_GB_RAM_DETECTED="%s GB RAM detected"
+MSG_OK_GDPR_IMPORT_COMPLETE="GDPR import complete"
+MSG_OK_GIT_AVAILABLE="Git available"
+MSG_OK_GIT_CLT_INSTALL_TRIGGERED_BACKGROUND="Command Line Tools install triggered (downloading in background while you answer the questions below)."
+MSG_OK_COREUTILS_GTIMEOUT_INSTALLED="GNU coreutils installed (long steps now have a time cap)"
+MSG_OK_HOMEBREW_INSTALLED="Homebrew installed"
+MSG_OK_HUB_POWER_LAUNCHAGENT_LOADED_LABEL_COM="Hub power LaunchAgent loaded (label com.creativemachines.ostler.hub-power)"
+MSG_OK_HUB_POWER_SCRIPTS_BUNDLED_WITH_INSTALLER="Hub power scripts bundled with installer"
+MSG_OK_HUB_POWER_SCRIPTS_CLONED_FROM="Hub power scripts cloned from %s"
+MSG_OK_ICAL_SERVER_INSTALLED="Assistant API installed (loopback 127.0.0.1:8090, proxied by Doctor)"
+MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED="iMessage Automation permission: granted"
+MSG_OK_IMESSAGE_BRIDGE_INSTALLED="iMessage bridge LaunchAgent loaded (label com.ostler.imessage-bridge)"
+MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_BUNDLED_WITH_INSTALLER="iMessage bridge scripts bundled with installer"
+MSG_OK_IMESSAGE_BRIDGE_SCRIPTS_CLONED_FROM="iMessage bridge scripts cloned from %s"
+MSG_OK_IMESSAGE_CHANNEL="iMessage channel: %s"
+MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER="Import pipeline bundled with installer"
+MSG_OK_IMPORT_PIPELINE_READY="Import pipeline ready"
+MSG_OK_CM048_PIPELINE_READY="Conversation memory engine ready."
+MSG_INFO_CM048_SETTINGS_WRITTEN="  Conversation models set to %s (matched to your %s GB of memory)"
+MSG_INFO_CM048_SETTINGS_KEPT="  Keeping your existing conversation settings (%s)"
+MSG_OK_KNOWLEDGE_SERVICE_READY="Knowledge service ready: %s"
+MSG_OK_LICENCE_TEXTS_INSTALLED_SOURCE="License texts installed at %s/ (source: %s)"
+MSG_OK_MACOS_DETECTED="macOS %s detected"
+MSG_OK_MAIL_OPENING_INTERNET_ACCOUNTS="Opening System Settings > Internet Accounts so you can add a mail account. Come back to this window once you have signed in to your first account."
+MSG_OK_MAIL_SKIPPING_INTERNET_ACCOUNTS="Skipping the Internet Accounts step. You can add a mail account later from System Settings; Doctor will surface a follow-up if no mail arrives within 24 hours."
+MSG_OK_MAIL_EXTENDING_FULL_HISTORY="Pulling your full Apple Mail history now. This can take a little longer for a large mailbox."
+MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY="Keeping the standard five-year mail window. You can pull more later from Doctor."
+MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text already available"
+MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
+MSG_OK_OLLAMA_INSTALLED="Ollama installed"
+MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="An Ollama app is already installed in Applications. Ostler leaves it exactly as it is and runs its own copy of Ollama %s alongside it. If that app is open in the menu bar, quit it so Ostler can start its own."
+MSG_WARN_OLLAMA_PIN_DEFERRED="Could not update Ollama to %s this time, so Ostler is keeping the copy it already runs (%s). Your assistant keeps working. The update will be tried again the next time the installer runs. Details: %s"
+MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Not downloading %s this time: Ostler's tested copy of Ollama (%s) is not installed yet, and a different Ollama could fetch the wrong build. The next installer run downloads it."
+MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may need manual start after reboot)"
+MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
+MSG_OK_OLLAMA_RUNNING="Ollama running"
+MSG_OK_EMBEDDINGS_VERIFIED="Embedding engine verified (768-dim vectors)"
+MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED="ostler-assistant doctor: 0 errors in its own startup checks"
+MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM="Ostler assistant LaunchAgent loaded (label com.creativemachines.ostler.assistant)"
+MSG_OK_OSTLER_ASSISTANT_V_STAGED_SIGNED="ostler-assistant v%s staged at %s (signed)"
+MSG_OK_OSTLER_ASSISTANT_V_STAGED_UNSIGNED="ostler-assistant v%s staged at %s (unsigned)"
+MSG_OK_OSTLER_DOCTOR_RUNNING_HTTP_LOCALHOST_8089="Ostler Doctor running at http://localhost:8089/doctor"
+MSG_OK_FDA_DEPENDENCIES_IMPORTABLE="  Data-extraction module loads correctly."
+MSG_OK_OSTLER_FDA_INSTALLED_VENV="  Apple Mail reader installed."
+MSG_OK_PWG_EMAIL_INGEST_INSTALLED="  Email ingestion engine installed."
+MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL="ostler-import, ostler-fda, and ostler-uninstall commands installed"
+MSG_OK_OXIGRAPH_HEALTHY="Oxigraph healthy"
+MSG_OK_RECOVERY_PASSPHRASE_CAPTURED_FOR_PHASE_3="Passphrase noted. It will encrypt your databases during Phase 3."
+MSG_OK_RECOVERY_PASSPHRASE_CONFIGURED="Recovery passphrase configured."
+MSG_OK_PASSPHRASE_BRIEFING_ACKNOWLEDGED="Passphrase briefing acknowledged."
+MSG_OK_DISNEY_XLSX_PASSWORD_CAPTURED="Disney+ export password noted. It will be used during import."
+MSG_INFO_DISNEY_XLSX_PASSWORD_SKIPPED="Skipping the Disney+ export: no password was given. Nothing else is affected."
+MSG_OK_POWER_SOURCE_AC_DESKTOP_MAC_NO="Power source: AC (desktop Mac, no battery)"
+MSG_OK_POWER_SOURCE_AC_GOOD_10_15="Power source: AC (good – the install can run 45 minutes to a few hours, so mains power keeps it steady)"
+MSG_OK_PREVIOUS_INSTALLATION_DETECTED_LOADING_CONFIG="Previous installation detected. Loading config..."
+MSG_OK_PYTHON="Python %s"
+MSG_OK_PYTHON_BUNDLED="Using bundled Python %s (no system install needed)"
+MSG_OK_PYTHON_INSTALLED="Python %s installed"
+MSG_OK_QDRANT_HEALTHY="Qdrant healthy"
+# v1.0.10 P1: loopback control-plane liveness (pairing + data tab).
+MSG_OK_GATEWAY_HEALTHY="Pairing service healthy"
+MSG_WARN_GATEWAY_NOT_RESPONDING="Pairing service not responding (127.0.0.1:8000) - phone/browser pairing and the chat assistant may not work yet"
+MSG_OK_DOCTOR_HEALTHY="Doctor healthy"
+MSG_WARN_DOCTOR_NOT_RESPONDING="Doctor not responding (127.0.0.1:8089) - the app and browser reach Ostler through it, so data and pairing may be unavailable"
+MSG_OK_WIKI_HEALTHY="Your wiki healthy"
+MSG_OK_ICAL_SERVER_HEALTHY="Assistant API healthy"
+MSG_WARN_ICAL_SERVER_NOT_RESPONDING="Assistant API not responding (127.0.0.1:8090) - People, Meetings and Timeline may be empty until it starts"
+MSG_OK_READY="%s ready"
+MSG_OK_RECOMMENDED_SOURCES_SELECTED="Recommended sources selected"
+MSG_OK_RECOVERY_KEY_SAVED_KEYCHAIN_SEARCH_OSTLER="Recovery key saved to Keychain (search 'Ostler' in Passwords app)"
+MSG_OK_REDIS_HEALTHY="Redis healthy"
+MSG_OK_SAFARI_EXTENSION_INSTALLED="Safari extension installed at %s"
+MSG_OK_SAFARI_EXTENSION_PAIRED="Safari extension paired with this Hub"
+MSG_OK_SECURITY_ALREADY_CONFIGURED_PREVIOUS_RUN="Security already configured on a previous run."
+MSG_OK_SECURITY_MODULE_INSTALLED_INTO_VENV="Security module installed into venv"
+MSG_OK_SEEDED_FRESH_JWT_SECRET="Seeded fresh JWT_SECRET in %s"
+MSG_OK_SEEDED_PWG_SERVICE_TOKEN="Seeded PWG service token at %s"
+MSG_OK_SEEDED_EXTENSION_TOKEN="Seeded browser extension key at %s"
+MSG_OK_SERVICES_STARTED_QDRANT_6333_OXIGRAPH_7878="Services started (Qdrant :6333, Oxigraph :7878, Redis :6379)"
+# ── Qdrant collection pre-create + import gate (#606 / v1061-D003) ──
+MSG_INFO_QDRANT_COLLECTION_PRECREATED="  Prepared search collection: %s"
+MSG_WARN_QDRANT_COLLECTION_PRECREATE_FAILED="Could not prepare the %s search collection yet; the data import below will retry it and stop rather than discard your data if it still cannot."
+MSG_WARN_QDRANT_NOT_READY_COLLECTIONS_SKIPPED="Search index not ready in time yet; the data import below will wait for it, prepare the collections, and stop rather than discard your data if the store is still not ready."
+MSG_FAIL_QDRANT_IMPORT_REFUSED_MISSING_COLLECTIONS="Your data was not imported. The search store could not be prepared to hold it (missing: %s), and importing anyway would have discarded it silently. Nothing was lost. Re-run the installer once the machine is idle, or set OSTLER_QDRANT_READY_WAIT_S to wait longer."
+MSG_FAIL_IMPORT_ATTEMPTED_BUT_STORED_NOTHING="Your data import ran over %s records but stored none of them; the search store rejected every one, so the result would be an empty knowledge graph presented as complete. Stopping rather than showing you that. Re-run the installer once the machine is idle."
+MSG_WARN_IMPORT_YIELD_UNMEASURABLE="Could not read the import's own log, so the check that your data actually landed could not run. This is not a report that the import failed, and it is not a report that it succeeded."
+MSG_OK_SLEEP_DISABLED_AC_BATTERY_SLEEP_PRESERVED="Sleep disabled on AC, battery sleep preserved, wake-on-network enabled"
+MSG_OK_SLEEP_DISABLED_WAKE_NETWORK_ENABLED="Sleep disabled, wake-on-network enabled"
+MSG_OK_TAILSCALE_ALREADY_INSTALLED="Tailscale already installed"
+MSG_OK_TAILSCALE_INSTALLED="Tailscale installed"
+MSG_OK_TAILSCALE_ENV_PERSISTED="Tailscale IP saved to .env – the Ostler app on your iPhone will use it on first launch."
+MSG_OK_TAILSCALE_IP="Tailscale IP: %s"
+# ── Tailscale userspace formula path (#604) ──
+MSG_OK_TAILSCALED_USERSPACE_STARTED="Tailscale background service started (userspace mode, no system extension)"
+MSG_WARN_TAILSCALED_USERSPACE_START_FAILED="Could not start the Tailscale background service. You can re-run setup from Settings later."
+MSG_INFO_TAILSCALE_SIGN_IN_URL="Opening your browser to sign in to Tailscale: %s"
+MSG_INFO_TAILSCALE_SERVE_PORT="Exposed Hub port %s on your tailnet"
+MSG_WARN_TAILSCALE_SERVE_PORT_FAILED="Could not expose Hub port %s on your tailnet; off-LAN reach may be limited"
+# ── Wiki on the tailnet, owner-gated (v1.0.17) ──
+MSG_OK_WIKI_TAILNET_SERVED="Your wiki is now readable from your own devices at %s – signed in as you, and only you."
+MSG_INFO_WIKI_TAILNET_OWNER="Wiki access is restricted to your Tailscale account (%s). Other people on your tailnet get a 403."
+MSG_INFO_WIKI_TAILNET_LOCAL_ONLY="Your wiki stays on this Mac only. Open Ostler and choose Wiki in the sidebar to read it."
+MSG_INFO_WIKI_TAILNET_BANNER="%s  (from your own devices, over Tailscale. This is the one route that asks you for the sign-in above.)"
+# CM051 #1980. Where the wiki actually opens. :8044 answers an
+# uncredentialled browser with a signpost and no challenge (see the
+# `listen 8044` server block in install.sh), so the address is named for
+# what it is rather than offered as a destination.
+MSG_INFO_WIKI_IN_THE_APP="in the Ostler app. Open Ostler and choose Wiki in the sidebar; your pages are there, already signed in."
+MSG_INFO_WIKI_INTERNAL_ADDRESS="Ostler fetches those pages from http://localhost:8044 on this Mac. That address is internal and has nothing on it for you to sign in to."
+MSG_INFO_WIKI_SIGN_IN="Your wiki sign-in is %s with the password %s. Ostler presents it for you, so there is nothing to type on this Mac; you need it in your own hands only when you open the wiki from another of your devices over Tailscale."
+MSG_INFO_WIKI_SIGN_IN_WITHHELD="Your wiki sign-in is %s. The password is not written into this log; it is on your clipboard and in the file named below. Ostler presents it for you, so there is nothing to type on this Mac."
+MSG_INFO_WIKI_PORT_LAST_STATUS="Last HTTP status from the wiki port: %s (000 means nothing answered; 403 means it answered and refused the credential)."
+# HR015 #943. The four lines below are the readiness half of the wiki handover.
+# They exist because the credential half is no longer gated on them: a customer
+# whose first build is merely slow still gets their address and sign-in, and
+# only this line changes. None of them may name a cause the run did not
+# measure, which is what "first compile failed" did on every one of the three
+# non-failure paths into that branch.
+MSG_INFO_WIKI_PASSWORD_ON_DISK="Your password is also kept at %s, so the clipboard is not the only copy."
+MSG_INFO_WIKI_STILL_BUILDING="Still building. %s pages are on disk already, and the last reply from the wiki address was HTTP %s. It will appear in the Ostler app on its own. Nothing for you to do."
+MSG_WARN_WIKI_FIRST_COMPILE_PRODUCED_NO_PAGES="The first build has produced no pages yet (see the warnings above). Your wiki still opens in the Ostler app once it has built, and the sign-in above stays yours."
+MSG_INFO_WIKI_READINESS_NOT_MEASURED="This run did not measure whether the wiki is serving yet, so it is not claiming either way. Your wiki opens in the Ostler app regardless, and the sign-in above stays yours."
+MSG_WARN_WIKI_TAILNET_OWNER_UNRESOLVED="Could not confirm which Tailscale account owns this Mac, so the wiki has NOT been exposed on your tailnet. It is still available on this Mac, in the Ostler app under Wiki."
+MSG_WARN_WIKI_TAILNET_SERVE_FAILED="Could not publish the wiki on your tailnet; it is still available on this Mac, in the Ostler app under Wiki."
+MSG_WARN_WIKI_TAILNET_GATE_RELOAD_FAILED="Could not reload the wiki access gate, so the wiki has NOT been exposed on your tailnet."
+MSG_WARN_WIKI_TAILNET_FUNNEL_ON="Tailscale Funnel is switched on for %s. Funnel publishes to the open internet. Ostler never switches Funnel on and your wiki refuses Funnel traffic, so nothing of Ostler's is public – but if you did not mean to enable it, turn it off in the Tailscale admin console for this machine."
+MSG_OK_THIRD_PARTY_ATTRIBUTIONS_INSTALLED_SOURCE="Third-party attributions installed (source: %s)"
+MSG_OK_USER_FACING_TREE_READY="User-facing tree ready"
+MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD="Using 'Ostler' folder/label instead."
+MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane healthy (local web search)"
+MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane running at http://localhost:3000 (talks to your local Ollama)"
+MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
+MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="First-day wiki catch-up LaunchAgent loaded (rebuilds your wiki every 30 minutes for the first few hours, then stops)"
+# ── Deferred whole-graph dedupe converge (v1.0.2) ──
+MSG_INFO_DEDUPE_STILL_MERGING="Still merging duplicate contacts – large address books can take several minutes (%ss elapsed)"
+MSG_INFO_DEDUPE_MERGED="Duplicate contacts merged"
+MSG_INFO_DEDUPE_DEFERRED_BACKGROUND="Merging duplicate contacts is taking a while for an address book this size. It will keep going in the background after install – your wiki updates automatically when it finishes."
+MSG_WARN_DEDUPE_INCOMPLETE="Whole-graph dedupe pass did not complete cleanly (see %s); continuing"
+MSG_INFO_DEDUPE_COMPLETE_NO_CATCHUP="Duplicate contacts fully merged during install; no background catch-up needed"
+MSG_OK_DEDUPE_CATCHUP_LOADED="Background contact-dedupe LaunchAgent loaded (finishes merging duplicates after install, then stops)"
+MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Background contact-dedupe LaunchAgent could not be loaded. Duplicates will still be merged by the daily maintenance pass; it will simply take longer to settle."
+MSG_OK_ENRICH_AGENT_LOADED="Background enrichment LaunchAgent loaded (fills in details on your films, places, books and links; runs in slices over the next day or so)"
+MSG_WARN_ENRICH_AGENT_LOAD_FAILED="Background enrichment LaunchAgent could not be loaded. Your preferences are saved and searchable; they will simply be missing the extra reference detail (directors, cast, locations) until it runs."
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
+MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki-recompile LaunchAgent loaded (label com.creativemachines.ostler.wiki-recompile)"
+MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-recompile scripts bundled with installer"
+MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-recompile scripts cloned from %s"
+# The Editor -- Front Page refresh LaunchAgent (produces ~/.ostler/editor/front_page.json)
+MSG_PROGRESS_EDITOR_FRONTPAGE="Setting up your Front Page (hourly refresh)"
+MSG_OK_EDITOR_FRONTPAGE_BUNDLED="Front Page producer bundled with installer"
+MSG_OK_EDITOR_FRONTPAGE_LOADED="Front Page LaunchAgent loaded (label com.creativemachines.ostler.editor-frontpage)"
+MSG_INFO_EDITOR_FRONTPAGE_FIRST_EMIT="  First refresh runs now; your Dashboard Front Page fills out as Ostler reads in your preferences."
+MSG_INFO_EDITOR_FRONTPAGE_LOGS="  Logs: %s/editor-frontpage.log and editor-frontpage.err"
+MSG_WARN_EDITOR_FRONTPAGE_VENDOR_MISSING="Front Page producer not found in this installer; the Dashboard Front Page will not refresh."
+MSG_WARN_EDITOR_FRONTPAGE_FAILED="Front Page LaunchAgent install failed. See output above; the rest of the install is unaffected."
+MSG_PROGRESS_EDITOR_FRONTPAGE_CATCHUP="Setting up your Front Page catch-up"
+MSG_OK_EDITOR_FRONTPAGE_CATCHUP_LOADED="Front Page catch-up LaunchAgent loaded (checks every 5 minutes until your interests have been read in, then stops)"
+MSG_WARN_EDITOR_FRONTPAGE_CATCHUP_LOAD_FAILED="Front Page catch-up LaunchAgent could not be loaded. Your Front Page and what Ostler knows about your interests will fill in at the next hourly refresh instead."
+MSG_INFO_EDITOR_FRONTPAGE_CATCHUP_SKIPPED_NO_TICK="Skipping the Front Page catch-up: the Front Page refresh is not installed, so there is nothing for it to re-run."
+MSG_OK_WIKI_RUNNING_HTTP_LOCALHOST_8044="Wiki running at http://localhost:8044"
+MSG_INFO_WIKI_BACKGROUND_SUMMARIES_STARTED="Your wiki is ready to browse. Ostler is now writing the page summaries in the background, so they will fill in over the next little while. You can start using your wiki straight away."
+MSG_OK_YOUR_ASSISTANT_CALLED="Your assistant is called %s"
+
+# ── Personal-context digest refresh (#608) ──
+MSG_OK_CONTEXT_REFRESH_SCRIPTS_BUNDLED="Personal-context digest scripts bundled with installer"
+MSG_OK_CONTEXT_REFRESH_LAUNCHAGENT_LOADED="Personal-context digest LaunchAgent loaded (label com.creativemachines.ostler.context-refresh)"
+MSG_INFO_CONTEXT_REFRESH_LOGS="  Logs: %s/context-refresh.log + .err"
+MSG_INFO_REUSING_EXISTING_CONTEXT_REFRESH="Reusing existing context-refresh install at %s"
+MSG_WARN_CONTEXT_REFRESH_NOT_BUNDLED="Personal-context digest scripts not bundled; the assistant will rely on live lookups only (no always-on context summary)"
+MSG_WARN_CONTEXT_REFRESH_LAUNCHAGENT_FAILED="Personal-context digest LaunchAgent did not load; see context-refresh.err. The assistant still answers via live lookups"
+
+# ── Warnings (non-fatal) ──
+
+MSG_WARN_BASH_INSTALL_SNIPPET_SH="  bash %s/INSTALL_SNIPPET.sh"
+MSG_WARN_BLOCK_3_1_CM024_PRODUCTISATION_STACK="The cloned Knowledge service source is missing its packaging configuration, so its environment was not set up."
+MSG_WARN_BUNDLE="  Bundle: %s"
+MSG_WARN_CD="  cd %s"
+MSG_WARN_CD_2="    cd %s"
+MSG_WARN_CM042_APPLE_SILICON_ONLY="Ostler RemoteCapture v%s is Apple Silicon only (detected: %s)."
+MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from %s"
+MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarization still in flight. Re-run the installer once the release is live."
+MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
+MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
+MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
+MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
+MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE="  This usually means the installer .app was built without"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_2="  the vendored cm048_pipeline package bundled into"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Re-download the installer or"
+MSG_WARN_CM048_PIPELINE_MISSING_FROM_APP_BUNDLE_4="  re-run with --allow-plaintext for a dev/CI install."
+MSG_WARN_CM048_PIPELINE_NOT_FOUND="Conversation memory engine not found. Conversation enrichment cannot run without it."
+MSG_WARN_CM048_PIPELINE_SKIPPED_ALLOW_PLAINTEXT="Conversation memory engine setup skipped (--allow-plaintext)."
+MSG_WARN_CM048_REPO_RESOLVED_BUT_PYPROJECT_TOML="Conversation memory engine source resolved but pyproject.toml is missing; venv setup skipped."
+MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Colima failed to start. Trying Docker Desktop as fallback..."
+MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="GNU coreutils could not be installed; long steps will run without a time cap (a progress line still shows they are working)."
+MSG_WARN_COLIMA_START_RETRY="Colima did not come up cleanly (the Docker socket was not ready). Retrying in %ss..."
+MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Common causes: tag v%s not yet published, network offline,"
+MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
+MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Your consent was saved, but not which language it was shown in (details in ~/.ostler/posture/consent-cli-failures.log)."
+MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  Console script not created at %s; pyproject.toml may be missing the [project.scripts] entry."
+MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Continuing because --allow-plaintext was passed."
+MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Continuing install. Re-run \`ostler-fda\` after diagnosing the error above."
+MSG_WARN_CONTINUING_WITHOUT_CONTACT_CARD_AUTO_FILL="Continuing without contact-card auto-fill – Ostler will ask you instead."
+MSG_WARN_CONVERSATIONS_SENT_IMESSAGE_WILL_SILENTLY_FAIL="  Conversations sent to iMessage will silently fail until"
+MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE="Could not change sleep settings. Enable 'Prevent automatic sleeping when plugged in' in System Settings > Energy."
+MSG_WARN_COULD_NOT_CHANGE_SLEEP_SETTINGS_ENABLE_2="Could not change sleep settings. Enable 'Prevent automatic sleeping' in System Settings > Energy."
+MSG_WARN_COULD_NOT_DOWNLOAD_OSTLER_ASSISTANT_V="Could not download ostler-assistant v%s from %s"
+MSG_WARN_COULD_NOT_EXTRACT_GMAIL_MBOX_FROM="Could not extract Gmail mbox from the Takeout zip – skipping."
+MSG_WARN_COULD_NOT_EXTRACT_OSTLER_ASSISTANT_TARBALL="Could not extract ostler-assistant tarball; skipping LaunchAgent."
+MSG_WARN_COULD_NOT_FIND_TAILSCALE_CLI_YOU="Could not find the Tailscale CLI. You can configure it manually later."
+MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS="Could not install legal/ consent-strings package; continuing"
+MSG_WARN_COULD_NOT_INSTALL_LICENSES_DIRECTORY_NON="Could not install LICENSES/ directory (non-fatal)."
+MSG_WARN_COULD_NOT_INSTALL_OSTLER_SECURITY_INTO="Could not install ostler_security into the Hub venv."
+MSG_WARN_COULD_NOT_INSTALL_THIRD_PARTY_NOTICES="Could not install THIRD_PARTY_NOTICES.md (non-fatal)."
+MSG_WARN_COULD_NOT_OBTAIN_DOCTOR_AGENT_BUNDLED="Could not obtain Doctor agent (bundled / cloned both failed)."
+MSG_WARN_DOCTOR_NOT_BUNDLED_HARD_FAIL="Ostler Doctor files not found. Required for the iOS pairing flow (Ostler.app iframes :8089/pair-ios)."
+MSG_WARN_DOCTOR_LOOKED_FOR_PATH="  Looked for: %s/doctor/agent/"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE="  This usually means the installer .app was built without"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_2="  the vendored doctor/agent/ source bundled into"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Re-download the installer or"
+MSG_WARN_DOCTOR_MISSING_FROM_APP_BUNDLE_4="  re-run with --allow-plaintext for a dev/CI install."
+MSG_FAIL_DOCTOR_INSTALL_REQUIRED="Doctor install aborted: required for the iOS pairing flow. Re-download the installer or pass --allow-plaintext for a dev/CI install."
+MSG_WARN_COULD_NOT_OBTAIN_EMAIL_INGEST_SCRIPTS="Could not obtain email-ingest scripts (bundled / cloned both failed)."
+MSG_WARN_COULD_NOT_OBTAIN_HUB_POWER_SCRIPTS="Could not obtain hub-power scripts (bundled / cloned both failed)."
+MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="Could not obtain wiki-recompile scripts (bundled / cloned both failed)."
+MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="Could not open Chrome Web Store URL automatically: %s"
+MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Could not persist region.json (continuing - Doctor will surface)"
+MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Could not record that the recovery key was delivered. This run's summary is still correct, but a later run may not be able to tell and could warn again – that is the safe direction for this to fail in."
+MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac."
+MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Could not start Ollama automatically."
+MSG_FAIL_OLLAMA_PORT_IN_USE="Another program is already using port 11434, which Ostler needs for its local AI. Ostler could not start its own copy, so the install stopped here rather than half-finishing.
+
+  What is holding the port: %s
+  The exact error is in: %s
+
+This is usually a copy of Ollama you already had, or one left running by a previous Ostler install. Quit it (or restart this Mac) and run the installer again."
+MSG_WARN_COULD_NOT_UPDATE_PIPELINE_OFFLINE="Could not update pipeline (offline?)"
+MSG_WARN_COULD_NOT_WRITE_PIPELINE_SIGNALS_JSON="Could not write pipeline_signals.json. The Doctor empty-Mail diagnostic will fall back to safe defaults until the next install or tick."
+MSG_WARN_CURL_SAID="Curl said:"
+MSG_WARN_DIRECTORY_NOT_FOUND_SKIPPING_IMPORT="Directory not found: %s – skipping import."
+MSG_WARN_DOCKER_COMPOSE_F_DOCKER_COMPOSE_YML="       docker compose -f %s/docker-compose.yml restart vane"
+MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM="  docker compose --profile compile run --rm wiki-compiler"
+MSG_WARN_DOCKER_COMPOSE_PROFILE_COMPILE_RUN_RM_2="    docker compose --profile compile run --rm wiki-compiler"
+MSG_WARN_DOCKER_COMPOSE_UP_D_WIKI_SITE="    docker compose up -d wiki-site"
+MSG_WARN_DOCKER_DID_NOT_START_WITHIN_SECONDS="Docker did not start within %s seconds."
+MSG_WARN_DOCKER_INSTALLED_BUT_NOT_RUNNING_WILL="Docker installed but not running. Will need to start it."
+MSG_WARN_DOCKER_CLIENT_WITHOUT_ENGINE="The Docker command is on this Mac but nothing is running behind it. On macOS the Docker command is only a client - it needs an engine such as Colima or Docker Desktop to actually run anything. The installer will set one up."
+MSG_WARN_CONTAINER_ENGINE_DIAGNOSTIC="Container runtime diagnostic - docker client: %s | colima: %s | Docker Desktop: %s"
+MSG_WARN_WIKI_PORT_NOT_ANSWERING="The wiki container was started but nothing answered on http://localhost:8044 within 60 seconds. Treat the wiki as NOT running - the exit code of the start command is not evidence that the page loads."
+MSG_WARN_WIKI_NOT_RESPONDING="Your wiki is not responding (127.0.0.1:8044). It runs in a container, so this usually means the container runtime stopped. Open Ostler Doctor at http://localhost:8089/doctor to see why."
+MSG_WARN_DOCKER_OLLAMA_MID_INSTALL_HANG_READINESS="Docker / Ollama mid-install and hang the readiness probes."
+MSG_WARN_EARLY_MARKERS_CHANNELS_STILL_CONNECTING_APPLE="  early markers (channels still connecting + Apple"
+MSG_WARN_EMAIL_INGEST_LAUNCHAGENT_INSTALL_FAILED_SEE="Email-ingest LaunchAgent install failed. See output above."
+MSG_WARN_IMESSAGE_BRIDGE_FAILED="iMessage bridge LaunchAgent install failed. Assistant-user iMessage replies will not work until you re-run the installer or run INSTALL_SNIPPET.sh manually."
+MSG_WARN_IMESSAGE_BRIDGE_SCRIPTS_NOT_BUNDLED_PLAINTEXT="iMessage bridge scripts not bundled and --allow-plaintext was passed; LaunchAgent install will be skipped. Assistant-user iMessage replies will not work."
+MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK="Encryption will not work."
+MSG_WARN_ENCRYPTION_PASSPHRASE_VALIDATION_WILL_NOT_WORK_2="Encryption will not work, and"
+MSG_WARN_ENSURE_PINNED_PWG_KNOWLEDGE_REPO_TAG="ensure the pinned PWG_KNOWLEDGE_REPO tag includes it."
+MSG_WARN_EVENTS_PERMISSION_MESSAGES_APP="  Events permission for Messages.app)."
+MSG_WARN_FDA_EXTRACTOR_EXITED_NON_ZERO_LAST="FDA extractor exited non-zero (%s). Last 20 lines of output:"
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_1="FDA extraction module not bundled into this installer."
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_2="Expected at: Contents/Resources/ostler_fda/ (inside the .app)."
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_LINE_3="Most likely cause: a build regression dropped the vendor copy. Re-download the .app from ostler.ai/install."
+MSG_WARN_FDA_MODULE_NOT_BUNDLED_PLAINTEXT="FDA extraction module not bundled. Continuing because --allow-plaintext was passed – instant data extraction will be skipped."
+MSG_WARN_FDA_DEPENDENCIES_NOT_IMPORTABLE="The data-extraction module is on disk but its dependencies did not install, so it cannot be loaded:"
+MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plaintext was passed – the scheduled data refresh will fail on every run."
+MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
+MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
+MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (gemma4:e2b) – reliable, accurate, sub-second on short questions, with tool calls and an honest 'I don't know' when it doesn't. For richer answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
+MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR import had errors. You can re-run with:"
+MSG_WARN_GRAPH_DB_PULL_RETRY="Database download did not finish (attempt %s of %s). Retrying in %ss..."
+MSG_WARN_GRAPH_DB_UP_RETRY="The knowledge-graph databases did not start (attempt %s of %s). Retrying..."
+MSG_WARN_GDPR_IMPORT_REQUIRED_FOR_PRODUCTISED_INSTALL="GDPR import is part of the productised install. Without it, your social graph (LinkedIn, Facebook, Instagram, WhatsApp, Twitter, Google Calendar) cannot be imported."
+MSG_WARN_GDPR_IMPORT_WILL_BE_UNAVAILABLE_THIS_INSTANCE="GDPR import will be unavailable on this instance until the import pipeline is reinstalled."
+MSG_WARN_GIT_SAID="Git said:"
+MSG_WARN_HEALTH_CHECK_FAILED_OSTLER_KNOWLEDGE_VERSION="  Health check failed: ostler-knowledge --version did not produce output."
+MSG_WARN_HEALTH_CHECK_FAILED_PWG_CONVO_HELP="  Health check failed: the conversation memory engine could not load (pwg-convo or its pipeline import did not return cleanly)."
+MSG_WARN_HOMEBREW_INSTALL_FAILED_EXIT="Homebrew installer exited %s. Last 30 lines of %s follow:"
+MSG_WARN_HOMEBREW_INSTALL_LOG_LAST_LINES="--- Homebrew install log (tail) ---"
+MSG_WARN_DOCTOR_PIP_INSTALL_FAILED_EXIT="Doctor pip install exited %s. Last 30 lines of %s follow:"
+MSG_WARN_DOCTOR_PIP_LOG_LAST_LINES="--- Doctor pip install log (tail) ---"
+MSG_WARN_PIPELINE_PIP_INSTALL_FAILED_EXIT="Pipeline pip install exited %s. Last 30 lines of %s follow:"
+MSG_WARN_PIPELINE_PIP_LOG_LAST_LINES="--- Pipeline pip install log (tail) ---"
+MSG_WARN_HUB_POWER_LAUNCHAGENT_INSTALL_FAILED_SEE="Hub power LaunchAgent install failed. See output above."
+MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE="Hub power scripts not found at the expected bundle path."
+MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_2="  The installer .app appears to be missing vendor/hub_power/"
+MSG_WARN_HUB_POWER_SCRIPTS_MISSING_FROM_APP_BUNDLE_3="  in Contents/Resources/hub-power/. Battery-aware throttling will not be installed; the rest of the install will continue."
+MSG_WARN_ICAL_SERVER_FAILED="Could not start Assistant API; the Ostler app on your iPhone will have limited access until the next install run."
+MSG_WARN_IMAGE_PULL_FAILED_NETWORK_DISK_SPACE="  - Image pull failed (network, disk space, or registry timeout)"
+MSG_WARN_IMESSAGE_FDA_PROBE_SIGNAL_WRITE_FAILED="Could not write iMessage FDA signal to pipeline_signals.json. The Doctor dashboard may not auto-show the Full Disk Access card."
+MSG_WARN_IMAP_HOST_EMPTY_TRY_AGAIN="IMAP host is empty – try again."
+MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_NOT_GRANTED_1743="iMessage Automation permission: not granted (-1743)."
+MSG_WARN_IMESSAGE_AUTOMATION_PERMISSION_PROBE_INCONCLUSIVE="iMessage Automation permission: probe inconclusive."
+MSG_WARN_IMESSAGE_CHAT_DB_FDA_DENIED="iMessage history (chat.db) is not readable: Full Disk Access is not yet granted to the Ostler daemon. Reading iMessage history stays off until you grant it in System Settings > Privacy & Security > Full Disk Access."
+MSG_INFO_IMESSAGE_TCC_REMEDIATION_OPENED="Opening System Settings > Privacy & Security > Automation. Check the Messages row for OstlerInstaller (or Terminal) to wire iMessage delivery up."
+MSG_WARN_EMAIL_ALLOWED_ENTRY_IGNORED="Not a full email address, so ignored: %s"
+MSG_WARN_EMAIL_NEEDS_AT_LEAST_ONE_ALLOWED_ADDRESS="Please enter at least one full email address (for example you@example.com)."
+MSG_WARN_IMESSAGE_NEEDS_LEAST_ONE_ALLOWED_CONTACT="iMessage needs at least one allowed contact. Try again or"
+MSG_WARN_IMPORT_PIPELINE_NOT_AVAILABLE_PRIVATE_REPO="Import pipeline not available (private repo - beta testers only)."
+MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_HARD_FAIL_BYPASSED="Import pipeline not bundled with installer. Hard-fail bypassed."
+MSG_WARN_IMPORT_PIPELINE_NOT_BUNDLED_WITH_INSTALLER="Import pipeline not bundled with installer. This is the productised install path; the contact_syncer Python package should ship inside the .app bundle."
+MSG_WARN_INBOX_MEANS_ASSISTANT_WILL_READ_EVERY="INBOX means the assistant will read every email you receive."
+MSG_WARN_INSUFFICIENT_DISK_WIKI_OUTPUT_VOLUME="  - Insufficient disk for the wiki output volume"
+MSG_WARN_INTEL_MAC_DETECTED_PERFORMANCE_WILL_LIMITED="Intel Mac detected – performance will be limited. Apple Silicon recommended."
+MSG_WARN_IS_CLOUD_PROVIDER_HOST="%s is a cloud-provider host."
+MSG_WARN_JWT_SECRET_BANLIST_REGENERATING_KEEP_CM019="JWT_SECRET in %s is on the banlist; regenerating to keep knowledge graph services importable"
+MSG_WARN_JWT_SECRET_TOO_SHORT_CHARS_REGENERATING="JWT_SECRET in %s is too short (%s < %s chars); regenerating"
+MSG_WARN_KNOWLEDGE_REPO_CLONED_BUT_PYPROJECT_TOML="Knowledge repo cloned but pyproject.toml missing; venv setup skipped."
+MSG_WARN_KNOWLEDGE_SERVICE_INSTALL_FAILED_CLONE="Knowledge service install failed (clone)."
+MSG_WARN_LICENCE_SHIPS_UNDER_GOOGLE_S_GEMMA="License: %s ships under Google's Gemma Terms of Use, not Apache 2.0."
+MSG_WARN_MACBOOK_DEPLOYMENTS_NEED_THIS_BATTERY_SLEEP="MacBook deployments need this for battery / sleep handling."
+MSG_WARN_MACOS_CONTACTS_PERMISSION_WAS_DECLINED_NOT="macOS Contacts permission was declined or not yet granted."
+MSG_WARN_MACOS_WILL_NOT_PROMPT_IT_FROM="macOS will NOT prompt for it from a script – you must grant it manually."
+MSG_WARN_MAC_MINI_DEPLOYMENTS_ARE_UNAFFECTED_MACBOOK="Mac Mini deployments are unaffected; MacBook users should retry."
+MSG_WARN_MAIL_DATA_STILL_INGESTIBLE_MANUALLY="Mail data is still ingestible manually:"
+MSG_WARN_MANUAL_RETRY_CD_DOCKER_COMPOSE_UP="  Manual retry: cd %s && docker compose up -d vane"
+MSG_WARN_MANUAL_RETRY_ONCE_CAUSE_RESOLVED="  Manual retry once the cause is resolved:"
+MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP="Neither Apple Mail nor Custom IMAP selected – defaulting to Apple Mail."
+MSG_WARN_NO_PASSKEY_SET_DATABASES_WILL_NOT="No passkey set; databases will not be encrypted."
+MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_1="A previous install minted your recovery key but did not finish, so it was never shown to you. It cannot be retrieved – it is never stored anywhere, including here."
+MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_2="Your passphrase still works and nothing is locked today. But there is currently no way back in if you ever forget it."
+MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contact support to have security set up fresh, which will show you a new recovery key to keep."
+MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Passphrases don't match. Try again."
+MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
+MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
+MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
+MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
+MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
+MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="ollama pull %s failed (attempt %s/3). Retrying in %ss..."
+MSG_WARN_ONLY_GB_FREE_WE_RECOMMEND_LEAST="Only %s GB free. We recommend at least 35 GB (Docker images + AI model + data)."
+MSG_WARN_ON_BATTERY_HUB_POWER_LAUNCHAGENT_STEP="On battery, the hub power LaunchAgent (step 3.14) may pause"
+MSG_WARN_OR_RE_RUN_INSTALLER_PICK_DIFFERENT="or re-run the installer and pick a different channel choice."
+MSG_WARN_OR_RUNNING_AHEAD_PHASE_B_S="or running ahead of Phase B's release pipeline. Re-run the installer once the"
+MSG_WARN_OSTLER_ASSISTANT_DOCTOR_REPORTED_ERROR_S="ostler-assistant doctor reported %s error(s)."
+
+# The whole-run closing verdict (#270, step-failure line added #616).
+# Deliberately NOT phrased as a doctor result: the doctor string above is scoped
+# to the assistant doctor and is true; this set is the verdict for the install as
+# a whole, which nothing stated before. Wording is plain because a customer reads
+# it at the moment they decide whether the thing worked. The FAILED_STEPS line
+# exists because a step killed by its timeout cap raises no err(), so the
+# error-count line alone would print "no errors raised" over a failed step; its
+# second %s is the space-separated ids of the steps that did not complete.
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS="Ostler finished, but %s error(s) were raised during the install."
+MSG_WARN_INSTALL_FINISHED_WITH_ERRORS_WHERE="  The full detail is in ~/.ostler/logs/install.log. Ostler will still start; open the Doctor to see what needs attention."
+MSG_WARN_INSTALL_FINISHED_WITH_FAILED_STEPS="Ostler finished, but %s install step(s) did not complete cleanly: %s"
+MSG_OK_INSTALL_FINISHED_NO_ERRORS_RAISED="Ostler finished with no errors raised during the install."
+
+MSG_WARN_OSTLER_ASSISTANT_EXTRACTED_BUT_VERSION_CHECK="ostler-assistant extracted but --version check failed."
+MSG_WARN_OSTLER_ASSISTANT_LAUNCHAGENT_INSTALL_FAILED_SEE="Ostler assistant LaunchAgent install failed after 3 attempts. Diagnostic output above + below."
+MSG_INFO_ASSISTANT_SNIPPET_ATTEMPT_FAILED="Ostler assistant LaunchAgent install attempt %s failed; retrying."
+MSG_WARN_ASSISTANT_ERR_LOG_PATH="Full daemon stderr at: %s"
+MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR="Last snippet stderr:"
+MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY="ostler-assistant v%s is Apple Silicon only (detected: %s)."
+MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE="  ostler-import %s --user-name \"%s\" --verbose"
+MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048="  Could not install the encrypted-storage dependency into the conversation memory venv; conversation enrichment will not run."
+MSG_INFO_COACH_DB_READY="  Coaching database ready, encrypted: %s"
+MSG_WARN_COACH_DB_NOT_CREATED="  Could not prepare the encrypted coaching database (it will be created on the first coaching note): %s"
+MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048="  Encrypted-storage dependency source not found at SCRIPT_DIR; conversation memory engine cannot load and conversation enrichment will not run."
+MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET="  - ostler-wiki-compiler image not yet pullable (registry not wired)"
+MSG_WARN_OXIGRAPH_NOT_RESPONDING="Oxigraph not responding"
+MSG_WARN_OXIGRAPH_NOT_YET_HEALTHY_THIS_PHASE="  - Oxigraph not yet healthy at this phase (check logs above)"
+MSG_WARN_PASSWORDS_DID_NOT_MATCH_WERE_EMPTY="Passwords did not match (or were empty). Try again."
+MSG_WARN_PHASE_3_TAKES_10_15_MINUTES="The main install typically takes 45 minutes to a few hours (Docker + Ollama downloads + first-time setup), longer on a slower connection or a Mac with years of history. Long quiet stretches are normal – it is downloading and setting up in the background, not stuck."
+MSG_WARN_PIP_INSTALL_FAILED_CM048_PIPELINE_WILL="  pip install failed; conversation memory engine will not be available."
+MSG_WARN_PIP_INSTALL_FAILED_OSTLER_FDA_WILL="  pip install failed; email-ingest will fall back to system python (may also fail at runtime)."
+MSG_WARN_PIP_INSTALL_FAILED_OSTLER_KNOWLEDGE_WILL="  pip install failed; ostler-knowledge will not be available."
+MSG_WARN_PIP_INSTALL_FAILED_PWG_EMAIL_INGEST="  pip install failed; email ingestion engine not available. The hourly LaunchAgent will still emit mbox files but cannot ingest them into the graph until this is repaired."
+MSG_WARN_CM021_SOURCE_NOT_FOUND="Email ingestion engine source not found in the app bundle; the hourly background job will save mail files without ingesting them."
+MSG_WARN_OSTLER_FDA_SOURCE_NOT_FOUND_EMAIL_INGEST="ostler_fda source not found in app bundle; email-ingest LaunchAgent will fall back to system python at runtime."
+MSG_WARN_PIP_SAID="pip said:"
+MSG_WARN_PLUG_INTO_AC_POWER_FULL_INSTALL="Plug into AC power for the full install."
+MSG_WARN_PORT_1_ALREADY_USE_PID="Port %s is already in use by %s (PID %s)"
+MSG_WARN_PORT_3000_ALREADY_USE_ANOTHER_SERVICE="  - Port 3000 already in use by another service"
+MSG_WARN_POWER_SOURCE="Power source: %s"
+MSG_WARN_PWG_EMAIL_INGEST_MBOX_TMP_MANUAL="  pwg-email-ingest mbox /tmp/manual.mbox.txt"
+MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED="sqlcipher3 install failed."
+MSG_WARN_PYSQLCIPHER3_INSTALL_FAILED_DATABASES_WILL_NOT="sqlcipher3 install failed. Databases will not be encrypted."
+MSG_WARN_PYTHON3_M_OSTLER_FDA_APPLE_MAIL="  python3 -m ostler_fda.apple_mail_mbox --emit-mbox /tmp/manual.mbox.txt"
+MSG_WARN_PYTHON_3_NOT_FOUND_INSTALLING_PYTHON="Python 3 not found. Installing Python 3.12..."
+MSG_WARN_PYTHON_TOO_OLD_NEED_3_10="Python %s is too old (need 3.10+). Installing Python 3.12..."
+MSG_WARN_QDRANT_NOT_RESPONDING="Qdrant not responding"
+MSG_WARN_READ_HTTPS_AI_GOOGLE_DEV_GEMMA="         Read https://ai.google.dev/gemma/terms before commercial use."
+MSG_WARN_READ_PUBLIC_VERSION_HTTPS_OSTLER_AI="Read the public version at https://ostler.ai/licenses.html"
+MSG_WARN_REDIS_NOT_RESPONDING="Redis not responding"
+MSG_WARN_RELEASE_LANDS_STAGE_BINARY_MANUALLY="release lands, or stage the binary manually:"
+MSG_WARN_RE_RUNNING_TYPE_SELF_HOSTED_HOST="Re-running – type a self-hosted host, or press Ctrl-C and re-launch picking Apple Mail."
+MSG_WARN_RE_RUN_INSTALLER_WITH_IMESSAGE_UNTICKED="re-run the installer with iMessage unticked to skip it."
+MSG_WARN_RUNNING_WITH_ALLOW_PLAINTEXT_ENCRYPTION_DISABLED="RUNNING WITH --allow-plaintext: encryption disabled. NOT FOR PRODUCTION."
+MSG_WARN_RUN_DOCTOR_AFTER_FIRST_LAUNCH="  Run \`%s doctor\` after first launch"
+MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED="Run 'tailscale ip --4' once signed in, then add the address to the iOS app."
+MSG_WARN_SAFARI_EXTENSION_COPY_FAILED_YOU_CAN="Safari extension copy failed; you can install it manually later"
+MSG_WARN_SAFARI_EXTENSION_NO_TOKEN_TO_PAIR="Safari extension installed but no extension token was available to pair it; browsing capture will stay off until you re-run the installer"
+MSG_WARN_SAFARI_EXTENSION_PAIR_FAILED="Could not pair the Safari extension with this Hub; browsing capture will stay off until you re-run the installer"
+MSG_WARN_SECURITY_MODULE_NOT_FOUND_PASSKEY_SETUP="Security module not found. Passkey setup will be skipped."
+MSG_WARN_SECURITY_MODULE_LOOKED_FOR_PATH="  Looked for: %s/ostler_security/pyproject.toml"
+MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE="  This usually means the installer .app was built without"
+MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_2="  the vendored ostler_security package bundled into"
+MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_3="  Contents/Resources/. Re-download the installer or"
+MSG_WARN_SECURITY_MODULE_MISSING_FROM_APP_BUNDLE_4="  re-run with --allow-plaintext for a dev/CI install."
+MSG_WARN_SECURITY_SETUP_FAILED_CONTINUING_WITHOUT_DATABASE="Security setup failed. Continuing without database encryption."
+MSG_WARN_SECURITY_SETUP_FAILED_OUTPUT="Security setup failed. Output:"
+MSG_WARN_SEE_STDERR_FRAGMENT="  See %s for the stderr fragment."
+MSG_WARN_SKIPPING_BINARY_INSTALL_WIZARD_WRITTEN_CONFIG="Skipping binary install. The wizard-written config.toml stays in place."
+MSG_WARN_SKIPPING_DOCTOR_LAUNCHAGENT_INSTALL="Skipping Doctor LaunchAgent install."
+MSG_WARN_SKIPPING_EMAIL_INGEST_LAUNCHAGENT_INSTALL="Skipping email-ingest LaunchAgent install."
+MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_MAC_MINI_DEPLOYMENTS="Skipping LaunchAgent install. Mac Mini deployments are unaffected."
+MSG_WARN_SKIPPING_LAUNCHAGENT_INSTALL_TRY_VERSION="Skipping LaunchAgent install. Try: %s --version"
+MSG_WARN_SKIPPING_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL="Skipping wiki-recompile LaunchAgent install."
+MSG_WARN_SOME_PORTS_ARE_USE_DOCKER_CONTAINERS="Some ports are in use. Docker containers may fail to start."
+# #1208 port preflight. MSG_WARN_PORT_1_ALREADY_USE_PID above is RETIRED,
+# not reused: it declares three %s but every call site only ever passed
+# two, so it rendered the process name in the port's slot and left the
+# PID blank. The replacements below name their arguments in order.
+MSG_ERR_PORT_HELD_BY_OUR_PROCESS="Port %s is already in use by %s (PID %s), which belongs to this account. Quit it and run the installer again."
+MSG_ERR_PORT_HELD_BY_ANOTHER_ACCOUNT="Port %s is already in use by a program belonging to a DIFFERENT user account on this Mac. Ostler cannot share it, and starting anyway could mix up the two accounts' data. Log the other account out, or install Ostler on a Mac where it is the only account using this port."
+MSG_ERR_SOME_PORTS_ARE_HELD_CANNOT_START="Ostler cannot start its databases because ports it needs are already taken."
+MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT="Stop whatever is using the ports listed above, then run the installer again."
+MSG_WARN_PORT_CHECK_COULD_NOT_RUN="Could not check whether port %s is free. This is not the same as the port being free."
+MSG_WARN_PORT_PREFLIGHT_INCOMPLETE="One or more port checks could not run, so a clash with another program cannot be ruled out."
+MSG_WARN_PORT_BIND_PROBE_UNAVAILABLE="Could not run the most reliable port check on this Mac, so the checks below are less thorough than usual."
+MSG_ERR_PORT_PREFLIGHT_CANNOT_RUN_ABORT="Ostler could not confirm those ports are free, and it will not start its databases on a port it has not checked. Please contact support with your install log."
+MSG_WARN_STALE_COLIMA_LAUNCHAGENT_NOT_REMOVED="Could not remove a stale Colima start-up item. Your wiki may not load after a restart; contact support."
+MSG_WARN_STOP_CONFLICTING_SERVICES_CHANGE_PORTS_DOCKER="Stop the conflicting services or change the ports in docker-compose.yml"
+MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN="Tailscale didn't sign in within 3 minutes. You can come back to this later from Settings."
+MSG_WARN_TAILSCALE_ENV_PERSIST_VERIFY_FAILED="Tailscale IP was written to .env but a follow-up read could not see it. the Ostler app on your iPhone may not pick it up – re-run install.sh --repair if that happens."
+MSG_WARN_TAILSCALE_ANSWER_NOT_REMEMBERED="Could not save your remote-access answer, so the next re-install will ask you again. Everything else is unaffected."
+MSG_WARN_TAILSCALE_INSTALL_FAILED_YOU_CAN_INSTALL="Tailscale install failed – you can install it later from tailscale.com"
+MSG_WARN_TAILSCALE_STATE_UNREADABLE="This Mac has existing Tailscale settings that could not be read, so we cannot tell whether it is still connected to your network. Please choose below – if it is already connected, setting it up again does no harm."
+MSG_WARN_THE_DEPLOYED_SERVICES_REFUSE_START_WITHOUT="the deployed services refuse to start without them."
+MSG_WARN_THIS_RESOLVED_SEE_NEXT_STEPS_BANNER="  this is resolved. See next-steps banner for remediation."
+MSG_WARN_TO_INSPECT_CRON_DELIVERY_IMESSAGE_TCC="  to inspect. cron-delivery / imessage-tcc are common"
+MSG_WARN_TRY_DOCKER_COMPOSE_F_DOCKER_COMPOSE="  Try: docker compose -f %s/docker-compose.yml up -d wiki-site"
+MSG_WARN_TRY_DOCKER_LOGS_OSTLER_VANE="  Try: docker logs ostler-vane"
+MSG_WARN_UNRECOGNISED_CHOICE_DEFAULTING_IMESSAGE_EMAIL="Unrecognized choice '%s'; defaulting to iMessage + email."
+MSG_WARN_UNRECOGNISED_CHOICE_USING_RECOMMENDED="Unrecognized choice. Using Recommended."
+MSG_WARN_UPDATE_FAILED_CONTINUING_WITH_EXISTING_CHECKOUT="  Update failed; continuing with existing checkout."
+MSG_WARN_USE_APPLE_MAIL_RECOMMENDED_ABOVE_THAT="Use Apple Mail (recommended above) for that account – Ostler never stores cloud passwords."
+MSG_WARN_USING_INBOX_ASSISTANT_WILL_READ_EVERY="Using INBOX. The assistant will read every incoming email."
+MSG_WARN_VANE_CONTAINER_STARTED_BUT_HTTP_LOCALHOST="Vane container started but http://localhost:3000 did not respond within 60s."
+MSG_WARN_VANE_LOCAL_WEB_SEARCH_FAILED_START="Vane (local web search) failed to start. Common causes:"
+MSG_WARN_WEB_SEARCH_OPTIONAL_REST_OSTLER_WORKS="  Web search is optional; the rest of Ostler works without it."
+MSG_WARN_WE_STRONGLY_RECOMMEND_DEDICATED_LABEL_FOLDER="We strongly recommend a dedicated label/folder instead."
+MSG_WARN_WHATSAPP_NEEDS_PHONE_NUMBER_BRIEF_DELIVERY="WhatsApp needs a phone number for brief delivery. Try again,"
+MSG_WARN_WIKI_COMPILED_BUT_WIKI_SITE_CONTAINER="Wiki compiled but wiki-site container failed to start."
+MSG_WARN_WIKI_FIRST_COMPILE_FAILED_COMMON_CAUSES="Wiki first-compile failed. Common causes:"
+MSG_WARN_WIKI_RECOMPILE_CATCHUP_LOAD_FAILED="First-day wiki catch-up LaunchAgent could not be loaded. The daily wiki rebuild still runs; your wiki will simply refresh next day rather than within the hour."
+MSG_WARN_WIKI_RECOMPILE_LAUNCHAGENT_INSTALL_FAILED_SEE="Wiki-recompile LaunchAgent install failed. See output above."
+MSG_WARN_WIKI_WILL_NOT_AUTO_UPDATE_MANUAL="Wiki will not auto-update; manual rebuild stays available:"
+MSG_WARN_WIZARD_CONFIG_STAYS_PLACE_BINARY_STAYS="Wizard config stays in place; binary stays staged. Manual retry:"
+MSG_WARN_YOUR_ASSISTANT_NEEDS_NAME_PICK_FROM="Your assistant needs a name. Pick from the suggestions above or type your own."
+MSG_WARN_YOU_CAN_RE_GRANT_IT_SYSTEM="You can re-grant it in System Settings > Privacy & Security > Contacts."
+MSG_WARN_YOU_CAN_RUN_SECURITY_SETUP_LATER="You can run the security setup later: python3 -m ostler_security.setup_wizard"
+MSG_WARN_YOU_MAY_NEED_INSTALL_MANUALLY_INSTALL="You may need to install manually: %s install sqlcipher3"
+
+# ── Error messages (security / integrity, hard-fail context) ──
+
+MSG_ERR_ACTUAL="  actual:   %s"
+MSG_ERR_CM042_BUNDLE_NOT_FOUND_POST_EXTRACT="Ostler RemoteCapture bundle was not present at %s after extract. The release tarball may be malformed."
+# Added 2026-09-24 after ERR-24-CM042-EXTRACT took a whole install down on a
+# console walk. The two causes below were previously indistinguishable from a
+# signing failure, because the ONLY message this limb could reach said
+# "signature or notarisation check failed" -- for a bundle nothing had signed,
+# checked or even found.
+MSG_ERR_CM042_APPS_DIR_UNAVAILABLE="Could not create or reach %s, so Ostler RemoteCapture has nowhere to be installed to. This is a folder permissions problem, not a problem with the download."
+MSG_ERR_CM042_RENAME_FAILED="Ostler RemoteCapture downloaded and unpacked correctly, but could not be moved into place at %s. The unpacked app has been left in /Applications. This is not a signing problem."
+MSG_ERR_CM042_CODESIGN_OUTPUT="  codesign --verify reported:"
+MSG_ERR_CM042_REFUSING_STAGE_BUNDLE="  Refusing to stage a bundle that does not match the published checksum."
+MSG_ERR_CM042_SHA_256_MISMATCH="Ostler RemoteCapture tarball SHA-256 mismatch."
+MSG_ERR_CM042_PIN_FAILED="Ostler couldn't confirm this download of RemoteCapture is genuine, so it wasn't installed."
+MSG_ERR_CM042_VERSION_UNKNOWN="This RemoteCapture version isn't one Ostler recognizes, so it wasn't installed."
+MSG_ERR_CM042_SIDECAR_DISAGREES="The checksum published with this RemoteCapture download does not match the file, so it wasn't installed."
+MSG_ERR_CM042_SPCTL_OUTPUT="  spctl --assess reported:"
+MSG_ERR_CM042_VERIFY_FAILED="Ostler RemoteCapture signature / notarization verification failed."
+MSG_ERR_CODESIGN_DV_REPORTED="  codesign -dv reported:"
+MSG_ERR_EXPECTED="  expected: %s"
+MSG_ERR_FILE_BRIEF_REPORTED="  file --brief reported: %s"
+MSG_ERR_OSTLER_ASSISTANT_BINARY_NOT_MACH_O="ostler-assistant binary at %s is not a Mach-O executable."
+MSG_ERR_OSTLER_ASSISTANT_TARBALL_SHA_256_MISMATCH="ostler-assistant tarball SHA-256 mismatch."
+MSG_ERR_REFUSING_STAGE_BINARY_THAT_DOES_NOT="  Refusing to stage a binary that does not match the published checksum."
+MSG_ERR_REFUSING_STRIP_QUARANTINE_LOAD_LAUNCHAGENT="Refusing to strip quarantine or load the LaunchAgent."
+MSG_ERR_RE_RUN_INSTALLER_ONCE_UPSTREAM_TARBALL="Re-run the installer once the upstream tarball is fixed."
+MSG_ERR_URL="  url:      %s"
+
+# ── Fail messages (terminal -- the installer exits after) ──
+
+MSG_FAIL_ARCH_INTEL_NOT_SUPPORTED_V1_0="Intel Macs are not supported. Ostler needs Apple Silicon (M1, M2, M3 or M4)."
+MSG_FAIL_AT_LEAST_16_GB_RAM_REQUIRED="At least 16 GB RAM required. You have %s GB. 24 GB recommended."
+MSG_FAIL_CM042_SIGNATURE_FAILED="Ostler RemoteCapture install aborted: signature or notarization check failed. The bundle was left in /Applications for support. Email support@ostler.ai and re-run the installer."
+MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="Could not pull %s after 3 attempts. Check your network and re-run the installer."
+MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT="Could not pull nomic-embed-text after 3 attempts. Check your network and re-run the installer."
+MSG_FAIL_DOCKER_NOT_AVAILABLE_RE_RUN_INSTALLER="Docker not available. Re-run the installer to install Colima."
+MSG_FAIL_CONTAINER_CLIENT_MISSING="The docker command is not on this Mac, so Ostler cannot start the services it needs. Re-run the installer; if it fails again, send us the log at %s."
+MSG_FAIL_CONTAINER_ENGINE_ABSENT="Ostler needs a container runtime and none is responding on this Mac. Your wiki, your knowledge graph and your search index all run inside containers, so the install has stopped here rather than finish and leave them missing. To fix it: open Terminal and run 'colima start', then run this installer again. If you use Docker Desktop instead, open it, wait for the whale icon to settle, then re-run. The full log is at %s."
+MSG_FAIL_GRAPH_DB_DOCKER_NOT_READY="Docker did not become ready in time to start the knowledge-graph databases. Make sure Colima or Docker is running, then re-run the installer."
+MSG_FAIL_GRAPH_DB_PULL_FAILED="Could not download the knowledge-graph database images after several attempts. This is usually a network problem. Check your internet connection and re-run the installer."
+MSG_FAIL_GRAPH_DB_UP_FAILED="The knowledge-graph databases were downloaded but could not be started. Re-run the installer; if it keeps happening, open Terminal and run: cd ~/.ostler && docker compose up -d qdrant oxigraph redis"
+MSG_FAIL_STORE_AUTH_LEAK="Ostler could not complete an authenticated request to the knowledge-graph database. It tried twice, two seconds apart, and both attempts were refused. We do not yet know why: the database may still have been starting up, or the credential Ostler holds may not be the one it expects. Your data has not been touched. Re-running the installer often succeeds, and if it does we would still like to hear about it – send us the install log, because this is a fault we are actively trying to reproduce."
+MSG_FAIL_FDA_MODULE_MISSING_RE_RUN="FDA extraction module is missing from the installer bundle. Re-download the .app from ostler.ai/install, or re-run with --allow-plaintext for dev/CI."
+MSG_FAIL_FDA_DEPENDENCIES_IMPORT_RE_RUN="The data-extraction module was installed but cannot be loaded, so the background refresh would fail every time it ran. Full output saved to %s – re-run the installer, and attach that file if you contact support (Reference: ERR-10-FDA-DEPS-IMPORT)."
+MSG_FAIL_FDA_DEPS_UNSAFE_PATH="Internal error: the data-extraction module was staged inside the application bundle, which would break its signature. This is a build fault, not a problem with your Mac. Re-download the .app from ostler.ai/install (Reference: ERR-10-FDA-DEPS-UNSAFE-PATH)."
+MSG_FAIL_DOCTOR_PIP_INSTALL_FAILED_LOG_SAVED="Doctor dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-17-DOCTOR-PIP)."
+MSG_FAIL_PIPELINE_PIP_INSTALL_FAILED_LOG_SAVED="Import pipeline dependencies install failed. Full output saved to %s – attach it when you email support@ostler.ai (Reference: ERR-14-PIPELINE-PIP)."
+MSG_FAIL_HOMEBREW_INSTALL_FAILED_LOG_SAVED="Homebrew install failed. Full output saved to %s – attach it when you email support@ostler.ai."
+MSG_FAIL_IMPORT_PIPELINE_INSTALL_FAILED_RE_RUN_INSTALLER="Import pipeline install failed. The contact_syncer bundle is required for the productised install. Re-run with --allow-plaintext for dev/CI, or re-download the installer and try again."
+MSG_FAIL_NEED_SUDO_ACCESS_DISABLE_SLEEP_INSTALL="Need sudo access to disable sleep + install Homebrew. Re-run when ready."
+MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD="Neither Colima nor Docker Desktop could start. Install Docker Desktop and re-run."
+MSG_FAIL_NOT_ENOUGH_DISK_SPACE_GB_FREE="Not enough disk space (%s GB). Free up space and try again."
+MSG_FAIL_MACOS_BELOW_FLOOR="macOS %s is older than Ostler supports. Ostler needs macOS %s or later: the installer app is built for it and will not open on anything older. Update macOS, then run the installer again."
+MSG_FAIL_NO_PASSKEY_SET_NO_EXISTING_SECURITY="No passkey set and no existing security configuration. Re-run with --allow-plaintext for dev/CI, or re-run the installer and acknowledge the Touch ID briefing."
+MSG_FAIL_CM048_PIPELINE_REQUIRED_RE_RUN="Conversation memory engine is required. Re-run with --allow-plaintext for dev/CI, or fix the missing bundle above and retry."
+MSG_FAIL_DAEMON_RUN_SOURCE_UNSUPPORTED_SKEW="The bundled Ostler daemon (v%s at %s) does not support the 'run-source' command this installer needs to route ingest through Full Disk Access. This is a version mismatch inside the installer bundle: installing it would leave every ingest source silently broken and the product would go stale with no visible error. Re-download the .app from ostler.ai/install and try again (Reference: ERR-11-DAEMON-RUN-SOURCE-SKEW)."
+MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
+MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
+MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."
+MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
+
+# ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
+#    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
+#    HR015 repo):
+#    each "brew install X" step now verifies the post-condition (X is on
+#    PATH or the expected binary exists) and fail_with_code's loudly if
+#    not. Studio retest of DMG #47 silently dropped brew/colima/tailscale
+#    despite the GUI flowing to "end". The strings below back the new
+#    fail_with_code callsites. Reference codes use ERR-NN-DMG48-PKG-MISSING
+#    so they sort next to each other in the support catalogue. ──
+MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="Homebrew install reported success but /opt/homebrew/bin/brew is missing. Check %s for the full transcript. Recovery: open Terminal and run '/bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"' then re-run the installer."
+MSG_FAIL_HOMEBREW_NOT_ON_PATH="Homebrew is installed at /opt/homebrew/bin/brew but the 'brew' command is not on PATH after shellenv eval. Open a fresh Terminal and re-run the installer."
+MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' reported success but colima is not on PATH. Check %s for Homebrew failures. Recovery: open Terminal and run 'brew install colima docker docker-compose' manually, then re-run the installer."
+MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' reported success but the docker CLI is not on PATH. Check %s. Recovery: 'brew install docker' manually then re-run the installer."
+MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="The Ollama install reported success but its binary is missing. Check %s, then re-run the installer."
+MSG_FAIL_OLLAMA_PIN_DOWNLOAD="Could not download Ollama %s. Check your internet connection, then re-run the installer. Details: %s"
+MSG_FAIL_OLLAMA_PIN_SHA256="The Ollama %s download did not match its recorded fingerprint, so it was not installed. This can mean the download was damaged or altered. Re-run the installer; if it happens again, contact support. Details: %s"
+MSG_FAIL_OLLAMA_PIN_UNPACK="Ollama %s downloaded but could not be unpacked. Check free disk space, then re-run the installer. Details: %s"
+MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="The local AI service is set to run %s instead of the copy of Ollama this installer verified (%s), so it would not stay on a tested version. The install has stopped. Re-run the installer; if this repeats, contact support. Details: %s"
+MSG_FAIL_EMBED_HEALTHCHECK="Ollama is running but the embedding model returned no vector (HTTP not 200, or an empty result). The People card, search and browsing would all be empty. Check %s. Recovery: ensure the Ollama app (not the Homebrew formula) is installed and serving, then re-run the installer."
+MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' reported success but sqlcipher is not on PATH. Check %s. Recovery: 'brew install sqlcipher' manually then re-run the installer."
+MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' did not produce /Applications/Tailscale.app. Check %s. Recovery: download Tailscale from https://tailscale.com/download/macos and drag it into /Applications, then re-run the installer."
+MSG_FAIL_PYTHON311_MISSING_AFTER_BREW="'brew install python@3.11' reported success but the python3.11 binary is missing at /opt/homebrew/opt/python@3.11/bin/python3.11. Check %s. Recovery: 'brew reinstall python@3.11' then re-run the installer."
+
+# ── Prompts (gui_read titles + help text) ──
+#
+# Customer-facing questions the user reads during setup. Each prompt
+# id (e.g. "assistant_name") gets a MSG_PROMPT_<UPPER>_TITLE entry,
+# and -- where the prompt carries non-empty help / sub-line copy --
+# a matching MSG_PROMPT_<UPPER>_HELP entry. Format-string entries
+# use printf %s placeholders for runtime values (e.g. detected
+# country code, detected timezone).
+
+MSG_PROMPT_REUSE_SETTINGS_TITLE="We found your previous answers"
+MSG_PROMPT_REUSE_SETTINGS_HELP="We detected an earlier install attempt on this Mac. The questions you already answered (name, assistant name, timezone, country code, channels, and so on) will be reused so you do not have to re-enter them. Pick Yes to continue from where you left off, or No to walk through the questions again from the start."
+MSG_PROMPT_REUSE_SETTINGS_SUMMARY_FORMAT="Previous answers we found: name = %s, assistant = %s, timezone = %s."
+
+MSG_PROMPT_PERMS_OK_TITLE="Ready to continue?"
+MSG_PROMPT_PERMS_OK_HELP="macOS will prompt for Contacts and Files & Folders access. Optional Full Disk Access can be granted later."
+
+MSG_PROMPT_USER_NAME_DETECTED_TITLE="Full name (as it appears in your contacts)"
+MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
+
+MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
+MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs. Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
+
+# ── End-of-install confirmation (calendars + identity) ──
+#
+# One-time propose-and-confirm at the end of setup that seeds the
+# disambiguation the daily brief relies on. Calendar prompts confirm whose
+# diary each calendar is (so a partner's flight is not read as yours);
+# identity prompts confirm which look-alike profiles are you (collapse) and
+# which are a different person who happens to share your name (split). All
+# skippable -- hitting enter accepts the pre-filled guess. Calendars are ONE
+# screen confirmed once; the per-calendar OWNER/TYPE/INCLUDE prompts appear
+# only if the customer says the list is not right. %s placeholders carry
+# runtime values (calendar name, event count/samples, the evidence that
+# links or separates a profile). EVENTS_ONE / EVENTS_MANY are the singular
+# and plural of the event count ("1 event", "2 events").
+MSG_CONFIRM_CALENDARS_REVIEW_TITLE="Here are your calendars. Do these look right?"
+MSG_CONFIRM_CALENDARS_REVIEW_INTRO="We've guessed whose each one is, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="Set aside automatically, not used for your brief:"
+MSG_CONFIRM_CALENDAR_ROW="%s: %s, %s (%s)"
+MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"
+MSG_CONFIRM_CALENDAR_OWNER_YOU="yours"
+MSG_CONFIRM_CALENDAR_EVENTS_ONE="%s event"
+MSG_CONFIRM_CALENDAR_EVENTS_MANY="%s events"
+MSG_CONFIRM_CALENDAR_KIND_HOLIDAY="public holidays"
+MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="birthdays"
+MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri suggestions"
+MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="a calendar you subscribe to"
+MSG_CONFIRM_CALENDAR_KIND_REMINDERS="reminders"
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
+MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
+MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
+MSG_CONFIRM_CALENDAR_TYPE_HELP="One of: personal, work, family, shared, other. This sets how sensitive its events are treated."
+MSG_CONFIRM_CALENDARS_SAVED="Saved your calendar owners"
+MSG_CONFIRM_CALENDARS_FAILED="Could not save calendar owners (non-fatal; you can set these later)"
+MSG_CONFIRM_IDENTITY_COLLAPSE_TITLE="We think these profiles are all you (%s). Combine them into one?"
+MSG_CONFIRM_IDENTITY_COLLAPSE_HELP="These profiles share a hard identity signal with you (an email domain, LinkedIn profile or employer). Combining them keeps your assistant from treating your own history as several different people. You can undo this later."
+MSG_CONFIRM_IDENTITY_NAMESAKE_TITLE="Someone shares your name but looks like a different person (%s). Is this you, or someone else?"
+MSG_CONFIRM_IDENTITY_NAMESAKE_HELP="Pick 'different' to keep them as a separate person (your assistant will never merge them into you). Pick 'me' only if this really is you."
+MSG_CONFIRM_IDENTITY_SAVED="Saved who's you"
+MSG_CONFIRM_IDENTITY_FAILED="Could not save identity choices (non-fatal; you can confirm later)"
+
+MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE="Installing in the background (about 45 minutes to a few hours)"
+
+MSG_PROMPT_COUNTRY_CODE_CONFIRM_TITLE="Use +%s?"
+MSG_PROMPT_COUNTRY_CODE_ENTER_TITLE="Enter country code (e.g. 44 for UK, 1 for US)"
+MSG_PROMPT_COUNTRY_CODE_DEFAULT_TITLE="Default country code"
+MSG_PROMPT_COUNTRY_CODE_DEFAULT_HELP="Used to normalize phone numbers during contact import and to set your region (UK / EU / US / other) for legal-compliance defaults."
+MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_TITLE="We detected +%s. Use this for your Hub?"
+MSG_PROMPT_COUNTRY_CODE_DETECTED_FROM_PHONE_HELP="Detected from your phone number above. Pick Yes to use it, or No to enter a different country code."
+
+MSG_PROMPT_TZ_CONFIRM_TITLE="Use this timezone?"
+MSG_PROMPT_TZ_CONFIRM_HELP="Detected timezone: %s"
+MSG_PROMPT_USER_TZ_TITLE="Enter timezone (e.g. Europe/London, Asia/Hong_Kong)"
+
+MSG_PROMPT_ASSISTANT_NAME_TITLE="What would you like to call your assistant?"
+MSG_PROMPT_ASSISTANT_NAME_HELP_FULL="The name in the field is a random suggestion – type over it with anything you like. Marvin, Samantha, Joshua, Friday, Athena, Sage, and Rosie are all popular choices." # assistant-name-exempt: F6.1 suggestion-pool exemplar
+MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Type any name you like – the suggestion is just a starting point."
+
+MSG_PROMPT_CHANNEL_CHOICE_TITLE="How will your assistant reach you?"
+MSG_PROMPT_CHANNEL_CHOICE_HELP="Pick the messaging channels you would like your assistant to use. You can change this later in the Doctor section of the app."
+
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
+
+MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Your WhatsApp phone number"
+# The example used to read "+44 7700 900123" – spaces – in the same sentence as
+# "no spaces". A customer copying the shape they were shown got a number the
+# inbound allowlist and the brief delivery address could not use, while pairing
+# still worked because that one field strips non-digits. Example and rule now
+# agree, and install.sh normalises whatever is typed either way.
+MSG_PROMPT_WHATSAPP_RECIPIENT_HELP="International number with the country code, e.g. +447700900123. Digits and a leading + only – no spaces, brackets or dashes."
+MSG_INFO_WHATSAPP_NUMBER_NORMALISED="Stored as %s. WhatsApp needs the number without spaces or brackets."
+
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_TITLE="Turn on Full Disk Access for the Ostler assistant"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
+# Both branches rewrote these three lines and they made DIFFERENT claims
+# about what happens after Done. Resolved against the CODE, not by
+# preferring a side: after the modal is dismissed install.sh polls
+# _imessage_daemon_fda_granted 20 x 2s (~40s), breaking the instant the
+# switch is on. Both branches ship that poll. So "click Done any time to
+# continue" understates what the installer actually does, and the
+# order-does-not-matter wording is the accurate one -- it is the only
+# version that tells the customer their click order is safe, which is the
+# whole reason the poll exists.
+# Locator wording taken from the other side: "Find ... in the list" tells
+# them WHERE to look before naming WHICH switch to flip.
+# WALK-874(b), measured on the v1.0.44 walk 2026-08-24 step 26/37: these
+# two lines named the row "Ostler". The row macOS shows is the assistant
+# bundle's file name -- OstlerAssistant. A customer scanning for "Ostler"
+# concludes it is absent and goes to Finder, which LINE3 tells them not
+# to do. %s is now DERIVED from the bundle at run time
+# (install.sh: _ostler_fda_entry_name), so a bundle rename moves the copy
+# with it. Do NOT reintroduce a literal product name here -- it is
+# mutation-tested by tests/test_fda_dialog_tells_the_truth.sh case-4.
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE2="Find \"%s\" in the list and turn its Full Disk Access switch on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3="Not listed? Drag \"%s\" from the Finder window into the list, then turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_LINE3_NO_FINDER="Not listed? Ostler could not open a Finder window for you. In Finder press ⌘⇧G, enter the path below, then drag \"%s\" into the list and turn its switch on. Order does not matter – click Done before or after; the installer waits until the switch is actually on."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH="The app is at: %s"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_PATH_ON_CLIPBOARD="The app is at: %s – this path is on your clipboard, so in Finder press ⌘⇧G, then ⌘V, then Return."
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_BUTTON="Done"
+MSG_PROMPT_IMESSAGE_FDA_ASSIST_DONE_HINT="You can click Done before or after flipping the switch – the installer waits until it is actually on."
+
+MSG_PROMPT_INSTALLER_FDA_ASSIST_TITLE="Allow Ostler to read your Mac data"
+MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE1="System Settings is open at Full Disk Access."
+MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE2="Find \"OstlerInstaller\" in the list and turn it on."
+MSG_PROMPT_INSTALLER_FDA_ASSIST_LINE3="Click Done when finished and Ostler will read your Safari history, Notes, iMessages and Mail."
+MSG_PROMPT_INSTALLER_FDA_ASSIST_BUTTON="Done"
+
+# CX-87 (DMG #48g, 2026-05-29): pre-warn before the FDA grant flow.
+# Matches the shape of the CX-47 (Downloads/Desktop/Documents) and
+# CX-55 (iMessage Automation) pre-warns. The crucial guidance is the
+# "Quit & Reopen" hint -- without it the customer reads the macOS
+# dialog as a choice and clicks Later, which silently breaks the FDA
+# grant for OstlerInstaller.app and lands the install at the
+# extraction step with no Safari / Mail / iMessage access.
+MSG_PROMPT_INSTALLER_FDA_PREWARN_TITLE="Next: Full Disk Access for the installer"
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE1="Next, macOS will ask you to grant Full Disk Access to OstlerInstaller."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE2="After you toggle the switch on, macOS will pop up a dialog asking you to choose 'Quit & Reopen' or 'Later'."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_LINE3="Click Quit & Reopen. The installer will relaunch itself and continue from this step automatically."
+MSG_PROMPT_INSTALLER_FDA_PREWARN_BUTTON="OK"
+MSG_INFO_INSTALLER_FDA_PREWARN="Briefing you on the Full Disk Access grant flow..."
+MSG_INFO_INSTALLER_FDA_ASSIST_OPENING="Opening System Settings so you can grant Full Disk Access to the installer..."
+MSG_INFO_INSTALLER_FDA_ASSIST_GRANTED="Full Disk Access granted to the installer. Reading Safari, Notes, iMessages and Mail next."
+MSG_INFO_INSTALLER_FDA_ASSIST_STILL_NEEDED="Full Disk Access still not granted. Continuing without it; you can re-run the installer later to extract Safari / Notes / iMessages."
+# WALK-1 (Wave 2.1): the installer Full Disk Access grant is now asked
+# upfront in Phase 2. These two lines reassure the customer that the long
+# middle is unattended, and pre-announce the one permission we cannot
+# front-load: the daemon's Messages-history grant (its binary does not
+# exist until late Phase 3). Mirrors the Tailscale sign-in pre-announce.
+# TODO(i18n): de/fr/es/it translations needed -- do NOT machine-translate.
+# 2026-08-20: "runs on its own – you can walk away" was the earliest of the
+# three false unattended promises (Andy's log, 12:39:51). Same fix: say what
+# is still wanted rather than promising none of it.
+MSG_INFO_INSTALLER_FDA_WALKAWAY_PREANNOUNCE="Full Disk Access for the installer is sorted. The long part starts now and mostly runs on its own – but keep an eye out for a macOS dialog asking to install developer tools, and come back for a couple of minutes of setup near the end."
+MSG_INFO_DAEMON_FDA_LATER_PREANNOUNCE="One more permission (Messages history for your assistant) comes near the end, once your assistant is installed – we will point you to it then."
+# WALK-1 (Wave 2.1): the single late recovery modal. It fires ONLY for a
+# customer who saw the upfront FDA ask but did not grant it, just before
+# extraction. Granting now, or continuing with less data, both let the
+# install complete. TODO(i18n): de/fr/es/it needed -- do NOT machine-translate.
+MSG_PROMPT_INSTALLER_FDA_RECOVER_TITLE="Full Disk Access still needed"
+# WALK-874(a): the parenthetical "(now open at Full Disk Access)" was
+# the same untrue assertion as the two ASSIST_LINE1 keys, buried
+# mid-sentence in a third one. The pane state is now stated by the
+# verified line the modal opens with, so this line only has to name the
+# row and the switch.
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE1="Ostler is about to read your Mac data, but Full Disk Access for OstlerInstaller is still off. Find \"OstlerInstaller\" in the list and turn it on."
+MSG_PROMPT_INSTALLER_FDA_RECOVER_LINE2="Or just click Continue to finish the install with less data – you can grant it and re-run the extractor later."
+MSG_PROMPT_INSTALLER_FDA_RECOVER_BUTTON="Continue"
+
+MSG_PROMPT_IMESSAGE_ALLOWED_TITLE="Allowed contacts"
+MSG_PROMPT_IMESSAGE_ALLOWED_HELP="Trusted people: phone numbers and Apple ID emails (comma-separated). %s only replies to people on this list; messages from anyone else are ignored. At least one entry required.
+
+For example:
++447700900000, you@example.com"
+
+MSG_PROMPT_EMAIL_APPLE_MAIL_TITLE="Read mail via Apple Mail?"
+MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Apple Mail (iCloud, Gmail, Outlook, etc.) using Full Disk Access. No passwords stored. Recommended for almost everyone."
+
+MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Add a mail account to Apple Mail?"
+MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail has no accounts connected on this Mac yet, so Ostler will not have any email to read. Pick Yes to open System Settings > Internet Accounts now (you can add iCloud, Gmail, or Outlook there). Pick No to skip; you can add an account later and Doctor will surface a follow-up if no mail arrives within 24 hours."
+
+MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Pull your full Apple Mail history?"
+MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="By default Ostler reads the last five years of your Apple Mail. If you keep more than that on this Mac and want all of it in your knowledge graph, pick Yes to pull the full local history now (this can take a little longer for a large mailbox). Pick No to keep the five-year window; you can always extend it later from Doctor."
+
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
+MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Keep as NO if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."
+
+MSG_PROMPT_IMAP_HOST_TITLE="IMAP host"
+MSG_PROMPT_IMAP_HOST_HELP="Self-hosted or custom IMAP server only. Use Apple Mail (above) for Gmail / iCloud / Outlook."
+MSG_PROMPT_IMAP_PORT_TITLE="IMAP port"
+
+MSG_PROMPT_SMTP_HOST_TITLE="SMTP host"
+MSG_PROMPT_SMTP_PORT_TITLE="SMTP port"
+
+MSG_PROMPT_EMAIL_USERNAME_TITLE="Email address (also used as IMAP/SMTP username)"
+
+MSG_PROMPT_EMAIL_ALLOWED_TITLE="Who may email your assistant?"
+MSG_PROMPT_EMAIL_ALLOWED_HELP="Your own email addresses, comma-separated. %s only answers email from addresses on this list; mail from anyone else is ignored. At least one address is required. Your own address is filled in for you: change it, or add another."
+
+MSG_PROMPT_EMAIL_PASSWORD_TITLE="Password (hidden)"
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally in ~/.ostler/secrets/, not in your settings file, and never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
+MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirm Password"
+
+MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Which folder should the assistant watch?"
+MSG_PROMPT_EMAIL_IMAP_FOLDER_HELP="Recommended: a dedicated label or folder (e.g. Ostler). We will only read messages there, leaving your main inbox untouched."
+
+MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Continue to use 'Ostler'"
+MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
+
+MSG_PROMPT_EXPORTS_ACK_TITLE="Have you requested your data exports?"
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
+
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
+
+MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
+MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
+
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
+
+FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
+
+Choose Yes to continue now with the disk unencrypted at rest (this is a deliberate, informed choice -- it will be recorded).
+Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
+
+MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
+
+MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
+MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
+MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
+
+MSG_PROMPT_IMPORT_CONFIRM_TITLE="Import these during install?"
+MSG_PROMPT_IMPORT_CONFIRM_HELP="Found GDPR exports will be imported into your knowledge graph during install."
+
+MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Disney+ export password"
+MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ ships its GDPR export as a password-protected spreadsheet, which is normal and not a problem with your download. Enter the password to import your Disney+ viewing history now, or leave this blank to skip it; everything else still imports."
+
+MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
+
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder.
+
+Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
+
+MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Import Gmail messages from this Takeout?"
+MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Reads Gmail content from the Takeout file directly. Google never sees Ostler."
+
+MSG_PROMPT_FDA_PRESET_TITLE="Which Mac sources should Ostler learn from?"
+MSG_PROMPT_FDA_PRESET_HELP="Three presets, or pick each one yourself. Sensitive sources (face recognition) are off by default in every preset – choose deliberately if you want them."
+MSG_PROMPT_FDA_PRESET_CHOICE_RECOMMENDED="Recommended. Includes Apple Mail, Contacts, Calendar, Notes, Messages, Reminders, Safari history, Safari bookmarks, and Photos events (dates and places, no face recognition). WhatsApp Desktop history and Chrome history are added automatically when the app is installed. Excludes Photos face-recognition data and any third-party export archives."
+MSG_PROMPT_FDA_PRESET_CHOICE_EVERYTHING="Everything. Every source Ostler can read on this Mac. Photos face recognition stays off until you tick it deliberately."
+MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customize. Pick each source on the next screen. Sensitive sources stay off until you check them."
+
+MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
+
+MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
+MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
+
+# Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
+# decide whether public-data enrichment runs. Not a default-on setting."
+# v1.0.36 shipped the agent gated off and this is the question that was owed
+# in the next cut, enforced by tests/test_enrichment_optin_is_owed_after_v1_0_36.sh.
+#
+# TITLE IS DELIBERATELY SHORT. Task #167: the spoken-consent sheet pushed its
+# own title and toggle off-screen because the title ran long.
+#
+# The HELP text states what LEAVES the Mac and what CANNOT be hidden, because
+# the second one is true and easy to omit: measured 2026-08-18, enrichment
+# requests carry no IP obfuscation and identify themselves as Ostler. A
+# consent question that describes only the flattering half is not consent.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+
+You can say No now and change your mind later by re-running the installer."
+
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
+
+By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
+
+Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
+
+Read more at docs.ostler.ai/privacy/third-party-data."
+
+# Spoken-capture recording-consent acknowledgement (every region). Shown
+# in the Phase-2 consent batch. The HELP string is the substantive text
+# GUI installer users read on the decision sheet, so it is self-contained.
+# ── Personal-use-only terms (vendor/legal/consent_strings.py PERSONAL_USE_ONLY) ──
+# A LICENCE TERM, not an optional consent, which is why it acknowledges rather
+# than offering a decline that leaves a half-licensed install. Wording verbatim
+# from the versioned ConsentString so the Doctor can flag drift.
+MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
+MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
+MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
+MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
+MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
+MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# Legal: the "English version prevails" line (owner ruling 2026-10-24). install.sh prints it
+# before every legal/consent prompt, but ONLY when this line is itself translated
+# for OSTLER_LANG, i.e. a native reviewer has passed it (l10n/legal_reviews.tsv).
+MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
+
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
+
+Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
+
+What we ask of you:
+• Get whatever consent your local law requires before you capture audio.
+• Make it clear audio is being captured – say so, or keep a visible indicator on.
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
+
+Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+
+MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
+MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
+MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
+MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
+
+MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Connect your iPhone and Watch"
+MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale gives this Mac a stable private address your iPhone and Watch can reach from anywhere – encrypted, with no public exposure."
+
+MSG_PROMPT_SAVE_KEYCHAIN_TITLE="Save recovery key to Keychain?"
+MSG_PROMPT_SAVE_KEYCHAIN_HELP="Stores your encryption recovery key in the macOS Keychain for safekeeping."
+
+# Hydration phase strings (CX-81 B1)
+# Used by install.sh's hydrate_graph sub-phase (immediately before
+# wiki_compile). Customer-facing counts come from the syncers' own
+# JSON output, never from a fixed founder-instance number.
+MSG_HYDRATE_TITLE="Hydrating your graph"
+MSG_HYDRATE_CONTACTS_STARTED="Importing your contacts to the graph"
+MSG_HYDRATE_CONTACTS_DONE="Imported %s contacts"
+# %s = the cap in seconds, %s = contacts imported before the cap was hit.
+# Says WHAT WAS MEASURED and what happens next, rather than blaming the step:
+# a partial import is a real result and the retry is what completes it.
+MSG_HYDRATE_CONTACTS_TIMED_OUT="Contacts took longer than %ss, so we stopped waiting and moved on. %s contacts are in so far, and Ostler will finish the rest in the background."
+# CX-92 (DMG #48g, 2026-05-29): calendar backfill window changed from 90
+# days to 5 years -- customer copy updated to match the new behaviour.
+MSG_HYDRATE_CALENDAR_STARTED="Loading your calendar history (five years back, a year ahead)"
+MSG_HYDRATE_CALENDAR_DONE="Imported %s events"
+MSG_HYDRATE_CALENDAR_HEARTBEAT="  Still loading your calendar (%ss so far). A Mac with years of meetings takes a moment."
+# Places ingest (2026-06-19): aggregate meeting/photo location signals into
+# browsable Places for the wiki. British English, no em-dashes.
+MSG_HYDRATE_PLACES_STARTED="Building your Places from the locations you meet at"
+MSG_HYDRATE_PLACES_DONE="Built your Places section"
+MSG_HYDRATE_PLACES_SKIPPED="No location signals found yet; Places will fill in as your calendar populates"
+# Loud, VISIBLE failure surface: the places module's own guard fired (location
+# signals exist in the graph but 0 Place points were produced/written), or the
+# ingester errored unexpectedly. NOT the benign "no signals yet" case.
+MSG_HYDRATE_PLACES_GUARD_WARN="Places build hit a problem: location signals exist but no Places were produced. Your Places page may stay empty. See %s"
+MSG_HYDRATE_PLACES_ERROR_WARN="Places build did not complete (unexpected error). Your Places page may be incomplete. See %s"
+MSG_HYDRATE_WIKI_RECOMPILE="Building your wiki. Ostler is writing a short summary for each of your key people, organizations and topics, so on a large address book this can take from a few minutes up to around an hour. It only happens once, runs entirely on your Mac, and is safe to leave."
+
+# CX-106 (DMG #48l, 2026-05-29): initial_hydrate step strings.
+# Synchronous Qdrant-readiness gate between hydrate_* and wiki_compile
+# so the customer sees real wiki content at install completion.
+MSG_INITIAL_HYDRATE_QDRANT_BEFORE="Checking your search index (%s collections detected)"
+MSG_INITIAL_HYDRATE_BROWSER_RETRY="Loading your browsing history into the search index"
+MSG_INITIAL_HYDRATE_QDRANT_READY="Search index ready (%s collections)"
+MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED="Search index will populate in the background after install completes"
+# #616 / #615. MSG_INITIAL_HYDRATE_QDRANT_READY above is printed with a COUNT,
+# and a count cannot see a missing member. On the v1.0.60 walk box the store
+# holds three collections, two of the four the installer promised are absent,
+# and the count-based test called that "ready". These three strings exist so
+# the install can say WHICH, and so that "could not look" is a third outcome
+# rather than being folded into either of the other two.
+#
+# NOTE ON TIME WORDS: the _AWAITING string deliberately inherits the wording of
+# the DEFERRED string above and names no deadline. Background loading has no
+# completion time we can honestly quote (see background-copy-honesty.yml, where
+# an "hour" was measured wrong by two orders of magnitude); it may say work
+# CONTINUES, never when it will be DONE.
+MSG_INFO_QDRANT_CREATING_AT_PROVEN_READY="Search store is up now; creating the collections it is still missing: %s"
+MSG_ERR_QDRANT_COLLECTIONS_UNCREATABLE="Search index is incomplete: %s could not be created even though the search store is running and answering. Ostler will keep working and the Doctor shows this gap, but this part of search will stay empty until it is fixed."
+MSG_WARN_QDRANT_COLLECTIONS_MISSING="Search index is incomplete: %s could not be created. Ostler will keep working, and the Doctor shows this gap."
+MSG_WARN_QDRANT_MEMBERSHIP_UNMEASURED="Could not check which search collections exist (%s). This is not a report that they are missing."
+MSG_INITIAL_HYDRATE_QDRANT_EMPTY_DEFERRED_AWAITING="Search index will populate in the background after install completes (waiting for: %s)"
+MSG_HYDRATE_DONE="Your graph is ready: %s people, %s events"
+# CX-93 (DMG #48g, 2026-05-29): split the "no contacts" copy. The old
+# string blamed iCloud, which was misleading on a local-AB-only Mac.
+# REEXPORT covers the hydrate-time re-attempt; EMPTY_LOCAL_AND_ICLOUD
+# is what surfaces when both the Phase-2 me-card export and the
+# hydrate-time re-export came back empty (no iCloud + empty local AB).
+MSG_HYDRATE_CONTACTS_REEXPORT="iCloud may still be syncing your contacts – re-exporting now to pick up anything that just landed."
+MSG_HYDRATE_CONTACTS_EMPTY_LOCAL_AND_ICLOUD="No contacts found in your Contacts app (local or iCloud). Add some to Contacts and re-run from Settings."
+MSG_HYDRATE_SKIPPED_NO_CONTACTS="No iCloud contacts to import. You can add this later from Settings."
+MSG_HYDRATE_SKIPPED_NO_EVENTS="No calendar events in the last 5 years. You can backfill later from Settings."
+
+# Email hydration strings (CX-81 B2 + CX-83)
+# Used by install.sh's hydrate_email step, inserted inside the
+# hydrate_graph sub-phase between the calendar block and the wiki
+# recompile message. Counts come from pwg-email-ingest's --json
+# output, never from a fixed founder-instance number.
+MSG_HYDRATE_EMAIL_STARTED="Reading your last 90 days of email – your emails stay on this Mac (longer history backfills in the background)"
+MSG_HYDRATE_EMAIL_DONE="Found %s people in your recent email"
+MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT="No recent email to read. You can add a Mail account in Apple Mail and re-run later."
+MSG_HYDRATE_EMAIL_SKIPPED_FDA_PENDING="Email reader not ready yet. You can add a Mail account in Apple Mail and re-run later."
+MSG_HYDRATE_EMAIL_BACKGROUND_CONTINUES="Email is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_EMAIL_HEARTBEAT="  Still reading your email (%ss so far). This can take a while on a Mac with years of history."
+
+# Three-state data-source UX strings (CX-100, CX-101)
+# Per launch/DESIGN_three_state_data_source_ux_2026-05-29.md.
+# Each Apple-app-backed source has three states: not configured at all,
+# configured but the local store has not populated yet, and configured
+# + populated. The installer detects which state the customer is in
+# and surfaces the right copy.
+
+# State 2 prompts -- "open the app and we will wait" -- per source.
+MSG_PROMPT_OPEN_MAIL_TO_POPULATE_TITLE="Open Apple Mail so it can start syncing?"
+MSG_PROMPT_OPEN_MAIL_TO_POPULATE_HELP="You have %s mail account(s) configured, but Apple Mail has not pulled any messages yet. We can open Mail.app now and wait while it syncs."
+MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_TITLE="Open Calendar so it can start syncing?"
+MSG_PROMPT_OPEN_CALENDAR_TO_POPULATE_HELP="You have %s calendar account(s) configured, but Calendar.app has no events stored yet. We can open Calendar now and wait while it syncs from iCloud."
+MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_TITLE="Open Contacts so it can start syncing?"
+MSG_PROMPT_OPEN_CONTACTS_TO_POPULATE_HELP="You have %s contacts account(s) configured, but Contacts.app has no entries stored yet. We can open Contacts now and wait while it syncs from iCloud."
+
+# Wait + populate poll-loop strings
+MSG_INFO_WAITING_FOR_APP_TO_POPULATE="Waiting for %s to start syncing (up to %s seconds)."
+MSG_INFO_WAITING_FOR_APP_HEARTBEAT="Still waiting on %s sync (%ss elapsed, %ss remaining). iCloud's first sync can take a few minutes on a fresh sign-in."
+MSG_OK_APP_HAS_POPULATED="%s has populated its local store. Carrying on."
+MSG_INFO_APP_POPULATE_TIMEOUT_CONTINUING="We did not detect %s sync within the wait window. Carrying on; you can re-run hydration from Settings later."
+
+# Three-state-aware copy for the three sources. These replace the
+# old binary "no data" copy that conflated states 1 and 2.
+MSG_INFO_MAIL_CONFIGURED_BUT_NOT_FETCHED="Apple Mail accounts visible: %s. Open Mail.app once so it can start pulling messages."
+MSG_INFO_CALENDAR_CONFIGURED_BUT_NOT_FETCHED="Calendar accounts visible: %s. Open Calendar.app once so it can sync your events."
+MSG_INFO_CONTACTS_CONFIGURED_BUT_NOT_FETCHED="Contacts accounts visible: %s. Open Contacts.app once so it can sync your address book."
+
+# Account-detection denial / sync-pending split for hydrate copy
+MSG_HYDRATE_CONTACTS_DENIED="Could not read your Contacts. Ostler reads them through Full Disk Access - grant it in System Settings > Privacy & Security > Full Disk Access, then re-run hydration from Settings. We will keep retrying in the background."
+MSG_HYDRATE_CONTACTS_PENDING="Your Contacts app has not synced yet. Open Contacts once, wait for it to sync, then re-run hydration from Settings."
+MSG_HYDRATE_CONTACTS_READ_FAILED="Your contacts are on this Mac but Ostler imported 0 of them, which is unexpected. The import will retry automatically in the background. If it persists, re-run hydration from Settings or check the install log."
+MSG_HYDRATE_CONTACTS_RESYNC_SCHEDULED="Ostler will keep checking in the background and import your contacts automatically once iCloud finishes syncing."
+MSG_HYDRATE_CONTACTS_EMAIL_COVERAGE_LOW="Imported %s contacts with phone numbers but almost no email addresses (%s phone vs %s email). This usually means the contact reader dropped emails. Your contacts are still usable; see %s and re-run hydration from Settings once resolved."
+MSG_HYDRATE_CONTACTS_RESYNC_REBUILDING_WIKI="New contacts imported; rebuilding your wiki in the background."
+MSG_HYDRATE_CALENDAR_PENDING="Your Calendar app has not synced events yet. Open Calendar once, wait for it to sync, then re-run hydration from Settings."
+MSG_HYDRATE_CALENDAR_EXTRACTOR_FAILED="Could not read your calendar this time (the extractor reported an error, not an empty calendar). Your other data was unaffected; see %s, then re-run hydration from Settings."
+
+# WhatsApp hydration strings (CX-85)
+# Used by install.sh's hydrate_whatsapp step, inserted inside the
+# hydrate_graph sub-phase between the email block and the wiki
+# recompile message. Counts come from pwg-whatsapp-history's --json
+# output (people_added). Three-tier model: T1 DM + T2 intimate +
+# T2 active are ingested; T3 large + passive is skipped invisibly.
+MSG_HYDRATE_WHATSAPP_STARTED="Reading your WhatsApp history – your messages stay on this Mac"
+MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
+MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp chats were read but not written to your people graph (exit %s). Ostler will retry. Details: %s"
+MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
+MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
+MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+
+# ── A SKIP THAT WAS NEVER EARNED HAD A SENTENCE OF ITS OWN (#2314) ──
+#
+# #2313 gave the browsing leg these three lines. Seven more legs skipped on the
+# same evidence and printed the same class of false sentence when they did:
+# "No WhatsApp chats to read", "No iMessage history to read", "No people to
+# index yet", "No email-preferences file configured", "No AI chat history to
+# read" -- each emitted by a branch that had NOT looked at whether the data was
+# still there, and two of them ("already in your knowledge base") asserting a
+# state of the store from a file that cannot see the store.
+#
+# ALREADY_IMPORTED is the skip that was corroborated, and it carries the count
+# the destination actually reported, so the sentence is checkable by the
+# customer rather than merely reassuring. The two REIMPORT_ lines separate "the
+# rows are gone" from "I could not look", which is the distinction the whole
+# change turns on.
+#
+# Privacy unchanged: counts only. No names, handles, addresses, titles or
+# message content in any of these.
+MSG_HYDRATE_WHATSAPP_ALREADY_IMPORTED="Your WhatsApp contacts are already in your people graph (%s identifiers). Nothing to re-read."
+MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_STORE_EMPTY="Your WhatsApp contacts were read before, but your people graph no longer holds them. Reading them again."
+MSG_WARN_HYDRATE_WHATSAPP_REIMPORT_UNVERIFIED="Could not check whether your WhatsApp contacts are still in your people graph. Reading them again rather than assuming they are there."
+
+# AI Conversations hydration strings (#553 / #613)
+# Used by install.sh's AI Conversations leg (after the first-month-free
+# activation -- the CM052 subscription gate must be open before the
+# drain). GATED OFF for v1.0.x: OSTLER_AI_CONVERSATIONS_ENABLED
+# defaults to false and none of these strings are shown; the disabled
+# path is deliberately silent. Counts come from pwg-ai-convo's --json
+# output (written) -- counts only, no transcript text or titles.
+MSG_HYDRATE_AICONV_STARTED="Reading your AI chat history – your conversations stay on this Mac"
+MSG_HYDRATE_AICONV_DONE="Saved %s AI conversations to your wiki"
+MSG_HYDRATE_AICONV_SKIPPED_NOT_READY="AI-conversation reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_AICONV_SKIPPED_NO_DATA="No AI chat history to read. You can re-run later from Settings."
+MSG_HYDRATE_AICONV_BACKGROUND_CONTINUES="AI chats are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_AICONV_HEARTBEAT="  Still reading your AI chat history (%ss so far). A large history can take several minutes."
+
+
+# Browser history hydration strings (CX-86 Gap A + Gap C)
+# Used by install.sh's hydrate_browsing step. The progress call
+# is a SEPARATE STEP_BEGIN (id = hydrate_browsing) that sits
+# between hydrate_graph and wiki_compile. Counts come from
+# ingest_browser_history's --json output (sent, skipped_sensitive).
+# Privacy: no URLs / titles / domains in any string here -- the
+# customer sees counts and the gateway blocklist's "skipped" tally.
+MSG_HYDRATE_BROWSING_STARTED="Importing your browsing history – your visits stay on this Mac"
+MSG_HYDRATE_BROWSING_DONE="Imported %s pages of browsing history"
+MSG_HYDRATE_BROWSING_SKIPPED_SENSITIVE="Skipped %s pages flagged as sensitive (banking, medical, etc.)"
+MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA="No browsing history to import. You can re-run later from Settings."
+MSG_HYDRATE_BROWSING_SKIPPED_FDA_PENDING="Browsing-history reader not ready yet. You can re-run later from Settings."
+
+# ── ONE SENTENCE FOR FOUR DIFFERENT FACTS (#2313) ───────────────────
+#
+# MSG_HYDRATE_BROWSING_SKIPPED_NO_DATA above was emitted by FOUR branches of
+# the hydrate_browsing block: the already-done skip, a run that sent nothing,
+# a run that printed nothing, and a missing export file. Measured on
+# macmini16-walk 2026-09-23, install.log line 1246, that sentence was printed
+# over 8,831 visits the reader had already found and logged at line 497. The
+# customer was told they have no browsing history. They have eight thousand
+# pages of it.
+#
+# A message emitted by several branches cannot tell you which one fired, which
+# is why the skip, the empty run and the absent export now each own a line.
+# NO_DATA above is reserved for its literal meaning: the run happened and the
+# customer's history is genuinely empty.
+#
+# Privacy unchanged: counts only, no URLs, titles or domains.
+MSG_HYDRATE_BROWSING_ALREADY_IMPORTED="Your browsing history is already imported (%s pages). Nothing to re-import."
+MSG_HYDRATE_BROWSING_SKIPPED_NO_EXPORT="No exported browsing history found to import. You can re-run later from Settings."
+MSG_WARN_HYDRATE_BROWSING_REIMPORT_STORE_EMPTY="Your browsing history was imported before, but your search index no longer holds it. Importing it again."
+MSG_WARN_HYDRATE_BROWSING_REIMPORT_UNVERIFIED="Could not check whether your browsing history is still in your search index. Importing it again rather than assuming it is there."
+MSG_WARN_HYDRATE_BROWSING_NOTHING_STORED="Your browsing history did not reach your search index, so your Browsing page will be empty. Re-run from Settings, or open Doctor."
+MSG_HYDRATE_BROWSING_BACKGROUND_CONTINUES="Browsing history is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+
+# Email-preferences hydration strings (v1.0.3)
+# Used by install.sh's hydrate_email_preferences step. It ingests a
+# pre-extracted ParsedPreference JSONL file (CM021 email intelligence
+# output) into the preferences collection via the vendored CM019 ingest
+# CLI, so a wipe and reinstall regenerates it from the source file.
+# Counts come from the ingest CLI's "Preferences created" tally; no
+# brand, person, or subject names cross the install.sh process boundary.
+# The file is opt-in via OSTLER_EMAIL_PREFERENCES_FILE or
+# OSTLER_SOCIAL_ARCHIVES_DIR, so customers without it skip cleanly.
+MSG_HYDRATE_EMAIL_PREFERENCES_STARTED="Loading your email preferences. This stays on this Mac and can take a few minutes."
+MSG_HYDRATE_EMAIL_PREFERENCES_DONE="Loaded %s preferences from your email history"
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE="No email-preferences file configured. Nothing to load."
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_NO_FILE_AT="No email-preferences file found at %s. Nothing to load."
+MSG_HYDRATE_EMAIL_PREFERENCES_SKIPPED_PIPELINE_PENDING="Preference pipeline not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_EMAIL_PREFERENCES_BACKGROUND_CONTINUES="Email preferences are still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_EMAIL_PREFERENCES_HEARTBEAT="  Still loading your email preferences (%ss so far). A large history can take a few minutes."
+
+MSG_HYDRATE_EMAIL_PREFERENCES_ALREADY_IMPORTED="Your email preferences are already loaded (%s entries). Nothing to re-load."
+MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_STORE_EMPTY="Your email preferences were loaded before, but your search index no longer holds them. Loading them again."
+MSG_WARN_HYDRATE_EMAIL_PREFERENCES_REIMPORT_UNVERIFIED="Could not check whether your email preferences are still in your search index. Loading them again rather than assuming they are there."
+
+# Preferences import counts-only confirmation, shown by phase 3.12b after
+# the shared ostler-import fan-out runs. The other hydrate_preferences
+# strings were removed when the standalone block was collapsed into the
+# shared importer; only this done-count line is still referenced.
+# Privacy: enrich's lookup clients call PUBLIC item-metadata APIs only
+# (about the item, never the user); this string is a count.
+# This said "Imported and enriched %s preferences" and the number it
+# printed was the INGEST count. On the 2026-08-17 install it read 2,963
+# while enrichment's own successful count for the same run was 1. Two
+# separate facts, one of them borrowed the other's number. Now each is
+# counted at its own source and stated separately.
+MSG_HYDRATE_PREFERENCES_DONE="Imported %s preferences"
+MSG_HYDRATE_PREFERENCES_ENRICHED="Enriched %s of them with public reference data"
+
+# Category-coverage guard (CX: silently-blank Food / Music pages). Warned
+# when preferences landed but none carry a headline category, or when a
+# large share carry no category at all -- so the operator sees it at
+# install time rather than discovering empty wiki pages later. Counts only.
+MSG_WARN_PREFS_NO_HEADLINE_CATEGORIES="Imported %s preferences, but none landed under Food, Music or Professional. Your Food and Music wiki pages will be empty."
+MSG_WARN_PREFS_HEADLINE_HINT="This usually means no music/food export (Spotify, Apple Music, Uber Eats, Google Takeout) was present, or the data was not categorised. Add those exports and re-run from Settings, then rebuild the wiki."
+MSG_WARN_PREFS_UNCATEGORISED="%s of %s preferences (%s%%) have no category and will not appear on any topic page. Check the source export format."
+
+# Preference enrichment pipeline setup (CM019, own venv at
+# ~/.ostler/services/cm019). Idempotent + non-fatal; see install.sh 3.11b.
+MSG_CM019_SETUP_STARTED="Setting up preference enrichment"
+MSG_CM019_SETUP_DONE="Preference enrichment ready"
+MSG_CM019_SETUP_FAILED="Preference enrichment setup did not finish. Your preferences pages fill once it is fixed; the rest of Ostler is unaffected."
+MSG_CM019_SETUP_SKIPPED="Preference enrichment pipeline not bundled; skipping for now."
+
+# CX-84: iMessage hydration. Fires as a separate progress emission
+# between hydrate_browsing and wiki_compile. Counts come from
+# ingest_imessage's return dict (people_created + people_enriched).
+# Privacy: no phone numbers / handles / message text in any string
+# here -- the customer sees people-count totals only.
+MSG_HYDRATE_IMESSAGE_STARTED="Reading your iMessage history – your messages stay on this Mac"
+MSG_HYDRATE_IMESSAGE_DONE="Found %s people in your iMessage history"
+MSG_HYDRATE_IMESSAGE_SKIPPED_NO_DATA="No iMessage history to read. You can re-run later from Settings."
+MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING="iMessage reader not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_IMESSAGE_BACKGROUND_CONTINUES="iMessage is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_IMESSAGE_HEARTBEAT="  Still reading your iMessage history (%ss so far). A large message history can take several minutes."
+
+MSG_HYDRATE_IMESSAGE_ALREADY_IMPORTED="Your iMessage contacts are already in your people graph (%s identifiers). Nothing to re-read."
+MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_STORE_EMPTY="Your iMessage contacts were read before, but your people graph no longer holds them. Reading them again."
+MSG_WARN_HYDRATE_IMESSAGE_REIMPORT_UNVERIFIED="Could not check whether your iMessage contacts are still in your people graph. Reading them again rather than assuming they are there."
+
+# Apple Notes knowledge hydration (CM024 apple_notes adapter). Notes are
+# converted to markdown + embedded locally; only note-count totals are
+# shown to the customer -- no note titles or bodies leave the process.
+# Copy is dash-clean (plain hyphens only) per the hydrate-phase convention.
+MSG_HYDRATE_APPLE_NOTES_STARTED="Reading your Apple Notes - they stay on this Mac"
+MSG_HYDRATE_APPLE_NOTES_DONE="Added %s notes to your knowledge base"
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_NO_DATA="No Apple Notes to read. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_ALREADY_EMBEDDED="Your Apple Notes are already in your knowledge base. Skipping."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_OPTED_OUT="Apple Notes are switched off for knowledge search. You can turn them on in Settings."
+MSG_HYDRATE_APPLE_NOTES_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_APPLE_NOTES_BACKGROUND_CONTINUES="Apple Notes are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_APPLE_NOTES_HEARTBEAT="  Still reading your Apple Notes (%ss so far). A large notes library can take a few minutes."
+
+MSG_HYDRATE_APPLE_NOTES_ALREADY_IMPORTED="Your Apple Notes are already in your knowledge base (%s entries). Nothing to re-read."
+MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_STORE_EMPTY="Your Apple Notes were added before, but your knowledge base no longer holds them. Adding them again."
+MSG_WARN_HYDRATE_APPLE_NOTES_REIMPORT_UNVERIFIED="Could not check whether your Apple Notes are still in your knowledge base. Adding them again rather than assuming they are there."
+
+# Reminders knowledge hydration (CM024 reminders adapter, same pattern as
+# Apple Notes above). Reminders are converted to markdown + embedded
+# locally; only reminder-count totals are shown to the customer -- no
+# reminder titles or notes leave the process.
+MSG_HYDRATE_REMINDERS_STARTED="Reading your Reminders - they stay on this Mac"
+MSG_HYDRATE_REMINDERS_DONE="Added %s reminders to your knowledge base"
+MSG_HYDRATE_REMINDERS_SKIPPED_NO_DATA="No Reminders to read. You can re-run later from Settings."
+# THREE CAUSES NEEDED THREE STRINGS (#775). Until v1.0.101 the line above was
+# emitted for all three, so a customer whose 2369 reminders were skipped by a
+# stale sentinel was told there were none to read. A message that cannot
+# distinguish "already done" from "none exist" is not a message, it is a
+# guess the reader has to make.
+MSG_HYDRATE_REMINDERS_SKIPPED_ALREADY_EMBEDDED="Your Reminders are already in your knowledge base. Skipping."
+MSG_HYDRATE_REMINDERS_SKIPPED_OPTED_OUT="Reminders are switched off for knowledge search. You can turn them on in Settings."
+MSG_HYDRATE_REMINDERS_SKIPPED_PIPELINE_PENDING="Knowledge importer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_REMINDERS_BACKGROUND_CONTINUES="Reminders are still loading in the background. Your knowledge base fills in as it goes, and shows you where it is up to."
+MSG_HYDRATE_REMINDERS_HEARTBEAT="  Still reading your Reminders (%ss so far). A large reminders list can take a few minutes."
+
+MSG_HYDRATE_REMINDERS_ALREADY_IMPORTED="Your Reminders are already in your knowledge base (%s entries). Nothing to re-read."
+MSG_WARN_HYDRATE_REMINDERS_REIMPORT_STORE_EMPTY="Your Reminders were added before, but your knowledge base no longer holds them. Adding them again."
+MSG_WARN_HYDRATE_REMINDERS_REIMPORT_UNVERIFIED="Could not check whether your Reminders are still in your knowledge base. Adding them again rather than assuming they are there."
+
+# People search index (#600)
+MSG_HYDRATE_PEOPLE_STARTED="Indexing your people for search"
+MSG_HYDRATE_PEOPLE_DONE="Indexed %s people for search"
+MSG_HYDRATE_PEOPLE_PARTIAL="Indexed %s of %s people for search so far. The rest were not searchable yet; Ostler will retry automatically."
+MSG_HYDRATE_PEOPLE_FAILED="Your people could not be indexed for search this time (the graph store did not answer). Ostler will retry automatically. Details: %s"
+MSG_HYDRATE_PEOPLE_SKIPPED_NO_DATA="No people to index yet. You can re-run later from Settings."
+MSG_HYDRATE_PEOPLE_SKIPPED_FDA_PENDING="People indexer not ready yet. You can re-run later from Settings."
+MSG_HYDRATE_PEOPLE_BACKGROUND_CONTINUES="Your people are still being indexed in the background. Search fills in as it goes, and the wiki shows you where it is up to."
+
+MSG_HYDRATE_PEOPLE_ALREADY_IMPORTED="Your people are already indexed for search (%s people). Nothing to re-index."
+MSG_WARN_HYDRATE_PEOPLE_REIMPORT_STORE_EMPTY="Your people were indexed before, but your search index no longer holds them. Indexing them again."
+MSG_WARN_HYDRATE_PEOPLE_REIMPORT_UNVERIFIED="Could not check whether your people are still in your search index. Indexing them again rather than assuming they are there."
+
+# CX-47 (DMG #30, 2026-05-24): elevated pre-warn banner for the three
+# folder-access TCC prompts triggered by the GDPR-export scan.
+MSG_PROMPT_GDPR_SCAN_INCOMING_TITLE="Three folder-access prompts coming up"
+
+# CX-54 (DMG #30, 2026-05-24): in-window hint surfaced after macOS's
+# Command Line Tools install dialog steals focus. Customers consistently
+# miss that the questions phase continues in the background.
+MSG_INFO_CLT_KEEP_ANSWERING_BACKGROUND="The Command Line Tools dialog has appeared in front of this window – click Install on it, then come back here (or wait a few seconds, we'll bring this window back to the front for you). Tools download in the background while you carry on answering the questions below; nothing here is blocked."
+
+# CX-55 (DMG #30, 2026-05-24): pre-warn for the iMessage Automation
+# permission prompt that macOS shows when we probe Messages.app for
+# the install-time TCC posture snapshot.
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_TITLE="Permission needed: iMessage Automation"
+MSG_PROMPT_IMESSAGE_AUTOMATION_INCOMING_HELP="Ostler will now ask macOS for permission to talk to Messages.app. macOS will show a popup saying \"OstlerInstaller wants access to control Messages\" – click Allow so the assistant can send and receive iMessages on your behalf. Without this permission iMessage messages will silently never leave the box. This is a one-time grant; you can change it later in System Settings > Privacy & Security > Automation."
+
+# CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet shown in the
+# main GUI window after install completes. The TTY path already echoes
+# the key in YELLOW BOLD at install.sh:7580; the GUI path needs the
+# same surface so customers don't end up locked out if their Keychain
+# ever wobbles. install.sh emits a structured RECOVERY_KEY marker that
+# the Swift coordinator parses into a dedicated @Published property
+# (not into logLines, where it would leak into the Log drawer). The
+# RecoveryKeyView renders the value in monospace with Copy / Save PDF /
+# Print buttons + a confirm checkbox + Continue.
+MSG_INFO_RECOVERY_KEY_REVEALED_TITLE="Your recovery key"
+MSG_INFO_RECOVERY_KEY_REVEALED_BODY="Write this down or print it now. It's the only way back in if you lose your passphrase AND your Keychain becomes inaccessible. Ostler cannot recover it for you – the key never leaves this Mac and is not stored on any server."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONFIRM="I've saved this somewhere safe"
+MSG_INFO_RECOVERY_KEY_REVEALED_COPY="Copy to clipboard"
+MSG_INFO_RECOVERY_KEY_REVEALED_SAVE_PDF="Save as PDF..."
+MSG_INFO_RECOVERY_KEY_REVEALED_PRINT="Print..."
+MSG_INFO_RECOVERY_KEY_REVEALED_CONTINUE="Continue"
+MSG_INFO_RECOVERY_KEY_PDF_DEFAULT_FILENAME="Ostler Recovery Key.pdf"
+MSG_INFO_RECOVERY_KEY_PRINT_JOB_TITLE="Ostler Recovery Key"
+MSG_OK_RECOVERY_KEY_COPIED_TO_CLIPBOARD="Recovery key copied to clipboard"
+MSG_OK_RECOVERY_KEY_SAVED_AS_PDF="Recovery key saved to %s"
+
+# CX-56 (DMG ship, 2026-05-24): iOS Companion pairing QR shown on the
+# install-complete screen. The Hub gateway exposes a §3.3 pair-code
+# envelope at POST http://localhost:8000/admin/paircode (no auth
+# needed on localhost). The GUI fetches the envelope, renders it as
+# a 256x256 QR with an oxblood border, and offers a Refresh button.
+# CM031 iOS app scans the QR + decodes the envelope.
+MSG_INFO_PAIR_IPHONE_TITLE="Pair your iPhone"
+MSG_INFO_PAIR_IPHONE_HELP="Open the Ostler app on your iPhone and scan this QR code to link it to this Hub. You can also pair later from the Hub's Settings menu."
+MSG_INFO_PAIR_IPHONE_FETCHING="Generating pairing code..."
+MSG_INFO_PAIR_REFRESH="Refresh code"
+MSG_ERR_PAIR_FETCH_FAILED="Couldn't reach the Ostler gateway yet. It might still be starting up – click Refresh to try again."
+
+# ── Deep-dive audit fixes (CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22) ──
+
+# F1 - assistant-agent bundle missing
+MSG_WARN_ASSISTANT_AGENT_NOT_BUNDLED_LAUNCHAGENT_SKIPPED="assistant-agent not bundled with installer. Daily briefs + WhatsApp keepalive LaunchAgent will not load."
+
+# F2 - wiki-recompile bundle missing (replaces silent info-log fall-through)
+MSG_WARN_WIKI_RECOMPILE_SCRIPTS_NOT_BUNDLED="Wiki-recompile scripts not bundled with installer. The wiki will not auto-update."
+
+# F3 - legal package missing
+MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED="legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
+
+# F4 - gws (Google Workspace CLI) install
+MSG_OK_GWS_INSTALLED_AT_VERSION_DEST="Google Workspace CLI v%s installed at %s"
+MSG_OK_GWS_ALREADY_INSTALLED_AT_VERSION="Google Workspace CLI v%s already installed, leaving in place"
+MSG_WARN_GWS_UNSUPPORTED_ARCHITECTURE_GMAIL_DEGRADED="Unsupported CPU architecture for Google Workspace CLI; Gmail / Google Calendar features degraded."
+MSG_WARN_CURL_NOT_AVAILABLE_GWS_INSTALL_SKIPPED="curl not available; Google Workspace CLI install skipped. Gmail / Google Calendar features degraded."
+MSG_WARN_GWS_DOWNLOAD_FAILED_URL="Could not download Google Workspace CLI from %s"
+MSG_WARN_GWS_SHA256_MISMATCH_EXPECTED_GOT="Google Workspace CLI SHA256 mismatch (expected %s, got %s). Aborting install of this binary."
+MSG_WARN_GWS_ARCHIVE_EXTRACT_FAILED="Google Workspace CLI archive could not be extracted."
+MSG_WARN_GWS_INSTALLED_BUT_VERSION_PROBE_FAILED="Google Workspace CLI installed at %s but the --version probe failed."
+
+# F5 - ical-query.sh wrapper
+MSG_OK_ICAL_QUERY_WRAPPER_INSTALLED_AT="iCloud / CalDAV calendar bridge installed at %s"
+MSG_WARN_ICAL_QUERY_WRAPPER_NOT_EXECUTABLE_AT="iCloud / CalDAV calendar bridge at %s is not executable. Calendar will return no events."
+
+# F9 - deferred-register-device script missing
+MSG_WARN_DEFERRED_REGISTER_SCRIPT_NOT_BUNDLED_RETRY_DISABLED="scripts/deferred-register-device.sh not bundled with installer. Device-registration retry on next network is disabled."
+
+MSG_WARN_EMBED_DIMS_UNREADABLE="Could not read the embedding width from the health probe. Memory is configured for 768 dimensions; if recall behaves oddly, check the embedding model."
+MSG_FAIL_EMBED_DIMS="The embedding model returned %s-dimension vectors but Ostler is configured for %s. Memory would store vectors it can never match. Check the embedding model and re-run."
+
+# ── Reboot self-heal: automatic login on boot (v1.0.11) ─────────────
+# LOCALE PARITY (future de/fr/es/it catalogues): these keys are en-GB only.
+# Re-translate the values below when a new locale catalogue is added; do NOT
+# machine-translate the consent / FileVault copy -- it is legal-adjacent and
+# must read naturally in the operator's language.
+#
+# WHAT THIS COPY MUST NOT DO. Automatic sign-in works by storing the
+# customer's login password on their Mac at /etc/kcpassword, scrambled with a
+# fixed, publicly documented byte pattern (the cipher literal is in install.sh,
+# in _ostler_configure_reboot_autologin). That is obfuscation, not encryption,
+# and it is reversible by anyone with an administrator account or with the disk
+# in their hands. The step also runs ONLY when FileVault is off, so it writes a
+# recoverable login password exclusively onto Macs with no disk encryption.
+#
+# Every string below is therefore held to one rule: no word that implies the
+# password is protected. Banned: "keystore", "keychain", "vault", "encrypted",
+# "secure", "safe". Say what happens instead.
+#
+# The only reassurance any of these strings is allowed to carry is the one that
+# was verified end to end in the installer, and it is stated at exactly that
+# scope: the password is not echoed as it is typed, and it does not reach
+# ~/.ostler/logs/install.log. Nothing here claims anything about what macOS
+# itself does with /etc/kcpassword afterwards, because that was not measured.
+MSG_PROGRESS_REBOOT_SELFHEAL="Configuring reboot self-heal"
+MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler is an always-on hub, so after a power-cut or a restart it needs to come back with nobody at the keyboard. That only works if this Mac signs itself in, and macOS can only sign itself in if %s's login password is stored on this Mac.
+
+Storing it weakens this Mac. The password is scrambled rather than encrypted, so anyone who can use an administrator account here, or who can take the disk out and read it elsewhere, can turn it back into your password. You will see exactly where it is stored before you type anything.
+
+If you say no, nothing is stored and nothing else changes. After a power-cut you sign in as usual, and Ostler's services start with your session. You can change this later in System Settings > Users & Groups > Automatic login."
+MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
+MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler writes this password to a file on this Mac at /etc/kcpassword. It is scrambled there with a fixed pattern that is the same on every Mac and is publicly documented, so it is not encryption and it can be undone. Anyone who can use an administrator account on this Mac, or who can take the disk out and read it elsewhere, can turn that file back into %s's login password.
+
+FileVault would stop that, because the disk cannot be read at all without the start-up password. FileVault also stops automatic sign-in, for the same reason, which is why Ostler only offers this when FileVault is off.
+
+What the installer does control: it does not show the password as you type it, and it does not write it to the install log. The scrambled file is the only copy the installer creates.
+
+Leave this blank to skip automatic sign-in."
+MSG_PROMPT_AUTOLOGIN_PASSWORD="Login password for %s"
+MSG_OK_AUTOLOGIN_CONFIGURED="Automatic sign-in is on for %s, and that login password is now on this Mac at /etc/kcpassword in scrambled form. After a restart this Mac signs itself in, and Ostler's services start with that session. To undo it, turn Automatic login off in System Settings > Users & Groups."
+MSG_INFO_AUTOLOGIN_ALREADY="Automatic sign-in is already set up for %s, so this Mac already has that login password stored at /etc/kcpassword. Leaving both as they are. To undo it, turn Automatic login off in System Settings > Users & Groups."
+MSG_INFO_AUTOLOGIN_DECLINED="Automatic sign-in was not enabled, and no password was stored. After a restart or power-cut, sign in as usual and Ostler's services start with your session."
+MSG_INFO_AUTOLOGIN_SKIPPED_NONINTERACTIVE="Skipping automatic sign-in setup: there is no way to ask for a login password here, and nothing was stored. You can turn Automatic login on later in System Settings > Users & Groups if you want this Mac to recover from a restart unattended. It stores your login password on the Mac in scrambled, reversible form, so it is worth reading up on before you do."
+MSG_WARN_AUTOLOGIN_NO_PASSWORD="No password was entered, so automatic sign-in was not enabled and nothing was stored. If you want it later, turn Automatic login on in System Settings > Users & Groups."
+MSG_WARN_AUTOLOGIN_FAILED="Could not enable automatic sign-in (%s). This is not retried. If /etc/kcpassword exists on this Mac it holds that login password in scrambled form even though the feature is off; you can remove it from Terminal with: sudo rm /etc/kcpassword. To try again, turn Automatic login on in System Settings > Users & Groups."
+MSG_WARN_AUTOLOGIN_FILEVAULT="FileVault is on, so this Mac asks for a password at the boot screen to unlock the disk before anyone can sign in. Automatic sign-in cannot answer that, so after a power-cut this Mac waits at the FileVault unlock screen until someone enters it. Automatic sign-in was not enabled and no password was stored. That is the stronger of the two arrangements: unattended restart recovery is not possible while FileVault is on, and in exchange the disk stays unreadable to anyone who does not have that password."
+
+# ── WALK-874 (2026-08-24, v1.0.44 upgrade walk, step 26/37) ──────────
+# The Full Disk Access modal opened with "System Settings is open at
+# Full Disk Access." It was NOT open -- Andy opened it himself. The pane
+# open was fire-and-forget (`open ... 2>/dev/null || true`) and the
+# sentence was printed regardless: the same shape as #876's
+# `launchctl ... || true` followed by an unconditional success line.
+#
+# This is the line the modal shows when the pane could NOT be brought
+# up. It ESTABLISHES the state instead of asserting it, and it does not
+# pretend the installer did something it did not do.
+MSG_PROMPT_FDA_PANE_OPEN_FAILED_LINE1="Ostler could not open System Settings for you. Please open System Settings yourself and go to Privacy & Security > Full Disk Access."
+# ── Container-engine ownership disclosure ─────────────────────────────────
+# DISCLOSURE, NOT DISCLAIMER. Andy asked (2026-08-24) whether we could write
+# something to absolve us if a customer disrupts what we install. A clause
+# does not do that job -- to a customer it is our product that stopped
+# working. What does the job is saying plainly, up front, what we install and
+# what depends on it, and then DETECTING and SAYING SO when it breaks.
+# Deliberately says "will tell you and try to restart it" because both halves
+# are now true (periodic liveness + a real restart path); do not weaken either
+# sentence without removing the corresponding capability.
+MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler runs your wiki and search in containers, so it installs and manages a container engine (Colima) on this Mac. If that engine is removed or reconfigured, your wiki and search will stop working – Ostler will tell you and try to restart it."
+MSG_INFO_ENGINE_ALREADY_PRESENT="A container engine is already installed on this Mac. Ostler will use it rather than installing its own, and will not manage or modify it."
+
+# OS003 #233: model weight pins (install.sh OSTLER_MODEL_PINS).
+MSG_OK_MODEL_DIGEST_VERIFIED="%s verified against its pinned digest (%s)"
+MSG_FAIL_MODEL_DIGEST_MISMATCH="The installed %s is not the model this installer ships: found %s, expected %s (%s). The download source may have changed, so the install has stopped before using it. Contact support with this message."
+MSG_FAIL_MODEL_UNPINNED="%s has no pinned digest in this installer, so it cannot be verified and will not be used. This is an installer defect. Contact support with this message."
+MSG_FAIL_MODEL_DIGEST_UNREADABLE="Could not verify the downloaded %s against its pinned digest (%s). The model will not be used unverified. Re-run the installer; if this repeats, contact support with this message."

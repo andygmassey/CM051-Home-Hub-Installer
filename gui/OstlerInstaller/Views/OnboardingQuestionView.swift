@@ -239,6 +239,19 @@ struct OnboardingQuestionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // English prevails (Owner ruling 2026-10-24): every legal/consent screen
+            // whose wording is shown translated carries the reviewed
+            // "English version prevails" line. nil (the line is untranslated)
+            // means the legal wording is English, so nothing is shown.
+            if ViewCopy.isLegalPrompt(q.prompt.id), let prevails = ViewCopy.shared.englishPrevailsNote() {
+                Text(prevails)
+                    .font(.ostlerCaption.italic())
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("legal_english_prevails")
+            }
+
             // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
             // confirm loops (recovery_passphrase, email_password) pass
             // a mismatch message via gui_read's $7 error_text arg,

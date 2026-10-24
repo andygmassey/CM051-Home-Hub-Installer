@@ -26,6 +26,18 @@ A register nobody is forced to update rots. Hence the gate.
 
 ## LIVE
 
+### L10N_ANTHROPIC_API_KEY
+NOT YET CREATED (2026-10-18). Anthropic API key for `.github/workflows/l10n-weekly.yml`,
+the out-of-band translation run (`l10n/ostler_l10n.py run`). Scheduled and
+manually dispatched only, never on `pull_request`, so a fork cannot reach it.
+Without it the weekly job reports CANNOT-RUN (exit 2); PR CI is unaffected
+(`l10n-check.yml` is offline). Budget per run is capped by `l10n/config.yaml`.
+
+### L10N_PR_TOKEN
+OPTIONAL, NOT YET CREATED. Token used by `l10n-weekly.yml` to open its PR. Falls back
+to the default `GITHUB_TOKEN`, whose PRs do not trigger other workflows, so
+the translation PR's checks would only run after a further push.
+
 ### CM051_INSTALLER_PUBLISH
 Publishes the cut DMG as a release object on `ostler-ai/ostler-installer`, then
 re-fetches the customer URL to prove it serves. Consumed by `cut.yml` via
