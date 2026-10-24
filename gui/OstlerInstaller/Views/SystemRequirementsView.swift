@@ -5,6 +5,7 @@
 // body, primary action bottom-right. Shown before anything has been
 // asked of the customer, so it says plainly that nothing changed.
 
+import AppKit
 import SwiftUI
 
 struct SystemRequirementsView: View {
@@ -68,8 +69,15 @@ struct SystemRequirementsView: View {
 
             HStack {
                 if let url = URL(string: copy.string(for: "system_requirements.requirements_url")) {
-                    Link(copy.string(for: "system_requirements.requirements_link"), destination: url)
-                        .font(.ostlerBody)
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Text(copy.string(for: "system_requirements.requirements_link"))
+                            .font(.ostlerBody)
+                            .foregroundColor(.ostlerOxblood)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
                 }
                 Spacer()
                 Button(copy.string(for: "system_requirements.quit_button")) {
