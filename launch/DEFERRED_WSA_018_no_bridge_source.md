@@ -3,14 +3,14 @@ title: DEFERRED – WSA-018 iMessage bridge install path
 date: 2026-05-21
 status: DEFERRED
 tracker: task #406
-reason: bridge.py source does not exist on disk; multiple architectural decisions required from Andy
+reason: bridge.py source does not exist on disk; multiple architectural decisions required from the owner
 ---
 
 # DEFERRED – WSA-018 iMessage bridge install path
 
 ## Why deferred
 
-Cannot implement without Andy. Hit three blockers immediately.
+Cannot implement without the owner. Hit three blockers immediately.
 
 ### Blocker 1: source code does not exist
 
@@ -49,9 +49,9 @@ Owner / mode / sticky-bit choices need a security review at the same time as the
 
 In rough order:
 
-1. **Andy commits / authors `bridge.py`** somewhere upstream (HR015 likely; possibly a new repo like `ostler-ai/ostler-imessage-bridge` to mirror the RemoteCapture pattern). Schema for `inbox.jsonl` documented in an accompanying `SCHEMA.md`. Idempotency model + chat.db polling cadence pinned.
-2. **Andy picks the architecture-detection model:** (a) install-time question, (b) auto-detect on assistant user presence, or (c) always install but no-op when single-user.
-3. **Andy decides ownership / permissions** on `/Users/Shared/imessage-bridge/` (POSIX mode + owner + group).
+1. **The owner commits / authors `bridge.py`** somewhere upstream (HR015 likely; possibly a new repo like `ostler-ai/ostler-imessage-bridge` to mirror the RemoteCapture pattern). Schema for `inbox.jsonl` documented in an accompanying `SCHEMA.md`. Idempotency model + chat.db polling cadence pinned.
+2. **The owner picks the architecture-detection model:** (a) install-time question, (b) auto-detect on assistant user presence, or (c) always install but no-op when single-user.
+3. **The owner decides ownership / permissions** on `/Users/Shared/imessage-bridge/` (POSIX mode + owner + group).
 4. **Then this PR can be written.** Pattern mirrors the existing email-ingest LaunchAgent install (Phase 3.14a-ish). Estimated ~3-4 hours once the upstream + decisions exist.
 
 ## What this PR ships instead
