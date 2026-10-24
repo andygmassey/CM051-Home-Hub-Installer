@@ -218,6 +218,7 @@ test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-
 test_cm052_paused_conversation_is_not_watermarked.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_cold_staged_trees_and_agents_have_an_upgrade_path.py	WIRED	.github/workflows/derived-preferences.yml
 test_colima_autostart_mechanism.sh	WIRED	.github/workflows/colima-autostart.yml
 test_colima_start_retry.sh	WIRED	.github/workflows/colima-autostart.yml
 test_collections_are_created_where_readiness_is_proven.sh	WIRED	.github/workflows/install-manifest-gate.yml
@@ -294,6 +295,7 @@ test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -306,6 +308,7 @@ test_dmg_contains_bundled_python.sh	UNWIRED	-
 test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_minors_registry_row.py	WIRED	.github/workflows/minors-registry-row.yml
 test_doctor_never_opens_chat_db.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_doctor_oracle_fallback_is_off.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_doctor_probe_cap_exceeds_the_command.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -454,6 +457,7 @@ test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/tests-unwired-swe
 test_imessage_tcc_posture.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_zero_is_declared_not_undeclared.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_ingest_contract.py	WIRED	.github/workflows/derived-preferences.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_ingest_slot_fairness.sh	WIRED	.github/workflows/ingest-slot.yml
 test_install_creates_the_coach_db_keyed.py	WIRED	.github/workflows/coach-db-created-keyed-at-install.yml
@@ -528,6 +532,7 @@ test_merge_survivor_takes_highest_name_tier.py	WIRED	.github/workflows/walk-reco
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_merged_people_are_not_recreated.py	WIRED	.github/workflows/forget-tombstone.yml
 test_migration_marker_guard_fresh_install.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_minors_registry_is_inside_the_at_rest_exclusion.py	WIRED	.github/workflows/minors-registry-row.yml
 test_model_digest_pins.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -606,6 +611,7 @@ test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.ym
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_passive_plays_are_not_likes.py	WIRED	.github/workflows/misclassified-things.yml
 test_pause_expiry_reenables_cron.py	WIRED	.github/workflows/status-honesty-pause.yml
+test_payload_app_icons_gate.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_carded_names_show_and_tiers_hold_in_every_path.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
@@ -624,6 +630,7 @@ test_photos_events_are_in_the_default_preset.sh	WIRED	.github/workflows/tests-un
 test_pii_scan_values_never_reach_install_log.sh	WIRED	.github/workflows/install-log-pii.yml
 test_pii_shape_scan_scope.sh	WIRED	.github/workflows/operator-pii-scan.yml
 test_pinned_images_are_pullable.sh	WIRED	.github/workflows/supply-chain-pins.yml
+test_pinned_remotecapture_has_an_icon.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pinned_wiki_image_has_design_system.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinned_wiki_images_are_arm64_only.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pinterest_parser.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -893,7 +900,10 @@ test_unzip_every_archive_is_opened_or_reported.sh	WIRED	.github/workflows/gdpr-e
 test_upgrade_does_not_revert_the_launchagent_path.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_mode_invariants.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_upgrade_path_can_wire_store_auth.sh	WIRED	.github/workflows/bash32-compat.yml
+test_upgrade_payload_carries_what_the_upgrade_refreshes.sh	WIRED	.github/workflows/derived-preferences.yml
 test_upgrade_payload_shape_contract.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_upgrade_refreshes_assistant_api_and_context_refresh.sh	WIRED	.github/workflows/derived-preferences.yml
+test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh	WIRED	.github/workflows/derived-preferences.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -931,8 +941,13 @@ test_vendored_cm059_frontpage_holds_back_consent_cards.py	WIRED	.github/workflow
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_vendored_conversation_routes_refuse_path_traversal.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_vendored_derive_covers_all_of_life.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_derive_endpoint_mixes_categories.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_derive_scroll_carries_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
+test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
@@ -1038,6 +1053,7 @@ context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_owner_brief.py	WIRED	.github/workflows/context-digest-auth.yml
 scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_grades_what_it_names.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_acceptance_gate_v1013_probe.sh	WIRED	.github/workflows/cut-manifest.yml

@@ -1,0 +1,65 @@
+name: payload-app-icons
+
+# Every .app a customer finds in /Applications/Ostler has an icon (118 U4).
+# v1.0.117 shipped Ostler Uninstaller, Recover Ostler and Ostler RemoteCapture
+# with the blank icon and every gate was green, because no gate looked.
+#
+# Two checks, both on every PR that can change the answer and on main:
+#   1. The gate fires (hermetic, synthetic bundles) and the two GUI targets
+#      build the brand asset catalog.
+#   2. The RemoteCapture release install.sh pins has an icon, or is declared
+#      known-red for exactly that version. A re-pin re-arms it.
+# The DMG half runs in cut.yml against the staged artefact.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify_payload_app_icons.py'
+      - 'tests/test_payload_app_icons_gate.sh'
+      - 'tests/test_pinned_remotecapture_has_an_icon.sh'
+      - 'tests/payload_app_icons_known_red.tsv'
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller.xcodeproj/project.pbxproj'
+      - 'gui/OstlerInstaller/Assets.xcassets/**'
+      - 'install.sh'
+      - '.github/workflows/payload-app-icons.yml'
+  pull_request:
+    paths:
+      - 'scripts/verify_payload_app_icons.py'
+      - 'tests/test_payload_app_icons_gate.sh'
+      - 'tests/test_pinned_remotecapture_has_an_icon.sh'
+      - 'tests/payload_app_icons_known_red.tsv'
+      - 'gui/project.yml'
+      - 'gui/OstlerInstaller.xcodeproj/project.pbxproj'
+      - 'gui/OstlerInstaller/Assets.xcassets/**'
+      - 'install.sh'
+      - '.github/workflows/payload-app-icons.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  icons:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The app-icon gate fires, and the Uninstaller and Recover targets carry the brand icon
+        run: /bin/bash tests/test_payload_app_icons_gate.sh
+
+      # rc=2 is CANNOT-RUN (pin unreadable or download failed), not a pass.
+      - name: The pinned RemoteCapture release has an icon, or is declared for that version
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_pinned_remotecapture_has_an_icon.sh || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=RemoteCapture icon check CANNOT-RUN::Nothing was examined. This is NOT a pass."
+          fi
+          exit "$rc"

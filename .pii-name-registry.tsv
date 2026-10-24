@@ -149,7 +149,6 @@ cast	johannes	generic German full name in a locale-override fixture, no surname 
 # spellings are different names. They carry no surname, no mailbox and no
 # number, so they identify nobody.
 # ---------------------------------------------------------------------------
-cast	alison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	allison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	ali	given-name spelling under test in the variants table; no surname or identifier attached
 cast	catherine	given-name spelling under test in the variants table; no surname or identifier attached
@@ -2437,3 +2436,5 @@ nonperson	scripts/box_walk_probes/probes/derived_preferences_breadth.sh::bf4da12
 nonperson	scripts/walk_promote_scope.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_every_probe_on_disk_is_collected.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_smart_prefs_probes.sh::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
+nonperson	scripts/verify_payload_app_icons.py::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
+nonperson	tests/test_payload_app_icons_gate.sh::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.

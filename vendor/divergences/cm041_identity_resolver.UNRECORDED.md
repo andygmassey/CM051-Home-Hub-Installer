@@ -224,7 +224,7 @@ NO UPSTREAM COUNTERPART (checked CM041 origin/main e2dffc0, 2026-10-21):
 vendored tree (graft from CM051 #2663); upstream `resolve()` Tier 1 merges on a shared
 exact identifier after RULE 2 alone, so the nameless pair already merges there and
 there is nothing to port. Upstreaming this change means upstreaming the whole BW-1
-guard first, which reverses upstream's RULE 1 and is a decision for Andy/Archie, not
+guard first, which reverses upstream's RULE 1 and is a decision for the owner/Archie, not
 a like-for-like port. This record stays until that decision is made.
 
 Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
