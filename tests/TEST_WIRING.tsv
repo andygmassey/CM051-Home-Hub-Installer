@@ -302,6 +302,7 @@ test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
 test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
 test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
+test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_never_opens_chat_db.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
@@ -321,6 +322,7 @@ test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_wizard_is_light_not_lifeline_dark.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_documents_access_doctor_denied_row.py	WIRED	.github/workflows/consent-data-handling.yml
 test_documents_tcc_pre_explain_before_first_write.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_download_currency_gate_is_wired.sh	WIRED	.github/workflows/customer-download-path.yml
@@ -710,6 +712,7 @@ test_scheduled_agent_failure_is_loud.sh	WIRED	.github/workflows/scheduled-agent-
 test_scheduled_brief_probe.sh	WIRED	.github/workflows/scheduled-brief-delivery-probe.yml
 test_secrets_are_documented.sh	WIRED	.github/workflows/secrets-are-documented.yml
 test_section_contract.sh	WIRED	.github/workflows/section-contract.yml
+test_send_safety_probes.sh	WIRED	.github/workflows/send-safety-probes.yml
 test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_service_senders_get_no_reconnect_card.py	WIRED	.github/workflows/privacy-spine.yml
