@@ -50,3 +50,33 @@ All of the above. Guarded by `tests/test_cm048_multilingual_vendored.py`, run by
 `.github/workflows/cm048-multilingual-output.yml` against this vendored tree. The
 CM048 source repo carries the same change and the same suite, so a re-pin to a CM048
 commit that includes it makes this entry redundant and it can be deleted.
+
+## Graft: reply debt names people, never the owner, never a short code (P13, 2026-10-23)
+
+Tree `cm048_pipeline`. A graft of CM048 branch `fix/p13-handle-identity`
+(head `b83c30132b25623c388f00b18b38f2c417e28b9f`, written on CM048 main
+`f6b75be`, open for review). NOT at the pin and NOT in the patch: `$CM048` is
+not checked out on CI, and the branch is unmerged upstream.
+
+v1.0.117 walk: the 18:00 brief listed "Waiting on a reply from you" as five raw
+phone numbers, one the owner's own. Files:
+
+- new `src/handle_identity.py`: canonical phone form in the owner's country,
+  owner handles (installer env plus every identifier on the owner node or the
+  owner's own-name me-card), short code / sender id / no-reply shapes.
+  BYTE-IDENTICAL to upstream (sha256 dc42984808773f0a...).
+- `src/handle_resolver.py`: `build_directory()`. BYTE-IDENTICAL to upstream.
+- `src/reply_debt.py`: `identify_threads()`, `resolved` / `handle_kind`
+  fields, the brief line never prints digits. BYTE-IDENTICAL to upstream.
+- `src/reply_debt_service.py`: the same three hunks upstream carries (the
+  `directory` argument, identification before detect, `excluded` and
+  `names_degraded` in the payload), applied to this tree's snapshot-based
+  service, which already diverges from upstream (CM051 #30).
+
+### What a future sync must preserve
+
+All of the above. Guarded by `tests/test_reply_debt_names_people_p13.py`, run by
+`.github/workflows/reply-debt-never-reads-protected-data.yml` through the real
+vendored ical-server. A re-pin to a CM048 commit that includes the branch makes
+the first three files redundant here; the service hunks stay a graft until the
+snapshot service itself is upstreamed.

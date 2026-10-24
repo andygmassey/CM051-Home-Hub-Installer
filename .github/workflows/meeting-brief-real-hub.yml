@@ -62,7 +62,7 @@ jobs:
           python-version: '3.12'
       - name: Install the Hub's test dependencies
         run: |
-          python -m pip install --quiet pyoxigraph cryptography httpx pytest
+          python -m pip install --quiet pyoxigraph==0.5.12 cryptography httpx pytest
           sqlite3 --version
       - name: The sender, the contract and the three behaviours against the real Hub
         run: python tests/test_meeting_brief_real_hub.py

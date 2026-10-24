@@ -207,7 +207,10 @@ class IngestPipeline:
             date_excluded_count = 0
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment,
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                ),
                 default_category=category
             ):
                 # Check date range exclusions first
@@ -337,7 +340,10 @@ class IngestPipeline:
         try:
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                )
             ):
                 # Check date range exclusions first
                 if settings.is_date_excluded(pref.source, pref.observed_at):
@@ -540,7 +546,10 @@ class IngestPipeline:
             try:
                 async for pref in parser.parse(
                     file_path,
-                    default_compartment=compartment_level or settings.default_compartment
+                    default_compartment=(
+                        compartment_level if compartment_level is not None
+                        else settings.default_compartment
+                    )
                 ):
                     # Check date range exclusions first
                     if settings.is_date_excluded(pref.source, pref.observed_at):

@@ -97,21 +97,33 @@ check "no reset step ran"         "unknown-no-reset-step"              "unknown-
 # exists to stop a red being blamed on the wrong thing.
 check "an explicit store wipe"    "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)" "wiped-by-explicit-store-wipe"
 
-# --- 3. ttywalk writes BOTH arms -------------------------------------------
-for arm in 'wiped-by-shipped-uninstaller' 'carried-over-from-previous-install' 'unknown-no-reset-step' 'wiped-by-explicit-store-wipe'; do
+# --- 3. what ttywalk can record ---------------------------------------------
+# v1.0.117 W4 (Archie review): --reset now deletes the VM WITH its data disk,
+# so it can no longer leave the stores in place, and it must never CLAIM
+# carried-over (that claim was written when no uninstaller was found, after
+# which the delete destroyed the stores: the record lied). It records one of
+# the two wiped-by arms, and only once the disk is asserted gone. A walk with
+# no --reset still records unknown-no-reset-step. post_walk_qa keeps reading
+# carried-over-from-previous-install for older records (limb 2 above).
+for arm in 'wiped-by-shipped-uninstaller' 'unknown-no-reset-step' 'wiped-by-explicit-store-wipe'; do
     if [ "$(printf '%s\n' "$TW_CODE" | grep -c -- "$arm")" -gt 0 ]; then
         ok "ttywalk.sh can record '${arm}'"
     else
         bad "ttywalk.sh never writes '${arm}'; that state would be indistinguishable from the others"
     fi
 done
+if [ "$(printf '%s\n' "$TW_CODE" | grep -c -- 'carried-over-from-previous-install')" -eq 0 ]; then
+    ok "ttywalk.sh never claims carried-over: a reset that deletes the data disk cannot leave the stores"
+else
+    bad "ttywalk.sh can still write carried-over-from-previous-install, which a reset that deletes the data disk makes false"
+fi
 
 # --- 4. the run file is CONSUMED, not read in place -------------------------
-# AND THE WIPE MUST WIN. The reset arm may only speak when nothing has spoken.
-if [ "$(printf '%s\n' "$TW_CODE" | grep -c 'if \[\[ ! -f ~/.walk-stores-provenance-run \]\]')" -gt 0 ]; then
-    ok "the reset arm does not overwrite a wipe that already recorded itself"
+# AND IT IS WRITTEN ONLY BY A RESET THAT PASSED: a refused reset removes it.
+if [ "$(printf '%s\n' "$TW_CODE" | grep -c 'rm -f ~/.walk-stores-provenance-run')" -gt 0 ]; then
+    ok "a refused reset removes the run file, so it cannot leave a wipe claim behind"
 else
-    bad "the reset arm writes unconditionally, so a real --wipe-stores would be recorded as carried-over"
+    bad "a refused reset leaves its run file, so a failed wipe could still be recorded as one"
 fi
 
 if [ "$(printf '%s\n' "$TW_CODE" | grep -c 'mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance')" -gt 0 ]; then

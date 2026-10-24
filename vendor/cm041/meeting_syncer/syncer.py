@@ -104,7 +104,8 @@ class MeetingSyncer:
                 "Accept": "application/sparql-results+json",
             },
             timeout=30.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -114,7 +115,8 @@ class MeetingSyncer:
             content=sparql,
             headers={"Content-Type": "application/sparql-update"},
             timeout=30.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
 
     def _create_meeting(self, event):

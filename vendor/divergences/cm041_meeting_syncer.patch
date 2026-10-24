@@ -1,8 +1,28 @@
 diff --git a/brief.py b/brief.py
-index 3f1dcd8a..388abe4d 100644
+index bde60005..578cf6fc 100644
 --- a/brief.py
 +++ b/brief.py
-@@ -59,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
+@@ -49,19 +49,6 @@ _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ if _PARENT_DIR not in sys.path:
+     sys.path.insert(0, _PARENT_DIR)
+ 
+-# BELOW the sys.path insert, not above it, and this file is run as a script:
+-# `python meeting_syncer/brief.py` puts meeting_syncer/ on sys.path, not the
+-# repo root, so a repo-root import placed with the third-party ones raises
+-# ModuleNotFoundError before main() is reached. Every test still passed when
+-# it was up there, because pytest runs from the repo root and never uses the
+-# entry point. test_brief_reads_the_graph_cm048_writes_to.py now RUNS the
+-# script so that cannot happen quietly again.
+-#
+-# read_across_graphs is the ONE definition of "read the default graph and the
+-# named ones too" -- see identity_resolver/compartment.py for the measured
+-# evidence and the compartment exclusion.
+-from identity_resolver.compartment import read_across_graphs
+-
+ from meeting_syncer import config
+ from meeting_syncer.calendar_client import fetch_events
+ 
+@@ -72,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
  # with it.
  import pwg_privacy
  
@@ -25,7 +45,7 @@ index 3f1dcd8a..388abe4d 100644
  logger = logging.getLogger(__name__)
  logging.basicConfig(level=logging.INFO, format="%(message)s")
  
-@@ -173,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
+@@ -186,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
  
  
  def _sparql_query(oxigraph_url, sparql):
@@ -38,17 +58,71 @@ index 3f1dcd8a..388abe4d 100644
      resp = httpx.post(
          oxigraph_url.rstrip("/") + "/query",
          content=sparql,
-@@ -181,7 +203,7 @@ def _sparql_query(oxigraph_url, sparql):
-             "Accept": "application/sparql-results+json",
-         },
-         timeout=30.0,
+@@ -338,20 +347,16 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
+     in the graph from a contact-sync without any conversation having
+     been ingested yet).
+     """
+-    # CM048 writes these facts into a per-user NAMED graph, so this query
+-    # returned 0 rows as shipped on a box holding 1,353 of them. See
+-    # read_across_graphs for the measurement and why it is a UNION.
+-    body = """
++    sparql = """
++    PREFIX pwg: <urn:ostler:>
++    SELECT ?conv ?date WHERE {{
+       ?fact <urn:ostler:about> <{person}> ;
+             <urn:ostler:fromConversation> ?conv .
+       OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
++    }}
++    ORDER BY DESC(?date)
++    LIMIT 1
+     """.format(person=person_uri)
+-    sparql = (
+-        "PREFIX pwg: <urn:ostler:>\n"
+-        "SELECT DISTINCT ?conv ?date WHERE {\n"
+-        + read_across_graphs(body)
+-        + "\n}\nORDER BY DESC(?date)\nLIMIT 1"
 -    )
-+     trust_env=False)
-     resp.raise_for_status()
-     return resp.json()
- 
+     try:
+         result = _sparql_query(oxigraph_url, sparql)
+     except Exception as exc:
+@@ -381,11 +386,10 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
+     payload. Status filter is ``open`` so closed-out todos do not
+     clutter the brief once v1.0.1 wires the closure pass.
+     """
+-    # Same named-graph problem as the conversation query above: 0 rows as
+-    # shipped on a box holding 76 outstanding todos, which is why the brief's
+-    # todo list has always been empty. DISTINCT collapses a todo that matches
+-    # in both arms of the UNION.
+-    body = """
++    sparql = """
++    PREFIX pwg: <urn:ostler:>
++    SELECT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority
++           ?status ?sourceDate ?createdAt WHERE {{
+       ?todo a <urn:ostler:OutstandingTodo> ;
+             <urn:ostler:aboutPerson> <{person}> ;
+             <urn:ostler:todoText> ?text ;
+@@ -397,15 +401,10 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
+       OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
+       OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
+       FILTER (?status = "open")
+-    """.format(person=person_uri)
+-    sparql = (
+-        "PREFIX pwg: <urn:ostler:>\n"
+-        "SELECT DISTINCT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority\n"
+-        "       ?status ?sourceDate ?createdAt WHERE {\n"
+-        + read_across_graphs(body)
+-        + "\n}\nORDER BY DESC(?createdAt)\n"
+-        + "LIMIT {:d}".format(_MAX_TODOS_PER_ATTENDEE)
+-    )
++    }}
++    ORDER BY DESC(?createdAt)
++    LIMIT {limit}
++    """.format(person=person_uri, limit=_MAX_TODOS_PER_ATTENDEE)
+     try:
+         result = _sparql_query(oxigraph_url, sparql)
+     except Exception as exc:
 diff --git a/calendar_client.py b/calendar_client.py
-index 7d312e50..aba4cff1 100644
+index 7f82965a..e40cd35a 100644
 --- a/calendar_client.py
 +++ b/calendar_client.py
 @@ -2,9 +2,24 @@ from __future__ import annotations
@@ -73,14 +147,14 @@ index 7d312e50..aba4cff1 100644
 +        return ""
 +
 +
- def fetch_events(api_url, days=30):
+ def fetch_events(api_url, days=30, events_provider=None):
      """Fetch calendar events from the unified calendar API.
  
-@@ -12,7 +27,18 @@ def fetch_events(api_url, days=30):
-     one attendee are included.
-     """
+@@ -20,7 +35,18 @@ def fetch_events(api_url, days=30, events_provider=None):
+         events = events_provider(days)
+         return [e for e in events if e.get("attendees") and e.get("uid")]
      url = api_url.rstrip("/") + "/calendar"
--    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0)
+-    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0, trust_env=False)
 +    headers = {}
 +    token = _service_token()
 +    if token:
@@ -112,59 +186,3 @@ index 85a25bd7..55fcaddd 100644
  QDRANT_URL = os.environ.get("QDRANT_URL", "")
  QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
  OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
-diff --git a/decision_extractor.py b/decision_extractor.py
-index bcdcecb2..b442591d 100644
---- a/decision_extractor.py
-+++ b/decision_extractor.py
-@@ -212,7 +212,7 @@ def _sparql_query(oxigraph_url: str, sparql: str) -> dict:
-             "Accept": "application/sparql-results+json",
-         },
-         timeout=30.0,
--    )
-+     trust_env=False)
-     resp.raise_for_status()
-     return resp.json()
- 
-@@ -223,7 +223,7 @@ def _sparql_update(oxigraph_url: str, sparql: str) -> None:
-         content=sparql,
-         headers={"Content-Type": "application/sparql-update"},
-         timeout=30.0,
--    )
-+     trust_env=False)
-     resp.raise_for_status()
- 
- 
-diff --git a/syncer.py b/syncer.py
-index fb776946..17032830 100644
---- a/syncer.py
-+++ b/syncer.py
-@@ -104,7 +104,7 @@ class MeetingSyncer:
-                 "Accept": "application/sparql-results+json",
-             },
-             timeout=30.0,
--        )
-+         trust_env=False)
-         resp.raise_for_status()
-         return resp.json()
- 
-@@ -114,7 +114,7 @@ class MeetingSyncer:
-             content=sparql,
-             headers={"Content-Type": "application/sparql-update"},
-             timeout=30.0,
--        )
-+         trust_env=False)
-         resp.raise_for_status()
- 
-     def _create_meeting(self, event):
-@@ -390,6 +390,11 @@ class MeetingSyncer:
-         # fuzzy-merging into the wrong existing one.
-         match = self.resolver.resolve(identity, use_fuzzy=False)
- 
-+        # A forgotten (tombstoned) attendee is neither linked nor re-created;
-+        # the caller skips a None. The meeting itself is shared, so it stays.
-+        if match.match_type == "forgotten":
-+            return None
-+
-         if match.person_uri:
-             return match.person_uri
- 

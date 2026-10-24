@@ -33,6 +33,7 @@ import httpx
 import phonenumbers
 
 from . import forget_tombstone
+from . import phone_twins as _phone_twins
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .role_addresses import is_sender_id_identifier
@@ -804,6 +805,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
     people_enriched = 0
     owner_addrs = load_owner_addresses(fda_dir)
     lookup_failed = 0
+    twins = _TwinLookup()
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -848,6 +850,17 @@ def ingest_imessage(fda_dir: Path) -> dict:
             except _StoreUnavailable:
                 lookup_failed += 1
                 continue
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and _identifier_kind(participant) == "phone":
+                holder = twins.holder(participant)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 # Create a minimal person node
@@ -924,6 +937,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
     }
 
 
@@ -1008,6 +1022,36 @@ def _live_person(uri: str):
     Raises ``_StoreUnavailable``."""
     live = _resolve_merged(uri)
     return live, _person_exists(live)
+
+
+class _TwinLookup:
+    """P13: before minting a person for a phone handle, ask who already holds
+    that number (normalised), once per ingest run. See phone_twins.py for the
+    root cause and the household rule. ``holder(phone)`` returns the single
+    named holder, None, or ``_LOOKUP_FAILED`` when the index could not be
+    read (the caller then skips the participant rather than mint a twin)."""
+
+    def __init__(self):
+        self._index = None
+        self._failed = False
+        self.linked = 0
+
+    def holder(self, phone: Optional[str]):
+        if not phone:
+            return None
+        if self._index is None and not self._failed:
+            try:
+                self._index = _phone_twins.load_index(_sparql_query)
+            except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
+                logger.warning(
+                    "phone-twin index could not be read (%s); participants with "
+                    "a phone handle are skipped this run rather than duplicated",
+                    type(exc).__name__,
+                )
+                self._failed = True
+        if self._failed:
+            return _LOOKUP_FAILED
+        return self._index.holder_for(phone)
 
 
 def _identifier_exists(id_uri: str) -> bool:
@@ -1231,6 +1275,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
     people_created = 0
     people_enriched = 0
     lookup_failed = 0
+    twins = _TwinLookup()
     tier_t1 = 0
     owner_addrs = load_owner_addresses(fda_dir)
     tier_t2_intimate = 0
@@ -1319,6 +1364,17 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # phone-JID suffix). The caller must not write that value under
             # identifierType "phone" -- see _whatsapp_phone_e164.
             phone_e164 = _whatsapp_phone_e164(participant)
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and phone_e164 is not None:
+                holder = twins.holder(phone_e164)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 triples = [
@@ -1421,6 +1477,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
         "tier_t1_dm_chats": tier_t1,
         "tier_t2_intimate_chats": tier_t2_intimate,
         "tier_t2_active_chats": tier_t2_active,

@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-10-17T00:00:00Z",
+  "items": [
+    {
+      "dimension": "media.film.genre",
+      "label": "science fiction",
+      "strength": 0.72,
+      "confidence": 0.81,
+      "intensity": "strong",
+      "because": ["Blade Runner 2049", "Arrival", "Dune"]
+    },
+    {
+      "dimension": "media.film.genre",
+      "label": "horror",
+      "strength": -0.6,
+      "confidence": 0.78,
+      "intensity": "strong",
+      "because": ["stated dislike"]
+    },
+    {
+      "dimension": "media.film.director",
+      "label": "Christopher Nolan",
+      "strength": 0.64,
+      "confidence": 0.7,
+      "intensity": "strong",
+      "because": ["Inception", "Interstellar"]
+    }
+  ],
+  "degraded": false
+}

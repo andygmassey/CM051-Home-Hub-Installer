@@ -33,6 +33,7 @@ on:
       # other two.
       - 'tests/test_the_licence_acknowledgement_reaches_the_customer.sh'
       - 'tests/test_the_licence_screen_says_what_we_hash.sh'
+      - 'tests/test_consent_records_survive_the_promote.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'vendor/legal/consent_strings.py'
       - 'vendor/doctor/agent/dashboard_components.py'
@@ -131,3 +132,9 @@ jobs:
         # thing they cannot find in the App Store. The rule was locked and
         # nothing was checking it.
         run: python3 tests/test_customer_copy_says_ios_app_not_companion.py
+      - name: Consent records survive the staging promote (v1.0.116 loss)
+        if: always()
+        # Runs the REAL 3.6b persist block and the REAL promote against the real
+        # vendored ostler_security, both trees holding posture/. Needs the
+        # cryptography install from the step above; CANNOT-RUN exits non-zero.
+        run: bash tests/test_consent_records_survive_the_promote.sh

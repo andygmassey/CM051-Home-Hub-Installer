@@ -21,6 +21,10 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_wiki_compile_has_a_page_count_oracle.sh'
+      - 'tests/test_wiki_count_survives_a_concurrent_writer.sh'
+      - 'tests/test_wiki_catchup_skips_while_installer_runs.sh'
+      - 'tests/test_wiki_baseline_holds_the_tick_lock.sh'
+      - 'wiki-recompile/**'
       - '.github/workflows/wiki-compile-oracle.yml'
   push:
     branches: [main]
@@ -45,3 +49,21 @@ jobs:
         # against a real temp tree, so it needs nothing installed and cannot
         # SKIP into a false green.
         run: bash tests/test_wiki_compile_has_a_page_count_oracle.sh
+
+  # v1.0.117 thin walk, W6. A find error during the count was read as ZERO
+  # pages, and the first-day catch-up agent's tick raced the installer's own
+  # compile. macOS on purpose: the installer runs under /bin/bash 3.2 with BSD
+  # find, and those are what the race and the pgrep predicate must hold on.
+  wiki-count-race:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: A find error during the page count is could-not-count, never zero
+        run: /bin/bash tests/test_wiki_count_survives_a_concurrent_writer.sh
+      - name: The first-day wiki catch-up skips while an installer runs
+        if: always()
+        run: /bin/bash tests/test_wiki_catchup_skips_while_installer_runs.sh
+      - name: The baseline compile holds the tick lock, and every racer goes through the tick
+        if: always()
+        run: /bin/bash tests/test_wiki_baseline_holds_the_tick_lock.sh

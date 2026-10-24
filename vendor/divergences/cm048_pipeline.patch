@@ -1533,7 +1533,7 @@
          file=sys.stderr,
          flush=True,
      )
-@@ -177,8 +208,8 @@
+@@ -178,8 +209,8 @@
      real country code. SAME technique already used in ostler_fda's
      ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
      ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
@@ -1544,7 +1544,7 @@
      """
      if not local.isdigit():
          return False
-@@ -1059,7 +1090,15 @@
+@@ -1091,7 +1122,15 @@
          return 1
  
      settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1561,7 +1561,7 @@
      # ostler_security is guaranteed importable (hard-fails at module
      # load if not). The remaining branch is whether a key is set.
      if encryption_key:
-@@ -1114,7 +1153,7 @@
+@@ -1146,7 +1185,7 @@
                  json.dumps(obs.get("flags") or {}),
                  settings.user_id,
                  "private",
@@ -1570,7 +1570,7 @@
                  datetime.now(timezone.utc).isoformat(),
              ),
          )
-@@ -1156,7 +1195,56 @@
+@@ -1188,7 +1227,56 @@
      return str(uuid.uuid5(ns, seed))
  
  

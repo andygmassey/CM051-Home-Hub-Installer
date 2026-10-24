@@ -208,8 +208,64 @@ fi
 [ -x "$RUNNER" ] || [ -f "$RUNNER" ] || cannot_all "runner missing: ${RUNNER}"
 
 # -- 3. run them, read-only, into a private verdicts file -------------------
-VFILE="$(mktemp)"; OUTF="$(mktemp)"
-trap 'rm -f "$VFILE" "$OUTF"' EXIT
+VFILE="$(mktemp)"; OUTF="$(mktemp)"; SHIMDIR="$(mktemp -d)"
+trap 'rm -rf "$VFILE" "$OUTF" "$SHIMDIR"' EXIT
+
+# -- 3a. a timeout must kill the REMOTE work, not just the local wrapper ------
+# v1.0.117 THIN WALK, W4. The budget alarm killed the local runner, but an ssh
+# session has no pty, so sshd does not signal the remote command when the
+# client dies: an orphan data_conservation probe kept running on the walk box
+# for 81 CPU-minutes after the alarm fired. So, for this pass only:
+#   1. an `ssh` shim goes first on the runner PATH. For a call to the box under
+#      test it wraps the remote command in perl that makes it a process GROUP
+#      leader and writes its pgid to /tmp/ostler-walk-pg.<tag>.<pid> on the
+#      box, then execs the login shell on it (what sshd would have run).
+#      Every probe is covered, box_run or a bare ssh, without touching one.
+#   2. the local runner gets its own process group, killed whole on timeout.
+#   3. afterwards, timeout or not, every recorded remote group is TERMed, then
+#      KILLed, and checked again. Survivors are named loudly.
+# The perl programs hold no single quote: each travels inside one.
+EARLY_TAG="early$(date +%s)p$$"
+REAL_SSH="$(command -v ssh || true)"
+_PG_WRAP='my ($t,$c)=@ARGV; setpgrp(0,0); if (open(my $h, ">", "/tmp/ostler-walk-pg.$t.$$")) { print $h "$$\n"; close $h } exec($ENV{SHELL} || "/bin/sh", "-c", decode_base64($c)); exit 127;'
+_PG_REAP='my $t=shift; my @f=glob("/tmp/ostler-walk-pg.$t.*"); my @g; my $n=0; for my $f (@f) { open(my $h, "<", $f) or next; my $p=<$h>; close $h; chomp $p; next unless $p =~ /^\d+$/; $n++; if (kill(0, -$p)) { kill("TERM", -$p); push @g, $p } } for (1..10) { last unless grep { kill(0, -$_) } @g; select(undef, undef, undef, 0.5) } for my $p (@g) { kill("KILL", -$p) if kill(0, -$p) } select(undef, undef, undef, 0.5); my $s=0; for my $p (@g) { $s++ if kill(0, -$p) } unlink @f if $s == 0; printf "REAP groups=%d alive=%d killed=%d survivors=%d\n", $n, scalar(@g), scalar(@g)-$s, $s;'
+if [ -n "$REAL_SSH" ]; then
+    {
+        printf '#!/bin/bash\n'
+        printf 'real=%q; tag=%q; prog=%q; used=%q\n' "$REAL_SSH" "$EARLY_TAG" "$_PG_WRAP" "${SHIMDIR}/used"
+        cat <<'SHIM'
+host="${OSTLER_BOX_HOST:-}"
+args=("$@"); n=${#args[@]}; i=0; hi=-1
+while [ "$i" -lt "$n" ]; do
+    if [ -n "$host" ] && [ "${args[$i]}" = "$host" ]; then hi=$i; break; fi
+    i=$((i + 1))
+done
+if [ "$hi" -lt 0 ] || [ $((hi + 1)) -ge "$n" ]; then exec "$real" "$@"; fi
+cmd="${args[*]:$((hi + 1))}"
+: > "$used"
+b64="$(printf '%s' "$cmd" | base64 | tr -d '\n')"
+exec "$real" "${args[@]:0:$((hi + 1))}" "perl -MMIME::Base64 -e '${prog}' ${tag} ${b64}"
+SHIM
+    } > "${SHIMDIR}/ssh"
+    chmod +x "${SHIMDIR}/ssh"
+fi
+
+_early_reap() {
+    # Only when a remote command was actually started through the shim: a
+    # pass that never touched the box has nothing to reap and must not ssh.
+    [ -e "${SHIMDIR}/used" ] || { say "early-pass remote cleanup: no remote command was started, nothing to reap"; return 0; }
+    [ -n "$REAL_SSH" ] || { say "early-pass remote cleanup: CANNOT-RUN, no ssh on PATH"; return 0; }
+    local out
+    out="$("$REAL_SSH" -o ConnectTimeout=10 -o BatchMode=yes "$HOST" "perl -e '${_PG_REAP}' ${EARLY_TAG}" 2>&1)" || true
+    case "$out" in
+        *"REAP groups="*" survivors=0"*)
+            say "early-pass remote cleanup: ${out##*REAP } (tag ${EARLY_TAG})" ;;
+        *"REAP groups="*)
+            say "EARLY PASS REMOTE ORPHANS STILL RUNNING after TERM and KILL: ${out##*REAP } (tag ${EARLY_TAG}). Look for /tmp/ostler-walk-pg.${EARLY_TAG}.* on ${HOST}." ;;
+        *)
+            say "early-pass remote cleanup: CANNOT-RUN, the box did not answer the reap (${out:-no output}). Remote probe processes may still be running on ${HOST}." ;;
+    esac
+}
 say "re-checking read-only: ${RUN_LIST}"
 say "budget: ${BUDGET_S}s; people probes wait at most ${OSTLER_EARLY_CONVERGE_WAIT_S:-120}s for the graph to settle, else CANNOT-RUN"
 
@@ -221,7 +277,8 @@ if command -v perl >/dev/null 2>&1; then
     OSTLER_BOX_HOST="$HOST" OSTLER_PHASE1_VERDICTS="$VFILE" \
     OSTLER_CONVERGE_WAIT_S="${OSTLER_EARLY_CONVERGE_WAIT_S:-120}" \
     env -u OSTLER_BOX_WALK_EVIDENCE_DIR \
-    perl -e 'alarm shift; exec @ARGV' "$BUDGET_S" bash "$RUNNER" --read-only --only "$RUN_LIST" > "$OUTF" 2>&1 || RC=$?
+    PATH="${SHIMDIR}:${PATH}" \
+    perl -e '$t=shift; $p=fork; defined $p or exit 70; if (!$p) { setpgrp(0,0); exec @ARGV or exit 127 } $SIG{ALRM}=sub { kill("TERM", -$p); sleep 2; kill("KILL", -$p); waitpid($p, 0); exit 142 }; alarm $t; waitpid($p, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$BUDGET_S" bash "$RUNNER" --read-only --only "$RUN_LIST" > "$OUTF" 2>&1 || RC=$?
 else
     OSTLER_BOX_HOST="$HOST" OSTLER_PHASE1_VERDICTS="$VFILE" \
     OSTLER_CONVERGE_WAIT_S="${OSTLER_EARLY_CONVERGE_WAIT_S:-120}" \
@@ -229,6 +286,8 @@ else
     bash "$RUNNER" --read-only --only "$RUN_LIST" > "$OUTF" 2>&1 || RC=$?
 fi
 sed 's/^/  early| /' "$OUTF"
+[ "$RC" -eq 142 ] && say "early-pass: budget of ${BUDGET_S}s reached; the local runner group was killed"
+_early_reap
 
 # -- 4. per-probe verdicts --------------------------------------------------
 REPEATS=0; ANSWERED=0

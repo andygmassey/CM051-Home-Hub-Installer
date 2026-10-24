@@ -61,7 +61,8 @@ else
 fi
 
 # ── 1 + 2. a count exists, over FILES, compared against zero ──────────────
-has_find_files="$(grep -c "find \"\$WIKI_DOCS_DIR\" -type f" "$INSTALL_SH" || true)"
+# v1.0.117 W6: the count moved into wiki_count_pages, which finds "$dir".
+has_find_files="$(grep -cE "find \"\\\$(WIKI_DOCS_DIR|dir)\" -type f" "$INSTALL_SH" || true)"
 has_zero_test="$(grep -c 'WIKI_PAGE_COUNT:-0}" -eq 0' "$INSTALL_SH" || true)"
 if [ "$n_count" -gt 0 ] && [ "$has_find_files" -gt 0 ] && [ "$has_zero_test" -gt 0 ]; then
     ok "the compile is judged on a FILE count compared against zero, not on its exit code"

@@ -126,9 +126,12 @@ def main():
                 B: {"names": [EMAIL], "phone": ["+1555010004"]}})
     check(names(st, A) == [EMAIL], f"survivor displayName == [{EMAIL!r}] (got {names(st, A)})")
 
+    # The shared key is an EMAIL: since P16 a shared PHONE alone never joins
+    # two differently named people (a household landline), see
+    # tests/test_dedupe_merge_shared_phone_needs_same_name.py.
     print("5. equal tiers: two human names -> the survivor keeps its own")
-    st = sweep({A: {"names": ["Jane Doe"], "phone": ["+1555010005"]},
-                B: {"names": ["Jane Smith"], "phone": ["+1555010005"]}})
+    st = sweep({A: {"names": ["Jane Doe"], "email": ["jane.d@example.invalid"]},
+                B: {"names": ["Jane Smith"], "email": ["jane.d@example.invalid"]}})
     check(names(st, A) == ["Jane Doe"], f"survivor keeps its own human name (got {names(st, A)})")
     check("Jane Smith" in names(st, A, "alternateName"), "the other human name is kept as alternateName")
 

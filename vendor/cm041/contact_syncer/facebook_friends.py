@@ -43,8 +43,9 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
-from contact_syncer.relationship_labels import is_relationship_label
+from contact_syncer.qdrant_collection import ensure_qdrant_collection, read_existing_payload
 from contact_syncer import privacy_model as _pm
+from contact_syncer.relationship_labels import is_relationship_label
 from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
@@ -348,7 +349,7 @@ def embed_text(ollama_url: str, text: str, model: str = "nomic-embed-text") -> L
         )
         resp.raise_for_status()
         data = resp.json()
-        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        from contact_syncer.usage import record_embed_usage  # usage journal (#482): enriching
         record_embed_usage(data, model)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
@@ -412,24 +413,42 @@ def upsert_qdrant(
 
     # Check if point exists — if so, preserve existing last_contact
     # (which may have been set by actual meetings/conversations)
-    try:
-        existing = qdrant.retrieve(
-            collection_name=collection,
-            ids=[point_uuid],
-            with_payload=True,
-        )
-        if existing and existing[0].payload:
-            ex_ts = existing[0].payload.get("last_contact_ts")
-            if ex_ts and ex_ts > last_contact_ts:
-                payload["last_contact"] = existing[0].payload["last_contact"]
-                payload["last_contact_ts"] = ex_ts
-            # Preserve source if already richer
-            ex_source = existing[0].payload.get("source", "")
-            if ex_source and ex_source != "facebook_friends":
-                payload["source"] = ex_source
-    except Exception:
-        pass
+    # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+    # This was one `try` wrapping the retrieve AND every preservation, with
+    # `except Exception: pass`, followed by an UNCONDITIONAL upsert. A
+    # transient store failure therefore took the same path as "nothing to
+    # preserve", and the upsert then replaced a richer payload with a poorer
+    # one, silently, with no error anywhere.
+    #
+    # If we cannot READ the point we are about to overwrite, we do not know
+    # whether it is richer, so we do not write. This syncer runs again; a
+    # deferred enrichment is recoverable and overwritten data is not.
+    _existing = read_existing_payload(qdrant, collection, point_uuid)
+    if not _existing.readable:
+        return          # already reported by read_existing_payload
+    if _existing.payload:
+        # BOTH fields or NEITHER. This was a bare index guarded only by
+        # ex_ts, so a point carrying last_contact_ts and no last_contact
+        # raised KeyError, the `except Exception: pass` below ate it, and
+        # the WHOLE preservation block was skipped -- including the source
+        # preservation that follows -- after which the unconditional upsert
+        # wrote the poorer payload over the richer one. Silent
+        # last-write-wins. Preserving the timestamp without its value would
+        # create the same inconsistency the KeyError was hiding, so the pair
+        # moves together or not at all.
+        ex_ts = existing[0].payload.get("last_contact_ts")
+        ex_lc = existing[0].payload.get("last_contact")
+        if ex_ts and ex_lc and ex_ts > last_contact_ts:
+            payload["last_contact"] = ex_lc
+            payload["last_contact_ts"] = ex_ts
+        # Preserve source if already richer
+        ex_source = existing[0].payload.get("source", "")
+        if ex_source and ex_source != "facebook_friends":
+            payload["source"] = ex_source
 
+    # #629: nothing pre-creates the people collection before the social
+    # writers run; ensure it (idempotently) so the first upsert cannot 404.
+    ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
     qdrant.upsert(collection_name=collection, points=[point])
 
 

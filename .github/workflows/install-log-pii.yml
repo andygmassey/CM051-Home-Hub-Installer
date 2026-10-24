@@ -1,0 +1,34 @@
+name: install-log-pii
+
+# v1.0.117 thin walk, S6. The wiki compiler's pii_scan printed each hit's full
+# value, and install.sh wrote that output into install.log (shipped raw by the
+# GUI's "Copy log") and wiki-background-compile.log. The test drives the real
+# install.sh compile sites with a stub docker emitting synthetic hits and
+# asserts no value reaches either log, the categories still do, and the
+# compiler's rc survives the scrub pipe. macOS on purpose: the scrub is BSD
+# sed -E under /bin/bash 3.2, which is what ships.
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'lib/ostler-ingest-slot.sh'
+      - 'tests/test_pii_scan_values_never_reach_install_log.sh'
+      - '.github/workflows/install-log-pii.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  install-log-pii:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: No pii_scan value reaches install.log or the background compile log
+        run: /bin/bash tests/test_pii_scan_values_never_reach_install_log.sh

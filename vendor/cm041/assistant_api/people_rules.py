@@ -52,24 +52,40 @@ def _is_bare_phone_shape(s):
     return bool(s) and all(c in _NAMELESS_BARE_ID_CHARS for c in s) and _digit_count(s) >= 1
 
 
+# CHANGED 2026-10-23 (P13, v1.0.117 walk: a 7-digit SMS short code was listed
+# as a person). A short code is up to 8 digits WITH NO COUNTRY CODE; 6 or
+# fewer is a short code whatever its punctuation. A "+" with 7+ digits, or 9+
+# digits, is a phone. Same rule as CM044 compiler/nameless.py and CM031
+# PersonNameFilter, and the 3-to-8 shape of CM048 handle_identity.
+_SHORT_CODE_MAX_DIGITS = 8
+
+
+def _is_short_code_shape(s):
+    if not _is_bare_phone_shape(s):
+        return False
+    n = _digit_count(s)
+    if n <= 6:
+        return True
+    return n <= _SHORT_CODE_MAX_DIGITS and not s.startswith("+")
+
+
 def _is_short_code(display_name):
-    """EXPLAINED EXCLUSION 1: a short code (6 digits or fewer), by shape.
-    A service sender, never a person."""
-    s = (display_name or "").strip()
-    return _is_bare_phone_shape(s) and _digit_count(s) <= 6
+    """EXPLAINED EXCLUSION 1: a short code (up to 8 digits with no "+"), by
+    shape. A service sender, never a person."""
+    return _is_short_code_shape((display_name or "").strip())
 
 
 def _is_sender_id_handle(handle):
     """True when ONE handle is a non-human sender handle, by shape: an
     alphanumeric SMS sender ID ("HSBCALERT", "R2D2": one token of 1-11 chars
     from ``A-Z a-z 0-9 . _ -`` with at least one letter, never an email
-    address and never a phone number) or a short code (6 digits or fewer).
-    A phone number (7+ digits) and an email address are NOT sender IDs."""
+    address and never a phone number) or a short code (up to 8 digits with
+    no "+"). A phone number and an email address are NOT sender IDs."""
     s = (handle or "").strip()
     if not s or "@" in s:
         return False
     if _is_bare_phone_shape(s):
-        return _digit_count(s) <= 6
+        return _is_short_code_shape(s)
     if not 1 <= len(s) <= 11:
         return False
     if not all(c.isascii() and (c.isalnum() or c in "._-") for c in s):
@@ -91,7 +107,7 @@ def _is_provisional_phone_name(display_name):
     mark, until a better name arrives (tier 0 phone < tier 1 email < tier 2
     human name; names go upward only). Andy's ruling 2026-08-10."""
     s = (display_name or "").strip()
-    return _is_bare_phone_shape(s) and _digit_count(s) >= 7
+    return _is_bare_phone_shape(s) and _digit_count(s) >= 7 and not _is_short_code_shape(s)
 
 
 # SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
@@ -135,7 +151,7 @@ def _is_nameless_name(display_name, has_card=False, handles=None):
 
       1. empty / whitespace-only (no name at all);
       2. a WhatsApp JID (``@s.whatsapp.net`` / ``@lid``): a transport id;
-      3. a short code, 6 digits or fewer (``_is_short_code``);
+      3. a short code, up to 8 digits with no "+" (``_is_short_code``);
       4. every handle is a sender ID or short code
          (``_all_handles_are_sender_ids(handles)``), ONLY when ``has_card`` is
          False (SHARED RULE A: decided by handle, a carded person always shows).

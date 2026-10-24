@@ -123,6 +123,11 @@ echo "PASS: WIKI_OPERATOR_NAME passed to the wiki-compiler env"
 assert_contains "wiki-operator-emails-env" \
     "WIKI_OPERATOR_EMAILS=\${WIKI_OPERATOR_EMAILS:-}"
 echo "PASS: WIKI_OPERATOR_EMAILS passed to the wiki-compiler env"
+# P13: the operator's own phone, or a Person node that is just the owner's
+# mobile number is listed as a contact on the Front Page.
+assert_contains "wiki-operator-phones-env" \
+    "WIKI_OPERATOR_PHONES=\${WIKI_OPERATOR_PHONES:-}"
+echo "PASS: WIKI_OPERATOR_PHONES passed to the wiki-compiler env"
 
 # ── #259: the compiler must be told WHICH Ollama model to use ─────────
 # CM044 compiler/config.py defaults OLLAMA_MODEL to qwen3.5:9b, which is NOT
@@ -159,6 +164,12 @@ if ! grep -qF "printf 'WIKI_OPERATOR_EMAILS=%s\\n' \"\${_wiki_operator_emails}\"
     exit 1
 fi
 echo "PASS: install.sh writes WIKI_OPERATOR_EMAILS (from USER_EMAIL me-card) to the compose .env"
+
+if ! grep -qF "printf 'WIKI_OPERATOR_PHONES=%s\\n' \"\${USER_PHONE:-}\" >> \"\$OSTLER_ENV_FILE\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [wiki-operator-phones-envfile]: install.sh does not write WIKI_OPERATOR_PHONES (from USER_PHONE) to the compose .env" >&2
+    exit 1
+fi
+echo "PASS: install.sh writes WIKI_OPERATOR_PHONES (from USER_PHONE me-card) to the compose .env"
 
 # ── Volume rename: wiki-docs (with hyphen) for CM044 parity ──
 assert_contains "volume-decl-renamed" \

@@ -95,6 +95,11 @@ class TestWhatsappPhoneE164:
         assert p._whatsapp_phone_e164("alice@example.com") == "alice@example.com"
 
 
+from ostler_fda.phone_twins import PhoneTwinIndex as _PhoneTwinIndex  # noqa: E402
+
+_EMPTY_TWIN_INDEX = _PhoneTwinIndex(())
+
+
 class TestIngestWhatsapp:
     """Integration-level: the actual writer, against THIS vendored module."""
 
@@ -116,6 +121,9 @@ class TestIngestWhatsapp:
     # existence, and skips the person when the store cannot be read. No
     # store here, so that lookup is stubbed to "never merged".
     @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
+    # P13: the writer asks who already holds a phone number (phone_twins).
+    # No store here, so that read is faked as "nobody holds it".
+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
     def test_lid_shaped_participant_is_never_tagged_phone(
@@ -139,6 +147,9 @@ class TestIngestWhatsapp:
     # existence, and skips the person when the store cannot be read. No
     # store here, so that lookup is stubbed to "never merged".
     @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
+    # P13: the writer asks who already holds a phone number (phone_twins).
+    # No store here, so that read is faked as "nobody holds it".
+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
     def test_genuine_phone_participant_is_tagged_phone(
@@ -162,6 +173,9 @@ class TestIngestWhatsapp:
     # existence, and skips the person when the store cannot be read. No
     # store here, so that lookup is stubbed to "never merged".
     @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
+    # P13: the writer asks who already holds a phone number (phone_twins).
+    # No store here, so that read is faked as "nobody holds it".
+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
     @patch("ostler_fda.pwg_ingest._person_exists", return_value=True)
     @patch("ostler_fda.pwg_ingest._identifier_exists", return_value=False)
     @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)

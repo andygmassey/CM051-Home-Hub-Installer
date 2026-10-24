@@ -51,6 +51,7 @@ def compute_reply_debts(
     min_score: float = reply_debt.DEFAULT_MIN_SCORE,
     include_group: bool = False,
     lookback_days: int = 90,
+    directory=None,
 ) -> list[ReplyDebt]:
     """Compute ranked reply debts across all sources.
 
@@ -59,6 +60,7 @@ def compute_reply_debts(
     snapshot the signed iMessage feed writes (never chat.db from this process). Email / WhatsApp adapters can be appended here
     as they are proven on the box.
     """
+    live = thread_sources is None
     if thread_sources is None:
         thread_sources = [
             adapters.iter_imessage_threads(
@@ -84,20 +86,60 @@ def compute_reply_debts(
                 "reply_debt_source_failed", f"{type(exc).__name__}: {str(exc)[:200]}"
             ) from exc
 
-    return reply_debt.detect(
+    # P13 (v1.0.117 walk): name every counterpart from Contacts, and drop the
+    # owner's own handles and non-person senders, BEFORE detection. The live
+    # path always looks handles up; an injected source does when the caller
+    # passes a directory. See reply_debt.identify_threads.
+    names_degraded = ""
+    excluded = None
+    if directory is None and live:
+        from . import handle_resolver
+        directory, names_degraded = handle_resolver.build_directory()
+    if directory is not None:
+        all_threads, excluded = reply_debt.identify_threads(all_threads, directory)
+
+    out = DebtList(reply_debt.detect(
         all_threads,
         threshold_hours=threshold_hours,
         min_score=min_score,
         include_group=include_group,
-    )
+    ))
+    out.excluded = excluded
+    out.names_degraded = names_degraded
+    return out
+
+
+class DebtList(list):
+    """A ranked debt list that remembers what identification dropped, and
+    keeps it across slicing (the endpoint slices to ``limit``)."""
+
+    excluded = None
+    names_degraded = ""
+
+    def __getitem__(self, item):
+        got = super().__getitem__(item)
+        if isinstance(item, slice):
+            got = DebtList(got)
+            got.excluded = self.excluded
+            got.names_degraded = self.names_degraded
+        return got
 
 
 def reply_debt_payload(debts: list[ReplyDebt], *, brief_limit: int = 5) -> dict:
     """Shape the API/JSON payload the brief + wiki consume."""
     return {
         "count": len(debts),
-        "brief_line": reply_debt.render_brief_block(debts, limit=brief_limit),
+        "brief_line": reply_debt.render_brief_block(
+            debts, limit=brief_limit,
+            names_unavailable=bool(getattr(debts, "names_degraded", "")),
+        ),
         "debts": [d.to_dict() for d in debts],
+        # Counted, never silently dropped: the owner's own handles and
+        # non-person senders (short codes, sender ids, no-reply mailboxes).
+        "excluded": getattr(debts, "excluded", None),
+        # Set when the People graph could not be read, so every counterpart
+        # reads "not in your contacts" for a reason the consumer can show.
+        "names_degraded": getattr(debts, "names_degraded", "") or "",
         "degraded": False,
     }
 

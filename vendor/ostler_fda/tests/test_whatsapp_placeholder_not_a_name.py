@@ -13,6 +13,7 @@ import pytest
 
 from ostler_fda import pwg_ingest as p
 from ostler_fda.whatsapp_history import JID_SUFFIX_PERSON
+from ostler_fda.phone_twins import PhoneTwinIndex  # P13: no store here; nobody holds the number
 
 _NANP = "1" + "415" + "555" + "0100"
 _LID = "1" + "0" * 13 + "1"
@@ -74,6 +75,8 @@ class TestIngest:
         with patch("ostler_fda.pwg_ingest._update_last_contact"), \
              patch("ostler_fda.pwg_ingest._sparql_update") as upd, \
              patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda u: u), \
+             patch("ostler_fda.phone_twins.load_index",
+                   new=lambda *a, **k: PhoneTwinIndex(())), \
              patch("ostler_fda.pwg_ingest._person_exists", return_value=False), \
              patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False):
             result = p.ingest_whatsapp(tmp_path)

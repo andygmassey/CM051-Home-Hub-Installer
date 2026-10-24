@@ -117,6 +117,12 @@ class Thread:
     # could fetch it from CM041. None => unknown (treated as a neutral mid
     # weight so an unscored-but-real person is not buried).
     relationship_strength: Optional[float] = None
+    # Who the counterpart handle turned out to be (``handle_identity``). None
+    # means nobody looked it up (an injected or legacy thread). False means it
+    # was looked up and is a real number or address that is not in Contacts:
+    # surfaces then say "someone not in your contacts", never the raw digits.
+    counterpart_resolved: Optional[bool] = None
+    counterpart_kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +141,8 @@ class ReplyDebt:
     privacy_level: str
     relationship_strength: Optional[float]
     score: float
+    resolved: Optional[bool] = None
+    handle_kind: str = ""
 
     @property
     def waiting_human(self) -> str:
@@ -170,6 +178,8 @@ class ReplyDebt:
             "privacy_level": self.privacy_level,
             "relationship_strength": self.relationship_strength,
             "score": round(self.score, 4),
+            "resolved": self.resolved,
+            "handle_kind": self.handle_kind,
         }
 
 
@@ -370,6 +380,8 @@ def detect_thread(
         privacy_level=thread.privacy_level,
         relationship_strength=thread.relationship_strength,
         score=score,
+        resolved=thread.counterpart_resolved,
+        handle_kind=thread.counterpart_kind,
     )
 
 
@@ -403,11 +415,82 @@ def detect(
 
 
 # ---------------------------------------------------------------------------
+# Who is on the other end (owner / contact / not a person)
+# ---------------------------------------------------------------------------
+
+# Channels whose thread is keyed by a raw handle (a phone number, an address,
+# a short code or a sender id) rather than by a name.
+_HANDLE_CHANNELS = frozenset({"imessage", "sms", "whatsapp"})
+
+
+def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread], dict]:
+    """Name each 1:1 thread's counterpart, and drop the ones that are not
+    somebody else waiting on the owner.
+
+    ``directory`` is a ``handle_identity.HandleDirectory``. Returns
+    ``(threads, excluded)`` where ``excluded`` COUNTS what was dropped, by
+    reason, so nothing vanishes uncounted:
+
+      * ``owner``: the counterpart is one of the owner's own handles (the
+        owner's self-chat, a second number, an address of theirs);
+      * ``not_a_person``: an SMS short code, a sender id or a no-reply mailbox.
+
+    A real number or address that is not in Contacts is KEPT, renamed to the
+    "Unknown number" label with ``counterpart_resolved=False``, so the brief
+    can say "someone not in your contacts" and never print the digits.
+    """
+    from dataclasses import replace
+
+    from . import handle_identity as hi
+
+    kept: list[Thread] = []
+    excluded = {"owner": 0, "not_a_person": 0}
+    for t in threads:
+        if t.is_group:
+            kept.append(t)
+            continue
+        last = t.messages[-1] if t.messages else None
+        sender = ""
+        if last is not None and not last.is_from_owner and last.sender not in ("", "me"):
+            sender = last.sender
+        handle = sender or t.counterpart_name or ""
+        res = directory.resolve(handle)
+        if res.is_owner or (
+            t.counterpart_name and t.counterpart_name != handle
+            and directory.is_owner(t.counterpart_name)
+        ):
+            excluded["owner"] += 1
+            continue
+        if res.name:
+            kept.append(replace(t, counterpart_name=res.name,
+                                counterpart_resolved=True, counterpart_kind=res.kind))
+            continue
+        named = t.counterpart_name if hi.is_real_name(t.counterpart_name) else ""
+        if t.channel not in _HANDLE_CHANNELS and hi.is_real_name(handle):
+            # A name-keyed channel (email transcripts): the counterpart is
+            # already a name, not a handle to look up.
+            kept.append(replace(t, counterpart_resolved=True, counterpart_kind=""))
+            continue
+        if res.kind not in hi.PERSON_KINDS:
+            excluded["not_a_person"] += 1
+            continue
+        if named and named != handle:
+            # The chat itself carries a name the owner gave it.
+            kept.append(replace(t, counterpart_resolved=True, counterpart_kind=res.kind))
+            continue
+        kept.append(replace(t, counterpart_name=hi.unresolved_label(res.kind),
+                            counterpart_resolved=False, counterpart_kind=res.kind))
+    return kept, excluded
+
+
+# ---------------------------------------------------------------------------
 # Daily-brief surface (text block the brief generator can embed)
 # ---------------------------------------------------------------------------
 
 
-def render_brief_block(debts: list[ReplyDebt], *, limit: int = 5) -> str:
+def render_brief_block(
+    debts: list[ReplyDebt], *, limit: int = 5, names_unavailable: bool = False
+) -> str:
     """Render a compact "you owe a reply" block for the daily brief.
 
     Plain text, no markdown headings (the brief composes its own). Group debts
@@ -426,13 +509,35 @@ def render_brief_block(debts: list[ReplyDebt], *, limit: int = 5) -> str:
         f"{'person' if n == 1 else 'people'}:"
     )
     lines = [head]
+    # A handle that was looked up and is not in Contacts is never printed:
+    # the brief is read aloud and glanceable, and a row of digits is neither a
+    # name nor useful. Unresolved people are counted in one line instead.
+    unknown = [d for d in top if d.resolved is False]
     for d in top:
+        if d.resolved is False:
+            continue
         chan = d.channel.replace("imessage", "iMessage").replace(
             "whatsapp", "WhatsApp"
         )
         lines.append(
             f"  - {d.person_name} ({chan})  -  waiting {d.waiting_human}"
         )
+    if unknown and names_unavailable:
+        # The People graph could not be read: these may well be contacts, so
+        # never call them strangers.
+        k = len(unknown)
+        lines.append(
+            f"  - {k} {'person' if k == 1 else 'people'} (names could not be "
+            f"looked up just now)"
+        )
+    elif unknown:
+        if len(unknown) == 1:
+            lines.append(
+                f"  - someone not in your contacts  -  waiting "
+                f"{unknown[0].waiting_human}"
+            )
+        else:
+            lines.append(f"  - {len(unknown)} people not in your contacts")
     if n > limit:
         lines.append(f"  - …and {n - limit} more")
     return "\n".join(lines)
@@ -447,6 +552,7 @@ __all__ = [
     "detect_thread",
     "detect",
     "render_brief_block",
+    "identify_threads",
     "DEFAULT_THRESHOLD_HOURS",
     "DEFAULT_MIN_SCORE",
 ]

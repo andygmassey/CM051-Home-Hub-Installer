@@ -153,7 +153,11 @@ for fname in importers:
         unresolved.append("%s: absent from the vendored tree" % fname)
         continue
     text = open(path, encoding="utf-8", errors="replace").read()
-    m = re.search(r'^KNOWLEDGE_COLLECTION\s*=\s*"([a-z_]+)"', text, re.M)
+    # KNOWLEDGE_COLLECTION (notion, obsidian) or KNOWLEDGE_COLLECTION_DEFAULT
+    # (evernote: the default of an OSTLER_KNOWLEDGE_COLLECTION env override
+    # in _collection_for_source). Both must be a literal *_knowledge name.
+    m = re.search(r'^KNOWLEDGE_COLLECTION(?:_DEFAULT)?\s*=\s*"([a-z_]+_knowledge)"',
+                  text, re.M)
     if m:
         written.add(m.group(1)); seen_importers += 1; continue
     src = re.search(r'^DEFAULT_SOURCE\s*=\s*"([a-z_]+)"', text, re.M)
