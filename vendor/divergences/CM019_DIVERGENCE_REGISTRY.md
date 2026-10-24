@@ -250,7 +250,7 @@ same diff, to be re-pinned when #422 merges. Detail:
 `services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
 `services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
 upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
-`derive/sensitive.py`, `derive/sensitive_terms.yaml` and `ingest/src/minors.py`. `enricher.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml`, `derive/patterns.py` and `ingest/src/minors.py`. `enricher.py`,
 `cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
 onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
 "2026-10-24 T0j", which also lists the upstream hunks past the old pin that are

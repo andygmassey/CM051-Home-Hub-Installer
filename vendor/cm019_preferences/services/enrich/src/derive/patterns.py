@@ -1,6 +1,6 @@
 """Pattern derivers: trend, say-vs-do contradiction, time-of-day context.
 
-Ported and reworked from CM019 #413 (feat/pwg-derive-general, chunks 7-9) onto the
+Ported and reworked from CM019 #413 (the derive-general branch, chunks 7-9) onto the
 all-of-life engine (#422). Three differences from #413, each on purpose:
 
 - ANNOTATE ONLY. #413 emitted companion nodes; a companion shares the base node's
