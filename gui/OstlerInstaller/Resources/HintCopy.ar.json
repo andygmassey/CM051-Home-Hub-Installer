@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "جارٍ تثبيت مسار استيراد البيانات",
-    "subtitle": "محللات لأكثر من 20 منصة",
+    "subtitle": "Parsers for 40+ sources",
     "why": "يحلّل المسار مصادر البيانات التي وافقت عليها: تصديرات GDPR وApple Mail وتقاويم iCloud وسجل التصفح. كل محلّل هو برنامج Python محلي، دون سحابة.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

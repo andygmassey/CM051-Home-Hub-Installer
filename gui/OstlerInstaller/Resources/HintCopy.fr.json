@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "Installation du pipeline d'importation des données",
-    "subtitle": "Analyseurs pour plus de 20 plateformes",
+    "subtitle": "Parsers for 40+ sources",
     "why": "Le pipeline analyse les sources de données que vous avez autorisées : exports RGPD, Apple Mail, calendriers iCloud, historique de navigation. Chaque analyseur est du Python local, sans cloud.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

@@ -667,6 +667,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="バックグラウンドの連絡先重複排除�
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="バックグラウンドの連絡先重複排除用LaunchAgentを読み込めませんでした。重複は毎日のメンテナンス処理で統合されますが、完了までに時間がかかります。"
 MSG_OK_ENRICH_AGENT_LOADED="バックグラウンドの情報補完用LaunchAgentを読み込みました(映画、場所、本、リンクの詳細を補い、今後1日ほどかけて少しずつ実行されます)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="バックグラウンドの情報補完用LaunchAgentを読み込めませんでした。好みの情報は保存され検索もできますが、実行されるまでは監督、キャスト、場所などの参考情報が欠けた状態になります。"
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="Wiki再コンパイル用LaunchAgentを読み込みました(ラベル com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki再コンパイル用スクリプトをインストーラに同梱しました"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki再コンパイル用スクリプトを %s からクローンしました"
@@ -1116,8 +1118,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="誕生日"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri の提案"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="購読しているカレンダー"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="リマインダー"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="「%s」をブリーフに使用しますか?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="これは %s のようなので除外しました。実際に誰かの予定表であれば「はい」を選択してください。"
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="「%s」は誰のカレンダーですか?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="「%s」はどの種類のカレンダーですか?"
@@ -1282,11 +1284,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="確認のためもう一度INBOXと入力�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOXを指定すると、アシスタントは受信するすべてのメールを読み込みます。代わりに専用のラベル/フォルダを強くおすすめします。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="データのエクスポートはリクエストしましたか?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostlerは約20のプラットフォームからデータを取り込めます。各サービスのリクエストページへの直接リンクを含む一覧は、docs.ostler.ai/data-exports にあります。
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
 
-ほとんどのアーカイブは、メールで届くまで1~3日かかります。ZIPが届いたら「ダウンロード」フォルダに入れてください。Ostlerが自動的に見つけます。
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
-使っていないものはスキップしてかまいません。後からいつでも追加で取り込めます。"
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="ディスクを暗号化しないまま続けますか?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="このMacではFileVaultがオフのため、ディスクは保存時に暗号化されていません。
@@ -1385,8 +1387,12 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"

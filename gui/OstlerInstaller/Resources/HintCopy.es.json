@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "Instalando el flujo de importación de datos",
-    "subtitle": "Analizadores para más de 20 plataformas",
+    "subtitle": "Parsers for 40+ sources",
     "why": "El flujo analiza las fuentes de datos que has autorizado: exportaciones del RGPD, Apple Mail, calendarios de iCloud, historial del navegador. Cada analizador es Python local, sin nube.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

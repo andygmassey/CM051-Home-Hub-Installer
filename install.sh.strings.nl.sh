@@ -667,6 +667,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="LaunchAgent voor ontdubbelen van contacten op de a
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="De LaunchAgent voor ontdubbelen van contacten op de achtergrond kon niet worden geladen. Duplicaten worden nog steeds samengevoegd door het dagelijkse onderhoud; het duurt alleen langer voordat alles op orde is."
 MSG_OK_ENRICH_AGENT_LOADED="LaunchAgent voor verrijking op de achtergrond geladen (vult details aan over je films, plaatsen, boeken en links; draait in delen gedurende ongeveer een dag)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="De LaunchAgent voor verrijking op de achtergrond kon niet worden geladen. Je voorkeuren zijn opgeslagen en doorzoekbaar; alleen de extra referentiegegevens (regisseurs, cast, locaties) ontbreken tot hij draait."
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="LaunchAgent voor het hercompileren van de wiki geladen (label com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Wiki-hercompileerscripts meegeleverd met het installatieprogramma"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Wiki-hercompileerscripts gekloond van %s"
@@ -1114,8 +1116,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="verjaardagen"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri-suggesties"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="een agenda waarop je bent geabonneerd"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="herinneringen"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="\"%s\" gebruiken voor je overzicht?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="We hebben deze apart gezet omdat het lijkt op %s. Kies ja als het echt iemands agenda is."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="Van wie is de agenda \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="Wat voor soort agenda is \"%s\"?"
@@ -1279,11 +1281,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Typ INBOX nogmaals om te bevestigen, of kl
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX betekent dat de assistent alle e-mail leest die je ontvangt. We raden sterk aan in plaats daarvan een eigen label of map te gebruiken."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Heb je je gegevensexports aangevraagd?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importeert van ongeveer 20 platforms. De volledige lijst, met directe links naar de aanvraagpagina van elke aanbieder, staat op docs.ostler.ai/data-exports.
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
 
-De meeste archieven komen binnen 1 tot 3 dagen per e-mail binnen. Zodra de ZIP-bestanden er zijn, zet je ze in je map Downloads en Ostler vindt ze automatisch.
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
-Sla over wat je niet gebruikt; je kunt later altijd meer importeren."
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTELD is?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
@@ -1382,8 +1384,12 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"

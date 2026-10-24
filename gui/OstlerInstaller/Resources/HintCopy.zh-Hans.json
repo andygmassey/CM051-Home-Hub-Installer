@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "正在安装数据导入管线",
-    "subtitle": "支持 20 多个平台的解析器",
+    "subtitle": "Parsers for 40+ sources",
     "why": "该管线会解析你已同意的数据来源：GDPR 导出文件、Apple Mail、iCloud 日历、浏览器历史记录。每个解析器都是本地运行的 Python，不使用云端。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

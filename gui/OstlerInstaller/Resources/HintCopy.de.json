@@ -146,7 +146,7 @@
   "import_pipeline": {
     "id": "import_pipeline",
     "title": "Pipeline für den Datenimport wird installiert",
-    "subtitle": "Parser für über 20 Plattformen",
+    "subtitle": "Parsers for 40+ sources",
     "why": "Die Pipeline verarbeitet die Datenquellen, denen du zugestimmt hast: DSGVO-Exporte, Apple Mail, iCloud-Kalender, Browserverlauf. Jeder Parser ist lokales Python, ohne Cloud.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,

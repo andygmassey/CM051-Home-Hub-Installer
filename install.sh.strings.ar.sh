@@ -667,6 +667,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="تم تحميل LaunchAgent لإزالة تكرا�
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="تعذّر تحميل LaunchAgent لإزالة تكرار جهات الاتصال في الخلفية. سيستمر دمج المكررات عبر الصيانة اليومية، لكن الأمر سيستغرق وقتًا أطول ليستقر."
 MSG_OK_ENRICH_AGENT_LOADED="تم تحميل LaunchAgent للإثراء في الخلفية (يضيف تفاصيل عن أفلامك وأماكنك وكتبك وروابطك؛ ويعمل على دفعات خلال اليوم التالي تقريبًا)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="تعذّر تحميل LaunchAgent للإثراء في الخلفية. تفضيلاتك محفوظة وقابلة للبحث، لكن ستفتقر إلى تفاصيل مرجعية إضافية (المخرجون، الممثلون، المواقع) إلى حين تشغيله."
+MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="تم تحميل LaunchAgent لإعادة تجميع الويكي (التسمية com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="سكربتات إعادة تجميع الويكي مضمّنة مع المثبّت"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="تم استنساخ سكربتات إعادة تجميع الويكي من %s"
@@ -1116,8 +1118,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="أعياد الميلاد"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="اقتراحات Siri"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="تقويم تشترك فيه"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="التذكيرات"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="هل تريد استخدام \"%s\" في موجزك؟"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="استبعدنا هذا التقويم لأنه يبدو كأنه %s. أجب بنعم إذا كان فعلًا مفكرة شخص ما."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="لمن التقويم \"%s\"؟"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="ما نوع التقويم \"%s\"؟"
@@ -1285,11 +1287,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="اكتب INBOX مرة أخرى للتأك�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="يعني INBOX أن المساعد سيقرأ كل بريد إلكتروني تتلقاه. نوصي بشدة باستخدام تسمية/مجلد مخصص بدلًا من ذلك."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="هل طلبت تصدير بياناتك؟"
-MSG_PROMPT_EXPORTS_ACK_HELP="يستورد Ostler من نحو 20 منصة. القائمة الكاملة مع روابط مباشرة إلى صفحة الطلب لدى كل مزوّد موجودة في docs.ostler.ai/data-exports.
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
 
-يصل معظم الأرشيفات عبر البريد الإلكتروني خلال يوم إلى 3 أيام. عندما تصل ملفات ZIP، ضعها في مجلد التنزيلات وسيعثر عليها Ostler تلقائيًا.
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
-تخطَّ ما لا تستخدمه، ويمكنك دائمًا استيراد المزيد لاحقًا."
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="المتابعة مع قرص غير مشفّر أثناء التخزين؟"
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.
@@ -1389,8 +1391,12 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# English prevails over any translation. Legal text stays English in every locale.
+MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+
+Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
