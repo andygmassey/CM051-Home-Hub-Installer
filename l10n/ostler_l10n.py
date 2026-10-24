@@ -11,6 +11,7 @@ missing translation never blocks a PR or a cut.
     python3 l10n/ostler_l10n.py run            # ONLINE: diff -> translate -> review -> validate -> write
     python3 l10n/ostler_l10n.py adopt          # record current translations as made from current English
     python3 l10n/ostler_l10n.py self-test      # prove the gates fail on a mutant
+    python3 l10n/ostler_l10n.py legal-pack LANG [--out FILE]  # OFFLINE: legal review pack for one language
 
 Only `run` touches the network, and only for NEW or CHANGED English strings
 (keyed by a hash of the source text). The API key is read from
@@ -720,10 +721,18 @@ def save_state(st):
         f.write("\n")
 
 # --------------------------------------------------------------------------
-# Legal / consent keys: a translation SHIPS only once a named person has
-# reviewed it (l10n/legal_reviews.tsv: lang, catalogue, key, source hash,
-# reviewed_by, date). Until then the catalogue carries ENGLISH and the machine
-# translation waits in l10n/legal_pending/<lang>.json for the reviewer.
+# Legal / consent keys: a translation SHIPS only once a native reviewer
+# (recorded by ROLE, never by name) has passed it (l10n/legal_reviews.tsv:
+# lang, catalogue, key, source hash, reviewed_by, date, verdict). Until then
+# the catalogue carries ENGLISH and the machine translation waits in
+# l10n/legal_pending/<lang>.json for the reviewer.
+#
+# Andy, 2026-10-24: "yes, localisation with English prevails." So a reviewed
+# legal translation ships only when the "English version prevails" line
+# (config `legal_prevails_keys`) is ALSO reviewed for that language; without
+# it every legal key of that language stays English. The switch is per key:
+# a key with no current row, or whose English changed after review (hash
+# mismatch), ships English. LegalGate is the one place this is decided.
 # --------------------------------------------------------------------------
 
 def _reviews_path():
@@ -752,13 +761,55 @@ def load_reviews(cfg=None):
         for line in open(_reviews_path(), encoding="utf-8").read().splitlines():
             f = line.split("\t")
             if len(f) >= 6 and not line.startswith("#") and f[0] != "lang":
-                out[(f[0], f"{f[1]}::{f[2]}")] = {"hash": f[3], "by": f[4], "date": f[5]}
+                verdict = f[6].strip() if len(f) >= 7 else ""
+                if re.search(r"reject|pending|awaiting", verdict, re.I):
+                    continue  # a row that records a NO, or no answer yet, approves nothing
+                out[(f[0], f"{f[1]}::{f[2]}")] = {"hash": f[3], "by": f[4], "date": f[5], "verdict": verdict}
     return out
 
 
 def reviewed(reviews, lang, u):
     r = reviews.get((lang, u.uid))
     return bool(r and r["hash"] == h(u.src) and r["by"].strip() and re.fullmatch(r"\d{4}-\d{2}-\d{2}", r["date"]))
+
+
+def review_id(lang, u):
+    """The id of the legal_reviews.tsv row that lets this translation ship:
+    language, catalogue::key and the hash of the English it was reviewed
+    against. The consent log records it (lib/ostler_consent_display.py
+    computes the same string), so we can later show which wording was seen."""
+    return f"{lang}/{u.uid}@{h(u.src)}"
+
+
+class LegalGate:
+    """Does the translation of legal unit `u` in `lang` ship? Only if BOTH
+    its own legal_reviews.tsv row is current AND every `legal_prevails_keys`
+    unit ("English version prevails") is reviewed for that language. A
+    catalogue with no prevails key configured keeps all legal keys English
+    (fail closed). `legal_english_only: true` still forces English everywhere."""
+
+    def __init__(self, cfg, reviews=None, units=None):
+        self.cfg = cfg
+        self.reviews = load_reviews(cfg) if reviews is None else reviews
+        if units is None:
+            units = {u.uid: u for c in catalogues(cfg) for u in c.units()}
+        self.units = units
+        self.prevails = [str(x) for x in (cfg.get("legal_prevails_keys") or [])]
+
+    def prevails_ok(self, lang):
+        if not self.prevails:
+            return False
+        return all(uid in self.units and reviewed(self.reviews, lang, self.units[uid]) for uid in self.prevails)
+
+    def ships(self, lang, u):
+        if self.cfg.get("legal_english_only"):
+            return False
+        return reviewed(self.reviews, lang, u) and self.prevails_ok(lang)
+
+    def missing_prevails(self):
+        """Configured prevails uids that name no unit: a typo would silently
+        keep every legal key English forever, so `check` reports it."""
+        return [uid for uid in self.prevails if uid not in self.units]
 
 
 def load_legal_pending(lang):
@@ -843,9 +894,15 @@ def survey(cfg):
     st = load_state()
     errs, stale, cov = [], [], {}
     keep = set(cfg.get("keep_english", []))
-    reviews = load_reviews(cfg)
-    for c in catalogues(cfg):
-        units = {u.key: u for u in c.units()}
+    cats = catalogues(cfg)
+    all_units = {c.id: {u.key: u for u in c.units()} for c in cats}
+    gate = LegalGate(cfg, units={u.uid: u for us in all_units.values() for u in us.values()})
+    for uid in gate.missing_prevails():
+        errs.append(f"legal_prevails_keys names {uid}, which is no unit in any catalogue")
+    legal_shipped = collections.defaultdict(list)
+    shown = collections.defaultdict(set)  # lang -> uids whose translation is in the catalogue
+    for c in cats:
+        units = all_units[c.id]
         for lang in cfg["languages"]:
             errs += c.validate_file(lang)
             tr = c.read(lang)
@@ -864,12 +921,17 @@ def survey(cfg):
                 if k in keep:
                     errs.append(f"{c.id} {lang} {k}: must stay English (keep_english)")
                     continue
-                if is_legal(u, cfg) and not reviewed(reviews, lang, u):
-                    errs.append(f"{c.id} {lang} {k}: UNREVIEWED legal/consent translation would ship; "
+                shown[lang].add(u.uid)
+                if is_legal(u, cfg) and not gate.ships(lang, u):
+                    why = ("no current legal_reviews.tsv row for this English" if not reviewed(gate.reviews, lang, u)
+                           else "the English-prevails line is not reviewed for this language")
+                    errs.append(f"{c.id} {lang} {k}: UNREVIEWED legal/consent translation would ship ({why}); "
                                 "run `stale` (moves it to l10n/legal_pending, English ships) or "
-                                "`legal-approve` once a named reviewer has read it")
+                                "`legal-approve` once a native reviewer has passed it")
                     n["legal_unreviewed"] += 1
                     continue
+                if is_legal(u, cfg):
+                    legal_shipped[lang].append(u.uid)
                 for e in mech(u, v, cfg):
                     errs.append(f"{c.id} {lang} {k}: {e}")
                 if made.get(u.uid) != h(u.src):
@@ -880,6 +942,14 @@ def survey(cfg):
             # A shell key missing from a translation is NOT an error: install.sh
             # sources en-GB first and the language file on top, so it prints
             # English. Coverage (above) counts it as an English fallback.
+    # A localised legal surface must SHOW its English-prevails line: a legal
+    # translation in the catalogue while the prevails translation is not
+    # there would render without it.
+    for lang, uids in legal_shipped.items():
+        for p in gate.prevails:
+            if p not in shown[lang]:
+                errs.append(f"{lang}: {len(uids)} legal translation(s) ship (e.g. {uids[0]}) but the English-prevails "
+                            f"line {p} is still English; run `stale` to promote it")
     return errs, stale, cov
 
 
@@ -912,9 +982,11 @@ def cmd_stale(cfg):
     by = collections.defaultdict(set)
     for c, lang, k in stale:
         by[(c.id, lang)].add(k)
-    # unreviewed legal/consent translations: park them for the reviewer
-    reviews = load_reviews(cfg)
-    parked = 0
+    # unreviewed legal/consent translations: park them for the reviewer;
+    # reviewed ones waiting in legal_pending: promote them into the catalogue
+    gate = LegalGate(cfg)
+    parked = promoted = 0
+    promote = collections.defaultdict(dict)
     for c in catalogues(cfg):
         units = {u.key: u for u in c.units()}
         for lang in cfg["languages"]:
@@ -922,10 +994,22 @@ def cmd_stale(cfg):
             pend = load_legal_pending(lang)
             for k, u in units.items():
                 v = tr.get(k)
-                if v is not None and v != u.src and is_legal(u, cfg) and not reviewed(reviews, lang, u):
+                if v is not None and v != u.src and is_legal(u, cfg) and not gate.ships(lang, u):
                     pend[u.uid] = {"text": v, "src_hash": h(u.src), "src": u.src}
                     by[(c.id, lang)].add(k)
                     parked += 1
+                    continue
+                e = pend.get(u.uid)
+                if (e and is_legal(u, cfg) and gate.ships(lang, u) and e.get("src_hash") == h(u.src)
+                        and (v is None or v == u.src) and e.get("text") and e["text"] != u.src):
+                    bad = mech(u, e["text"], cfg)
+                    if bad:
+                        print(f"stale: NOT promoting {lang} {u.uid}: {bad}")
+                        continue
+                    promote[(c.id, lang)][k] = e["text"]
+                    st["made_from"].setdefault(lang, {})[u.uid] = h(u.src)
+                    pend.pop(u.uid)
+                    promoted += 1
             save_legal_pending(lang, pend)
     n = 0
     for c in catalogues(cfg):
@@ -936,20 +1020,23 @@ def cmd_stale(cfg):
             # a shell file missing keys is rewritten too: the writer emits the
             # full en-GB key set, English wherever there is no translation
             short = c.spec["type"] == "shell" and os.path.exists(c.path(lang)) and set(units) - set(tr)
-            if not ks and not short:
+            prom = promote.get((c.id, lang), {})
+            if not ks and not short and not prom:
                 continue
             keep = {k: v for k, v in tr.items() if k in units and k not in ks and v != units[k].src}
+            keep.update(prom)
             if c.spec["type"] == "xcstrings":
-                c.write(lang, {}, {}, drop=ks)
+                c.write(lang, prom, {}, drop=ks)
             else:
-                c.write(lang, keep, {k: v for k, v in fl.items() if k in keep})
+                c.write(lang, keep, {k: v for k, v in fl.items() if k in keep and k not in prom})
             for k in ks:
                 st["made_from"].get(lang, {}).pop(f"{c.id}::{k}", None)
             n += len(ks)
     filled = sum(c.fill_fallbacks(cfg["languages"]) for c in catalogues(cfg) if c.spec["type"] == "xcstrings")
     save_state(st)
     print(f"stale: {n} translation(s) fell back to English ({parked} unreviewed legal/consent parked in "
-          f"l10n/legal_pending); {filled} missing key-based value(s) given the English")
+          f"l10n/legal_pending); {promoted} reviewed legal/consent translation(s) promoted; "
+          f"{filled} missing key-based value(s) given the English")
     return 0
 
 
@@ -1230,14 +1317,14 @@ def decide(cfg, ids, tr, rv):
 def apply_results(cfg, results):
     ids = results.pop("__ids__")
     st = load_state()
-    reviews = load_reviews(cfg)
+    gate = LegalGate(cfg)
     per = collections.defaultdict(lambda: ({}, {}))
     parked = collections.defaultdict(dict)
     for sid, res in results.items():
         if not res:
             continue
         lang, u = ids[sid]
-        if is_legal(u, cfg) and not reviewed(reviews, lang, u):
+        if is_legal(u, cfg) and not gate.ships(lang, u):
             # legal/consent: never straight into a shipping catalogue
             parked[lang][u.uid] = {"text": res[0], "src_hash": h(u.src), "src": u.src}
             continue
@@ -1287,8 +1374,10 @@ def cmd_legal_list(cfg):
 
 
 def cmd_legal_approve(cfg, args):
-    """legal-approve LANG CATALOGUE::KEY --by NAME [--date YYYY-MM-DD] [--text "edited translation"]
-    Records the review and ships the (possibly edited) translation."""
+    """legal-approve LANG CATALOGUE::KEY --by ROLE [--date YYYY-MM-DD] [--text "edited translation"]
+    Records the review (reviewer by ROLE, never a name: public repo). The
+    translation ships only if LegalGate then allows it (its English-prevails
+    line is reviewed for LANG too); otherwise it waits in legal_pending."""
     import argparse
     ap = argparse.ArgumentParser(prog="legal-approve")
     ap.add_argument("lang"); ap.add_argument("uid")
@@ -1298,7 +1387,7 @@ def cmd_legal_approve(cfg, args):
     if cfg.get("legal_english_only"):
         raise SystemExit("legal-approve: refused, legal_english_only is set (legal and consent strings stay English in every locale)")
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.date) or not a.by.strip():
-        raise SystemExit("legal-approve: --by NAME and --date YYYY-MM-DD are required")
+        raise SystemExit("legal-approve: --by ROLE and --date YYYY-MM-DD are required")
     cat_id, key = a.uid.split("::", 1)
     c = next(x for x in catalogues(cfg) if x.id == cat_id)
     u = next(x for x in c.units() if x.key == key)
@@ -1315,8 +1404,15 @@ def cmd_legal_approve(cfg, args):
     new = not os.path.exists(_reviews_path())
     with open(_reviews_path(), "a", encoding="utf-8") as f:
         if new:
-            f.write("lang\tcatalogue\tkey\tsource_hash\treviewed_by\tdate\n")
-        f.write(f"{a.lang}\t{cat_id}\t{key}\t{h(u.src)}\t{a.by.strip()}\t{a.date}\n")
+            f.write("lang\tcatalogue\tkey\tsource_hash\treviewed_by\tdate\tverdict\n")
+        f.write(f"{a.lang}\t{cat_id}\t{key}\t{h(u.src)}\t{a.by.strip()}\t{a.date}\treviewed\n")
+    gate = LegalGate(cfg)
+    if not gate.ships(a.lang, u):
+        pend[a.uid] = {"text": text, "src_hash": h(u.src), "src": u.src}
+        save_legal_pending(a.lang, pend)
+        print(f"legal-approve: {a.lang} {a.uid} reviewed by {a.by.strip()} on {a.date}; ENGLISH still ships "
+              f"until the English-prevails line ({', '.join(gate.prevails) or 'none configured'}) is reviewed for {a.lang}")
+        return 0
     existing = c.read(a.lang)
     units = {x.key: x for x in c.units()}
     if c.spec["type"] == "xcstrings":
@@ -1332,6 +1428,52 @@ def cmd_legal_approve(cfg, args):
     pend.pop(a.uid, None)
     save_legal_pending(a.lang, pend)
     print(f"legal-approve: {a.lang} {a.uid} reviewed by {a.by.strip()} on {a.date}; translation ships")
+    # the prevails line itself may have been the last missing review: promote the rest
+    _quiet(cmd_stale, cfg)
+    return 0
+
+
+def legal_pack_items(cfg, lang):
+    """Legal units of THIS repo that a reviewer of `lang` should see next:
+    every English-prevails unit not yet reviewed for `lang`, then every key
+    whose review (in ANY language) is stale because its English changed
+    after review, and that is not yet reviewed for `lang` at today's English.
+    Each item: (uid, English, current translation or None, why)."""
+    reviews = load_reviews(dict(cfg, legal_english_only=False))
+    gate = LegalGate(dict(cfg, legal_english_only=False), reviews=reviews)
+    pend = load_legal_pending(lang)
+    tr = {c.id: c.read(lang) for c in catalogues(cfg)}
+    stale_uids = {uid for (lg, uid), r in reviews.items() if uid in gate.units and r["hash"] != h(gate.units[uid].src)}
+    out = []
+    for uid in gate.prevails + sorted(stale_uids - set(gate.prevails)):
+        u = gate.units.get(uid)
+        if not u or reviewed(reviews, lang, u):
+            continue
+        e = pend.get(uid)
+        cur = e["text"] if e and e.get("src_hash") == h(u.src) else None
+        if cur is None:
+            v = tr[u.cat].get(u.key)
+            cur = v if v is not None and v != u.src else None
+        why = "english-prevails line" if uid in gate.prevails else "English changed after an earlier review"
+        out.append((uid, u.src, cur, why))
+    return out
+
+
+def cmd_legal_pack(cfg, args):
+    """legal-pack LANG [--out FILE]: write the review items as TSV (uid,
+    english, translation, why). Offline; sends nothing anywhere."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="legal-pack")
+    ap.add_argument("lang"); ap.add_argument("--out")
+    a = ap.parse_args(args)
+    rows = legal_pack_items(cfg, a.lang)
+    esc = lambda s: (s or "").replace("\t", " ").replace("\n", " ")
+    body = "uid\tenglish\ttranslation\twhy\n" + "".join(f"{esc(u)}\t{esc(e)}\t{esc(t)}\t{esc(w)}\n" for u, e, t, w in rows)
+    if a.out:
+        open(a.out, "w", encoding="utf-8").write(body)
+    else:
+        sys.stdout.write(body)
+    print(f"legal-pack: {a.lang}: {len(rows)} item(s)", file=sys.stderr)
     return 0
 
 # --------------------------------------------------------------------------
@@ -1349,10 +1491,12 @@ def cmd_self_test(cfg):
             "home.title": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Today"}},
                                              "de": {"stringUnit": {"state": "translated", "value": "Heute"}}}}}}
         json.dump(cat_x, open(os.path.join(tmp, "L.xcstrings"), "w"))
-        open(os.path.join(tmp, "s.en-GB.sh"), "w").write('MSG_A="Saved to %s"\nMSG_B="Type INSTALL to go on"\n')
+        open(os.path.join(tmp, "s.en-GB.sh"), "w").write('MSG_A="Saved to %s"\nMSG_B="Type INSTALL to go on"\n'
+                                                       'MSG_LEGAL_PREVAILS="If this differs from the English, the English prevails."\n')
         open(os.path.join(tmp, "s.de.sh"), "w").write('MSG_A="Gespeichert unter %s"\nMSG_B="Gib INSTALL ein, um fortzufahren"\n')
         open(os.path.join(tmp, "l10n", "config.yaml"), "w").write(
-            "languages: [de]\nbudget_usd: 1\nverbatim_tokens: [INSTALL]\nlegal_patterns: [consent]\nmodels:\n  translate: claude-sonnet-5-5\n  review: claude-opus-5-5\n"
+            "languages: [de]\nbudget_usd: 1\nverbatim_tokens: [INSTALL]\nlegal_patterns: [consent]\nlegal_keys: [MSG_LEGAL_PREVAILS]\n"
+            "legal_prevails_keys: [sh::MSG_LEGAL_PREVAILS]\nmodels:\n  translate: claude-sonnet-5-5\n  review: claude-opus-5-5\n"
             "catalogues:\n  - id: x\n    type: xcstrings\n    source: L.xcstrings\n  - id: sh\n    type: shell\n    source: s.en-GB.sh\n    target: s.{lang}.sh\n")
         REPO, HERE, STATE = tmp, os.path.join(tmp, "l10n"), os.path.join(tmp, "l10n", "provenance.json")
         c2 = load_yaml(open(os.path.join(HERE, "config.yaml")).read())
@@ -1413,15 +1557,49 @@ def cmd_self_test(cfg):
         en_sh = os.path.join(tmp, "s.en-GB.sh"); de_sh = os.path.join(tmp, "s.de.sh")
         open(en_sh, "a").write('MSG_CONSENT_X="I agree to %s"\n')
         open(de_sh, "a").write('MSG_CONSENT_X="Ich stimme %s zu"\n')
+        sh_de = lambda k: ShellCatalogue(c2["catalogues"][1]).read("de").get(k)
         results["unreviewed consent translation fails"] = quiet(cmd_check, c2) == 1
         quiet(cmd_stale, c2)
-        de_now = ShellCatalogue(c2["catalogues"][1]).read("de").get("MSG_CONSENT_X")
-        results["stale ships English for it"] = de_now == "I agree to %s"
+        results["stale ships English for it"] = sh_de("MSG_CONSENT_X") == "I agree to %s"
         results["and parks the translation for review"] = load_legal_pending("de").get("sh::MSG_CONSENT_X", {}).get("text") == "Ich stimme %s zu"
         results["check passes with English"] = quiet(cmd_check, c2) == 0
-        quiet(cmd_legal_approve, c2, ["de", "sh::MSG_CONSENT_X", "--by", "Test Reviewer", "--date", "2026-10-19"])
-        results["approved translation ships"] = ShellCatalogue(c2["catalogues"][1]).read("de").get("MSG_CONSENT_X") == "Ich stimme %s zu"
+        quiet(cmd_legal_approve, c2, ["de", "sh::MSG_CONSENT_X", "--by", "legal reviewer (de)", "--date", "2026-10-19"])
+        # Andy 2026-10-24, English prevails: a reviewed key alone does not switch the surface on
+        results["reviewed key stays English while the prevails line is unreviewed"] = sh_de("MSG_CONSENT_X") == "I agree to %s"
+        results["and its reviewed translation waits in legal_pending"] = load_legal_pending("de").get("sh::MSG_CONSENT_X", {}).get("text") == "Ich stimme %s zu"
+        results["check passes (nothing legal localised yet)"] = quiet(cmd_check, c2) == 0
+        quiet(cmd_legal_approve, c2, ["de", "sh::MSG_LEGAL_PREVAILS", "--by", "legal reviewer (de)", "--date", "2026-10-24",
+                                       "--text", "Weicht dies vom Englischen ab, gilt das Englische."])
+        results["prevails line reviewed: it ships"] = sh_de("MSG_LEGAL_PREVAILS") == "Weicht dies vom Englischen ab, gilt das Englische."
+        results["prevails line reviewed: the reviewed key ships"] = sh_de("MSG_CONSENT_X") == "Ich stimme %s zu"
         results["check passes once reviewed"] = quiet(cmd_check, c2) == 0
+        # mutant (per key): delete the key's review row -> red, then `stale` -> English -> green
+        rv_path = os.path.join(HERE, "legal_reviews.tsv")
+        rv_all = open(rv_path, encoding="utf-8").read()
+        open(rv_path, "w", encoding="utf-8").write("".join(l for l in rv_all.splitlines(True) if "\tMSG_CONSENT_X\t" not in l))
+        results["mutant: review row deleted -> check fails"] = quiet(cmd_check, c2) == 1
+        quiet(cmd_stale, c2)
+        results["mutant: review row deleted -> that key renders English"] = sh_de("MSG_CONSENT_X") == "I agree to %s"
+        results["mutant: ... and only that key"] = sh_de("MSG_LEGAL_PREVAILS") == "Weicht dies vom Englischen ab, gilt das Englische."
+        results["mutant: check passes again"] = quiet(cmd_check, c2) == 0
+        open(rv_path, "w", encoding="utf-8").write(rv_all)
+        quiet(cmd_stale, c2)
+        results["row restored: the key ships again"] = sh_de("MSG_CONSENT_X") == "Ich stimme %s zu"
+        # mutant (surface): delete the prevails row -> every legal key of the language goes English
+        open(rv_path, "w", encoding="utf-8").write("".join(l for l in rv_all.splitlines(True) if "\tMSG_LEGAL_PREVAILS\t" not in l))
+        results["prevails row deleted -> check fails"] = quiet(cmd_check, c2) == 1
+        quiet(cmd_stale, c2)
+        results["prevails row deleted -> the whole surface is English"] = (sh_de("MSG_CONSENT_X"), sh_de("MSG_LEGAL_PREVAILS")) == (
+            "I agree to %s", "If this differs from the English, the English prevails.")
+        open(rv_path, "w", encoding="utf-8").write(rv_all.replace("\treviewed\n", "\trejected\n", 1))
+        results["a rejected row does not count"] = ("de", "sh::MSG_CONSENT_X") not in load_reviews(c2)
+        open(rv_path, "w", encoding="utf-8").write(rv_all)
+        quiet(cmd_stale, c2)
+        results["legal-pack lists nothing once all is reviewed"] = legal_pack_items(c2, "de") == []
+        open(rv_path, "w", encoding="utf-8").write("".join(l for l in rv_all.splitlines(True) if "\tMSG_LEGAL_PREVAILS\t" not in l))
+        results["legal-pack lists the unreviewed prevails line"] = [x[0] for x in legal_pack_items(c2, "de")] == ["sh::MSG_LEGAL_PREVAILS"]
+        open(rv_path, "w", encoding="utf-8").write(rv_all)
+        quiet(cmd_stale, c2)
         t = open(en_sh).read().replace('MSG_CONSENT_X="I agree to %s"', 'MSG_CONSENT_X="I fully agree to %s"')
         open(en_sh, "w").write(t)
         results["a review of OLD English does not cover new English"] = quiet(cmd_check, c2) == 1
@@ -1475,5 +1653,6 @@ if __name__ == "__main__":
     _REAL_CFG = cfg
     sys.exit({"check": lambda: cmd_check(cfg), "stale": lambda: cmd_stale(cfg), "diff": lambda: cmd_diff(cfg),
               "adopt": lambda: cmd_adopt(cfg),
-              "legal-list": lambda: cmd_legal_list(cfg), "legal-approve": lambda: cmd_legal_approve(cfg, sys.argv[2:]), "run": lambda: cmd_run(cfg, gl, dry="--dry-run" in sys.argv),
+              "legal-list": lambda: cmd_legal_list(cfg), "legal-approve": lambda: cmd_legal_approve(cfg, sys.argv[2:]),
+              "legal-pack": lambda: cmd_legal_pack(cfg, sys.argv[2:]), "run": lambda: cmd_run(cfg, gl, dry="--dry-run" in sys.argv),
               "self-test": lambda: cmd_self_test(cfg)}[cmd]())

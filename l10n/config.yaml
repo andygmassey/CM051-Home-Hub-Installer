@@ -44,15 +44,22 @@ keep_english:
   - MSG_OK_VANE_HEALTHY
   - MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED
 
-# Shell keys matching these (key or developer comment) ship needs_review.
-# Legal / consent keys (regex on key + developer comment). A translation of
-# one ships only with a legal_reviews.tsv row (reviewed_by + date) for its
-# current English; otherwise English ships and the translation waits in
-# l10n/legal_pending/ (`legal-list`, `legal-approve`).
-# Ruling 2026-10-22: legal and consent strings stay ENGLISH in every locale.
-# A translation of one never ships, whatever legal_reviews.tsv says.
-legal_english_only: true
+# Legal / consent keys (regex on key + developer comment, plus legal_keys).
+# A translation of one ships only with a CURRENT legal_reviews.tsv row (same
+# English hash, reviewer ROLE + date) for that key in that language, AND a
+# current row for every legal_prevails_keys unit in that language; otherwise
+# English ships and the translation waits in l10n/legal_pending/
+# (`legal-list`, `legal-approve`, `legal-pack`).
+# Andy, 2026-10-24: "yes, localisation with English prevails." This replaces
+# the 2026-10-22 ruling (legal_english_only: true, every legal string English).
+legal_english_only: false
 legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
+legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS]
+# The "English version prevails" line, one per catalogue the installer shows
+# legal wording from. Until EVERY one is reviewed for a language, every legal
+# key of that language stays English (the installer is one surface: install.sh
+# prompts and the GUI consent screens appear together).
+legal_prevails_keys: [install_sh::MSG_LEGAL_ENGLISH_PREVAILS, viewcopy::legal/english_prevails]
 
 # The en-GB header asks for a human translation of these.
 human_review_keys:

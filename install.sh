@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8945) captures the path BY
+    # _ostler_write_store_curl_config (defined :8969) captures the path BY
     # VALUE and never re-reads it:
-    #     :8946   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8991   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9000 and :16762, both of which run
+    #     :8970   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9015   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9024 and :16794, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17557, where the note reads
+    # WhatsApp Web session path did it again at :17589, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17574 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17606 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6274 against a definition at :8945. Top-level
+    # writer's own definition: :6297 against a definition at :8969. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9000, :16762) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9024, :16794) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19730 / :19908 / :20065 / :20510 path. There the
+    # :19779 / :19957 / :20114 / :20559 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4783,12 +4783,35 @@ else
 fi
 # Then the installer language (OSTLER_LANG, from the GUI) overrides the keys it
 # translates. A missing file -- a stale or unknown OSTLER_LANG -- leaves English.
+_OSTLER_EN_LEGAL_PREVAILS="${MSG_LEGAL_ENGLISH_PREVAILS:-}"
 _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
 if [[ "$OSTLER_LANG" != "en-GB" && -f "$_STRINGS_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$_STRINGS_FILE"
 fi
 unset _STRINGS_FILE
+
+# Legal wording in the installer's language, English prevailing (Andy,
+# 2026-10-24). l10n/ostler_l10n.py writes a legal/consent translation into
+# the catalogue only once a native reviewer has passed it AND has passed the
+# "English version prevails" line for that language (legal_reviews.tsv); every
+# other legal key carries English. So the prevails line being translated is
+# the one signal that this language's legal surface is localised, and when it
+# is, that line is shown before every legal/consent prompt. The GUI draws its
+# own copy of the line (OnboardingQuestionView, ViewCopy legal.english_prevails).
+OSTLER_LEGAL_LOCALISED=0
+if [[ -n "$_OSTLER_EN_LEGAL_PREVAILS" && "${MSG_LEGAL_ENGLISH_PREVAILS:-}" != "$_OSTLER_EN_LEGAL_PREVAILS" ]]; then
+    OSTLER_LEGAL_LOCALISED=1
+fi
+unset _OSTLER_EN_LEGAL_PREVAILS
+# Terminal path only: the GUI renders the line itself under the consent body.
+legal_prevails_note() {
+    [[ "$OSTLER_LEGAL_LOCALISED" == 1 ]] || return 0
+    if declare -F gui_active >/dev/null && gui_active; then
+        return 0
+    fi
+    printf '  %s\n\n' "$MSG_LEGAL_ENGLISH_PREVAILS"
+}
 
 
 # ── GUI progress emitter (sourced) ─────────────────────────────────
@@ -7566,6 +7589,7 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     # gui_read so the GUI installer renders a sheet. A bare `read -p`
     # blocks forever in OSTLER_GUI=1 mode because stdin is /dev/null
     # (caught 2026-05-16 Mac Studio install hang).
+    legal_prevails_note
     WA_CONSENT="$(gui_read "$MSG_PROMPT_WHATSAPP_CONSENT_TITLE" yesno "n" "$MSG_PROMPT_WHATSAPP_CONSENT_HELP" "" "whatsapp_consent")"
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
         CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
@@ -12322,6 +12346,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        legal_prevails_note
         ART9="$(gui_read "$MSG_PROMPT_CONSENT_ARTICLE_9_TITLE" yesno "" "$MSG_PROMPT_CONSENT_ARTICLE_9_HELP" "" "consent_article_9")"
         case "${ART9:-}" in
             y|Y)
@@ -12460,6 +12485,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        legal_prevails_note
         VOICE="$(gui_read "$MSG_PROMPT_CONSENT_VOICE_EU_TITLE" yesno "Y" "$MSG_PROMPT_CONSENT_VOICE_EU_HELP" "" "consent_voice_eu")"
         case "${VOICE:-y}" in
             y|Y|"")
@@ -12550,6 +12576,7 @@ while true; do
     # Default seeded as "n" so the customer must explicitly toggle to Yes
     # (the GUI's yesValue() returns true for empty strings, which would
     # otherwise pre-check the Yes toggle and amount to a pre-ticked box).
+    legal_prevails_note
     THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
@@ -12635,6 +12662,7 @@ echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
+    legal_prevails_note
     SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
     case "${SPOKEN_CAPTURE:-}" in
         y|Y)
@@ -12708,6 +12736,7 @@ _ostler_ask_personal_use_terms() {
     echo ""
     echo -e "  ${DIM}${MSG_TERMS_LANGUAGE}${NC}"
     echo ""
+    legal_prevails_note
     TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
     if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
         echo ""
@@ -12814,6 +12843,7 @@ echo ""
 # a dedicated SwiftUI body is a follow-up, not a blocker, because the HELP
 # string is written to read correctly as one run.
 OSTLER_ENRICH_AGENT_ENABLED=0
+legal_prevails_note
 ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"
 case "${ENRICH_CHOICE:-}" in
     y|Y) OSTLER_ENRICH_AGENT_ENABLED=1 ;;
@@ -12886,6 +12916,7 @@ echo ""
 # the typed answers for operators driving install.sh from a
 # terminal -- the while-loop branches below cover both forms.
 while true; do
+    legal_prevails_note
     CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text_with_cancel "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
     # Case-insensitive accept: the GUI normalises to upper-case
     # before posting; TTY operators might type "install" lower-case
@@ -14665,6 +14696,7 @@ _ostler_configure_reboot_autologin() {
     # so the id would churn every time this copy is edited (and a derived id is
     # redacted out of the install log by the emitter, per __OSTLER_PROMPT_ID_DERIVED).
     local _consent
+    legal_prevails_note
     _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "N" "$_explain" "" "autologin_consent")"
     case "$_consent" in
         y|Y|yes|Yes|YES)
@@ -18549,6 +18581,23 @@ PY
                 --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
             _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
+            # Which wording the person SAW: the installer's language and the
+            # legal_reviews.tsv row id of every translated line on that screen
+            # (empty = all English). Added to the same consent.json record;
+            # old records without it stay readable (English was shown).
+            if ! "$OSTLER_PYTHON" "${SCRIPT_DIR}/lib/ostler_consent_display.py" \
+                    --posture "${OSTLER_DIR}/posture" --tickbox "$tickbox" \
+                    --lang "${OSTLER_LANG:-en-GB}" --resources "${SCRIPT_DIR}" 2>"$stderr_file"; then
+                local display_log="${OSTLER_DIR}/posture/consent-cli-failures.log"
+                {
+                    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] tickbox=$tickbox display-language record failed"
+                    head -c 400 "$stderr_file" 2>/dev/null
+                    echo ""
+                    echo "---"
+                } >> "$display_log" 2>/dev/null || true
+                warn "$MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED"
+            fi
+            rm -f "$stderr_file"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then

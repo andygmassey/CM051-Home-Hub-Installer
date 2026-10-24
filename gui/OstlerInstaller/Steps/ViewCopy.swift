@@ -84,6 +84,35 @@ final class ViewCopy {
             ?? key
     }
 
+    /// The "English version prevails" line (Andy, 2026-10-24: "localisation
+    /// with English prevails"), in the installer's language, or nil when that
+    /// line is NOT translated. l10n/ostler_l10n.py ships a translation of it,
+    /// and of every other legal/consent string, only once a native reviewer
+    /// has passed it (l10n/legal_reviews.tsv), and ships no legal translation
+    /// at all for a language until this line is reviewed. So nil means every
+    /// legal string on screen is English and no note is due.
+    static let englishPrevailsKey = "legal.english_prevails"
+
+    func englishPrevailsNote() -> String? {
+        let parts = ViewCopy.englishPrevailsKey.split(separator: ".").map(String.init)
+        guard let local = ViewCopy.lookup(parts, in: localized), !local.isEmpty,
+              let english = ViewCopy.lookup(parts, in: root), local != english
+        else { return nil }
+        return local
+    }
+
+    /// install.sh prompt ids (gui_read's sixth argument) whose screen carries
+    /// legal or consent wording: consent_*, *_consent and terms_*. Today:
+    /// consent_install, consent_third_party, consent_article_9,
+    /// consent_spoken_capture, consent_voice_eu, consent_enrichment,
+    /// terms_personal_use, whatsapp_consent, autologin_consent.
+    /// tests/test_legal_prevails_note_on_every_legal_prompt.py holds install.sh
+    /// to the same rule, so the GUI and the terminal show the line on the same
+    /// screens.
+    static func isLegalPrompt(_ id: String) -> Bool {
+        id.hasPrefix("consent_") || id.hasSuffix("_consent") || id.hasPrefix("terms_")
+    }
+
     /// Resolve + substitute `{placeholder}` slots in the catalogue
     /// value. Placeholders are Python-style named slots; missing
     /// fills are left as `{name}` literals so they stand out in QA.

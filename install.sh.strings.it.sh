@@ -724,6 +724,7 @@ MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="Impossibile installare GNU coreutils;
 MSG_WARN_COLIMA_START_RETRY="Colima non si è avviato correttamente (il socket Docker non era pronto). Nuovo tentativo tra %ss..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Cause comuni: tag v%s non ancora pubblicato, rete non disponibile,"
 MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
+MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Your consent was saved, but not which language it was shown in (details in ~/.ostler/posture/consent-cli-failures.log)."
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  Script da console non creato in %s; in pyproject.toml potrebbe mancare la voce [project.scripts]."
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Continuo perché è stato passato --allow-plaintext."
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Continuo l'installazione. Riesegui \`ostler-fda\` dopo aver diagnosticato l'errore sopra."
@@ -1388,6 +1389,10 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# Legal: the "English version prevails" line (Andy 2026-10-24). install.sh prints it
+# before every legal/consent prompt, but ONLY when this line is itself translated
+# for OSTLER_LANG, i.e. a native reviewer has passed it (l10n/legal_reviews.tsv).
+MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."
 # English prevails over any translation. Legal text stays English in every locale.
 MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"

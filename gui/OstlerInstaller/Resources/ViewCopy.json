@@ -386,5 +386,9 @@
     "connect_now_button": "Connect now",
     "no_phone": "WhatsApp is switched on, but Ostler does not have your WhatsApp number, so it cannot make a code here. To connect it, open Terminal and run:",
     "later_command": "~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive whatsapp"
+  },
+  "legal": {
+    "_meta": "Andy 2026-10-24: 'localisation with English prevails'. Shown under every legal/consent screen ONLY when this line is itself translated for the installer's language (ViewCopy.englishPrevailsNote). l10n/ostler_l10n.py ships a translation of it, and of any legal key, only once a native reviewer has passed it (l10n/legal_reviews.tsv).",
+    "english_prevails": "This is a translation. If it differs from the English version, the English version prevails."
   }
 }
