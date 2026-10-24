@@ -1244,6 +1244,10 @@ stage-daemon: download-daemon
 #   services/doctor/    <- vendor/doctor/agent/
 #   services/knowledge/ <- vendor/cm024_knowledge/
 #   services/cm048/     <- vendor/cm048_pipeline/
+#   services/cm019/     <- vendor/cm019_preferences/   (smart-prefs upgrade, 118)
+#   services/assistant_api/ <- vendor/cm041/assistant_api/ (+ services/pwg_privacy.py,
+#                              services/ostler_hygiene/ from vendor/cm041/)
+#   services/context-refresh/ <- context-refresh/
 # ---------------------------------------------------------------------------
 stage-payload: download-python
 	@if [ ! -d "$(OSTLER_APP_PATH)" ]; then \
@@ -1287,6 +1291,11 @@ stage-payload: download-python
 	DOCTOR_SRC="$$SRC_ROOT/vendor/doctor/agent"; \
 	KNOWLEDGE_SRC="$$SRC_ROOT/vendor/cm024_knowledge"; \
 	CM048_SRC="$$SRC_ROOT/vendor/cm048_pipeline"; \
+	CM019_SRC="$$SRC_ROOT/vendor/cm019_preferences"; \
+	ASSISTANT_API_SRC="$$SRC_ROOT/vendor/cm041/assistant_api"; \
+	PWG_PRIVACY_SRC="$$SRC_ROOT/vendor/cm041/pwg_privacy.py"; \
+	HYGIENE_SRC="$$SRC_ROOT/vendor/cm041/ostler_hygiene"; \
+	CONTEXT_REFRESH_SRC="$$SRC_ROOT/context-refresh"; \
 	: ; \
 	: "$(VERSION) is the plist-derived marketing version (Makefile:120). It is" ; \
 	: "the right key here ONLY because gates/verify_version_stamp_matches_cut.sh" ; \
@@ -1314,6 +1323,11 @@ stage-payload: download-python
 	[ -d "$$DOCTOR_SRC" ] || MISSING="$$MISSING vendor/doctor/agent"; \
 	[ -d "$$KNOWLEDGE_SRC" ] || MISSING="$$MISSING vendor/cm024_knowledge"; \
 	[ -d "$$CM048_SRC" ] || MISSING="$$MISSING vendor/cm048_pipeline"; \
+	[ -d "$$CM019_SRC" ] || MISSING="$$MISSING vendor/cm019_preferences"; \
+	[ -f "$$ASSISTANT_API_SRC/ical-server.py" ] || MISSING="$$MISSING vendor/cm041/assistant_api/ical-server.py"; \
+	[ -f "$$PWG_PRIVACY_SRC" ] || MISSING="$$MISSING vendor/cm041/pwg_privacy.py"; \
+	[ -d "$$HYGIENE_SRC" ] || MISSING="$$MISSING vendor/cm041/ostler_hygiene"; \
+	[ -f "$$CONTEXT_REFRESH_SRC/INSTALL_SNIPPET.sh" ] || MISSING="$$MISSING context-refresh/INSTALL_SNIPPET.sh"; \
 	[ -f "$$CUT_BOM_SRC" ] || MISSING="$$MISSING cuts/v$(VERSION)/MUST_CONTAIN.tsv"; \
 	[ -f "$$VENDOR_MANIFEST_SRC" ] || MISSING="$$MISSING vendor/VENDOR_MANIFEST.toml"; \
 	if [ -n "$$MISSING" ]; then \
@@ -1338,10 +1352,15 @@ stage-payload: download-python
 	cp -R "$$DOCTOR_SRC" "$$PAYLOAD/services/doctor"; \
 	cp -R "$$KNOWLEDGE_SRC" "$$PAYLOAD/services/knowledge"; \
 	cp -R "$$CM048_SRC" "$$PAYLOAD/services/cm048"; \
+	cp -R "$$CM019_SRC" "$$PAYLOAD/services/cm019"; \
+	cp -R "$$ASSISTANT_API_SRC" "$$PAYLOAD/services/assistant_api"; \
+	cp "$$PWG_PRIVACY_SRC" "$$PAYLOAD/services/pwg_privacy.py"; \
+	cp -R "$$HYGIENE_SRC" "$$PAYLOAD/services/ostler_hygiene"; \
+	cp -R "$$CONTEXT_REFRESH_SRC" "$$PAYLOAD/services/context-refresh"; \
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \
