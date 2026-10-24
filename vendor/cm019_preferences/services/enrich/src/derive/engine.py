@@ -41,7 +41,7 @@ class DimensionConfig:
     # sensitive word anywhere withholds it: genres, cuisines, topics, grocery
     # items, venues, brands, sites) or "exact" (only when the value IS a
     # sensitive term: the NAMES of people, films, shows and artists, which may
-    # contain one legitimately, "Christian Bale"). "" and unknown dimensions:
+    # contain one legitimately, e.g. an actor whose surname is a faith word). "" and unknown dimensions:
     # contains (fail closed). dimensions.yaml opts a dimension into "exact".
     sensitive_match: str = ""
     # Recency half-life in days for this dimension's evidence. None = the 540d

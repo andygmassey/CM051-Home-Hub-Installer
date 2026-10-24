@@ -335,10 +335,10 @@ def main():
     print("arm 6: the P10 producer is vendored and called before the write")
     reg = TMP / "minors.json"
     reg.write_text(json.dumps({"version": 1, "minors": [
-        {"slug": "sam-example", "names": ["Sam Example"], "identifiers": ["+447700900123"]}]}))
+        {"slug": "jane-doe", "names": ["Jane Doe"], "identifiers": ["+447700900123"]}]}))
     from services.ingest.src.minors import MinorsRegistry
     from services.ingest.src.parsers.base import ParsedPreference
-    kid = ParsedPreference(subject="Sam Example's swimming lesson", category="event", source="synthetic")
+    kid = ParsedPreference(subject="Jane Doe's swimming lesson", category="event", source="synthetic")
     adult = ParsedPreference(subject="Synthetic jazz album", category="music", source="synthetic")
     n = MinorsRegistry.load(reg).stamp([kid, adult])
     check(n == 1 and kid.to_payload(USER)["extra"].get("about_minor") and

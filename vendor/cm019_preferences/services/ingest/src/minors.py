@@ -9,8 +9,8 @@ single choke point every parser's output passes through (``pipeline._process_bat
 Registry contract (JSON file, owner-set; the setter UI/endpoint is NOT in this repo):
 
     {"version": 1, "minors": [
-        {"slug": "sam-example", "names": ["Sam Example"],
-         "identifiers": ["+447700900123", "sam@example.test", "@sam_example"]}]}
+        {"slug": "jane-doe", "names": ["Jane Doe"],
+         "identifiers": ["+447700900123", "jane@example.test", "@jane_doe"]}]}
 
 Path: env OSTLER_MINORS_FILE, else ~/.ostler/minors.json. FILE ABSENT = nobody is
 flagged. FILE PRESENT BUT UNREADABLE = fail closed (raise): an unknown registry must

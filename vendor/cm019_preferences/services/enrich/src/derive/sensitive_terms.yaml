@@ -19,8 +19,8 @@
 # - a hangul term of 2 characters must START a word (not follow another
 #   hangul syllable), so 기도 matches 기도를 but not 경기도; a longer hangul
 #   term matches as a substring;
-# - an `exceptions` phrase is blanked out BEFORE matching, so "Diet Coke",
-#   "AS Roma" and "Great Depression" are not read as diet, ethnicity or health.
+# - an `exceptions` phrase is blanked out BEFORE matching, so a soft-drink brand,
+#   a football club and a historical slump are not read as diet, ethnicity or health.
 #
 # Add a term here, never a second list elsewhere.
 # tests/derive/test_sensitive_never_surfaced.py fails if a surfaced vocabulary,
@@ -149,8 +149,8 @@ advocacy_domains:
 
 # Literal-preference categories whose SUBJECT is a NAME (an artist, a film, a
 # song, a book, a show, a game). Read-out uses EXACT matching for these, the
-# same rule the write side applies to media name dimensions: "Black Sabbath",
-# "The Dark Knight - Christian Bale" and "Amy Winehouse - Rehab" are tastes,
+# same rule the write side applies to media name dimensions: a band, a film
+# credited to an actor, and a song whose names hold a sensitive word are tastes,
 # not Art. 9 data. Every other or missing category uses contains matching.
 name_categories:
   [music, song, songs, track, tracks, album, albums, artist, artists, movie, movies, film, films,

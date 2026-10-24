@@ -120,7 +120,8 @@ def is_about_minor_text(text: str) -> bool:
 def is_sensitive_exact(text: str) -> bool:
     """True only when the text IS a sensitive term (or its plural) or a category
     label, not when it merely contains one. For NAMES of people, films and shows
-    ("Christian Bale", "The Passion of the Christ"), where a sensitive word is
+    (an actor whose surname is a faith word, a film titled after a religious
+    story), where a sensitive word is
     part of a legitimate name."""
     _load()
     low = _norm(text)
@@ -153,7 +154,7 @@ def surfaceable(*texts: str, category: Optional[str] = None) -> bool:
     """The read-out predicate: False when the category is never surfaced
     (dietary...) or any text is sensitive. A NAME category (music, film, book,
     podcast...) uses EXACT matching, as the write side does for media name
-    dimensions, so "Black Sabbath" or "Amy Winehouse - Rehab" stays; every
+    dimensions, so a band or a song whose name holds such a word stays; every
     other or missing category uses contains matching (fail closed)."""
     cat = str(category).strip().lower() if category is not None else ""
     if cat and cat in never_read_categories():

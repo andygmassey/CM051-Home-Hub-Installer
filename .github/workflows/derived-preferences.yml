@@ -45,6 +45,13 @@ on:
       - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
+      - 'vendor/cm019_preferences/services/enrich/src/cli.py'
+      - 'vendor/cm019_preferences/services/enrich/src/enricher.py'
+      - 'vendor/cm019_preferences/services/enrich/src/hierarchy.py'
+      - 'vendor/cm019_preferences/services/common/recency.py'
+      - 'vendor/cm019_preferences/services/ingest/src/minors.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py'
       - '.github/workflows/derived-preferences.yml'
   push:
     branches: [main]
@@ -100,6 +107,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_scroll_carries_privacy_level.py
+      - name: The shipped enrich command fills topic QIDs behind consent, P9 and P10, and derive writes the theme
+        # T0i/T0j: python -m services.enrich.src.cli enrich --all from the
+        # vendored tree, then derive_runner over pyoxigraph; gated items
+        # (sensitive, minor, L3, never-read category) are never sent.
+        if: always()
+        run: |
+          python3 -m pip install --quiet -r vendor/cm019_preferences/requirements.txt 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py
