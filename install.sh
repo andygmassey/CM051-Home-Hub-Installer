@@ -3637,7 +3637,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8994 and :16744, both of which run
+    # Its two top-level arming calls are :8994 and :16837, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17539, where the note reads
+    # WhatsApp Web session path did it again at :17632, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17556 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17649 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3674,9 +3674,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8994, :16744) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:8994, :16837) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19712 / :19890 / :20047 / :20492 path. There the
+    # :19805 / :19983 / :20140 / :20585 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -12594,7 +12594,8 @@ done
 # law, so every region sees it.
 #
 # Wording is verbatim from legal/consent_strings.py
-# (SPOKEN_CAPTURE_RECORDING_CONSENT). Decision held in
+# (SPOKEN_CAPTURE_RECORDING_CONSENT), except the legal note, which is now
+# chosen by the Mac's region (see LEGAL NOTE BY REGION below). Decision held in
 # OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION until Phase 3 pip-installs
 # ostler_security; then persisted via consent_cli alongside the others.
 #
@@ -12602,6 +12603,98 @@ done
 # EU voice gate -- declining just keeps spoken transcription off; text
 # conversations are unaffected. Default seeded "n" so spoken transcription
 # is opt-in (the safe posture for someone who clicks straight through).
+#
+# LEGAL NOTE BY REGION (Andy, 2026-10-24). The legal note under this screen
+# is chosen by the Mac's REGION, never its language: a Chinese reader living
+# in London gets the UK line. The region is the country part of the global
+# AppleLocale default (System Settings > General > Language & Region >
+# Region), read here and by the GUI (LegalRegion in
+# gui/OstlerInstaller/Steps/ViewCopy.swift) with the same rule, pinned on both
+# sides by tests/fixtures/legal_region_contract.tsv. OSTLER_APPLE_LOCALE is
+# the test seam and overrides the real default in both.
+#
+# Every region line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and needs local
+# professional sign-off. The strings and their per-region notes live in
+# install.sh.strings.en-GB.sh (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
+#
+# This is deliberately NOT OSTLER_REGION (section 2.5): that one decides the
+# Article 9 screen from contacts / phone code / LANG with an EU default, a
+# different question with a different safe direction.
+_ostler_legal_apple_locale() {
+    if [[ -n "${OSTLER_APPLE_LOCALE+x}" ]]; then
+        printf '%s' "${OSTLER_APPLE_LOCALE}"
+        return 0
+    fi
+    # A Mac with no Region set has no AppleLocale; `defaults` then exits
+    # non-zero. That is "region unknown" (neutral core only), not an error,
+    # so the status is read here rather than left to the ERR trap.
+    local _v
+    if _v="$(defaults read -g AppleLocale 2>&1)"; then
+        printf '%s' "${_v}"
+    fi
+    return 0
+}
+
+_ostler_legal_country_from_locale() {
+    # $1 = an AppleLocale value: en_GB, zh-Hant_GB, en_US@rg=hkzzzz, es_419.
+    # Prints the ISO-3166 alpha-2 REGION, uppercased, or "" when the value
+    # names no two-letter region. The language part is never consulted.
+    local raw="$1" rg="" base cc
+    if [[ "${raw}" == *rg=* ]]; then
+        rg="${raw#*rg=}"
+        rg="${rg:0:2}"
+        if [[ "${rg}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+            printf '%s' "${rg}" | tr '[:lower:]' '[:upper:]'
+            return 0
+        fi
+    fi
+    base="${raw%%@*}"
+    base="${base%%.*}"
+    if [[ "${base}" != *_* ]]; then
+        return 0
+    fi
+    cc="${base##*_}"
+    if [[ "${cc}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+        printf '%s' "${cc}" | tr '[:lower:]' '[:upper:]'
+    fi
+    return 0
+}
+
+_ostler_legal_jurisdiction() {
+    # $1 = ISO alpha-2 region. gb | eu | hk | us | other.
+    # eu = the EU-27 plus the EEA states (IS, LI, NO), where the GDPR applies.
+    case "$1" in
+        GB) printf 'gb' ;;
+        AT|BE|BG|HR|CY|CZ|DK|EE|FI|FR|DE|GR|HU|IE|IT|LV|LT|LU|MT|NL|PL|PT|RO|SK|SI|ES|SE|IS|LI|NO)
+            printf 'eu' ;;
+        HK) printf 'hk' ;;
+        US) printf 'us' ;;
+        *) printf 'other' ;;
+    esac
+}
+
+_ostler_spoken_capture_legal_note() {
+    # Prints the whole legal note for the Mac's region.
+    local cc juris note
+    cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+    juris="$(_ostler_legal_jurisdiction "${cc}")"
+    note="${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE}"
+    case "${juris}" in
+        gb) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB}" ;;
+        eu)
+            note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU}"
+            case "${cc}" in
+                DE) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE}" ;;
+                FR) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR}" ;;
+            esac
+            ;;
+        hk) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK}" ;;
+        us) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US}" ;;
+    esac
+    printf '%s' "${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY}"
+}
+
+_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE="$(_ostler_spoken_capture_legal_note)"
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
@@ -12624,12 +12717,12 @@ echo ""
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y}"
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N}"
 echo ""
-echo -e "  ${DIM}${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL}${NC}"
+echo -e "  ${DIM}${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}${NC}"
 echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
-    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
+    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "${MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP}"$'\n\n'"${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}" "" "consent_spoken_capture")"
     case "${SPOKEN_CAPTURE:-}" in
         y|Y)
             OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="accepted"
