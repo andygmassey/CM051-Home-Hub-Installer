@@ -69,4 +69,4 @@ the ssh probe `call_audio_never_retained`; this item is the capture it needs.
    `call_audio_never_retained` must report `VERDICT: PASS -- 0 audio files after N transcript(s)`.
 
 **Record:** PASS only on that probe line. Any audio file left in the capture
-temp dir or the transcripts dirs is a FAIL of Andy's core privacy rule.
+temp dir or the transcripts dirs is a FAIL of the owner's core privacy rule.

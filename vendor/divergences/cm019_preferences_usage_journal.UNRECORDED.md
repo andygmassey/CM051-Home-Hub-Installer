@@ -69,7 +69,7 @@ this change.
 
 ## 2026-10-02, same day: estimate on miss, never drop a call
 
-Andy's product rule, same review: "I'd rather Bursar overcounted, than
+The owner's product rule, same review: "I'd rather Bursar overcounted, than
 undercounted." `RollingUsageRecorder.add()` gained an optional
 `estimated_input_tokens` kwarg: when Ollama reports no `prompt_eval_count` at
 all, `vectorizer.py` now computes a chars/4 estimate of the text it actually
@@ -84,7 +84,7 @@ this walk-defect review actually touched. The other four #2472 producers
 `cm059_scout_newsletters`) are UNCHANGED and still write nothing on a miss --
 whether to roll this rule out estate-wide, and whether to add a real
 "estimated" field to the Rust `TokenUsage` schema so the UI can show it
-honestly, are decisions for Archie/Andy, not assumed here.
+honestly, are decisions for Archie/the owner, not assumed here.
 
 Proven by execution, same two files: both now also assert that an
 unmeasured call writes one ESTIMATED row (not zero), with the `-est` suffix
@@ -130,7 +130,7 @@ macmini16-walk's own `preferences` collection (a test/walk box): 95 of
 more with zero candidates found both times (idempotent, proven by
 execution, not asserted). NOT wired into install.sh as an automatic
 upgrade step in this PR -- that decision (same shape as `repair_lid_as_
-phone`'s install.sh wiring) is flagged for Archie/Andy, not assumed here.
+phone`'s install.sh wiring) is flagged for Archie/the owner, not assumed here.
 Retire the parser-fix portion by landing CM019 PR #396 and re-pinning;
 the repair script has no upstream to retire against since it is native
 to this repo.
@@ -216,7 +216,7 @@ filter weighs play_count. Last played is the LATEST event (`_later`), not the
 first row. Play Activity drops plays under 30 s (`MUSIC_MIN_PLAY_MS`, Spotify's
 rule); Daily Tracks counts plays, not skips, and drops a track with 0 plays.
 Test: `tests/test_music_services_score_on_one_scale.py`.
-## No per-source storage cap (CM051 #28, Andy 2026-10-14: "Need everything.")
+## No per-source storage cap (CM051 #28, the owner 2026-10-14: "Need everything.")
 
 **File:** `vendor/cm019_preferences/services/ingest/src/filters.py`
 - `PreferenceFilter.MAX_PREFS_PER_SOURCE`: 5000 -> `None` (no cap).
@@ -333,13 +333,34 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3
 - These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
 - Retire: nothing to retire for the engine itself. It is source at the pin.
 
+## 2026-10-22 smart-prefs: derive across all of life (personal-world-graph #422)
+
+Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE from source at the pin, because upstream #422 is open. It ACKS UPSTREAM andygmassey/personal-world-graph PR #422 (branch feat/smart-prefs-all-of-life): the same diff, except `ingest/src/parsers/linkedin.py` (see the round-2 bullet).
+
+- Changed, byte-identical to #422's head: `services/enrich/src/derive/{config,engine,model,query,readers}.py`, `services/enrich/src/derive/{dimensions,readers}.yaml`, `ontology/upper/pwg-derived.ttl` (declares `pwg:evidenceTitle`). The other 10 files grafted in #2954 are unchanged.
+- What it does: the registry goes from three film dimensions to 21 across films, tv, music, books, podcasts, interests, web, news, food, places and brands, same output contract. Engine guards: one preference is one observation of a value, `max_items` per dimension, evidence titles on the node, an overlay tag node with two labels is dropped, the gateway scrolls once per category set.
+- Also (round 2): `services/ingest/src/parsers/linkedin.py` gains `_parse_positions` and `_parse_profile_industry` (Positions.csv; only the Industry column of Profile.csv) and a directory export now reaches Skills, Positions and Profile. Applied by patch(1) onto the vendored file, which keeps its own claim-by-shape divergence; there `positions.csv` and `profile.csv` join `LINKEDIN_AMBIGUOUS_FILES` with LinkedIn's column names, so a foreign file of the same name is not claimed. The upstream diff is the plain-list version of the same change. Registry also gains food.restaurant, health.activity, work.*, place.area, finance.spend_category (union with personal-world-graph feat/pwg-derive-general chunk 6).
+- Round 3 (Archie ruling): `derive/{consume,query,endpoint}.py` also carry #422's category interleave: the endpoint's top-N is round-robin by category (`get_mixed_preferences`, `interleave_by_category`), so one wide category cannot own the list. The HUB route that actually serves /api/v1/preferences/derived is `vendor/cm041/assistant_api/derived_preferences.py` (CM041 #215, vendored by #3111), a verbatim lift of this builder with its own reader; it still ranks by confidence alone and needs the same lift (see the PR body).
+- Round 4 (the owner: types before things): dimensions carry `tier: broad|specific`; the endpoint takes `tier` (default `broad`, `all` = old behaviour, broad first within a category); new reader kinds `rollup` (a tag known for some items under an artist/album/series/restaurant applies to all of them) and `lexicon`, and SHARED vocabularies `derive/vocab/{cuisine,music_style}.yaml` (food.cuisine and media.music.genre map into them). Same files as #422's round 4. The walk probe's route URL gains `&tier=all` so it still counts every derived preference.
+- Round 5 (Archie ruling, 2026-10-24): `derive/readers.py` is no longer byte-identical to #422's head: its SCROLL_FIELDS block carries personal-world-graph main's three extra keys (`privacy_level`, `compartment_level`, `user_id`) so the privacy gate sees a scrolled point's level. See the privacy-gate section below.
+- Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` and `tests/test_vendored_linkedin_career_reaches_the_derive_engine.py` (both wired in `derived-preferences.yml`): RED on main, GREEN here.
+- Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
+## 2026-10-22: ingest contract (Apple Music artist and play time, Uber event time)
+
+Tree `cm019_preferences`. Pin NOT moved. Hand edits, no patch (`divergence_patch` is empty for this tree, see above).
+
+- `services/ingest/src/parsers/apple.py`: (1) new helpers `_split_artist_track`, `_first_timestamp`, `_artist_lookup` and the constants `_APPLE_PLAY_TIMESTAMP_COLUMNS`, `_APPLE_HISTORY_FILES`, directly after `_later`. (2) `_parse_track_play_history` and `_parse_daily_tracks` now put `extra["artist"]` and `extra["track"]` on every row whose description is "artist - title". (3) `_parse_play_activity` reads the play time from the plain event column, then the event-end, event-start and event-received columns, matched case-insensitively (it read only the first, which is blank on about two thirds of completed plays in a real export), and sets `extra["artist"]` from the sibling history files when the title maps to exactly one artist. Subjects are unchanged on purpose: the stable preference id derives from them.
+- `services/ingest/src/parsers/uber.py`: `observed_at` is now the trip or order request time on trip records, food order records, restaurant aggregates and food item aggregates (it was only a display string in `extra["timestamp"]`). New helpers `_as_utc`, `_later_dt`.
+- Why no patch: same reason as above, the tree has no recorded patch and the shared-file delta is the 42-file reconciliation owed to the CM019 owner.
+- Owed upstream: yes. Both changes are ports of personal-world-graph PR "ingest contract: Apple Music artist and real play time, Uber event time"; retire this section when that merges and the tree is re-pinned past it.
+- Proof: tests/test_ingest_contract.py (RED on origin/main, GREEN here, 7 mutants caught), wired in .github/workflows/derived-preferences.yml.
 ## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate, UNMERGED upstream)
 
 Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
 
 - Added `services/enrich/src/privacy_gate.py`, byte-identical to the upstream PR head (sha256 87698fb4385bca3cca8728de6b605d7429e9af1943a28909eb4f40b01eee65e2 on both sides).
 - `services/enrich/src/enricher.py`: the upstream hunks applied by exact replacement, because the vendored file carries earlier CM051 divergence (eligibility gate, budget, wikidata_film routing). Measured: the sorted multiset of changed lines equals upstream's for this file (38 lines, identical sha256 of the sorted set).
-- NOT carried: upstream's `derive/readers.py` SCROLL_FIELDS change. The vendored derive tree predates SCROLL_FIELDS, and nothing in the vendored tree drives an online lookup from the derive scroll (representative-first enrichment, upstream #431, is not vendored). The vendored enricher reads the full Qdrant payload (`with_payload: True`), so `compartment_level` reaches the gate.
+- CLOSED (CM051 #3116, 2026-10-24): upstream's `derive/readers.py` SCROLL_FIELDS change is now carried. It was first NOT carried because the vendored derive tree predated SCROLL_FIELDS; #3116 brought SCROLL_FIELDS in without the level keys, so a point scrolled by a derive reader reached `privacy_gate` with no level and was refused as `level_unknown` (L2 too). The SCROLL_FIELDS block is now byte-identical to personal-world-graph main (`privacy_level`, `compartment_level`, `user_id`). Proof: `tests/test_vendored_derive_scroll_carries_privacy_level.py` (wired in `derived-preferences.yml`): an L3 point scrolled by a real `QdrantFieldReader` through the real `HttpStoreGateway` is refused as `level_L3`, legacy compartment 3 as `level_legacy_3`, the L2 control passes; with the three keys removed all 4 arms are red (`level_unknown`).
 - Proof: `tests/test_cm019_enrich_privacy_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/privacy_gate.py`; with the module present and the old enricher, the stats field it counts into does not exist).
 - Retire: re-pin past the upstream merge commit.
 
