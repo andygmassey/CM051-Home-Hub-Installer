@@ -182,6 +182,7 @@ else
 fi
 newkeys="$(grep -oE '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_[A-Z_]+' "${STRINGS}")"
 [[ $(wc -l <<< "${newkeys}") -eq 10 ]] && pass "10 legal keys, all named CONSENT (l10n legal gate)" || bad "expected 10 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* keys, got: ${newkeys}"
-if grep -E '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_' "${STRINGS}" | grep -q $'\xe2\x80\x94'; then bad "em dash in a legal key"; else pass "no em dash in the legal keys"; fi
+legal_lines="$(grep -E '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_' "${STRINGS}")"
+if grep -q $'\xe2\x80\x94' <<< "${legal_lines}"; then bad "em dash in a legal key"; else pass "no em dash in the legal keys"; fi
 
 exit "${fail}"
