@@ -92,13 +92,13 @@ else bad "6 a failing 8443 serve was silent or aborted: $out"; fi
 
 echo "uninstaller"
 if [[ -z "${UNSERVE_MISSING:-}" ]]; then
-    mkdir -p "$W/home/.ostler/tailscale"
-    python3 - "$W/home/.ostler/tailscale/tailscaled.sock" <<'PY'
+    mkdir -p "$W/hm/.ostler/tailscale"
+    python3 - "$W/hm/.ostler/tailscale/tailscaled.sock" <<'PY'
 import socket, sys
 s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])
 PY
     echo 8443 > "$STUB_STATE"; echo 8089 >> "$STUB_STATE"; : > "$STUB_LOG"
-    out="$(HOME="$W/home" OSTLER_DIR="$W/home/.ostler" PATH="$W:$PATH" FAIL_ON="" bash -c ". '$W/unserve.sh'; _u_tailscale_unserve")"
+    out="$(HOME="$W/hm" OSTLER_DIR="$W/hm/.ostler" PATH="$W:$PATH" FAIL_ON="" bash -c ". '$W/unserve.sh'; _u_tailscale_unserve")"
     if grep -q -- 'serve --tcp=8443 off' "$STUB_LOG" && ! grep -qx 8443 "$STUB_STATE"; then ok "7 the uninstaller removes the 8443 forward"; else bad "7 uninstall left the 8443 forward; calls: $(tr '\n' '|' < "$STUB_LOG")"; fi
     grep -qx 8089 "$STUB_STATE" && ok "8 it removes only 8443 (8089 untouched)" || bad "8 it also removed 8089"
     grep -q "Removed the tailnet forward for port 8443" <<< "$out" && ok "9 the removal is logged" || bad "9 the removal printed nothing"
