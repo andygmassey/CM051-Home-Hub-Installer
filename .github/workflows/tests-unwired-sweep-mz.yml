@@ -104,6 +104,7 @@ jobs:
             tests/test_whatsapp_channel_block.sh \
             tests/test_wiki_baseline_background.sh \
             tests/test_wiki_compile_gets_owner_tz.sh \
+            tests/test_wiki_compiler_gets_assistant_name.sh \
             tests/test_wiki_compose_paths.sh \
             tests/test_wiki_recompile_after_late_hydration.sh \
             tests/test_write_pipeline_signals.sh \
