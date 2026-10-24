@@ -66,15 +66,34 @@ final class SystemRequirementsGateTests: XCTestCase {
         func count() -> Int { calls }
     }
 
+    /// Records permission requests instead of making them. Installed on
+    /// EVERY coordinator in this file, so no arm of any test (including
+    /// a mutant with the gate removed) can raise a real TCC dialog.
+    final class CountingRequester: PermissionRequester {
+        private(set) var calls = 0
+        func request(_ permission: PrewarmPermission) async -> Bool {
+            calls += 1
+            return true
+        }
+    }
+
     private var tempDir: URL!
+    private var requester: CountingRequester!
 
     override func setUp() async throws {
+        // The prewarm's AppleEvent probe (`tell application "Contacts"`)
+        // is a static switch, not part of the requester. Off for this
+        // whole class so no test can put an Automation prompt on screen.
+        PermissionsPrewarmer.appleEventContactsProbeEnabled = false
+        requester = CountingRequester()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("f006-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     }
 
     override func tearDown() async throws {
+        await settle()
+        PermissionsPrewarmer.appleEventContactsProbeEnabled = true
         try? FileManager.default.removeItem(at: tempDir)
     }
 
@@ -102,6 +121,10 @@ final class SystemRequirementsGateTests: XCTestCase {
         let coord = InstallerCoordinator(systemReadings: r)
         coord.licensePath = tempDir.appendingPathComponent("license.json")
         coord.fullDiskAccessProbe = { true }
+        let req = requester!
+        coord.setPermissionsPrewarmerFactory {
+            PermissionsPrewarmer(emitLog: { _, _ in }, requester: req, gapMillis: 0)
+        }
         let transport = RecordingTransport()
         coord.setRegistrationClient(DeviceRegistrationClient(
             endpoint: URL(string: "https://registration.invalid/register-device")!,
@@ -131,8 +154,6 @@ final class SystemRequirementsGateTests: XCTestCase {
         // The customer cannot press anything that leads on, but even if
         // the permissions flow were finished the root must not move to
         // the licence screen.
-        coord.beginPermissionsPrewarm()
-        XCTAssertEqual(coord.permissionsIntroState, .intro, "no permission prompt may start")
         coord.skipPermissionsPrewarm()
         XCTAssertEqual(coord.rootScreen, .systemRequirements,
                        "must not reach the licence screen on an 8 GB Mac")
@@ -149,6 +170,14 @@ final class SystemRequirementsGateTests: XCTestCase {
         let calls = await transport.count()
         XCTAssertEqual(calls, 0, "no device-registration call may be made")
         XCTAssertEqual(coord.registrationGate, .idle)
+    }
+
+    func test8GBMacNeverStartsThePermissionPrompts() async {
+        let (coord, _) = makeCoordinator(readings(gb: 8))
+        coord.beginPermissionsPrewarm()
+        await settle()
+        XCTAssertEqual(coord.permissionsIntroState, .intro, "the prewarm must not start")
+        XCTAssertEqual(requester.calls, 0, "no permission request may be made")
     }
 
     func test8GBMacNeverRaisesTheAdminPrompt() async {
