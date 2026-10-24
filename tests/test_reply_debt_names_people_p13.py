@@ -184,3 +184,38 @@ def test_control_without_the_owner_env_the_owner_is_not_dropped(home, now, store
     H.write_snapshot(home, walk_snapshot(now))
     out = run_endpoint(home, {"OXIGRAPH_URL": store})
     assert out["payload"]["excluded"]["owner"] == 0, out["payload"]
+
+
+# ── Archie's review of CM048 #104: two mutants survived. Same kills here,
+#    through the real vendored ical-server. ──────────────────────────────
+
+def test_self_handles_alone_mark_the_owner(home, now, store):
+    """OSTLER_IMESSAGE_SELF_HANDLES is one of the owner's handle sources;
+    dropping it from handle_identity.OWNER_HANDLE_ENV_VARS survived the suite."""
+    H.connect(home)
+    H.write_snapshot(home, walk_snapshot(now))
+    out = run_endpoint(home, {"OSTLER_IMESSAGE_SELF_HANDLES": "+447700900001",
+                              "OXIGRAPH_URL": store})
+    p = out["payload"]
+    assert p["excluded"]["owner"] >= 1, p
+    assert all("900001" not in (d.get("thread_id") or "") for d in p["debts"]), p
+
+
+def test_unresolved_people_are_one_counted_line_not_one_row_each(home, now, store):
+    """Listing each unresolved debt as its own row beside the count survived
+    the suite. Three unsaved numbers and one contact: exactly two rows."""
+    snap = walk_snapshot(now)
+    snap["threads"] = [t for t in snap["threads"] if t["chat_id"].endswith("+447700900123")]
+    for h in ("+447700900997", "+447700900998", "+447700900999"):
+        snap["threads"].append(
+            {"chat_id": f"iMessage;-;{h}", "display_name": None, "participants": [h],
+             "is_group": False,
+             "last": {"text": "Are you free on Friday?", "is_from_me": False, "sender": h,
+                      "timestamp": (now - timedelta(days=3)).isoformat()}})
+    H.connect(home)
+    H.write_snapshot(home, snap)
+    p = run_endpoint(home, {**OWNER_ENV, "OXIGRAPH_URL": store})["payload"]
+    rows = p["brief_line"].split("\n")[1:]
+    assert rows.count("  - 3 people not in your contacts") == 1, p["brief_line"]
+    assert len(rows) == 2, p["brief_line"]
+    assert "Unknown number" not in p["brief_line"], p["brief_line"]
