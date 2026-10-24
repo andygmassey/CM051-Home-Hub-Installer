@@ -1,0 +1,74 @@
+name: minors-registry-row
+
+# 118 (2026-10-23, project_minors_flag). The owner's under-18 list
+# (~/.ostler/minors.json) is read by the ingest, which STOPS IMPORTS if the file
+# is present but unreadable. The Doctor must say so, and must never print or log
+# a name from the file. Three axes, each `if: always()`:
+#   row      the Doctor row appears for every corrupt shape and not for an absent
+#            or valid file, through the real run_all_rules and _run_diagnostics.
+#   bundle   no name reaches the support bundle (raw, redacted, mailto) or a log.
+#   at-rest  the file's default path is inside the tree install.sh keeps out of
+#            Time Machine.
+#   routes   the CM041 setter, suggestion and dismissal routes (grafted into
+#            vendor/cm041) behave: mode 0600, atomic, refuse a corrupt list,
+#            the suggestion never marks, nothing identifying is logged.
+# Exit 2 is CANNOT-RUN and fails the step.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'install.sh'
+      - 'scripts/check_doctor_proxy_paths.sh'
+      - 'vendor/cm041/assistant_api/**'
+      - 'vendor/ostler_security/**'
+      - 'tests/test_doctor_minors_registry_row.py'
+      - 'tests/test_minors_registry_is_inside_the_at_rest_exclusion.py'
+      - 'tests/test_doctor_proxy_paths_predicate.sh'
+      - '.github/workflows/minors-registry-row.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  minors-registry-row:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Doctor deps
+        run: python3 -m pip install --quiet pytest -r vendor/doctor/agent/requirements.txt
+      - name: The Doctor row, the support bundle and the logs
+        if: always()
+        run: python3 -m pytest -q --no-header -p no:cacheprovider tests/test_doctor_minors_registry_row.py
+      - name: The under-18 list is inside the at-rest exclusion
+        if: always()
+        run: python3 tests/test_minors_registry_is_inside_the_at_rest_exclusion.py
+      - name: The four under-18 routes are in DOCTOR_PROXY_PATHS
+        if: always()
+        run: |
+          bash scripts/check_doctor_proxy_paths.sh
+          bash tests/test_doctor_proxy_paths_predicate.sh
+      - name: The under-18 routes (setter, suggestion, dismissal) in the vendored ical-server
+        if: always()
+        run: |
+          python3 -m pip install --quiet ./vendor/ostler_security httpx
+          n="$(python3 -m pytest vendor/cm041/assistant_api/tests/test_minors_setter.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 27 ]; then
+            echo "REFUSING: expected at least 27 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest -q -p no:cacheprovider vendor/cm041/assistant_api/tests/test_minors_setter.py

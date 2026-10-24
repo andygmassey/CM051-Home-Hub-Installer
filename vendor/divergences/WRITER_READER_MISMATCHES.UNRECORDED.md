@@ -1668,6 +1668,17 @@ The import, the `derived_preferences_section` call, and the
 vendor-only module they depend on. Guarded by
 `tests/test_doctor_shows_derived_preferences_status.py`.
 
+## The Doctor says when the under-18 list cannot be read (CM051 118) -- `doctor`
+
+Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_minors_registry` and `_minors_registry_path`, the copy imports, one entry in `ALL_RULES`) and `vendor/doctor/agent/diagnostic_copy.py` (new `MINORS_UNREADABLE_*` block).
+
+### Why
+
+PWG #434 stamps `extra.about_minor` at ingest from the owner's registry (`OSTLER_MINORS_FILE`, default `~/.ostler/minors.json`) and FAILS CLOSED: a file that is present but is not a JSON object holding a `minors` list raises, so imports stop. A silent stop is an outage nobody can see. This rule turns it into one critical Doctor row, "Your under-18 list can't be read, so imports are paused until it's fixed". Absent file and valid file give no row. The file holds children's names: the row carries the path only, and nothing from the file is logged (the exception class only).
+
+### What a future sync must preserve
+
+`check_minors_registry`, `_minors_registry_path`, the `MINORS_UNREADABLE_*` copy, and the `ALL_RULES` entry. The reader contract is PWG `MinorsRegistry.load`. Guarded by `tests/test_doctor_minors_registry_row.py` (workflow `minors-registry-row.yml`). With the rule unregistered, the row tests go RED. Upstream: HR015 doctor `check_minors_registry` (same PR series); retire this note on a re-pin that carries it.
 ## Added 2026-10-23, CM051 (118). `doctor`, graft from HR015 fd10f28: #975, #979 (wizard residue), #978 (evernote half)
 
 Pin NOT moved (b0b38310). Source delta measured with `git log b0b38310..fd10f28 -- doctor`
