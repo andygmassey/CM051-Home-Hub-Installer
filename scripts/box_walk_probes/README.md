@@ -328,8 +328,8 @@ Profiles live in `fixtures/data_conservation/expected.json`. `chain` (default)
 compares the box with itself and is valid on ANY box: it expands one row per
 (source, category) the preferences store actually holds, so a category nobody
 listed is still checked. `full` is the golden profile for a box loaded with the
-synthetic demo-life set plus the GDPR export fixtures (built by
-`gen/build_conservation_expected.py` in the walkdriver tree, counts only). Denied
+synthetic demo-life set plus the GDPR export fixtures (hand-maintained in
+this repo; the walkdriver generator is retired; counts only). Denied
 wiki rows are explained with CM044's own `preference_filter.noise_reason()`
 loaded from the install; on a build without it those rows are NOT-MEASURED, not
 assumed zero. Registered as `advisory` in `walk_promote_scope.tsv` until the

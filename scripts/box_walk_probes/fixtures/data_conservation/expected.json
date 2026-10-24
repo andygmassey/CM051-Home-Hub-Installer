@@ -1,5 +1,5 @@
 {
- "about": "Synthetic demo-life golden counts (fictional persona). Counts only. Built by walkdriver gen/build_conservation_expected.py. chain = box-intrinsic, any box; full = box loaded with the demo-life set plus exports. UNCALIBRATED: every non-preference row of `full` is calibrated against the Studio logs for iMessage/WhatsApp keys only; recalibrate on the first golden-loaded walk.",
+ "about": "Synthetic demo-life golden counts (fictional persona). Counts only. Hand-maintained in this repo; the walkdriver generator is retired. chain = box-intrinsic, any box; full = box loaded with the demo-life set plus exports. UNCALIBRATED: every non-preference row of `full` is calibrated against the Studio logs for iMessage/WhatsApp keys only; recalibrate on the first golden-loaded walk.",
  "profiles": {
   "chain": {
    "rows": [
@@ -18,6 +18,13 @@
      "unit": "people"
     },
     {
+     "additions": [
+      {
+       "fact": "walk.seeded.people",
+       "reason": "the walk's own seeds wrote these Person nodes (contact cards, neighbour, grounding person)",
+       "stage": "stored"
+      }
+     ],
      "category": "person",
      "facts": {
       "graph": {
@@ -29,6 +36,7 @@
       "stored": "q.people.total"
      },
      "id": "people/all",
+     "names": "names.people",
      "source": "people",
      "unit": "people"
     },
@@ -88,6 +96,13 @@
      "unit": "people"
     },
     {
+     "additions": [
+      {
+       "fact": "walk.seeded.people",
+       "reason": "the walk's own seeds wrote these Person nodes (contact cards, neighbour, grounding person)",
+       "stage": "stored"
+      }
+     ],
      "category": "person",
      "facts": {
       "graph": {
@@ -99,6 +114,7 @@
       "stored": "q.people.total"
      },
      "id": "people/all",
+     "names": "names.people",
      "source": "people",
      "unit": "people"
     },

@@ -14,6 +14,12 @@ on:
       - 'scripts/box_walk_probes/fixtures/data_conservation/**'
       - 'scripts/tests/test_data_conservation_probe.sh'
       - 'scripts/walk_promote_scope.tsv'
+      - 'scripts/box_walk_probes/lib/seeded_people.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      - 'scripts/box_walk_probes/lib/contact_cards_seed.sh'
+      - 'scripts/box_walk_probes/lib/scale_fixture.py'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/tests/test_walk_seeds_record_the_people_they_write.sh'
       - '.github/workflows/data-conservation-probe-tests.yml'
   push:
     branches: [main]
@@ -22,6 +28,12 @@ on:
       - 'scripts/box_walk_probes/lib/data_conservation.py'
       - 'scripts/box_walk_probes/fixtures/data_conservation/**'
       - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/box_walk_probes/lib/seeded_people.sh'
+      - 'scripts/box_walk_probes/lib/grounding_seed.sh'
+      - 'scripts/box_walk_probes/lib/contact_cards_seed.sh'
+      - 'scripts/box_walk_probes/lib/scale_fixture.py'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/tests/test_walk_seeds_record_the_people_they_write.sh'
       - '.github/workflows/data-conservation-probe-tests.yml'
 
 concurrency:
@@ -38,6 +50,9 @@ jobs:
         run: python3 scripts/box_walk_probes/lib/data_conservation.py selftest
       - name: probe contract, scope row and exit codes
         run: /bin/bash scripts/tests/test_data_conservation_probe.sh
+      - name: the walk's seeds record the people they write (people/all additions)
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_seeds_record_the_people_they_write.sh
       - name: probe --self-test must come back FAIL (its negative control fired)
         run: |
           set +e

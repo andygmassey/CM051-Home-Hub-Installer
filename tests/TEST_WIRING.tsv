@@ -1093,4 +1093,5 @@ scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-
 scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_walk_seeds_record_the_people_they_write.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml

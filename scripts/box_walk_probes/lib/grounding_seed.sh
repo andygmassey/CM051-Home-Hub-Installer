@@ -74,6 +74,8 @@
 GROUNDING_SEED_STATE="unrun"   # unrun | seeded | skipped | absent | failed
 GROUNDING_SEED_DIR=""
 
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/seeded_people.sh"
+
 # The ssh invocation the probes use. Kept identical on purpose: a seed that
 # reaches a different box than the probes measure would be worse than no seed.
 _gs_box_exec() {
@@ -241,6 +243,21 @@ _gs_purge_daemon_memory() {
     return 0
 }
 
+# Record, on the box, how many Person nodes the loader wrote, from the loader's
+# OWN write result: the `statuses = [...]` line it prints after its asserts. The
+# first assert mints the person ("created_person"); a person that already existed
+# answers only "stored" and was not added by this seed (count 0). No such line
+# means the loader never reached its writes, so there is nothing to record.
+# data_conservation reads this (people/all addition at "stored").
+_gs_record_people() {
+    local _gs_sl _gs_cn
+    _gs_sl="$(printf '%s\n' "$1" | sed -n 's/^seed: asserted .*statuses = \(.*\)$/\1/p' | head -n 1)"
+    [ -n "${_gs_sl}" ] || return 0
+    _gs_cn="$(printf '%s\n' "${_gs_sl}" | grep -o 'created_person' | wc -l | tr -d ' ')"
+    _gs_box_exec "$(seeded_people_record_cmd grounding "${_gs_cn}")" \
+        || printf '  NOTE: could not record the seeded person count on the box; data_conservation will read it as unreadable.\n'
+}
+
 grounding_seed_apply() {
     printf -- '--- GROUNDING SEED: a known person, before the grounded probe asks ---\n'
 
@@ -304,6 +321,7 @@ grounding_seed_apply() {
     _gs_out="$(_gs_run_loader "${GROUNDING_SEED_DIR}" 2>&1)"
     _gs_rc=$?
     printf '%s\n' "${_gs_out}" | sed 's/^/    /'
+    _gs_record_people "${_gs_out}"
 
     if [ "${_gs_rc}" -eq 0 ]; then
         export OSTLER_GATE_KNOWN_PERSON="${_gs_kp}"
@@ -352,6 +370,10 @@ grounding_seed_forget() {
     _gs_fout="$(_gs_run_loader "${GROUNDING_SEED_DIR}" --forget 2>&1)"
     _gs_frc=$?
     printf '%s\n' "${_gs_fout}" | sed 's/^/    /'
+    if [ "${_gs_frc}" -eq 0 ]; then
+        _gs_box_exec "$(seeded_people_forget_cmd grounding)" \
+            || printf '  NOTE: could not remove the grounding line from ~/.walk-seeded-people.\n'
+    fi
     if [ "${_gs_frc}" -ne 0 ]; then
         printf '  Left on the box (forget exited %s). Every measurement above was\n' "${_gs_frc}"
         printf '  already taken, so this changes no verdict in this run.\n'

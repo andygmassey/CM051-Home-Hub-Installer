@@ -427,6 +427,11 @@ trap 'exit 143' TERM
 #
 # CM051 #2564: gated on READ_ONLY. This is the exact seed that wrote a
 # synthetic person into a box mid-use -- see the READ-ONLY MODE block above.
+# data_conservation reads ~/.walk-seeded-people (the people the seeds below write). An
+# absent file is a readable 0 only while no seed has run; from here on, on a walk that
+# may write, absent means a seed failed to record and the probe says NOT-MEASURED.
+if [ "$READ_ONLY" -eq 0 ]; then OSTLER_WALK_SEEDS_RAN=1; else OSTLER_WALK_SEEDS_RAN=0; fi
+export OSTLER_WALK_SEEDS_RAN
 if [ "$READ_ONLY" -eq 0 ]; then
     _gs_rc=0
     # FLUSH LEFT, NOT A TYPO. tests/test_the_walk_seeds_the_grounded_probe.sh

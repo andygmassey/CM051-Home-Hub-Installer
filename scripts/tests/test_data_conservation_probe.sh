@@ -10,6 +10,10 @@
 #   G. an all-zero box exits 78 (CANNOT-RUN), never 0
 #   H. a known_gap row that was not read exits 78, never 0 (NOT-MEASURED is not KNOWN-GAP)
 #   I. an absent graph class reads 0 only when the graph answered, and is still judged
+#   J. people/all and the walk's own seeds, on the SHIPPED expected.json (chain and full): 116c's
+#      numbers (in=1, stored/graph 11, 10 seeded) are EXPLAINED; stored = in + seeded + 1 is still
+#      INFLATED; a seed file declaring more than was written is LOST; an unreadable seed file is
+#      NOT-MEASURED (78), never CONSERVED
 # EXIT: 0 pass, 1 fail, 2 cannot-run.
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -81,4 +85,52 @@ python3 "$LIB" adjudicate --expected "$W/exp_cls.json" --facts "$W/f_cls_nm.json
 { [ "$r6" -eq 0 ] && ! grep -q 'unreadable' "$W/o6"; } && ok "I1: an absent Place class reads 0 when the graph answered" || bad "I1: rc=$r6 $(cat "$W/o6")"
 { [ "$r7" -eq 1 ] && grep -q '| pe | a |.*| LOST |' "$W/o7"; } && ok "I2: Person absent under 2 stored is still LOST" || bad "I2: rc=$r7 $(cat "$W/o7")"
 { [ "$r8" -eq 78 ] && grep -q 'x.class.Place unreadable' "$W/o8"; } && ok "I3: without x.class.total an absent class stays unreadable (78)" || bad "I3: rc=$r8 $(cat "$W/o8")"
+# J. 116c: the early phase read 1/1/1/1; after the walk's seeds STORED and GRAPH read 11/11.
+for prof in chain full; do
+    row() { grep '| people | person |' "$1"; }
+    base='"hyd.people.item_count":1,"x.class.total":11,"w.shown.people.source=fda_people_index":11'
+    echo "{\"facts\":{${base},\"q.people.total\":11,\"x.class.Person\":11,\"walk.seeded.people\":10}}" > "$W/j_ok.json"
+    echo "{\"facts\":{${base},\"q.people.total\":12,\"x.class.Person\":12,\"walk.seeded.people\":10}}" > "$W/j_mut.json"
+    echo "{\"facts\":{${base},\"q.people.total\":11,\"x.class.Person\":11,\"walk.seeded.people\":12}}" > "$W/j_over.json"
+    echo "{\"facts\":{${base},\"q.people.total\":11,\"x.class.Person\":11}}" > "$W/j_nm.json"
+    for k in ok mut over nm; do
+        python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/j_$k.json" --profile "$prof" >"$W/jo_$k" 2>&1
+    done
+    row "$W/jo_ok" | grep -q '| EXPLAINED |' && row "$W/jo_ok" | grep -q 'own seeds wrote' \
+        && ok "J1 ($prof): 116c numbers with 10 declared seeded people read EXPLAINED, reason named" || bad "J1 ($prof): $(row "$W/jo_ok")"
+    row "$W/jo_mut" | grep -q '| INFLATED |' \
+        && ok "J2 ($prof): MUTANT stored = in + seeded + 1 stays INFLATED" || bad "J2 ($prof): $(row "$W/jo_mut")"
+    row "$W/jo_over" | grep -q '| LOST |' \
+        && ok "J3 ($prof): a seed file declaring more than was written is LOST" || bad "J3 ($prof): $(row "$W/jo_over")"
+    row "$W/jo_nm" | grep -q '| NOT-MEASURED |' && ! row "$W/jo_nm" | grep -q 'CONSERVED' \
+        && ok "J4 ($prof): an unreadable seed file is NOT-MEASURED, never CONSERVED" || bad "J4 ($prof): $(row "$W/jo_nm")"
+done
+# J5. the early phase, no seed ran: 1/1/1/1 and walk.seeded.people 0 is CONSERVED (the control for J1)
+echo '{"facts":{"hyd.people.item_count":1,"q.people.total":1,"x.class.Person":1,"x.class.total":1,"w.shown.people.source=fda_people_index":1,"walk.seeded.people":0}}' > "$W/j_early.json"
+python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/j_early.json" --profile chain >"$W/jo_early" 2>&1
+grep '| people | person |' "$W/jo_early" | grep -q '| CONSERVED |' \
+    && ok "J5: early phase 1/1/1/1 with 0 seeded is CONSERVED" || bad "J5: $(grep '| people | person |' "$W/jo_early")"
+# K. a LOST or INFLATED people row names the people behind the count (masked, capped); CONSERVED prints none.
+for prof in chain full; do
+    row() { grep '| people | person |' "$1"; }
+    kb='"hyd.people.item_count":1,"x.class.total":11,"x.class.Person":11,"walk.seeded.people":10,"q.people.total":11'
+    nm='"names.people":{"stored_n":11,"shown_n":10,"missing_n":1,"missing":["John Smith"],"extra_n":0,"extra":[]}'
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10,${nm}}}" > "$W/k_lost.json"
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":11,${nm}}}" > "$W/k_ok.json"
+    echo "{\"facts\":{${kb},\"w.shown.people.source=fda_people_index\":10}}" > "$W/k_blind.json"
+    echo "{\"facts\":{${kb},\"q.people.total\":12,\"x.class.Person\":12,\"w.shown.people.source=fda_people_index\":12,\"names.people\":{\"stored_n\":12,\"shown_n\":12,\"missing_n\":0,\"missing\":[],\"extra_n\":1,\"extra\":[\"+44 7700 900123\", \"jo.synthetic@example.com\"]}}}" > "$W/k_infl.json"
+    for k in lost ok blind infl; do
+        python3 "$LIB" adjudicate --expected "$EXP" --facts "$W/k_$k.json" --profile "$prof" >"$W/ko_$k" 2>&1
+    done
+    row "$W/ko_lost" | grep -q '| LOST |' && row "$W/ko_lost" | grep -q 'stored not shown 1: John Smith' \
+        && row "$W/ko_lost" | grep -q 'shown not stored 0: none (of 11 stored)' \
+        && ok "K1 ($prof): LOST by 1 names the missing card, with counts" || bad "K1 ($prof): $(row "$W/ko_lost")"
+    row "$W/ko_ok" | grep -q '| EXPLAINED |' && ! row "$W/ko_ok" | grep -q 'names:' \
+        && ok "K2 ($prof): a passing row prints no name list" || bad "K2 ($prof): $(row "$W/ko_ok")"
+    row "$W/ko_blind" | grep -q 'names: NOT INSTRUMENTED' \
+        && ok "K3 ($prof): a failing row with no names fact says NOT INSTRUMENTED, not 'none'" || bad "K3 ($prof): $(row "$W/ko_blind")"
+    row "$W/ko_infl" | grep -q '| INFLATED |' && row "$W/ko_infl" | grep -q 'shown not stored 1: +44 7700 9xxxxx, e\*\*\*@\*\*\*' \
+        && ! grep -q '900123\|example.com' "$W/ko_infl" \
+        && ok "K4 ($prof): INFLATED lists the extra names and masks phone/email" || bad "K4 ($prof): $(row "$W/ko_infl")"
+done
 echo; echo "== ${PASS} pass / ${FAIL} fail =="; [ "$FAIL" -eq 0 ]
