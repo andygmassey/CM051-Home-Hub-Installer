@@ -82,6 +82,10 @@ class LinkedInParser(BaseParser):
         "comments.csv": ("date", "link", "message"),
         "reactions.csv": ("date", "link", "type"),
         "skills.csv": ("name",),
+        # The owner's career (Ostler smart-prefs). Positions.csv and Profile.csv
+        # are names other exports use; the columns are LinkedIn's own.
+        "positions.csv": ("company name", "title"),
+        "profile.csv": ("first name", "industry"),
     }
 
     def can_parse(self, file_path: Path) -> bool:
@@ -168,6 +172,12 @@ class LinkedInParser(BaseParser):
         elif "skills.csv" in file_name:
             async for pref in self._parse_skills(file_path, default_compartment):
                 yield pref
+        elif "positions.csv" in file_name:
+            async for pref in self._parse_positions(file_path, default_compartment):
+                yield pref
+        elif "profile.csv" in file_name:
+            async for pref in self._parse_profile_industry(file_path, default_compartment):
+                yield pref
         else:
             # Check if it's a directory export - look for Reactions.csv inside
             if file_path.is_dir():
@@ -185,6 +195,16 @@ class LinkedInParser(BaseParser):
                 if company_follows_file.exists():
                     async for pref in self._parse_company_follows(company_follows_file, default_compartment):
                         yield pref
+
+                for name, handler in (
+                    ("Skills.csv", self._parse_skills),
+                    ("Positions.csv", self._parse_positions),
+                    ("Profile.csv", self._parse_profile_industry),
+                ):
+                    f = file_path / name
+                    if f.exists():
+                        async for pref in handler(f, default_compartment):
+                            yield pref
 
     async def _parse_reactions(
         self,
@@ -720,3 +740,94 @@ class LinkedInParser(BaseParser):
             except Exception as e:
                 logger.warning(f"Error parsing skill row: {e}")
                 continue
+
+    @staticmethod
+    def _month_year(raw: str):
+        """'Mar 2019' or '2019' -> datetime, else None."""
+        raw = (raw or "").strip()
+        for fmt in ("%b %Y", "%B %Y", "%Y"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        return None
+
+    async def _parse_positions(
+        self,
+        file_path: Path,
+        default_compartment: int
+    ) -> AsyncIterator[ParsedPreference]:
+        """
+        Parse LinkedIn Positions.csv: the owner's own career history.
+
+        One preference per position, subject = the job title, with the employer
+        in extra so the derive engine can roll up work.role and work.employer.
+        Columns used: Company Name, Title, Started On, Finished On. The free-text
+        Description is deliberately not read.
+        """
+        logger.info(f"Parsing LinkedIn positions from {file_path}")
+
+        async with aiofiles.open(file_path, mode='r', encoding='utf-8-sig') as f:
+            content = await f.read()
+
+        for row in csv.DictReader(content.splitlines()):
+            try:
+                title = (row.get('Title') or '').strip()
+                employer = (row.get('Company Name') or '').strip()
+                if not title:
+                    continue
+                finished = (row.get('Finished On') or '').strip()
+                yield ParsedPreference(
+                    subject=title,
+                    preference_type="Like",
+                    category="professional",
+                    strength=0.6,
+                    observed_at=self._month_year(row.get('Started On', '')),
+                    source=self.source_name,
+                    compartment_level=default_compartment,
+                    size="Small",
+                    extra={
+                        "role_title": title,
+                        "employer": employer,
+                        "current": not finished,
+                        "data_type": "linkedin_position",
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Error parsing position row: {e}")
+                continue
+
+    async def _parse_profile_industry(
+        self,
+        file_path: Path,
+        default_compartment: int
+    ) -> AsyncIterator[ParsedPreference]:
+        """
+        Parse the Industry column of LinkedIn Profile.csv (the owner's profile).
+
+        ONLY Industry is read. Profile.csv also holds name, birth date, address
+        and contact fields; none of them are read or stored.
+        """
+        logger.info(f"Parsing LinkedIn profile industry from {file_path}")
+
+        async with aiofiles.open(file_path, mode='r', encoding='utf-8-sig') as f:
+            content = await f.read()
+
+        for row in csv.DictReader(content.splitlines()):
+            industry = (row.get('Industry') or '').strip()
+            if not industry:
+                continue
+            yield ParsedPreference(
+                subject=industry,
+                preference_type="Like",
+                category="professional",
+                strength=0.7,
+                observed_at=None,
+                source=self.source_name,
+                compartment_level=default_compartment,
+                size="Small",
+                extra={
+                    "industry": industry,
+                    "data_type": "linkedin_profile_industry",
+                }
+            )

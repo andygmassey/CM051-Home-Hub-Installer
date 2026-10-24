@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional
 
-from .consume import AffinityView
+from dataclasses import replace
+
+from .consume import AffinityView, interleave_by_category
 from .model import DERIVED_GRAPH, ENRICH_NS, PWG_NS
 
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
@@ -35,7 +37,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -44,6 +46,8 @@ class DerivedGraphReader:
             "       pwg:confidence ?confidence .\n"
             f'    ?s pwg:belongsToUser <{PWG_NS}user_{user_id}> .\n'
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
+            "    OPTIONAL { ?s pwg:category ?category }\n"
+            "    OPTIONAL { ?s pwg:tier ?tier }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -62,13 +66,56 @@ class DerivedGraphReader:
                     confidence=float(b["confidence"]["value"]),
                     intensity=b.get("intensity", {}).get("value", "casual"),
                     because=because,
+                    category=b.get("category", {}).get("value", ""),
+                    node=subj,
+                    tier=b.get("tier", {}).get("value", ""),
                 )
             )
         return views
 
+    def get_mixed_preferences(
+        self,
+        user_id: str,
+        min_confidence: float = 0.35,
+        limit: int = 8,
+        pool: int = 600,
+        tier: str = "all",
+    ) -> List[AffinityView]:
+        """The top ``limit`` interleaved round-robin by category, within ``tier``
+        (``broad``, ``specific`` or ``all``).
+
+        Ranking by confidence alone lets one wide category (every TV series, every
+        site) own the whole list. This reads a candidate pool WITHOUT evidence,
+        interleaves it, and only then resolves the "because" titles for the few
+        items kept.
+        """
+        ranked = self.get_derived_preferences(
+            user_id, min_confidence=min_confidence, limit=max(pool, limit),
+            with_evidence=False,
+        )
+        if tier != "all":
+            # A node with no tier (a graph written before tiers) is "specific":
+            # it is never a type, and the next derive run restamps it.
+            ranked = [v for v in ranked if (v.tier or "specific") == tier]
+        picked = interleave_by_category(ranked, limit)
+        return [replace(v, because=self._evidence_titles(v.node)) for v in picked]
+
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
-        """Resolve derivedFrom literal URIs to human titles via the overlay's
-        matchedTitle (default graph), best-effort. Empty tuple when none."""
+        """Titles behind a node: its own pwg:evidenceTitle first (written by the
+        engine, works for every source), else the overlay's matchedTitle for the
+        derivedFrom URIs (default graph), best-effort. Empty tuple when none."""
+        own = (
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?title WHERE {\n"
+            f"  GRAPH <{self._graph}> {{ <{node_uri}> pwg:evidenceTitle ?title . }}\n"
+            f"}} ORDER BY ?title LIMIT {int(limit)}"
+        )
+        try:
+            titles = [b["title"]["value"] for b in self._sparql(own) if b.get("title", {}).get("value")]
+        except Exception:
+            titles = []
+        if titles:
+            return tuple(titles)
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
             "SELECT ?title WHERE {\n"
