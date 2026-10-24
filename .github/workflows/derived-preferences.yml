@@ -41,6 +41,8 @@ on:
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
+      - 'tests/test_vendored_derive_scroll_carries_privacy_level.py'
+      - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
@@ -93,6 +95,11 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings
           python3 tests/test_vendored_linkedin_career_reaches_the_derive_engine.py
+      - name: A derive reader's scroll carries the privacy level, so L3 is refused as L3
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_derive_scroll_carries_privacy_level.py
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py

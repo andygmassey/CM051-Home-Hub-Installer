@@ -34,6 +34,10 @@ RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 # repeated category set from one scroll instead of one per reader.
 SCROLL_FIELDS = [
     "category", "preference_id", "subject", "source", "strength", "observed_at", "extra",
+    # The privacy level, so an online lookup driven from these points can refuse
+    # private items (src/privacy_gate.py). Both the canonical and legacy keys.
+    "privacy_level", "compartment_level",
+    "user_id",
 ]
 
 
