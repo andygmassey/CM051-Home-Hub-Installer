@@ -691,6 +691,7 @@ test_repair_netflix_rating_polarity.py	WIRED	.github/workflows/netflix-polarity-
 test_repair_netflix_rating_polarity_marker_skip.sh	WIRED	.github/workflows/netflix-polarity-repair.yml
 test_repair_overmerged_contact_cards.py	WIRED	.github/workflows/contact-card-repair.yml
 test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshness.yml
+test_reply_debt_names_people_p13.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_reply_debt_never_opens_protected_data.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_resolver_robustness.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
