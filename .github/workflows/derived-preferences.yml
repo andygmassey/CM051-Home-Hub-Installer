@@ -91,7 +91,7 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_tiers_and_rollup.py
-      - name: Food evidence reaches Smart Preferences (restaurants, cuisines, what you buy)
+      - name: Food evidence reaches smart preferences (restaurants, cuisines, what you buy)
         # ingest_food stages only the claimed extracts, the parser output derives
         # through the vendored registry, a diet signal stays private, and the OSM
         # lookup makes zero requests unless the owner accepted enrichment.

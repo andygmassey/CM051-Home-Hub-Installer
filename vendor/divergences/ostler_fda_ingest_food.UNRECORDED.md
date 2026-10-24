@@ -1,4 +1,4 @@
-# ostler_fda: ingest_food (2026-10-23, food evidence for Smart Preferences)
+# ostler_fda: ingest_food (2026-10-23, food evidence for smart preferences)
 
 Tree `ostler_fda`. Pin NOT moved; the divergence patch is NOT regenerated
 (`regenerate_forbidden`, unchanged). This is a DIVERGENCE from source at the pin.

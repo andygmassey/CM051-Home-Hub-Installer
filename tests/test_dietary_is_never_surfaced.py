@@ -75,9 +75,9 @@ def pt(cat, subj):
                                     "subject": subj, "strength": 0.5, "source": "food_evidence"}}
 
 
-lines, skipped = pp.to_triples([pt("food", "Synthetic Trattoria"), pt("dietary", "dietary signal: vegan"), pt("Dietary", "dietary signal: halal")])
+lines, skipped = pp.to_triples([pt("food", "Test Trattoria"), pt("dietary", "dietary signal: vegan"), pt("Dietary", "dietary signal: halal")])
 dump = "\n".join(lines)
-check("Synthetic Trattoria" in dump, "arm 3: control, a normal food point is projected")
+check("Test Trattoria" in dump, "arm 3: control, a normal food point is projected")
 check("vegan" not in dump and "halal" not in dump and skipped == 2, "arm 3: dietary points are NOT projected to the Front Page / brief graph")
 check(ip.classify_privacy("dietary", "food_evidence", []) == "L3", "arm 3: the interest profile classes dietary as L3")
 

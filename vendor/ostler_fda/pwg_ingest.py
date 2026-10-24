@@ -2680,7 +2680,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
     }
 
 
-# ── Food evidence (Smart Preferences: restaurants, cuisines, what you buy) ──
+# ── Food evidence (smart preferences: restaurants, cuisines, what you buy) ──
 #
 # Reservation mail, delivery and grocery receipts, calendar meals and restaurant
 # pages are food PREFERENCES, and the preference ingest (CM019) already owns the
