@@ -26,6 +26,18 @@ import SwiftUI
 import XCTest
 @testable import OstlerInstaller
 
+extension SystemReadings {
+    /// A Mac exactly at every floor. For tests that exercise paths past
+    /// the hardware gate and must not depend on the machine running them
+    /// (GitHub's macOS runners have less than 16 GB).
+    static let supportedMacForTests = SystemReadings(
+        memoryBytes: 16 * 1_073_741_824,
+        macOSMajor: 14,
+        macOSVersion: "14.5",
+        isAppleSilicon: true
+    )
+}
+
 @MainActor
 final class SystemRequirementsGateTests: XCTestCase {
 
