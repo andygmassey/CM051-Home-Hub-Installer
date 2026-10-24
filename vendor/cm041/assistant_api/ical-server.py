@@ -1471,6 +1471,39 @@ def _timeline_timestamp(s, tz=None):
         return ""
 
 
+def _graph_all_day(value):
+    """pwg:meetingAllDay as True / False, or None when the graph has no flag
+    (a meeting ingested before the flag existed)."""
+    v = str(value or "").strip().lower()
+    if v in ("true", "1"):
+        return True
+    if v in ("false", "0"):
+        return False
+    return None
+
+
+def _timeline_row_time(raw, all_day=None):
+    """``(timestamp, all_day)`` for one Timeline row, from the calendar's own
+    start value and all-day flag (I22).
+
+    The graph stores a meeting's full start (``2026-10-20 09:30:00+00:00``)
+    and, since the calendar ingest writes it, whether the calendar marked it
+    all-day. The Timeline used to cut the start to its date, so every past
+    meeting reached the app date-only and read "All day". A timed row keeps
+    its time; an all-day row is its date (the app says "All day"). With no
+    flag (an older graph row, a source that does not say), a value with no
+    time of its own is all-day and anything else is timed.
+    """
+    s = str(raw or "").strip()
+    if all_day is None:
+        all_day = bool(re.fullmatch(r"\d{8}|\d{4}-\d{2}-\d{2}", s))
+    if all_day:
+        return _to_iso8601(s[:10] if "-" in s[:10] else s[:8]), True
+    if re.match(r"\d{4}-\d{2}-\d{2} \d", s):
+        s = s.replace(" ", "T", 1)
+    return _to_iso8601(s), False
+
+
 # Google Calendar via gws CLI
 GWS_BIN = "/usr/local/bin/gws"
 GWS_ENV = {
@@ -9224,13 +9257,14 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?m ?date (SAMPLE(?summary) AS ?summary) '
-            '(SAMPLE(?location) AS ?location) '
+            '(SAMPLE(?location) AS ?location) (SAMPLE(?allDay) AS ?allDay) '
             '(GROUP_CONCAT(DISTINCT ?name; SEPARATOR="|") AS ?attendees)\n'
             'WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingDate ?date .\n'
             '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
+            '  OPTIONAL {{ ?m pwg:meetingAllDay ?allDay }}\n'
             '  FILTER(?date >= "{cutoff}"){start_f}{end_f}\n'
             '}} GROUP BY ?m ?date ORDER BY {order}(?date) LIMIT {limit}'.format(
                 ns=PWG_NS, cutoff=cutoff, limit=max(1, limit),
@@ -9260,6 +9294,10 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
             # on every Timeline row (#106c, Andy's walk 2026-09-28).
             "kind": "meeting" if participants else "event",
             "date": (r.get("date") or "")[:10],
+            # The full start and the calendar's all-day flag (I22): the
+            # date alone made every past meeting "All day" in the app.
+            "start": r.get("date") or "",
+            "all_day": _graph_all_day(r.get("allDay")),
             "summary": r.get("summary", ""),
             "participants": participants,
             "location": r.get("location", ""),
@@ -9427,6 +9465,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
             items.append({
                 "kind": "calendar",
                 "date": e.get("start", ""),
+                "all_day": e.get("all_day"),
                 "summary": e.get("summary", ""),
                 "location": e.get("location", ""),
                 "attendees": e.get("attendees", []),
@@ -9503,11 +9542,11 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
         else:
             entry_type = kind or "event"
         raw_date = it.get("date") or ""
-        timestamp = _to_iso8601(raw_date)
+        timestamp, all_day = _timeline_row_time(
+            it.get("start") or raw_date, it.get("all_day"))
         if not timestamp:
             # No readable event date: never shown, and never as "today".
             continue
-        raw_s = str(raw_date).strip()
         # Attendee names come in two shapes:
         #   calendar items: list-of-dicts {name?, email?, role?}
         #   meeting items: a `participants` list-of-strings
@@ -9526,7 +9565,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
             "type": entry_type,
             "timestamp": timestamp,
             # A date with no time of its own: the app says "All day".
-            "all_day": bool(re.fullmatch(r"\d{8}|\d{4}-\d{2}-\d{2}", raw_s)),
+            "all_day": all_day,
             "title": it.get("summary") or "",
             "subtitle": it.get("location") or "",
             "attendees": attendee_names,
