@@ -359,3 +359,11 @@ Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstrea
 - `services/ingest/src/pipeline.py` (3 sites), `services/ingest/src/parsers/email.py` (1), `services/ingest/src/parsers/apple.py` (1): `x or default` became `x if x is not None else default`, so compartment_level 0 (L0Personal) is no longer stored as 2. Applied by exact replacement; the changed lines equal upstream's for each file.
 - Proof: `tests/test_cm019_explicit_l0_survives_ingest_vendored.py` (wired in `enrichment-reaches-corpus.yml`); on origin/main 5 of 11 arms FAIL (explicit 0 stored as 2).
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-10-24: geocoders never log an address, venue or coordinates (personal-world-graph #442, UNMERGED upstream; S8, 118)
+
+Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
+
+- `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
+- Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
+- Retire: re-pin past the upstream merge commit.

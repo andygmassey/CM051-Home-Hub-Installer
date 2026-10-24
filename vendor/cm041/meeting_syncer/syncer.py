@@ -372,9 +372,11 @@ class MeetingSyncer:
             return None
 
         if self._looks_non_human(name, email):
+            # Never the name or address (S8, 118): logs leave the box in
+            # diagnostics bundles. Which fields were present is enough.
             logger.info(
-                "  Skipping non-human attendee: %s <%s>",
-                name or "(no name)", email or "(no email)",
+                "  Skipping a non-human attendee (name=%s, email=%s)",
+                "yes" if name else "no", "yes" if email else "no",
             )
             return None
 
@@ -402,7 +404,8 @@ class MeetingSyncer:
 
         # Create new person
         person_uri = self.resolver.create_person(identity, config.USER_ID)
-        logger.info("  Created person: %s (%s)", name or email, person_uri)
+        # The person's id only, never the name or email (S8, 118).
+        logger.info("  Created person %s", person_uri)
         return person_uri
 
     def sync(self, days=30, dry_run=False):
@@ -448,7 +451,6 @@ class MeetingSyncer:
                 skipped += 1
                 continue
 
-            summary = event.get("summary", "(no title)")
             meeting_date = _parse_event_datetime(event.get("start"))
             attendees = event.get("attendees", [])
 
@@ -462,11 +464,14 @@ class MeetingSyncer:
                 processed.add(uid)
                 continue
 
-            logger.info("  Meeting: %s (%s) — %d attendees", summary, meeting_date or "?", len(other_attendees))
+            # The meeting's hashed id, never its title: a title often carries a
+            # person's name ("Lunch with ...") (S8, 118).
+            logger.info("  Meeting %s (%s): %d attendees",
+                        _meeting_uri(uid), meeting_date or "?", len(other_attendees))
 
             if dry_run:
-                for a in other_attendees:
-                    logger.info("    [DRY RUN] %s <%s>", a.get("name", ""), a.get("email", ""))
+                # A count, never each attendee's name or address (S8, 118).
+                logger.info("    [DRY RUN] would link %d attendees", len(other_attendees))
                 processed.add(uid)
                 meetings_created += 1
                 continue
