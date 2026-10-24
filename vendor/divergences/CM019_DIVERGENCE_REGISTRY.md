@@ -245,6 +245,16 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### T0j -- Smart Prefs at personal-world-graph 5af9f5b5 (ahead of the pin)
+
+`services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
+`services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
+upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml` and `ingest/src/minors.py`. `enricher.py`,
+`cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
+onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-24 T0j".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
