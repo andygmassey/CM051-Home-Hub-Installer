@@ -1477,3 +1477,10 @@ that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
 57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
 next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
 this assertion, and the re-vendor makes the file byte-identical.
+## An empty-but-present calendar store is no data, and one shared word is not one event (CM051, 2026-10-19, edge-case matrix)
+
+Tree `cm041/assistant_api`. Extends the section above. `read_local_calendar_events` raises `LocalStoreError` when `calendar_events.json` is present but holds no rows at all: an extractor that wrote nothing (no Full Disk Access, an empty Calendar database) read as a free day, which is a claim on no data; the brief now hears "could not be checked" (503 degraded with the reason) and a populated store with nothing today is still a 200 free day. `_same_calendar_event`'s containment rule needs two or more significant words of the shorter title inside the longer ("Budget review" in "Budget review with finance"); one shared word ("Lunch" and "Lunch with Sam") keeps both rows.
+
+### What a future sync must preserve
+
+The empty-store `LocalStoreError` in `read_local_calendar_events` and the `len(sig) >= 2` rule in `_same_calendar_event`. Guarded by `test_an_empty_but_present_store_is_no_data_not_a_free_day`, `test_a_free_day_in_a_populated_store_is_a_200_zero` and `test_a_one_word_subset_title_is_not_the_same_event` in `tests/test_brief_reads_local_stores.py`.

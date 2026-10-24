@@ -8765,7 +8765,10 @@ def _same_calendar_event(a, b):
         return True
     short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
     sig = [w for w in short if len(w) >= 3]
-    return bool(sig) and all(w in long_ for w in sig)
+    # Two or more significant words of the shorter title, all in the longer:
+    # "Budget review" inside "Budget review with finance". One word is not
+    # enough: "Lunch" and "Lunch with Sam" in one slot may be two events.
+    return len(sig) >= 2 and all(w in long_ for w in sig)
 
 
 def collapse_duplicate_events(events):
@@ -8789,8 +8792,16 @@ def collapse_duplicate_events(events):
 
 def read_local_calendar_events(days=1, now=None):
     """Events from the ingested Apple Calendar store (calendar_events.json)
-    overlapping [local midnight today, +days). Raises LocalStoreError."""
+    overlapping [local midnight today, +days). Raises LocalStoreError, also
+    for a present-but-EMPTY store: an extractor that wrote no events at all
+    (no Full Disk Access, an empty Calendar database) looks exactly like a
+    free day to the brief, and a free day is a claim the brief must not make
+    on no data (edge-case matrix 2026-10-19)."""
     rows, age = _read_fda_json("calendar_events.json")
+    if not rows:
+        raise LocalStoreError(
+            "calendar_events.json is present but holds no events at all: the "
+            "extractor wrote nothing (check Full Disk Access); not a free day")
     now = now or datetime.now().astimezone()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=days)
