@@ -157,7 +157,7 @@ if __name__ == "__main__":
         try:
             fn()
             print(f"ok   {name}")
-        except AssertionError as exc:
+        except Exception as exc:  # a missing function on old code is a failure too
             fails += 1
             print(f"FAIL {name}: {exc}")
     print(f"{len(tests) - fails} passed, {fails} failed")
