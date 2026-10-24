@@ -1465,3 +1465,15 @@ excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
 11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
 measured by recomputing the table and checking each delta's input. Pinned by
 `tests/test_people_rules_short_codes_up_to_8_digits.py`.
+
+## 2026-10-23: vendored test_people_list_endpoint.py agrees with P13 (people-list-correctness)
+
+Tree `cm041/assistant_api`, file `tests/test_people_list_endpoint.py`. After the
+re-vendor met main's P13 rule (CM051 #3143, `people_rules.py`: a 7 to 8 digit
+sender with no leading "+" is a short code), the upstream test still asserted
+the 7-digit sender 4477009 appears in `names` (line 337), so people-list-correctness
+failed on Python 3.11, 3.12 and 3.13. The rule is unchanged; the test now asserts
+that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
+57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
+next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
+this assertion, and the re-vendor makes the file byte-identical.
