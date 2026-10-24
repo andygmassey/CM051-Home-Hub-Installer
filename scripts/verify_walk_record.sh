@@ -229,6 +229,47 @@ _require_console_walk() {
     exit 2
 }
 
+# --- THE FINAL PRE-SHIP WALK MUST BE COLD (Andy, 2026-10-23) -----------------
+#
+# Warm walks are how iteration got fast: the colima data disk keeps the 3.43 GB
+# Vane image (6515 s of the v1.0.117 install) and ~/.ollama keeps the models.
+# That is fine for finding defects and wrong for authorising a customer
+# download, because a warm box never exercised the downloads and the VM
+# creation a customer's first install depends on. post_walk_qa.sh records
+# cold_state from scripts/lib_walk_cold_state.sh.
+#
+# Same door as _require_console_walk: called only on the two paths that would
+# otherwise AUTHORISE A PROMOTE, so a measured defect keeps refusing for the
+# defect. NOT-COLD refuses with exit 2 (absence of the right evidence, not a
+# defect). An ABSENT or not-recorded value is PRINTED and does not refuse:
+# a GUI console walk has no harness on the box to measure it, and records
+# written before the field have none. That is a deliberate, reviewable choice,
+# stated here so it is not mistaken for an oversight.
+_require_cold_walk() {
+    local _cold; _cold="$(field cold_state)"
+    case "$_cold" in
+        cold) return 0 ;;
+        NOT-COLD*)
+            echo "[walk-gate] REFUSED: ${RECORD} records cold_state=NOT-COLD." >&2
+            echo "            The install reused, instead of exercising:" >&2
+            awk -F'\t' '$1=="not_cold"{print "              - " $2 ": " $3}' "$RECORD" >&2
+            echo "            A warm walk is an iteration walk. The final pre-ship walk must be" >&2
+            echo "            cold: run it with scripts/ttywalk.sh --require-cold on a box made" >&2
+            echo "            pristine first (scripts/box_pristine.sh, plus ollama rm)." >&2
+            echo "            Exit 2: absence of the evidence, not evidence of a defect." >&2
+            exit 2 ;;
+        ''|not-recorded*|unknown*)
+            echo "[walk-gate] NOTE: cold_state is '${_cold:-<absent>}'. Whether this install"
+            echo "            exercised the image pulls, the VM creation and the model download"
+            echo "            is NOT RECORDED. Not a refusal (see _require_cold_walk); read it." ;;
+        *)
+            echo "[walk-gate] REFUSED: ${RECORD} has an unrecognised cold_state '${_cold}'." >&2
+            echo "            An unrecognised value fails closed; a typo must never read as cold." >&2
+            exit 2 ;;
+    esac
+    return 0
+}
+
 # --- the verdict must agree with the counts ----------------------------------
 # A record is a claim plus its evidence. If they disagree, the claim is the
 # part to distrust: this is the shape where a summary line says CLEAN because
@@ -663,6 +704,7 @@ _adjudicate_scoped() {
 case "$VERDICT" in
     CLEAN)
         _require_console_walk
+        _require_cold_walk
         echo "[walk-gate] OK: ${VERSION} walked clean at the console on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0
         ;;
@@ -705,6 +747,7 @@ case "$VERDICT" in
         # is about to authorise a promote despite a non-CLEAN verdict. Same
         # question, same door.
         _require_console_walk
+        _require_cold_walk
         echo "[walk-gate] OK: ${VERSION} -- every ARTEFACT-OWNED probe passed, and it was walked at the console."
         echo "            Record verdict stays ${VERDICT} (pass=${N_PASS} fail=${N_FAIL} cannot_run=${N_CANNOT} broken=${N_BROKEN});"
         echo "            the scoreboard is unchanged and the advisory reds above are unclosed."
