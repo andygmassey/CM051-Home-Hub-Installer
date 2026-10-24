@@ -237,6 +237,25 @@ cannot enter this public repository; the box gets its own runner instead.
 grafting the delegation once the box's ingest entrypoint puts `services/common`
 on `sys.path` (or upstream packages `strength` under `services/ingest`).
 
+### smart-prefs -- the derive registry spans all of life (ahead of the pin; personal-world-graph #422)
+
+`services/enrich/src/derive/{config,engine,model,query,readers}.py`,
+`dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are AHEAD
+of the pin: they carry upstream #422 (open). Not a divergence from intent: the
+same diff, to be re-pinned when #422 merges. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
+
+### T0j -- smart-prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
+
+`services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
+`services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
+upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml`, `derive/patterns.py` and `ingest/src/minors.py`. `enricher.py`,
+`cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
+onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
+NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
