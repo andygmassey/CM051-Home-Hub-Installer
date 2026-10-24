@@ -203,7 +203,8 @@ def _sparql_query(oxigraph_url, sparql):
             "Accept": "application/sparql-results+json",
         },
         timeout=30.0,
-     trust_env=False)
+        trust_env=False,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -430,7 +431,7 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
     return todos
 
 
-def pre_meeting_brief(days=1):
+def pre_meeting_brief(days=1, events_provider=None):
     """Generate pre-meeting briefs for upcoming meetings with attendees.
 
     See ``SCHEMA.md`` for the wire shape this function returns. The
@@ -443,7 +444,12 @@ def pre_meeting_brief(days=1):
     owner_emails = set(config.OWNER_EMAILS)
     oxigraph_url = config.OXIGRAPH_URL
 
-    events = fetch_events(config.CALENDAR_API_URL, days)
+    if events_provider is None:
+        events = fetch_events(config.CALENDAR_API_URL, days)
+    else:
+        events = fetch_events(
+            config.CALENDAR_API_URL, days, events_provider=events_provider
+        )
     if not events:
         return []
 

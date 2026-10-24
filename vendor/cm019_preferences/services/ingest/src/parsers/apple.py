@@ -3790,7 +3790,7 @@ class AppleParser(BaseParser):
                 observed_at=observed_at,
                 source="apple_tv",
                 source_id=f"apple_tv_{key[:50]}",
-                compartment_level=default_compartment or 2,
+                compartment_level=default_compartment if default_compartment is not None else 2,
                 size="Medium",
                 extra={
                     "content_type": "apple_tv_watched",

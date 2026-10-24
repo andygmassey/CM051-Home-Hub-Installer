@@ -342,3 +342,20 @@ Tree `cm019_preferences`. Pin NOT moved. Hand edits, no patch (`divergence_patch
 - Why no patch: same reason as above, the tree has no recorded patch and the shared-file delta is the 42-file reconciliation owed to the CM019 owner.
 - Owed upstream: yes. Both changes are ports of personal-world-graph PR "ingest contract: Apple Music artist and real play time, Uber event time"; retire this section when that merges and the tree is re-pinned past it.
 - Proof: tests/test_ingest_contract.py (RED on origin/main, GREEN here, 7 mutants caught), wired in .github/workflows/derived-preferences.yml.
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate, UNMERGED upstream)
+
+Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
+
+- Added `services/enrich/src/privacy_gate.py`, byte-identical to the upstream PR head (sha256 87698fb4385bca3cca8728de6b605d7429e9af1943a28909eb4f40b01eee65e2 on both sides).
+- `services/enrich/src/enricher.py`: the upstream hunks applied by exact replacement, because the vendored file carries earlier CM051 divergence (eligibility gate, budget, wikidata_film routing). Measured: the sorted multiset of changed lines equals upstream's for this file (38 lines, identical sha256 of the sorted set).
+- NOT carried: upstream's `derive/readers.py` SCROLL_FIELDS change. The vendored derive tree predates SCROLL_FIELDS, and nothing in the vendored tree drives an online lookup from the derive scroll (representative-first enrichment, upstream #431, is not vendored). The vendored enricher reads the full Qdrant payload (`with_payload: True`), so `compartment_level` reaches the gate.
+- Proof: `tests/test_cm019_enrich_privacy_gate_vendored.py` (wired in `enrichment-reaches-corpus.yml`); fails on origin/main (no `src/privacy_gate.py`; with the module present and the old enricher, the stats field it counts into does not exist).
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives, UNMERGED upstream)
+
+Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.
+
+- `services/ingest/src/pipeline.py` (3 sites), `services/ingest/src/parsers/email.py` (1), `services/ingest/src/parsers/apple.py` (1): `x or default` became `x if x is not None else default`, so compartment_level 0 (L0Personal) is no longer stored as 2. Applied by exact replacement; the changed lines equal upstream's for each file.
+- Proof: `tests/test_cm019_explicit_l0_survives_ingest_vendored.py` (wired in `enrichment-reaches-corpus.yml`); on origin/main 5 of 11 arms FAIL (explicit 0 stored as 2).
+- Retire: re-pin past the upstream merge commit.
