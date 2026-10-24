@@ -1199,6 +1199,7 @@
     "error",
     "people",
     "reason",
+    "suppression_check",
     "total"
    ],
    "source": "install.sh"
@@ -1250,12 +1251,14 @@
    "response_fields": [
     "count",
     "current_employer",
+    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query"
+    "query",
+    "reason"
    ],
    "source": "install.sh"
   },
@@ -1307,8 +1310,10 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
     "error",
     "query",
+    "reason",
     "results"
    ],
    "source": "install.sh"
@@ -1628,6 +1633,7 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
+    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -3480,6 +3486,7 @@
     "error",
     "people",
     "reason",
+    "suppression_check",
     "total"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -3534,12 +3541,14 @@
    "response_fields": [
     "count",
     "current_employer",
+    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query"
+    "query",
+    "reason"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
    "via_wildcard": "/api/v1/people/{rest}"
@@ -3595,8 +3604,10 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
     "error",
     "query",
+    "reason",
     "results"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
@@ -3712,15 +3723,23 @@
    "proxy_to": "ical:POST:/api/v1/people/{slug}/suppress-suggestions",
    "query_params": [],
    "request_optional": [
+    "contact_uid",
+    "person_uri",
     "reason",
     "suppressed"
    ],
    "request_required": [],
    "response_fields": [
+    "ambiguous",
+    "candidates",
+    "contact_uid",
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "keyed_on",
     "nodes_matched",
+    "person_uri",
     "person_uris",
     "reason",
     "record_cleared",
@@ -3962,6 +3981,7 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
+    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -5435,6 +5455,7 @@
     "error",
     "people",
     "reason",
+    "suppression_check",
     "total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5486,12 +5507,14 @@
    "response_fields": [
     "count",
     "current_employer",
+    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query"
+    "query",
+    "reason"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5543,8 +5566,10 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
     "error",
     "query",
+    "reason",
     "results"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5649,15 +5674,23 @@
    ],
    "query_params": [],
    "request_optional": [
+    "contact_uid",
+    "person_uri",
     "reason",
     "suppressed"
    ],
    "request_required": [],
    "response_fields": [
+    "ambiguous",
+    "candidates",
+    "contact_uid",
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "keyed_on",
     "nodes_matched",
+    "person_uri",
     "person_uris",
     "reason",
     "record_cleared",
@@ -5909,6 +5942,7 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
+    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -6175,6 +6209,7 @@
     "error",
     "people",
     "reason",
+    "suppression_check",
     "total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -6224,12 +6259,14 @@
    "response_fields": [
     "count",
     "current_employer",
+    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query"
+    "query",
+    "reason"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6279,8 +6316,10 @@
    "request_required": [],
    "response_fields": [
     "count",
+    "degraded",
     "error",
     "query",
+    "reason",
     "results"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"

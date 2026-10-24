@@ -56,7 +56,16 @@ class Qdrant(BaseHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
-        body = json.loads(self.rfile.read(n) or b"{}")
+        raw = self.rfile.read(n) or b"{}"
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            # A SPARQL query (form-encoded), not a Qdrant JSON body: answer it
+            # as an empty, READABLE store. Before, this raised and the handler
+            # died, which only went unnoticed because every SPARQL read in
+            # /people was best-effort. The do-not-suggest index is not (it
+            # fails closed, CM041 #222), so the fixture has to be a store.
+            body = {}
         if "/people/points/scroll" in self.path:
             off = int(body.get("offset") or 0)
             lim = int(body.get("limit") or 10)
