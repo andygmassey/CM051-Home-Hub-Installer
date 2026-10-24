@@ -1133,7 +1133,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _p=$!
         ( sleep "$_secs"; kill -TERM "$_p" 2>/dev/null ) >/dev/null 2>&1 &
         _w=$!
-        wait "$_p" 2>/dev/null; _rc=$?
+        _rc=0; wait "$_p" 2>/dev/null || _rc=$?
         kill -TERM "$_w" 2>/dev/null; wait "$_w" 2>/dev/null
         return "$_rc"
     }
