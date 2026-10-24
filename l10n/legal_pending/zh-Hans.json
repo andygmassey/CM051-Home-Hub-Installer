@@ -190,7 +190,7 @@
   "src": "Recognise voices on the calls you capture?"
  },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_HELP": {
-  "text": "Ostler 仅授权你在自己的 Mac 上供个人使用。请勿将其部署给员工，或在工作中用它采集同事、客户或患者的内容。未经父母同意，请勿录制儿童的声音；请勿在人们期望享有真正隐私的场所录音，例如看医生、见律师或接受心理治疗时。点按“继续”即表示接受这些条款。",
+  "text": "Ostler 仅授权你在自己的 Mac 上供个人使用。请勿将其部署给员工，或在工作中用它采集同事、客户或病人的内容。未经父母同意，请勿录制儿童的声音；请勿在人们期望享有真正隐私的场所录音，例如看医生、见律师或接受心理治疗时。点按“继续”即表示接受这些条款。",
   "src_hash": "dac73faf4e63",
   "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms."
  },
@@ -230,7 +230,7 @@
   "src": "Three things we ask you not to do:"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_BUSINESS": {
-  "text": "它并非为商业用途而设计。请不要将 Ostler 部署给员工使用，也不要在工作中用它收集同事、客户、患者或顾客的信息。如果某个组织这样做，该组织就要对其收集到信息的每一个人负责，而 Ostler 并非为承担这种责任而设计。",
+  "text": "它并非为商业用途而设计。请不要将 Ostler 部署给员工使用，也不要在工作中用它收集同事、客户、病人或顾客的信息。如果某个组织这样做，该组织就要对其收集到信息的每一个人负责，而 Ostler 并非为承担这种责任而设计。",
   "src_hash": "532e1677520b",
   "src": "It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
  },
