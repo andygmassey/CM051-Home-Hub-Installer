@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8939) captures the path BY
+    # _ostler_write_store_curl_config (defined :9059) captures the path BY
     # VALUE and never re-reads it:
-    #     :8940   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8985   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8994 and :16744, both of which run
+    #     :9060   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9105   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9114 and :16874, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17539, where the note reads
+    # WhatsApp Web session path did it again at :17669, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17556 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17686 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6268 against a definition at :8939. Top-level
+    # writer's own definition: :6388 against a definition at :9059. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8994, :16744) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9114, :16874) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19712 / :19890 / :20047 / :20492 path. There the
+    # :19866 / :20044 / :20201 / :20646 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6089,6 +6089,126 @@ OSTLER_CONSENT_PERSONAL_USE_DECISION=""
 # Spoken-capture recording-consent acknowledgement (every region). Empty
 # default = spoken transcription off on a reuse run until re-acknowledged.
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
+# The region its legal note was chosen for (ISO alpha-2, or "none"), set when
+# the screen is shown and kept in config/.env. Empty = not shown on any run
+# that stored it (an install from before this existed): the recorder then
+# writes the old record shape rather than pin a note nobody was shown.
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION=""
+
+# LEGAL NOTE BY REGION (Andy, 2026-10-24). The legal note under the
+# spoken-capture screen is chosen by the Mac's REGION, never its language: a Chinese reader living
+# in London gets the UK line. The region is the country part of the global
+# AppleLocale default (System Settings > General > Language & Region >
+# Region), read here and by the GUI (LegalRegion in
+# gui/OstlerInstaller/Steps/ViewCopy.swift) with the same rule, pinned on both
+# sides by tests/fixtures/legal_region_contract.tsv. OSTLER_APPLE_LOCALE is
+# the test seam and overrides the real default in both.
+#
+# Every region line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and needs local
+# professional sign-off. The strings and their per-region notes live in
+# install.sh.strings.en-GB.sh (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
+#
+# Defined HERE, above the reuse gate, because the Phase-3 recorder needs them
+# on a reuse run too, where Phase 2 (the screen) never runs.
+#
+# This is deliberately NOT OSTLER_REGION (section 2.5): that one decides the
+# Article 9 screen from contacts / phone code / LANG with an EU default, a
+# different question with a different safe direction.
+_ostler_legal_apple_locale() {
+    if [[ -n "${OSTLER_APPLE_LOCALE+x}" ]]; then
+        printf '%s' "${OSTLER_APPLE_LOCALE}"
+        return 0
+    fi
+    # A Mac with no Region set has no AppleLocale; `defaults` then exits
+    # non-zero. That is "region unknown" (neutral core only), not an error,
+    # so the status is read here rather than left to the ERR trap.
+    local _v
+    if _v="$(defaults read -g AppleLocale 2>&1)"; then
+        printf '%s' "${_v}"
+    fi
+    return 0
+}
+
+_ostler_legal_country_from_locale() {
+    # $1 = an AppleLocale value: en_GB, zh-Hant_GB, en_US@rg=hkzzzz, es_419.
+    # Prints the ISO-3166 alpha-2 REGION, uppercased, or "" when the value
+    # names no two-letter region. The language part is never consulted.
+    local raw="$1" rg="" base cc
+    if [[ "${raw}" == *rg=* ]]; then
+        rg="${raw#*rg=}"
+        rg="${rg:0:2}"
+        if [[ "${rg}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+            printf '%s' "${rg}" | tr '[:lower:]' '[:upper:]'
+            return 0
+        fi
+    fi
+    base="${raw%%@*}"
+    base="${base%%.*}"
+    if [[ "${base}" != *_* ]]; then
+        return 0
+    fi
+    cc="${base##*_}"
+    if [[ "${cc}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+        printf '%s' "${cc}" | tr '[:lower:]' '[:upper:]'
+    fi
+    return 0
+}
+
+_ostler_legal_jurisdiction() {
+    # $1 = ISO alpha-2 region. gb | eu | hk | us | other.
+    # eu = the EU-27 plus the EEA states (IS, LI, NO), where the GDPR applies.
+    case "$1" in
+        GB) printf 'gb' ;;
+        AT|BE|BG|HR|CY|CZ|DK|EE|FI|FR|DE|GR|HU|IE|IT|LV|LT|LU|MT|NL|PL|PT|RO|SK|SI|ES|SE|IS|LI|NO)
+            printf 'eu' ;;
+        HK) printf 'hk' ;;
+        US) printf 'us' ;;
+        *) printf 'other' ;;
+    esac
+}
+
+_ostler_spoken_capture_legal_variant() {
+    # $1 = ISO region or "none". Prints the variant the consent record pins:
+    # core | gb | eu | eu.de | eu.fr | hk | us (legal.consent_strings
+    # SPOKEN_CAPTURE_LEGAL_VARIANTS; consent_cli refuses anything else).
+    case "$(_ostler_legal_jurisdiction "$1")" in
+        gb) printf 'gb' ;;
+        eu)
+            case "$1" in
+                DE) printf 'eu.de' ;;
+                FR) printf 'eu.fr' ;;
+                *) printf 'eu' ;;
+            esac
+            ;;
+        hk) printf 'hk' ;;
+        us) printf 'us' ;;
+        *) printf 'core' ;;
+    esac
+}
+
+_ostler_spoken_capture_legal_note_for() {
+    # $1 = ISO region or "none". Prints the whole legal note, byte for byte
+    # what the GUI renders (LegalRegion.spokenCaptureLegalNote) for the same
+    # region, so the recorded note is the note that was shown.
+    local note="${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL}"
+    case "$(_ostler_spoken_capture_legal_variant "$1")" in
+        gb) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB}" ;;
+        eu) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU}" ;;
+        eu.de) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE}" ;;
+        eu.fr) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR}" ;;
+        hk) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK}" ;;
+        us) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US}" ;;
+    esac
+    printf '%s' "${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY}"
+}
+
+_ostler_spoken_capture_legal_note() {
+    # The note for this Mac's region right now.
+    local cc
+    cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+    _ostler_spoken_capture_legal_note_for "${cc:-none}"
+}
+
 
 # Region + ISO + source. Read at line ~3498 (EU branch entry),
 # ~5265 (region-persist Python heredoc), ~5300 (consent_cli
@@ -12594,7 +12714,8 @@ done
 # law, so every region sees it.
 #
 # Wording is verbatim from legal/consent_strings.py
-# (SPOKEN_CAPTURE_RECORDING_CONSENT). Decision held in
+# (SPOKEN_CAPTURE_RECORDING_CONSENT), except the legal note, which is now
+# chosen by the Mac's region (see LEGAL NOTE BY REGION below). Decision held in
 # OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION until Phase 3 pip-installs
 # ostler_security; then persisted via consent_cli alongside the others.
 #
@@ -12602,6 +12723,14 @@ done
 # EU voice gate -- declining just keeps spoken transcription off; text
 # conversations are unaffected. Default seeded "n" so spoken transcription
 # is opt-in (the safe posture for someone who clicks straight through).
+#
+# The legal note is chosen by the Mac's region: see LEGAL NOTE BY REGION at
+# the Phase-2 defaults. OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION is what the
+# Phase-3 recorder pins, with the exact note, into the consent record.
+_ostler_legal_cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION="${_ostler_legal_cc:-none}"
+unset _ostler_legal_cc
+_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE="$(_ostler_spoken_capture_legal_note_for "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}")"
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
@@ -12624,12 +12753,12 @@ echo ""
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y}"
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N}"
 echo ""
-echo -e "  ${DIM}${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL}${NC}"
+echo -e "  ${DIM}${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}${NC}"
 echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
-    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
+    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "${MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP}"$'\n\n'"${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}" "" "consent_spoken_capture")"
     case "${SPOKEN_CAPTURE:-}" in
         y|Y)
             OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="accepted"
@@ -16283,6 +16412,7 @@ OSTLER_CONSENT_ARTICLE_9_DECISION="${OSTLER_CONSENT_ARTICLE_9_DECISION:-}"
 OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
 OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION="${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}"
 OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
 OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 
@@ -18519,7 +18649,9 @@ PY
     #              ${OSTLER_DIR}/posture/consent-cli-failures.log so
     #              Doctor surfaces it without bothering the user.
     _consent_cli_record() {
+        # $5.. = extra consent_cli record flags (the spoken-capture legal pin).
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
+        shift 4
         local stderr_file
         stderr_file=$(mktemp)
         if OSTLER_HOME="${OSTLER_DIR}" \
@@ -18528,7 +18660,8 @@ PY
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
-                --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
+                --user-id "${USER_ID:?USER_ID must be set before consent recording}" \
+                "$@" 2>"$stderr_file"; then
             rm -f "$stderr_file"
             _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             return 0
@@ -18627,17 +18760,38 @@ PY
     # accepted => spoken/meeting transcription allowed; declined => it
     # stays off (decline does not abort the install). Record either way so
     # Doctor shows "user declined" rather than "missing".
+    #
+    # The record PINS the region-chosen legal note that was shown (Archie,
+    # 2026-10-24): region, variant (wording_version becomes
+    # "<version>+<variant>") and the verbatim note with its sha256. A reuse
+    # run whose stored answers predate the region (empty) keeps the old record
+    # shape rather than pin a note it never showed.
+    _spoken_legal_args=()
+    _spoken_legal_file=""
+    if [[ -n "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" && -n "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}" ]]; then
+        _spoken_legal_file="$(mktemp)"
+        _ostler_spoken_capture_legal_note_for "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}" > "${_spoken_legal_file}"
+        _spoken_legal_args=(
+            --legal-region "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}"
+            --legal-variant "$(_ostler_spoken_capture_legal_variant "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}")"
+            --legal-note-file "${_spoken_legal_file}"
+        )
+    fi
     if [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "accepted" ]]; then
         _consent_cli_record blocking \
             spoken_capture_recording_consent \
             accepted \
-            "Could not persist spoken-capture consent (continuing - transcription will stay off)"
+            "Could not persist spoken-capture consent (continuing - transcription will stay off)" \
+            ${_spoken_legal_args[@]+"${_spoken_legal_args[@]}"}
     elif [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "declined" ]]; then
         _consent_cli_record declined \
             spoken_capture_recording_consent \
             declined \
-            "Could not persist spoken-capture decline record"
+            "Could not persist spoken-capture decline record" \
+            ${_spoken_legal_args[@]+"${_spoken_legal_args[@]}"}
     fi
+    if [[ -n "${_spoken_legal_file}" ]]; then rm -f "${_spoken_legal_file}"; fi
+    unset _spoken_legal_args _spoken_legal_file
 
     # Background-enrichment decision (#794). Until 2026-08-20 the only thing
     # that happened to this answer was `export OSTLER_CONSENT_ENRICHMENT_DECISION`
