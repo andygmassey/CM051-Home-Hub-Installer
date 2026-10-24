@@ -55,9 +55,10 @@
   "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
  "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LOCAL": {
-  "text": "Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it.",
+  "text": "Ostler zet vastgelegde audio om in tekst op het apparaat dat de audio heeft vastgelegd en verwijdert de audio meteen. De audio wordt nooit bewaard en nooit ergens naartoe gestuurd, ook niet naar je eigen Mac. Dat neemt deze plicht niet weg: je hebt nog steeds toestemming nodig waar je lokale wetgeving dat vereist.",
   "src_hash": "70e664660797",
-  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
+  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT": {
   "text": "E-mailgesprekken: niet ingesteld, omdat je geen toestemming hebt gegeven dat Ostler berichten van andere mensen leest.",
@@ -98,6 +99,12 @@
   "text": "      (UK GDPR artikel 9 - vereist voor gegevens in bijzondere categorieën).",
   "src_hash": "6592e60a90f7",
   "src": "      (UK GDPR Article 9 - required for special-category data)."
+ },
+ "install_sh::MSG_LEGAL_ENGLISH_PREVAILS": {
+  "text": "Dit is een vertaling. Bij verschillen met de Engelse versie heeft de Engelse versie voorrang.",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE": {
   "text": "Toestemmingsregistraties en regio opgeslagen in ~/.ostler/posture/",
@@ -190,9 +197,10 @@
   "src": "Recognise voices on the calls you capture?"
  },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_HELP": {
-  "text": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.",
+  "text": "Ostler is in licentie gegeven voor je eigen persoonlijke gebruik op je eigen Mac. Zet het niet in voor medewerkers en gebruik het niet op het werk om collega's, klanten of patiënten vast te leggen. Neem geen kinderen op zonder instemming van een ouder, en maak geen opnamen op plekken waar mensen echte privacy verwachten, zoals een afspraak bij een arts, advocaat of therapeut. Klik op Ga door om deze voorwaarden te accepteren.\n\nTaal. Deze voorwaarden zijn opgesteld in het Engels. Een vertaling wordt uitsluitend voor het gemak verstrekt. Als een vertaling afwijkt van de Engelse versie, heeft de Engelse versie voorrang.",
   "src_hash": "dda97d718608",
-  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
+  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_TITLE": {
   "text": "Ostler is voor persoonlijk gebruik",
@@ -208,6 +216,12 @@
   "text": "WhatsApp-berichten inschakelen voor je assistent?",
   "src_hash": "84520b19fc3e",
   "src": "Enable WhatsApp messaging for your assistant?"
+ },
+ "install_sh::MSG_TERMS_LANGUAGE": {
+  "text": "Taal. Deze voorwaarden zijn opgesteld in het Engels. Een vertaling wordt uitsluitend voor het gemak verstrekt. Als een vertaling afwijkt van de Engelse versie, heeft de Engelse versie voorrang.",
+  "src_hash": "25ee357c8384",
+  "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_ASK_1": {
   "text": "Neem geen kinderen op zonder dat een ouder of voogd daarmee instemt. Een kind kan die instemming zelf niet geven, en jouw eigen toezegging komt niet in de plaats van die van hen.",
@@ -295,14 +309,16 @@
   "src": "What we ask of you:"
  },
  "viewcopy::consent_spoken_capture/bullet_1": {
-  "text": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
+  "text": "Zorg voor de toestemming die je lokale wetgeving vereist voordat je een gesprek vastlegt.",
   "src_hash": "69bce80e15ec",
-  "src": "Get any consent your local law requires before you capture a conversation."
+  "src": "Get any consent your local law requires before you capture a conversation.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/bullet_2": {
-  "text": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
+  "text": "Vertel mensen dat er audio wordt vastgelegd, of laat een zichtbare indicator aan staan.",
   "src_hash": "bbbfaf424637",
-  "src": "Tell people audio is being captured, or keep a visible indicator on."
+  "src": "Tell people audio is being captured, or keep a visible indicator on.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/bullet_3": {
   "text": "Twijfel je, laat dit dan uit. Je kunt het later inschakelen in Instellingen.",
@@ -310,9 +326,10 @@
   "src": "If in doubt, leave this off. You can turn it on later in Settings."
  },
  "viewcopy::consent_spoken_capture/intro_body": {
-  "text": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
+  "text": "Ostler kan gesprekken en vergaderingen die je vastlegt hier op je Mac omzetten in doorzoekbare tekst.",
   "src_hash": "c153e5ce5e30",
-  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac."
+  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/legal_note": {
   "text": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.",
@@ -328,6 +345,12 @@
   "text": "Juridische opmerking: voor gegevens die je naar deze Mac importeert, ben jij de verwerkingsverantwoordelijke en de verwerker volgens Brits en EU-recht (artikel 4(7) en 4(8) van de UK GDPR). Creative Machines ontvangt deze gegevens nooit en is niet de verwerkingsverantwoordelijke. Jouw verwerking voor persoonlijke en huishoudelijke doeleinden valt onder artikel 2(2)(c) van de UK GDPR en de AVG. Lees meer op docs.ostler.ai/privacy/third-party-data.",
   "src_hash": "f501ce001078",
   "src": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
+ },
+ "viewcopy::legal/english_prevails": {
+  "text": "Dit is een vertaling. Bij verschillen met de Engelse versie heeft de Engelse versie voorrang.",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::onboarding_question/consent_install_body_middle": {
   "text": " om te bevestigen dat je akkoord gaat met de ",

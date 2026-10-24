@@ -54,11 +54,6 @@
   "src_hash": "03eef4cb097a",
   "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
- "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LOCAL": {
-  "text": "Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it.",
-  "src_hash": "70e664660797",
-  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
- },
  "install_sh::MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT": {
   "text": "Conversazioni email: non configurate, perché non hai acconsentito a che Ostler legga i messaggi di altre persone.",
   "src_hash": "32aca8898998",
@@ -189,11 +184,6 @@
   "src_hash": "6d4787ec8649",
   "src": "Recognise voices on the calls you capture?"
  },
- "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_HELP": {
-  "text": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.",
-  "src_hash": "dda97d718608",
-  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
- },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_TITLE": {
   "text": "Ostler è per uso personale",
   "src_hash": "64b3951866e2",
@@ -294,25 +284,10 @@
   "src_hash": "a9ee506ee301",
   "src": "What we ask of you:"
  },
- "viewcopy::consent_spoken_capture/bullet_1": {
-  "text": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
-  "src_hash": "69bce80e15ec",
-  "src": "Get any consent your local law requires before you capture a conversation."
- },
- "viewcopy::consent_spoken_capture/bullet_2": {
-  "text": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
-  "src_hash": "bbbfaf424637",
-  "src": "Tell people audio is being captured, or keep a visible indicator on."
- },
  "viewcopy::consent_spoken_capture/bullet_3": {
   "text": "Nel dubbio, lascia disattivato. Potrai attivarlo più tardi in Impostazioni.",
   "src_hash": "d55967910b85",
   "src": "If in doubt, leave this off. You can turn it on later in Settings."
- },
- "viewcopy::consent_spoken_capture/intro_body": {
-  "text": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
-  "src_hash": "c153e5ce5e30",
-  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac."
  },
  "viewcopy::consent_spoken_capture/legal_note": {
   "text": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.",

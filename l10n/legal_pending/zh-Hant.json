@@ -55,9 +55,10 @@
   "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
  "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LOCAL": {
-  "text": "Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it.",
+  "text": "Ostler 在擷取語音的裝置上完成轉寫，並立即刪除語音。語音從不保留，也從不傳送到任何地方，包括你自己的 Mac。但這並不免除這項義務：在當地法律要求的情況下，你仍需取得同意。",
   "src_hash": "70e664660797",
-  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
+  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT": {
   "text": "電子郵件對話:未設定,因為你沒有同意讓 Ostler 讀取其他人的訊息。",
@@ -98,6 +99,12 @@
   "text": "      （英國 GDPR 第 9 條 - 處理特殊類別資料所必需）。",
   "src_hash": "6592e60a90f7",
   "src": "      (UK GDPR Article 9 - required for special-category data)."
+ },
+ "install_sh::MSG_LEGAL_ENGLISH_PREVAILS": {
+  "text": "本文為譯文。如與英文版本有任何不一致，以英文版本為準。",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE": {
   "text": "同意記錄和地區已儲存至 ~/.ostler/posture/",
@@ -190,9 +197,10 @@
   "src": "Recognise voices on the calls you capture?"
  },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_HELP": {
-  "text": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.",
+  "text": "Ostler 僅授權你在自己的 Mac 上供個人使用。請勿將它部署給員工，或在工作時用來擷取同事、客戶或病人的內容。未經父母同意，請勿為兒童錄音，也請勿在人們期望享有真正隱私的地方錄音，例如看診、律師會談或心理治療。按「繼續」即表示接受這些條款。\n\n語言。本條款以英文撰寫，任何譯文僅為方便閱讀而提供。如譯文與英文版本有任何不一致，以英文版本為準。",
   "src_hash": "dda97d718608",
-  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
+  "src": "Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.\n\nLanguage. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_PROMPT_TERMS_PERSONAL_USE_TITLE": {
   "text": "Ostler 僅供個人使用",
@@ -208,6 +216,12 @@
   "text": "為你的助理啟用 WhatsApp 訊息?",
   "src_hash": "84520b19fc3e",
   "src": "Enable WhatsApp messaging for your assistant?"
+ },
+ "install_sh::MSG_TERMS_LANGUAGE": {
+  "text": "語言。本條款以英文撰寫，任何譯文僅為方便閱讀而提供。如譯文與英文版本有任何不一致，以英文版本為準。",
+  "src_hash": "25ee357c8384",
+  "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_ASK_1": {
   "text": "未經父母或監護人同意，請勿為兒童錄音。兒童無法自行給予同意，你自己的保證也不能代替他們的同意。",
@@ -295,14 +309,16 @@
   "src": "What we ask of you:"
  },
  "viewcopy::consent_spoken_capture/bullet_1": {
-  "text": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
+  "text": "在擷取對話之前，先取得你當地法律所要求的任何同意。",
   "src_hash": "69bce80e15ec",
-  "src": "Get any consent your local law requires before you capture a conversation."
+  "src": "Get any consent your local law requires before you capture a conversation.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/bullet_2": {
-  "text": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
+  "text": "告知他人正在擷取語音，或保持顯示可見的指示標記。",
   "src_hash": "bbbfaf424637",
-  "src": "Tell people audio is being captured, or keep a visible indicator on."
+  "src": "Tell people audio is being captured, or keep a visible indicator on.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/bullet_3": {
   "text": "如有疑問，請保持關閉。你日後可以在「設定」中開啟。",
@@ -310,9 +326,10 @@
   "src": "If in doubt, leave this off. You can turn it on later in Settings."
  },
  "viewcopy::consent_spoken_capture/intro_body": {
-  "text": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
+  "text": "Ostler 可以在你的 Mac 上，把你擷取的通話和會議轉成可搜尋的文字。",
   "src_hash": "c153e5ce5e30",
-  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac."
+  "src": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::consent_spoken_capture/legal_note": {
   "text": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.",
@@ -328,6 +345,12 @@
   "text": "法律聲明：對於你匯入這台 Mac 的紀錄，根據英國及歐盟法律，你是資料控制者及處理者（UK GDPR 第 4(7) 及 4(8) 條）。Creative Machines 從不接收這些資料，也不是資料控制者。你為個人及家庭用途所進行的處理，屬於 UK/EU GDPR 第 2(2)(c) 條的範圍。詳情請參閱 docs.ostler.ai/privacy/third-party-data。",
   "src_hash": "f501ce001078",
   "src": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
+ },
+ "viewcopy::legal/english_prevails": {
+  "text": "本文為譯文。如與英文版本有任何不一致，以英文版本為準。",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
  },
  "viewcopy::onboarding_question/consent_install_body_middle": {
   "text": " 以確認你接受 ",

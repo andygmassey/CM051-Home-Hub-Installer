@@ -995,9 +995,14 @@ def cmd_stale(cfg):
             for k, u in units.items():
                 v = tr.get(k)
                 if v is not None and v != u.src and is_legal(u, cfg) and not gate.ships(lang, u):
-                    pend[u.uid] = {"text": v, "src_hash": h(u.src), "src": u.src}
+                    # Park only a real translation (provenance knows it). A value with
+                    # no provenance is an OLD ENGLISH fallback left behind when the
+                    # English changed; parking it would offer English to a reviewer
+                    # as a "translation" (62 such entries were found 2026-10-24).
+                    if st["made_from"].get(lang, {}).get(u.uid):
+                        pend[u.uid] = {"text": v, "src_hash": h(u.src), "src": u.src}
+                        parked += 1
                     by[(c.id, lang)].add(k)
-                    parked += 1
                     continue
                 e = pend.get(u.uid)
                 if (e and is_legal(u, cfg) and gate.ships(lang, u) and e.get("src_hash") == h(u.src)
@@ -1557,6 +1562,9 @@ def cmd_self_test(cfg):
         en_sh = os.path.join(tmp, "s.en-GB.sh"); de_sh = os.path.join(tmp, "s.de.sh")
         open(en_sh, "a").write('MSG_CONSENT_X="I agree to %s"\n')
         open(de_sh, "a").write('MSG_CONSENT_X="Ich stimme %s zu"\n')
+        _st = load_state()
+        _st["made_from"].setdefault("de", {})["sh::MSG_CONSENT_X"] = h("I agree to %s")  # a machine translation
+        save_state(_st)
         sh_de = lambda k: ShellCatalogue(c2["catalogues"][1]).read("de").get(k)
         results["unreviewed consent translation fails"] = quiet(cmd_check, c2) == 1
         quiet(cmd_stale, c2)
@@ -1595,6 +1603,13 @@ def cmd_self_test(cfg):
         results["a rejected row does not count"] = ("de", "sh::MSG_CONSENT_X") not in load_reviews(c2)
         open(rv_path, "w", encoding="utf-8").write(rv_all)
         quiet(cmd_stale, c2)
+        # an OLD ENGLISH fallback (no provenance) of a legal key: reset, never parked
+        open(en_sh, "a").write('MSG_CONSENT_Y="Keep it on"\n')
+        quiet(cmd_stale, c2)
+        open(de_sh, "a").write('MSG_CONSENT_Y="Leave it on"\n')
+        quiet(cmd_stale, c2)
+        results["old English fallback is reset to the current English"] = sh_de("MSG_CONSENT_Y") == "Keep it on"
+        results["old English fallback is NOT parked as a translation"] = "sh::MSG_CONSENT_Y" not in load_legal_pending("de")
         results["legal-pack lists nothing once all is reviewed"] = legal_pack_items(c2, "de") == []
         open(rv_path, "w", encoding="utf-8").write("".join(l for l in rv_all.splitlines(True) if "\tMSG_LEGAL_PREVAILS\t" not in l))
         results["legal-pack lists the unreviewed prevails line"] = [x[0] for x in legal_pack_items(c2, "de")] == ["sh::MSG_LEGAL_PREVAILS"]
