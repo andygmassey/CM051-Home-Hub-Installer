@@ -228,3 +228,123 @@ Guarded by `tests/test_person_removal_audit.py` (each writer's removal lands in
 the log: red against origin/main, green here), which also covers the
 `people_stores_reconcile` join. Retire by re-pinning past the upstream merge.
 
+
+## places-ingest reports an error when its writes fail (CM051 F5, walk #16)
+
+Tree `cm041/contact_syncer`. NEW CM041/HR015-side behaviour, not a graft of merged upstream. `vendor/cm041/contact_syncer/places_ingest.py::ingest_places` printed `Done: 979 places (0 written, 979 errors) ... status=ok`: the status was set before the upsert and never revisited. One block was added after the "second loud guard" and before the final `return`: when `upsert_counts["errors"] > 0` and the status is still `ok`, the status becomes `error_write_failed` (nothing written) or `error_partial_write`, with a WARNING line. An earlier guard's status is kept. No SPARQL, no store write and no signature changed; `main()` already exited 1 for `errors > 0`.
+
+The same hunk is in `contact_syncer/places_ingest.py` (the copy `install.sh` cp -R's into the pipeline directory). This tree is `regenerate_forbidden`, so the patch cannot record it.
+
+### What a future sync must preserve
+
+The third guard in `ingest_places` (the `error_write_failed` / `error_partial_write` statuses). Guarded by `tests/test_places_ingest_total_write_failure_is_not_ok.py` (6 tests over both copies: 4 red on origin/main, 6 green here), run by `.github/workflows/places-ingest-write-failure.yml`. Retire by landing the same change in CM041 `contact_syncer/places_ingest.py` and re-pinning.
+## Added 2026-10-10, CM051 cut #17 (F6): one Facebook export imported once, a re-import keeps its node
+
+Hand-recorded, location and shape only (the tree is `regenerate_forbidden`;
+`scripts/regenerate_divergence_patch.sh cm041/contact_syncer --write` refuses).
+Not yet upstream in CM041.
+
+| file | what diverges |
+|---|---|
+| `import_all.py` | `claim_source()` + `_RUN_CLAIMS`: each source file's sha256 is claimed once per run via the file named by `OSTLER_IMPORT_RUN_LEDGER` (created per invocation by the `ostler-import` heredoc in install.sh); the Facebook Friends and Facebook Events legs skip identical bytes already imported from another root and say so |
+| `facebook_friends.py` | `friend_source_key()` (sha256 of casefolded name + friendship timestamp) written as `pwg:sourceKey` on the facebook_friend signal in both the create and enrich paths; `load_friend_index()` reads existing facebook_friend nodes once per run (by key, legacy fallback by displayName + signalDate) and a known friend is attached to that node BEFORE the fuzzy match can choose another; an unreadable index refuses the import rather than re-resolving by name |
+
+### What a future sync must preserve
+
+Proven by `tests/test_facebook_export_imports_once.py` (wired in
+`.github/workflows/forget-tombstone.yml`). RED on origin/main 23555fa7: two roots
+holding one export imported twice (`runs=[30, 30]`); a re-import with same-named
+competitor nodes put 30 of 30 friends on a second node (`fb_nodes=60 friends=30`).
+GREEN with these changes: `runs=[30]`, `fb_nodes=30 friends=30`. A sync that drops
+either change turns that test red.
+
+## 2026-10-15: `google_calendar.py` set-aside drop and `other` mapping (cm041/contact_syncer)
+
+Not yet upstream in CM041. Port patch (for the later upstream port, not pushed):
+`~/walkdriver/upstream_ports/cm041_calendar_other.patch`.
+
+| file | what diverges |
+|---|---|
+| `google_calendar.py` | `_entry_is_set_aside()` and `event_is_set_aside()`: an event from a calendar whose `calendars.json` entry has `include` false is dropped in `write_calendar_event()` and in the `import_calendar()` loop (before any store write or attendee resolution); `resolve_calendar_provenance()` returns fail-closed L3 for such an entry if asked. Then `_TYPE_DEFAULT_PRIVACY["other"] = "L1"` (an included `other` calendar was falling to L3) |
+
+Order matters: mapping `other` to L1 without the drop would surface every
+set-aside calendar (written as `type: other, include: false`) as ordinary diary.
+Proven by `tests/test_calendar_set_aside_classification.py` (RED with the `other`
+mapping alone: `test_consumer_withholds_a_set_aside_calendar` returns L1). A sync
+that drops either change turns that test red.
+
+## 2026-10-14: `cm041/contact_syncer` `instagram_social.py` `_username_to_display_name`
+
+Location only: a bare handle (no separator) now returns `"@" + handle`
+instead of the handle itself, so a handle is never stored as a person's name
+(walk #27 shape sweep S9 row 3). Same edit in the shipped `contact_syncer/`
+copy. Hand-grafted; the tree is `regenerate_forbidden`.
+
+## Added 2026-10-19, CM051 v1.0.111: Apple Contacts photos on the abcddb path
+
+`vendor/cm041/contact_syncer/syncer.py`, hand-grafted (this tree is
+`regenerate_forbidden`, so the patch cannot record it). `_read_abcddb_as_vcards`
+is itself a CM051-side divergence with no CM041 counterpart, so there is no
+upstream commit to graft from.
+
+- `_read_abcddb_as_vcards` now selects `ZIMAGEDATA` and `ZTHUMBNAILIMAGEDATA`
+  through the existing `_col` (absent column -> NULL). It also emits
+  `PHOTO;ENCODING=b:<base64>` on the synthesised card, so the existing
+  `vcard_parser` -> `_persist_photo` -> `write_photo` path writes PHOTO_DIR
+  and `foaf:img` / `profile_photo_path` follow. It logs one counter line per
+  store: `abcddb photos in <store>: columns=... external= images_dir= inline=
+  none= not_image=`.
+- New module-level helpers `_is_image`, `_abcddb_blob_image` and
+  `_abcddb_photo_bytes` try every known storage shape:
+  - a raw image blob;
+  - CoreData framing, `0x01` inline or `0x02` + UUID into
+    `.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/`;
+  - the per-store `Images/<uid>` file.
+
+WHY: before this the abcddb reader selected no image column, so no customer
+install ever wrote a contact photo. The walk box had no PHOTO_DIR on
+2026-10-19.
+
+NOT GRAFTED into the repo-root dev twin `./contact_syncer/syncer.py`, which is
+not what `gui/project.yml` bundles. The walk box's installed `syncer.py` is
+byte-identical to the vendored copy (sha256 measured 2026-10-19).
+
+### What a future sync must preserve
+
+The two `_col` entries, the PHOTO line, the counter line and the three helpers.
+Guarded by `tests/test_address_book_photos_reach_photo_dir.py`. Which storage
+shape a real Mac uses is NOT INSTRUMENTED until a walk reads the counter line
+from `contact-resync.log`.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin f83d5aee -> 07a22b4c)
+
+Method: per-file 3-way merge (base source@f83d5aee, ours this tree, theirs
+source@07a22b4c), conflicts resolved by hand, decisions below. The ban on
+regeneration is retired with this re-pin (see the manifest comment): the pin is
+past the upstream scrub a0f3ca19.
+
+TAKEN FROM UPSTREAM (no longer a divergence): #84 module logger, #149
+trust_env formatting, #120 contact_type into the Qdrant payload, #138
+qdrant_collection.py self-create (new file), #164 last_contact bare-index fix,
+#172 a failed read never overwrites richer data.
+
+NOT VENDORED, now declared in `exclude`: the #109 modules given_name_variants,
+identifier_quality, name_election, role_addresses. Nothing in the vendored
+contact_syncer imports them (0 importers), as recorded at the v1.0.19 hold.
+
+KEPT (CM051-side, still needed):
+- #108 settling producer is NOT taken. install.sh owns the `contacts` settling
+  channel (`settling_report contacts`), and upstream's top-level import
+  `_vendor.ostler_settling_progress` is not vendored, so taking it would be an
+  ImportError at syncer import. syncer.py has no settling import, helper or call.
+- RULE 2 icloud_contact_uid write guard, F6 facebook source_key reuse, the
+  v1.0.111 address-book photos, the BW-1 phone normalisation through
+  `self.resolver.default_country_code` (with the #182 seen_phones dedupe and the
+  #186 is_possible_phone gates in the vendored shape), usage.py's nested
+  `_vendor` import, requirements.txt (rapidfuzz plus pins).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (PII
+shape on the MINUS side: upstream syncer.py carries a US-format example number
+in a comment the vendored copy does not take). The checked-in patch is stale
+against the new pin and does not apply; the content gate reads RED for this
+tree, as it did on main before this change.

@@ -70,7 +70,7 @@ fi
 # the operator the agent is missing. A warning that still exits 0 is invisible.
 
 guard_block=$(sed -n "${guard_line},\$p" "$SNIPPET" | sed -n '1,40p')
-if printf '%s' "$guard_block" | grep -q 'exit 1'; then
+if grep -q 'exit 1' <<< "$guard_block"; then
     ok "guard exits non-zero so install.sh surfaces it"
 else
     bad "guard does not exit non-zero; install.sh would report success"
@@ -78,7 +78,7 @@ fi
 
 # --- the operator is told how to recover -----------------------------------
 
-if printf '%s' "$guard_block" | grep -q 'launchctl bootstrap \$DOMAIN'; then
+if grep -q 'launchctl bootstrap \$DOMAIN' <<< "$guard_block"; then
     ok "guard prints the exact command to load the agent later"
 else
     bad "guard gives no recovery instruction"

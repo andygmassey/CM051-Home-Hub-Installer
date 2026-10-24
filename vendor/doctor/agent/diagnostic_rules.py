@@ -27,6 +27,15 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    TM_SECRETS_NOT_EXCLUDED_TITLE,
+    TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
+    TM_NOT_EXCLUDED_DETAIL_FMT,
+    TM_NOT_EXCLUDED_FIX,
+    TM_NOT_EXCLUDED_FIX_COMMAND_FMT,
+    TM_CANNOT_CHECK_TITLE,
+    TM_CANNOT_CHECK_DETAIL_FMT,
+    TM_CANNOT_CHECK_FIX,
+    TM_CANNOT_CHECK_FIX_COMMAND,
     MEMORY_UNREADABLE_TITLE,
     MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
     MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
@@ -46,6 +55,9 @@ from diagnostic_copy import (
     PARKED_FACTS_DETAIL,
     PARKED_FACTS_FIX,
     PENDING_FACTS_TITLE_FMT,
+    QUARANTINED_FACTS_TITLE_FMT,
+    QUARANTINED_FACTS_DETAIL,
+    QUARANTINED_FACTS_FIX,
     PENDING_FACTS_DETAIL,
     PENDING_FACTS_FIX,
     INGEST_EMPTY_FIX_COMMAND,
@@ -68,6 +80,11 @@ from diagnostic_copy import (
     SCHEDULED_AGENT_FAILING_DETAIL_FMT,
     SCHEDULED_AGENT_FAILING_FIX,
     SCHEDULED_AGENT_FAILING_FIX_COMMAND_FMT,
+    SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_FIX,
+    SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND,
     SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT,
     SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT,
     SCHEDULED_AGENT_NEVER_RAN_FIX,
@@ -166,6 +183,11 @@ from diagnostic_copy import (
     LAST_UPGRADE_FAILED_DETAIL,
     LAST_UPGRADE_FAILED_FIX,
     LAST_UPGRADE_FAILED_TITLE,
+    OLLAMA_NOT_PINNED_DETAIL_FMT,
+    OLLAMA_NOT_PINNED_FIX,
+    OLLAMA_NOT_PINNED_REASON_UNKNOWN,
+    OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
     LAST_UPGRADE_ROLLED_BACK_TITLE,
@@ -246,6 +268,22 @@ from diagnostic_copy import (
     ENGINE_SUPERVISOR_MISSING_FIX,
     ENGINE_SUPERVISOR_MISSING_FIX_COMMAND,
     ENGINE_SUPERVISOR_MISSING_TITLE,
+    LISTENER_DEGRADED_TITLE,
+    LISTENER_DEGRADED_DETAIL_FMT,
+    LISTENER_DEGRADED_FIX,
+    LISTENER_DEGRADED_FIX_COMMAND,
+    LISTENER_UNVERIFIED_TITLE,
+    LISTENER_UNVERIFIED_DETAIL_FMT,
+    LISTENER_UNVERIFIED_FIX,
+    LISTENER_UNVERIFIED_FIX_COMMAND,
+    LISTENER_RECOVERED_TITLE,
+    LISTENER_RECOVERED_DETAIL_FMT,
+    LISTENER_RECOVERED_FIX,
+    LISTENER_RECOVERED_FIX_COMMAND,
+    LISTENER_STATE_UNREADABLE_TITLE,
+    LISTENER_STATE_UNREADABLE_DETAIL,
+    LISTENER_STATE_UNREADABLE_FIX,
+    LISTENER_STATE_UNREADABLE_FIX_COMMAND,
     WIKI_REFRESH_STALLED_DETAIL_FMT,
     WIKI_REFRESH_STALLED_FIX,
     WIKI_REFRESH_STALLED_FIX_COMMAND,
@@ -741,6 +779,121 @@ def _engine_supervisor_is_scheduled() -> bool | None:
         return r.returncode == 0
     except Exception:
         return None
+
+
+# ── the companion listener watchdog ──────────────────────────────────
+#
+# Andy's box, 2026-10-17: the daemon was alive at 0% CPU for 4 h with its
+# :8443 listener dead, so the iPhone app showed "Hub unreachable" and nothing
+# on this page said so. ostler-listener-watchdog (install.sh LISTENERWDEOF)
+# probes :8443 every minute, restarts the daemon after 3 silent probes (max 3
+# an hour) and writes listener_watchdog.json. This renders it.
+#
+#   degraded            restart limit hit, listener still dead   -> critical
+#   restart_unverified  restarted, no answer within 60 s         -> critical
+#   restart_failed      kickstart itself failed                  -> critical
+#   ok/recovered with a restart in the last 24 h                 -> info
+#   ok, failing (< 3 probes, transient), stopped_deliberately,
+#   install_running, disabled, not_loaded                        -> silent
+#
+# Absent file: silent (the agent has not ticked yet; install_manifest_complete
+# grades the agent itself). A file that EXISTS but cannot be parsed is
+# "couldn't check", never silence and never an outage.
+
+_LISTENER_RECENT_S = 24 * 3600
+
+
+def _listener_state_path():
+    from pathlib import Path
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    return Path(base) / "listener_watchdog.json"
+
+
+def _iso_age_s(stamp: str):
+    from datetime import datetime, timezone
+    try:
+        t = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (TypeError, ValueError):
+        return None
+    return time.time() - t.timestamp()
+
+
+def check_listener_watchdog(snapshot: Any) -> list[dict]:
+    import json
+    findings: list[dict] = []
+    path = _listener_state_path()
+    if not path.exists():
+        return findings
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError("state is not an object")
+    except Exception:
+        log.warning("listener watchdog state unreadable: %s", path, exc_info=True)
+        findings.append({
+            "severity": "warning",
+            "title": LISTENER_STATE_UNREADABLE_TITLE,
+            "detail": LISTENER_STATE_UNREADABLE_DETAIL,
+            "fix": LISTENER_STATE_UNREADABLE_FIX,
+            "fix_command": LISTENER_STATE_UNREADABLE_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+        return findings
+
+    state = str(data.get("state", ""))
+    last_restart = str(data.get("last_restart_at") or "never")
+    capture = str(data.get("last_capture") or "no capture yet")
+    detail = str(data.get("detail", ""))[:300]
+    try:
+        restarts = int(data.get("restarts_last_hour", 0) or 0)
+    except (TypeError, ValueError):
+        restarts = 0
+
+    if state == "degraded":
+        findings.append({
+            "severity": "critical",
+            "title": LISTENER_DEGRADED_TITLE,
+            "detail": LISTENER_DEGRADED_DETAIL_FMT.format(
+                restarts=restarts, last_restart=last_restart, capture=capture,
+            ),
+            "fix": LISTENER_DEGRADED_FIX,
+            "fix_command": LISTENER_DEGRADED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state in ("restart_unverified", "restart_failed"):
+        findings.append({
+            "severity": "critical",
+            "title": LISTENER_UNVERIFIED_TITLE,
+            "detail": LISTENER_UNVERIFIED_DETAIL_FMT.format(
+                last_restart=last_restart, detail=detail, capture=capture,
+            ),
+            "fix": LISTENER_UNVERIFIED_FIX,
+            "fix_command": LISTENER_UNVERIFIED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    elif state in ("ok", "recovered") and data.get("last_restart_at"):
+        age = _iso_age_s(last_restart)
+        if age is not None and age < _LISTENER_RECENT_S:
+            findings.append({
+                "severity": "info",
+                "title": LISTENER_RECOVERED_TITLE,
+                "detail": LISTENER_RECOVERED_DETAIL_FMT.format(
+                    last_restart=last_restart, restarts=restarts,
+                    capture=capture,
+                ),
+                "fix": LISTENER_RECOVERED_FIX,
+                "fix_command": LISTENER_RECOVERED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+    return findings
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
@@ -1373,47 +1526,96 @@ def _imessage_chat_db_path() -> str:
     )
 
 
-def _imessage_chat_db_readable() -> bool:
-    """True if SOMETHING in this Doctor process can open chat.db.
+def _ostler_engine_root():
+    from pathlib import Path
 
-    Used purely as a "FDA is granted on this machine" liveness probe
-    for the auto-dismiss path in :func:`check_imessage_fda`. The
-    file exists on every macOS install; failing to open it is the
-    signal the user has not yet granted Full Disk Access for the
-    binary doing the probing.
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    return Path(root).expanduser() if root else Path.home() / ".ostler"
 
-    We use ``sqlite3.connect`` rather than ``os.access`` because
-    macOS reports the path as readable from a stat() perspective
-    even when TCC denies the actual open -- we have to attempt the
-    real SQLite open to get the truthful answer.
 
-    Any failure (missing file, permission denied, OSError on the
-    sqlite extension import) is treated as "not readable" -- safer
-    to keep the card visible than to wrongly auto-dismiss.
+def _parse_utc(value):
+    from datetime import datetime, timezone
+
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _load_json(path):
+    import json
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _imessage_read_evidence() -> list[tuple]:
+    """``(when, granted)`` records of chat.db reads made by the SIGNED side.
+
+    Two producers, both of which run under ``ostler-assistant run-source``
+    and so hold the assistant's Full Disk Access:
+
+    * the iMessage feed's reply-debt snapshot
+      (``state/reply_debt/imessage_threads.json``, run-source imessage):
+      ``status`` ok / absent = read worked, unreadable = denied;
+    * the FDA extract summary (``imports/fda/extraction_summary.json``,
+      run-source fda-rerun): ``sources.imessage.status`` ok / not_found =
+      read worked, no_fda = denied.
+
+    NOT ``state/source_activity/imessage.tsv``: its ``last_status`` is the
+    INGEST of the extract JSON, and a previous run's JSON still ingests "ok"
+    after the chat.db read has started failing. It cannot tell the two apart.
     """
-    import sqlite3
+    root = _ostler_engine_root()
+    out: list[tuple] = []
 
-    path = _imessage_chat_db_path()
-    try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
-    except sqlite3.Error:
+    snap = _load_json(root / "state" / "reply_debt" / "imessage_threads.json")
+    if isinstance(snap, dict):
+        when = _parse_utc(snap.get("generated_at"))
+        status = snap.get("status")
+        if when is not None and status in ("ok", "absent"):
+            out.append((when, True))
+        elif when is not None and status == "unreadable":
+            out.append((when, False))
+
+    summary = _load_json(root / "imports" / "fda" / "extraction_summary.json")
+    if isinstance(summary, dict):
+        when = _parse_utc(summary.get("extracted_at"))
+        imsg = (summary.get("sources") or {}).get("imessage")
+        status = imsg.get("status") if isinstance(imsg, dict) else None
+        if when is not None and status in ("ok", "not_found"):
+            out.append((when, True))
+        elif when is not None and status == "no_fda":
+            out.append((when, False))
+    return out
+
+
+def _imessage_chat_db_readable() -> bool:
+    """True when the SIGNED assistant's most recent chat.db read succeeded.
+
+    THIS PROCESS NEVER OPENS chat.db (CM051 #30, studio29 follow-on). It used
+    to, with ``sqlite3.connect`` as a "has FDA been granted" probe. But
+    com.ostler.doctor is launched by launchd as a bare venv python, so TCC
+    attributed that open to python3.11: every poll was a second "python3.11"
+    Full Disk Access request, it could never be granted in a way the
+    customer would recognise, and so the card this probe was meant to
+    auto-dismiss never cleared. The grant that matters is the assistant's,
+    and the assistant's own ticks already record whether their read worked.
+    The name is kept because the two rules below and their tests call it.
+
+    The most recent record wins, so a grant clears the card on the next
+    tick and a later revocation brings it back. No record at all is False:
+    keep the card rather than wrongly dismiss it.
+    """
+    evidence = _imessage_read_evidence()
+    if not evidence:
         return False
-    except OSError:
-        return False
-    try:
-        # A minimal read confirms the open succeeded; the chat.db
-        # ``message`` table always exists once Messages has run once,
-        # but we only care that the open + a no-op SELECT round-trip
-        # without raising the OperationalError that TCC denial throws.
-        conn.execute("SELECT 1").fetchone()
-        return True
-    except sqlite3.Error:
-        return False
-    finally:
-        try:
-            conn.close()
-        except sqlite3.Error:
-            pass
+    return max(evidence, key=lambda r: r[0])[1]
 
 
 def check_imessage_fda(snapshot: Any) -> list[dict]:
@@ -1425,10 +1627,10 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
     1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
        pipeline_signals.json (the install-time probe found the
        daemon could not open chat.db once the LaunchAgent loaded).
-    2. A live re-probe from this Doctor process *also* cannot open
-       chat.db. This is the auto-dismiss path: as soon as either
-       the customer's Doctor process or the assistant binary gains
-       FDA and the customer re-runs Doctor, the card disappears.
+    2. The signed assistant's most recent recorded chat.db read did not
+       succeed (``_imessage_chat_db_readable``). This is the auto-dismiss
+       path: once the assistant's tick reads chat.db, the card disappears.
+       Doctor itself never opens chat.db.
 
     A missing key on the snapshot (``None``) means the install ran
     before CX-60 shipped -- we stay quiet rather than firing a
@@ -1452,11 +1654,9 @@ def check_imessage_fda(snapshot: Any) -> list[dict]:
         # the daemon was already healthy). Either way: no card.
         return findings
 
-    # Live auto-dismiss: if Doctor's own process can open chat.db,
-    # FDA has been granted at least to one binary on this Mac. The
-    # daemon may still need its own grant (TCC is per-binary), but
-    # at that point the install-time probe is stale -- prefer the
-    # live signal so the card does not linger.
+    # Live auto-dismiss: the signed assistant's own most recent chat.db
+    # read succeeded, so the install-time probe is stale. Read from the
+    # records its ticks write; this process never opens chat.db.
     if _imessage_chat_db_readable():
         return findings
 
@@ -1515,6 +1715,46 @@ def _format_upgrade_applied(timestamp: str | None) -> str | None:
     except (TypeError, ValueError):
         return None
     return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+def _ollama_pin_state_path():
+    return _ostler_engine_root() / "state" / "ollama-pin"
+
+
+def check_ollama_pin(snapshot: Any) -> list[dict]:
+    """Ollama is not on Ostler's pinned version (CM051 #2977).
+
+    install.sh writes ``~/.ostler/state/ollama-pin`` on every pin attempt:
+    ``ollama_pin=installed`` when the tested engine went in, ``deferred``
+    when the download, fingerprint check or unpack failed on a working
+    existing install and the old engine was kept. Only ``deferred`` is a
+    row. A missing file means an install that predates the record: quiet,
+    because "no record" is not "unpinned". READ-ONLY.
+
+    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
+    """
+    try:
+        text = _ollama_pin_state_path().read_text(encoding="utf-8")
+    except OSError:
+        return []
+    kv = {}
+    for line in text.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            kv[k.strip()] = v.strip()
+    if kv.get("ollama_pin") != "deferred":
+        return []
+    rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
+    reason = OLLAMA_NOT_PINNED_REASONS.get(rc, OLLAMA_NOT_PINNED_REASON_UNKNOWN)
+    return [{
+        "severity": "warning",
+        "title": OLLAMA_NOT_PINNED_TITLE,
+        "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
+            version=kv.get("ollama_pin_version") or "?", reason=reason),
+        "fix": OLLAMA_NOT_PINNED_FIX,
+        "risk": "low",
+        "category": "installation",
+    }]
 
 
 def check_last_upgrade(snapshot: Any) -> list[dict]:
@@ -1679,9 +1919,10 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
     Fires when BOTH:
 
     1. The crash signature is present in the log tail, AND
-    2. A live re-probe from this Doctor process *also* cannot open chat.db.
+    2. The signed assistant's most recent recorded chat.db read did not
+       succeed. Doctor itself never opens chat.db.
 
-    The live re-probe is the auto-dismiss path (shared with
+    That record is the auto-dismiss path (shared with
     :func:`check_imessage_fda`): the crash lines linger in the appended log
     after FDA is finally granted, so without the re-probe the card would never
     clear. Once FDA is granted and Messages is readable, the card disappears.
@@ -1694,8 +1935,8 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
     if not _imessage_capture_crash_logged():
         return findings
 
-    # Live auto-dismiss: if this Doctor process can now open chat.db, FDA has
-    # been granted on this Mac and the logged crashes are stale history.
+    # Live auto-dismiss: the signed assistant's latest chat.db read worked,
+    # so the logged crashes are stale history. Never an open from here.
     if _imessage_chat_db_readable():
         return findings
 
@@ -1720,6 +1961,42 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
 # customer already dealt with weeks ago.
 _DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
 
+# 🔴 AND rc=1 AS A RAW SUBSTRING COUNTS rc=10, rc=124 AND rc=199 AS FAILURES.
+# Board row 967. The tuple above is the vocabulary and is still correct; the
+# MATCH was not. `"rc=1" in line` is true of every return code from 10 to 19,
+# 100 to 199, and of 124 in particular, which is the conventional timeout exit
+# code and the one a 90-second watchdog produces. The first time the
+# conversation processor is killed rather than failing, a raw substring tells
+# the owner a dispatch FAILED.
+#
+# rc=124 is not hypothetical here: this very file carries it as the worked
+# example of the log format these rules read, in the shape
+# `status=error rc=124 sent=0,skipped=0`.
+#
+# WHY AN INFLATED COUNT IS THE SAME HARM AS A DEFLATED ONE. This rule exists
+# because Doctor once said "Everything looks healthy" while the bundle error
+# log carried a fresh failure, and the number it produces is shown to the owner
+# as how many conversations were READ and could not be PROCESSED. A number that
+# is too high makes the page just as unusable as one that is too low, and the
+# second time a product reports a wrong state is the time it stops being
+# trusted.
+#
+# 🗿 AND IT IS DELIBERATELY NOT WIDENED TO rc=<non-zero>. sessions_failed is a
+# separate token with its own meaning and the two are different shapes on
+# purpose. The change is exactly one of intent: rc=1 counts only when the 1 is
+# the whole number. A negative lookahead does that and nothing else.
+_DISPATCH_FAIL_RE = re.compile(r"rc=1(?!\d)|sessions_failed")
+
+
+def _is_dispatch_failure(line: str) -> bool:
+    """True when a log line records a dispatch that failed.
+
+    Named rather than inlined so the tokens, the reason and the match live in
+    one place; the previous version had the vocabulary at one line and the
+    predicate twenty lines away, which is how the two came to disagree.
+    """
+    return _DISPATCH_FAIL_RE.search(line) is not None
+
 
 def _dispatch_failure_count() -> int:
     """How many dispatch failures appear in the tail of the bundle error log.
@@ -1740,10 +2017,7 @@ def _dispatch_failure_count() -> int:
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return 0
-    return sum(
-        1 for line in tail.splitlines()
-        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
-    )
+    return sum(1 for line in tail.splitlines() if _is_dispatch_failure(line))
 
 
 def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
@@ -1998,7 +2272,7 @@ def check_hydrate_ingest(snapshot: Any) -> list[dict]:
 _SCHEDULED_AGENTS = (
     (
         "com.ostler.fda-rerun",
-        "contacts, calendar, iMessage, WhatsApp, browsing and notes",
+        "calendar, reminders, iMessage, WhatsApp, browsing and notes",
         "fda-rerun",
         3600,
     ),
@@ -2228,6 +2502,20 @@ def check_scheduled_agents(snapshot: Any) -> list[dict]:
                 else "warning"
             )
             since = _format_upgrade_applied(obs.get("failing_since")) or "recently"
+            if obs.get("last_exit") == SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION:
+                findings.append({
+                    "severity": severity,
+                    "title": SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT.format(feeds=feeds),
+                    "detail": SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT.format(since=since),
+                    "fix": SCHEDULED_AGENT_NEEDS_PERMISSION_FIX,
+                    "fix_command": SCHEDULED_AGENT_NEEDS_PERMISSION_FIX_COMMAND,
+                    "risk": "low",
+                    "category": "ingest",
+                    "agent_state": "needs_permission",
+                    "agent_label": label,
+                    "agent_failed_ticks": ticks,
+                })
+                continue
             findings.append({
                 "severity": severity,
                 "title": SCHEDULED_AGENT_FAILING_TITLE_FMT.format(feeds=feeds),
@@ -2374,6 +2662,18 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
             "category": "memory",
             "parked_facts": parked,
         })
+    quarantined = st.get("quarantined")
+    if isinstance(quarantined, int) and quarantined > 0:
+        findings.append({
+            "severity": "warning",
+            "title": QUARANTINED_FACTS_TITLE_FMT.format(
+                n=quarantined, s="" if quarantined == 1 else "s"),
+            "detail": QUARANTINED_FACTS_DETAIL,
+            "fix": QUARANTINED_FACTS_FIX,
+            "risk": "low",
+            "category": "memory",
+            "quarantined_facts": quarantined,
+        })
     pending = st.get("pending")
     oldest = st.get("oldest_pending_at")
     if isinstance(pending, int) and pending > 0 and isinstance(oldest, str):
@@ -2394,6 +2694,86 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
                 "category": "memory",
                 "pending_facts": pending,
             })
+    return findings
+
+
+def _tm_isexcluded(path: str) -> "tuple[str, str]":
+    """Query tmutil about one path, LIVE.
+
+    Returns ("excluded" | "included" | "cannot", detail). Measured output on
+    macOS 26: "[Excluded]  <p>", "[Included]  <p>", "[UNKNOWN]   <p>", all
+    exit 0, so only the leading tag answers the question. Anything that is
+    not a readable tag is "cannot": a check that did not run is not a pass.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(["tmutil", "isexcluded", path],
+                              capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return "cannot", "tmutil not found"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "cannot", f"{type(exc).__name__}"
+    out = (proc.stdout or "").strip()
+    if out.startswith("[Excluded]"):
+        return "excluded", out
+    if out.startswith("[Included]"):
+        return "included", out
+    return "cannot", (out or (proc.stderr or "").strip() or f"exit {proc.returncode}")[:120]
+
+
+def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
+    """The folders the installer excludes from Time Machine are STILL excluded.
+
+    Status-honesty sweep I1: the installer used to print "excluded from Time
+    Machine backups" after `tmutil addexclusion ... 2>/dev/null || true`, so a
+    refused exclusion was reported as done. The installer now reads it back,
+    and this rule asks again on every Doctor run, so a failure (or an
+    exclusion removed later) stays visible. A folder that does not exist has
+    nothing to back up and is skipped.
+    """
+    import shutil
+    import sys
+    if sys.platform != "darwin" and shutil.which("tmutil") is None:
+        # No Time Machine on this platform at all: not applicable, rather
+        # than a check that failed to run. On a Mac tmutil is part of the OS,
+        # so its absence there IS reported (as "could not check") below.
+        return []
+    home = os.path.expanduser("~")
+    secrets_dir = os.path.join(home, ".ostler")
+    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+               os.path.join(home, ".colima")]
+    findings: list[dict] = []
+    cannot: list[str] = []
+    for folder in folders:
+        if not os.path.isdir(folder):
+            continue
+        state, detail = _tm_isexcluded(folder)
+        if state == "excluded":
+            continue
+        if state == "cannot":
+            cannot.append(detail)
+            continue
+        findings.append({
+            "severity": "warning",
+            "title": (TM_SECRETS_NOT_EXCLUDED_TITLE if folder == secrets_dir
+                      else TM_FOLDER_NOT_EXCLUDED_TITLE_FMT.format(folder=folder)),
+            "detail": TM_NOT_EXCLUDED_DETAIL_FMT.format(folder=folder),
+            "fix": TM_NOT_EXCLUDED_FIX,
+            "fix_command": TM_NOT_EXCLUDED_FIX_COMMAND_FMT.format(folder=folder),
+            "risk": "low",
+            "category": "privacy",
+            "folder": folder,
+        })
+    if cannot:
+        findings.append({
+            "severity": "warning",
+            "title": TM_CANNOT_CHECK_TITLE,
+            "detail": TM_CANNOT_CHECK_DETAIL_FMT.format(reason=cannot[0]),
+            "fix": TM_CANNOT_CHECK_FIX,
+            "fix_command": TM_CANNOT_CHECK_FIX_COMMAND,
+            "risk": "low",
+            "category": "privacy",
+        })
     return findings
 
 
@@ -2560,6 +2940,7 @@ ALL_RULES = [
     check_oxigraph_health,
     check_wiki_health,
     check_engine_supervisor_present,
+    check_listener_watchdog,
     check_redis_health,
     check_gateway_health,
     check_import_readiness,
@@ -2574,10 +2955,12 @@ ALL_RULES = [
     check_backfill_progress,
     check_imessage_fda,
     check_last_upgrade,
+    check_ollama_pin,
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
     check_licence_expiry,
     check_parked_facts,
+    check_time_machine_exclusion,
 ]
 
 

@@ -280,6 +280,7 @@ names = ["_hydrate_payload_count", "_hydrate_payload_is_all_zero",
          "_hydrate_sentinel_record_error", "_hydrate_sentinel_record_cannot_run",
          "_hydrate_fda_decision",
          "_hydrate_fda_record_photos", "_hydrate_fda_record_reminders",
+         "_hydrate_fda_record_apple_music",
          "_hydrate_record_fda_extract"]
 body = []
 for n in names:
@@ -353,7 +354,13 @@ want = {"_source_activity_dir", "_read_source_activity", "_source_hydrate_dir",
         "_routine_evidence", "_routine_run_count",
         # #2562-C round 2: see test_source_status_prefers_a_live_routine_
         # over_a_stale_sentinel.sh for why both of these exist.
-        "_best_routine_count", "_settling_progress_total"}
+        "_best_routine_count", "_settling_progress_total",
+          # walk #28: one honest total per row, in a declared unit.
+          "_ostler_state_root", "_positive_int", "_settling_done",
+          "_extract_summary_count", "_distinct_pages", "_canonical_total",
+          "_mail_available_total", "_source_count_label",
+        # v1.0.108 catch-up progress.
+        "_catchup_state_dir", "_read_catchup_by_row", "_catchup_phrase"}
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name in want:
         exec(compile(ast.Module([node], []), "<f>", "exec"), ns)
@@ -369,8 +376,11 @@ os.environ.pop("OSTLER_HOME", None)
 ns["os"].environ["OSTLER_DIR"] = str(root)
 ns["os"].environ.pop("OSTLER_HOME", None)
 page = ns["render_source_status"]()
+if os.environ.get("OSTLER_RAW_PAGE"):
+    print(page)
+    raise SystemExit(0)
 cells = re.compile(
-    r"<tr><td>(.*?)</td><td><span[^>]*>(.*?)</span></td>"
+    r"<tr><td>(.*?)</td><td><span[^>]*>(.*?)</span>(?:<div[^>]*>.*?</div>)?</td>"
     r'<td style="text-align:right">(.*?)</td>')
 for name, status, items in cells.findall(page):
     print("%s|%s|%s" % (name, status, items))
@@ -405,16 +415,16 @@ ok "control: the always-registered 'imessage' row renders (${_c})"
 
 _c="$(_cell reminders "$OUT_OK")"
 case "$_c" in
-    "read in|87") ok "a customer who ticked Reminders sees 'reminders / read in / 87'" ;;
+    "read in|87 reminders") ok "a customer who ticked Reminders sees 'reminders / read in / 87 reminders'" ;;
     "")           bad "Reminders is ABSENT from the panel after a successful extract. This is #1587: not reported as broken, not reported at all." ;;
-    *)            bad "the Reminders row reads '${_c}', expected 'read in|87' (total_reminders, not pending and not a list count)" ;;
+    *)            bad "the Reminders row reads '${_c}', expected 'read in|87 reminders' (total_reminders, not pending and not a list count)" ;;
 esac
 
 _c="$(_cell photos "$OUT_OK")"
 case "$_c" in
-    "read in|412") ok "Photos reads 'read in / 412' (photo_events, not the 0 recognised people)" ;;
+    "read in|412 photos") ok "Photos reads 'read in / 412 photos' (photo_events, one per photo, not the 0 recognised people)" ;;
     "")            bad "Photos is ABSENT from the panel after a successful extract" ;;
-    *)             bad "the Photos row reads '${_c}', expected 'read in|412'" ;;
+    *)             bad "the Photos row reads '${_c}', expected 'read in|412 photos'" ;;
 esac
 
 # ── Full Disk Access ungranted: CANNOT-RUN, and never a zero ─────────────
@@ -422,14 +432,14 @@ _drive "$SUMMARY_NOFDA"
 OUT_NOFDA="$(_render)"
 _c="$(_cell reminders "$OUT_NOFDA")"
 case "$_c" in
-    "could not look|"*"mdash"*|"could not look|&mdash;")
-        ok "with Full Disk Access ungranted Reminders reads 'could not look' with a BLANK count" ;;
+    "needs access|"*"mdash"*|"needs access|&mdash;")
+        ok "with Full Disk Access ungranted Reminders reads 'needs access' with a BLANK count" ;;
     "")  bad "Reminders vanished from the panel when Full Disk Access was ungranted; an absent row reads as fine" ;;
-    "could not look|0")
-        bad "Reminders reads 'could not look' beside a count of 0. Nothing looked, so 0 is fabricated -- the defect class this week." ;;
+    "needs access|0")
+        bad "Reminders reads 'needs access' beside a count of 0. Nothing looked, so 0 is fabricated -- the defect class this week." ;;
     "nothing to read|"*)
         bad "an ungranted Full Disk Access rendered as 'nothing to read', which tells the customer their Reminders are empty when in fact nobody looked" ;;
-    *)   bad "the ungranted-FDA Reminders row reads '${_c}', expected 'could not look' with a blank count" ;;
+    *)   bad "the ungranted-FDA Reminders row reads '${_c}', expected 'needs access' with a blank count" ;;
 esac
 
 # ── declined: no row, because a declined source is not a failure ─────────
@@ -452,9 +462,9 @@ _drive "$SUMMARY_ZERO"
 OUT_ZERO="$(_render)"
 _c="$(_cell reminders "$OUT_ZERO")"
 case "$_c" in
-    "nothing to read|0") ok "an empty Reminders list reads 'nothing to read / 0' -- a measured zero still prints" ;;
+    "nothing to read|0 reminders") ok "an empty Reminders list reads 'nothing to read / 0 reminders' -- a measured zero still prints" ;;
     "")  bad "a Reminders extract that ran and found nothing produced no row" ;;
-    *)   bad "the empty-Reminders row reads '${_c}', expected 'nothing to read|0'" ;;
+    *)   bad "the empty-Reminders row reads '${_c}', expected 'nothing to read|0 reminders'" ;;
 esac
 
 # ── app absent from this Mac ─────────────────────────────────────────────
@@ -465,6 +475,84 @@ case "$_c" in
     "")  bad "a not-found source produced no row" ;;
     *)   bad "the not-found Photos row reads '${_c}'" ;;
 esac
+
+# ── Apple Music (#3040): the arm now says ok with 0 tracks; Doctor still
+# tells refused apart from empty, by native_status, and a real error stays one.
+_am() { printf '{"sources":{"apple_music":{"status":"%s","total_tracks":%s,"total_playlists":0,"native_status":"%s","reason":"%s"}}}' "$1" "$2" "$3" "$4"; }
+_drive "$(_am ok 0 unavailable 'permission not granted')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "needs access|"*) ok "Apple Music ok/0 tracks/permission refused reads 'needs access', not a measured zero" ;;
+    *) bad "Apple Music ok/0 tracks/permission refused rendered '${_c}', expected 'needs access'" ;;
+esac
+_drive "$(_am ok 0 empty 'library empty')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "nothing to read|"*) ok "Apple Music ok/0 tracks/empty library reads 'nothing to read'" ;;
+    *) bad "Apple Music ok/0 tracks/empty library rendered '${_c}', expected 'nothing to read'" ;;
+esac
+_drive "$(_am ok 12 ok '')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "read in|"*) ok "CONTROL: Apple Music with tracks reads 'read in'" ;;
+    *) bad "CONTROL: Apple Music with 12 tracks rendered '${_c}'" ;;
+esac
+_drive "$(_am error 0 not_tried '')"
+_c="$(_cell "apple music" "$(_render)")"
+case "$_c" in
+    "could not look|"*|"failed|"*|"error|"*) ok "a real Apple Music error is not rendered as healthy (${_c})" ;;
+    *) bad "a real Apple Music error rendered '${_c}'" ;;
+esac
+
+# ── Refused permissions say what is needed and where (sweep of every Doctor
+# source whose refusal reason is a missing permission). A genuine failure to
+# read stays 'could not look' with no instruction, and an unknown reason is
+# never guessed into a pane.
+_raw() { OSTLER_RAW_PAGE=1 _render; }
+_reason_for() {  # <row> <html>: the muted reason under <row>'s status, or empty
+    printf '%s' "$2" | tr '\n' ' ' | awk -v r="<td>$1</td>" '
+        { n = index($0, r); if (!n) exit; t = substr($0, n); e = index(t, "</tr>"); t = substr(t, 1, e)
+          if (match(t, /<div class="muted"[^>]*>[^<]*<\/div>/)) { d = substr(t, RSTART, RLENGTH); sub(/^<div[^>]*>/, "", d); sub(/<\/div>$/, "", d); print d } }'
+}
+_cannot() { # <source> <detail>: a cannot_run sentinel with that detail
+    local d="$WORK_SENT"; rm -rf "$d"; mkdir -p "$d"
+    {
+        printf '%s\n' 'set -uo pipefail'
+        printf '_HYDRATE_SENTINEL_DIR=%q\n' "$d"
+        cat "${WORK}/recorders.sh"
+        printf '_hydrate_sentinel_record_cannot_run %q %q\n' "$1" "$2"
+    } > "${WORK}/run.sh"
+    bash "${WORK}/run.sh" >/dev/null 2>&1
+}
+_expect_refused() { # <row> <source> <detail> <needle in reason>
+    _cannot "$2" "$3"
+    local page cell why
+    page="$(_raw)"; cell="$(_cell "$1" "$(_render)")"; why="$(_reason_for "$1" "$page")"
+    case "$cell" in "needs access|"*) ;; *) bad "$1 refused (${3}) reads '${cell}', expected 'needs access'"; return ;; esac
+    case "$why" in
+        "Ostler needs "*"(System Settings &gt; Privacy &amp; Security &gt; "*"$4"*")") ok "$1 refused (${3}): '${why}'" ;;
+        *) bad "$1 refused (${3}) names '${why}', expected the System Settings pane '${4}'" ;;
+    esac
+}
+_expect_refused "apple music" apple_music media_library_not_granted "Media &amp; Apple Music"
+_expect_refused contacts contacts fda_not_granted "Full Disk Access"
+_expect_refused reminders reminders fda_not_granted "Full Disk Access"
+_expect_refused photos photos fda_not_granted "Full Disk Access"
+_expect_refused imessage imessage fda_not_granted "Full Disk Access"
+_expect_refused email email no_fda "Full Disk Access"
+# the real writer path, through the extractor verdict, for the two FDA arms
+_drive "$SUMMARY_NOFDA"
+_w="$(_reason_for reminders "$(_raw)")"
+case "$_w" in "Ostler needs Full Disk Access"*) ok "extractor no_fda reaches the row as '${_w}'" ;; *) bad "extractor no_fda reaches the Reminders row as '${_w}'" ;; esac
+# genuine read failures stay cannot_run and carry no permission instruction
+for _g in pipeline_venv_missing email_ingest_venv_missing no_extract_summary "something_unlisted"; do
+    _cannot contacts "$_g"
+    _c="$(_cell contacts "$(_render)")"; _w="$(_reason_for contacts "$(_raw)")"
+    case "$_c|$_w" in
+        "could not look|&mdash;|") ok "genuine failure (${_g}) still reads 'could not look' with no permission claim" ;;
+        *) bad "genuine failure (${_g}) reads '${_c}' with reason '${_w}'" ;;
+    esac
+done
 
 # ── a state the reader has never seen must surface, not be absorbed ──────
 _drive "$SUMMARY_WEIRD"

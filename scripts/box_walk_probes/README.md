@@ -299,10 +299,41 @@ the system it models misses them. Both cost the same amount of trust.
 | `install_error_honesty` | does the installer's summary agree with its own log? | #270 |
 | `pair_state_agreement` | do the pairing signals agree with each other? | #265, #208 |
 | `freshness_panel_has_dates` | does every source report a date, not `unknown`? | #349, #266 |
+| `front_page_not_me_is_saved` | does a Not me tap from the Hub app's origin (`tauri://localhost`) land in `interest_corrections.json` and `card_states.json` and survive a reload? | #2470 |
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
 | `installed_bundle_seal_intact` | does the installed bundle's signature still verify **on the box**, and can the reader prove what it looked at? | #375, v1.0.46 BOM row 6 |
 | `people_seed_and_retrieval` | can a person seeded on the box be retrieved again through the route the daemon really uses? | v1.0.12 |
+| `data_conservation` | per source and category, do IN (importer logs), STORED (Qdrant, Oxigraph, bundles) and SHOWN (wiki text, Doctor) agree, or is there an unexplained loss or duplication? | the 2026-10-15 sweep: about eleven silent drops, e.g. 68,314 of 70,667 music prefs hidden by one missing allow-list entry |
+
+### data_conservation: how to run it
+
+Read-only (GET, Qdrant scroll, SPARQL SELECT, file reads; never writes, never
+creates a payload index). Verdicts per row: CONSERVED, EXPLAINED (a declared
+exclusion with its reason matches the gap), LOST (fewer than expected, or than
+the previous stage less declared exclusions), INFLATED (more than expected, e.g.
+Oxigraph holding every like twice), KNOWN-GAP (declared, visible, non-failing),
+NOT-MEASURED (an instrument could not read; CANNOT-RUN, never a pass). Exit 1 on
+any LOST or INFLATED.
+
+    # the walk runs it automatically (probes/*.sh is globbed). By hand, on the Studio marta80q install:
+    OSTLER_BOX_HOST=marta80q@macstudio \
+      OSTLER_CONSERVATION_PROFILE=chain \
+      OSTLER_CONSERVATION_TABLE_OUT=/tmp/conservation.md \
+      scripts/box_walk_probes/probes/data_conservation.sh
+
+    scripts/box_walk_probes/probes/data_conservation.sh --self-test   # mutations MUST be LOST
+
+Profiles live in `fixtures/data_conservation/expected.json`. `chain` (default)
+compares the box with itself and is valid on ANY box: it expands one row per
+(source, category) the preferences store actually holds, so a category nobody
+listed is still checked. `full` is the golden profile for a box loaded with the
+synthetic demo-life set plus the GDPR export fixtures (built by
+`gen/build_conservation_expected.py` in the walkdriver tree, counts only). Denied
+wiki rows are explained with CM044's own `preference_filter.noise_reason()`
+loaded from the install; on a build without it those rows are NOT-MEASURED, not
+assumed zero. Registered as `advisory` in `walk_promote_scope.tsv` until the
+first golden-loaded walk calibrates `full`.
 
 Each asserts **agreement or absence of a lie**, not a particular value. An
 unpaired box is fine; a box claiming to be paired over an empty table is not. A
@@ -342,3 +373,27 @@ Runs under **bash 3.2**, the system bash on macOS and the shell the installed
 box provides. No associative arrays, no `mapfile`, no `${var,,}`. A syntax error
 in a probe means it never ran, which is the exact failure this suite exists to
 prevent, so `bash -n` every probe before committing it.
+
+## Safari on the walk account: seeded, source-absent, or FDA-blocked
+
+`ingest_coverage` reads the box's own `~/.ostler/imports/fda/extraction_summary.json`
+when `safari_history` answers HTTP 404 (no collection):
+
+| extract status for safari_history | walk seed marker | verdict |
+|---|---|---|
+| `not_found` | not `planted` | CANNOT-RUN, SOURCE-ABSENT (Safari never opened, nothing to ingest) |
+| `no_fda` | any | CANNOT-RUN, FDA-BLOCKED (macOS refused the read) |
+| `ok`, `error`, anything else, or no readable summary | any | FAIL (v1.0.101 rule: a 404 over a source that was read is EMPTY) |
+| `not_found` | `planted` | FAIL (the reader missed a file the walk put there) |
+
+A FAIL elsewhere (another store EMPTY, dying top-up) still wins over these CANNOT-RUNs.
+
+`scripts/ttywalk.sh` plants a SYNTHETIC `History.db` (example domains only,
+`scripts/box_walk_probes/lib/safari_history_fixture.py`) into the walk account's
+`~/Library/Safari` before install (`scripts/lib_walk_safari_seed.sh`) and records the
+outcome in `~/.walk-safari-seed-run` (`planted(visits=N)`, `skipped-real-history-present`
+or `cannot-plant:<reason>`). It never overwrites a History.db that lacks the synthetic
+marker table. `~/Library/Safari` is TCC-protected: the plant can be refused over ssh, and
+even a planted file is unreadable to an installer without Full Disk Access (status
+`no_fda`). Which of these happens on a given walk account is NOT KNOWN until a walk runs;
+the record says which, and neither outcome is read as a pass.

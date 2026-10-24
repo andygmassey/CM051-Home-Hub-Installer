@@ -25,6 +25,7 @@ Usage:
 Exit codes: 0 pass, 1 fail, 78 CANNOT-RUN (no browser / page never loaded).
 """
 import json
+import hashlib
 import os
 import re
 import sys
@@ -125,8 +126,9 @@ def judge(f):
         asks = pl.get("asks") or []
         if not asks or not all(a.get("replied") for a in asks):
             add("chat: every one of 3 replies carries an in-app person link", None,
-                "NOT MEASURED: {} of {} asks got a reply".format(
-                    sum(1 for a in asks if a.get("replied")), len(asks) or 3))
+                "NOT MEASURED: {} of {} asks got a reply; per ask: {}".format(
+                    sum(1 for a in asks if a.get("replied")), len(asks) or 3,
+                    "; ".join("{} {}s".format(a.get("status", "?"), a.get("elapsed_s", "?")) for a in asks) or "none recorded"))
         else:
             add("chat: every one of 3 replies carries an in-app person link",
                 all(a.get("anchor") for a in asks),
@@ -160,10 +162,32 @@ def judge(f):
         rp = pl.get("real_person")
         if not rp:
             add("chat: a real person's compiled page renders with their name", None,
-                "NOT MEASURED: set HUB_SCREENS_REAL_PERSON to a person with a compiled page")
+                "NOT MEASURED: " + (os.environ.get("HUB_SCREENS_REAL_PERSON_DETAIL")
+                    or "no real person was chosen (the runner exports HUB_SCREENS_REAL_PERSON; "
+                       "see lib/real_person_choose.sh)"))
+        elif (rp.get("link_miss") or {}).get("classification") == "slug_format_mismatch" and not rp.get("anchor"):
+            lm = rp["link_miss"]
+            add("chat: a real person's compiled page renders with their name", None,
+                "CANNOT-RUN (harness): the reply linked the asked person's page under a slug the probe did "
+                "not expect; expected_sha8={} linked_sha8s={} heading_names_person=True (names withheld)".format(
+                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or [])))
+        elif (rp.get("link_miss") or {}).get("classification") == "assistant_linked_wrong_person" and not rp.get("anchor"):
+            lm = rp["link_miss"]
+            add("chat: a real person's compiled page renders with their name", False,
+                "FAIL (PRODUCT) assistant_linked_wrong_person: the reply linked someone else; "
+                "expected_sha8={} linked_sha8s={} heading_names_person=False (names withheld); {}".format(
+                    lm.get("expected_slug_sha8"), ",".join(lm.get("linked_slug_sha8s") or []),
+                    fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else ""))
+        elif (rp.get("wait") or {}).get("state") == "timeout" and not rp.get("anchor"):
+            wt = rp["wait"]
+            add("chat: a real person's compiled page renders with their name", None,
+                "CANNOT-RUN (harness): no reply within the budget; " + fmt_wait(wt["budget"], wt)
+                + (" " + fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else ""))
         elif rp.get("error") or not rp.get("page"):
             add("chat: a real person's compiled page renders with their name", None,
-                "NOT MEASURED: anchor={} error={}".format(rp.get("anchor"), rp.get("error")))
+                "NOT MEASURED: anchor={} error={} {}".format(
+                    rp.get("anchor"), rp.get("error"),
+                    fmt_miss_inputs(rp["miss_inputs"]) if rp.get("miss_inputs") else "miss_inputs=not recorded"))
         else:
             rpg = rp["page"]
             add("chat: a real person's compiled page renders with their name",
@@ -186,8 +210,22 @@ def judge(f):
     add("timeline: history is reachable by scrolling",
         len(past) > 0, "0 rows before today after scrolling down")
     kinds = {r.get("kind") for r in rows}
-    add("timeline: rows are not all one type",
-        len(rows) < 10 or len(kinds) > 1, "kinds={}".format(sorted(k for k in kinds if k)))
+    screen_kinds = sorted(k for k in kinds if k)
+    box_kinds = t.get("box_kinds")
+    if not isinstance(box_kinds, list):
+        add("timeline: rows are not all one type", None,
+            "NOT MEASURED: the box's own kinds were not read ({}); screen kinds={}".format(
+                t.get("box_kinds_error") or "no box_kinds fact", screen_kinds))
+    elif not box_kinds:
+        add("timeline: rows are not all one type", None,
+            "NOT MEASURED: the timeline API holds no items; screen kinds={}".format(screen_kinds))
+    elif len(box_kinds) == 1:
+        add("timeline: rows are not all one type", True,
+            "box holds one kind ({}); screen shows {}".format(box_kinds[0], screen_kinds))
+    else:
+        add("timeline: rows are not all one type",
+            len(rows) < 10 or len(screen_kinds) > 1,
+            "box holds {}; screen shows {} over {} rows".format(box_kinds, screen_kinds, len(rows)))
     bare = [r for r in rows if (r.get("title") or "").strip().lower() in BARE_CHANNEL_TITLES]
     add("timeline: no row is titled with a bare channel name",
         not bare, "{} bare titles".format(len(bare)))
@@ -196,9 +234,25 @@ def judge(f):
     names = p.get("names") or []
     orgs = [n for n in names if _org_like(n)]
     add("people: it has rows", len(names) > 0, p.get("error", "no rows"))
-    add("people: no organisations or automated senders in the list",
+    add("people: no organisations or automated senders among the rows on screen",
         not orgs, "{} of {}: {}".format(len(orgs), len(names),
                                          ", ".join(sorted(set(orgs))[:3]) if orgs else ""))
+    # EVERY row, not the screen. Ostler DMG #21 (ostler-assistant #514): the
+    # page mounts only its first window of rows (100 of 6,700 on the walk box),
+    # so the screen alone would judge 1.5% of the list and pass an organisation
+    # at row 6,500. The full list comes from the same people API the page
+    # renders, read with the same token.
+    api = p.get("api") or {}
+    api_names = api.get("names")
+    full = "people: no organisations or automated senders in the list (every row, from the people API)"
+    if api.get("error") or api_names is None:
+        add(full, None, "NOT MEASURED: " + (api.get("error") or "the people API was not read"))
+    elif names and not api_names:
+        add(full, None, "NOT MEASURED: the people API returned 0 rows while the screen showed {}".format(len(names)))
+    else:
+        api_orgs = [n for n in api_names if _org_like(n)]
+        add(full, not api_orgs, "{} of {}: {}".format(
+            len(api_orgs), len(api_names), ", ".join(sorted(set(api_orgs))[:3]) if api_orgs else ""))
 
     h = f.get("home") or {}
     if h.get("not_me_checked"):
@@ -232,10 +286,183 @@ def redact_url(url):
     """Never record a person's slug: the walk record is public (CM051)."""
     return _PEOPLE_SEG.sub(r"\1<redacted>", url or "")
 
+PEOPLE_API_PATH = "/api/v1/people?sort=recency"
+TIMELINE_API_PATH = "/api/v1/timeline?days=7&past_days=730&limit=500"
+
+
+def timeline_api_kinds(status, body):
+    """The kinds the Hub's own timeline API holds, as judge facts:
+    {"box_kinds": [sorted kinds]} or {"box_kinds_error": why}. Pure, so
+    --self-test covers it. A non-200 or malformed answer is an error (NOT
+    MEASURED), never an empty list: an empty list would read as "one kind"."""
+    if status != 200:
+        return {"box_kinds_error": "timeline API answered HTTP {}".format(status)}
+    try:
+        doc = json.loads(body)
+    except Exception as exc:
+        return {"box_kinds_error": "timeline API body is not JSON ({})".format(str(exc)[:80])}
+    if not isinstance(doc, dict) or not isinstance(doc.get("items"), list):
+        return {"box_kinds_error": "timeline API body has no items list"}
+    return {"box_kinds": sorted({i.get("kind") for i in doc["items"]
+                                 if isinstance(i, dict) and i.get("kind")})}
+
+
+def people_api_facts(status, body):
+    """The people API's answer as judge facts: {"names": [...], "total": n} or
+    {"error": why}. Pure, so --self-test covers it. A degraded or non-200
+    answer is an error (NOT MEASURED), never an empty list: an empty list
+    would read as "no organisations" and pass."""
+    if status != 200:
+        return {"error": "people API answered HTTP {}".format(status)}
+    try:
+        doc = json.loads(body)
+    except Exception as exc:
+        return {"error": "people API body is not JSON ({})".format(str(exc)[:80])}
+    if not isinstance(doc, dict) or not isinstance(doc.get("people"), list):
+        return {"error": "people API body has no people list"}
+    if doc.get("degraded"):
+        return {"error": "people API answered degraded ({})".format(str(doc.get("reason", ""))[:80])}
+    names = [(r.get("name") or "") if isinstance(r, dict) else "" for r in doc["people"]]
+    return {"names": names, "total": doc.get("total", len(names))}
+
+
+def collect_people(page, base, token, out_dir, timeout_ms=45000):
+    """People: the screen (first rows appear, a sample is judged) and the full
+    list from the people API the page itself reads. One authenticated GET over
+    the forwarded loopback port; read-only."""
+    pp = {}
+    page.wait_for_selector("[data-person-row]", timeout=timeout_ms)
+    pp["names"] = page.evaluate("""() => Array.from(
+        document.querySelectorAll('[data-person-row]')).map(
+          e => e.getAttribute('data-person-name') || '')""")
+    page.screenshot(path=os.path.join(out_dir, "people.png"))
+    try:
+        r = page.context.request.get(base + PEOPLE_API_PATH, timeout=60000,
+                                     headers={"Authorization": "Bearer " + token})
+        pp["api"] = people_api_facts(r.status, r.text())
+    except Exception as exc:
+        pp["api"] = {"error": "people API unreachable: " + _err(exc, 120)}
+    return pp
+
+
+def _scrub_name(text, name):
+    """Remove a real person's name (any case) and their slug from text bound for
+    the walk record."""
+    if not name:
+        return text
+    slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+    for pat in (re.escape(name), re.escape(slug)):
+        if pat:
+            text = re.sub(pat, "<withheld>", text, flags=re.IGNORECASE)
+    return text
+
+
 def _err(exc, n=200):
     """An exception as it may enter the public record: Playwright quotes the
     frame URL, and a person page URL carries the person's slug."""
     return redact_url(str(exc))[:n]
+
+
+def slug_link_selector(slug):
+    """Like person_link_selector, from a slug the runner took from the people API
+    (which can carry a disambiguation suffix a name cannot reproduce)."""
+    slug = re.sub(r"[^a-z0-9-]+", "", (slug or "").casefold()).strip("-")
+    return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
+
+
+ANY_PERSON_LINK = 'main a[href*="/People/"], main a[href*="/people/"]'
+
+
+def link_fingerprint(hrefs):
+    """sha256[:8] of the sorted person-link slugs: tells a reply that linked
+    someone else from one that linked nobody, without carrying a name."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs})
+    return hashlib.sha256("\n".join(slugs).encode("utf-8")).hexdigest()[:8] if slugs else ""
+
+
+def _sha8(text):
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:8]
+
+
+def classify_link_miss(expected_slug, hrefs, heading_names_person):
+    """The reply linked SOMEONE but not the asked slug. Decide whose fault, from
+    evidence, with no names: sha8 of the expected slug, sha8 of each linked slug,
+    and whether the linked page's own heading names the asked person.
+
+    heading matches  -> the link WAS the asked person's page under another slug
+                        format: a HARNESS slug mismatch (CANNOT-RUN, not a fail).
+    heading differs  -> the assistant linked a different person: PRODUCT FAIL
+                        (assistant_linked_wrong_person)."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs} - {""})
+    out = {"expected_slug_sha8": _sha8(expected_slug),
+           "linked_slug_sha8s": [_sha8(x) for x in slugs],
+           "linked_heading_names_person": bool(heading_names_person)}
+    out["classification"] = "slug_format_mismatch" if heading_names_person else "assistant_linked_wrong_person"
+    return out
+
+
+WAIT_S = 240          # the FLOOR of the chat wait; the budget scales up from measured turns
+WAIT_CAP_S = 600      # hard cap: a reply that never arrives cannot hang the walk
+WAIT_K = 3.0
+
+
+def chat_wait_budget(turn_secs, k=WAIT_K, floor=WAIT_S, cap=WAIT_CAP_S):
+    """Budget for one chat turn, sized from this walk's own earlier turns:
+    clamp(max(floor, k * p90), cap). p90 is nearest-rank. With no earlier turn
+    it is the floor. Returns the budget AND its inputs, so the walk can print both."""
+    xs = sorted(float(x) for x in turn_secs if x is not None and float(x) > 0)
+    p90 = xs[min(len(xs) - 1, max(0, int(-(-0.9 * len(xs) // 1)) - 1))] if xs else None
+    raw = max(floor, k * p90) if p90 is not None else floor
+    return {"budget_s": round(min(raw, cap), 1), "p90_s": None if p90 is None else round(p90, 1),
+            "turns": len(xs), "k": k, "floor_s": floor, "cap_s": cap, "capped": raw > cap}
+
+
+def frame_is_done(payload):
+    """True for the chat socket's done frame ({"type": "done"}), the same frame
+    lib/assistant_chat.py ws_chat ends a turn on."""
+    try:
+        if isinstance(payload, (bytes, bytearray)):
+            payload = payload.decode("utf-8", "replace")
+        return json.loads(payload).get("type") == "done"
+    except Exception:
+        return False
+
+
+def wait_for_reply(is_done, budget_s, clock=time.time, sleep=time.sleep, poll_s=3):
+    """Poll until is_done() or the budget runs out. Returns state done|timeout
+    and the actual elapsed seconds (never a bare timeout)."""
+    t0 = clock()
+    while True:
+        if is_done():
+            return {"state": "done", "elapsed_s": round(clock() - t0, 1)}
+        if clock() - t0 >= budget_s:
+            return {"state": "timeout", "elapsed_s": round(clock() - t0, 1)}
+        sleep(poll_s)
+
+
+def fmt_wait(b, w):
+    return ("wait budget={}s (p90 of {} earlier turn(s)={}s x k={}, floor {}s, cap {}s, capped={}) "
+            "state={} elapsed={}s").format(b["budget_s"], b["turns"], b["p90_s"], b["k"], b["floor_s"],
+                                           b["cap_s"], b["capped"], w["state"], w["elapsed_s"])
+
+
+def miss_inputs(expected_slug, hrefs, new_links, reply_len, elapsed_s, wait_s=WAIT_S):
+    """Everything needed to tell a load timeout from a product non-answer from a
+    slug mismatch, with no names: hashes, counts, lengths, seconds."""
+    slugs = sorted({(h or "").rstrip("/").rsplit("/", 1)[-1].casefold() for h in hrefs} - {""})
+    return {"any_person_link": new_links > 0, "new_person_links": int(new_links),
+            "expected_slug_sha8": _sha8(expected_slug),
+            "linked_slug_sha8s": [_sha8(x) for x in slugs],
+            "reply_len": int(reply_len), "elapsed_s": round(float(elapsed_s), 1),
+            "wait_s": wait_s, "timed_out": float(elapsed_s) >= wait_s - 3}
+
+
+def fmt_miss_inputs(m):
+    return ("any_person_link={} new_person_links={} expected_sha8={} linked_sha8s={} "
+            "reply_len={} elapsed={}s of {}s timed_out={} (names withheld)").format(
+        m.get("any_person_link"), m.get("new_person_links"), m.get("expected_slug_sha8"),
+        ",".join(m.get("linked_slug_sha8s") or []) or "-", m.get("reply_len"),
+        m.get("elapsed_s"), m.get("wait_s"), m.get("timed_out"))
 
 
 def person_link_selector(name):
@@ -249,7 +476,7 @@ def person_link_selector(name):
     return 'main a[href*="/People/{0}/"], main a[href*="/people/{0}/"]'.format(slug) if slug else None
 
 
-def _wait_chat_idle(page, max_s=240, stable_s=10):
+def _wait_chat_idle(page, max_s=WAIT_CAP_S, stable_s=10):
     """Until the chat transcript stops growing: a reply still streaming, or a
     queued ask, must not be read as the answer to the next one."""
     t0, last, since = time.time(), -1, time.time()
@@ -369,6 +596,12 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         ctx.add_init_script(
             "try { localStorage.setItem('zeroclaw_token', %s); } catch (e) {}" % json.dumps(token))
         page = ctx.new_page()
+        done_count = [0]   # chat socket done frames seen so far
+
+        def _on_ws(ws):
+            ws.on("framereceived", lambda payload: done_count.__setitem__(0, done_count[0] + (1 if frame_is_done(payload) else 0)))
+        page.on("websocket", _on_ws)
+        turn_secs = []     # elapsed of this walk's completed chat turns
         if os.environ.get("HUB_SCREENS_RED_CONTROL") == "strip-wiki-session":
             # RED CONTROL: reproduce v1.0.105. There the wiki's stylesheets and
             # scripts were fetched from /wiki/... with no credential. Rewrite every
@@ -476,17 +709,19 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                   title: e.getAttribute('data-timeline-title')}))""")
         except Exception as exc:
             t["error"] = _err(exc)
+        try:
+            r = page.context.request.get(base + TIMELINE_API_PATH, timeout=60000,
+                                         headers={"Authorization": "Bearer " + token})
+            t.update(timeline_api_kinds(r.status, r.text()))
+        except Exception as exc:
+            t["box_kinds_error"] = "timeline API unreachable: " + _err(exc, 120)
         facts["timeline"] = t
 
         # -- people --------------------------------------------------------
         pp = {}
         try:
             nav("/people")
-            page.wait_for_selector("[data-person-row]", timeout=45000)
-            pp["names"] = page.evaluate("""() => Array.from(
-                document.querySelectorAll('[data-person-row]')).map(
-                  e => e.getAttribute('data-person-name') || '')""")
-            page.screenshot(path=os.path.join(out_dir, "people.png"))
+            pp = collect_people(page, base, token, out_dir)
         except Exception as exc:
             pp["error"] = _err(exc)
         facts["people"] = pp
@@ -516,7 +751,7 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
         c = {"loaded": False}
         try:
             nav("/cost")
-            page.wait_for_selector("text=/model calls/i", timeout=30000)
+            page.wait_for_selector("text=/work done/i", timeout=30000)  # v1.0.112 Bursar copy: "Work done" card; "model calls" no longer on the page
             c["loaded"] = True
             page.screenshot(path=os.path.join(out_dir, "cost.png"))
         except Exception as exc:
@@ -543,18 +778,23 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(who))
                     box.press("Enter")
-                    got, replied, t0 = False, False, time.time()
-                    while time.time() - t0 < 240:
-                        if page.locator(sel).count() > before:
-                            got = replied = True
-                            break
-                        if len(page.inner_text("main")) > before_text + len(who) + 80:
-                            replied = True
-                        time.sleep(3)
+                    got, replied = False, False
+                    done0 = done_count[0]
+                    bud = chat_wait_budget(turn_secs)
+                    w = wait_for_reply(lambda: page.locator(sel).count() > before or done_count[0] > done0,
+                                       bud["budget_s"])
+                    if w["state"] == "done":
+                        turn_secs.append(w["elapsed_s"])
+                    replied = (w["state"] == "done"
+                               or len(page.inner_text("main")) > before_text + len(who) + 80)
+                    got = page.locator(sel).count() > before
                     if replied and not got:
                         time.sleep(5)
                         got = page.locator(sel).count() > before
-                    asks.append({"replied": replied, "anchor": got})
+                    print("  seed ask: " + fmt_wait(bud, w))
+                    asks.append({"replied": replied, "anchor": got,
+                                 "status": ("got" if got else "replied-no-link" if replied else "timed-out"),
+                                 "elapsed_s": w["elapsed_s"], "wait": fmt_wait(bud, w)})
                 pl["asks"] = asks
                 _wait_chat_idle(page)
                 pl["link_is_this_person"] = page.locator(own).count() > 0
@@ -580,28 +820,59 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 # there is no chat box: go back to chat first (candidate 6 timed
                 # out here, and the arm silently read as NOT MEASURED).
                 rp = {"checked": True}
-                mine = person_link_selector(real)
+                mine = (slug_link_selector(os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG"))
+                        or person_link_selector(real))
                 try:
                     nav("/chat")
                     _wait_chat_idle(page)
                     before = page.locator(mine).count()
+                    any_before = page.locator(ANY_PERSON_LINK).count()
                     box = page.wait_for_selector("textarea", timeout=30000)
                     box.fill("Who is {}? Include a link to their wiki page.".format(real))
                     box.press("Enter")
-                    t0 = time.time()
-                    while time.time() - t0 < 240 and page.locator(mine).count() <= before:
-                        time.sleep(3)
+                    rtext0 = len(page.inner_text("main"))
+                    done1 = done_count[0]
+                    bud = chat_wait_budget(turn_secs)
+                    w = wait_for_reply(lambda: page.locator(mine).count() > before or done_count[0] > done1,
+                                       bud["budget_s"])
+                    if w["state"] == "done" and page.locator(mine).count() <= before:
+                        time.sleep(5)   # the link can land just after the done frame
+                    elapsed = w["elapsed_s"]
+                    rp["wait"] = {"state": w["state"], "elapsed_s": elapsed, "budget": bud}
+                    print("  real-person ask: " + fmt_wait(bud, w))
                     # Only a link to THIS person's page counts, never the
                     # newest link in the chat.
                     rp["anchor"] = page.locator(mine).count() > before
+                    # Product miss vs harness miss: did the reply link ANYONE?
+                    # Hashed, no names.
+                    new_links = max(0, page.locator(ANY_PERSON_LINK).count() - any_before)
+                    rp["any_person_link"] = new_links > 0
+                    hrefs = page.eval_on_selector_all(
+                        ANY_PERSON_LINK, "els => els.map(e => e.getAttribute('href') || '')")
+                    rp["person_links_fp"] = link_fingerprint(hrefs)
+                    want = (os.environ.get("HUB_SCREENS_REAL_PERSON_SLUG")
+                            or re.sub(r"[^a-z0-9]+", "-", real.casefold()).strip("-"))
+                    # Recorded BEFORE any click, so an error later cannot lose it.
+                    rp["miss_inputs"] = miss_inputs(want, hrefs, new_links,
+                                                    max(0, len(page.inner_text("main")) - rtext0), elapsed,
+                                                    wait_s=bud["budget_s"])
+                    print("  real-person ask: anchor={} {}".format(rp["anchor"], fmt_miss_inputs(rp["miss_inputs"])))
                     rp["link_is_this_person"] = rp["anchor"]
+                    if not rp["anchor"] and rp["any_person_link"]:
+                        # Instrument, don't guess: open what WAS linked and read
+                        # its own heading against the asked person.
+                        page.locator(ANY_PERSON_LINK).last.click()
+                        time.sleep(4)
+                        pf = _person_page_facts(page, real, public_name=False)
+                        rp["link_miss"] = classify_link_miss(want, hrefs, pf.get("heading_names_person"))
                     if rp["anchor"]:
                         page.locator(mine).last.click()
                         time.sleep(4)
                         rp["page"] = _person_page_facts(page, real, public_name=False)
-                        page.screenshot(path=os.path.join(out_dir, "person-real.png"))
+                        # NO screenshot: the page shows a real person's name, and the
+                        # walk record is public (CM051). Facts only, name withheld.
                 except Exception as exc:
-                    rp["error"] = _err(exc).replace(real, "<withheld>")
+                    rp["error"] = _scrub_name(_err(exc), real)
                 pl["real_person"] = rp
         facts["person_link"] = pl
 
@@ -651,10 +922,13 @@ def _good():
                  "stylesheets": [{"url": "u/assets/main.css", "status": 200,
                                   "content_type": "text/css"}]},
         "timeline": {"today": "2026-09-28", "today_in_view": True, "today_top": 40,
+                     "box_kinds": ["meeting", "message"],
                      "rows": [{"kind": "meeting", "day": "2026-09-28", "title": "Lunch"},
                               {"kind": "message", "day": "2026-09-20",
                                "title": "WhatsApp with A"}] * 6},
-        "people": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk", "a.person" + "@" + "bigco-group.com"]},
+        "people": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk", "a.person" + "@" + "bigco-group.com"],
+                   "api": {"names": ["person one", "person two", "someone" + "@" + "examplemail.co.uk",
+                                     "a.person" + "@" + "bigco-group.com", "person three", "person four"]}},
         "home": {"not_me_checked": True, "not_me_card": "X", "not_me_gone_after_reload": True},
         "settings": {"tailscale_toggle": True},
         "cost": {"loaded": True},
@@ -700,11 +974,18 @@ MUTANTS = [
         rows=[{"kind": "meeting", "day": "2026-09-29", "title": "x"}] * 3)),
     ("timeline all MEETING", lambda f: f["timeline"].update(
         rows=[{"kind": "meeting", "day": "2026-09-20", "title": "t%d" % i} for i in range(12)])),
+    ("timeline box unknown but all MEETING on screen", lambda f: f["timeline"].update(
+        box_kinds=None, box_kinds_error="HTTP 401",
+        rows=[{"kind": "meeting", "day": "2026-09-20", "title": "t%d" % i} for i in range(12)])),
     ("timeline bare channel title", lambda f: f["timeline"]["rows"].append(
         {"kind": "message", "day": "2026-09-20", "title": "whatsapp"})),
     ("people contains a company", lambda f: f["people"]["names"].append("acme promotions")),
     ("people contains a role address", lambda f: f["people"]["names"].append("support@example.com")),
     ("people contains a domain as a name", lambda f: f["people"]["names"].append("Examplefare.co.uk")),
+    ("people API list holds a company the screen window never rendered",
+     lambda f: f["people"]["api"]["names"].append("acme promotions")),
+    ("people API list holds a role address past the screen window",
+     lambda f: f["people"]["api"]["names"].append("noreply@example.com")),
     ("not me came back", lambda f: f["home"].update(not_me_gone_after_reload=False)),
     ("tailscale switch disagrees", lambda f: f["settings"].update(tailscale_toggle=False)),
     ("bursar did not render", lambda f: f["cost"].update(loaded=False)),
@@ -796,6 +1077,39 @@ def self_test():
         print("SELF-TEST FAIL: the still-being-written arm on a rendered page must be N/A, got {}".format(row))
         return EX_FAIL
     print("  ok    still-being-written arm is N/A on a rendered page")
+    # PEOPLE API ARMS: an unread, degraded or failed people API is NOT
+    # MEASURED, never an empty list that reads as "no organisations".
+    full = "people: no organisations or automated senders in the list"
+    for label, api in [("API not read", None),
+                       ("API degraded", people_api_facts(200, json.dumps(
+                           {"people": [], "total": 0, "degraded": True, "reason": "qdrant down"}))),
+                       ("API 401", people_api_facts(401, "")),
+                       ("API not JSON", people_api_facts(200, "<html>")),
+                       ("API 0 rows while the screen has rows", people_api_facts(200, json.dumps(
+                           {"people": [], "total": 0})))]:
+        u = copy.deepcopy(_good())
+        if api is None:
+            u["people"].pop("api")
+        else:
+            u["people"]["api"] = api
+        row = [ok for n, ok, _ in judge(u) if n.startswith(full)]
+        if row != [None]:
+            print("SELF-TEST FAIL: {} must be an explicit CANNOT-RUN row, got {}".format(label, row))
+            return EX_FAIL
+        print("  ok    {} is an explicit CANNOT-RUN row".format(label))
+    got = people_api_facts(200, json.dumps({"people": [{"name": "a b"}, {"name": None}], "total": 2}))
+    if got != {"names": ["a b", ""], "total": 2}:
+        print("SELF-TEST FAIL: people_api_facts misread a good body: {}".format(got))
+        return EX_FAIL
+    print("  ok    people_api_facts reads every name from a good body")
+    for st, body, want in ((200, json.dumps({"items": [{"kind": "event"}, {"kind": "event"}, {"kind": "message"}, {}]}),
+                            {"box_kinds": ["event", "message"]}),
+                           (401, "{}", None), (200, "not json", None), (200, "{}", None)):
+        got = timeline_api_kinds(st, body)
+        if (want is not None and got != want) or (want is None and "box_kinds_error" not in got):
+            print("SELF-TEST FAIL: timeline_api_kinds misread HTTP {} {!r}: {}".format(st, body[:20], got))
+            return EX_FAIL
+    print("  ok    timeline_api_kinds reads kinds from a good body and errors on a bad one")
     base = judge(_good())
     bad = [n for n, ok, _ in base if not ok]
     if bad:

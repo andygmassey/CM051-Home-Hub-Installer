@@ -310,7 +310,7 @@ def _embed_text(ollama_url: str, text: str, model: str) -> Optional[List[float]]
             )
             resp.raise_for_status()
             data = resp.json()
-            from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+            from contact_syncer.usage import record_embed_usage  # usage journal (#482): enriching
             record_embed_usage(data, model)
         embs = data.get("embeddings") or [data.get("embedding")]
         if embs and embs[0]:
@@ -489,6 +489,22 @@ def ingest_places(
             len(payloads),
         )
         status = "error_empty_result"
+
+    # Third guard (walk #16: "0 written, 979 errors ... status=ok"). A step
+    # whose writes all fail is an error, never ok. Any upsert error means the
+    # status cannot be ok; ALL failing is reported separately so the log names
+    # the worse case. An earlier guard's status is kept (first cause wins).
+    if upsert_counts["errors"] > 0 and status == "ok":
+        if upsert_counts["written"] == 0:
+            status = "error_write_failed"
+        else:
+            status = "error_partial_write"
+        logger.warning(
+            "PLACES INGEST GUARD: %d of %d place points failed to write "
+            "(%d written). status=%s",
+            upsert_counts["errors"], len(payloads),
+            upsert_counts["written"], status,
+        )
 
     return {
         "status": status,

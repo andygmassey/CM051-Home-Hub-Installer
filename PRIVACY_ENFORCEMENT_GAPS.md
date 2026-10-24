@@ -75,6 +75,18 @@ Written at:
 - `vendor/cm048_pipeline/src/ingest.py` `_retention_tier_for` -- the
   classifier that produces the value.
 
+Mirrored, not read (CM051 #2931, 2026-10-15):
+
+- `vendor/cm048_pipeline/src/processor.py` `_retention_tier` calls
+  `_retention_tier_for` and hands the value to
+- `vendor/cm048_pipeline/src/capture_truth.py` `stamp_frontmatter`, which
+  writes it into the enrichment frontmatter (`02_enrichment.md`, copied to
+  `~/Documents/Ostler/Conversations/<id>.md`). The model used to copy a tier
+  out of its prompt there instead. Nothing reads that frontmatter field and
+  neither file branches on it; `tests/test_the_retention_tier_is_written_and_read_by_nothing.py`
+  holds both to that. This makes the decorative value consistent; it does
+  not make it enforced.
+
 Measured with `git grep -n retention_tier -- .`: **11 hits, 0 readers, 0
 tests.** The remaining seven are CM048 prose and prompt templates. A search
 for a sweeper, expiry, purge or TTL job across `vendor/`, `scripts/` and all

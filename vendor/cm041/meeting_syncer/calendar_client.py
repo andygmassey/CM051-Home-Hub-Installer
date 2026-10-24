@@ -2,17 +2,51 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+import os
+
 import httpx
 
 
-def fetch_events(api_url, days=30):
+def _service_token():
+    """Loopback service token the ical-server requires on every non-public route."""
+    tok = (os.environ.get("PWG_SERVICE_TOKEN") or os.environ.get("OSTLER_SERVICE_TOKEN") or "").strip()
+    if tok:
+        return tok
+    path = os.path.join(os.path.expanduser("~"), ".ostler", "secrets", "service_token")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def fetch_events(api_url, days=30, events_provider=None):
     """Fetch calendar events from the unified calendar API.
 
     Returns list of event dicts. Only events with both a UID and at least
     one attendee are included.
+
+    ``events_provider`` (``days -> list of event dicts``) reads the calendar
+    in-process instead of over HTTP. The Hub passes it when the brief runs
+    inside one of its own request handlers, where an HTTP call back to
+    ``api_url`` would hang the single-threaded server.
     """
+    if events_provider is not None:
+        events = events_provider(days)
+        return [e for e in events if e.get("attendees") and e.get("uid")]
     url = api_url.rstrip("/") + "/calendar"
-    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0, trust_env=False)
+    headers = {}
+    token = _service_token()
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    resp = httpx.get(
+        url, params={"days": str(days)}, headers=headers, timeout=30.0, trust_env=False
+    )
+    if resp.status_code in (401, 403):
+        raise RuntimeError(
+            "CANNOT-RUN: the calendar API at %s refused the request (%d); "
+            "no service token was %s" % (url, resp.status_code, "accepted" if token else "found")
+        )
     resp.raise_for_status()
     data = resp.json()
     events = data.get("events", [])

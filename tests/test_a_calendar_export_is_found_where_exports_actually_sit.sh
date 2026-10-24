@@ -32,42 +32,37 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SUBJECT="${REPO}/install.sh"
+# #30 (2026-10-15): the calendar predicate MOVED. It was a find arm inline in
+# install.sh's install-time scan, and the Downloads watcher had no calendar arm
+# at all, so the two disagreed about the same folder. Both now read the ONE
+# loose-file table in lib/ostler-detect-exports.sh (--loose), which carries the
+# depth, prune and no-cap rules this test was written for. So this test now
+# measures that table, and tests/test_loose_exports_in_downloads_are_found_
+# and_said.sh proves install.sh's scan really calls it.
+SUBJECT="${REPO}/lib/ostler-detect-exports.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 
-[ -f "$SUBJECT" ] || { echo "CANNOT-RUN: no install.sh at ${SUBJECT}" >&2; exit 2; }
+[ -f "$SUBJECT" ] || { echo "CANNOT-RUN: no detector lib at ${SUBJECT}" >&2; exit 2; }
 WORK="$(mktemp -d)" || { echo "CANNOT-RUN: no working directory" >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 
-# --- extract the REAL predicate, by content ----------------------------------
-# From the process-substitution line that feeds the calendar loop. Taken as a
-# multi-line block because the predicate is continued across several lines.
-PRED="${WORK}/pred.sh"
-awk '
-    /done < <\(find "\$search_dir" -maxdepth 6 -xdev/ { f = 1 }
-    f { print; if ($0 ~ /-print 2>\/dev\/null \|\| true\)$/) exit }
-' "$SUBJECT" > "$PRED"
-
-if ! /usr/bin/grep -q "name '\*.ics'" "$PRED"; then
-    echo "CANNOT-RUN: could not extract the calendar find predicate from ${SUBJECT}." >&2
+if ! /usr/bin/grep -q '^LOOSE=(' "$SUBJECT" || ! /usr/bin/grep -q "Calendar" "$SUBJECT"; then
+    echo "CANNOT-RUN: the detector lib has no LOOSE table with a Calendar row." >&2
     echo "  Scanning nothing must not read as a passing test." >&2
     exit 2
 fi
 
-# Turn `done < <(find ... )` into a runnable `find ... `.
+# One line per calendar the table says IMPORT. A file it recognises but skips
+# (too small) is not a calendar export for the count below.
 RUNNER="${WORK}/runner.sh"
-{
-    printf 'search_dir="$1"\n'
-    # The line is indented inside the per-folder loop, so the anchor has to
-    # allow for that. Without the [[:space:]]* the substitution silently does
-    # nothing and the harness runs `done < <(...)` on its own, which is a
-    # parse error rather than a wrong answer -- caught by the bash -n below.
-    /usr/bin/sed -e 's|^[[:space:]]*done < <(|(|' "$PRED"
-} > "$RUNNER"
+printf 'SUBJECT="%s"\n' "$SUBJECT" > "$RUNNER"
+cat >> "$RUNNER" <<'RUNEOF'
+bash "$SUBJECT" "$1" --loose | awk -F'\t' '$1 == "Calendar" && $3 == "import" { print $2 }'
+RUNEOF
 if ! bash -n "$RUNNER" 2>/dev/null; then
-    echo "CANNOT-RUN: the extracted predicate does not parse; the extraction is wrong." >&2
+    echo "CANNOT-RUN: the runner does not parse." >&2
     /usr/bin/sed 's|^|    |' "$RUNNER" >&2
     exit 2
 fi

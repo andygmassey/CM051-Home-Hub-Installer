@@ -53,6 +53,29 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:${PATH:-/usr/bin:/bin}"
 
 OSTLER_DIR="${OSTLER_DIR:-$HOME/.ostler}"
 
+# >>> owner-tz (CM044 compiled timestamps are owner-local; see compiler/local_time.py)
+# Prints the Mac's IANA zone (e.g. Asia/Hong_Kong) from the /etc/localtime
+# symlink. Missing/unreadable/odd target -> prints NOTHING and says so on
+# stderr; the wiki then labels its times "UTC" rather than passing UTC off as
+# local. Re-derived every call because the owner may travel.
+ostler_owner_tz() {
+    local link="${1:-/etc/localtime}" target zone
+    if ! target="$(readlink "$link" 2>/dev/null)" || [[ -z "$target" ]]; then
+        echo "owner-tz: cannot read zone from $link; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    zone="${target#*zoneinfo/}"
+    if [[ "$zone" == "$target" || -z "$zone" || ! "$zone" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
+        echo "owner-tz: unrecognised zone target '$target'; wiki times will be labelled UTC" >&2
+        return 0
+    fi
+    printf '%s\n' "$zone"
+}
+# <<< owner-tz
+
+OSTLER_TZ="$(ostler_owner_tz)"
+export OSTLER_TZ
+
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
@@ -102,6 +125,33 @@ if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
     fi
 fi
 # --------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# PUBLIC LOOK-UPS RUN ONLY ON A RECORDED YES (Ostler #30).
+#
+# The wiki compiler can look places up on OpenStreetMap (name AND coordinates),
+# artists on MusicBrainz and Wikipedia, and organisations on Wikipedia. Each is
+# off unless the container sees OSTLER_PUBLIC_LOOKUPS=agreed (CM044
+# compiler/public_lookups.py). The compose service maps it from the caller's
+# environment with a default of off, and every compile below sets it from this
+# function on the command itself.
+#
+# The answer is read from the FILE, ~/.ostler/config/.env, on EVERY compile, so
+# a later change of mind takes effect at the next compile and a variable left
+# over in a caller is never mistaken for the customer's answer. Missing file,
+# unreadable file, missing key, empty, or anything but "accepted" is OFF.
+# Exported so the detached full-compile `bash -c` re-reads it at the moment
+# that compile starts, not when the tick did.
+# ---------------------------------------------------------------------------
+ostler_public_lookups_flag() {
+    local f="${1:-${OSTLER_DIR:-$HOME/.ostler}}/config/.env" v=""
+    if [ -r "$f" ]; then
+        v="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "$f" | tail -n 1)" || v=""
+        v="${v%\"}"; v="${v#\"}"
+    fi
+    if [ "$v" = "accepted" ]; then printf 'agreed'; else printf 'off'; fi
+}
+export -f ostler_public_lookups_flag
 
 # ---------------------------------------------------------------------------
 # Sanity: compose file present?
@@ -224,14 +274,33 @@ cd "$OSTLER_DIR"
 # macOS has no flock(1), so we use an atomic mkdir mutex with a PID file for
 # stale-lock recovery (a tick killed mid-run leaves the dir behind; if its
 # holder PID is gone we reclaim it).
+#
+# AGE CAP (v1.0.117 W6, Archie review). A live pid alone is not proof the
+# holder is still the tick that took the lock: after a reboot the recorded pid
+# can be reused by an unrelated process, and with no age bound every tick
+# then skips forever and the daily recompile never runs again. A lock older
+# than WIKI_LOCK_MAX_AGE_MIN (default 360 min = 6 h) is reclaimed whatever its
+# pid. Why 6 h: the holder's longest legitimate hold is one baseline compile
+# plus publish, and this tick hard-kills its baseline at WIKI_COMPILE_TIMEOUT
+# (1800 s); the installer, which takes the same lock for its own baseline,
+# lives inside the 6 h install-in-progress marker lifetime. 6 h is 12x the
+# watchdog and the installer's own bound, and still under the 24 h daily
+# cadence, so a stale lock costs at most one missed daily run.
 LOCK_DIR="${OSTLER_DIR}/.wiki-recompile.lock"
+WIKI_LOCK_MAX_AGE_MIN="${WIKI_LOCK_MAX_AGE_MIN:-360}"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     _holder_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
-    if [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
+    _lock_aged=""
+    if [ -n "$(find "$LOCK_DIR" -maxdepth 1 -mmin -"$WIKI_LOCK_MAX_AGE_MIN" -print 2>/dev/null)" ]; then :; else _lock_aged=1; fi
+    if [ -z "$_lock_aged" ] && [ -n "${_holder_pid:-}" ] && kill -0 "$_holder_pid" 2>/dev/null; then
         log "another wiki-recompile tick (pid ${_holder_pid}) is already running; skipping this tick"
         exit 0
     fi
-    log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    if [ -n "$_lock_aged" ]; then
+        log "reclaiming wiki-recompile lock older than ${WIKI_LOCK_MAX_AGE_MIN} min (pid ${_holder_pid:-unknown}; a live pid this old is a reused pid, not the holder)"
+    else
+        log "reclaiming stale wiki-recompile lock (previous holder pid ${_holder_pid:-unknown} is gone)"
+    fi
     rm -rf "$LOCK_DIR"
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         log "could not acquire wiki-recompile lock after reclaim; another tick won the race -- skipping"
@@ -274,7 +343,9 @@ log "wiki-recompile tick start (phase 1: fast baseline, OSTLER_WIKI_SKIP_LLM=1)"
 # still surfaces its last lines without holding a TTY.
 WIKI_COMPILE_TIMEOUT="${WIKI_COMPILE_TIMEOUT:-1800}"
 _compile_log="$(mktemp -t wiki-recompile.XXXXXX)"
-docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
+_public_lookups="$(ostler_public_lookups_flag "$OSTLER_DIR")"
+log "public look-ups for this compile: ${_public_lookups}"
+OSTLER_PUBLIC_LOOKUPS="$_public_lookups" docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
 _compile_pid=$!
 # Watchdog: stdio detached to /dev/null so it never holds a parent pipe
 # open. Killed the instant the compile returns, so it only ever fires on a
@@ -485,6 +556,12 @@ else
         set -u
         _slot="$1"; _wd="$2"; _workers="$3"; _lib="$4"; _complete_file="$5"
         cd "$_wd" || exit 1
+        # Re-read the recorded public look-up answer NOW, when this compile
+        # starts (Ostler #30). Function missing (an older caller): off.
+        _lookups="$(ostler_public_lookups_flag "$_wd" || true)"
+        [ "$_lookups" = "agreed" ] || _lookups=off
+        OSTLER_PUBLIC_LOOKUPS="$_lookups"; export OSTLER_PUBLIC_LOOKUPS
+        printf "%s wiki-summaries: public look-ups for this compile: %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_lookups"
         exec </dev/null
         mkdir -p "$(dirname "$_slot")" 2>/dev/null || true
 

@@ -163,6 +163,80 @@ direction question, so it is left alone here.
 **Upstream status:** not ported. Owed upstream, and upstream has the same
 ambiguity.
 
+### Walk #16 -- an enrichment miss is not a failure (enricher.py, cli.py)
+
+Walk #16: import_data went red over a fully successful import. Three Wikidata
+look-ups found nothing ("No Wikidata entity for: ...", "Wikidata has no film or
+programme named: ..."), `enrich_batch` counted each as `failed`, cli.py's
+`failed > successful` exited 1, and ostler-import's `|| rc=$?` carried that into
+install.sh's warn branch.
+
+`is_enrichment_miss()` (enricher.py) classifies a result as a MISS only when it
+carries `MatchType.NONE` AND an error text on a fixed list of "answered, no
+confident match" phrasings. Fail-closed: `MatchType.NONE` is also the dataclass
+default, so a caught exception (`result.error = str(e)`) would carry it too; an
+unrecognised message stays a failure, and `MatchType.UNAVAILABLE` is never a
+miss. Misses go to `EnrichmentStats.no_match` / `misses`, count toward
+`attempted()` (they were dispatched), are merged across categories, are logged
+at INFO, and print under "--- No enrichment match (N, not errors) ---". They
+never set the exit code. Test: tests/test_an_enrichment_miss_is_not_an_import_error.py.
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape.
+
+### Walk #28 -- public look-ups only on a recorded yes (cli.py)
+
+Setup asks consent_enrichment (default no) and writes the answer to
+`~/.ostler/config/.env` as `OSTLER_CONSENT_ENRICHMENT_DECISION`. The enrich CLI
+had no consent reference at all, so any caller that forgot to check sent
+preference subjects to Wikidata, MusicBrainz and Open Library regardless.
+`require_public_lookup_consent()` (cli.py) now runs before `enrich` (not
+`--dry-run`, which calls no external API) and before `parallel`. It reads the
+FILE, never the inherited environment; "accepted" proceeds, "declined" exits 0
+with a plain sentence, and a missing file, missing key or any other value exits
+3 having sent nothing. `stats`, `normalize` and `test-connections` touch only
+the local stores and are not gated. This is the backstop: install.sh's
+ostler-import and enrich tick check the same value first. Test:
+tests/test_enrichment_honours_a_decline.sh (arm C, socket-guarded).
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph
+services/enrich), same shape: upstream has no consent gate either.
+
+### v1.0.108 -- local-store clients ignore HTTP(S)_PROXY (enricher.py, hierarchy.py, cli.py)
+
+`trust_env=False` on the 13 httpx clients that talk to the local Qdrant and
+Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
+pinned there, so this is no longer a divergence. Detail and proof:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
+
+### smart-prefs (build after v1.0.108) -- the derive engine is grafted; filters.py does NOT delegate to strength.py
+
+The pin stays at 5622a763, which already carries the preference-derivation engine
+("What you like"). Seventeen files arrive BYTE-IDENTICAL to upstream@5622a763
+(cmp-verified; the same bytes as at 96ff272d): `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`,
+`readers.yaml`, `contract/derived_preferences_response.example.json`),
+`services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`
+and `ontology/upper/pwg-derived.ttl`. Those are not divergences.
+
+**The divergence this re-pin CREATES**, and it is deliberate: upstream aae370bc
+also rewrote `services/ingest/src/filters.py` so `_calculate_strength` delegates
+to `strength.calculate_strength` via a top-level `from strength import ...`.
+That edit is NOT grafted. On the box nothing puts `services/common` on the
+ingest path's `sys.path`, so the delegation would make
+`services.ingest.src.filters` fail to import and take every preference ingest
+with it. The vendored file keeps its inline copy of the same math, which
+upstream's own golden test (`services/common/tests/test_strength_golden.py`)
+asserts is byte-identical in output. So the two copies agree today and this
+row is the record that they are two copies.
+
+**Also not vendored, on purpose:** `services/enrich/scripts/store_derived_preferences.py`
+(upstream's CLI). Its `--user-id` default is the operator's first name, which
+cannot enter this public repository; the box gets its own runner instead.
+
+**Upstream status:** nothing owed for the engine. For `filters.py`, retire by
+grafting the delegation once the box's ingest entrypoint puts `services/common`
+on `sys.path` (or upstream packages `strength` under `services/ingest`).
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
@@ -175,3 +249,22 @@ Flipping `verify = "skip"` to `verify = "full"` with a real
 `divergence_patch`, which the manifest ack says needs the CM019 owner and a
 reconciliation of the full shared-file delta. Until then this registry is the
 only record that exists.
+
+## 2026-10-21: Facebook watched rows emit `facebook_watched` (personal-world-graph #419, 5d1cdf13)
+
+Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas` (grafted, pin held).
+
+- `services/ingest/src/parsers/meta.py`: the single upstream hunk (the movie_tv Like rows from Facebook watched history use `source="facebook_watched"`), applied by exact replacement because the vendored file carries earlier CM051 grafts. Measured: the changed lines equal upstream's for this file. The upstream test file is not in the vendored set.
+- Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
+- Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
+- Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. `privacy_gate.py` byte-identical; `enricher.py` changed lines equal upstream's; `derive/readers.py` SCROLL_FIELDS not carried (the vendored derive tree predates it and drives no online lookup). Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.

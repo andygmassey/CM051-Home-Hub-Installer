@@ -40,12 +40,22 @@ class FakeOxigraph:
             def do_POST(self):  # noqa: N802
                 n = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(n).decode("utf-8")
+                # The Hub's Oxigraph also takes the SPARQL protocol's form
+                # encoding (query=... / update=...), which several callers use.
+                if "x-www-form-urlencoded" in (self.headers.get("Content-Type") or ""):
+                    from urllib.parse import parse_qs
+                    form = parse_qs(body)
+                    body = (form.get("query") or form.get("update") or [""])[0]
                 try:
                     if self.path.startswith("/query"):
                         with outer.lock:
                             res = outer.ds.query(body)
                             if isinstance(res, pyoxigraph.QueryBoolean):
                                 out = json.dumps({"head": {}, "boolean": bool(res)}).encode()
+                            elif isinstance(res, pyoxigraph.QueryTriples):
+                                # CONSTRUCT / DESCRIBE: N-Triples, as the Hub's
+                                # Oxigraph answers Accept: application/n-triples.
+                                out = res.serialize(format=pyoxigraph.RdfFormat.N_TRIPLES)
                             else:
                                 out = res.serialize(format=pyoxigraph.QueryResultsFormat.JSON)
                         self.send_response(200)

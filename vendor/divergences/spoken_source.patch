@@ -340,7 +340,7 @@ index 6002a80f..c440f66e 100644
  from pathlib import Path
  from typing import Callable, Optional
  
-@@ -56,6 +57,87 @@ from .renderer import build_metadata, conversation_id_for, render_transcript
+@@ -56,6 +57,91 @@ from .renderer import build_metadata, conversation_id_for, render_transcript
  logger = logging.getLogger(__name__)
  
  
@@ -362,10 +362,14 @@ index 6002a80f..c440f66e 100644
 +# abandoned.
 +_DISPATCH_TIMEOUT_DEFAULT_SECS = 900
 +
-+# EX_TEMPFAIL. Deliberately distinct from any code pwg-convo itself
-+# returns, so "this document is slow" is never confused with "this
-+# document is broken" by whoever reads the log next.
-+DISPATCH_TIMEOUT_RC = 75
++# 124, the timeout(1) convention. Deliberately distinct from any code
++# pwg-convo itself returns, so "this document is slow" is never confused
++# with "this document is broken" by whoever reads the log next. NOT 75:
++# `pwg-convo process` exits 75 (EX_TEMPFAIL) when its model or gateway
++# cannot be REACHED, and a catch-up caller reads 75 as an outage (no poison
++# attempt) but 124 as a possibly item-specific hang (counted, unless a
++# health probe finds the sink down).
++DISPATCH_TIMEOUT_RC = 124
 +
 +
 +def _dispatch_timeout_secs():
@@ -428,7 +432,7 @@ index 6002a80f..c440f66e 100644
  # Engine-zone state under ~/.ostler/ (two-zone architecture). The
  # watermark records the set of CM042 call ids already bundled.
  def _default_state_dir() -> Path:
-@@ -166,13 +248,58 @@ def _dispatch_to_cm048(
+@@ -166,13 +252,58 @@ def _dispatch_to_cm048(
              metadata["conversation_id"],
              " ".join(pwg_convo_cmd),
          )

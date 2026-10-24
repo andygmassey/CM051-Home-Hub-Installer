@@ -46,6 +46,40 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/companion_unpair.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and calls "
+        "companion_walk_baseline before the pairing probes and "
+        "companion_walk_unpair after every measurement, so the walk leaves no "
+        "synthetic companion paired. It has no PROBE_NAME and no verdict.",
+    "lib/contact_cards_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it after the "
+        "scale fixture and calls contact_cards_apply, which gives a cold walk "
+        "account synthetic Contacts THROUGH the shipped paths (contact_syncer "
+        "--vcf, pwg_ingest.ingest_imessage, dedupe_merge.run, the people-to-"
+        "Qdrant reconcile) so no_person_holds_two_contact_cards, "
+        "people_stores_reconcile and people_count_agreement have something to "
+        "measure. It has no PROBE_NAME and no verdict; collecting it would run "
+        "a seed as if it were a measurement. Its invocation and its three "
+        "probe-side consequences are pinned by "
+        "tests/test_contact_cards_seed_runs_the_probe.py.",
+    "lib/scale_fixture_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it after "
+        "usage_seed and calls scale_fixture_apply, which replays the synthetic "
+        "scale fixture (lib/scale_fixture.py) through the installed hydrate "
+        "so qdrant_has_fd_headroom_and_writes_land reads a box that carried "
+        "real volume. It has no PROBE_NAME and no verdict; collecting it would "
+        "run a seed as if it were a measurement. Its invocation is pinned by "
+        "tests/test_scale_gate_probes.sh (grep for ^scale_fixture_apply).",
+    "lib/companion_pair.sh":
+        "a sourced library, not a probe: it only prints the box-side shell "
+        "that pairs a synthetic companion through the real customer flow "
+        "(owner QR token, /auth/pair/init + /auth/pair/register, via "
+        "lib/companion_pair.py). It has no PROBE_NAME and no verdict. It IS "
+        "invoked: probes/pairing_recovers_without_a_repair_storm.sh and "
+        "lib/conversation_capture_seed.sh both call "
+        "companion_pair_box_snippet, pinned by "
+        "tests/test_a_pairing_non_answer_is_not_a_rejection.sh and "
+        "tests/test_the_walk_seeds_the_conversation_capture.sh.",
     "lib/conversation_capture_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, after owner_employer_seed and before "
@@ -69,6 +103,26 @@ EXEMPT: dict[str, str] = {
         "employer to ask about; it removes the position again after phase 2. "
         "It has no PROBE_NAME and no verdict. Its wiring and its seeded/failed "
         "states are pinned by tests/test_the_walk_seeds_the_owner_employer.sh.",
+    "lib/gen_whatsapp_config.sh":
+        "a helper, not a probe: it runs install.sh's real channel-config writer "
+        "off-box in a throwaway HOME and prints the config.toml for answer 5 "
+        "(WhatsApp on, synthetic number), so a walk box never enables WhatsApp. "
+        "It has no PROBE_NAME and no verdict. It IS invoked: "
+        "lib/brief_channel_probe.py runs it to judge the real writer.",
+    "lib/smart_prefs_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it above the "
+        "phase-2 loop and calls smart_prefs_seed_apply, which writes the "
+        "SYNTHETIC Smart Preferences fixture (ten broad categories, an owner "
+        "dislike, the owner's own like as a control, another person's like), "
+        "reads it back out of the stores and waits for a derive pass; the "
+        "forget runs at the end and from the abort trap. The five BLOCKING "
+        "probes derived_preferences_{runs,breadth,dislike,not_others} and "
+        "dislike_respected_in_brief also source it for their shared collector. "
+        "It has no PROBE_NAME and no verdict; collecting it would run a seed "
+        "as if it were a measurement. Its invocation, its order above the "
+        "phase-2 loop and its forget in both cleanup lists are pinned by "
+        "tests/test_smart_prefs_probes.sh (S7), and its behaviour against "
+        "fake stores by the same test (S1-S5).",
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
     "lib/converge_wait.sh":
@@ -150,6 +204,26 @@ EXEMPT: dict[str, str] = {
         "it anyway. It IS invoked, through its permanent.yaml row, and "
         "post_walk_qa.sh runs the manifest verifier alongside the walk, so its "
         "result does reach the QA output under the manifest section.",
+    "lib/real_person_choose.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it before "
+        "the phase-2 loop and calls real_person_choose right before "
+        "hub_screens_render_for_a_customer, only to export "
+        "HUB_SCREENS_REAL_PERSON (env only, name never logged). It makes no "
+        "measurement and has no PROBE_NAME or verdict; its invocation is "
+        "pinned by scripts/tests/test_full_walk_chooses_the_real_person.sh.",
+    "lib/promote_order.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it just "
+        "before the phase-2 loop and calls promote_order, which only REORDERS "
+        "the probes already collected so the previous walk's FAILs run first "
+        "(a probe declaring WALK_WRITES is never moved). It makes no "
+        "measurement, has no PROBE_NAME and no probe_pass/probe_fail verdict, "
+        "and adds or drops nothing; collecting it would run a reorder helper "
+        "as if it were a measurement. Its invocation and its order guarantees "
+        "are pinned by tests/test_a_writing_probe_declares_it_and_is_never_"
+        "promoted.sh, tests/test_a_pairing_reader_runs_before_the_pairing_"
+        "mutator.sh (promoted lists) and arm G of scripts/tests/"
+        "test_the_early_pass_rechecks_last_walks_failures.sh (the runner "
+        "really reorders).",
     "lib/wiki_summaries_wait.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, below the usage seed and above the phase-2 loop, "

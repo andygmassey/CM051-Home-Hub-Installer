@@ -136,6 +136,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -642,6 +643,27 @@ def _user_asserted_section() -> list[str]:
 MEETING_WEIGHT = 5
 _RANK_POOL = 200
 
+# THE SIGNAL A REAL CUSTOMER'S GRAPH ACTUALLY CARRIES (walk #31, v1.0.108).
+# The two counts above come from pwg:RelationshipSignal pwg:totalMessages,
+# which only the LinkedIn messages importer writes, and from
+# pwg:meetingAttendee, which only calendar events WITH invitees produce. The
+# shipped iMessage, WhatsApp and email ingests read each thread's message
+# count and discard it: what they store is ONE most-recent date per channel
+# per person (vendor/ostler_fda/pwg_ingest.py _SOURCE_PREDICATE and
+# _update_last_contact; vendor/cm021/src/cli.py for email). So a customer who
+# texts and emails but sends no calendar invites got "People you interact
+# with most: nothing stored" over hundreds of ingested messages. Those dates
+# are now a third arm: anyone in touch on any channel in the last
+# RECENT_CONTACT_DAYS ranks, below everyone with a counted interaction, by
+# most recent contact and then by how many channels they reach the owner on.
+RECENT_CONTACT_DAYS = 90
+_LAST_CONTACT_CHANNELS = (
+    ("lastContactIMessage", "iMessage"),
+    ("lastContactWhatsApp", "WhatsApp"),
+    ("lastContactEmail", "email"),
+    ("lastContactCalendar", "calendar"),
+)
+
 
 def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
     """People ranked by REAL interaction counts in the graph.
@@ -678,8 +700,27 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
         f"  OPTIONAL {{ ?m pwg:privacyLevel ?l }} {not_l3}\n"
         f"}} GROUP BY ?p ORDER BY DESC(?n) LIMIT {_RANK_POOL}"
     )
+    since = (_today().date() - timedelta(days=RECENT_CONTACT_DAYS)).isoformat()
+    channel_values = " ".join(
+        f'(pwg:{pred} "{label}")' for pred, label in _LAST_CONTACT_CHANNELS)
+    recent_rows = _sparql_select(
+        f"PREFIX pwg: <{PWG_NS}>\n"
+        "SELECT ?p (MAX(SUBSTR(STR(?d), 1, 10)) AS ?last) "
+        '(GROUP_CONCAT(DISTINCT ?ch; SEPARATOR="|") AS ?chs) WHERE {\n'
+        f"  VALUES (?pred ?ch) {{ {channel_values} }}\n"
+        "  ?p ?pred ?d .\n"
+        f'  FILTER(SUBSTR(STR(?d), 1, 10) >= "{since}")\n'
+        f"}} GROUP BY ?p ORDER BY DESC(?last) LIMIT {_RANK_POOL}"
+    )
     if msg_rows is None or meet_rows is None:
         return None
+    # The recency arm is an ADDITION. If its read fails, the counted ranking
+    # (messages, meetings) still stands: a LinkedIn or calendar customer must
+    # not lose a People section that rendered before this arm existed. The
+    # failure is already recorded by _sparql_select, so the digest still says
+    # a read failed while it ran; only the recency-only people are missing.
+    if recent_rows is None:
+        recent_rows = []
 
     def _int(v) -> int:
         try:
@@ -697,11 +738,26 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
             if not _iri_ok(uri) or uri in owners:
                 continue
             tally.setdefault(uri, [0, 0])[idx] += _int(row.get("n"))
+    recency: dict[str, tuple[str, list[str]]] = {}
+    for row in recent_rows:
+        if not isinstance(row, dict):
+            continue
+        uri = (row.get("p") or "").strip()
+        last = (row.get("last") or "").strip()
+        if not _iri_ok(uri) or uri in owners or not last:
+            continue
+        chans = [c for c in (row.get("chs") or "").split("|") if c]
+        recency[uri] = (last, chans)
+        tally.setdefault(uri, [0, 0])
     if not tally:
         return []
-    ranked = sorted(tally.items(),
-                    key=lambda kv: kv[1][0] + MEETING_WEIGHT * kv[1][1],
-                    reverse=True)[:_RANK_POOL]
+
+    def _rank_key(kv):
+        uri, (msgs, meets) = kv
+        last, chans = recency.get(uri, ("", []))
+        return (msgs + MEETING_WEIGHT * meets, last, len(chans))
+
+    ranked = sorted(tally.items(), key=_rank_key, reverse=True)[:_RANK_POOL]
     detail = _sparql_select(
         f"PREFIX pwg: <{PWG_NS}>\n"
         "SELECT ?p ?name ?org ?l WHERE {\n"
@@ -729,15 +785,20 @@ def _ranked_people(owner_uris: list[str], owner_name: str) -> list[dict] | None:
         if not row or _is_withheld({"level": row.get("l")}):
             continue
         name = (row.get("name") or "").strip()
-        if not name or "@" in name:
+        # A name with no letter in it is a phone number or handle the
+        # messaging ingest used as a placeholder until Contacts named the
+        # person; it is not a name to put in front of the model.
+        if not name or "@" in name or not any(c.isalpha() for c in name):
             continue
         if owner_norm and " ".join(name.lower().split()) == owner_norm:
             continue
+        last, chans = recency.get(uri, ("", []))
         out.append({
             "uri": uri, "name": name,
             "org": (row.get("org") or "").strip(),
             "messages": msgs, "meetings": meets,
             "score": msgs + MEETING_WEIGHT * meets,
+            "last_contact": last, "channels": chans,
         })
     return out
 
@@ -759,7 +820,10 @@ def _people_section() -> list[str]:
             counts.append(f"{p['messages']} messages")
         if p["meetings"]:
             counts.append(f"{p['meetings']} meetings")
-        lines.append(f"- {', '.join(bits)} ({', '.join(counts)})")
+        if not counts and p["last_contact"]:
+            via = f" via {', '.join(p['channels'])}" if p["channels"] else ""
+            counts.append(f"last in touch {p['last_contact']}{via}")
+        lines.append(f"- {', '.join(bits)}" + (f" ({', '.join(counts)})" if counts else ""))
     return lines
 
 
@@ -883,10 +947,11 @@ def _about_you_section() -> list[str]:
     uid = identity["user_id"]
     if uid:
         fact_rows = _sparql_select(
-            "SELECT ?text ?t ?d ?l ?at WHERE {\n"
+            "SELECT ?text ?t ?d ?l ?at ?about WHERE {\n"
             "  GRAPH ?g {\n"
             "    ?f a <urn:ostler:Fact> ; <urn:ostler:text> ?text ;\n"
             "       <urn:ostler:userId> ?uid .\n"
+            "    OPTIONAL { ?f <urn:ostler:about> ?about }\n"
             "    OPTIONAL { ?f <urn:ostler:type> ?t }\n"
             "    OPTIONAL { ?f <urn:ostler:domain> ?d }\n"
             "    OPTIONAL { ?f <urn:ostler:privacyLevel> ?l }\n"
@@ -898,12 +963,43 @@ def _about_you_section() -> list[str]:
         ) or []
         places: list[str] = []
         family: list[str] = []
+        # F12 (cut #17 device walk): urn:ostler:userId names whose GRAPH a
+        # fact lives in, NOT who it is about. The CM048 writer puts the
+        # subject on urn:ostler:about: urn:ostler:user/<id> for the owner,
+        # urn:ostler:person/<slug> for anyone else. Reading userId alone put
+        # "<a contact> is based in <city>" on the owner's Places line, and
+        # "what do you know about me" recited it as the owner's. A place
+        # about somebody else is not the owner's place. (Family and close
+        # people are other people by definition, so that bucket keeps them.)
+        owner_about = f"urn:ostler:user/{uid}".lower()
+        owner_name = (identity.get("name") or "").strip().lower()
         for row in fact_rows:
             if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
                 continue
+            about = (row.get("about") or "").strip().lower()
             text = " ".join((row.get("text") or "").split())
             if not text:
                 continue
+            if row.get("t") == "location":
+                # F12 + #27: a place is the owner's only when it is about the
+                # owner, or (legacy, untagged) the owner is its explicit
+                # subject. An untagged "<contact> lives in <city>" is dropped.
+                if about != owner_about and not (
+                        not about and owner_name and text.lower().startswith(owner_name)):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
+            if row.get("t") != "location":
+                # DMG #23/#25: the owner's family line keeps a fact ONLY when it
+                # is about the owner (urn:ostler:about == the owner), or it is a
+                # kinship fact with the owner as an explicit end (subject or
+                # object). Untagged legacy facts are NOT kept: they were facts
+                # about other people ("<A> met <B> at a party", "<A> has a son").
+                # A raw phone handle never prints, whoever it is about.
+                if about != owner_about and not _owner_is_kin_end(text, owner_name):
+                    continue
+                if _PHONE_RUN.search(text):
+                    continue
             if len(text) > 110:
                 text = text[:107].rstrip() + "..."
             bucket = places if row.get("t") == "location" else family
@@ -914,6 +1010,32 @@ def _about_you_section() -> list[str]:
         if family:
             lines.append(f"- Family and close people: {'; '.join(family)}")
     return lines
+
+
+# Same shape the shared person_label gate rejects (vendor/cm059_editor
+# compiler/frontpage.py _PHONE_SHAPE), as a run inside text. This script ships
+# standalone, without the vendored compiler, so it cannot import person_label.
+_PHONE_RUN = re.compile(r"\+?\d[\d\s().\-\u00a0]{5,}\d")
+
+
+_KIN = (r"son|daughter|child|children|kid|kids|wife|husband|partner|spouse|fianc[eé]e?|"
+        r"sister|brother|sibling|mother|father|mum|mom|dad|parent|parents|grandmother|"
+        r"grandfather|grandson|granddaughter|niece|nephew|aunt|uncle|cousin|stepson|stepdaughter")
+
+
+def _owner_is_kin_end(text: str, owner_name: str) -> bool:
+    """True when ``text`` is a kinship fact with the owner as its subject
+    ("<Owner> has a daughter <Y>") or its object ("<Y> is the sister of
+    <Owner>", "<Owner>'s son"). Other people's facts that merely mention the
+    owner, or that have no kinship word, are not."""
+    if not owner_name:
+        return False
+    t, o = text.lower(), re.escape(owner_name)
+    kin = re.search(r"\b(?:%s)\b" % _KIN, t)
+    if not kin:
+        return False
+    return bool(re.match(r"%s\b" % o, t) or re.search(r"\bof\s+%s\b" % o, t)
+                or re.search(r"%s['\u2019]s\b" % o, t))
 
 
 def _meetings_section() -> list[str]:

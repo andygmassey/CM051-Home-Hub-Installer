@@ -180,8 +180,14 @@ else
         } > "$1"
     }
 
+    # `correct` must satisfy EVERY rewrite trigger the shipped guard checks, or
+    # a correct-but-newly-required shape reads as churn. v1.0.108 added
+    # ProcessType=Background (fda-rerun must run at background QoS so its ingest
+    # yields to live chat); without it here, the guard rightly wants a rewrite
+    # and this arm's expected 0:0:0 no longer holds.
     BREW_XML='  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
-  <key>StartInterval</key><integer>3600</integer>'
+  <key>StartInterval</key><integer>3600</integer>
+  <key>ProcessType</key><string>Background</string>'
     mk_plist "$TMPD/correct.plist" "$BREW_XML"
     mk_plist "$TMPD/pathless.plist" '  <key>StartInterval</key><integer>3600</integer>'
     mk_plist "$TMPD/legacy.plist"   '  <key>StartCalendarInterval</key><dict/>'

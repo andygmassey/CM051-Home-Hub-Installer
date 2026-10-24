@@ -92,6 +92,10 @@ SOURCE_TRUST = {
     "linkedin": 0.85,
     "facebook": 0.65,
     "meta": 0.40,
+    # Observed Facebook watch history (CM019 meta.py). Observed behaviour, not a
+    # declared like, so it sits below "facebook" (0.65) and stays at the
+    # default by decision, not by fall-through.
+    "facebook_watched": 0.45,
     "csv": 0.18,        # email/recruiter import - heavily distrusted
     "email": 0.18,
     "imap": 0.18,
@@ -368,7 +372,9 @@ def classify_privacy(category: str, source: str, flags: list[str],
     if cat in SENSITIVE_CATEGORIES:
         return SENSITIVE_PRIVACY
     level = CATEGORY_PRIVACY.get(cat, DEFAULT_PRIVACY)
-    if (source or "").lower() in _NOISY_SOURCES:
+    if (source or "").lower() in _NOISY_SOURCES | _LOCAL_ONLY_SOURCES:
+        level = more_restrictive(level, _MAX_NOISY_PRIVACY)
+    if is_observed_media(category, source):
         level = more_restrictive(level, _MAX_NOISY_PRIVACY)
     if flags:
         level = more_restrictive(level, _MAX_NOISY_PRIVACY)
@@ -376,6 +382,60 @@ def classify_privacy(category: str, source: str, flags: list[str],
             or subject_names_known_contact(subject, contact_lexicon)):
         level = more_restrictive(level, _MAX_NOISY_PRIVACY)
     return level
+
+# Categories whose subjects are media titles. Only these can ever be widened by
+# the owner's install-time "online look-ups" consent (see consent_widenable).
+MEDIA_CATEGORIES = {"movie_tv", "movie", "tv", "music"}
+
+
+# Sources whose media rows are the owner's DECLARED taste (typed to Ostler, a
+# LinkedIn interest, a Facebook page-like). Everything else that writes a
+# movie_tv / music row is observed history (CM019 google_takeout "Watched:",
+# netflix, spotify, apple, ...) and stays local-only without consent. This is
+# an allow-list of the DECLARED side on purpose: a new parser, or an unknown or
+# empty source, falls on the local side by default.
+DECLARED_MEDIA_SOURCES = frozenset({"facebook", "linkedin", "you"})
+
+
+def is_observed_media(category: str, source) -> bool:
+    """A media-title row whose source is not explicitly declared."""
+    return ((category or "").lower() in MEDIA_CATEGORIES
+            and (source or "").lower() not in DECLARED_MEDIA_SOURCES)
+
+
+def effective_privacy(stored, derived: str) -> str:
+    """The more restrictive of the WRITER's stored pwg:privacyLevel and the
+    level classify_privacy re-derives. No stored level = derived alone; a
+    stored level that is present but unrecognised counts as L3 (fail closed).
+    Ignoring the stored level was the 2026-10-21 leak: the writer said L2 and
+    the consumer re-derived L1 from the category."""
+    if stored is None or str(stored).strip() == "":
+        return derived
+    return more_restrictive(normalise_privacy(stored) or "L3", derived)
+
+
+def consent_widenable(category: str, source: str, flags: list[str],
+                      subject: str, stored,
+                      contact_lexicon: frozenset = frozenset()) -> bool:
+    """May the owner's online look-up consent make this row externally
+    queryable? Only a plain media title whose sole restriction is the
+    viewing-log / writer-L2 cap: never a sensitive category, never a noisy
+    source or flagged row, never a subject that names a person or
+    organisation, and never a stored level above L2 (or unrecognised).
+    The marker is only a candidate: scout_external.l1_interests also needs
+    the persisted consent, read at query time, and the row at exactly L2."""
+    if (category or "").lower() not in MEDIA_CATEGORIES:
+        return False
+    if (source or "").lower() in _NOISY_SOURCES or flags:
+        return False
+    if (names_person_or_org(subject) or has_proper_noun_run(subject)
+            or subject_names_known_contact(subject, contact_lexicon)):
+        return False
+    if stored is not None and str(stored).strip() != "":
+        if _PRIVACY_RANK.get(normalise_privacy(stored) or "L3", 3) > 2:
+            return False
+    return True
+
 
 # Subjects that look like email threads / recruiter chatter rather than tastes.
 _EMAIL_PREFIX_RE = re.compile(r"^\s*(re|fw|fwd|aw|tr)\s*[:\-]", re.IGNORECASE)
@@ -389,6 +449,27 @@ _YEAR_TAIL_RE = re.compile(r"\b(19|20)\d{2}\b")
 
 # Sources where free-text subjects are most likely to be email/import noise.
 _NOISY_SOURCES = {"csv", "email", "imap"}
+
+# Sources whose subjects are the owner's own watching/listening log: titles
+# and track names (browser history via ostler_fda.streaming_history, and the
+# viewing/listening export importers).
+# Never L1 whatever the category says, so a watched title cannot reach an
+# external scout query. Kept apart from _NOISY_SOURCES on purpose: that set
+# also drives the email-thread and dated-subject noise flags, which would
+# penalise real titles ("Blade Runner 2049").
+_LOCAL_ONLY_SOURCES = {
+    "streaming_history",
+    # export importers (CM019 parsers): per-title / per-track viewing logs
+    "netflix", "spotify", "youtube", "youtube_music", "youtubemusic",
+    "apple_tv", "appletv", "prime_video", "amazon_video", "disney_plus",
+    "bbc_iplayer", "plex", "letterboxd", "trakt", "lastfm", "last_fm",
+    "last.fm", "shazam",
+    # Apple Music aggregates (artist, genre, playlist). CM019's Apple parser
+    # writes them under the shared source "apple"; "apple_music" is the
+    # name a dedicated importer would use. Non-media Apple rows are L2 or
+    # above already and consent_widenable never widens them.
+    "apple_music", "applemusic", "apple",
+}
 
 # CM051 #2536: these four shapes are a single data point, not a theme, so they
 # should not surface as "one of the things Ostler reckons you're into". Each
@@ -758,8 +839,13 @@ def build_interest(raw: dict, now: datetime,
         "domain": domain,
         "category": category,
         "polarity": polarity,
-        "privacy": classify_privacy(category, source, flags, subject,
-                                    contact_lexicon=contact_lexicon),
+        "privacy": effective_privacy(
+            raw.get("stored_privacy"),
+            classify_privacy(category, source, flags, subject,
+                             contact_lexicon=contact_lexicon)),
+        "consent_widenable": consent_widenable(
+            category, source, flags, subject, raw.get("stored_privacy"),
+            contact_lexicon=contact_lexicon),
         "score": score,
         "strength_raw": round(strength_raw, 4),
         "reliability": conf,        # the table-based base; finalise() adds evidence+recency
@@ -783,8 +869,24 @@ def _iso(value) -> str | None:
 # "from linkedin · strength 0.50 · last seen 2026-01-15". Human words only.
 _SOURCE_DISPLAY = {
     "linkedin": "LinkedIn", "facebook": "Facebook", "meta": "Facebook",
+    "facebook_watched": "Facebook",
     "csv": "your imported data", "email": "your email", "imap": "your email",
     "you": "you",
+    "streaming_history": "your browsing history",
+    "netflix": "Netflix", "spotify": "Spotify", "youtube": "YouTube",
+    "youtube_music": "YouTube Music", "youtubemusic": "YouTube Music",
+    "apple_tv": "Apple TV", "appletv": "Apple TV",
+    "prime_video": "Prime Video", "amazon_video": "Prime Video",
+    "disney_plus": "Disney+", "bbc_iplayer": "BBC iPlayer", "plex": "Plex",
+    "letterboxd": "Letterboxd", "trakt": "Trakt", "lastfm": "Last.fm",
+    "last_fm": "Last.fm", "last.fm": "Last.fm", "shazam": "Shazam",
+    "apple_music": "Apple Music", "applemusic": "Apple Music",
+    "apple": "Apple", "amazon": "Amazon", "kindle": "Kindle",
+    "google_takeout": "Google", "instagram": "Instagram",
+    "twitter": "X", "twitter_personalization": "X",
+    "pinterest": "Pinterest", "tiktok": "TikTok", "reddit": "Reddit",
+    "foursquare": "Foursquare", "whatsapp": "WhatsApp",
+    "discord": "Discord", "ebay": "eBay", "uber": "Uber", "whoop": "Whoop",
 }
 
 
@@ -838,6 +940,10 @@ def aggregate(interests: list[dict]) -> list[dict]:
         # privacy merges fail-closed: the most restrictive contributor wins
         # (a missing/unrecognised level on either side counts as L3)
         cur["privacy"] = more_restrictive(cur.get("privacy"), it.get("privacy"))
+        # the consent marker merges fail-closed too: every contributor must
+        # be widenable (a missing marker counts as not widenable)
+        cur["consent_widenable"] = (cur.get("consent_widenable") is True
+                                    and it.get("consent_widenable") is True)
         cur["strength_raw"] = max(cur["strength_raw"], it["strength_raw"])
         cur["reliability"] = max(cur.get("reliability", 0.0), it.get("reliability", 0.0))
         cur["confidence"] = max(cur["confidence"], it["confidence"])
@@ -1110,7 +1216,7 @@ def _sparql_select(oxigraph_url: str, query: str, timeout: float = 30.0) -> list
 def _pref_query(node_type: str) -> str:
     return (
         f"PREFIX pwg: <{PWG_NS}>\n"
-        "SELECT ?subject ?category ?strength ?source ?observed ?created WHERE {\n"
+        "SELECT ?subject ?category ?strength ?source ?observed ?created ?plevel WHERE {\n"
         f"  ?s a pwg:{node_type} ;\n"
         "     pwg:subject ?subject ;\n"
         "     pwg:category ?category ;\n"
@@ -1118,6 +1224,7 @@ def _pref_query(node_type: str) -> str:
         "     pwg:dataSource ?source .\n"
         "  OPTIONAL { ?s pwg:observedAt ?observed }\n"
         "  OPTIONAL { ?s pwg:createdAt ?created }\n"
+        "  OPTIONAL { ?s pwg:privacyLevel ?plevel }\n"
         "}"
     )
 
@@ -1127,7 +1234,8 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
     oxigraph_url = oxigraph_url or os.environ.get(
         "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
     out: list[dict] = []
-    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike")):
+    for node_type, polarity in (("LikePreference", "like"), ("DislikePreference", "dislike"),
+                                ("NeutralPreference", "neutral")):
         for row in _sparql_select(oxigraph_url, _pref_query(node_type)):
             out.append({
                 "subject": row.get("subject", ""),
@@ -1136,6 +1244,8 @@ def fetch_preferences(oxigraph_url: str | None = None) -> list[dict]:
                 "source": row.get("source", ""),
                 "observed_at": row.get("observed") or None,
                 "created_at": row.get("created") or None,
+                # the WRITER's level (pwg:privacyLevel); None = row has none
+                "stored_privacy": row.get("plevel") or None,
                 "polarity": polarity,
             })
     return out

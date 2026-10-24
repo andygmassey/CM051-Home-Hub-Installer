@@ -1,0 +1,35 @@
+name: wow-moment-probes
+
+# v1.0.108 release gate (launch/WOW_MOMENTS_GATE.md), moments 1 and 7.
+# The judges of reply_debt_is_answered and morning_brief_catches_me_up must
+# turn every known-bad capture red, each probe's --self-test must return FAIL,
+# and the morning-brief prompt install.sh writes must cover today and promises
+# (with the pre-change prompt as the control that must read as not covering).
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'scripts/box_walk_probes/lib/wow_moments.py'
+      - 'scripts/box_walk_probes/probes/reply_debt_is_answered.sh'
+      - 'scripts/box_walk_probes/probes/morning_brief_catches_me_up.sh'
+      - 'tests/test_wow_moment_probes.sh'
+      - '.github/workflows/wow-moment-probes.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  wow-moment-probes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: the wow-moment probes catch every known-bad capture, and the brief prompt covers today
+        run: /bin/bash tests/test_wow_moment_probes.sh

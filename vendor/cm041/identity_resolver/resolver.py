@@ -11,7 +11,13 @@ import httpx
 
 from contact_syncer.relationship_labels import is_relationship_label
 
-from .canonical_name import choose_canonical_display_name, prefer_real_given_name
+from .canonical_name import (
+    NAME_TIER_HUMAN,
+    choose_canonical_display_name,
+    name_tier,
+    prefer_real_given_name,
+    upward_name,
+)
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
@@ -585,6 +591,12 @@ class IdentityResolver:
                 f"}}"
             )
 
+        # 4b. NAME TIERS (DMG #27): the survivor's displayName takes the highest
+        #     tier among the merged nodes (human > email > phone). Step 4 only
+        #     copies where keep has none, so a placeholder survivor kept its
+        #     placeholder. Equal tiers change nothing.
+        self.rename_survivor_upward(keep_uri, discard_uri)
+
         # 5. Mark discard as merged
         self._sparql_update(
             f"INSERT DATA {{ "
@@ -646,6 +658,26 @@ class IdentityResolver:
         self.canonicalise_display_name(keep_uri)
 
         logger.info("Merged %s into %s", discard_uri, keep_uri)
+
+    def _display_names(self, person_uri: str) -> list:
+        res = self._sparql_query(
+            f"SELECT ?n WHERE {{ <{person_uri}> <{PWG}displayName> ?n }}")
+        return [b["n"]["value"] for b in res.get("results", {}).get("bindings", []) if b.get("n")]
+
+    def rename_survivor_upward(self, keep_uri: str, discard_uri: str) -> Optional[str]:
+        """Give the survivor the discard's name when that name is a higher tier
+        (human > email > phone). Returns the new name, or None when unchanged."""
+        new = upward_name(self._display_names(keep_uri), self._display_names(discard_uri))
+        if not new:
+            return None
+        self._sparql_update(
+            f"DELETE {{ <{keep_uri}> <{PWG}displayName> ?old }} "
+            f"WHERE {{ <{keep_uri}> <{PWG}displayName> ?old }} ; "
+            f'INSERT DATA {{ <{keep_uri}> <{PWG}displayName> "{_escape(new)}" }}'
+        )
+        self._sync_qdrant_display_name(keep_uri, new)
+        logger.info("Survivor %s renamed upward to %r", keep_uri, new)
+        return new
 
     def _sync_qdrant_display_name(self, person_uri: str, display_name: str) -> None:
         """Push a just-canonicalised name into the Qdrant `people` point for
@@ -972,16 +1004,23 @@ class IdentityResolver:
     def _normalise_name(name: Optional[str]) -> str:
         return " ".join((name or "").strip().lower().split())
 
-    def _person_display_name(self, person_uri: str) -> Optional[str]:
+    def _person_display_names(self, person_uri: str) -> List[str]:
+        """EVERY displayName on the node. A node can carry several (a phone-shaped
+        one and a human one); an unordered LIMIT 1 picked between them by store
+        order, so the verdict on the node changed with the ordering."""
         sparql = (
-            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }} "
-            f"LIMIT 1"
+            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }}"
         )
         results = self._sparql_query(sparql)
         bindings = results.get("results", {}).get("bindings", [])
-        if bindings:
-            return bindings[0]["name"]["value"]
-        return None
+        return [b["name"]["value"] for b in bindings if "name" in b]
+
+    def _person_display_name(self, person_uri: str) -> Optional[str]:
+        names = self._person_display_names(person_uri)
+        human = sorted(n for n in names if name_tier(n) >= NAME_TIER_HUMAN)
+        if human:
+            return human[0]
+        return sorted(names)[0] if names else None
 
     def _identifier_match_trustworthy(
         self, id_type: str, matched_uri: str, identity: PersonIdentity
@@ -1017,13 +1056,31 @@ class IdentityResolver:
 
         if id_type not in self._SHAREABLE_ID_TYPES:
             return True
+        existing_names = self._person_display_names(matched_uri)
+        # CM051 #2545: when NEITHER side carries a human name (both blank, or a
+        # phone / email / system alias standing in for one) there is no name to
+        # disagree about, and the shared number or address is the only identity
+        # either record has. Declining here minted a second person for every
+        # such pair, which the People list shows as two "Unknown contact" rows
+        # on one number. The node counts as nameless only if NONE of its
+        # displayName values is a human name (a node can hold several). RULE 2
+        # has already run above, so two different Contacts cards still never
+        # merge. A human name on EITHER side keeps the name-agreement rule
+        # below, which compares human names only: a phone-shaped value on both
+        # sides is not agreement.
+        if (
+            name_tier(identity.display_name) < NAME_TIER_HUMAN
+            and all(name_tier(n) < NAME_TIER_HUMAN for n in existing_names)
+        ):
+            return True
+        if name_tier(identity.display_name) < NAME_TIER_HUMAN:
+            return False
         incoming = self._normalise_name(identity.display_name)
-        if not incoming:
-            return False
-        existing = self._normalise_name(self._person_display_name(matched_uri))
-        if not existing:
-            return False
-        return incoming == existing
+        return any(
+            self._normalise_name(n) == incoming
+            for n in existing_names
+            if name_tier(n) >= NAME_TIER_HUMAN
+        )
 
     # -- Private helpers ------------------------------------------------------
 

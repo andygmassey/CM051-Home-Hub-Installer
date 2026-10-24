@@ -40,6 +40,8 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -47,6 +49,7 @@ on:
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
   push:
@@ -55,6 +58,8 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
+      - 'tests/test_background_qos_yields_to_chat.sh'
+      - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -62,6 +67,7 @@ on:
       - 'vendor/spoken_source/bin/spoken-bundle-tick.sh'
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
 
@@ -95,6 +101,23 @@ jobs:
         if: success() || failure()
         run: bash tests/test_a_hung_slot_holder_is_stopped.sh
 
+      # v1.0.108: ostler_slot_run launches every feed + wiki-backfill payload
+      # at macOS background QoS (taskpolicy -b, nice fallback) so interactive
+      # chat outranks first-run settling on CPU. Positive + negative controls;
+      # the behavioural case runs the payload THROUGH a fake taskpolicy, so a
+      # green proves the launch path, not just a string in a file. Uses the
+      # nice fallback on ubuntu, which exercises the same code path.
+      - name: Background QoS yields to interactive chat (first-run settling)
+        if: success() || failure()
+        run: bash tests/test_background_qos_yields_to_chat.sh
+
+      # v1.0.108: no heavy job may bypass the chat yield. Class A (the 4 feeds
+      # + wiki) must funnel through ostler_slot_run; class B (fda-rerun, enrich)
+      # must carry ProcessType=Background. Enumerated, with a negative control.
+      - name: No heavy job bypasses the chat yield (coverage)
+        if: success() || failure()
+        run: bash tests/test_no_heavy_job_bypasses_the_chat_yield.sh
+
       # Sections 1 to 6 above prove the lib arbitrates fairly; Section 7
       # proves install.sh CARRIES it. Neither can see whether it arrives.
       # install.sh writes into a /tmp staging tree and promotes that tree
@@ -123,6 +146,10 @@ jobs:
       # stall-watchdog one) silently SKIPPED there. ubuntu-latest has no
       # docker at /usr/local/bin or /opt/homebrew/bin, so the stub wins here
       # and every case actually runs rather than skipping.
+      - name: Every wiki compile hands the compiler the recorded public look-up answer (Ostler #30)
+        if: success() || failure()
+        run: bash tests/test_wiki_compile_honours_public_lookup_consent.sh
+
       - name: Install pytest for the wiki-recompile-tick behaviour suite
         if: success() || failure()
         run: python -m pip install --quiet pytest
@@ -257,6 +284,8 @@ jobs:
             vendor/spoken_source/bin/spoken-bundle-tick.sh \
             wiki-recompile/bin/wiki-recompile-tick.sh \
             tests/test_ingest_slot_fairness.sh \
+            tests/test_background_qos_yields_to_chat.sh \
+            tests/test_no_heavy_job_bypasses_the_chat_yield.sh \
             tests/test_prelaunch_libs_survive_promote.sh
           do
             if [ ! -f "$f" ]; then
@@ -271,5 +300,5 @@ jobs:
               rc=1
             fi
           done
-          echo "examined 8 files"
+          echo "examined 10 files"
           exit "$rc"

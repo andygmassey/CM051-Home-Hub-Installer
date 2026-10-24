@@ -73,7 +73,7 @@ echo "PASS: bin script polls /api/v1/meeting/upcoming"
 # The bin script must check the `degraded` flag from the hub
 # response and skip delivery rather than emitting stale messages.
 if ! grep -q 'degraded' "$INSTALL_SCRIPT" || \
-   ! grep -q 'skip: hub degraded' "$INSTALL_SCRIPT"; then
+   ! grep -q 'CANNOT-RUN hub degraded' "$INSTALL_SCRIPT"; then
     echo "FAIL [degraded-check]: bin script does not short-circuit on degraded hub response" >&2
     exit 1
 fi

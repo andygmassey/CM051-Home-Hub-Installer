@@ -79,9 +79,21 @@ jobs:
         if: always()
         run: bash tests/test_cx18_q19_consent_third_party_legal_note_separation.sh
 
+      - name: spoken-capture consent does not claim captured audio is kept
+        if: always()
+        run: bash tests/test_spoken_capture_consent_does_not_claim_audio_is_kept.sh
+
+      - name: Q23 spoken-capture copy stays short enough to keep the toggle visible
+        if: always()
+        run: bash tests/test_q23_spoken_capture_copy_fits_the_window.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
+
+      - name: legal text says the English version prevails
+        if: always()
+        run: bash tests/test_legal_text_says_english_prevails.sh
 
       # BOARD ROW 1589. Every service row on the success screen is grepped out
       # of the installer's own transcript, so the customer is shown what the
@@ -143,6 +155,13 @@ jobs:
         if: always()
         run: bash tests/test_imessage_fda_probe.sh
 
+      # TCC sweep 2026-10-15: the assistant's Full Disk Access is asked for on
+      # every install, not only where Messages history exists, and the copy
+      # says what the grant covers.
+      - name: The assistant's Full Disk Access is asked for on every Mac
+        if: always()
+        run: bash tests/test_assistant_fda_is_asked_on_every_mac.sh
+
       # ADDED 2026-08-26, and it is the same defect as the original nine.
       # This test was REPAIRED in #1072 (its shim never sourced the locale
       # catalogue, so four call sites asserted against strings that were not
@@ -153,6 +172,14 @@ jobs:
       - name: the install-time iMessage TCC posture probe stays read-only and honest
         if: always()
         run: bash tests/test_imessage_tcc_posture.sh
+
+      - name: the installer pre-explains the Documents prompt before the first write
+        if: always()
+        run: bash tests/test_documents_tcc_pre_explain_before_first_write.sh
+
+      - name: Doctor surfaces a denied Documents-folder permission, not a silent gap
+        if: always()
+        run: python3 tests/test_documents_access_doctor_denied_row.py
 
       - name: the vendored defect register carries no personal data
         if: always()
@@ -173,6 +200,10 @@ jobs:
       - name: customer strings contain no literal backslash-n
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
+
+      - name: customer copy states the real source count
+        if: always()
+        run: bash tests/test_source_count_copy.sh
 
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()
@@ -221,7 +252,8 @@ jobs:
       - name: ingest_social is registered and not ship-dark
         if: always()
         run: bash tests/test_social_ingest_wired.sh
-      # The Ollama install path: cask 'ollama-app', de-quarantined, and gated on
+      # The Ollama install path (2026-10-18: no cask; pinned, sha256-verified
+      # release). Previously: cask 'ollama-app', de-quarantined, and gated on
       # a hard binary-exists check. The de-quarantine limb is the load-bearing
       # one -- without it the cask reintroduces the Gatekeeper dialog CX-14 E1
       # was raised about, and the rest of the block still reads as correct.
@@ -234,6 +266,14 @@ jobs:
       - name: control -- prove every limb of the ollama contract can fail
         if: always()
         run: bash scripts/tests/test_ollama_contract_controls.sh
+
+      # The pinned Ollama install EXECUTED, not grepped: stub curl, real
+      # shasum + tar. A tampered archive must be refused (rc 12), an archive
+      # carrying an Ollama.app self-updater must be refused (rc 14), a failed
+      # download must be loud (rc 11).
+      - name: ollama pinned release -- sha256 enforced, updater refused
+        if: always()
+        run: bash tests/test_ollama_pin_install_verifies_sha256.sh
 
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED

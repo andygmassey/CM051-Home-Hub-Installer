@@ -33,8 +33,12 @@ import httpx
 import phonenumbers
 
 from . import forget_tombstone
+from . import phone_twins as _phone_twins
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
+from .role_addresses import is_sender_id_identifier
+from .owner_addresses import load_owner_addresses, is_owner_address
+from . import machine_senders as _machine_senders
 from .identifier_quality import observe as _observe_identifier
 from .usage_journal import record_usage as _record_usage
 from .usage_journal import tokens_from_ollama as _tokens_from_ollama
@@ -291,6 +295,61 @@ _NAME_TIER_HANDLE = 1
 _NAME_TIER_NAME = 2
 
 
+# CM051 #30 batch 3. WhatsApp's own default / unknown-name tokens. A chat-only
+# contact with no real name reaches us as one of these (or as a "~"-prefixed
+# push name, or as nothing legible), and "WhatsApp contact" was being written
+# as a NAME: 13 people on one box shared it. Matched by SHAPE: strip "~",
+# bidi/zero-width marks and punctuation, then either nothing is left, or the
+# whole label is an "unknown" word, or it is "<WhatsApp|contact|user> <filler>"
+# in any listed locale. Locale strings are best-effort, NOT verified against
+# WhatsApp's string tables; the shape rules catch the unlisted ones.
+_WA_UNKNOWN_WORDS = frozenset({
+    "unknown", "unknown contact", "unknown user", "unknown number", "unnamed",
+    "no name", "none", "null", "nil", "n a", "na", "anonymous",
+    "desconocido", "desconocida", "inconnu", "inconnue", "unbekannt",
+    "sconosciuto", "sconosciuta", "desconhecido", "desconhecida",
+    "onbekend", "okand", "ukendt", "tuntematon", "nieznany", "nieznana",
+    "bilinmeyen", "necunoscut", "neznamy", "ismeretlen",
+    "неизвестный", "неизвестно", "неизвестная", "невідомий",
+    "غير معروف", "לא ידוע", "不明", "未知", "未知联系人", "不明な連絡先",
+    "알 수 없음", "अज्ञात",
+})
+_WA_FILLER_WORDS = frozenset({
+    "whatsapp", "contact", "contacts", "user", "member", "person", "number",
+    "contacto", "contato", "contatto", "kontakt", "nutzer", "benutzer",
+    "utilisateur", "utente", "usuario", "usuário", "gebruiker", "kontakter",
+    "de", "do", "da", "del", "di", "von", "du", "of", "van", "på",
+    "联系人", "用户", "連絡先", "ユーザー", "контакт", "пользователь",
+    "جهة اتصال", "מישהו",
+})
+
+
+def _is_whatsapp_placeholder_name(value: "Optional[str]") -> bool:
+    """True when ``value`` is WhatsApp's stand-in for "no real name".
+
+    Covers: empty/whitespace, names made only of punctuation/emoji/marks,
+    a bare "~" or "~"-prefixed placeholder, WhatsApp's unknown-name words
+    and "WhatsApp contact"-shaped labels in any locale. A real name, with or
+    without a "~" push-name prefix, is False.
+    """
+    import unicodedata
+    if value is None:
+        return True
+    v = unicodedata.normalize("NFKC", str(value))
+    v = "".join(c for c in v if unicodedata.category(c) not in ("Cf", "Cc"))
+    v = v.replace("~", " ")
+    # keep letters and digits of any script; everything else is a separator
+    n = "".join(c if c.isalnum() else " " for c in v.casefold())
+    words = n.split()
+    if not words:
+        return True
+    if not any(c.isalpha() for c in n) and not any(c.isdigit() for c in n):
+        return True
+    joined = " ".join(words)
+    if joined in _WA_UNKNOWN_WORDS:
+        return True
+    return len(words) <= 4 and all(w in _WA_FILLER_WORDS for w in words)
+
 def _display_name_tier(value: str) -> int:
     """Rank a candidate displayName. See the tier table above."""
     if not value:
@@ -303,6 +362,9 @@ def _display_name_tier(value: str) -> int:
     digits = sum(c.isdigit() for c in v)
     phoneish = all(c in "+()-. \t0123456789" for c in v)
     if phoneish and digits >= 5:
+        return _NAME_TIER_PLACEHOLDER
+    # CM051 #30 b3: WhatsApp's default / unknown-name token is not a name.
+    if _is_whatsapp_placeholder_name(v):
         return _NAME_TIER_PLACEHOLDER
     # v1018-D659. Checked LAST, and only against something already
     # name-shaped: a kinship word outranks nothing, so it must not be
@@ -436,6 +498,10 @@ def _creation_name_triples(person_uri: str, value: str) -> list:
             "relationship, not a name (v1018-D659)", value, person_uri,
         )
         return [flag]
+    if _is_whatsapp_placeholder_name(value):
+        # CM051 #30 b3: a placeholder is flagged, never written as a name.
+        # The person (and its phone identifier) is still created.
+        return [flag]
     triples = [f'<{person_uri}> pwg:displayName "{_escape(value)}"']
     if tier < _NAME_TIER_NAME:
         triples.append(flag)
@@ -533,16 +599,22 @@ def _embed_text(text: str) -> list[float]:
     return embs[0]
 
 
-def _person_id_from_identifier(identifier: str) -> str:
+def _person_id_from_identifier(identifier: str, *, correspondent: bool = False) -> str:
     """Generate a stable person ID from a phone number or email.
 
     A role address (see :func:`is_role_identifier`) is NOT an identity, so it
     must never be the key -- callers should skip creating a person at all.
     This function raises rather than silently returning a colliding ID,
     because the silent version is exactly what merged nine people into one.
+
+    ``correspondent=True`` is the ONE exception (DMG #27): the owner has
+    exchanged mail with this address in a thread, so a human answers it (a
+    sole trader's "info@"). It is keyed like any other address. Only
+    ``ingest_mail_contacts`` passes it, and only for an address that
+    ``machine_senders`` recorded as a correspondent.
     """
     clean = identifier.strip().lower()
-    if is_role_identifier(clean):
+    if is_role_identifier(clean) and not correspondent:
         raise ValueError(
             f"refusing to key a person on the role address {clean!r}: "
             "it is a sender, not a person, and keying on it merges everyone "
@@ -693,7 +765,7 @@ def _whatsapp_display_name(jid: str) -> str:
     if _whatsapp_jid_is_genuine_phone(local):
         return "+" + local
     if local.isdigit():
-        return "WhatsApp contact"
+        return "WhatsApp contact"  # placeholder: creation writes flag only
     return local
 
 
@@ -731,6 +803,9 @@ def ingest_imessage(fda_dir: Path) -> dict:
     conversations = json.loads(conversations_file.read_text())
     people_created = 0
     people_enriched = 0
+    owner_addrs = load_owner_addresses(fda_dir)
+    lookup_failed = 0
+    twins = _TwinLookup()
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -745,11 +820,20 @@ def ingest_imessage(fda_dir: Path) -> dict:
             if not participant:
                 continue
 
+            # F7 (walk #16): an alphanumeric business sender id ("Google",
+            # "2inldn") is not a person and is neither an email nor a phone.
+            if is_sender_id_identifier(participant):
+                logger.debug("skipping alphanumeric sender id %s", participant)
+                continue
             # A role/bulk sender is not a person. Keying on it merges every
             # iMessage participant who shared it into ONE node (#659).
             # observe() also applies the STRUCTURAL rule: the moment this
             # identifier presents as a second distinct person it is refused
             # from then on, whatever it is called and in whatever language.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(participant, owner_addrs):
+                continue
             if _observe_identifier(participant, convo_name):
                 logger.debug("skipping role address %s", participant)
                 continue
@@ -758,8 +842,25 @@ def ingest_imessage(fda_dir: Path) -> dict:
             if _is_forgotten(participant, uri):
                 continue
 
-            # Check if person already exists in Oxigraph
-            exists = _person_exists(uri)
+            # Check if person already exists in Oxigraph. A merged URI
+            # resolves to its live survivor (DMG #27 S2); a store error skips
+            # this participant rather than minting a duplicate.
+            try:
+                uri, exists = _live_person(uri)
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and _identifier_kind(participant) == "phone":
+                holder = twins.holder(participant)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 # Create a minimal person node
@@ -828,26 +929,129 @@ def ingest_imessage(fda_dir: Path) -> dict:
                 _update_last_contact(uri, last_msg, "imessage")
 
     logger.info(
-        "iMessage: %d people created, %d enriched",
-        people_created, people_enriched,
+        "iMessage: %d people created, %d enriched, %d skipped (store unreadable)",
+        people_created, people_enriched, lookup_failed,
     )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
+        "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
     }
 
 
+def _lookup_status(lookup_failed: int, landed: int) -> str:
+    """Status for a people writer that asks the graph before it writes.
+
+    "could not look" is not "looked and found nothing". Oxigraph down used to
+    come back as ok with 0 created, which the fda-rerun stamped as a success
+    (last_success_at). Nothing landed AND lookups failed -> "error"; some
+    landed -> "partial" (never "ok", so never stamped as a full success).
+    """
+    if not lookup_failed:
+        return "ok"
+    return "partial" if landed else "error"
+
+
+class _StoreUnavailable(Exception):
+    """The graph could not be asked. A writer must then write NOTHING for
+    this person: "could not look" answered as "does not exist" is how a
+    store outage mints a duplicate."""
+
+
+# ── A merged person is never re-created (DMG #27, shape sweep S2) ──────
+#
+# dedupe_merge leaves an UNTYPED tombstone (`<dupe> pwg:mergedInto <keep>`)
+# and the identity_resolver paths leave a `pwg:RetiredPerson`. Every writer
+# here mints its URI as uuid5(identifier), so the next hourly iMessage or
+# WhatsApp ingest computed the SAME URI as the merged-away node, asked
+# `_person_exists` (`<uri> a ?t`), got no type back from the tombstone, and
+# re-created `a pwg:Person` + name + phone on it. Measured on the walk box:
+# 145 merged nodes typed Person again (138 WhatsApp, 6 iMessage), each a
+# duplicate person on every surface, and 144 duplicate Qdrant people points.
+# It also answered False on ANY store error, so an outage minted duplicates.
+#
+# Now: every writer first follows `pwg:mergedInto` to the live survivor and
+# writes there; a node carrying `pwg:mergedInto` counts as existing; and a
+# store error raises `_StoreUnavailable` so the caller skips the person.
+
+_MAX_MERGE_HOPS = 16
+
+
+def _resolve_merged(uri: str) -> str:
+    """The live survivor for ``uri``: follow ``pwg:mergedInto`` until a node
+    that carries none. ``uri`` itself when it was never merged. Raises
+    ``_StoreUnavailable`` when the graph cannot be read."""
+    seen = {uri}
+    cur = uri
+    for _ in range(_MAX_MERGE_HOPS):
+        try:
+            rows = _sparql_query(
+                "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+                f"SELECT ?t WHERE {{ <{cur}> pwg:mergedInto ?t }} LIMIT 1"
+            )
+        except Exception as exc:  # noqa: BLE001 -- converted, never swallowed
+            raise _StoreUnavailable(type(exc).__name__) from exc
+        nxt = ((rows[0].get("t") or {}).get("value") if rows else None) or None
+        if not nxt or nxt in seen:
+            return cur
+        seen.add(nxt)
+        cur = nxt
+    return cur
+
+
 def _person_exists(uri: str) -> bool:
-    """Check if a person URI exists in Oxigraph."""
+    """True when ``uri`` is a node in Oxigraph: typed with anything, OR a
+    merge tombstone (``pwg:mergedInto``), which is a person that exists
+    elsewhere and must never be minted again. Raises ``_StoreUnavailable``
+    when the graph cannot be read (it used to answer False)."""
     try:
         result = _sparql_query(
             "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-            f"SELECT ?t WHERE {{ <{uri}> a ?t }} LIMIT 1"
+            f"SELECT ?t WHERE {{ {{ <{uri}> a ?t }} UNION "
+            f"{{ <{uri}> pwg:mergedInto ?t }} }} LIMIT 1"
         )
-        return len(result) > 0
-    except Exception:
-        return False
+    except Exception as exc:  # noqa: BLE001
+        raise _StoreUnavailable(type(exc).__name__) from exc
+    return len(result) > 0
+
+
+def _live_person(uri: str):
+    """(live_uri, exists) for a writer about to create or enrich ``uri``.
+    Raises ``_StoreUnavailable``."""
+    live = _resolve_merged(uri)
+    return live, _person_exists(live)
+
+
+class _TwinLookup:
+    """P13: before minting a person for a phone handle, ask who already holds
+    that number (normalised), once per ingest run. See phone_twins.py for the
+    root cause and the household rule. ``holder(phone)`` returns the single
+    named holder, None, or ``_LOOKUP_FAILED`` when the index could not be
+    read (the caller then skips the participant rather than mint a twin)."""
+
+    def __init__(self):
+        self._index = None
+        self._failed = False
+        self.linked = 0
+
+    def holder(self, phone: Optional[str]):
+        if not phone:
+            return None
+        if self._index is None and not self._failed:
+            try:
+                self._index = _phone_twins.load_index(_sparql_query)
+            except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
+                logger.warning(
+                    "phone-twin index could not be read (%s); participants with "
+                    "a phone handle are skipped this run rather than duplicated",
+                    type(exc).__name__,
+                )
+                self._failed = True
+        if self._failed:
+            return _LOOKUP_FAILED
+        return self._index.holder_for(phone)
 
 
 def _identifier_exists(id_uri: str) -> bool:
@@ -859,7 +1063,8 @@ def _identifier_exists(id_uri: str) -> bool:
         )
         return len(result) > 0
     except Exception:
-        return False
+        # Fail closed: "could not look" must not write a second identifier.
+        return True
 
 
 # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
@@ -968,6 +1173,9 @@ def _upsert_display_name(person_uri: str, value: str) -> None:
     both flagged and the flag cannot tell them apart.
     """
     tier = _display_name_tier(value)
+    if _is_whatsapp_placeholder_name(value):
+        logger.debug("Refused placeholder as a displayName for %s", person_uri)
+        return
     if _is_kinship_composed_label(value):
         logger.debug(
             "Refused %r as a displayName for %s on upsert: a kinship word "
@@ -1066,7 +1274,10 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
     chats = json.loads(chats_file.read_text())
     people_created = 0
     people_enriched = 0
+    lookup_failed = 0
+    twins = _TwinLookup()
     tier_t1 = 0
+    owner_addrs = load_owner_addresses(fda_dir)
     tier_t2_intimate = 0
     tier_t2_active = 0
     tier_t3_skipped = 0
@@ -1114,6 +1325,10 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # right call -- it consults what OTHER sources have already learned
             # about this identifier, so a channel exposed by mail is refused
             # here too.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(participant, owner_addrs):
+                continue
             if _observe_identifier(participant, ""):
                 logger.debug("skipping role address %s", participant)
                 continue
@@ -1121,7 +1336,13 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             uri = _person_uri(person_id)
             if _is_forgotten(participant, uri):
                 continue
-            exists = _person_exists(uri)
+            # DMG #27 S2: write onto the live survivor of a merged URI; a
+            # store error skips this participant rather than minting one.
+            try:
+                uri, exists = _live_person(uri)
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
 
             # `@s.whatsapp.net` JIDs are phone-rooted: the local-part is an
             # E.164 number. Present it as a `+`-prefixed phone so the
@@ -1143,6 +1364,17 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # phone-JID suffix). The caller must not write that value under
             # identifierType "phone" -- see _whatsapp_phone_e164.
             phone_e164 = _whatsapp_phone_e164(participant)
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and phone_e164 is not None:
+                holder = twins.holder(phone_e164)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 triples = [
@@ -1235,14 +1467,17 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
                 _update_last_contact(uri, last_msg, "whatsapp")
 
     logger.info(
-        "WhatsApp: %d people created, %d enriched (t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
-        people_created, people_enriched,
+        "WhatsApp: %d people created, %d enriched, %d skipped (store unreadable) "
+        "(t1=%d, t2_intimate=%d, t2_active=%d, t3_skipped=%d)",
+        people_created, people_enriched, lookup_failed,
         tier_t1, tier_t2_intimate, tier_t2_active, tier_t3_skipped,
     )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
+        "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
         "tier_t1_dm_chats": tier_t1,
         "tier_t2_intimate_chats": tier_t2_intimate,
         "tier_t2_active_chats": tier_t2_active,
@@ -1270,6 +1505,10 @@ def ingest_calendar(fda_dir: Path) -> dict:
     people_created = 0
     people_matched = 0
     lookup_failed = 0
+    owner_addrs = load_owner_addresses(fda_dir)
+    owner_skipped = 0
+    machine_skipped = 0
+    _cal_machine, cal_correspondents = _machine_senders.load(fda_dir)
 
     for event in events:
         attendees = event.get("attendees", [])
@@ -1286,6 +1525,23 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # calendar attendee who shared it into ONE node (#659). An invite
             # carries no attendee display name, so this contributes nothing to
             # the structural rule -- but it still honours it.
+            # DMG #27: the owner's own address (me card, Mail account, Sent
+            # From, sole-To of delivered non-list mail) is not a Person.
+            if is_owner_address(attendee, owner_addrs):
+                owner_skipped += 1
+                continue
+            # DMG #27: a calendar SYSTEM address (shared calendar, room,
+            # iCloud invitation sender) or a no-reply sender is not a Person.
+            if _machine_senders.noreply_reason(attendee):
+                machine_skipped += 1
+                continue
+            # v1.0.107 walk #28: an organisation's own mailbox as an attendee
+            # (an events platform's invite sender) is not a Person. A
+            # correspondent is a human and is kept.
+            if (attendee.strip().lower() not in cal_correspondents
+                    and _machine_senders.organisation_reason(attendee)):
+                machine_skipped += 1
+                continue
             if _observe_identifier(attendee, ""):
                 logger.debug("skipping role address %s", attendee)
                 continue
@@ -1300,10 +1556,17 @@ def ingest_calendar(fda_dir: Path) -> dict:
             # customer already had in Contacts became a second record.
             found = _person_uri_by_identifier_value(attendee)
             if found is _LOOKUP_FAILED:
+                # FAIL CLOSED (DMG #27 S2): a store that cannot be asked must
+                # not mint a person. Counted, and retried on the next run.
                 lookup_failed += 1
-                found = None
+                continue
             person_id = _person_id_from_identifier(attendee)
-            uri = found or _person_uri(person_id)
+            # The holder may be a merged-away node: write onto its survivor.
+            try:
+                uri, exists = _live_person(found or _person_uri(person_id))
+            except _StoreUnavailable:
+                lookup_failed += 1
+                continue
             attendee_uris.append(uri)
 
             if uri not in people_seen:
@@ -1311,7 +1574,7 @@ def ingest_calendar(fda_dir: Path) -> dict:
 
                 if found:
                     people_matched += 1
-                elif not _person_exists(uri):
+                elif not exists:
                     triples = [
                         f"<{uri}> a pwg:Person",
                         f'<{uri}> pwg:contactType "person"',
@@ -1421,10 +1684,12 @@ def ingest_calendar(fda_dir: Path) -> dict:
             "may have been duplicated", lookup_failed,
         )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_matched + meetings_created),
         "events_processed": events_processed,
         "unique_attendees": len(people_seen),
         "meetings_created": meetings_created,
+        "owner_addresses_skipped": owner_skipped,
+        "machine_senders_skipped": machine_skipped,
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
@@ -1456,8 +1721,12 @@ def ingest_photos_people(fda_dir: Path) -> dict:
         uri = _person_uri(person_id)
         if _is_forgotten("", uri, name):
             continue
+        try:
+            uri, exists = _live_person(uri)
+        except _StoreUnavailable:
+            continue
 
-        if not _person_exists(uri):
+        if not exists:
             photo_count = person.get("photo_count", 0)
             first_seen = person.get("first_seen", "")
             last_seen = person.get("last_seen", "")
@@ -1594,9 +1863,14 @@ def ingest_photo_events(fda_dir: Path) -> dict:
         if faces_opted_in:
             for name in event.get("people") or []:
                 if isinstance(name, str) and name.strip():
+                    face_uri = _photo_face_person_uri(name.strip())
+                    try:
+                        # A merged face person: point at the live survivor.
+                        face_uri = _resolve_merged(face_uri)
+                    except _StoreUnavailable:
+                        pass  # an edge, not a new node; the tombstone still resolves
                     triples.append(
-                        f"<{uri}> pwg:photoAttendee "
-                        f"<{_photo_face_person_uri(name.strip())}>"
+                        f"<{uri}> pwg:photoAttendee <{face_uri}>"
                     )
 
         _sparql_update(
@@ -1643,6 +1917,12 @@ def ingest_photos(fda_dir: Path) -> dict:
 
 # ── Apple Mail contact ingestion ──────────────────────────────────
 
+# A correspondent becomes a Person at this many messages. Named so the
+# full-history catch-up (catchup_mail.py) qualifies an address at exactly
+# the point this ingest would accept it, rather than carrying its own 3.
+MAIL_CONTACT_MIN_COUNT = 3
+
+
 def ingest_mail_contacts(fda_dir: Path) -> dict:
     """Ingest frequent email contacts into the people graph.
 
@@ -1658,9 +1938,13 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     people_created = 0
     people_matched = 0
     lookup_failed = 0
+    owner_addrs = load_owner_addresses(fda_dir)
+    owner_skipped = 0
+    machine, correspondents = _machine_senders.load(fda_dir)
+    machine_skipped = 0
 
     for email, count in contacts.items():
-        if not email or count < 3:
+        if not email or count < MAIL_CONTACT_MIN_COUNT:
             # Skip very infrequent senders
             continue
 
@@ -1668,7 +1952,27 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # email correspondent who shared it into ONE node (#659). The frequency
         # map is address->count with no names, so this consults the learned set
         # rather than adding to it.
-        if _observe_identifier(email, ""):
+        # DMG #27: the owner's own address (me card, Mail account, Sent
+        # From, sole-To of delivered non-list mail) is not a Person.
+        if is_owner_address(email, owner_addrs):
+            owner_skipped += 1
+            continue
+        # DMG #27: a machine sender (no-reply address, calendar system or
+        # notification domain, or every message a list mail) is not a Person.
+        if email.strip().lower() in machine or _machine_senders.noreply_reason(email):
+            machine_skipped += 1
+            continue
+        # v1.0.107 walk #28: an organisation's own mailbox (`<brand>@<brand's
+        # domain>`, a bulk sub-domain) is not a Person either. Not strict: a
+        # correspondent is a human and is kept, same as the role rule below.
+        if (email.strip().lower() not in correspondents
+                and _machine_senders.organisation_reason(email)):
+            machine_skipped += 1
+            continue
+        # A person the owner has corresponded with is kept even when the
+        # address reads as a role ("info@" for a sole trader): the role rule
+        # is a guess about the address, the reply is evidence about the human.
+        if email.strip().lower() not in correspondents and _observe_identifier(email, ""):
             logger.debug("skipping role address %s", email)
             continue
         if _is_forgotten(email):
@@ -1679,14 +1983,20 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
         # cannot see.
         found = _person_uri_by_identifier_value(email)
         if found is _LOOKUP_FAILED:
+            # FAIL CLOSED (DMG #27 S2): counted, retried on the next run.
             lookup_failed += 1
-            found = None
-        person_id = _person_id_from_identifier(email)
-        uri = found or _person_uri(person_id)
+            continue
+        person_id = _person_id_from_identifier(
+            email, correspondent=email.strip().lower() in correspondents)
+        try:
+            uri, exists = _live_person(found or _person_uri(person_id))
+        except _StoreUnavailable:
+            lookup_failed += 1
+            continue
 
         if found:
             people_matched += 1
-        elif not _person_exists(uri):
+        elif not exists:
             triples = [
                 f"<{uri}> a pwg:Person",
                 f'<{uri}> pwg:contactType "person"',
@@ -1731,10 +2041,12 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
             "may have been duplicated", lookup_failed,
         )
     return {
-        "status": "ok",
+        "status": _lookup_status(lookup_failed, people_created + people_matched),
         "people_created": people_created,
         "people_matched": people_matched,
         "people_lookup_failed": lookup_failed,
+        "owner_addresses_skipped": owner_skipped,
+        "machine_senders_skipped": machine_skipped,
     }
 
 
@@ -2134,6 +2446,10 @@ def ingest_browser_history(fda_dir: Path) -> dict:
             "points_created": sent,
             "skipped_sensitive": skipped_sensitive,
             "total": len(queue),
+            # The embedder or vector store could not be used: an outage, not a
+            # verdict on these visits. The catch-up reads this and does not
+            # count the window toward quarantine.
+            "sink_unavailable": True,
         }
 
     if sent == 0:
@@ -2150,6 +2466,7 @@ def ingest_browser_history(fda_dir: Path) -> dict:
             "points_created": 0,
             "skipped_sensitive": skipped_sensitive,
             "total": len(queue),
+            "sink_unavailable": True,   # every chunk failed: the store is down
         }
 
     logger.info(
@@ -2782,6 +3099,9 @@ def _load_people_from_oxigraph() -> list[dict]:
         "?givenName ?familyName ?createdAt WHERE {\n"
         "  ?uri a pwg:Person ;\n"
         "       pwg:displayName ?displayName .\n"
+        # DMG #27 S2: a merged-away node is not a person to index, even
+        # when an old ingest typed it Person again. Its points are pruned.
+        "  FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged }\n"
         "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
         "  OPTIONAL { ?uri pwg:organization ?org }\n"
         "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
@@ -2989,7 +3309,9 @@ def _current_person_uris() -> Optional[set]:
         rows = _sparql_query(
             "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
             "SELECT DISTINCT ?uri WHERE { ?uri a pwg:Person ; "
-            "pwg:displayName ?n . }"
+            "pwg:displayName ?n . "
+            # DMG #27 S2: so a merged-away node's vector is pruned.
+            "FILTER NOT EXISTS { ?uri pwg:mergedInto ?merged } }"
         )
     except Exception:
         return None
@@ -3386,6 +3708,14 @@ def main():
     fda_dir = Path(args.fda_dir) if args.fda_dir else None
     results = ingest_all(fda_dir)
     print(json.dumps(results, indent=2))
+    # Exit non-zero when anything failed, so a caller that captures rc (install
+    # hydrate) cannot record a failed graph write as ok. ingest_all itself
+    # never raises; before this the CLI exited 0 whatever the results said.
+    if results.get("status") == "error" or any(
+        isinstance(v, dict) and v.get("status") == "error"
+        for v in results.values()
+    ):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

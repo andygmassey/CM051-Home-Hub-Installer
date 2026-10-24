@@ -47,6 +47,7 @@ import hashlib
 import logging
 import os
 import re
+import unicodedata
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -162,14 +163,22 @@ class ConversationBundle:
     source_session_id: str
     channel: str  # "im" | "email" | "spoken" | "manual" | etc
     participants: tuple[str, ...]
-    started_at: str  # ISO 8601
-    ended_at: str
+    started_at: str  # ISO 8601, or "" when genuinely unknown (omitted)
+    ended_at: str  # ISO 8601, or "" when genuinely unknown (omitted)
     summary: ConversationSummary
     transcript: str
     todos: tuple[Todo, ...] = ()
     privacy_level: str = "L2"
     source_app: Optional[str] = None  # "messages" | "mail" | "whatsapp" | etc
     extra_metadata: dict = field(default_factory=dict)
+    # The counterparts' raw messaging handles (phone / email / JID), owner
+    # excluded, when the source knows them (iMessage: chat_handle_join).
+    # NOT rendered into any artefact; used only to derive the reminder
+    # ``thread_key`` the assistant daemon matches against chat.db.
+    participant_handles: tuple[str, ...] = ()
+    # Calendar date (YYYY-MM-DD) for the folder when ``started_at`` is
+    # unknown. Never used to invent a clock time.
+    date: str = ""
 
 
 @dataclass(frozen=True)
@@ -361,7 +370,11 @@ def _normalise_privacy_level(value: str) -> str:
     return "L3"
 
 
-_SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")
+# Unicode-aware: keep letters and digits of every script so a folder for
+# a conversation with a participant written in kanji or Cyrillic is not
+# named "conversation". Path separators, spaces and punctuation are not
+# word characters, so they still collapse to a hyphen.
+_SLUG_KEEP_RE = re.compile(r"[\W_]+")
 
 
 def _slug_segment(text: str, max_len: int = 32) -> str:
@@ -372,7 +385,9 @@ def _slug_segment(text: str, max_len: int = 32) -> str:
     ``"conversation"`` for empty / all-symbol inputs so the
     caller never has to handle ``""``.
     """
-    cleaned = _SLUG_KEEP_RE.sub("-", text.lower()).strip("-")
+    cleaned = _SLUG_KEEP_RE.sub(
+        "-", unicodedata.normalize("NFC", text).lower()
+    ).strip("-")
     if not cleaned:
         return "conversation"
     return cleaned[:max_len].rstrip("-") or "conversation"
@@ -404,7 +419,7 @@ def _resolve_folder(
     review feedback: do not strip ``user`` from the slug.)
     """
     base = root if root is not None else ostler_paths.conversations_dir()
-    date_part = (bundle.started_at or "")[:10] or "unknown"
+    date_part = (bundle.started_at or "")[:10] or bundle.date or "unknown"
     slug_source = "-".join(p for p in bundle.participants if p) or "conversation"
     slug = _slug_segment(slug_source)
     folder_name = f"{slug}-{_short_id(bundle.conversation_id)}"
@@ -482,8 +497,15 @@ def _render_frontmatter(
     if bundle.source_app:
         lines.append(f"source_app: {_yaml_quote(bundle.source_app)}")
     lines.append(f"channel: {_yaml_quote(bundle.channel)}")
-    lines.append(f"started_at: {_yaml_quote(bundle.started_at)}")
-    lines.append(f"ended_at: {_yaml_quote(bundle.ended_at)}")
+    # A time we do not know is omitted, never written as a placeholder:
+    # the customer reads frontmatter times as measured (2026-10-18 phone
+    # capture showed 00:00-01:00 for a 09:16-09:17 conversation).
+    if bundle.started_at:
+        lines.append(f"started_at: {_yaml_quote(bundle.started_at)}")
+    if bundle.ended_at:
+        lines.append(f"ended_at: {_yaml_quote(bundle.ended_at)}")
+    if not bundle.started_at and bundle.date:
+        lines.append(f"date: {_yaml_quote(bundle.date)}")
     lines.append(f"privacy_level: {privacy_level}")
     lines.append("participants:")
     for participant in bundle.participants:

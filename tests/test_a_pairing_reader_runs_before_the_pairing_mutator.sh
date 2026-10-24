@@ -50,7 +50,11 @@ ALLOWED="running_config_matches_disk"
 # --- discover the mutator ---------------------------------------------------
 MUTATORS=""
 for f in "$DIR"/*.sh; do
-    if [ "$(grep -cE "curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ]; then
+    # A probe pairs when it runs the companion flow (lib/companion_pair.sh,
+    # /auth/pair/init + register on :8443) -- or, the old way, a curl POST to
+    # :8443/pair. Both shapes are matched so a probe that regressed to the
+    # legacy route is still found as a mutator.
+    if [ "$(grep -cE "companion_pair_box_snippet|curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ]; then
         MUTATORS="${MUTATORS} $(basename "$f" .sh)"
     fi
 done
@@ -62,7 +66,7 @@ if [ "$#" -ne 1 ]; then
     exit 2
 fi
 MUTATOR="$1"
-ok "the pairing mutator is ${MUTATOR} (exactly one probe posts to :8443/pair)"
+ok "the pairing mutator is ${MUTATOR} (exactly one probe pairs against :8443)"
 
 # --- discover the readers ---------------------------------------------------
 # Device-layer and policy pairing state. Deliberately NOT the word "pair" alone:
@@ -119,6 +123,56 @@ for locale_name in C "$AMBIENT"; do
         fi
     done
 done
+
+# --- a PROMOTED list must keep the reader ahead of the mutator --------------
+# scripts/box_walk_probes/lib/promote_order.sh moves the previous walk's failed
+# probes to the front of the full walk. A probe that declares `# WALK_WRITES:`
+# (the pairing mutator does) is never moved, and promoting a read-only probe only
+# moves it EARLIER, so every reader stays ahead of the mutator. Checked on real
+# probes for several promoted lists, with a control that a naive promotion of the
+# mutator is caught by the same checker.
+LIB="${REPO}/scripts/box_walk_probes/lib/promote_order.sh"
+if [ ! -f "$LIB" ]; then
+    bad "lib/promote_order.sh is absent, so a promoted order is unchecked"
+else
+    # shellcheck disable=SC1090
+    . "$LIB"
+    PROBES="$(for f in "$DIR"/*.sh; do printf '%s\n' "$f"; done | LC_ALL=C sort | tr '\n' ' ')"
+    N_ALL="$(printf '%s' "$PROBES" | wc -w | tr -d ' ')"
+    check_promoted() {   # label, ordered path list ; asserts reader < mutator and nothing lost
+        local label="$1" ord="$2" names mpos rpos r
+        names="$(for p in $ord; do basename "$p" .sh; done)"
+        [ "$(printf '%s\n' "$names" | wc -l | tr -d ' ')" = "$N_ALL" ] \
+            && ok "${label}: all ${N_ALL} probes still present, none added" \
+            || { bad "${label}: probe count changed"; return; }
+        mpos="$(pos_in "$names" "$MUTATOR")"
+        for r in $READERS; do
+            case " $ALLOWED " in *" $r "*) continue ;; esac
+            rpos="$(pos_in "$names" "$r")"
+            if [ -n "$rpos" ] && [ "$rpos" -lt "$mpos" ]; then :; else
+                bad "${label}: ${r} (#${rpos}) is not ahead of ${MUTATOR} (#${mpos})"; return
+            fi
+        done
+        ok "${label}: every reader is ahead of ${MUTATOR} (#${mpos})"
+    }
+    FIRSTREADER="$(printf '%s' "$READERS" | awk '{print $1}')"
+    check_promoted "promote nothing"                "$(promote_order "")"
+    check_promoted "promote the mutator alone"      "$(promote_order "$MUTATOR")"
+    check_promoted "promote the mutator + another"  "$(promote_order "$MUTATOR
+ingest_coverage")"
+    check_promoted "promote a reader alone"         "$(promote_order "$FIRSTREADER")"
+    check_promoted "promote a name that is not a probe" "$(promote_order "no_such_probe")"
+    # POSITIVE CONTROL: the naive promotion (mutator to the front, nothing else)
+    # must be caught by the same checker, or the PASSes above prove nothing.
+    NAIVE="${DIR}/${MUTATOR}.sh $(printf '%s' "$PROBES" | tr ' ' '\n' | grep -v -x -- "${DIR}/${MUTATOR}.sh" | tr '\n' ' ')"
+    before_fail=$FAIL
+    check_promoted "NAIVE promotion (control)" "$NAIVE" >/dev/null
+    if [ "$FAIL" -gt "$before_fail" ]; then
+        FAIL=$before_fail; ok "control: the naive 'mutator first' promotion is caught by this checker"
+    else
+        bad "control: the checker did NOT catch a mutator promoted to the front"
+    fi
+fi
 
 # --- the allowlist must not rot ---------------------------------------------
 for a in $ALLOWED; do

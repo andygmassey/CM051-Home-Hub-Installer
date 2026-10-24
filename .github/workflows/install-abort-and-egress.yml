@@ -94,6 +94,28 @@ jobs:
         if: always()
         run: python3 tests/test_the_egress_inventory_still_describes_the_software.py
 
+      # limactl holds the VM's container sockets (lima user-v2 usernet), so its
+      # "changing" destinations are the ledger's names, not IP ranges. This
+      # binds the ledger, the doc and the colima start flags together.
+      - name: limactl egress is attributed (self-test)
+        if: always()
+        run: python3 tests/test_limactl_egress_is_attributed.py --self-test
+
+      - name: limactl egress is attributed
+        if: always()
+        run: python3 tests/test_limactl_egress_is_attributed.py
+
+      # ostler-vane's SearXNG ran the image's default settings: every engine,
+      # Google autocomplete, an unasked Wikimedia socket. The shipped settings
+      # now keep three declared engines and every idle-network feature off.
+      - name: vane SearXNG idle egress is off (self-test)
+        if: always()
+        run: python3 tests/test_vane_searxng_has_no_idle_egress.py --self-test
+
+      - name: vane SearXNG idle egress is off
+        if: always()
+        run: python3 tests/test_vane_searxng_has_no_idle_egress.py
+
       # CM041 9b88b3e1, grafted into the vendored tree. httpx reads HTTP_PROXY
       # from the environment by DEFAULT, and the pipeline talks to Oxigraph,
       # Qdrant, Ollama and the calendar API on the loopback. A customer with a
@@ -174,14 +196,13 @@ jobs:
         if: always()
         run: python3 tests/test_provenance_survives_the_filter_under_execution.py
 
-      # The background Ollama callers in the enrichment pipeline must take the
-      # installer's per-tier context budget, not a hardcoded 32768.
-      # install.sh sets OSTLER_ENRICH_NUM_CTX per resource tier: unset on
-      # `high` (>=32 GB), 8192 on `low`, 4096 on `floor`. A 16 GB Mac is `low`,
-      # and 16 GB is the installer's HARD MINIMUM, so the baseline supported
-      # machine wants 8192. A literal 32768 asks the smallest supported box for
-      # four times its own budget, inside the code path added to be polite
-      # about resources.
+      # The background Ollama callers in the enrichment pipeline read
+      # OSTLER_ENRICH_NUM_CTX and fall back to 32768 (the daemon's chat window)
+      # when it is empty. The installer now leaves it EMPTY on every tier: a
+      # smaller enrichment window on the same model forced Ollama to reload
+      # the model on every chat/enrichment alternation (walk #19, 16 GB box,
+      # 94 reloads in 90 minutes). The tier values are guarded by
+      # tests/test_resource_tier_governor.sh; this suite guards the resolver.
       #
       # This suite needs pytest proper (monkeypatch, tmp_path), unlike the
       # __main__-guard scripts above, so it installs it and then ASSERTS THE

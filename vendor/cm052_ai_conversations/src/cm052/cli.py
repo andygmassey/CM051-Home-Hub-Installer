@@ -343,6 +343,24 @@ def _emit_json(counts: dict, *, enabled: bool) -> None:
         print(json.dumps(counts))
 
 
+def process_one(conv: Conversation) -> str:
+    """Hand ONE conversation to the wire and name the outcome.
+
+    The single per-conversation step, shared by ``run`` and the background
+    catch-up (``cm052.catchup``), so the two can never drift. Returns
+    ``"l3_skipped"`` (L3 short-circuit), ``"paused"`` (subscription
+    inactive, nothing staged) or ``"posted"``. Raises on transport failure,
+    exactly as ``wire.post`` does.
+    """
+    result = wire.post(conv)
+    if isinstance(result, dict):
+        if result.get("reason") == "privacy_level_l3":
+            return "l3_skipped"
+        if result.get("reason") == "subscription_inactive":
+            return "paused"
+    return "posted"
+
+
 def run(args: argparse.Namespace) -> int:
     """Core orchestration. Returns the process exit code."""
     state_path = (
@@ -413,6 +431,7 @@ def run(args: argparse.Namespace) -> int:
     posted = 0
     l3_skipped = 0
     errors = 0
+    paused = 0
 
     for conv in pending:
         if args.dry_run:
@@ -424,7 +443,7 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
         try:
-            result = wire.post(conv)
+            outcome = process_one(conv)
         except Exception as exc:
             # One bad transcript must not abort the run. Log with the
             # conversation id + traceback and leave the watermark
@@ -439,7 +458,15 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
 
-        if isinstance(result, dict) and result.get("reason") == "privacy_level_l3":
+        if outcome == "paused":
+            # The wire's G7 said no (subscription inactive). Nothing was
+            # staged: this is NOT handled, so the watermark must not move.
+            # It used to, which marked every conversation done for ever while
+            # paused (CM052 781e5643 #18, watermark half backported for
+            # v1.0.111; the rest of #18 is the held G7 feature).
+            paused += 1
+            continue
+        if outcome == "l3_skipped":
             l3_skipped += 1
         else:
             posted += 1
@@ -457,10 +484,11 @@ def run(args: argparse.Namespace) -> int:
             return 1
 
     log.info(
-        "Done. discovered=%d posted=%d l3_skipped=%d errors=%d",
+        "Done. discovered=%d posted=%d l3_skipped=%d paused=%d errors=%d",
         discovered,
         posted,
         l3_skipped,
+        paused,
         errors,
     )
     _emit_json(
@@ -471,6 +499,7 @@ def run(args: argparse.Namespace) -> int:
             "ingested": posted + l3_skipped,
             "written": posted,
             "l3_skipped": l3_skipped,
+            "paused": paused,
             "failed": errors,
         },
         enabled=args.json,

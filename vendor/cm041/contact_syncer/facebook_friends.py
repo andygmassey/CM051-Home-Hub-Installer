@@ -16,11 +16,16 @@ Usage:
         --json /path/to/your_friends.json \
         [--dry-run] [--limit N] [--verbose]
 
-Idempotent: re-running upserts by deterministic ID (from name hash).
+Idempotent (CM051 F6): every facebook_friend signal records a stable
+per-friend ``pwg:sourceKey`` (name + friendship timestamp). A re-import of the
+same friend attaches to the node that already carries that key, BEFORE any
+fuzzy resolution, so a same-named node that appeared since the last import
+cannot steal the friendship onto a second node.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -38,8 +43,9 @@ if _PARENT_DIR not in sys.path:
     sys.path.insert(0, _PARENT_DIR)
 
 from contact_syncer import config
-from contact_syncer.relationship_labels import is_relationship_label
+from contact_syncer.qdrant_collection import ensure_qdrant_collection, read_existing_payload
 from contact_syncer import privacy_model as _pm
+from contact_syncer.relationship_labels import is_relationship_label
 from identity_resolver import forget_tombstone
 from identity_resolver.models import PersonIdentity
 from identity_resolver.resolver import IdentityResolver
@@ -127,6 +133,7 @@ def friend_to_identity(entry: Dict[str, Any]) -> Tuple[PersonIdentity, Dict[str,
     extra = {
         "friended_on": friended_on,
         "timestamp": timestamp,
+        "source_key": friend_source_key(display_name, timestamp),
     }
 
     return identity, extra
@@ -150,6 +157,63 @@ def _sparql_update(oxigraph_url: str, sparql: str) -> None:
 def _escape(s: str) -> str:
     """Escape a string for SPARQL literal."""
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+# ── Stable per-friend key (CM051 F6) ─────────────────────────────────
+#
+# Facebook friends carry only a name and a friendship timestamp, so the
+# resolver can place them by FUZZY NAME alone, and a fuzzy match is not
+# stable across runs: a same-named node that arrives between two imports
+# (a Messenger correspondent, a contact card) wins the tie on the next run.
+# Measured on Ostler DMG #16: the same export imported twice left 1152
+# facebook_friend signals on 1152 nodes for 897 friends. The key below is the
+# friend's identity AS THE EXPORT STATES IT, recorded on the signal, and it is
+# consulted before the resolver is.
+
+
+def friend_source_key(display_name: str, timestamp: Any) -> str:
+    try:
+        ts = int(timestamp or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    raw = f"{(display_name or '').strip().casefold()}|{ts}"
+    return "facebook_friend:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def load_friend_index(resolver: Any) -> Tuple[Dict[str, str], Dict[Tuple[str, str], str]]:
+    """Every node already carrying a facebook_friend signal, indexed two ways.
+
+    ``by_key``: sourceKey -> node (signals written by this importer since F6).
+    ``legacy``: (casefolded displayName, signalDate) -> node, for signals
+    written before the key existed, so the first re-import after upgrade also
+    lands on the existing node instead of re-running the fuzzy match.
+    Ties resolve to the lexically first node URI, so the choice is stable.
+    """
+    sparql = (
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+        "SELECT ?p ?k ?n ?d WHERE {\n"
+        "  ?p pwg:hasSignal ?s .\n"
+        '  ?s pwg:signalType "facebook_friend" .\n'
+        "  OPTIONAL { ?s pwg:sourceKey ?k }\n"
+        "  OPTIONAL { ?p pwg:displayName ?n }\n"
+        "  OPTIONAL { ?s pwg:signalDate ?d }\n"
+        "}"
+    )
+    rows = resolver._sparql_query(sparql).get("results", {}).get("bindings", [])
+    by_key: Dict[str, str] = {}
+    legacy: Dict[Tuple[str, str], str] = {}
+    for row in sorted(rows, key=lambda r: r.get("p", {}).get("value", "")):
+        p = row.get("p", {}).get("value")
+        if not p:
+            continue
+        k = row.get("k", {}).get("value")
+        if k:
+            by_key.setdefault(k, p)
+        n = (row.get("n", {}).get("value") or "").strip().casefold()
+        d = row.get("d", {}).get("value") or ""
+        if n and d:
+            legacy.setdefault((n, d), p)
+    return by_key, legacy
 
 
 def create_person_oxigraph(
@@ -204,6 +268,8 @@ def create_person_oxigraph(
     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
+    if extra.get("source_key"):
+        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
     triples.append(
         f'<{signal_uri}> pwg:privacyLevel '
         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"'
@@ -240,6 +306,8 @@ def enrich_person_oxigraph(
         f'<{signal_uri}> pwg:privacyLevel '
         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"',
     ]
+    if extra.get("source_key"):
+        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
     if extra.get("friended_on"):
         triples.append(
             f'<{signal_uri}> pwg:signalDate "{_escape(extra["friended_on"])}"'
@@ -281,7 +349,7 @@ def embed_text(ollama_url: str, text: str, model: str = "nomic-embed-text") -> L
         )
         resp.raise_for_status()
         data = resp.json()
-        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        from contact_syncer.usage import record_embed_usage  # usage journal (#482): enriching
         record_embed_usage(data, model)
     embs = data.get("embeddings") or [data.get("embedding")]
     return embs[0]
@@ -345,24 +413,42 @@ def upsert_qdrant(
 
     # Check if point exists — if so, preserve existing last_contact
     # (which may have been set by actual meetings/conversations)
-    try:
-        existing = qdrant.retrieve(
-            collection_name=collection,
-            ids=[point_uuid],
-            with_payload=True,
-        )
-        if existing and existing[0].payload:
-            ex_ts = existing[0].payload.get("last_contact_ts")
-            if ex_ts and ex_ts > last_contact_ts:
-                payload["last_contact"] = existing[0].payload["last_contact"]
-                payload["last_contact_ts"] = ex_ts
-            # Preserve source if already richer
-            ex_source = existing[0].payload.get("source", "")
-            if ex_source and ex_source != "facebook_friends":
-                payload["source"] = ex_source
-    except Exception:
-        pass
+    # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+    # This was one `try` wrapping the retrieve AND every preservation, with
+    # `except Exception: pass`, followed by an UNCONDITIONAL upsert. A
+    # transient store failure therefore took the same path as "nothing to
+    # preserve", and the upsert then replaced a richer payload with a poorer
+    # one, silently, with no error anywhere.
+    #
+    # If we cannot READ the point we are about to overwrite, we do not know
+    # whether it is richer, so we do not write. This syncer runs again; a
+    # deferred enrichment is recoverable and overwritten data is not.
+    _existing = read_existing_payload(qdrant, collection, point_uuid)
+    if not _existing.readable:
+        return          # already reported by read_existing_payload
+    if _existing.payload:
+        # BOTH fields or NEITHER. This was a bare index guarded only by
+        # ex_ts, so a point carrying last_contact_ts and no last_contact
+        # raised KeyError, the `except Exception: pass` below ate it, and
+        # the WHOLE preservation block was skipped -- including the source
+        # preservation that follows -- after which the unconditional upsert
+        # wrote the poorer payload over the richer one. Silent
+        # last-write-wins. Preserving the timestamp without its value would
+        # create the same inconsistency the KeyError was hiding, so the pair
+        # moves together or not at all.
+        ex_ts = existing[0].payload.get("last_contact_ts")
+        ex_lc = existing[0].payload.get("last_contact")
+        if ex_ts and ex_lc and ex_ts > last_contact_ts:
+            payload["last_contact"] = ex_lc
+            payload["last_contact_ts"] = ex_ts
+        # Preserve source if already richer
+        ex_source = existing[0].payload.get("source", "")
+        if ex_source and ex_source != "facebook_friends":
+            payload["source"] = ex_source
 
+    # #629: nothing pre-creates the people collection before the social
+    # writers run; ensure it (idempotently) so the first upsert cannot 404.
+    ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
     qdrant.upsert(collection_name=collection, points=[point])
 
 
@@ -395,6 +481,14 @@ def import_friends(
 
     counts = {"total": len(friends), "matched": 0, "created": 0, "skipped": 0,
               "errors": 0}
+    # F6: nodes that already carry a friendship from an earlier import.
+    try:
+        by_key, legacy = load_friend_index(resolver)
+    except Exception as e:  # an unreadable index must not mint duplicates silently
+        print(f"Could not read existing Facebook friendships ({e}); refusing to "
+              f"re-resolve them by name.", file=sys.stderr)
+        counts["errors"] = len(friends)
+        return counts
     print(f"Importing {len(friends)} Facebook friends...")
 
     for i, entry in enumerate(friends, 1):
@@ -411,6 +505,17 @@ def import_friends(
             # Resolve — use fuzzy matching since Facebook friends
             # only have names (no email, phone, or URL to match on).
             match = resolver.resolve(identity, use_fuzzy=True)
+
+            # F6: a friend this importer has already placed goes back to the
+            # SAME node, whatever the fuzzy match now prefers. Tombstones
+            # still win (checked on the resolver's answer just below).
+            known = by_key.get(extra["source_key"]) or legacy.get(
+                (identity.display_name.strip().casefold(), extra.get("friended_on") or "")
+            )
+            if known and not (match and match.match_type == "forgotten"):
+                from identity_resolver.models import MatchResult as _MR
+                match = _MR(person_uri=known, match_type="facebook_source_key",
+                            confidence=1.0, details="already imported (sourceKey)")
 
             # Forgotten (tombstoned) people are never created or enriched.
             if match and match.match_type == "forgotten":

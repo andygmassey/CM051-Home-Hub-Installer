@@ -39,7 +39,7 @@ run_probe() {
     [ -x "${_PY}" ] || probe_cannot_run "no Playwright python at ${_PY} (set OSTLER_SCREENS_PYTHON)"
 
     local out tokfile feed boxf selff fresh owner_src port dport fwd_pid rc n
-    out="${OSTLER_WALK_SCREENS_DIR:-$PWD/walk-screens/$(date -u +%Y%m%dT%H%M%SZ)}/customer-read"
+    out="$(walk_screens_dir)/customer-read"
     mkdir -p "${out}" || probe_cannot_run "cannot create ${out}"
     tokfile="$(mktemp)"; feed="$(mktemp)"; boxf="$(mktemp)"; selff="$(mktemp)"; fresh="$(mktemp)"
     trap 'rm -f "${tokfile}" "${feed}" "${boxf}" "${selff}" "${fresh}"; [ -n "${fwd_pid:-}" ] && kill "${fwd_pid}" 2>/dev/null' EXIT
@@ -60,7 +60,7 @@ now=dt.datetime.now(dt.timezone.utc); start=now-dt.timedelta(minutes=60)
 off=dt.datetime.now().astimezone().utcoffset(); n=0; j=0
 try:
     for l in open(os.path.expanduser('~/.ostler/logs/ollama.log'),errors='replace'):
-        m=re.match(r'\[GIN\] (\d{4}/\d\d/\d\d - \d\d:\d\d:\d\d) \| *\d+ \|.*POST +\"/api/(embed|embeddings|generate|chat)\"',l)
+        m=re.match(r'\[GIN\] (\d{4}/\d\d/\d\d - \d\d:\d\d:\d\d) \| *\d+ \|.*POST +\"/(api/(embed|embeddings|generate|chat)|v1/(embeddings|chat/completions|completions))\"',l)
         if m and dt.datetime.strptime(m.group(1),'%Y/%m/%d - %H:%M:%S').replace(tzinfo=dt.timezone(off))>=start: n+=1
 except FileNotFoundError: n=None
 for p in [os.path.expanduser('~/.ostler/assistant-config/workspace/state/costs.jsonl')]:
@@ -94,6 +94,22 @@ PY" > "${boxf}" 2>/dev/null
     owner_src="$(box_run "if [ -s \$HOME/.walk-owner-source ]; then cat \$HOME/.walk-owner-source; elif [ -e \$HOME/.walk-log ]; then echo unknown-walk; fi" | tr -d '[:space:]')"
     [ -s "${selff}" ] || probe_note "could not read the owner's own handles on the box: the owner-in-People arm will be CANNOT-RUN"
 
+    # The box-clock time the contact-cards seed finished (contact_cards_seed.sh).
+    # The collector waits for a /api/v1/contacts/diff report built after it.
+    seedf="${out}/seed_ts.txt"
+    # Three outcomes, not two: ABSENT (rc 4, an older walk box: refreshing-only),
+    # READ (rc 0), and COULD NOT LOOK (ssh failure, read error: the duplicate arm
+    # is CANNOT-RUN). An empty or unparseable file is judged by customer_read.py.
+    seed_unreadable=""
+    box_run "if [ -e \$HOME/.walk-contact-cards-seed-ts ]; then cat \$HOME/.walk-contact-cards-seed-ts || exit 3; else exit 4; fi" > "${seedf}"
+    seed_rc=$?
+    case "${seed_rc}" in
+        0)  ;;
+        4)  probe_note "no contact-cards seed time on the box: the duplicate-review report is checked for refreshing only, not for staleness" ;;
+        *)  seed_unreadable="seed ts unreadable (box command rc=${seed_rc})"
+            probe_note "${seed_unreadable}: the duplicate-review arm will be CANNOT-RUN" ;;
+    esac
+
     port="$(( 20000 + RANDOM % 20000 ))"; dport="$(( port + 1 ))"
     ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 \
         -N -L "${port}:127.0.0.1:8000" -L "${dport}:127.0.0.1:8089" "${OSTLER_BOX_HOST}" &
@@ -109,6 +125,8 @@ PY" > "${boxf}" 2>/dev/null
     [ -s "${boxf}" ] && set -- "$@" --box-facts "${boxf}"
     [ -s "${selff}" ] && set -- "$@" --self-handles-file "${selff}"
     [ -s "${fresh}" ] && set -- "$@" --freshness-file "${fresh}"
+    [ "${seed_rc}" -eq 0 ] && set -- "$@" --seed-ts-file "${seedf}"
+    [ -n "${seed_unreadable}" ] && set -- "$@" --seed-ts-unreadable "${seed_unreadable}"
     [ -n "${owner_src}" ] && set -- "$@" --owner-source "${owner_src}"
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}

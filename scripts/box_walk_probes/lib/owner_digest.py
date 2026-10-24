@@ -11,7 +11,14 @@ Three assertions, each graded from COUNTS and yes/no facts only:
       holds data. Every store count is MEASURED on the box, never assumed; a
       "nothing stored" line for a section with no store measure is CANNOT-RUN;
   (c) asked "Where have I worked?", the chat names the seed organisation
-      (imported through the customer's own LinkedIn-export path).
+      (imported through the customer's own LinkedIn-export path);
+  (d) F12: every place and family entry About you presents is a fact ABOUT
+      THE OWNER (urn:ostler:about is one of the owner's URIs, resolved the way
+      generate_pwg_context.py resolves them), and a SEEDED neighbour's note
+      (NEIGHBOUR_NOTE, written by lib/scale_fixture.py seed-neighbour into the
+      owner's own named graph, about the neighbour) appears neither in About
+      you, nor in GET /api/v1/memory (the Memory / "About you" list), nor in
+      the chat's answer to "What do you know about me?".
 
 Two halves, kept apart so the judge can be mutation-tested without a box:
 
@@ -60,7 +67,23 @@ DECLARED = [
     "digest: About you names at least one organisation, and top people and preferences are non-empty",
     "digest: no section says nothing stored while its store holds data",
     "chat: 'Where have I worked?' names the seed organisation",
+    "digest + chat: every About-you fact is about the owner, and a seeded neighbour's note is in neither",
 ]
+
+# The seeded neighbour's note. MUST equal lib/scale_fixture.py NEIGHBOUR_NOTE
+# (pinned by tests/test_scale_gate_probes.sh). Synthetic cast names only.
+NEIGHBOUR_NOTE = "Philip Coe is based in Initech Town"
+NEIGHBOUR_MARK = "initech town"
+ABOUT_ENTRY = re.compile(r"^-\s*(Places|Family and close people):\s*(.*)$", re.M)
+
+
+def about_you_items(text):
+    """The place and family entries About you presents as the owner's."""
+    sec = "\n".join(sections(text).get(ABOUT_YOU) or [])
+    items = []
+    for _, body in ABOUT_ENTRY.findall(sec):
+        items += [x.strip() for x in body.split(";") if x.strip()]
+    return items
 
 
 def sections(text):
@@ -132,10 +155,24 @@ def judge(f):
             miss.append("the '- Work:' line names no organisation")
         if not d.get("top_people_lines"):
             miss.append("'## {}' is empty or absent".format(TOP_PEOPLE))
+        pref_unmeasured = None
         if not d.get("preferences_lines"):
-            miss.append("'## {}' is empty or absent".format(PREFERENCES))
-        add(DECLARED[0], not miss, "; ".join(miss) if miss else "About you {} line(s), {} organisation(s); people {} line(s); preferences {} line(s)".format(
-            d.get("about_you_lines"), d.get("work_orgs"), d.get("top_people_lines"), d.get("preferences_lines")))
+            # The digest shows what clears the compiler's confidence floor, so
+            # an empty section is only a defect when something clears it, or
+            # the walk's preference seed ran and so must have produced one.
+            n_pref = (f.get("stores") or {}).get("preferences")
+            if n_pref is None:
+                pref_unmeasured = "the above-floor preference count could not be read (interest_profile.json)"
+            elif n_pref > 0 or f.get("pref_seed_state") == "seeded":
+                miss.append("'## {}' is empty or absent while {} preference(s) clear the floor".format(PREFERENCES, n_pref))
+            else:
+                pref_unmeasured = "the preference seed did not run (state {}) and no preference clears the floor, so an empty '## {}' is correct".format(
+                    f.get("pref_seed_state", "unrun"), PREFERENCES)
+        if not miss and pref_unmeasured:
+            add(DECLARED[0], None, "NOT MEASURED: " + pref_unmeasured)
+        else:
+            add(DECLARED[0], not miss, "; ".join(miss) if miss else "About you {} line(s), {} organisation(s); people {} line(s); preferences {} line(s)".format(
+                d.get("about_you_lines"), d.get("work_orgs"), d.get("top_people_lines"), d.get("preferences_lines")))
 
         stores = f.get("stores") or {}
         lies, unmeasured = [], []
@@ -164,6 +201,35 @@ def judge(f):
         add(DECLARED[2], chat.get("names_seed_org") is True,
             "reply {} the seed organisation (reply text withheld){}".format(
                 "names" if chat.get("names_seed_org") else "does NOT name", where))
+
+    # (d) F12: owner attribution of About-you facts, and the neighbour sentinel.
+    a = f.get("about_check")
+    nb = f.get("neighbour") or {}
+    if a is None:
+        add(DECLARED[3], None, "NOT MEASURED: the About-you attribution was not read")
+    else:
+        bad = []
+        if a.get("not_owner", 0):
+            bad.append("{} of {} About-you place/family entries come from a fact about someone else".format(
+                a["not_owner"], a.get("items", 0)))
+        if nb.get("in_about_you"):
+            bad.append("the seeded neighbour's note is in About you")
+        if nb.get("in_memory"):
+            bad.append("GET /api/v1/memory lists the seeded neighbour's note as a fact about the owner")
+        if nb.get("in_chat"):
+            bad.append("the chat's 'What do you know about me?' repeats the neighbour's note as the owner's")
+        if bad:
+            add(DECLARED[3], False, "; ".join(bad))
+        elif nb.get("state") != "seeded":
+            add(DECLARED[3], None, "NOT MEASURED: the neighbour note was not seeded (state {}); {} entries checked, {} unmatched".format(
+                nb.get("state", "unrun"), a.get("items", 0), a.get("unmatched", 0)))
+        elif nb.get("in_memory") is None:
+            add(DECLARED[3], None, "NOT MEASURED: GET /api/v1/memory could not be read ({})".format(nb.get("memory_error", "no answer")))
+        elif nb.get("in_chat") is None:
+            add(DECLARED[3], None, "NOT MEASURED: the chat gave no answer to 'What do you know about me?'")
+        else:
+            add(DECLARED[3], True, "{} About-you entries, all about the owner ({} unmatched in the graph); neighbour note absent from About you, /api/v1/memory and the chat".format(
+                a.get("items", 0), a.get("unmatched", 0)))
 
     names = [n for n, _, _ in out]
     missing = [x for x in DECLARED if x not in names]
@@ -211,7 +277,17 @@ def measure_stores():
             return None
 
     out["people"] = qd("people")
-    out["preferences"] = qd("preferences")
+    # What the product SHOWS from: preferences that clear the compiler's
+    # confidence floor (interest_profile.json stats.interests), NOT the raw
+    # Qdrant row count. Walk 34 (v1.0.113): 1 raw row screened out below the
+    # 0.28 floor, digest correctly empty, probe called it a lie.
+    out["preferences_raw"] = qd("preferences")
+    out["preferences"] = None
+    try:
+        pf = os.path.join(os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler"), "preferences", "interest_profile.json")
+        out["preferences"] = int(json.load(open(pf, encoding="utf-8"))["stats"]["interests"])
+    except Exception:
+        pass
     out["people_with_org"] = qd("people", {"exact": True, "filter": {"must_not": [{"is_empty": {"key": "organization"}}]}})
 
     def sparql_count(where):
@@ -225,16 +301,27 @@ def measure_stores():
 
     out["user_asserted_facts"] = sparql_count('?f a pwg:PersonFact ; pwg:factSource "user_asserted" .')
     import datetime
-    since = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    today = datetime.date.today().isoformat()
-    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    ahead = (datetime.date.today() + datetime.timedelta(days=8)).isoformat()
+    # UTC, and bounded by NOW, exactly as generate_pwg_context.py reads them
+    # (_today() is UTC; _meeting_rows keeps a past row only when its
+    # "YYYY-MM-DD HH:MM" is <= now, an upcoming one only when >= now). The
+    # calendar ingest stores UTC ("2026-10-18 01:00:00+00:00", 30 days ahead).
+    # Walk #31 (v1.0.108): this count used LOCAL dates and no now-bound, so on a
+    # UTC+8 box after midnight it counted an entry later that day and graded
+    # the generator's correct "Recent meetings: nothing stored" as a lie.
+    utcnow = datetime.datetime.utcnow()
+    today_utc = utcnow.date()
+    since = (today_utc - datetime.timedelta(days=7)).isoformat()
+    today = today_utc.isoformat()
+    tomorrow = (today_utc + datetime.timedelta(days=1)).isoformat()
+    ahead = (today_utc + datetime.timedelta(days=8)).isoformat()
+    now_s = utcnow.strftime("%Y-%m-%d %H:%M")
+    at = 'REPLACE(SUBSTR(STR(?d), 1, 16), "T", " ")'
     # The same windows and predicates generate_pwg_context.py reads (#2654):
     # past 7 days for Recent meetings; calendar PersonFacts plus the next 7
     # days of pwg:Meeting for Calendar events by owner.
-    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (since, tomorrow))
+    out["meetings_7d"] = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s <= "%s")' % (since, tomorrow, at, now_s))
     cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
-    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s")' % (today, ahead))
+    cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s >= "%s")' % (today, ahead, at, now_s))
     out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
     uid = ""
     try:
@@ -269,16 +356,52 @@ def hydration_ready(d):
     return all(by_key.get(k) == "done" for k in DIGEST_PHASES), detail
 
 
-def hydration():
-    try:
-        d = _http("http://127.0.0.1:8089/api/v1/hydration/status", timeout=10)
-        return hydration_ready(d)
-    except Exception as exc:
-        return False, "unreadable ({})".format(str(exc)[:60])
+HYDRATION_URL = "http://127.0.0.1:8089/api/v1/hydration/status"
 
 
-def ask_chat(question, seed_org, deadline_s=300):
-    """Ask over /ws/chat and return {answered, names_seed_org}; never the prose."""
+def hydration(fetch=None, sleep=None, clock=None, budget_s=30, backoff_s=2):
+    """(ready, detail). Retries a 5xx inside budget_s (walk #24: one transient
+    502, 200 in 0.4s a moment later, read as CANNOT-RUN). A non-5xx error, or the
+    budget running out, is reported as before. The detail records the attempts
+    and the final status, so a retried pass is visible in the record."""
+    import time
+    import urllib.error
+    fetch = fetch or (lambda: _http(HYDRATION_URL, timeout=10))
+    sleep = sleep or time.sleep
+    clock = clock or time.time
+    t0, attempts, statuses = clock(), 0, []
+    while True:
+        attempts += 1
+        try:
+            d = fetch()
+            ready, detail = hydration_ready(d)
+            statuses.append("200")
+            return ready, "{}; attempts={} statuses={}".format(detail, attempts, ",".join(statuses))
+        except urllib.error.HTTPError as exc:
+            statuses.append(str(exc.code))
+            if 500 <= exc.code < 600 and clock() - t0 + backoff_s < budget_s:
+                sleep(backoff_s)
+                continue
+            why = "5xx persisted past the {}s budget".format(budget_s) if exc.code >= 500 else "non-5xx"
+            return False, "unreadable (HTTP {}; {}; attempts={} statuses={})".format(
+                exc.code, why, attempts, ",".join(statuses))
+        except Exception as exc:
+            return False, "unreadable ({}; attempts={})".format(str(exc)[:60], attempts)
+
+
+def ask_chat_text(question, deadline_s=300):
+    """For a caller that grades the reply itself (lib/derived_preferences_reach.py):
+    {answered, text} or {answered: False, error}. The prose stays in this process."""
+    got = []
+    r = ask_chat(question, "", deadline_s, capture=got)
+    if r.get("answered"):
+        return {"answered": True, "text": got[0] if got else ""}
+    return r
+
+
+def ask_chat(question, seed_org, deadline_s=300, capture=None):
+    """Ask over /ws/chat and return {answered, names_seed_org}; never the prose
+    (unless the caller passes a `capture` list, which then receives the reply)."""
     import base64
     import socket
     import struct
@@ -343,6 +466,8 @@ def ask_chat(question, seed_org, deadline_s=300):
                 text = ""
             elif t == "done":
                 reply = ev.get("full_response") if "full_response" in ev else text
+                if capture is not None:
+                    capture.append(reply or "")
                 return {"answered": True, "names_seed_org": seed_org.lower() in (reply or "").lower()}
             elif t == "error":
                 return {"answered": False, "error": "chat error frame"}
@@ -351,10 +476,115 @@ def ask_chat(question, seed_org, deadline_s=300):
         return {"answered": False, "error": str(exc)[:80]}
 
 
+def _identity():
+    keys = ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME", "WIKI_OPERATOR_EMAILS")
+    merged = {}
+    for path in ("~/.ostler/config/.env", "~/.ostler/.env"):
+        try:
+            for line in open(os.path.expanduser(path)):
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[7:]
+                k, _, v = line.partition("=")
+                if k.strip() in keys and k.strip() not in merged and v.strip():
+                    merged[k.strip()] = v.strip().strip('"').strip("'")
+        except IOError:
+            pass
+    emails = []
+    for raw in (merged.get("USER_EMAIL", ""), merged.get("WIKI_OPERATOR_EMAILS", "")):
+        for part in raw.replace(";", ",").split(","):
+            e = part.strip().lower()
+            if "@" in e and e not in emails:
+                emails.append(e)
+    return {"user_id": merged.get("USER_ID", "").strip().lower(),
+            "name": (merged.get("USER_NAME") or merged.get("WIKI_OPERATOR_NAME") or "").strip(), "emails": emails}
+
+
+def _lit(v):
+    return '"%s"' % v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+
+def _sparql(q):
+    h = dict(_store_headers(), **{"Content-Type": "application/sparql-query", "Accept": "application/sparql-results+json"})
+    res = _http("http://127.0.0.1:7878/query", q.encode(), h)
+    return [{k: v["value"] for k, v in b.items()} for b in res["results"]["bindings"]]
+
+
+def owner_uris(ident):
+    """The owner's Person nodes, by the SAME three arms (plus isOwner) as
+    generate_pwg_context.py _owner_uris. None when the read failed."""
+    uris = []
+    if ident["user_id"]:
+        uris.append("https://schema.ostler.ai/ontology#user_" + ident["user_id"])
+    arms = ["{ ?p pwg:isOwner true }"]
+    if ident["name"]:
+        arms.append("{ ?p a pwg:Person ; pwg:displayName ?n . FILTER(LCASE(STR(?n)) = %s) }" % _lit(ident["name"].lower()))
+    if ident["emails"]:
+        arms.append("{ ?p pwg:hasIdentifier ?id . ?id pwg:identifierValue ?v . FILTER(LCASE(STR(?v)) IN (%s)) }"
+                    % ", ".join(_lit(e) for e in ident["emails"]))
+    try:
+        rows = _sparql("PREFIX pwg: <https://schema.ostler.ai/ontology#>\nSELECT DISTINCT ?p WHERE { %s }" % " UNION ".join(arms))
+    except Exception:
+        return None
+    return sorted(set(uris + [r["p"] for r in rows if r.get("p")]))
+
+
+def about_check(text):
+    """For each About-you place/family entry, the urn:ostler:about of the
+    Fact(s) it was rendered from. Counts only."""
+    items = about_you_items(text)
+    owners = owner_uris(_identity())
+    if owners is None:
+        return None
+    not_owner = unmatched = 0
+    for it in items:
+        prefix = it[:-3].rstrip() if it.endswith("...") else it
+        try:
+            rows = _sparql("SELECT DISTINCT ?about WHERE { GRAPH ?g { ?f a <urn:ostler:Fact> ; <urn:ostler:text> ?t ; "
+                           "<urn:ostler:about> ?about . FILTER(STRSTARTS(STR(?t), %s)) } } LIMIT 20" % _lit(prefix))
+        except Exception:
+            return None
+        abouts = {r.get("about") for r in rows if r.get("about")}
+        if not abouts:
+            unmatched += 1
+        elif not (abouts & set(owners)):
+            not_owner += 1
+    return {"items": len(items), "not_owner": not_owner, "unmatched": unmatched, "owner_uris": len(owners)}
+
+
+def memory_has_neighbour():
+    """-> (in_memory bool or None, error). Reads GET /api/v1/memory with the
+    service token; counts only, never the facts themselves."""
+    tok = ""
+    try:
+        tok = open(os.path.expanduser("~/.ostler/secrets/service_token")).read().strip()
+    except IOError:
+        pass
+    try:
+        body = _http("http://127.0.0.1:8090/api/v1/memory", headers={"Authorization": "Bearer " + tok} if tok else {})
+    except Exception as e:
+        return None, type(e).__name__
+    if not isinstance(body, dict):
+        return None, "unparseable"
+    if body.get("degraded"):
+        return None, body.get("reason", "degraded")
+    return memory_names_neighbour(body), None
+
+
+def memory_names_neighbour(body):
+    """True when any /api/v1/memory fact carries the neighbour note."""
+    for f in body.get("facts") or []:
+        blob = " ".join(str(v) for v in (f or {}).values() if isinstance(v, str)).lower()
+        if NEIGHBOUR_MARK in blob:
+            return True
+    return False
+
+
 def box_main(argv):
     a = dict(zip(argv[0::2], argv[1::2]))
     seed_org = a.get("--seed-org", "")
-    facts = {"seed_state": a.get("--seed-state", "unrun")}
+    facts = {"seed_state": a.get("--seed-state", "unrun"),
+             "pref_seed_state": a.get("--pref-seed-state", "unrun")}
     facts["hydrated"], facts["hydration_state"] = hydration()
     try:
         text = open(os.path.expanduser("~/.ostler/assistant-config/workspace/CONTEXT.md")).read()
@@ -368,6 +598,16 @@ def box_main(argv):
     facts["digest"]["work_names_seed_org"] = (
         bool(seed_org) and any(seed_org.lower() == o.strip().lower() for o in orgs))
     facts["stores"] = measure_stores()
+    facts["about_check"] = about_check(text)
+    nb_state = a.get("--neighbour-state", "unrun")
+    nb = {"state": nb_state, "in_about_you": NEIGHBOUR_MARK in " ".join(about_you_items(text)).lower()}
+    nb["in_memory"], err = memory_has_neighbour()
+    if err:
+        nb["memory_error"] = err
+    if facts["hydrated"]:
+        r = ask_chat("What do you know about me?", NEIGHBOUR_MARK)
+        nb["in_chat"] = bool(r.get("names_seed_org")) if r.get("answered") else None
+    facts["neighbour"] = nb
     if facts["seed_state"] == "seeded" and facts["hydrated"] and seed_org:
         facts["chat"] = ask_chat("Where have I worked?", seed_org)
     print(json.dumps(facts))
@@ -407,7 +647,10 @@ def _good():
             "digest": digest_facts(GOOD_DIGEST),
             "stores": {"people": 10, "preferences": 5, "people_with_org": 3, "user_asserted_facts": 1,
                        "meetings_7d": 1, "calendar_events": 1, "owner_facts": 2},
-            "chat": {"answered": True, "names_seed_org": True}}
+            "chat": {"answered": True, "names_seed_org": True},
+            "about_check": {"items": len(about_you_items(GOOD_DIGEST)), "not_owner": 0, "unmatched": 0, "owner_uris": 2},
+            "neighbour": {"state": "seeded", "in_about_you": NEIGHBOUR_MARK in " ".join(about_you_items(GOOD_DIGEST)).lower(),
+                          "in_chat": False, "in_memory": False}}
 
 
 def self_test():
@@ -453,6 +696,17 @@ def self_test():
         ("nothing stored over a full people store", 1, lambda f: f["digest"]["nothing_stored"].append(TOP_PEOPLE)),
         ("nothing stored over full owner facts", 1, lambda f: f["digest"]["nothing_stored"].append(ABOUT_YOU)),
         ("chat does not name the seed organisation", 2, lambda f: f["chat"].update(names_seed_org=False)),
+        # F12: the canned digest with the neighbour's note presented as the
+        # owner's place, read through the same parser the box uses.
+        ("F12: the neighbour's note in About you (canned digest)", 3,
+         lambda f: f["neighbour"].update(in_about_you=NEIGHBOUR_MARK in " ".join(about_you_items(
+             GOOD_DIGEST.replace("- Places: Lives in Fictionville", "- Places: Lives in Fictionville; " + NEIGHBOUR_NOTE))).lower())),
+        ("F12: an About-you entry rendered from a fact about someone else", 3, lambda f: f["about_check"].update(not_owner=1)),
+        ("F12: the chat repeats the neighbour's note as the owner's", 3, lambda f: f["neighbour"].update(in_chat=True)),
+        ("F12: /api/v1/memory lists the neighbour's note (canned response)", 3, lambda f: f["neighbour"].update(
+            in_memory=memory_names_neighbour({"facts": [
+                {"id": "fact_a1", "object": "Lives in Fictionville", "source_label": "From your conversations"},
+                {"id": "fact_b2", "object": NEIGHBOUR_NOTE, "source_label": "From your conversations"}], "count": 2}))),
     ]
     for name, i, mutate in mutants:
         f = copy.deepcopy(g)
@@ -468,13 +722,24 @@ def self_test():
     honest = copy.deepcopy(g); honest["stores"]["user_asserted_facts"] = 0; honest["digest"]["nothing_stored"].append("Confirmed by you")
     unmeasured = copy.deepcopy(g); unmeasured["stores"]["calendar_events"] = None; unmeasured["digest"]["nothing_stored"].append("Calendar events by owner")
     unseeded = copy.deepcopy(g); unseeded["seed_state"] = "skipped"
+    nb_unseeded = copy.deepcopy(g); nb_unseeded["neighbour"]["state"] = "skipped"
+    nb_nochat = copy.deepcopy(g); nb_nochat["neighbour"]["in_chat"] = None
+    nb_nomem = copy.deepcopy(g); nb_nomem["neighbour"]["in_memory"] = None
+    mem_clean = copy.deepcopy(g); mem_clean["neighbour"]["in_memory"] = memory_names_neighbour(
+        {"facts": [{"id": "fact_a1", "object": "Lives in Fictionville", "source_label": "From your conversations"}], "count": 1})
     dry = copy.deepcopy(g); dry["hydrated"] = False
     silent = copy.deepcopy(g); silent["chat"] = {"answered": False, "error": "timeout"}
     checks = [(row(honest, 1), [True], "nothing stored over an empty store PASSES"),
               (row(unmeasured, 1), [None], "nothing stored with no store measure is CANNOT-RUN"),
               (row(unseeded, 2), [None], "an unseeded walk is CANNOT-RUN for (c)"),
               (row(dry, 0), [None], "an unhydrated box is CANNOT-RUN"),
-              (row(silent, 2), [None], "a chat that never answers is CANNOT-RUN")]
+              (row(silent, 2), [None], "a chat that never answers is CANNOT-RUN"),
+              (row(nb_unseeded, 3), [None], "F12: an unseeded neighbour is CANNOT-RUN, never a pass"),
+              (row(nb_nochat, 3), [None], "F12: no answer to 'What do you know about me?' is CANNOT-RUN"),
+              (row(nb_nomem, 3), [None], "F12: an unreadable /api/v1/memory is CANNOT-RUN"),
+              (row(mem_clean, 3), [True], "F12: a canned /api/v1/memory without the neighbour's note PASSES"),
+              (about_you_items(GOOD_DIGEST), ["Lives in Fictionville", "Has a sister called Liz Doe"],
+               "F12: the parser reads the About-you place and family entries")]
     for got, want, label in checks:
         if got != want:
             fails.append("{}: got {}".format(label, got))

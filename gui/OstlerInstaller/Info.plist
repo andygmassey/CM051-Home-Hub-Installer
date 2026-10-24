@@ -19,15 +19,17 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.106</string>
+	<string>1.0.112</string>
 	<key>CFBundleVersion</key>
-	<string>10600</string>
+	<string>11200</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Ostler uses System Events to show the administrator password prompt and to open the right macOS permission settings during installation. It does not read your documents.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Ostler reads your Music library (play counts, loved songs and playlists) so the Hub knows the music you actually listen to. Your library never leaves this Mac.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Ostler reads your calendar so the Hub can surface what is on next, prepare meeting briefs, and link people to events on the wiki. Events never leave this Mac.</string>
 	<key>NSContactsUsageDescription</key>

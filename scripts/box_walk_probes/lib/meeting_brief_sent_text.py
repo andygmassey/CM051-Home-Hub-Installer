@@ -233,6 +233,39 @@ def self_test():
 # box mode
 # --------------------------------------------------------------------------
 
+def store_auth_headers():
+    """The Oxigraph store credential, resolved EXACTLY as the product writers
+    resolve it (lib/ostler_store_auth.py, route for :7878): the OXIGRAPH_TOKEN
+    env var first, then the 0600 file ~/.ostler/secrets/oxigraph_token (or
+    $OSTLER_SECRETS_DIR). Sent as `Authorization: Bearer <token>`, which is what
+    the :7878 store proxy checks (install.sh writes `if ($http_authorization !=
+    "Bearer ${OXIGRAPH_TOKEN}") { return 401; }`).
+
+    Walk #16: the seed write sent no credential and got HTTP 401, so wow #4
+    could not be measured. No token found -> no header (an older open store
+    still works; a protected one answers 401, reported as CANNOT-RUN).
+    """
+    tok = (os.environ.get("OXIGRAPH_TOKEN") or "").strip()
+    if not tok:
+        d = os.environ.get("OSTLER_SECRETS_DIR", os.path.expanduser("~/.ostler/secrets"))
+        try:
+            with open(os.path.join(d, "oxigraph_token"), encoding="utf-8") as fh:
+                tok = fh.read().strip()
+        except OSError:
+            tok = ""
+    return {"Authorization": "Bearer " + tok} if tok else {}
+
+
+def store_update(oxi_update_url, sparql, timeout=30):
+    """POST one SPARQL UPDATE to the store, with the store credential."""
+    import urllib.request
+    headers = {"Content-Type": "application/sparql-update"}
+    headers.update(store_auth_headers())
+    req = urllib.request.Request(oxi_update_url, data=sparql.encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
 def box():
     import subprocess
     import threading
@@ -287,7 +320,7 @@ def box():
     oxi = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query").replace("/query", "/update")
 
     def sparql_update(q):
-        open_url(oxi, data=q.encode(), headers={"Content-Type": "application/sparql-update"}, method="POST", timeout=30).read()
+        store_update(oxi, q)
 
     default, _named = seed.sparql(with_named_graph=False)
     try:

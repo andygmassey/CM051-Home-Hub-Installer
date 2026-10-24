@@ -55,8 +55,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: The wiki compile gets the owner's IANA zone; an unreadable zone is said, not guessed
+        if: always()
+        run: bash tests/test_wiki_compile_gets_owner_tz.sh
+
       - name: ostler-import hands the owner name to the people graph; unknown format is not a failure
+        if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
+
+      # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
+      # config digest and verified after the pull; a moved tag stops the install.
+      - name: Every pulled AI model has a pinned digest and a mismatch stops the install
+        if: always()
+        run: bash tests/test_model_digest_pins.sh
 
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
@@ -92,6 +103,7 @@ jobs:
             tests/test_vendor_exclude_glob_depth.sh \
             tests/test_whatsapp_channel_block.sh \
             tests/test_wiki_baseline_background.sh \
+            tests/test_wiki_compile_gets_owner_tz.sh \
             tests/test_wiki_compose_paths.sh \
             tests/test_wiki_recompile_after_late_hydration.sh \
             tests/test_write_pipeline_signals.sh \
@@ -248,6 +260,22 @@ jobs:
           python tests/test_pinterest_parser.py
           python tests/test_pref_noise_source_cap.py
 
+      - name: Plaintext import staging is removed after persist; L3 is never staged (HR015 #1171 graft)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_staging_cleanup_vendored.py -q -rs -p no:cacheprovider
+
+      - name: Vendored Doctor takes HR015 #975 (timeout is not a dropped conversation) and the #979 wizard residue
+        if: always()
+        run: python -m pytest tests/test_doctor_a_timeout_is_not_a_dispatch_failure.py tests/test_doctor_wizard_is_light_not_lifeline_dark.py -q -rs -p no:cacheprovider
+
+      - name: Vendored ostler_fda carries the Instagram DM route and the one G7 gate (HR015 #1164, #1169 re-vendor at fd10f28)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_instagram_dms_vendored.py tests/test_ostler_fda_subscription_gate_parity_vendored.py tests/test_ostler_fda_facebook_routing_unchanged_vendored.py -q -rs -p no:cacheprovider
+
+      - name: A paused AI conversation is never watermarked as done (CM052 #18 backport)
+        if: always()
+        run: python -m pytest tests/test_cm052_paused_conversation_is_not_watermarked.py -q -rs -p no:cacheprovider
+
       - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
         if: always()
         run: |
@@ -333,3 +361,7 @@ jobs:
           set -e
           python -m pip install --quiet httpx
           python3 tests/test_gateway_conversations_reach_the_store.py
+
+      - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
+        if: always()
+        run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh

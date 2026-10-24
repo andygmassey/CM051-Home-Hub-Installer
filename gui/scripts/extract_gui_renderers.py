@@ -61,6 +61,12 @@ SOFT_UNKNOWN_OK: set[str] = {
     "STEP",
     "CX106_QDRANT_BEFORE",
     "CX106_QDRANT_AFTER",
+    # Siblings of the two above (initial_hydrate diagnostics, log-only).
+    # Latent drift: the protocol extractor stopped seeing install.sh past
+    # line ~30076 on main, so these two were never checked. F2 moved the
+    # Tailscale sign-in block and the extractor now reads that far.
+    "CX106_QDRANT_MISSING",
+    "CX106_QDRANT_MISSING_AFTER_CREATE",
     "IMESSAGE_TCC_DENIED",
 }
 

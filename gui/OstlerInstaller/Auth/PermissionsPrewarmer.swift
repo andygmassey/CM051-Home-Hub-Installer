@@ -112,6 +112,7 @@ import AppKit       // NSAppleScript (CX-18 AppleEvent Contacts probe)
 import Contacts
 import EventKit
 import Photos
+import iTunesLibrary  // CM051 walk #27: "Media & Apple Music" pre-warm
 
 /// One of the four permissions the pre-warmer requests. Used by the
 /// `PermissionRequester` protocol so the sequencing test can identify
@@ -122,6 +123,11 @@ enum PrewarmPermission: String, CaseIterable {
     case calendar
     case reminders
     case photos
+    /// CM051 walk #27 (2026-10-14). "Media & Apple Music"
+    /// (kTCCServiceMediaLibrary). Read by the bundled
+    /// ostler-music-library helper so Apple Music reaches the Hub
+    /// without the Music app's optional XML setting.
+    case music
 }
 
 /// Top-level state for the intro / pre-warm flow. Owned by
@@ -178,7 +184,36 @@ final class SystemPermissionRequester: PermissionRequester {
         case .calendar:  return await requestCalendarAccess()
         case .reminders: return await requestRemindersAccess()
         case .photos:    return await requestPhotosAccess()
+        case .music:     return await requestMusicLibraryAccess()
         }
+    }
+
+    /// CM051 walk #27 (2026-10-14). macOS has no public
+    /// requestAccess / authorizationStatus API for "Media & Apple
+    /// Music". Opening the library with ITLibrary IS the request:
+    /// MEASURED on macOS 26.5.2 (Mini16), tccd logs
+    /// `TCCAccessRequest ... service=kTCCServiceMediaLibrary,
+    /// preflight=no` when ITLibrary(apiVersion:) runs. Once the
+    /// customer has answered, macOS answers from its record without a
+    /// dialog, which is the same short-circuit the other four get from
+    /// their status pre-checks.
+    ///
+    /// Runs OFF the main actor: the initialiser blocks while the
+    /// dialog is up and then loads the library, and the intro screen
+    /// must keep drawing. `.lazyLoadData` keeps that load cheap.
+    ///
+    /// Returns false on ANY failure (refused, no library, no Music
+    /// app). A false never blocks the install: the FDA extractor
+    /// falls back to the XML export and then to nothing.
+    private func requestMusicLibraryAccess() async -> Bool {
+        await Task.detached(priority: .userInitiated) { () -> Bool in
+            do {
+                _ = try ITLibrary(apiVersion: "1.1", options: .lazyLoadData)
+                return true
+            } catch {
+                return false
+            }
+        }.value
     }
 
     /// Wraps the CNContactStore completion-handler API in an async
@@ -370,6 +405,7 @@ final class PermissionsPrewarmer {
         .calendar,
         .reminders,
         .photos,
+        .music,
     ]
 
     private let emitLog: LogLineEmitter

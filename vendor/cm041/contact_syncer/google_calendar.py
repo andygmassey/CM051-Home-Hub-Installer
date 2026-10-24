@@ -287,6 +287,11 @@ _TYPE_DEFAULT_PRIVACY = {
     "family": "L1",
     "work": "L2",
     "shared": "L2",
+    # ``other`` is a type the operator can pick in lib/ostler-confirm-calendars.py
+    # (VALID_TYPES), documented there as personal-grade. It had no entry here,
+    # so a calendar the operator CONFIRMED as "other" (holidays, birthdays,
+    # subscribed) fell to the fail-closed L3 and its events vanished silently.
+    "other": "L1",
 }
 # Fail-closed default for a CONFIRMED calendar whose type we cannot read:
 # the operator answered, and the answer did not classify it -> L3.
@@ -510,6 +515,42 @@ def _match_confirmed(
     return None
 
 
+def _entry_is_set_aside(entry: Dict[str, Any]) -> bool:
+    """True when the operator's map sets this calendar ASIDE (``include`` false).
+
+    Birthdays, holidays, subscribed and Siri-suggestion calendars are written
+    as ``type: other, include: false``. They are nobody's diary: their events
+    must reach no store at any level. Accepts the JSON boolean or its string
+    spellings; an absent key means included.
+    """
+    inc = entry.get("include")
+    if isinstance(inc, bool):
+        return not inc
+    if isinstance(inc, str):
+        return inc.strip().lower() in ("0", "false", "no")
+    return False
+
+
+def event_is_set_aside(
+    provenance: Optional[List[Dict[str, str]]], event: Dict[str, Any]
+) -> bool:
+    """True when this event belongs to a calendar the operator set aside."""
+    candidates = {
+        c.strip().lower()
+        for c in (
+            event.get("source_calendar", ""),
+            event.get("organizer", ""),
+            event.get("organizer_email", ""),
+        )
+        if c and c.strip()
+    }
+    return any(
+        _entry_is_set_aside(e)
+        and str(e.get("match", "")).strip().lower() in candidates
+        for e in provenance or []
+    )
+
+
 def resolve_calendar_provenance(
     event: Dict[str, Any],
     provenance: Optional[List[Dict[str, str]]] = None,
@@ -536,6 +577,14 @@ def resolve_calendar_provenance(
     provenance = provenance or []
     confirmed = _match_confirmed(provenance, event)
 
+    if confirmed and _entry_is_set_aside(confirmed):
+        # Defence in depth: ingest drops these events before any level is
+        # needed, but a caller that asks anyway gets fail-closed L3.
+        return (
+            str(confirmed.get("owner") or "").strip() or auto_owner,
+            "",
+            _DEFAULT_PRIVACY,
+        )
     if confirmed:
         owner = str(confirmed.get("owner") or "").strip() or auto_owner
         cal_type = str(confirmed.get("type") or "").strip().lower()
@@ -615,6 +664,8 @@ def write_calendar_event(
     """
     if provenance is None:
         provenance = load_calendar_provenance()
+    if event_is_set_aside(provenance, event):
+        return  # set-aside calendar: no event reaches any store
     summary = _escape(event["summary"])
     location = _escape(event.get("location", ""))
     dtstart = event.get("dtstart", "")
@@ -756,6 +807,10 @@ def import_calendar(
         if verbose:
             print(f"  [{i}/{len(events)}] {dtstart} - {summary}"
                   + (f" ({n_attendees} attendees)" if n_attendees else ""))
+
+        if event_is_set_aside(provenance, event):
+            counts["set_aside"] = counts.get("set_aside", 0) + 1
+            continue  # no store write, no attendee resolution
 
         try:
             if not dry_run:

@@ -49,6 +49,11 @@
 # ============================================================================
 set -uo pipefail
 
+# shellcheck source=lib/fda_run_all.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh"
+fda_run_all_contract_check "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || {
+    rc=$?; echo "$(basename "$0"): the run_all call/signature moved (rc ${rc}); see tests/lib/fda_run_all.sh" >&2; exit 2; }
+
 REPO_ROOT=""
 SELF_TEST=0
 while [[ $# -gt 0 ]]; do
@@ -136,7 +141,8 @@ build_root() {
     mkdir -p "$pkg" "${root}/.ostler/bin" "${root}/.ostler/imports/fda"
     : > "${pkg}/__init__.py"
 
-    cat > "${pkg}/extract_all.py" <<'PYEOF'
+    {
+    cat <<'PYEOF'
 import os
 import pathlib
 
@@ -146,7 +152,9 @@ def _log(line):
         fh.write(line + "\n")
 
 
-def run_all(output_dir=None, enabled_sources=None):
+PYEOF
+    printf '%s\n' "$FDA_RUN_ALL_STUB_DEF"
+    cat <<'PYEOF'
     # Stand-in for the real extractor. Writes the artefact the real one writes
     # so control (7) can prove the harvest survives a failing ingest.
     out = pathlib.Path(str(output_dir))
@@ -155,6 +163,7 @@ def run_all(output_dir=None, enabled_sources=None):
     _log("run_all " + str(output_dir))
     return {"sources": {}}
 PYEOF
+    } > "${pkg}/extract_all.py"
 
     # `fda_dir` deliberately defaults to a SENTINEL rather than being required.
     # A required arg would turn "called with no directory" into a TypeError and
@@ -232,9 +241,12 @@ printf '%s\n' "$WRAPPER_BODY" > "${WORK}/ostler-fda.shipped"
 # and the negative control failed for a reason that had nothing to do with the
 # property it guards. A fixture built by subtraction breaks whenever the
 # original grows; truncation at a named anchor does not.
-awk '
+# The exact extract line in the shipped wrapper. Exact, not a looser pattern:
+# if the call changes again this must fail loudly and be updated deliberately.
+EXTRACT_ANCHOR="${FDA_RUN_ALL_CALL}"
+awk -v anchor="${EXTRACT_ANCHOR}" '
     !stop { print }
-    !stop && $0 == "run_all(fda_dir)" { stop = 1; next }
+    !stop && $0 == anchor { stop = 1; next }
     stop == 1 && ($0 == "\"" || $0 ~ /^" \|\| _fda_rc=/) { print; stop = 2; next }
     stop == 2 { print }
 ' "${WORK}/ostler-fda.shipped" > "${WORK}/ostler-fda.extractonly"
@@ -243,8 +255,8 @@ awk '
 # "the whole shipped wrapper", the negative control then sees ingest_all called
 # and fails -- which is at least loud -- but it could equally become an empty
 # file that fails for the wrong reason. Refuse instead of guessing.
-grep -q '^run_all(fda_dir)$' "${WORK}/ostler-fda.extractonly" || cannot_run \
-    "could not build the extract-only fixture: the run_all(fda_dir) anchor moved"
+grep -qxF -- "${EXTRACT_ANCHOR}" "${WORK}/ostler-fda.extractonly" || cannot_run \
+    "could not build the extract-only fixture: the anchor moved: ${EXTRACT_ANCHOR}"
 # The fixture must not CALL ingest_all. Checked on the comment-stripped text
 # with call syntax, not on the raw text: the wrapper's own comments discuss
 # ingest_all at length, and a bare substring guard fails on the prose while the
@@ -302,8 +314,8 @@ c2() { grep -q 'ingest_all(' "${WORK}/wrapper.stripped"; }
 # (3) THE DEFECT ITSELF, measured by running the thing. Both halves must have
 #     been called. Before #784 the log held run_all and nothing else.
 c3() {
-    printf '%s\n' "$LOG_OK" | grep -q '^run_all ' && \
-    printf '%s\n' "$LOG_OK" | grep -q '^ingest_all '
+    grep -q '^run_all ' <<< "$LOG_OK" && \
+    grep -q '^ingest_all ' <<< "$LOG_OK"
 }
 
 # (4) ORDER. Extract must precede ingest, or the tick loads the PREVIOUS tick's
@@ -360,8 +372,8 @@ c7() { [[ -f "${WORK}/shipped-raise/.ostler/imports/fda/safari_history.json" ]];
 #     written by the fixture itself -- would otherwise pass (3) while measuring
 #     nothing at all.
 c8() {
-    printf '%s\n' "$LOG_NEG" | grep -q '^run_all ' && \
-    ! printf '%s\n' "$LOG_NEG" | grep -q '^ingest_all '
+    grep -q '^run_all ' <<< "$LOG_NEG" && \
+    ! grep -q '^ingest_all ' <<< "$LOG_NEG"
 }
 
 # (9) UPGRADE LIMB. The wrapper must be rewritten on every install, not only
@@ -394,7 +406,7 @@ c9() {
     [ -n "$write_at" ] || return 1          # cannot find the write: not a pass
     start=$(( write_at > 40 ? write_at - 40 : 1 ))
     body="$(sed -n "${start},${write_at}p" "$INSTALL_SH")"
-    ! printf '%s\n' "$body" | grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda'
+    ! grep -qE '\[\[[^]]*-[fex][[:space:]]+"?\$\{?OSTLER_DIR\}?/bin/ostler-fda' <<< "$body"
 }
 
 # (10) The wrapper is a SHIPPED TICK and must parse on the customer's shell.
@@ -444,12 +456,13 @@ if [[ "$SELF_TEST" == "1" ]]; then
     probe() {
         local label="$1" sedscript="$2" expect_fail="$3"
         local dir="${WORK}/self-${label}"
-        mkdir -p "${dir}/tests" "${dir}/scripts/lib"
+        mkdir -p "${dir}/tests/lib" "${dir}/scripts/lib"
+        cp "$(dirname "${BASH_SOURCE[0]}")/lib/fda_run_all.sh" "${dir}/tests/lib/fda_run_all.sh"
         sed "$sedscript" "$INSTALL_SH" > "${dir}/install.sh"
         cp "$STRIPPER" "${dir}/scripts/lib/strip_comments.sh"
         cp "${BASH_SOURCE[0]}" "${dir}/tests/$(basename "${BASH_SOURCE[0]}")"
         local out rc
-        out="$(bash "${dir}/tests/$(basename "${BASH_SOURCE[0]}")" --repo-root "$dir" 2>&1)"
+        out="$(FDA_RUN_ALL_SKIP_CONTRACT=1 bash "${dir}/tests/$(basename "${BASH_SOURCE[0]}")" --repo-root "$dir" 2>&1)"
         rc=$?
         if [[ "$rc" == "2" ]]; then
             printf '  [INCONCLUSIVE] %s -- controls could not run against the mutated copy\n' "$label"
@@ -457,7 +470,7 @@ if [[ "$SELF_TEST" == "1" ]]; then
             SELF_FAIL=$((SELF_FAIL + 1))
             return
         fi
-        if printf '%s\n' "$out" | grep -q "\[FAIL\] ${expect_fail}"; then
+        if grep -q "\[FAIL\] ${expect_fail}" <<< "$out"; then
             printf '  [pass] %s -> %s went RED as required\n' "$label" "$expect_fail"
         else
             printf '  [FAIL] %s -> %s stayed GREEN with the defect present\n' "$label" "$expect_fail"

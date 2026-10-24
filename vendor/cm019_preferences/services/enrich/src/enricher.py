@@ -3,14 +3,19 @@
 import asyncio
 import logging
 import os
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
+import re
+
 import httpx
 
 from .config import settings
+from .consent import public_lookup_allowed
 from .eligibility import is_eligible
+from .privacy_gate import outbound_refusal
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -28,6 +33,53 @@ from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, 
 
 logger = logging.getLogger(__name__)
 
+# Every httpx client in this module that talks to the LOCAL stores (Qdrant,
+# Oxigraph) passes trust_env=False. With the default, an ambient
+# HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
+# proxy, so a healthy local store reads as dead and enrichment writes are
+# lost. Public API clients (clients/) keep the default on purpose.
+# Pinned by tests/test_local_store_ignores_proxy.py.
+
+
+_WIKIDATA_PENDING_TOPICS_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?topic ?label WHERE {
+    GRAPH ?g {
+        ?pref pwg:hasTopic ?topic .
+        ?topic rdfs:label ?label .
+    }
+    # Exclude topics that already have a Wikidata Q-ID
+    # Writes land in the default graph (POST /store), so look there
+    # as well as in named graphs, or every run redoes every topic.
+    FILTER NOT EXISTS {
+        { ?topic pwg:wikidataId ?qid . }
+        UNION
+        { GRAPH ?g2 { ?topic pwg:wikidataId ?qid . } }
+    }
+}
+"""
+
+_LOCAL_PENDING_TOPICS_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?topic ?label WHERE {
+    GRAPH ?g {
+        ?pref pwg:hasTopic ?topic .
+        ?topic rdfs:label ?label .
+    }
+    # Writes land in the default graph (POST /store), so look there
+    # as well as in named graphs, or every run redoes every topic.
+    FILTER NOT EXISTS {
+        { ?topic pwg:normalizedLabel ?key . }
+        UNION
+        { GRAPH ?g2 { ?topic pwg:normalizedLabel ?key . } }
+    }
+}
+"""
+
 
 @dataclass
 class EnrichmentStats:
@@ -38,9 +90,17 @@ class EnrichmentStats:
     total_processed: int = 0
     successful: int = 0
     failed: int = 0
+    # The source ANSWERED and had no confident match ("No Wikidata entity
+    # for: X"). That is a fact about X, not a failure of the import, so it
+    # is counted here and never in `failed`. See is_enrichment_miss().
+    no_match: int = 0
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
     skipped_ineligible: int = 0
+    # Withheld by the per-item privacy gate (L0/L1/L3, unknown level, minor).
+    # Counts only, keyed by reason code; never a subject.
+    skipped_private: int = 0
+    by_privacy_reason: Dict[str, int] = field(default_factory=dict)
 
     # True when the pass stopped because it ran out of its wall-clock
     # allowance rather than because it ran out of work. The distinction
@@ -52,6 +112,7 @@ class EnrichmentStats:
     by_category: Dict[str, int] = field(default_factory=dict)
 
     errors: List[str] = field(default_factory=list)
+    misses: List[str] = field(default_factory=list)
 
     def attempted(self) -> int:
         """
@@ -65,7 +126,7 @@ class EnrichmentStats:
         a limited run ends up spending its whole budget re-reading work it
         finished last time.
         """
-        return self.successful + self.failed
+        return self.successful + self.failed + self.no_match
 
     def summary(self) -> str:
         """Generate summary string."""
@@ -79,13 +140,45 @@ class EnrichmentStats:
             f"  Total processed: {self.total_processed}\n"
             f"  Successful: {self.successful}\n"
             f"  Failed: {self.failed}\n"
+            f"  No match: {self.no_match}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
+            f"  Withheld (privacy): {self.skipped_private} {self.by_privacy_reason}\n"
             f"  Not sendable: {self.skipped_ineligible}\n"
             f"  Budget exhausted: {self.budget_exhausted}\n"
             f"  By source: {self.by_source}\n"
             f"  By category: {self.by_category}"
         )
+
+
+# What a client says when the source ANSWERED and had nothing confident to
+# return. Matched only together with MatchType.NONE, and FAIL-CLOSED: a message
+# not on this list is a failure, as before. MatchType.NONE alone is not enough,
+# because it is also the dataclass default, so a client that caught an
+# exception and wrote `result.error = str(e)` carries it too. UNAVAILABLE (the
+# source could not be reached) is never a miss.
+_MISS_MESSAGE = re.compile(
+    r"^(No .+ (found|entity) for: "
+    r"|No .+ found$"
+    r"|Wikidata has no "
+    r"|.+ not found: "
+    r"|Low confidence match)"
+)
+
+
+def is_enrichment_miss(result) -> bool:
+    """True when a client answered "no confident match", which is not an error.
+
+    Walk #16: three titles Wikidata had no entry for ("No Wikidata entity for:
+    ...", "Wikidata has no film or programme named: ...") made the enrich step
+    exit 1, which made ostler-import exit non-zero, which put a red warning
+    on import_data over an import that had fully succeeded.
+    """
+    from .models.enrichment import MatchType
+    error = getattr(result, "error", None)
+    if not error or getattr(result, "match_type", None) != MatchType.NONE:
+        return False
+    return bool(_MISS_MESSAGE.match(str(error)))
 
 
 class EnrichmentService:
@@ -248,6 +341,10 @@ class EnrichmentService:
         # Track already-enriched preferences (in memory for this run)
         self._enriched_ids: Set[str] = set()
 
+        # Items refused by the per-item privacy gate in enrich_preference,
+        # by reason code. Counts only.
+        self.privacy_refusals: Dict[str, int] = {}
+
     @property
     def _foursquare(self) -> FoursquareClient:
         """Lazy-initialize Foursquare client only when needed."""
@@ -276,6 +373,17 @@ class EnrichmentService:
             self.__google_places = PlacesClient(cache=self._cache)
         return self.__google_places
 
+    @staticmethod
+    def _consent_or_log(entry_point: str) -> bool:
+        """Fail closed: every enrichment entry point reaches public hosts."""
+        if public_lookup_allowed():
+            return True
+        logger.warning(
+            f"{entry_point} refused: owner has not accepted enrichment "
+            "(no outbound request made)"
+        )
+        return False
+
     async def _query_qdrant_preferences(
         self,
         user_id: Optional[str] = None,
@@ -300,7 +408,7 @@ class EnrichmentService:
             Tuple of (list of preference payloads, next_page_offset)
         """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 # Build filter
                 must_conditions = []
 
@@ -421,7 +529,7 @@ class EnrichmentService:
         """
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql,
@@ -483,7 +591,7 @@ INSERT DATA {{
 """
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/update",
                     content=update_query,
@@ -514,6 +622,16 @@ INSERT DATA {{
         Returns:
             EnrichmentResult or None
         """
+        if not self._consent_or_log("enrich_preference"):
+            return None
+
+        # Per-item privacy gate, AFTER consent: L0/L1/L3, an unknown or
+        # missing level, or an item about a minor never leaves the Mac.
+        refusal = outbound_refusal(preference)
+        if refusal is not None:
+            self.privacy_refusals[refusal] = self.privacy_refusals.get(refusal, 0) + 1
+            return None
+
         pref_id = preference.get("id", "")
         category = preference.get("category", "").lower() if preference.get("category") else ""
         subject = preference.get("subject", "")
@@ -771,6 +889,9 @@ INSERT DATA {{
         results = []
         work_at_entry = stats.attempted()
 
+        if not self._consent_or_log("enrich_batch"):
+            return results
+
         for pref in preferences:
             # The allowance is checked BEFORE each item, never during one:
             # an item that has already left the machine gets to finish and
@@ -800,6 +921,17 @@ INSERT DATA {{
             client_name = self.CATEGORY_CLIENTS.get(category.lower())
             if client_name is None:
                 stats.skipped_no_client += 1
+                continue
+
+            # Per-item privacy gate (see privacy_gate.py). Counted here so the
+            # run summary says how many were withheld and why; never logged
+            # with the subject.
+            refusal = outbound_refusal(pref)
+            if refusal is not None:
+                stats.skipped_private += 1
+                stats.by_privacy_reason[refusal] = (
+                    stats.by_privacy_reason.get(refusal, 0) + 1
+                )
                 continue
 
             # The classifier decided this subject is a book/film/artist. It
@@ -846,6 +978,11 @@ INSERT DATA {{
                     else:
                         stats.failed += 1
                         stats.errors.append(f"Failed to store: {pref_id}")
+                elif result and result.error and is_enrichment_miss(result):
+                    stats.no_match += 1
+                    logger.info("No enrichment match for %s: %s", pref_id, result.error)
+                    if len(stats.misses) < 100:
+                        stats.misses.append(f"{pref_id}: {result.error}")
                 elif result and result.error:
                     stats.failed += 1
                     if len(stats.errors) < 100:  # Limit error storage
@@ -857,6 +994,11 @@ INSERT DATA {{
                 if len(stats.errors) < 100:
                     stats.errors.append(f"{pref_id}: {str(e)}")
 
+        if stats.skipped_private:
+            logger.info(
+                "Privacy gate withheld %d item(s) from public lookups: %s",
+                stats.skipped_private, stats.by_privacy_reason,
+            )
         return results
 
     async def enrich_all(
@@ -886,6 +1028,9 @@ INSERT DATA {{
             EnrichmentStats with summary
         """
         stats = EnrichmentStats()
+        if not self._consent_or_log("enrich_all"):
+            stats.completed_at = datetime.utcnow()
+            return stats
         next_offset: Optional[str] = None
         total_fetched = 0
 
@@ -994,6 +1139,9 @@ INSERT DATA {{
             Combined EnrichmentStats
         """
         combined_stats = EnrichmentStats()
+        if not self._consent_or_log("enrich_categories"):
+            combined_stats.completed_at = datetime.utcnow()
+            return combined_stats
 
         # ONE UNREACHABLE SOURCE MUST NOT STARVE EVERY OTHER CATEGORY.
         #
@@ -1089,13 +1237,20 @@ INSERT DATA {{
             combined_stats.total_processed += stats.total_processed
             combined_stats.successful += stats.successful
             combined_stats.failed += stats.failed
+            combined_stats.no_match += stats.no_match
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
             combined_stats.skipped_ineligible += stats.skipped_ineligible
+            combined_stats.skipped_private += stats.skipped_private
+            for reason, count in stats.by_privacy_reason.items():
+                combined_stats.by_privacy_reason[reason] = (
+                    combined_stats.by_privacy_reason.get(reason, 0) + count
+                )
             combined_stats.budget_exhausted = (
                 combined_stats.budget_exhausted or stats.budget_exhausted
             )
             combined_stats.errors.extend(stats.errors[:20])  # Limit errors
+            combined_stats.misses.extend(stats.misses[:20])
 
             for source, count in stats.by_source.items():
                 combined_stats.by_source[source] = (
@@ -1141,6 +1296,9 @@ INSERT DATA {{
                 {"category": "podcast", "limit": 200},
             ])
         """
+        if not self._consent_or_log("enrich_parallel"):
+            return {}
+
         async def enrich_single_category(config: Dict) -> tuple[str, EnrichmentStats]:
             category = config["category"]
             limit = config.get("limit", 1000)
@@ -1225,27 +1383,20 @@ INSERT DATA {{
             "topics": {},  # topic -> qid mapping
         }
 
-        # Query Oxigraph for all unique topics from enriched preferences
-        sparql_query = """
-        PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        # Fail closed: every label below goes to wikidata.org, so no owner
+        # consent means no request, whichever caller got here.
+        if not public_lookup_allowed():
+            logger.warning(
+                "Wikidata normalization skipped: owner has not accepted "
+                "enrichment (no outbound request made)"
+            )
+            return stats
 
-        SELECT DISTINCT ?topic ?label WHERE {
-            GRAPH ?g {
-                ?pref pwg:hasTopic ?topic .
-                ?topic rdfs:label ?label .
-            }
-            # Exclude topics that already have a Wikidata Q-ID
-            FILTER NOT EXISTS {
-                GRAPH ?g2 {
-                    ?topic pwg:wikidataId ?qid .
-                }
-            }
-        }
-        """
+        # Query Oxigraph for all unique topics from enriched preferences
+        sparql_query = _WIKIDATA_PENDING_TOPICS_QUERY
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
                 response = await client.post(
                     f"{settings.oxigraph_url}/query",
                     content=sparql_query,
@@ -1329,6 +1480,79 @@ INSERT DATA {{
             f"{stats['failed']} failed"
         )
 
+        return stats
+
+    @staticmethod
+    def local_topic_key(label: str) -> str:
+        """Offline canonical key for a topic label (NFC, casefold, one space)."""
+        text = unicodedata.normalize("NFC", label).casefold()
+        return " ".join(text.split())
+
+    async def normalize_topics_locally(self) -> Dict[str, any]:
+        """Offline topic normalisation: no outbound request of any kind.
+
+        Used when the owner has not accepted enrichment. Stores a canonical
+        pwg:normalizedLabel for each topic that lacks one, talking only to
+        the local Oxigraph store.
+        """
+        stats = {
+            "total_topics": 0,
+            "normalized": 0,
+            "failed": 0,
+            "already_normalized": 0,
+            "topics": {},  # label -> local key
+        }
+        sparql_query = _LOCAL_PENDING_TOPICS_QUERY
+        try:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{settings.oxigraph_url}/query",
+                    content=sparql_query,
+                    headers={
+                        "Content-Type": "application/sparql-query",
+                        "Accept": "application/sparql-results+json",
+                    },
+                )
+                if response.status_code != 200:
+                    logger.error(f"Failed to query topics: {response.text}")
+                    return stats
+
+                bindings = response.json().get("results", {}).get("bindings", [])
+                topics = {}
+                for binding in bindings:
+                    topic_uri = binding.get("topic", {}).get("value", "")
+                    label = binding.get("label", {}).get("value", "")
+                    if label and topic_uri:
+                        topics[label] = topic_uri
+                stats["total_topics"] = len(topics)
+
+                for label, topic_uri in topics.items():
+                    key = self.local_topic_key(label)
+                    if not key:
+                        stats["failed"] += 1
+                        continue
+                    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+                    update_turtle = (
+                        "@prefix pwg: <https://schema.ostler.ai/enrichment/ontology#> .\n"
+                        f'<{topic_uri}> pwg:normalizedLabel "{escaped}" .\n'
+                    )
+                    try:
+                        store_response = await client.post(
+                            f"{settings.oxigraph_url}/store",
+                            content=update_turtle,
+                            headers={"Content-Type": "text/turtle"},
+                        )
+                    except Exception as e:
+                        stats["failed"] += 1
+                        logger.error(f"Error storing local key for '{label}': {e}")
+                        continue
+                    if store_response.status_code in (200, 201, 204):
+                        stats["normalized"] += 1
+                        stats["topics"][label] = key
+                    else:
+                        stats["failed"] += 1
+        except Exception as e:
+            logger.error(f"Error in local topic normalization: {e}")
         return stats
 
     async def close(self) -> None:

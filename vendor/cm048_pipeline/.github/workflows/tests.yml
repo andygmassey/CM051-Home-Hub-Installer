@@ -88,7 +88,14 @@ jobs:
           # import an unexplained +62 from my box into the number that governs
           # the runner. 734 + 17 ratchets by the thing this PR actually adds and
           # stays true on whichever interpreter CI runs.
-          FLOOR=751
+          # 751 -> 764: +13 for tests/test_update_reprocess.py (an updated
+          # re-POST re-runs the pipeline; identical stays a no-op).
+          # 764 -> 779: +15 (cost guard, declared metadata hash subset, producer
+          # key classification, real two-pass pwg-convo CLI, API 429).
+          # 779 -> 783: +4 Hub-API writer (ical-server rewrites the state dir
+          # before pwg-convo) update tests.
+          # 783 -> 789: +6 manual channel (AI conversations) is gist-only.
+          FLOOR=789
 
           # rc captured BEFORE any pipe. `$?` after a pipeline is the LAST
           # command's rc -- it would be grep's, and grep almost always
