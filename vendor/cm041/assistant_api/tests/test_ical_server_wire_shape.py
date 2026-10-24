@@ -371,7 +371,7 @@ class PeopleStaleOrganisationKeyTests(unittest.TestCase):
                 "points": [
                     {
                         "payload": {
-                            "person_uri": "urn:pwg:person:test-person",
+                            "person_uri": "urn:ostler:person/test-person",
                             "display_name": "Test Person",
                             "last_contact_ts": 1_700_000_000,  # well in the past
                             "last_contact": "2023-11-14",
@@ -405,7 +405,7 @@ class PeopleStaleOrganisationKeyTests(unittest.TestCase):
 
         def _fake_sparql_select(query, *a, **k):
             sparql_calls.append(query)
-            return [{"person": "urn:pwg:person:test-person"}]
+            return [{"person": "urn:ostler:person/test-person"}]
 
         with mock.patch(
             "urllib.request.urlopen",
