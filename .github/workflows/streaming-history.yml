@@ -1,0 +1,55 @@
+# Streaming / listening taste from browser history reaches interest_profile.
+# Drives the VENDORED ostler_fda recogniser and writer over a synthetic
+# history (positives per service plus negative controls), then the vendored
+# project_preferences and interest_profile consumers, and the browser
+# catch-up adapter. Synthetic data only; no network.
+name: streaming-history
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/streaming_history.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/catchup_browser.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'vendor/cm059_editor/compiler/project_preferences.py'
+      - 'tests/test_streaming_history_vendored.py'
+      - '.github/workflows/streaming-history.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/streaming_history.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/catchup_browser.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'vendor/cm059_editor/compiler/project_preferences.py'
+      - 'tests/test_streaming_history_vendored.py'
+      - '.github/workflows/streaming-history.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  streaming-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # phonenumbers and nameparser: the vendored ostler_fda modules import
+      # them at module top (identifier_quality.py:88 needs nameparser), so
+      # without them pytest collects 0 tests. Same set as catchup-machinery.yml.
+      - run: python -m pip install --quiet pytest httpx phonenumbers nameparser
+      - name: Recogniser, writer, consumers and catch-up (collected-count floor)
+        run: |
+          n="$(python -m pytest tests/test_streaming_history_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 95 ]; then
+            echo "REFUSING: expected at least 95 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_streaming_history_vendored.py -v -rs
