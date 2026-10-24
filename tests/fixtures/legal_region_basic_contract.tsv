@@ -1,0 +1,25 @@
+# legal_region_basic_contract.tsv -- which legal note variant the Article 9 and
+# third-party-data screens show, by the Mac's AppleLocale value (CM051 row L7).
+# Columns: apple_locale, variant (core|gb|eu|hk), lawtext (what the region line
+# must name: ukgdpr | gdpr | pdpo | none). Read by BOTH sides:
+#   install.sh  tests/test_article_9_third_party_notes_follow_region.sh
+#   GUI         gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift
+#               (LegalRegionBasicContractTests)
+# Region, never language: zh-Hant_GB is GB, en_DE is EU, fr_US is US.
+en_GB	gb	ukgdpr
+zh-Hant_GB	gb	ukgdpr
+de_DE	eu	gdpr
+en_DE	eu	gdpr
+fr_FR	eu	gdpr
+nl_NL	eu	gdpr
+en_IE	eu	gdpr
+nb_NO	eu	gdpr
+en_HK	hk	pdpo
+zh-Hant_HK	hk	pdpo
+en_US@rg=hkzzzz	hk	pdpo
+en_US	core	none
+fr_US	core	none
+en_CH	core	none
+ja_JP	core	none
+es_419	core	none
+zh-Hant	core	none

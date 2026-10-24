@@ -55,7 +55,7 @@ index cbf49e10..fd4bc4b0 100644
      registry = _load_registry()
      registry["schema_version"] = CONSENT_SCHEMA_VERSION
 diff --git a/consent_cli.py b/consent_cli.py
-index 0b6acb4e..05bfd81b 100644
+index 0b6acb4e..8d344c8d 100644
 --- a/consent_cli.py
 +++ b/consent_cli.py
 @@ -40,7 +40,9 @@ try:
@@ -68,14 +68,15 @@ index 0b6acb4e..05bfd81b 100644
          WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      )
  except ImportError as exc:  # pragma: no cover - smoke
-@@ -48,6 +50,17 @@ except ImportError as exc:  # pragma: no cover - smoke
+@@ -48,6 +50,18 @@ except ImportError as exc:  # pragma: no cover - smoke
          f"[consent_cli] could not import legal package: {exc}", file=sys.stderr,
      )
      sys.exit(2)
 +try:
 +    from legal.consent_strings import (  # noqa: E402
++        LEGAL_NOTE_VARIANTS,
 +        SPOKEN_CAPTURE_LEGAL_VARIANTS,
-+        spoken_capture_recorded_version,
++        legal_note_recorded_version,
 +    )
 +except ImportError as exc:  # pragma: no cover - smoke
 +    print(
@@ -86,7 +87,7 @@ index 0b6acb4e..05bfd81b 100644
  
  
  # Map cli tickbox arg -> ConsentString. Single source of truth.
-@@ -55,13 +68,29 @@ TICKBOX_REGISTRY = {
+@@ -55,13 +69,29 @@ TICKBOX_REGISTRY = {
      ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
@@ -117,7 +118,7 @@ index 0b6acb4e..05bfd81b 100644
  }
  
  
-@@ -75,16 +104,58 @@ def _cmd_record(args: argparse.Namespace) -> int:
+@@ -75,16 +105,66 @@ def _cmd_record(args: argparse.Namespace) -> int:
          )
          return 2
  
@@ -144,9 +145,17 @@ index 0b6acb4e..05bfd81b 100644
 +                file=sys.stderr,
 +            )
 +            return 2
-+        if cs is not SPOKEN_CAPTURE_RECORDING_CONSENT:
++        if cs.tickbox_id not in LEGAL_NOTE_VARIANTS:
 +            print(
 +                f"[consent_cli] {cs.tickbox_id} has no region-chosen legal note",
++                file=sys.stderr,
++            )
++            return 2
++        if args.legal_variant not in LEGAL_NOTE_VARIANTS[cs.tickbox_id]:
++            print(
++                f"[consent_cli] --legal-variant {args.legal_variant!r} is not "
++                f"a {cs.tickbox_id} variant; known: "
++                f"{LEGAL_NOTE_VARIANTS[cs.tickbox_id]}",
 +                file=sys.stderr,
 +            )
 +            return 2
@@ -161,7 +170,7 @@ index 0b6acb4e..05bfd81b 100644
 +            "text": note_text,
 +            "sha256": hashlib.sha256(note_text.encode("utf-8")).hexdigest(),
 +        }
-+        wording_version = spoken_capture_recorded_version(args.legal_variant)
++        wording_version = legal_note_recorded_version(cs, args.legal_variant)
      consent.record_consent(
          tickbox_id=cs.tickbox_id,
          wording_text=cs.text,
@@ -177,7 +186,7 @@ index 0b6acb4e..05bfd81b 100644
      )
      return 0
  
-@@ -163,6 +234,17 @@ def main(argv: list[str] | None = None) -> int:
+@@ -163,6 +243,17 @@ def main(argv: list[str] | None = None) -> int:
          "--hub-version",
          default=os.environ.get("OSTLER_HUB_VERSION", "0.1.0"),
      )

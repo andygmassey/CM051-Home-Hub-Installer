@@ -70,7 +70,8 @@ sys.stdout.write(node)
 }
 
 INTRO="$(read_key 'consent_third_party.intro_body')"
-LEGAL="$(read_key 'consent_third_party.legal_note')"
+# The note is region-chosen now (row L7): its lead-in is legal_prefix.
+LEGAL="$(read_key 'consent_third_party.legal_prefix')"
 
 # Assertion 1: intro_body is non-empty.
 if [[ -z "$INTRO" ]]; then
@@ -81,11 +82,11 @@ printf 'PASS: intro_body is non-empty (%d chars)\n' "${#INTRO}"
 
 # Assertion 2: legal_note is non-empty AND leads with "Legal note:".
 if [[ -z "$LEGAL" ]]; then
-    printf 'FAIL: consent_third_party.legal_note is empty\n' >&2
+    printf 'FAIL: consent_third_party.legal_prefix is empty\n' >&2
     exit 1
 fi
 if [[ "$LEGAL" != "Legal note:"* ]]; then
-    printf 'FAIL: consent_third_party.legal_note must lead with "Legal note:" so the customer sees the labelled fine-print; got: %q\n' \
+    printf 'FAIL: consent_third_party.legal_prefix must lead with "Legal note:" so the customer sees the labelled fine-print; got: %q\n' \
         "${LEGAL:0:60}..." >&2
     exit 1
 fi
@@ -131,8 +132,8 @@ if ! grep -q "MSG_PROMPT_CONSENT_THIRD_PARTY_HELP=" "$STRINGS"; then
     printf 'FAIL: bash catalogue missing MSG_PROMPT_CONSENT_THIRD_PARTY_HELP\n' >&2
     exit 1
 fi
-if ! grep -q "Legal note: For records" "$STRINGS"; then
-    printf 'FAIL: bash MSG_PROMPT_CONSENT_THIRD_PARTY_HELP no longer contains "Legal note: For records" lead -- TTY path would render incomplete consent text\n' >&2
+if ! grep -q '^MSG_CONSENT_THIRD_PARTY_LEGAL_PREFIX="Legal note:"' "$STRINGS"; then
+    printf 'FAIL: bash catalogue lost MSG_CONSENT_THIRD_PARTY_LEGAL_PREFIX -- TTY path would render incomplete consent text\n' >&2
     exit 1
 fi
 if ! grep -q "docs.ostler.ai/privacy/third-party-data" "$STRINGS"; then
@@ -153,7 +154,7 @@ printf 'PASS: SwiftUI renderer has a consent_third_party branch\n'
 
 # Assertion 8: the SwiftUI consentThirdPartyBody() function MUST read
 # BOTH catalogue keys.
-for key in "consent_third_party.intro_body" "consent_third_party.legal_note"; do
+for key in "consent_third_party.intro_body" "consent_third_party.legal_link" "consent_third_party"; do
     if ! grep -q -F "\"$key\"" "$SWIFT_VIEW"; then
         printf 'FAIL: OnboardingQuestionView.swift no longer reads ViewCopy key %s\n' "$key" >&2
         exit 1

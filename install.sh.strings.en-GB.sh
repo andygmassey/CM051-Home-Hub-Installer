@@ -1321,7 +1321,7 @@ MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Customise. Pick each source on the next 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Toggle this data source on or off."
 
 MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
-MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Special-category consent. Required for the lawful basis of processing."
 
 MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
 MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
@@ -1353,8 +1353,6 @@ MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
 
 By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
-
-Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
 
 Read more at docs.ostler.ai/privacy/third-party-data."
 
@@ -1424,6 +1422,24 @@ MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Pri
 # Region US. Best-effort draft, needs local professional sign-off (US).
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US="In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY="As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+
+# LEGAL NOTE BY REGION for the Article 9 and third-party-data screens (CM051
+# row L7). Same shape and same region rule as the spoken-capture note above
+# (the Mac's REGION, never its language). EVERY region line is a BEST-EFFORT
+# DRAFT, NOT LEGAL ADVICE, pending local professional sign-off. GB and
+# EU/EEA get the GDPR articles these screens always carried; HK gets a
+# neutral PDPO line; US and everywhere else get the neutral core only.
+MSG_CONSENT_ARTICLE_9_LEGAL_PREFIX="Legal note:"
+MSG_CONSENT_ARTICLE_9_LEGAL_CORE="Creative Machines never receives any of this data. This consent is revocable at any time without affecting processing that has already taken place."
+MSG_CONSENT_ARTICLE_9_LEGAL_REGION_GB="UK GDPR applies: you are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Your explicit consent above (Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope."
+MSG_CONSENT_ARTICLE_9_LEGAL_REGION_EU="The GDPR applies: you are the data controller for all special-category data Ostler processes on this Mac (GDPR Article 4(7)). Your explicit consent above (Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope."
+MSG_CONSENT_ARTICLE_9_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles can apply to the personal data Ostler processes on this Mac. Check the law where you are if you are unsure."
+MSG_CONSENT_THIRD_PARTY_LEGAL_PREFIX="Legal note:"
+MSG_CONSENT_THIRD_PARTY_LEGAL_CORE="Creative Machines never receives this data. Data protection laws differ by country, so check the law where you are."
+MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_GB="UK GDPR applies: for records you import to this Mac you are the data controller and processor (UK GDPR Article 4(7) and 4(8)), and Creative Machines is not the controller. Your processing for personal and household purposes falls within Article 2(2)(c)."
+MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_EU="The GDPR applies: for records you import to this Mac you are the data controller and processor (GDPR Article 4(7) and 4(8)), and Creative Machines is not the controller. Your processing for personal and household purposes falls within Article 2(2)(c)."
+MSG_CONSENT_THIRD_PARTY_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles can apply to the personal data about other people that you keep on this Mac. Check the law where you are if you are unsure."
+MSG_CONSENT_THIRD_PARTY_LEGAL_LINK="Read more at docs.ostler.ai/privacy/third-party-data."
 
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.

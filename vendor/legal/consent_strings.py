@@ -263,6 +263,34 @@ Legal note: Recording the spoken word can be regulated by national law – for e
 SPOKEN_CAPTURE_LEGAL_VARIANTS = ("core", "gb", "eu", "eu.de", "eu.fr", "hk", "us")
 
 
+# The Article 9 and third-party-data legal notes are region-chosen the same way
+# (CM051 row L7). GB and EU/EEA get the GDPR articles, HK a neutral PDPO line,
+# US and every other region the neutral core only. Best-effort drafts pending
+# local professional sign-off; strings live in CM051
+# install.sh.strings.en-GB.sh (MSG_CONSENT_ARTICLE_9_LEGAL_*,
+# MSG_CONSENT_THIRD_PARTY_LEGAL_*).
+BASIC_LEGAL_VARIANTS = ("core", "gb", "eu", "hk")
+
+# tickbox_id -> the variants its recorded legal note may name.
+LEGAL_NOTE_VARIANTS = {
+    "spoken_capture_recording_consent": SPOKEN_CAPTURE_LEGAL_VARIANTS,
+    "article_9_special_category_consent": BASIC_LEGAL_VARIANTS,
+    "third_party_data_personal_records": BASIC_LEGAL_VARIANTS,
+}
+
+
+def legal_note_recorded_version(consent: "ConsentString", variant: str) -> str:
+    """The wording_version recorded for a region-chosen legal-note variant."""
+    allowed = LEGAL_NOTE_VARIANTS.get(consent.tickbox_id)
+    if allowed is None:
+        raise ValueError(f"{consent.tickbox_id} has no region-chosen legal note")
+    if variant not in allowed:
+        raise ValueError(
+            f"unknown {consent.tickbox_id} legal variant {variant!r}; known: {allowed}"
+        )
+    return f"{consent.version}+{variant}"
+
+
 def spoken_capture_recorded_version(variant: str) -> str:
     """The wording_version recorded for a spoken-capture legal-note variant."""
     if variant not in SPOKEN_CAPTURE_LEGAL_VARIANTS:
