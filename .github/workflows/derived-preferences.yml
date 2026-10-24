@@ -44,6 +44,8 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
+      - 'tests/test_vendored_derived_route_privacy_level.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
@@ -120,6 +122,12 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_tiers_and_rollup.py
+      - name: The vendored derived route passes privacy_level and never serves L3
+        # Real in-memory pyoxigraph store; L3 and unparseable levels dropped.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_vendored_derived_route_privacy_level.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
