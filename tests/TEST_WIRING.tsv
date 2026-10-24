@@ -1030,6 +1030,7 @@ gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SystemRequirementsGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
