@@ -10198,7 +10198,7 @@ def api_safari_ingest(payload):
     if not isinstance(payload, dict):
         return {"error": "body must be a JSON object"}, 400
 
-    url = (payload.get("url") or "").strip()
+    url = _strip_tracking_url((payload.get("url") or "").strip())
     if not url:
         return {"error": "missing 'url'"}, 400
     title = (payload.get("title") or "").strip()
@@ -10349,6 +10349,17 @@ _ENRICH_QUEUE = None
 _ENRICH_QUEUE_LOCK = threading.Lock()
 
 
+def _strip_tracking_url(url):
+    """Drop known tracking params before the url is stored or keyed.
+    url_clean.py lives beside this file (byte-identical to
+    ostler_fda/url_clean.py; tests/test_url_clean.py checks parity)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from url_clean import strip_tracking
+    return strip_tracking(url)
+
+
 def _bn():
     """browsing_enrich lives beside this file; put the directory on
     sys.path so the import also works when this module is loaded by file
@@ -10492,7 +10503,7 @@ def api_safari_save(payload):
 
     if not isinstance(payload, dict):
         return {"error": "body must be a JSON object"}, 400
-    url = (payload.get("url") or "").strip()
+    url = _strip_tracking_url((payload.get("url") or "").strip())
     if not url:
         return {"error": "missing 'url'"}, 400
     bn = _bn()
