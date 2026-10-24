@@ -10,11 +10,17 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
       - '.github/workflows/timeline-dates-with-offset.yml'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_i22_timeline_keeps_meeting_time.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
       - '.github/workflows/timeline-dates-with-offset.yml'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_i22_timeline_keeps_meeting_time.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,7 +36,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject
+        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph
       - name: "Timeline dates: offset, event dates only, unreadable rows dropped"
         if: always()
         run: |
@@ -42,3 +48,19 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_timeline_dates_are_event_dates_with_offset.py -v -rs
+      # I22 (F&F TestFlight walk 2026-10-24): every past meeting read "All day".
+      # End to end: the real calendar extract shape, the real ingest writer into
+      # a real SPARQL engine, the real api_timeline reader. Then the tree-agnostic
+      # unit test shared with CM041 #238, run against the vendored server.
+      - name: "I22: a past meeting keeps its time, an all-day event stays all-day (writer to store to reader)"
+        if: always()
+        run: |
+          set -o pipefail
+          python -m pytest tests/test_i22_timeline_keeps_meeting_time.py -v -rs 2>&1 | tee /tmp/i22-e2e.log
+          if grep -qE ' SKIPPED|no tests ran' /tmp/i22-e2e.log; then
+            echo "REFUSING: a skipped I22 end-to-end test is CANNOT-RUN, not a pass." >&2
+            exit 1
+          fi
+      - name: "I22: the vendored api_timeline sends the time and the all_day flag (shared with CM041 #238)"
+        if: always()
+        run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py -v -rs
