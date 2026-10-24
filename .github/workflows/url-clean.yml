@@ -64,6 +64,7 @@ jobs:
           fi
           python -m pytest tests/test_url_clean.py tests/test_backfill_strip_tracking_urls.py -v
       - name: The Hub handlers (extension POST, Save to Knowledge)
+        if: always()
         run: |
           n="$(python -m pytest vendor/cm041/assistant_api/tests/test_url_clean_ingest.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
