@@ -1055,3 +1055,26 @@ TM_CANNOT_CHECK_DETAIL_FMT = (
 )
 TM_CANNOT_CHECK_FIX = "Run the command below in Terminal and look for [Excluded]."
 TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
+
+
+# ── check_minors_registry ────────────────────────────────────────────
+# Andy 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
+# the ingest on every import. A list that is present but cannot be read makes
+# the ingest stop (it fails closed rather than read "unknown" as "nobody").
+# This row says so. It must never print a name from the file.
+
+MINORS_UNREADABLE_TITLE = (
+    "Your under-18 list can't be read, so imports are paused until it's fixed"
+)
+MINORS_UNREADABLE_DETAIL_FMT = (
+    "The file that records who you have marked as under 18 is damaged or "
+    "cannot be opened ({path}). While Ostler cannot tell who is under 18 it "
+    "will not import anything new, so nothing about a child can slip through. "
+    "Nothing already stored has been lost."
+)
+MINORS_UNREADABLE_FIX = (
+    "Repair the file if you can. Otherwise run the command below to move it "
+    "aside: imports then restart, with nobody marked as under 18 until you "
+    "mark them again from their page."
+)
+MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"
