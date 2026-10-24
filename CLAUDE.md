@@ -90,7 +90,7 @@ learn one line of shell is the expensive way to find a `head -c 20`.
 
 ## 🔴 A WALK FAILURE IS TRIAGED AGAINST HISTORY BEFORE IT IS DIAGNOSED
 
-Andy, 2026-09-07: *"when an installer walk happens, Archie doesn't go back and
+The owner, 2026-09-07: *"when an installer walk happens, Archie doesn't go back and
 look at what changed since the last successful walk and figure out what the
 issue is a regression of. He reinvents the whole wheel again, and sometimes
 makes matters worse."*
