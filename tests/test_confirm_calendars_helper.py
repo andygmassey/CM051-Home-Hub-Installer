@@ -24,14 +24,16 @@ _spec.loader.exec_module(cc)
 
 
 def test_guess_owner_type_prefills():
-    assert cc.guess_owner_type("work@example.com", "Jane Doe") == ("You", "personal")
+    # An address with a work word is the owner's work diary (118 Q32b).
+    assert cc.guess_owner_type("work@example.com", "Jane Doe") == ("You", "work")
     assert cc.guess_owner_type("Family", "Jane Doe") == ("Family", "family")
     assert cc.guess_owner_type("Work", "Jane Doe") == ("You", "work")
     assert cc.guess_owner_type("Calendar", "Jane Doe") == ("You", "personal")
     assert cc.guess_owner_type("Jane Doe", "Jane Doe") == ("You", "personal")
     assert cc.guess_owner_type("Jane", "Jane Doe") == ("You", "personal")
-    # A different person's name -> that person, family.
-    assert cc.guess_owner_type("Robin Carter", "Jane Doe") == ("Robin Carter", "family")
+    # A different person's name -> that person, shared (118 Q32b: a named
+    # person is not the household).
+    assert cc.guess_owner_type("Robin Carter", "Jane Doe") == ("Robin Carter", "shared")
 
 
 def test_aggregate_counts_and_samples():

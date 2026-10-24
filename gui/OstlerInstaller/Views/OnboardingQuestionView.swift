@@ -35,6 +35,8 @@ struct OnboardingQuestionView: View {
     /// `folder` kind: holds the path the customer has picked (or
     /// the default `~/Downloads`). Empty string means "skip".
     @State private var folderValue: String = ""
+    /// `calendar_assign` (118 Q32b): one menu per calendar.
+    @State private var calendarRows: [CalendarAssignRow] = []
     @State private var validationError: String? = nil
     @FocusState private var focused: Bool
 
@@ -165,6 +167,12 @@ struct OnboardingQuestionView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                // 118 Q32b: the last control (a switch, a menu) sat flush
+                // against the scroll view's bottom edge and was drawn cut
+                // off there. Room below it, and a hair at the sides for the
+                // focus ring.
+                .padding(.bottom, .ostlerSpace3)
+                .padding(.horizontal, 2)
             }
             .frame(maxHeight: .infinity)
             .scrollBounceBehavior(.basedOnSize)
@@ -593,6 +601,14 @@ struct OnboardingQuestionView: View {
     @ViewBuilder
     private func inputField(_ q: DisplayedQuestion) -> some View {
         switch q.prompt.kind {
+        case .text where q.prompt.id == CalendarAssign.promptId:
+            CalendarAssignList(
+                rows: q.isReview
+                    ? .constant(CalendarAssign.rows(wire: q.prompt.defaultValue ?? "",
+                                                    answer: q.priorAnswer))
+                    : $calendarRows,
+                disabled: q.isReview
+            )
         case .text:
             TextField("", text: q.isReview
                       ? .constant(q.priorAnswer ?? "")
@@ -919,10 +935,13 @@ struct OnboardingQuestionView: View {
         yesnoValue = true
         choiceValue = ""
         folderValue = ""
+        calendarRows = []
     }
 
     private func currentAnswer(_ q: DisplayedQuestion) -> String {
         switch q.prompt.kind {
+        case .text where q.prompt.id == CalendarAssign.promptId:
+            return CalendarAssign.answer(calendarRows)
         case .text:        return textValue
         case .secret:      return secretValue
         case .yesno:       return yesnoValue ? "y" : "n"
@@ -1020,6 +1039,9 @@ struct OnboardingQuestionView: View {
         lastSeededPromptId = q.prompt.id
         let def = q.prompt.defaultValue ?? ""
         switch q.prompt.kind {
+        case .text where q.prompt.id == CalendarAssign.promptId:
+            calendarRows = CalendarAssign.parse(def)
+            textValue = def
         case .text:
             // F6.1: assistant_name pre-fills a randomly-chosen
             // suggestion from the ViewCopy pool, so the field

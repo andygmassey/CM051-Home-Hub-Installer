@@ -189,6 +189,19 @@
       "calendar_review": "Let me change something",
       "calendar_set_aside_include": "Include in my brief"
     },
+    "calendar_assign": {
+      "_meta": "118 Q32b: the calendar check screen's per-calendar menu (prompt id calendar_assign, CalendarAssignList.swift). Values are install.sh's category words; the labels are what the customer reads.",
+      "category": {
+        "yours": "Yours",
+        "family": "Family",
+        "shared": "Shared with you",
+        "holidays": "Holidays",
+        "ignore": "Ignore"
+      },
+      "events_one": "{count} event",
+      "events_many": "{count} events",
+      "set_aside_heading": "Holidays and calendars we set aside (not used for your brief unless you change them)"
+    },
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
     "error_empty_choice": "Please pick one of the options.",

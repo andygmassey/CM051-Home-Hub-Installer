@@ -163,6 +163,7 @@ test_bundled_package_comes_from_its_declared_source.py	WIRED	.github/workflows/i
 test_bursar_counts_every_ollama_endpoint.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_calendar_attendee_resolve_before_create.py	WIRED	.github/workflows/privacy-spine.yml
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_calendar_picker_guesses.py	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_review_is_one_screen.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_set_aside_classification.py	WIRED	.github/workflows/install-gui-contract.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml

@@ -1095,7 +1095,9 @@ MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.
 # links or separates a profile). EVENTS_ONE / EVENTS_MANY are the singular
 # and plural of the event count ("1 event", "2 events").
 MSG_CONFIRM_CALENDARS_REVIEW_TITLE="Here are your calendars. Do these look right?"
-MSG_CONFIRM_CALENDARS_REVIEW_INTRO="We've guessed whose each one is, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDARS_REVIEW_INTRO="We've guessed who each calendar belongs to, so your brief never mixes up whose trip is whose."
+MSG_CONFIRM_CALENDARS_PICK_TITLE="Here are your calendars. Is each one right?"
+MSG_CONFIRM_CALENDARS_PICK_INTRO="We've guessed who each calendar belongs to, so your brief never mixes up whose trip is whose. Change any guess that's wrong."
 MSG_CONFIRM_CALENDARS_SET_ASIDE_HEADING="Set aside automatically, not used for your brief:"
 MSG_CONFIRM_CALENDAR_ROW="%s: %s, %s (%s)"
 MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW="%s: %s (%s)"

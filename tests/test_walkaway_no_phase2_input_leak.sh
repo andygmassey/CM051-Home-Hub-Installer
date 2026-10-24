@@ -175,7 +175,10 @@ echo "PASS: unconditional final FDA re-probe (line $reprobe_line) precedes run_a
 #                                       timeout is asserted below, and
 #                                       driven for real by
 #                                       tests/test_calendar_review_is_one_screen.sh.
-ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mail_not_connected autologin_consent autologin_password calendar_review "
+#   calendar_assign                  -> the same screen in the GUI, one menu
+#                                       per calendar (118 Q32b). Same default,
+#                                       same timeout, asserted the same way.
+ALLOWLIST=" tailscale_confirm imessage_automation_incoming_ack save_keychain mail_not_connected autologin_consent autologin_password calendar_review calendar_assign "
 
 # calendar_review is allowlisted ONLY because it cannot block: its gui_read
 # must pass the timeout argument and consume the 124 it returns.
@@ -186,6 +189,14 @@ if [[ -n "$_cr_line" ]]; then
         || fail "calendar_review gui_read (line $_cr_line) has no timeout: a walk-away install would block on it"
     echo "PASS: calendar_review carries a default and a timeout (line $_cr_line)"
 fi
+_ca_line="$(grep -n '"calendar_assign" ""' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+if [[ -z "$_ca_line" ]]; then
+    fail "calendar_assign gui_read not found in install.sh (the allowlist entry would guard nothing)"
+fi
+sed -n "${_ca_line},$((_ca_line + 1))p" "$INSTALL_SH" \
+    | grep -q 'OSTLER_CALENDAR_REVIEW_TIMEOUT_S:-[1-9][0-9]*}")" || _cal_timed_out=1' \
+    || fail "calendar_assign gui_read (line $_ca_line) has no timeout: a walk-away install would block on it"
+echo "PASS: calendar_assign carries a default and a timeout (line $_ca_line)"
 
 post_tags="$(awk -v b="$BOUNDARY" '
     NR<=b { next }

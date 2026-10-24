@@ -114,8 +114,8 @@ done <<< "$rows"
 
 check "calendars.json is valid JSON with a calendars list" \
     "$PY" -c "import json;d=json.load(open('$TMP/calendars.json'));assert isinstance(d['calendars'],list) and d['calendars']"
-check "Robin Carter calendar attributed to Robin (not the operator)" \
-    "$PY" -c "import json;d=json.load(open('$TMP/calendars.json'));e=[c for c in d['calendars'] if c['match']=='Robin Carter'][0];assert e['owner']=='Robin Carter' and e['type']=='family'"
+check "Robin Carter calendar attributed to Robin (not the operator), shared (118 Q32b)" \
+    "$PY" -c "import json;d=json.load(open('$TMP/calendars.json'));e=[c for c in d['calendars'] if c['match']=='Robin Carter'][0];assert e['owner']=='Robin Carter' and e['type']=='shared'"
 
 # --- identity leg: propose (from fixture) -> record ---
 # example.com is RFC 2606 reserved. Composed here rather than written as a

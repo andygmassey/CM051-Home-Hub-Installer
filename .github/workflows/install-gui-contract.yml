@@ -39,6 +39,8 @@ on:
       - 'tests/test_end_of_install_confirmation.sh'
       - 'tests/test_calendar_review_is_one_screen.sh'
       - 'tests/test_calendar_set_aside_classification.py'
+      - 'tests/test_calendar_picker_guesses.py'
+      - 'gui/OstlerInstaller/Views/CalendarAssignList.swift'
       - 'vendor/cm041/contact_syncer/google_calendar.py'
       # A gate must trigger on changes to ITSELF, or it can be broken (or
       # quietly narrowed) in a PR that never runs it.
@@ -309,6 +311,9 @@ jobs:
           set -euo pipefail
           bash tests/test_calendar_review_is_one_screen.sh
           python3 tests/test_calendar_set_aside_classification.py
+          # 118 Q32b: the guesses the 117 walk got wrong, and the per-calendar
+          # picker's answer mapped to calendars.json (cast names only).
+          python3 tests/test_calendar_picker_guesses.py
 
       - name: Run app-bundle byte-by-byte regression
         if: always()

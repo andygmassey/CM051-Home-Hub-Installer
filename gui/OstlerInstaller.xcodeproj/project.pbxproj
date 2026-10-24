@@ -57,6 +57,7 @@
 		68C7099E8A4A66062A1D907C /* MemoryCeiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C611D155502B912580B643B /* MemoryCeiling.swift */; };
 		698E66B03812406B6625AD73 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */; };
 		6C2CC1B327BAB163D14B84F7 /* HintCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 648CD2F16A53E31F71B7BD82 /* HintCopy.json */; };
+		714F3A941A8E5F5314EECE03 /* CalendarAssignList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126E9B84243763304CDFFD02 /* CalendarAssignList.swift */; };
 		78403E2589F62D463406FC79 /* SelfRelocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0544C4D9C05213F111A16263 /* SelfRelocatorTests.swift */; };
 		79002F945E0F9B9C3F02222C /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
 		7C1712F4F2ED7AA8E4B62743 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050884FD91C931C299F1697A /* ContentView.swift */; };
@@ -143,6 +144,7 @@
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateTerminationTests.swift; sourceTree = "<group>"; };
 		0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicRefreshMode.swift; sourceTree = "<group>"; };
+		126E9B84243763304CDFFD02 /* CalendarAssignList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarAssignList.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
 		17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallFlags.swift; sourceTree = "<group>"; };
 		18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ICON_HASHES.txt; sourceTree = "<group>"; };
@@ -288,6 +290,7 @@
 		296BE68221AABD99A6B09E98 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				126E9B84243763304CDFFD02 /* CalendarAssignList.swift */,
 				E4C1249B5BB363F304334F02 /* ContentView.swift */,
 				1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */,
 				66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */,
@@ -1295,6 +1298,7 @@
 				83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */,
 				E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */,
 				CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */,
+				714F3A941A8E5F5314EECE03 /* CalendarAssignList.swift in Sources */,
 				F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */,
 				9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */,
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,

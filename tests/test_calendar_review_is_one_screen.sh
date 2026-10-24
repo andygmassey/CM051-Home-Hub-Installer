@@ -103,16 +103,21 @@ if [[ ! -s "$BLOCK" ]]; then
     echo "FAIL: $fails" ; exit 1
 fi
 
-run_block() {  # run_block <review answer> <prompt log>
+run_block() {  # run_block <review answer> <prompt log> [gui: 0 terminal (default) | 1 GUI]
     cat > "$TMP/harness.sh" <<HARNESS
 set -eu
 source "$STRINGS"
-gui_active() { return 0; }
+gui_active() { [[ "${3:-0}" == "1" ]]; }
+gui_log() { echo "gui_log: \$*"; }
 gui_read() {
     # \$1 title \$2 kind \$3 default \$4 help \$5 choices \$6 id
     printf '%s\t%s\n' "\${6:-}" "\$1" >> "$2"
     printf '%s\n---\n' "\${4:-}" >> "$2.help"
-    if [[ "\${6:-}" == "calendar_review" ]]; then printf '%s' "$1"; else printf '%s' "\${3:-}"; fi
+    printf '%s\n' "\${3:-}" >> "$2.default"
+    case "\${6:-}" in
+        calendar_review|calendar_assign) printf '%s' "$1" ;;
+        *) printf '%s' "\${3:-}" ;;
+    esac
 }
 info() { echo "info: \$*"; }
 ok()   { echo "ok: \$*"; }
@@ -127,7 +132,7 @@ if true; then
 $(cat "$BLOCK")
 fi
 HARNESS
-    : > "$2"; : > "$2.help"
+    : > "$2"; : > "$2.help"; : > "$2.default"
     rm -f "$TMP/ostler/calendars.json"
     HOME="$TMP/fakehome" "$BASH_BIN" "$TMP/harness.sh" > "$2.out" 2>&1
 }
@@ -186,6 +191,39 @@ import json
 d = {c['match']: c for c in json.load(open('$J'))['calendars']}
 assert d['Geburtstage'].get('include') is False
 "
+
+# ── 2b. GUI (118 Q32b): one screen, one menu per calendar ───────────
+echo "== GUI: one menu per calendar, corrected in place =="
+run_block "yours,shared,holidays,ignore,ignore,ignore" "$TMP/gui.log" 1
+expect "GUI asks ONE prompt, calendar_assign" bash -c \
+    "test \"\$(wc -l < '$TMP/gui.log' | tr -d ' ')\" = 1 && grep -q '^calendar_assign	' '$TMP/gui.log'"
+D="$TMP/gui.log.default"
+sed 's/^/  default | /' "$D"
+expect "rows carry category|count|name, ordinary first" bash -c \
+    "head -1 '$D' | grep -qx 'yours|2|Personal'"
+expect "another person's calendar pre-set to shared, not yours" grep -qx 'shared|1|Sam Patel' "$D"
+expect "holiday calendar pre-set to holidays" grep -qx 'holidays|2|Feiertage in Deutschland' "$D"
+expect "birthday, suggestion, subscription pre-set to ignore" bash -c \
+    "grep -qx 'ignore|1|Geburtstage' '$D' && grep -qx 'ignore|1|Found in Natural Language' '$D' && grep -qx 'ignore|1|rowing fixtures' '$D'"
+# The order the rows were shown in: Personal, Sam Patel, Feiertage, then three ignored.
+run_block "family,yours,holidays,ignore,ignore,yours" "$TMP/gui2.log" 1
+expect "the customer's picks reach calendars.json" "$PY" -c "
+import json
+d = {c['match']: c for c in json.load(open('$J'))['calendars']}
+assert d['Personal']['owner'] == 'Family' and d['Personal']['type'] == 'family', d['Personal']
+assert d['Sam Patel']['owner'] == 'You', d['Sam Patel']
+assert d['Feiertage in Deutschland']['include'] is False
+assert d['rowing fixtures'].get('include', True) is True, d['rowing fixtures']
+"
+: > "$TMP/diag/confirm.log"
+run_block "yours,family" "$TMP/gui3.log" 1
+expect "a malformed answer keeps the pre-fill" "$PY" -c "
+import json
+d = {c['match']: c for c in json.load(open('$J'))['calendars']}
+assert d['Personal']['owner'] == 'You' and d['Sam Patel']['type'] == 'shared'
+assert d['Geburtstage']['include'] is False
+"
+expect "and says so in the confirm log" grep -q 'picker answer not applied' "$TMP/diag/confirm.log"
 
 # ── 3. Nobody there: the REAL gui_read must time out, not block ──────
 # Walk-away invariant (tests/test_walkaway_no_phase2_input_leak.sh allowlists

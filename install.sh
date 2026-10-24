@@ -42292,14 +42292,57 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
         esac
     }
     if [[ -n "$_confirm_py" && -f "$_confirm_cal_py" && -f "$_confirm_events" ]]; then
+        _confirm_cal_email_args=()
+        [[ -n "${USER_EMAIL:-}" ]] && _confirm_cal_email_args=(--owner-email "$USER_EMAIL")
         _confirm_cal_rows="$("$_confirm_py" "$_confirm_cal_py" enumerate \
             --events "$_confirm_events" --owner-name "$_confirm_owner_name" \
+            ${_confirm_cal_email_args[@]+"${_confirm_cal_email_args[@]}"} \
             2>>"${OSTLER_DIAG_DIR}/confirm.log" || true)"
-        if [[ -n "$_confirm_cal_rows" ]]; then
+        if [[ -n "$_confirm_cal_rows" ]] && gui_active; then
+            # GUI (118 Q32b): ONE screen, one menu per calendar
+            # (Yours / Family / Shared / Holidays / Ignore), pre-set to the
+            # guess, so a wrong guess is corrected in place. The rows ride
+            # the prompt's default as "category|count|name" lines (the
+            # marker log redacts default=); the answer is one category per
+            # row, comma-separated, mapped to calendars.json by the helper,
+            # which keeps the pre-fill and logs why if the answer is
+            # malformed. Same walk-away timeout as the terminal screen.
+            _cal_lines=""
+            _cal_initial=""
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside _ccat; do
+                [[ -z "${_cmatch:-}" ]] && continue
+                [[ "${_csamples:-}" == "-" ]] && _csamples=""
+                [[ "${_caside:-}" == "-" ]] && _caside=""
+                _cal_lines="${_cal_lines}${_ccat:-yours}|${_ccount:-0}|${_cmatch}"$'\n'
+                _cal_initial="${_cal_initial:+${_cal_initial},}${_ccat:-yours}"
+            done <<< "$_confirm_cal_rows"
+            _cal_timed_out=0
+            _cal_pick="$(gui_read "$MSG_CONFIRM_CALENDARS_PICK_TITLE" \
+                text "${_cal_lines%$'\n'}" "$MSG_CONFIRM_CALENDARS_PICK_INTRO" "" "calendar_assign" "" \
+                "${OSTLER_CALENDAR_REVIEW_TIMEOUT_S:-300}")" || _cal_timed_out=1
+            if [[ "$_cal_timed_out" == "1" ]]; then
+                _confirm_unattended=1
+                _cal_pick="$_cal_initial"
+                gui_log info "calendar_assign: no answer in ${OSTLER_CALENDAR_REVIEW_TIMEOUT_S:-300}s; pre-filled list saved"
+            fi
+            _confirm_rows_file="$(mktemp -t ostler-cal-rows.XXXXXX)"
+            printf '%s\n' "$_confirm_cal_rows" > "$_confirm_rows_file"
+            if "$_confirm_py" "$_confirm_cal_py" write \
+                    --rows "$_confirm_rows_file" --categories "$_cal_pick" \
+                    --out "${OSTLER_DIR}/calendars.json" \
+                    >>"${OSTLER_DIAG_DIR}/confirm.log" 2>&1; then
+                ok "$MSG_CONFIRM_CALENDARS_SAVED"
+            else
+                warn "$MSG_CONFIRM_CALENDARS_FAILED"
+            fi
+            rm -f "$_confirm_rows_file"
+        elif [[ -n "$_confirm_cal_rows" ]]; then
             _cal_mine=""
             _cal_aside=""
-            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside; do
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside _ccat; do
                 [[ -z "${_cmatch:-}" ]] && continue
+                [[ "${_csamples:-}" == "-" ]] && _csamples=""
+                [[ "${_caside:-}" == "-" ]] && _caside=""
                 _cevents="$(_ostler_cal_events_label "${_ccount:-0}")"
                 if [[ -n "${_caside:-}" ]]; then
                     _cal_aside="${_cal_aside}$(printf "$MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW" \
@@ -42307,8 +42350,18 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
                 else
                     _cwho="${_cowner:-You}"
                     [[ "$_cwho" == "You" ]] && _cwho="$MSG_CONFIRM_CALENDAR_OWNER_YOU"
-                    _cal_mine="${_cal_mine}$(printf "$MSG_CONFIRM_CALENDAR_ROW" \
-                        "$_cmatch" "$_cwho" "${_ctype:-personal}" "$_cevents")"$'\n'
+                    # 118 Q32b: "Family: Family, family" said one word three
+                    # times. When the owner is the calendar's own name or
+                    # just its kind, the kind alone says it.
+                    _cwho_l="$(printf '%s' "$_cwho" | tr '[:upper:]' '[:lower:]')"
+                    _cmatch_l="$(printf '%s' "$_cmatch" | tr '[:upper:]' '[:lower:]')"
+                    if [[ "$_cwho_l" == "${_ctype:-personal}" || "$_cwho_l" == "$_cmatch_l" ]]; then
+                        _cal_mine="${_cal_mine}$(printf "$MSG_CONFIRM_CALENDAR_SET_ASIDE_ROW" \
+                            "$_cmatch" "${_ctype:-personal}" "$_cevents")"$'\n'
+                    else
+                        _cal_mine="${_cal_mine}$(printf "$MSG_CONFIRM_CALENDAR_ROW" \
+                            "$_cmatch" "$_cwho" "${_ctype:-personal}" "$_cevents")"$'\n'
+                    fi
                 fi
             done <<< "$_confirm_cal_rows"
             _cal_body="${MSG_CONFIRM_CALENDARS_REVIEW_INTRO}"$'\n\n'"${_cal_mine}"
@@ -42339,8 +42392,10 @@ if [[ "${OSTLER_SKIP_CONFIRMATION:-0}" != "1" ]]; then
             esac
             _confirm_answers="$(mktemp -t ostler-cal-answers.XXXXXX)"
             : > "$_confirm_answers"
-            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside; do
+            while IFS=$'\t' read -r _cmatch _cowner _ctype _ccount _csamples _caside _ccat; do
                 [[ -z "${_cmatch:-}" ]] && continue
+                [[ "${_csamples:-}" == "-" ]] && _csamples=""
+                [[ "${_caside:-}" == "-" ]] && _caside=""
                 _ans_owner="${_cowner:-You}"
                 _ans_type="${_ctype:-personal}"
                 _ans_include=1
