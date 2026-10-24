@@ -119,3 +119,83 @@ def test_a_kinship_label_is_not_a_name_so_it_never_splits_a_household(world):
     _person(w, JANE_MAIL, "Mum", JANE_MOBILE)
     stats = w.dm.run()
     assert stats["merged"] == 1 and stats["refused_shared_phone"] == 0, stats
+
+
+# ── P16b: kinship words on a shared number ───────────────────────────────
+
+MUM = PWG + "person_kin_mum"
+DAD = PWG + "person_kin_dad"
+
+
+def _card(w, uri, name, uid, *phones):
+    _person(w, uri, name, *phones)
+    w.store.update(
+        f'INSERT DATA {{ <{uri}> pwg:hasIdentifier <{uri}_uid> . <{uri}_uid> a pwg:PersonIdentifier ; '
+        f'pwg:identifierType "icloud_contact_uid" ; pwg:identifierValue "{uid}" }}')
+
+
+def test_two_different_kinship_words_on_one_landline_never_merge(world):
+    """"Mum" and "Dad" on the household landline are two people."""
+    w = world
+    _person(w, MUM, "Mum", LANDLINE)
+    _person(w, DAD, "Dad", LANDLINE)
+    stats = w.dm.run()
+    assert stats["merged"] == 0, stats
+    assert stats["refused_kinship_phone"] == 1, stats
+    assert _alive(w, MUM) and _alive(w, DAD)
+
+
+def test_a_kinship_word_never_swallows_a_separate_contacts_card(world):
+    """"Mum" on the landline and Tom Jones, already his own card, on the same
+    landline: Tom must not be folded into Mum (nor Mum into Tom)."""
+    w = world
+    _person(w, MUM, "Mum", LANDLINE)
+    _card(w, TOM, "Tom Jones", "UID-TOM", LANDLINE)
+    stats = w.dm.run()
+    assert stats["merged"] == 0, stats
+    assert stats["refused_kinship_phone"] == 1, stats
+    assert _alive(w, MUM) and _alive(w, TOM)
+
+
+def test_control_the_same_kinship_word_twice_still_merges(world):
+    w = world
+    _person(w, MUM, "Mum", LANDLINE)
+    _person(w, DAD, "mum", LANDLINE)
+    stats = w.dm.run()
+    assert stats["merged"] == 1 and stats["refused_kinship_phone"] == 0, stats
+
+
+def test_control_a_kinship_word_and_an_uncarded_name_still_merge(world):
+    """The CM051 #2556 case: "Mum" is how the owner refers to Jane, and Jane
+    has no separate card, so the shared mobile still joins them."""
+    w = world
+    _person(w, MUM, "Mum", JANE_MOBILE)
+    _person(w, JANE, "Jane Smith", JANE_MOBILE)
+    stats = w.dm.run()
+    assert stats["merged"] == 1 and stats["refused_kinship_phone"] == 0, stats
+
+
+def test_an_unreadable_card_lookup_for_the_kinship_check_fails_closed(world, monkeypatch):
+    """ONLY the kinship check's card read fails (the later RULE 2 read is
+    fine). "Mum" plus an uncarded Jane Smith would normally merge (the #2556
+    case), but with the card keys unknown the kinship holder joins nobody
+    this run: a missed merge is retried next sweep, a wrong one is not."""
+    w = world
+    _person(w, MUM, "Mum", JANE_MOBILE)
+    _person(w, JANE, "Jane Smith", JANE_MOBILE)
+    real = w.dm.canonical_keys_of
+    calls = {"n": 0}
+
+    def first_read_fails(persons):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("store unreachable for the kinship card read")
+        return real(persons)
+
+    monkeypatch.setattr(w.dm, "canonical_keys_of", first_read_fails)
+    stats = w.dm.run()
+    assert calls["n"] >= 2, "harness: the RULE 2 read did not happen after the kinship read"
+    assert stats["refused_unreadable"] is False, stats
+    assert stats["merged"] == 0, stats
+    assert stats["refused_kinship_phone"] == 1, stats
+    assert _alive(w, MUM) and _alive(w, JANE)
