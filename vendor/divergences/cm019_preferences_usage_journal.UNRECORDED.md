@@ -345,6 +345,15 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE
 - Round 5 (Archie ruling, 2026-10-24): `derive/readers.py` is no longer byte-identical to #422's head: its SCROLL_FIELDS block carries personal-world-graph main's three extra keys (`privacy_level`, `compartment_level`, `user_id`) so the privacy gate sees a scrolled point's level. See the privacy-gate section below.
 - Proof on this tree: `tests/test_vendored_derive_covers_all_of_life.py` and `tests/test_vendored_linkedin_career_reaches_the_derive_engine.py` (both wired in `derived-preferences.yml`): RED on main, GREEN here.
 - Retire: when #422 merges, re-pin to its merge commit and delete this section; the files are then source at the pin.
+## 2026-10-22: ingest contract (Apple Music artist and play time, Uber event time)
+
+Tree `cm019_preferences`. Pin NOT moved. Hand edits, no patch (`divergence_patch` is empty for this tree, see above).
+
+- `services/ingest/src/parsers/apple.py`: (1) new helpers `_split_artist_track`, `_first_timestamp`, `_artist_lookup` and the constants `_APPLE_PLAY_TIMESTAMP_COLUMNS`, `_APPLE_HISTORY_FILES`, directly after `_later`. (2) `_parse_track_play_history` and `_parse_daily_tracks` now put `extra["artist"]` and `extra["track"]` on every row whose description is "artist - title". (3) `_parse_play_activity` reads the play time from the plain event column, then the event-end, event-start and event-received columns, matched case-insensitively (it read only the first, which is blank on about two thirds of completed plays in a real export), and sets `extra["artist"]` from the sibling history files when the title maps to exactly one artist. Subjects are unchanged on purpose: the stable preference id derives from them.
+- `services/ingest/src/parsers/uber.py`: `observed_at` is now the trip or order request time on trip records, food order records, restaurant aggregates and food item aggregates (it was only a display string in `extra["timestamp"]`). New helpers `_as_utc`, `_later_dt`.
+- Why no patch: same reason as above, the tree has no recorded patch and the shared-file delta is the 42-file reconciliation owed to the CM019 owner.
+- Owed upstream: yes. Both changes are ports of personal-world-graph PR "ingest contract: Apple Music artist and real play time, Uber event time"; retire this section when that merges and the tree is re-pinned past it.
+- Proof: tests/test_ingest_contract.py (RED on origin/main, GREEN here, 7 mutants caught), wired in .github/workflows/derived-preferences.yml.
 ## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate, UNMERGED upstream)
 
 Tree `cm019_preferences`. Pin NOT moved (5622a763). Grafted ahead of the upstream merge for v1.0.118.

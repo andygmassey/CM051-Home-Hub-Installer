@@ -44,6 +44,10 @@ on:
       - 'tests/test_vendored_derive_scroll_carries_privacy_level.py'
       - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/linkedin.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/**'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_ingest_contract.py'
+      - 'tests/ingest_contract_registry.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
       - '.github/workflows/derived-preferences.yml'
   push:
@@ -100,6 +104,21 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_scroll_carries_privacy_level.py
+      - name: Every importer declares and keeps the ingest contract (entity, category, real event time, owner, privacy, item key)
+        # Derivation can only roll up and decay what ingest kept. The registry
+        # refuses an unregistered parser; the fixtures refuse a dropped field;
+        # GAP_BASELINE ratchets the declared gaps. Network-free.
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt \
+            nameparser rapidfuzz phonenumbers pyyaml
+          n="$(python3 -m pytest tests/test_ingest_contract.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 30 ]; then
+            echo "REFUSING: expected at least 30 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_ingest_contract.py -v -rs
       - name: The Doctor shows whether "What you like" has a producer
         if: always()
         run: python3 tests/test_doctor_shows_derived_preferences_status.py
