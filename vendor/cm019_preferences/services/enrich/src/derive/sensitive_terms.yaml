@@ -1,0 +1,163 @@
+# SENSITIVE TERMS: GDPR Art. 9 special categories plus diet, minors and the
+# alcohol-recovery family.
+#
+# DATA, read by sensitive.py. A word here must never become a SURFACED
+# preference or a surfaced "because" line: it is not derived into any dimension
+# and it is filtered again at every read-out (the derived-graph reader, the
+# /preferences/derived endpoint, and the QueryClient behind the MCP tools,
+# REST API and gateway). The evidence point itself stays in the store
+# (category unchanged, compartment unchanged); only surfacing is withheld.
+#
+# Matching (sensitive.py):
+# - text is NFKC-normalised and case-folded; hyphens, dots, slashes,
+#   underscores and apostrophes read as spaces;
+# - a Latin-script term matches as whole word(s), and also with a plural
+#   suffix (-s / -es), so "Muslims", "Vegans" and "diabetics" match;
+# - a CJK or kana term matches as a substring (those scripts do not separate
+#   words), so it must be at least 2 characters; a single character hides
+#   inside ordinary words (癌 aside, がん sits in がんばって, 암 in 암스테르담);
+# - a hangul term of 2 characters must START a word (not follow another
+#   hangul syllable), so 기도 matches 기도를 but not 경기도; a longer hangul
+#   term matches as a substring;
+# - an `exceptions` phrase is blanked out BEFORE matching, so "Diet Coke",
+#   "AS Roma" and "Great Depression" are not read as diet, ethnicity or health.
+#
+# Add a term here, never a second list elsewhere.
+# tests/derive/test_sensitive_never_surfaced.py fails if a surfaced vocabulary,
+# allowlist or reader category contains one.
+#
+# OWNER-STATED UNLOCK is NOT implemented. Until it is: store, never surface.
+
+terms:
+  religion:        # religion and belief
+    [religion, religious, spiritual, spirituality, faith, christian, christianity, gospel,
+     worship, church, catholic, protestant, evangelical, islam, islamic, muslim, quran, koran,
+     halal, jewish, judaism, kosher, hindu, hinduism, buddhist, buddhism, sikh, sikhism, bible,
+     "bible study", prayer, ramadan, iftar, atheist, atheism, mosque, synagogue, gurdwara,
+     communion, sabbath, shabbat, diwali, passover,
+     # de / fr / es / it / nl / pt
+     kirche, moschee, synagoge, koscher, glaube, gebet, religion, islamisch, jüdisch,
+     église, mosquée, synagogue, casher, cacher, prière, musulman, juif, chrétien,
+     iglesia, mezquita, sinagoga, oración, musulmán, judío, cristiano,
+     chiesa, moschea, preghiera, musulmano, ebreo, cristiano,
+     kerk, moskee, gebed, moslim, joods, christelijk,
+     igreja, mesquita, oração, muçulmano, judeu, cristão,
+     # ja / zh / ko
+     ハラール, ハラル, 教会, モスク, 宗教, 礼拝, 祈り, イスラム, キリスト教, 仏教,
+     清真, 教堂, 清真寺, 宗教, 祈祷, 伊斯兰, 基督教, 佛教, 犹太,
+     할랄, 교회, 모스크, 종교, 기도, 이슬람, 기독교, 불교]
+  health:          # health, medical and diet (diet is treated as medical or religious)
+    [health condition, diabetic, diabetes, coeliac, celiac, "gluten free", "lactose intolerant",
+     "lactose free", allergy, allergies, allergic, cancer, oncology, oncologist, chemotherapy,
+     chemo, radiotherapy, tumour, tumor, ivf, "in vitro fertilisation", "in vitro fertilization",
+     depression, anxiety, "mental health", therapy, therapies, therapist, psychiatrist,
+     psychiatric, counselling, counseling, adhd, autism, autistic, bipolar, ptsd,
+     "eating disorder", anorexia, bulimia, hiv, aids clinic, pregnancy, pregnant, prenatal,
+     antenatal, fertility, disability, disabled, "chronic illness", medication, prescription,
+     pharmacy, chemist, clinic, hospital, hospice, dialysis, physiotherapy, rehab,
+     rehabilitation, "weight watchers", "slimming world",
+     sober, sobriety, "alcoholics anonymous", "aa meeting", "narcotics anonymous",
+     teetotal, teetotaller, "12 step", "twelve step", relapse, "in recovery", "dry january",
+     diet, dietary, vegan, vegetarian, pescatarian, "plant based", "dairy free", "nut free",
+     keto, "low carb", "sugar free", "alcohol free",
+     # de / fr / es / it / nl / pt
+     glutenfrei, laktosefrei, vegetarisch, krankenhaus, klinik, diabetiker, krebs, therapie,
+     schwanger, apotheke, nüchtern,
+     "sans gluten", "sans lactose", végétarien, végétalien, hôpital, clinique, diabétique,
+     grossesse, enceinte, pharmacie, cancer,
+     "sin gluten", "sin lactosa", vegetariano, vegano, hospital, clínica, diabético,
+     embarazo, embarazada, farmacia,
+     "senza glutine", "senza lattosio", vegetariana, ospedale, clinica, diabetico,
+     gravidanza, incinta, farmacia,
+     glutenvrij, lactosevrij, vegetarisch, ziekenhuis, kliniek, zwanger, apotheek,
+     "sem glúten", "sem lactose", vegetariano, hospital, clínica, grávida, farmácia,
+     # ja / zh / ko
+     グルテンフリー, ベジタリアン, ヴィーガン, 病院, クリニック, 糖尿病, がん治療, 抗がん剤, がんセンター, 妊娠, 薬局,
+     无麸质, 素食, 医院, 诊所, 糖尿病, 癌症, 怀孕, 药房, 化疗,
+     글루텐프리, 채식, 비건, 병원, 대학병원, 종합병원, 요양병원, 클리닉, 당뇨, 항암, 암센터, 암환자,
+     임신, 약국]
+  sexuality:       # sex life and sexual orientation
+    [lgbt, lgbtq, lgbtqia, gay, lesbian, bisexual, transgender, queer, homosexual, "non binary",
+     "gender identity", grindr, pride march, "pride parade",
+     schwul, lesbisch, homosexuel, homosexual, omosessuale, homoseksueel,
+     ゲイ, レズビアン, 同性恋, 동성애]
+  politics:        # political opinion
+    [politics, political, "political party", democrat, democrats, republican, republicans,
+     "labour party", "conservative party", "liberal democrats", "green party", tory, tories,
+     "left wing", "right wing", "far right", "far left", socialist, communist, fascist,
+     libertarian, brexit, maga, activism, activist, protest,
+     politik, politique, política, politica, politiek,
+     政治, 政党, 정치]
+  ethnicity:       # racial or ethnic origin
+    [ethnicity, ethnic, racial, racism, racist, "black lives matter", "african american",
+     "afro caribbean", "south asian", "east asian", romani, roma, indigenous, "first nations",
+     hispanic, latino, latina]
+  trade_union:     # trade union membership
+    [union member, "trade union", "trade unions", "trade unionist", "labour union", "labor union",
+     "unite the union", unison, teamsters, tuc, "collective bargaining",
+     gewerkschaft, syndicat, sindicato, sindacato, vakbond, 労働組合, 工会, 노동조합]
+  minors:          # events and places that are ABOUT a child, not an adult's own interest
+    ["kids party", "kid party", "childrens party", "children party", "child party",
+     playdate, "play date", "school run", "school pickup", "school pick up", "school drop off",
+     "parents evening", "parent teacher", pta, "school play", "school trip", "sports day",
+     nursery, kindergarten, preschool, "pre school", daycare, "day care", creche, crèche,
+     babysitter, babysitting, "baby group", "toddler group", "soft play",
+     kindergeburtstag, kita, "goûter d anniversaire", guardería, asilo nido,
+     幼稚園, 保育園, 幼儿园, 어린이집, 유치원]
+
+# Blanked out of the text BEFORE matching. Each one is a common name that merely
+# CONTAINS a term, under contains matching. Whole phrase, same normalisation.
+exceptions:
+  ["diet coke", "diet pepsi", "diet lemonade", "diet soda", "as roma", "roma tomato",
+   "roma tomatoes", "great depression", "tropical depression", "retail therapy"]
+
+# Values whose ABSENCE or DISLIKE reveals health or religion ("I don't drink
+# beer, I'm sober"; "I avoid pork"; "I don't eat meat"). Liking them is not
+# sensitive, so they are NOT in `terms`: they are excluded from stated negative
+# values and from every say-vs-do contradiction.
+abstention_terms:
+  [alcohol, alcoholic, beer, beers, lager, ale, cider, wine, wines, prosecco, champagne,
+   spirits, whisky, whiskey, vodka, gin, rum, tequila, cocktail, cocktails, sake, soju,
+   "craft beer", booze, drinking, pub, pubs, bar, bars,
+   pork, bacon, ham, beef, meat, shellfish]
+
+# BROAD CONCEPTS that name a sensitive area without using a word above: the
+# labels a Wikidata hierarchy rolls a topic UP into ("disease", "belief system",
+# "alcoholic beverage", "childhood"). Read ONLY for the thematic rollup
+# (dimension theme.*): a theme label matching one of these, a term above, or an
+# abstention term is never derived and never surfaced. Not added to `terms`,
+# because a film or podcast title may legitimately hold "medicine" or "drug".
+theme_terms:
+  [health, healthcare, "health care", medicine, medical, disease, diseases, disorder,
+   illness, syndrome, symptom, pathology, infection, pharmacology, pharmaceutical, drug,
+   drugs, narcotic, narcotics, psychoactive, addiction, "substance abuse", "mental disorder",
+   psychotherapy, nutrition, dieting, "alcoholic beverage", "alcoholic drink", "distilled beverage",
+   brewing, winemaking, belief, beliefs, "belief system", theology, deity, deities, god, gods,
+   worldview, sect, cult, clergy, sexuality, sexual, sex, "sexual orientation", gender,
+   ideology, "political ideology", "political movement", nationalism, "ethnic group",
+   race, "human race", child, children, childhood, infant, infancy, baby, babies, toddler,
+   parenting, "child care", childcare, adolescence, adolescent, teenager, minor, minors,
+   youth, pregnancy, reproduction, "human reproduction", suicide]
+
+# Party or advocacy news hosts: reading one reveals political opinion. A news
+# allowlist (news.source) must not contain these. Not exhaustive; the stems above
+# also run over every allowlist entry.
+advocacy_domains:
+  [breitbart.com, huffpost.com, jacobin.com, dailywire.com, motherjones.com, nationalreview.com,
+   thenation.com, newsmax.com, oann.com, thefederalist.com, dailykos.com, infowars.com,
+   labour.org.uk, conservatives.com, democrats.org, gop.com, libdems.org.uk, greenparty.org.uk]
+
+# Literal-preference categories whose SUBJECT is a NAME (an artist, a film, a
+# song, a book, a show, a game). Read-out uses EXACT matching for these, the
+# same rule the write side applies to media name dimensions: "Black Sabbath",
+# "The Dark Knight - Christian Bale" and "Amy Winehouse - Rehab" are tastes,
+# not Art. 9 data. Every other or missing category uses contains matching.
+name_categories:
+  [music, song, songs, track, tracks, album, albums, artist, artists, movie, movies, film, films,
+   movie_tv, tv, tv_show, tv_shows, show, series, book, books, audiobook, audiobooks, podcast,
+   podcasts, video, videos, youtube, game, games, app, apps, spotify, apple_music, netflix]
+
+# Reader categories that must never feed a derived dimension (stored only), and
+# that the read-out gate withholds. 'kids'/'toys' are an adult's interests and
+# stay; data ABOUT a minor is dropped by extra.about_minor.
+never_read_categories: [dietary, minor, minors, children, child, health_record, medical]
