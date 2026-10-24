@@ -135,11 +135,11 @@
   "ai_models": {
     "id": "ai_models",
     "title": "Downloading AI models",
-    "subtitle": "This is the big one (~7GB)",
+    "subtitle": "This is the big one (~4.9 GB)",
     "why": "The assistant model and the embedding model. One large download, then nothing more from the cloud. If your connection drops we retry three times.",
     "duration_estimate_s": 600,
     "long_running_threshold_s": 300,
-    "long_running_copy": "On a slow connection this can take 15-20 minutes. You can leave the installer running.",
+    "long_running_copy": "On a slow connection this can take an hour or more. You can leave the installer running.",
     "illustration": null,
     "needs_fda": false
   },

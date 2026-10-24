@@ -48,17 +48,18 @@ set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # ── The measured floor ────────────────────────────────────────────────
-# 7.2 GB, measured on the box during the v1.0.61 walk (2026-09-03) rather than
-# read off a spec. Corroborated inside this repo by install.sh's own pull
-# comments and by scripts/verify_install_duration_honesty.sh, which prices the
-# install duration floor on the same figure.
+# 4.6 GB: the sum of the weight layers (model + projector + draft) in the
+# on-disk manifest the PINNED Ollama 0.34.0 wrote for gemma4:e2b on a clean pull
+# (docs/model-pins/ollama-0.34.0/gemma4_e2b.json: 3502493472 + 986833664 +
+# 97817696 = 4587144832 bytes). This replaces the 7.2 GB of the v1.0.61 walk
+# (2026-09-03), which was pulled by an older Ollama whose model layer alone was
+# 7.5 GB; the shipped installer pins 0.34.0, so the pinned manifest is the
+# build the customer downloads. A 16 GB Mac gets this tag (the smallest).
 #
-# RAISE THIS, NEVER LOWER IT, and only against a NEW measurement on a box. If a
-# future model tag genuinely downloads less, the honest move is to record that
-# measurement here with its date and box -- not to relax the floor so a
-# convenient label passes.
-MEASURED_FLOOR_GB="7.2"
-FLOOR_PROVENANCE="measured on the v1.0.61 walk box, 2026-09-03"
+# Do not lower this to make a label pass. It moves only against a new pinned
+# manifest or a new measurement, recorded here with its date and source.
+MEASURED_FLOOR_GB="4.6"
+FLOOR_PROVENANCE="pinned Ollama 0.34.0 gemma4:e2b manifest, 2026-10-22"
 
 # The tier the floor was measured on. A 16 GB Mac is the installer's hard RAM
 # floor (ERR-02-PREREQ-RAM-LOW), so this is the smallest -- and therefore
