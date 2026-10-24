@@ -803,7 +803,7 @@ def mech(u, out, cfg):
             errs.append(f"verbatim token {tok!r} lost")
     for m in YN.findall(src):
         # The cue stays, or is spelled out in the language: "(Y = oui / N = non)",
-        # "[y = ja / N = nein]" (the installer still accepts Y/N; reviewer Veinand, 2026-10-19).
+        # "[y = ja / N = nein]" (the installer still accepts Y/N; legal reviewer (fr), 2026-10-19).
         if m not in out and not YN_LABELLED.search(out):
             errs.append(f"y/n cue {m!r} lost")
     for m in LIT.findall(src):
