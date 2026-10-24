@@ -520,9 +520,15 @@ def collect_oxigraph(facts, meta, hdr):
     if rows is None:
         meta["oxigraph"] = "unreadable"
         return
+    total = 0
     for r in rows:
         local = r["t"]["value"].rsplit("#", 1)[-1].rsplit("/", 1)[-1]
         facts["x.class.%s" % local] = int(r["n"]["value"])
+        total += int(r["n"]["value"])
+    # The control for an absent class: the GROUP BY answered, so a class with
+    # no row holds 0 nodes. Rows name it as {"key": "x.class.T", "zero_if":
+    # "x.class.total"}; without this a box with 0 Places read "unreadable".
+    facts["x.class.total"] = total
     # PREFERENCES, raw vs distinct. Every like/dislike is held twice (pwg:pref_<id>
     # from the CM019 writer and urn:ostler:preference:<sha256> from the CM059
     # projection), so raw is what a tile that counts nodes reads and distinct is

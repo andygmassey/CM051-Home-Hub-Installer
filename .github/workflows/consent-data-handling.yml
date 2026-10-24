@@ -83,9 +83,17 @@ jobs:
         if: always()
         run: bash tests/test_spoken_capture_consent_does_not_claim_audio_is_kept.sh
 
+      - name: Q23 spoken-capture copy stays short enough to keep the toggle visible
+        if: always()
+        run: bash tests/test_q23_spoken_capture_copy_fits_the_window.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
+
+      - name: legal text says the English version prevails
+        if: always()
+        run: bash tests/test_legal_text_says_english_prevails.sh
 
       # BOARD ROW 1589. Every service row on the success screen is grepped out
       # of the installer's own transcript, so the customer is shown what the
@@ -201,6 +209,9 @@ jobs:
           if TEST_INSTALL_STRINGS_MUTATE=1 bash tests/test_install_strings_translations.sh; then
             echo "self-test: a dropped placeholder was NOT caught"; exit 1
           fi
+      - name: customer copy states the real source count
+        if: always()
+        run: bash tests/test_source_count_copy.sh
 
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()

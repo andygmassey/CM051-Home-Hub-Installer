@@ -389,8 +389,19 @@ def hydration(fetch=None, sleep=None, clock=None, budget_s=30, backoff_s=2):
             return False, "unreadable ({}; attempts={})".format(str(exc)[:60], attempts)
 
 
-def ask_chat(question, seed_org, deadline_s=300):
-    """Ask over /ws/chat and return {answered, names_seed_org}; never the prose."""
+def ask_chat_text(question, deadline_s=300):
+    """For a caller that grades the reply itself (lib/derived_preferences_reach.py):
+    {answered, text} or {answered: False, error}. The prose stays in this process."""
+    got = []
+    r = ask_chat(question, "", deadline_s, capture=got)
+    if r.get("answered"):
+        return {"answered": True, "text": got[0] if got else ""}
+    return r
+
+
+def ask_chat(question, seed_org, deadline_s=300, capture=None):
+    """Ask over /ws/chat and return {answered, names_seed_org}; never the prose
+    (unless the caller passes a `capture` list, which then receives the reply)."""
     import base64
     import socket
     import struct
@@ -455,6 +466,8 @@ def ask_chat(question, seed_org, deadline_s=300):
                 text = ""
             elif t == "done":
                 reply = ev.get("full_response") if "full_response" in ev else text
+                if capture is not None:
+                    capture.append(reply or "")
                 return {"answered": True, "names_seed_org": seed_org.lower() in (reply or "").lower()}
             elif t == "error":
                 return {"answered": False, "error": "chat error frame"}

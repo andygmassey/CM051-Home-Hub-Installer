@@ -53,10 +53,10 @@ HOUSEHOLD_PHONE = "+447700900102"
 
 # (n, given, family, phones, emails, title)
 CARDS = [
-    (1, "Jane", "Doe", ["+447700900101"], ["jane.doe@example.com"], ""),
+    (1, "Jonathan", "Min", ["+447700900101"], ["jonathan.min@example.com"], ""),
     (2, "John", "Smith", [HOUSEHOLD_PHONE], ["john.smith@example.com"], ""),
     (3, "Mary", "Jones", ["+447700900103"], ["mary.jones@example.com"], ""),
-    (4, "Raj", "Patel", ["+447700900104"], ["raj.patel@example.com"], ""),
+    (4, "Ben", "Wei", ["+447700900104"], ["ben.wei@example.com"], ""),
     (5, "Liz", "Brown", ["+447700900105"], ["liz.brown@example.com"], ""),
     (6, "Alex", "Ross", ["+447700900106"], ["alex.ross@example.com"], ""),
     (7, "Bob", "Smith", [HOUSEHOLD_PHONE], ["bob.smith@example.com"], ""),

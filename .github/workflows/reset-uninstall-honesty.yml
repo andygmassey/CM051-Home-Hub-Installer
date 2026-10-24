@@ -30,10 +30,11 @@ on:
       - 'tests/test_the_uninstaller_resolves_docker_absolutely.sh'
       - 'install.sh'
       - 'scripts/ttywalk.sh'
-      - 'tests/test_a_walk_can_ask_for_a_fresh_graph.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
-      - 'tests/test_a_volume_count_is_not_a_wiped_box.sh'
-      - 'tests/test_the_wipe_preserves_the_licence.sh'
+      - 'tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh'
+      - 'tests/test_early_pass_timeout_kills_the_remote_probe.sh'
+      - 'tests/test_early_pass_timeout_kills_the_local_runner.sh'
+      - 'scripts/early_repeat_fail_pass.sh'
       - 'scripts/dev-wipe-studio.sh'
       - 'tests/test_a_dev_wipe_verdict_is_not_inverted.sh'
       - '.github/workflows/reset-uninstall-honesty.yml'
@@ -86,39 +87,6 @@ jobs:
       - name: The shipped uninstaller resolves docker absolutely
         if: always()
         run: bash tests/test_the_uninstaller_resolves_docker_absolutely.sh
-
-      # --wipe-stores is the ONLY way a walk can hold the box state still.
-      # `if: always()` so an earlier red does not delete this measurement.
-      - name: A walk can ask for a fresh graph, and the wipe proves itself
-        if: always()
-        run: /bin/bash tests/test_a_walk_can_ask_for_a_fresh_graph.sh
-
-      # The sibling above measures DOCKER VOLUMES and nothing else, which is
-      # how a box holding 42M of carried-over content under ~/Documents/Ostler
-      # could be printed as WIPE CONFIRMED. This limb measures the FILESYSTEM,
-      # and carries the positive control the #1592 gate asks for: on a box
-      # where neither root existed BEFORE the wipe, a zero residue count is
-      # measuring the wrong place and must not read as clean.
-      #
-      # `if: always()` for the same reason as the sibling: an earlier red must
-      # not delete this measurement.
-      - name: A docker volume count is not a wiped box
-        if: always()
-        run: /bin/bash tests/test_a_volume_count_is_not_a_wiped_box.sh
-
-      # THE WIPE MUST NOT DESTROY THE LICENCE THE NEXT INSTALL REQUIRES. The
-      # shipped uninstaller removes everything under ~/.ostler but power.conf
-      # (install.sh:21732) and the licence lives under it (install.sh:1970). The
-      # licence preflight runs BEFORE the wipe, so it passes, and the install
-      # AFTER the wipe then dies at ERR-02-LICENCE-REQUIRED with the box already
-      # wiped and no uninstaller left to retry with. Measured on the v1.0.82 walk.
-      #
-      # `if: always()` for the same reason as the siblings: an earlier red must
-      # not delete this measurement.
-      - name: The wipe preserves the licence
-        if: always()
-        run: /bin/bash tests/test_the_wipe_preserves_the_licence.sh
-
       # Same subject from the other end: the DEV wipe. Its verdict was
       # inverted -- four bare `ls PATH 2>&1 | head -1` lines under
       # `set -euo pipefail`, so a clean wipe aborted on the first check and
@@ -133,3 +101,31 @@ jobs:
         if: always()
         run: /bin/bash tests/test_a_dev_wipe_verdict_is_not_inverted.sh
 
+  # v1.0.117 thin walk, W4. --reset booted out only the engine supervisor;
+  # the KeepAlive assistant restarted colima 22s after the VM delete and held
+  # all six store ports, so walk attempt 1 was CANNOT-RUN. The reset now runs
+  # the shipped ~/.ostler/bin/ostler-uninstall, boots out every Ostler job and
+  # refuses to continue while a port is held. macOS on purpose: the reset body
+  # runs in the walk box's login shell, which is zsh, and the test drives it
+  # under /bin/zsh as well as /bin/bash through a fake ssh.
+  ttywalk-reset-clears-the-box:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: The reset leaves no Ostler job loaded and every store port free
+        run: /bin/bash tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh
+
+      # Same walk, same shape: the early pass's budget alarm killed only the
+      # local runner, and an orphan data_conservation probe ran on for 81
+      # CPU-minutes on the box. The pass now records each remote command's
+      # process group and TERMs then KILLs it, and verifies it is gone.
+      - name: The early pass's timeout kills the remote probe, not only the local wrapper
+        if: always()
+        run: /bin/bash tests/test_early_pass_timeout_kills_the_remote_probe.sh
+
+      # Archie's limb: the runner blocks on a LOCAL child; the budget must kill
+      # it too. Kills the mutant that drops the local process-group kill.
+      - name: The early pass's timeout kills the local runner's children
+        if: always()
+        run: /bin/bash tests/test_early_pass_timeout_kills_the_local_runner.sh

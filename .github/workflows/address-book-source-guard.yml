@@ -33,6 +33,7 @@ on:
       - 'contact_syncer/syncer.py'
       - 'tests/helpers/check_address_book_source_guard.py'
       - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - 'tests/test_address_book_photos_reach_photo_dir.py'
       - '.github/workflows/address-book-source-guard.yml'
   pull_request:
     paths:
@@ -40,6 +41,7 @@ on:
       - 'contact_syncer/syncer.py'
       - 'tests/helpers/check_address_book_source_guard.py'
       - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - 'tests/test_address_book_photos_reach_photo_dir.py'
       - '.github/workflows/address-book-source-guard.yml'
 
 concurrency:
@@ -77,6 +79,17 @@ jobs:
       # `if: always()` because a syntax error in either file makes the step
       # above fail for a reason that has nothing to do with the address book,
       # and that is exactly the run where the distinction is wanted (#683).
+      - name: Install the shipped syncer's declared dependencies
+        if: success() || failure()
+        run: |
+          python -m pip install --quiet \
+            -r vendor/cm041/contact_syncer/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt
+
+      - name: Apple Contacts photos reach PHOTO_DIR and foaf:img (v1.0.111)
+        if: success() || failure()
+        run: python tests/test_address_book_photos_reach_photo_dir.py
+
       - name: SELF-CHECK -- the test and its helper still parse
         if: always()
         run: |

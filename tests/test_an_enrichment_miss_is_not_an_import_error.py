@@ -99,7 +99,8 @@ def run(outcomes):
     """outcomes: list of callables(pref_id, title) -> result, or an Exception
     instance to raise. Returns (exit_code, stderr_text)."""
     prefs = [{"id": f"pref_synthetic_{i}", "category": "movie",
-              "subject": f"Synthetic Film Title {i}", "extra": {"category_inferred": False}}
+              "subject": f"Synthetic Film Title {i}", "compartment_level": 2,
+              "extra": {"category_inferred": False}}
              for i in range(len(outcomes))]
     by_id = {p["id"]: o for p, o in zip(prefs, outcomes)}
 

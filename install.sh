@@ -3633,11 +3633,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :8928) captures the path BY
+    # _ostler_write_store_curl_config (defined :8945) captures the path BY
     # VALUE and never re-reads it:
-    #     :8929   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :8974   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :8983 and :16691, both of which run
+    #     :8946   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :8991   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9000 and :16762, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :3619 above has just deleted
     # that tree and :3623 has just rebound OSTLER_DIR to the final one, so
@@ -3655,13 +3655,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :355: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :17486, where the note reads
+    # WhatsApp Web session path did it again at :17557, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :17503 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :17574 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -3670,13 +3670,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6257 against a definition at :8928. Top-level
+    # writer's own definition: :6274 against a definition at :8945. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:8983, :16691) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9000, :16762) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :19651 / :19829 / :19986 / :20431 path. There the
+    # :19730 / :19908 / :20065 / :20510 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -3705,6 +3705,23 @@ _ostler_promote_prelaunch_tree() {
     fi
 
     OSTLER_PRELAUNCH_PROMOTED=true
+
+    # POST-PROMOTE ASSERTION: a consent decision recorded this run must have
+    # survived the replace above. The persist block (3.6b) once wrote into the
+    # final posture/ while staged, and the promote then replaced posture/ with
+    # the staged copy: every record lost, install reported ok (v1.0.116).
+    if [[ -n "${_OSTLER_CONSENT_RECORDED_TICKBOXES:-}" ]]; then
+        local _cp_tb _cp_file="${OSTLER_FINAL_DIR}/posture/consent.json"
+        if [[ ! -s "$_cp_file" ]]; then
+            err "Consent was recorded during this install but ${_cp_file} is missing after the staging promote. The consent records were lost."  # i18n-exempt
+        else
+            for _cp_tb in $_OSTLER_CONSENT_RECORDED_TICKBOXES; do
+                if ! /usr/bin/grep -q -F "\"${_cp_tb}\"" "$_cp_file"; then
+                    err "Consent tickbox ${_cp_tb} was recorded during this install but is absent from ${_cp_file} after the staging promote."  # i18n-exempt
+                fi
+            done
+        fi
+    fi
 
     # CX-95 (DMG #48g+, 2026-05-29): repair the venv after promote.
     #
@@ -8289,7 +8306,7 @@ _link() {
 echo ""
 echo -e "  ${BOLD}Your data sources${NC}"
 echo ""
-echo "  Ostler imports from 20 platforms. Request your data exports"
+echo "  Ostler imports 18 platform exports. Request your data exports"
 echo "  now -- they take 1-3 days to arrive by email. You can do this"
 echo "  on your phone while the installer runs."
 echo ""
@@ -12689,6 +12706,8 @@ _ostler_ask_personal_use_terms() {
     echo ""
     echo -e "  ${DIM}${MSG_TERMS_PERSONAL_USE_LEGAL}${NC}"
     echo ""
+    echo -e "  ${DIM}${MSG_TERMS_LANGUAGE}${NC}"
+    echo ""
     TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
     if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
         echo ""
@@ -13218,6 +13237,9 @@ composite_cleanup() {
             echo "  Install diagnostics kept at ${OSTLER_DIAG_KEPT}" >&2
         fi
     fi
+    # W6 (v1.0.117): an install that dies holding the wiki tick lock releases it
+    # here, so the daily recompile is not locked out until the 6 h age cap.
+    if declare -F wiki_tick_lock_release >/dev/null 2>&1; then wiki_tick_lock_release; fi
 }
 trap composite_cleanup EXIT
 
@@ -15839,6 +15861,10 @@ MAX_S="${OSTLER_LISTENER_WD_MAX_S:-5}"
 VERIFY_S="${OSTLER_LISTENER_WD_VERIFY_S:-60}"
 VERIFY_POLL_S="${OSTLER_LISTENER_WD_VERIFY_POLL_S:-3}"
 SAMPLE_S="${OSTLER_LISTENER_WD_SAMPLE_S:-5}"
+# The WHOLE diagnostic capture is bounded by this, because the listener is
+# dead while it runs. v1.0.116c: `sample` on the wedged daemon took 60 s and
+# the restart waited behind it.
+CAPTURE_MAX_S="${OSTLER_LISTENER_WD_CAPTURE_MAX_S:-10}"
 CAPTURE_KEEP="${OSTLER_LISTENER_WD_CAPTURE_KEEP:-5}"
 CAPTURE_FILE_MAX="${OSTLER_LISTENER_WD_CAPTURE_FILE_MAX:-2097152}"
 LWD_STATE_DIR="${OSTLER_LISTENER_WD_STATE_DIR:-${LWD_OSTLER_DIR}/state}"
@@ -15849,7 +15875,14 @@ ASSISTANT_CONFIG="${OSTLER_LISTENER_WD_CONFIG:-${LWD_OSTLER_DIR}/assistant-confi
 DAEMON_ERR="${OSTLER_LISTENER_WD_DAEMON_ERR:-${LWD_LOGS_DIR}/ostler-assistant.err}"
 INSTALL_RUNNING_CMD="${OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD:-}"
 LWD_STATE_FILE="${LWD_STATE_DIR}/listener_watchdog.json"
+# The walk probe derives its wait budget from THIS, so the two cannot drift
+# apart. The launchd StartInterval is read from the installed plist.
+if [ "${1:-}" = "--print-config" ]; then
+    printf 'fail_n=%s\nmax_s=%s\ncapture_max_s=%s\nverify_s=%s\n' "$FAIL_N" "$MAX_S" "$CAPTURE_MAX_S" "$VERIFY_S"
+    exit 0
+fi
 FAILS="${LWD_STATE_DIR}/listener_watchdog.fails"
+FAILS_AT="${LWD_STATE_DIR}/listener_watchdog.fails_at"
 RESTARTS="${LWD_STATE_DIR}/listener_watchdog.restarts"
 LOCK="${LWD_STATE_DIR}/listener_watchdog.lock"
 
@@ -15962,7 +15995,15 @@ if [ "$LAST_CODE" != "000" ]; then
 fi
 n=$((prev_fails + 1))
 echo "$n" > "$FAILS"
-lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})"
+# Strike spacing is logged so drift under load is MEASURED (v1.0.116c: 74-82 s
+# gaps on a 60 s StartInterval), not inferred.
+_now="$(lwd_now)"; _gap=""
+if [ "$n" -gt 1 ]; then
+    _prev_at="$(cat "$FAILS_AT" 2>/dev/null || echo "")"
+    case "$_prev_at" in ''|*[!0-9]*) ;; *) _gap=", $((_now - _prev_at))s since the previous strike" ;; esac
+fi
+echo "$_now" > "$FAILS_AT"
+lwd_log "PROBE-FAIL ${n}/${FAIL_N}: ${URL} gave no HTTP status (daemon pid ${PID:-none})${_gap}"
 if [ "$n" -lt "$FAIL_N" ]; then
     lwd_write_state "failing" "$n" "no HTTP status from the listener"
     exit 0
@@ -15993,13 +16034,33 @@ mkdir -p "$CAP"
     echo "captured_at=$(lwd_iso "$(lwd_now)") pid=${PID:-none} url=${URL} consecutive_failures=${n} restarts_last_hour=${rlh}"
     printf '%s\n' "$lc_out"
 } > "$CAP/launchctl.txt" 2>&1
+# lwd_bounded <seconds> <cmd...>: run cmd, SIGKILL it after <seconds>; rc 124 on
+# a timeout. Output goes wherever the caller redirected it.
+lwd_bounded() {
+    local limit="$1" p ticks=0; shift
+    "$@" & p=$!
+    while kill -0 "$p" 2>/dev/null; do
+        if [ "$ticks" -ge $((limit * 10)) ]; then
+            kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; return 124
+        fi
+        sleep 0.1; ticks=$((ticks + 1))
+    done
+    wait "$p"
+}
+CAP_DEADLINE=$(( $(lwd_now) + CAPTURE_MAX_S ))
+lwd_cap_left() { local l=$(( CAP_DEADLINE - $(lwd_now) )); [ "$l" -lt 1 ] && l=1; echo "$l"; }
 if [ -n "$PID" ]; then
-    sample "$PID" "$SAMPLE_S" -file "$CAP/sample.txt" > "$CAP/sample.stdout" 2>&1 \
-        || echo "sample rc=$? (see sample.stdout)" >> "$CAP/launchctl.txt"
+    # sample runs alongside the rest so one slow tool cannot eat the whole cap.
+    ( lwd_bounded "$CAPTURE_MAX_S" sample "$PID" "$SAMPLE_S" -file "$CAP/sample.txt" > "$CAP/sample.stdout" 2>&1 \
+        || echo "sample rc=$? (see sample.stdout)" >> "$CAP/launchctl.txt" ) &
+    SAMPLE_BG=$!
+    lwd_bounded "$(lwd_cap_left)" lsof -nP -p "$PID" > "$CAP/lsof.txt" 2>&1 \
+        || echo "[lsof incomplete: rc=$? within the ${CAPTURE_MAX_S}s capture cap]" >> "$CAP/lsof.txt"
+    lwd_bounded "$(lwd_cap_left)" ps -o pid,stat,etime,pcpu,rss,command -p "$PID" > "$CAP/ps.txt" 2>&1 || true
+    wait "$SAMPLE_BG" 2>/dev/null
     [ -s "$CAP/sample.txt" ] || mv -f "$CAP/sample.stdout" "$CAP/sample.txt" 2>/dev/null
+    [ -s "$CAP/sample.txt" ] || echo "[sample produced nothing within the ${CAPTURE_MAX_S}s capture cap]" > "$CAP/sample.txt"
     rm -f "$CAP/sample.stdout"
-    lsof -nP -p "$PID" > "$CAP/lsof.txt" 2>&1 || true
-    ps -o pid,stat,etime,pcpu,rss,command -p "$PID" > "$CAP/ps.txt" 2>&1 || true
 else
     echo "no pid from launchctl print; sample and lsof skipped" > "$CAP/sample.txt"
     echo "no pid from launchctl print" > "$CAP/lsof.txt"
@@ -16011,12 +16072,12 @@ tail -n 200 "$DAEMON_ERR" > "$CAP/daemon-err-tail.txt" 2>&1 || true
 } > "$CAP/load.txt"
 {
     echo "== vm_stat"; vm_stat 2>&1
-    echo "== memory_pressure -Q"; memory_pressure -Q 2>&1
+    echo "== memory_pressure -Q"; lwd_bounded "$(lwd_cap_left)" memory_pressure -Q 2>&1
     echo "== hw.memsize"; sysctl -n hw.memsize 2>&1
 } > "$CAP/memory.txt"
 for _f in "$CAP"/*; do lwd_cap_file "$_f"; done
 LAST_CAPTURE="$CAP"
-lwd_log "CAPTURE ${CAP}"
+lwd_log "CAPTURE ${CAP} ($(( $(lwd_now) - CAP_DEADLINE + CAPTURE_MAX_S ))s of a ${CAPTURE_MAX_S}s cap)"
 ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" 'NR>k' | while IFS= read -r _old; do rm -rf "$_old"; done
 
 # ── Restart ──────────────────────────────────────────────────────────
@@ -16027,7 +16088,7 @@ ls -1d "$LWD_CAPTURE_ROOT"/2* 2>/dev/null | sort -r | awk -v k="$CAPTURE_KEEP" '
 t0="$(lwd_now)"
 echo "$t0" >> "$RESTARTS"
 LAST_RESTART_AT="$(lwd_iso "$t0")"
-rm -f "$FAILS"
+rm -f "$FAILS" "$FAILS_AT"
 ks_rc=0; ks_out="$("$LAUNCHCTL" kickstart -k "gui/$(id -u)/${LABEL}" 2>&1)" || ks_rc=$?
 lwd_log "RESTART ${LABEL}: kickstart -k rc=${ks_rc} ${ks_out}"
 if [ "$ks_rc" -ne 0 ]; then
@@ -16518,6 +16579,16 @@ if grep -q '^WIKI_OPERATOR_EMAILS=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'WIKI_OPERATOR_EMAILS=%s\n' "${_wiki_operator_emails}" >> "$OSTLER_ENV_FILE"
+# P13 (v1.0.118): the operator's own phone, so a Person node that is just the
+# owner's mobile number is never listed as somebody else on the Front Page
+# (CM044 identify_self_uris phone arm). The me-card phone captured at Q3; the
+# compiler compares numbers in canonical form and reads the owner's country
+# from it. Empty is safe: no phone arm.
+if grep -q '^WIKI_OPERATOR_PHONES=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^WIKI_OPERATOR_PHONES=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'WIKI_OPERATOR_PHONES=%s\n' "${USER_PHONE:-}" >> "$OSTLER_ENV_FILE"
 unset _wiki_operator_emails
 
 chmod 600 "$OSTLER_ENV_FILE"
@@ -18423,7 +18494,13 @@ if [[ "$HAS_SECURITY_MODULE" == true ]]; then
     # design (block header above), so this changes only HOW a failure is shown,
     # not the step's ok status.
     _region_stderr="$(mktemp)"
-    if ! "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
+    # OSTLER_HOME="${OSTLER_DIR}": save_region() and consent_cli resolve their
+    # posture/ dir from OSTLER_HOME (vendor/ostler_security/consent.py:70), which
+    # defaults to the FINAL ~/.ostler. This block runs while OSTLER_DIR is still
+    # the prelaunch staging tree, and the promote then rm -rf's the final
+    # posture/ and replaces it with the staged one. Writing to the final dir
+    # here lost consent.json and region.json on every fresh install (v1.0.116).
+    if ! OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" - "$OSTLER_REGION" "$OSTLER_REGION_ISO" "$OSTLER_REGION_SOURCE" 2>"$_region_stderr" <<'PY'
 import sys
 from ostler_security.region import RegionResult, save_region
 from datetime import datetime, timezone
@@ -18463,13 +18540,15 @@ PY
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
         local stderr_file
         stderr_file=$(mktemp)
-        if USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
+        if OSTLER_HOME="${OSTLER_DIR}" \
+           USER_ID="${USER_ID:?USER_ID must be set before consent recording}" \
            "$OSTLER_PYTHON" -m ostler_security.consent_cli record \
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
                 --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
             rm -f "$stderr_file"
+            _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then
@@ -20117,7 +20196,7 @@ import sys, json
 sys.path.insert(0, '${FDA_DIR}')
 from ostler_fda.extract_all import run_all
 from pathlib import Path
-summary = run_all(Path('${OSTLER_DIR}/imports/fda'))
+summary = run_all(Path('${OSTLER_DIR}/imports/fda'), writer='install')
 print(json.dumps(summary, default=str))
 " 2>&1)
     FDA_EXIT=$?
@@ -21117,7 +21196,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4f11ef5051828290eed9b1b620951ee28d04f1fe10102e73cd58b15234105635
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:29c97480ce9b7200d82df2ca1c32fef56ed136a5157f168864849da8b1243b15
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21164,7 +21243,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:87689b8179c1fb06363fa2fb3b8b356ae46a15e584beefb1b9b9f6e9ed1d085a
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5e3b157404bee2d983f5b6057025e6b5c79279a4ed948770c1899aec81a544a3
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -21438,6 +21517,7 @@ services:
       # installer alongside USER_FIRST_NAME. Empty = no self-exclusion (safe).
       - WIKI_OPERATOR_NAME=${WIKI_OPERATOR_NAME:-}
       - WIKI_OPERATOR_EMAILS=${WIKI_OPERATOR_EMAILS:-}
+      - WIKI_OPERATOR_PHONES=${WIKI_OPERATOR_PHONES:-}
       - OSTLER_PII_OPERATOR_HK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_HK_PHONE_DIGITS:-}
       - OSTLER_PII_OPERATOR_UK_PHONE_DIGITS=${OSTLER_PII_OPERATOR_UK_PHONE_DIGITS:-}
       - OSTLER_PII_SCAN_MODE=${OSTLER_PII_SCAN_MODE:-fail}
@@ -21536,6 +21616,10 @@ services:
     # an unauthenticated read for any second account on the Mac.
     volumes:
       - vane_data:/home/vane/data
+      # Our SearXNG settings (3 engines, no idle egress), written by the
+      # installer BEFORE this container is created or Docker makes a DIRECTORY
+      # here. The image's own settings load every default engine.
+      - ${HOME}/.ostler/vane-searxng-settings.yml:/etc/searxng/settings.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -21977,6 +22061,63 @@ umask "$_va_um"
 chmod 600 "${OSTLER_DIR}/ostler-vane-htpasswd" "${OSTLER_DIR}/ostler-vane-auth.conf"
 unset _vane_htpasswd_hash
 ok "Vane browser credential written (0600); :3000 now demands a password. Username 'ostler', password in ${SECRETS_DIR}/vane_password."
+
+# ── Vane's bundled SearXNG: our own settings, no idle egress ──────
+#
+# The image's stock settings are `use_default_settings: true`: every engine
+# SearXNG ships (several dozen, wikidata and the Wikipedia family among them),
+# autocomplete through Google, wolframalpha on. A walk box showed ostler-vane
+# holding a CLOSE-WAIT socket to a Wikimedia address with nothing asked of it.
+# This file replaces that, mounted read-only over /etc/searxng/settings.yml.
+#
+# Three engines, each a declared row in scripts/box_walk_probes/egress_hosts.tsv,
+# and every feature that can open a socket without a user query is off:
+# autocomplete, favicon resolver, image proxy, metrics, tor_check, oa_doi_rewrite.
+# tests/test_vane_searxng_has_no_idle_egress.py parses THIS heredoc and fails if
+# that stops being true. Written before `docker compose up` or Docker would
+# create a DIRECTORY at the bind path. 0644 because SearXNG runs as a non-root
+# user in the container; it carries only a random cookie-signing key for an
+# instance that is not published (Vane's :3000 sits behind the credential).
+_vs_secret="$(/usr/bin/openssl rand -hex 32)"
+if [[ -z "${_vs_secret}" ]]; then
+    fail_with_code "ERR-14-STORE-WIKI-CREDENTIAL" "Could not generate the vane SearXNG key with openssl rand."
+fi
+cat > "${OSTLER_DIR}/vane-searxng-settings.yml" <<'VSEOF'
+# Ostler vane SearXNG settings -- generated by the Ostler installer.
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - brave
+      - wikipedia
+
+general:
+  instance_name: 'ostler-search'
+  enable_metrics: false
+
+search:
+  autocomplete: ''
+  favicon_resolver: ''
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: '__OSTLER_VANE_SEARXNG_SECRET__'
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+plugins:
+  searx.plugins.tor_check.SXNGPlugin:
+    active: false
+  searx.plugins.oa_doi_rewrite.SXNGPlugin:
+    active: false
+VSEOF
+/usr/bin/sed -i '' "s/__OSTLER_VANE_SEARXNG_SECRET__/${_vs_secret}/" "${OSTLER_DIR}/vane-searxng-settings.yml"
+chmod 644 "${OSTLER_DIR}/vane-searxng-settings.yml"
+unset _vs_secret
+ok "Vane web search limited to 3 engines (duckduckgo, brave, wikipedia); no autocomplete, favicon or image-proxy fetches."
 
 # ── Wiki tailnet gate, fail-closed placeholder (v1.0.17) ──────────
 #
@@ -22431,6 +22572,176 @@ ENRPLIST
 # and this marker, and runs it for real. It cannot key on a column-0
 # `}` because the nginx heredocs contain plenty of those. Do not
 # remove or reword this marker.)
+
+# ── "What you like": the preference-derivation agent (smart-prefs) ──────
+#
+# The derive engine (vendor/cm019_preferences/services/enrich/src/derive/)
+# rolls the literal preferences + their enrichment overlay up into
+# pwg:DerivedPreference nodes in their own named graph, which the wiki's
+# "What you like" page and the assistant's pwg_derived_preferences tool read.
+# Until this agent existed nothing on a box ever ran it, so both read an empty
+# graph on every install.
+#
+# NOT GATED ON THE ENRICHMENT ANSWER, and that is deliberate. The enrich tick
+# above sends titles to public reference services; this one reads and writes
+# the box's own Oxigraph and Qdrant and calls nothing else. With enrichment
+# declined it still runs, finds no genre/director overlay to roll up, and
+# records an honest "empty" rather than leaving the graph absent.
+#
+# NOT GATED ON PRO either. CM044's what_you_like page renders in the ordinary
+# wiki compile for every customer; only the Obsidian vault writer checks the
+# Apple receipt, and it already gates that page's vault copy. Gating the
+# producer would leave a page every customer sees permanently empty for the
+# ones without Pro.
+#
+# CADENCE: every 6 hours, RunAtLoad false, so the first pass lands after the
+# install's own import has populated the graph rather than racing it. It is
+# idempotent (deterministic node URIs, wholesale swap), so re-running on the
+# same data rewrites the same graph.
+#
+# YIELDING: ProcessType=Background + Nice 10 (the scheduler drops it behind
+# anything the customer is doing, chat included); the resource-tier
+# pause/defer check (an operator Pause, or a box over its load ceiling, skips
+# the tick); and the shared ingest slot, so a derive never reads the graph
+# while an ingest or enrich slice is half-way through writing it. It holds no
+# model, so it holds the slot for seconds.
+_install_derive_preferences_agent() {
+    local label="com.ostler.derive-preferences"
+    local plist="${HOME}/Library/LaunchAgents/${label}.plist"
+    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"
+    local wrapper="${OSTLER_DIR}/bin/ostler-derive-preferences-tick"
+    local cm019_dir="${OSTLER_DIR}/services/cm019"
+    local derive_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
+
+    mkdir -p "${OSTLER_DIR}/bin" "${HOME}/Library/LaunchAgents" 2>/dev/null || true
+
+    # Single-quoted heredoc: nothing expands at install time; the wrapper
+    # resolves its paths at run time.
+    cat > "$wrapper" <<'DERIVETICKEOF'
+#!/usr/bin/env bash
+# One pass of the preference-derivation engine ("What you like").
+# Generated by install.sh _install_derive_preferences_agent. Local only.
+#
+# `set -uo pipefail`, not -e: a failed pass is recorded in the status file
+# the runner writes and the next tick tries again.
+set -uo pipefail
+
+OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
+LOGS_DIR="${OSTLER_DIR}/logs"
+CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
+CM019_PY="${CM019_DIR}/.venv/bin/python3"
+DERIVE_USER="${OSTLER_DERIVE_USER:-ostler}"
+LOG_FILE="${LOGS_DIR}/derive-preferences.log"
+
+mkdir -p "$LOGS_DIR"
+log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+
+if [[ ! -x "$CM019_PY" ]]; then
+    log "no preferences service at ${CM019_DIR}; nothing to derive"
+    exit 0
+fi
+
+# Operator Pause and the load ceiling. Fail-safe: no tier lib, no deferral.
+_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
+if [[ "${OSTLER_RESOURCE_GOVERNOR:-1}" == "1" && -f "$_tier_lib" ]]; then
+    # shellcheck source=/dev/null
+    . "$_tier_lib"
+    if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
+        ostler_resource_tier_detect
+        if ostler_resource_tier_should_defer_nonessential; then
+            log "deferred (${OSTLER_DEFER_REASON:-load}); the next tick tries again"
+            exit 0
+        fi
+    fi
+fi
+
+cd "$CM019_DIR" || { log "cannot enter ${CM019_DIR}"; exit 0; }
+CMD=("$CM019_PY" -m services.enrich.src.derive_runner --user-id "$DERIVE_USER")
+
+log "tick start"
+_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
+if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
+    # shellcheck source=/dev/null
+    . "$_slot_lib"
+    if ! ostler_slot_acquire "derive-preferences"; then
+        log "ingest slot busy; yielding this tick"
+        exit 0
+    fi
+    if ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+        log "tick finished: written (see state/derived-preferences.json)"
+    else
+        log "tick finished: NOT written (see state/derived-preferences.json for why)"
+    fi
+    exit 0
+fi
+if "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+    log "tick finished: written (see state/derived-preferences.json)"
+else
+    log "tick finished: NOT written (see state/derived-preferences.json for why)"
+fi
+exit 0
+DERIVETICKEOF
+    chmod +x "$wrapper"
+
+    cat > "$plist" <<DERIVEPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>${wrapper}</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>PYTHONPYCACHEPREFIX</key>
+        <string>${OSTLER_DIR}/cache/pycache</string>
+        <key>OSTLER_DIR</key>
+        <string>${OSTLER_DIR}</string>
+        <key>OSTLER_CM019_DIR</key>
+        <string>${cm019_dir}</string>
+        <key>OSTLER_DERIVE_USER</key>
+        <string>${derive_user}</string>
+        <key>OXIGRAPH_URL</key>
+        <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
+        <key>QDRANT_URL</key>
+        <string>${QDRANT_URL:-http://localhost:6333}</string>
+        <key>QDRANT_COLLECTION</key>
+        <string>preferences</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>${interval_s}</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/derive-preferences.out</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/derive-preferences.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
+DERIVEPLIST
+    chmod 0644 "$plist"
+
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null \
+        || launchctl load "$plist" 2>/dev/null \
+        || true
+    # Ask launchd what is registered; `launchctl load` exits 0 on failure
+    # (see _install_enrichment_agent above).
+    if launchctl print "gui/$(id -u)/${label}" >/dev/null 2>&1; then
+        ok "$MSG_OK_DERIVE_AGENT_LOADED"
+    else
+        warn "$MSG_WARN_DERIVE_AGENT_LOAD_FAILED"
+    fi
+}
 
 cd "$OSTLER_DIR"
 # Bring up the data services only at this phase. The wiki-site
@@ -24134,6 +24445,13 @@ else
     info "$MSG_CM019_SETUP_SKIPPED"
 fi
 
+# "What you like": schedule the derivation engine against this venv. Needs
+# only the venv; the first pass runs after the import below has filled the
+# graph (RunAtLoad false, every 6 hours). See _install_derive_preferences_agent.
+if [[ -x "$CM019_PY" ]]; then
+    _install_derive_preferences_agent
+fi
+
 # ── 3.12 ostler-import command ──────────────────────────────────
 
 IMPORT_SCRIPT="${OSTLER_DIR}/bin/ostler-import"
@@ -24169,6 +24487,24 @@ else
 # Non-fatal by design: a missing/!ready pipeline is skipped, not a hard
 # error, so one consumer being unavailable never blocks the others.
 set -uo pipefail
+# Bounded, detached kickstart (same contract as install.sh's _ks_bounded, which
+# this generated script cannot see): a penalty-boxed job must never block the
+# caller, so the kick is backgrounded behind a 10s watchdog. Absent label: no-op.
+_ks_bounded() {
+    [ -n "${1:-}" ] || return 0
+    launchctl print "$1" >/dev/null 2>&1 || return 0
+    _ksb_cmd=(launchctl kickstart "$1")
+    (
+        "${_ksb_cmd[@]}" >/dev/null 2>&1 &
+        _ksb_pid=$!
+        ( sleep 10; kill -TERM "$_ksb_pid" 2>/dev/null ) >/dev/null 2>&1 &
+        _ksb_wd=$!
+        wait "$_ksb_pid" 2>/dev/null || true
+        kill -TERM "$_ksb_wd" 2>/dev/null || true
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    return 0
+}
 OSTLER_DIR="${HOME}/.ostler"
 PIPELINE_DIR="${OSTLER_DIR}/import-pipeline"
 CM019_DIR="${OSTLER_DIR}/services/cm019"
@@ -24389,6 +24725,18 @@ for d in "${DIRS[@]}"; do
         fi
     fi
 done
+
+# ── smart-prefs P1: an import that has finished reaches the digest NOW ─────
+# The interest-profile compile (editor-frontpage tick) is what puts
+# preferences into ~/.ostler/preferences/interest_profile.json, which is what
+# the digest and the assistant's pwg_preferences tool read. It ran only on the
+# hourly tick, so a customer who imported and asked straight away got an empty
+# answer. Kick it here. The derive agent is kicked too, so the "What you like"
+# graph (read straight from the graph by the wiki and the derived route, not
+# through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
+# a missing agent never fails an import.
+_ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
+_ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc
 IMPORTEOF
 fi
@@ -24994,7 +25342,11 @@ from ostler_fda.pwg_ingest import ingest_all
 from ostler_fda import pwg_ingest as _pwg
 from pathlib import Path
 fda_dir = Path('${OSTLER_DIR}/imports/fda')
-_summary = run_all(fda_dir)
+# The hourly rerun cannot hold the Media & Apple Music grant, so it must not
+# re-run the apple_music arm: that overwrote apple_music.json and the summary
+# entry with 0 tracks / reader none between the daily music-refresh reads.
+# skip_sources keeps both as they were; writer says whose run this is.
+_summary = run_all(fda_dir, skip_sources={'apple_music'}, writer='fda-rerun')
 
 # ── A REFUSED EXTRACT IS NOT A FRESH SOURCE (G1, TCC sweep 2026-10-15) ────
 #
@@ -27399,6 +27751,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
     com.ostler.enrich
+    com.ostler.derive-preferences
     com.creativemachines.ostler.assistant
     com.creativemachines.ostler.whatsapp-keepalive
     com.creativemachines.ostler.tailscaled
@@ -30274,6 +30627,41 @@ remove_self() {
     launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 }
 
+# v1.0.117 THIN WALK, W6: an install in progress owns the wiki. This agent is
+# written mid-install with StartInterval 1800, so its first tick can land
+# while the installer's own baseline compile is still running: two compiles
+# in parallel, and this one's Obsidian rewrite mutated the tree while the
+# installer counted it. Skip while the installer's own marker says it is
+# running (bounded: marker age and a live pid, see below). Checked BEFORE the
+# tries counter, so a skipped tick does not spend one of the bounded tries.
+# install.sh also holds the tick lock around its compile, which covers this
+# job and every other tick caller; this check is the cheap first line.
+# OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD is the test seam, as
+# OSTLER_ENGINE_INSTALL_RUNNING_CMD is for the supervisor.
+catchup_install_running() {
+    if [[ -n "${OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD:-}" ]]; then
+        eval "$OSTLER_WIKI_CATCHUP_INSTALL_RUNNING_CMD"
+        return $?
+    fi
+    # The installer's own marker, not a pgrep: `pgrep -f /install.sh` matched
+    # ANY process with that string in its argv (an editor, a pager), forever,
+    # and a skipped tick spends no try. Running = the marker install.sh
+    # writes (state/install-in-progress, pid=N) exists, is under 6 h old (its
+    # own lifetime, as _hydrating reads it), AND its pid is alive. ps, not
+    # kill -0, so a live pid owned by another uid still reads as alive.
+    local m="${STATE_DIR}/install-in-progress" pid=""
+    [[ -f "$m" ]] || return 1
+    [[ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ]] || { log "install-in-progress marker is over 6 h old; ignoring it"; return 1; }
+    pid="$(sed -n 's/^pid=//p' "$m" 2>/dev/null | head -n 1)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || { log "install-in-progress marker has no pid; ignoring it"; return 1; }
+    ps -p "$pid" >/dev/null 2>&1 || { log "install-in-progress marker names pid ${pid}, which is gone; ignoring it"; return 1; }
+    return 0
+}
+if catchup_install_running; then
+    log "an install is running; not judging or recompiling the wiki (this tick does not count)"
+    exit 0
+fi
+
 # Bounded run counter: once we exceed the cap, give up and remove the
 # agent so the first-day catch-up can never run forever. The daily
 # recompile agent remains the long-term steady state.
@@ -32702,7 +33090,7 @@ elif [[ -n "$NOTICES_BASE_URL" ]] && command -v curl >/dev/null 2>&1; then
     mkdir -p "$LICENSES_DEST"
     LICENSES_BASE="${NOTICES_BASE_URL}/LICENSES"
     LICENSES_FETCHED=0
-    for f in Apache-2.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
+    for f in Apache-2.0.txt AGPL-3.0.txt MIT.txt BSD-2-Clause.txt BSD-3-Clause.txt Zlib.txt MPL-2.0.txt README.md MODELS.md; do
         if curl -fsSL --max-time 30 "${LICENSES_BASE}/${f}" -o "${LICENSES_DEST}/${f}" 2>/dev/null; then
             LICENSES_FETCHED=$((LICENSES_FETCHED + 1))
         fi
@@ -39209,13 +39597,79 @@ ostler_public_lookups_flag() {
 }
 export -f ostler_public_lookups_flag
 
+# ── W6 (v1.0.117 walk): HOLD THE TICK'S OWN LOCK FOR THE BASELINE COMPILE ──
+# Every job that recompiles the wiki goes through wiki-recompile-tick.sh: the
+# daily agent, the first-day catch-up, ostler-contact-resync and
+# ostler-dedupe-catchup all call it, and the tick skips while
+# ${OSTLER_DIR}/.wiki-recompile.lock is held by a live pid. This compile used
+# to run WITHOUT that lock, so a tick fired mid-install ran a second compile
+# that rewrote the tree while the count below read it. Taking the same lock
+# here makes every one of those jobs wait for the install, without a check
+# in each. The tick reclaims a lock whose pid is dead, so an aborted install
+# cannot wedge it. Bounded wait for a tick already running; on timeout the
+# install goes on (the count tolerates a concurrent writer) and says so.
+# Exported for the test, which drives this function on its own.
+WIKI_TICK_LOCK="${OSTLER_DIR}/.wiki-recompile.lock"
+WIKI_TICK_LOCK_HELD=0
+wiki_tick_lock_take() {
+    local lock="$1" waited=0 max="${OSTLER_WIKI_LOCK_WAIT_S:-900}" step="${OSTLER_WIKI_LOCK_POLL_S:-5}" holder=""
+    while :; do
+        if mkdir "$lock" 2>/dev/null; then
+            printf '%s\n' "$$" > "${lock}/pid" 2>/dev/null || true
+            return 0
+        fi
+        holder="$(cat "${lock}/pid" 2>/dev/null || true)"
+        if [ -n "$holder" ] && ! ps -p "$holder" >/dev/null 2>&1; then
+            rm -rf "$lock" 2>/dev/null || true
+            continue
+        fi
+        # AGE CAP, the same bound as the tick (see wiki-recompile-tick.sh):
+        # a lock older than 6 h names a reused pid, not a live holder.
+        if [ -z "$(find "$lock" -maxdepth 1 -mmin -"${OSTLER_WIKI_LOCK_MAX_AGE_MIN:-360}" -print 2>/dev/null)" ]; then
+            rm -rf "$lock" 2>/dev/null || true
+            continue
+        fi
+        if [ "$waited" -ge "$max" ]; then
+            return 1
+        fi
+        sleep "$step"
+        waited=$((waited + step))
+    done
+}
+# Released on EVERY exit path: composite_cleanup (the EXIT trap) calls this,
+# so an install that dies mid-compile does not leave the lock for 6 h.
+wiki_tick_lock_release() {
+    if [ "${WIKI_TICK_LOCK_HELD:-0}" = "1" ] && [ -n "${WIKI_TICK_LOCK:-}" ]; then
+        rm -rf "$WIKI_TICK_LOCK" 2>/dev/null || true
+        WIKI_TICK_LOCK_HELD=0
+    fi
+    return 0
+}
+if wiki_tick_lock_take "$WIKI_TICK_LOCK"; then
+    WIKI_TICK_LOCK_HELD=1
+else
+    warn "A wiki recompile still held ${WIKI_TICK_LOCK} after ${OSTLER_WIKI_LOCK_WAIT_S:-900}s; compiling anyway. The page count below tolerates a concurrent writer."
+fi
+
+# v1.0.117 THIN WALK, S6: the wiki compiler's pii_scan printed every hit as
+# `path:line: [category] 'value' | line`, so the full phone numbers, email
+# addresses and home paths it found landed in plain text in install.log (and
+# in the GUI's raw "Copy log"). CM044 now logs counts only, but the image this
+# file pins may predate that fix. So every compile whose output install.sh
+# writes to a log goes through this scrub: a hit line becomes its category,
+# never its value or its file name (wiki pages are named after people).
+# The detached summary compile below carries its own copy (it runs from a
+# single-quoted bash -c body that tests drive on its own);
+# tests/test_pii_scan_values_never_reach_install_log.sh holds the two equal.
+OSTLER_PII_HIT_SCRUB_SED='s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/'
+
 # `-T </dev/null` cures the `compose run --rm` exit-hang (see the
 # wiki-recompile LaunchAgent). The baseline pipe is wrapped in set +e so
 # its real exit code (PIPESTATUS[0], not tail's) gates the install under
 # `set -euo pipefail`.
 set +e
 OSTLER_PUBLIC_LOOKUPS="$(ostler_public_lookups_flag "$OSTLER_DIR")" docker compose --profile compile run --rm -T \
-    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | tail -10
+    -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null 2>&1 | sed -E "$OSTLER_PII_HIT_SCRUB_SED" | tail -10
 WIKI_BASELINE_RC=${PIPESTATUS[0]:-0}
 set -e
 
@@ -39254,30 +39708,89 @@ set -e
 # unrecorded. An empty wiki is still non-fatal to the install and still shows
 # the customer the same screen; it now also closes its step honestly.
 WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+# v1.0.117 THIN WALK, W6: "ZERO pages" on a wiki that had pages.
+# The old count was `find | wc -l | tr` under pipefail with
+# `|| WIKI_PAGE_COUNT=""`, and an empty value was then read as 0. The
+# first-day catch-up agent fired its first tick while this compile was
+# running, its Obsidian rewrite removed a directory under find's feet, find
+# exited 1 ("No such file or directory"), and a FIND ERROR became "the
+# compile produced ZERO pages" plus HEALTHY=false. A find error means
+# "could not count", never "counted zero".
+#
+# wiki_count_pages prints "<state> <count> [reason]":
+#   ok <n>                 find exited 0; n is the count.
+#   cannot_count <n> <why> find kept failing (3 tries); n is a LOWER BOUND
+#                          from what it did list.
+# Retried because the usual cause is a concurrent writer, which is transient.
+# OSTLER_WIKI_COUNT_RETRY_S exists so the test can retry without sleeping.
+wiki_count_pages() {
+    local dir="$1" list="" errf="" rc=0 n=0 attempt=1 why=""
+    list="$(mktemp -t ostler-wikicount)" || { printf 'cannot_count 0 mktemp-failed\n'; return 0; }
+    errf="${list}.err"
+    while :; do
+        rc=0
+        find "$dir" -type f \( -name '*.md' -o -name '*.html' \) >"$list" 2>"$errf" || rc=$?
+        n="$(wc -l <"$list" | tr -d ' ')" || n=0
+        case "$n" in ''|*[!0-9]*) n=0 ;; esac
+        if [ "$rc" -eq 0 ]; then
+            printf 'ok %s\n' "$n"
+            break
+        fi
+        if [ "$attempt" -ge 3 ]; then
+            why="$(head -n 1 "$errf" 2>/dev/null | tr -s ' \t' '__')" || why=""
+            printf 'cannot_count %s find-rc-%s:%s\n' "$n" "$rc" "${why:-no-stderr}"
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep "${OSTLER_WIKI_COUNT_RETRY_S:-2}"
+    done
+    rm -f "$list" "$errf"
+    return 0
+}
+
 WIKI_PAGE_COUNT=0
+WIKI_COUNT_STATE=ok
+WIKI_COUNT_WHY=""
+WIKI_COUNT_STEP_RC=""
 if [ -d "$WIKI_DOCS_DIR" ]; then
     # -type f, not -name '*', so a tree of empty DIRECTORIES counts zero.
     # That is the exact shape the box walk found: directories present,
-    # contents absent.
-    # `find` exits non-zero when the tree is absent, which is precisely the
-    # state the check below exists to report: line 28018 already treats an
-    # empty value as zero. Aborting here would kill the install instead of
-    # letting it say "no pages on disk".
-    WIKI_PAGE_COUNT="$(find "$WIKI_DOCS_DIR" -type f \( -name '*.md' -o -name '*.html' \) 2>/dev/null | wc -l | tr -d ' ')" || WIKI_PAGE_COUNT=""
+    # contents absent. An ABSENT tree skips this and stays 0, which is the
+    # honest answer for it.
+    read -r WIKI_COUNT_STATE WIKI_PAGE_COUNT WIKI_COUNT_WHY <<<"$(wiki_count_pages "$WIKI_DOCS_DIR")" || true
+    case "${WIKI_PAGE_COUNT:-}" in ''|*[!0-9]*) WIKI_COUNT_STATE=cannot_count; WIKI_PAGE_COUNT=0 ;; esac
 fi
-info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
-if [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
+if [ "$WIKI_COUNT_STATE" = "cannot_count" ]; then
+    if [ "$WIKI_PAGE_COUNT" -gt 0 ]; then
+        info "Wiki pages on disk after the baseline compile: at least ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR}); the count was disturbed by a concurrent writer (${WIKI_COUNT_WHY}), so this is a lower bound"
+    else
+        # COULD NOT COUNT is not ZERO. Do not fail the run on a measurement
+        # that did not happen; the compiler's own rc still decides.
+        # NOT OK EITHER. CM044 exits 0 on a total failure, so the compiler's
+        # rc cannot vouch for the wiki, and the count that could did not
+        # happen. Unknown is recorded as unknown: the run is not healthy and
+        # the step does not close ok (rc 2, the could-not-judge code), while
+        # the publish below still runs on the compiler's own rc.
+        warn "Could not count wiki pages under ${WIKI_DOCS_DIR}: find failed on every try (${WIKI_COUNT_WHY}). This is NOT a zero-page wiki, and NOT a verified one either: the page count is unknown. Compiler exit: ${WIKI_BASELINE_RC}."
+        HEALTHY=false
+        WIKI_COUNT_STEP_RC=2
+    fi
+else
+    info "Wiki pages on disk after the baseline compile: ${WIKI_PAGE_COUNT} (${WIKI_DOCS_DIR})"
+fi
+if [ "$WIKI_COUNT_STATE" = "ok" ] && [ "${WIKI_PAGE_COUNT:-0}" -eq 0 ]; then
     # NAME THE ARTEFACT MEASURED, not the symptom. A reader must be able to
     # go and look at the same thing this line looked at.
     warn "The wiki compile exited ${WIKI_BASELINE_RC} but produced ZERO pages under ${WIKI_DOCS_DIR}. The compiler's exit code is not evidence: CM044 discards its own result, so a total failure also exits 0. Treat the wiki as NOT built."
     HEALTHY=false
     WIKI_BASELINE_RC=1
 fi
+if declare -F wiki_tick_lock_release >/dev/null 2>&1; then wiki_tick_lock_release; fi
 
 # #839: carry the compile's verdict onto the step's STEP_END. The count
 # above is the honest oracle; this is what stops that verdict dying in
 # the log body while the step line says ok.
-gui_step_record_rc "${WIKI_BASELINE_RC:-0}"
+gui_step_record_rc "${WIKI_COUNT_STEP_RC:-${WIKI_BASELINE_RC:-0}}"
 
 if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
     # Publish the baseline. The wiki-site container now runs a static server
@@ -39443,6 +39956,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s wiki-summaries: process started (pid %s)\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$"
             set -u
             _slot="$1"; _wd="$2"; _lib="$3"
+            # S6: pii_scan hit lines lose their value before reaching the log.
+            _scrub="s/^[[:space:]]*[^[:space:]].*:[0-9]+: \[([a-z0-9_]+)\] .*$/  [pii_scan hit, value withheld: \1]/"
             cd "$_wd" || exit 1
             # Re-read the recorded public look-up answer NOW, when this compile
             # starts (Ostler #30). Function missing (an older caller): off.
@@ -39504,7 +40019,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
                     > "$_slot/unbounded_reason" 2>/dev/null || true
                 trap "ostler_slot_release 2>/dev/null || true" EXIT
                 printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+                docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+                if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                     printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                     exit 0
                 fi
@@ -39529,7 +40045,8 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
             printf "%s\n" "$$" > "$_slot/pid"
             trap "rm -rf \"$_slot\" 2>/dev/null || true" EXIT
             printf "%s wiki-summaries: slot acquired via the fallback lock, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            if docker compose --profile compile run --rm -T wiki-compiler </dev/null; then
+            docker compose --profile compile run --rm -T wiki-compiler </dev/null 2>&1 | sed -E "$_scrub"
+            if [ "${PIPESTATUS[0]}" -eq 0 ]; then
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 exit 0
             fi

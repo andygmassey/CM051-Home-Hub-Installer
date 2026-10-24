@@ -65,6 +65,7 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
+      - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -154,6 +155,7 @@ on:
       # tests are RUN below, so both are watched here.
       - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
       - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'tests/test_listener_watchdog_budget.sh'
       - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
@@ -478,6 +480,12 @@ jobs:
         if: always()
         run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
 
+      # smart-prefs P1: the import itself kicks the compile, so preferences
+      # reach the digest and pwg_preferences now, not at the hourly tick.
+      - name: an import reaches the digest and pwg_preferences straight away
+        if: always()
+        run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
+
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
       # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
@@ -727,6 +735,10 @@ jobs:
       - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
         if: always()
         run: bash tests/test_listener_watchdog_walk_probe.sh
+
+      - name: The listener watchdog probe budget is derived, and the capture cannot hold the restart
+        if: always()
+        run: bash tests/test_listener_watchdog_budget.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #
