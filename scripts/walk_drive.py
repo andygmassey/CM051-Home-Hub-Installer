@@ -271,6 +271,13 @@ def build_table():
         # with `#OSTLER DONE status=cancelled` after 24 answers, and the
         # verdict said FAIL.
         ("how third-party data works",                  "Y"),
+        # THE WALK NEVER ENABLES WHATSAPP. channel_choice is left at its shown
+        # default ("3", iMessage + email). Answer 5 writes pair_phone and
+        # allowed_numbers, after which the daemon dials web.whatsapp.com and
+        # sends the number to Meta on every reconnect, and install.sh installs the
+        # keepalive agent. assistant_sends_over_whatsapp_and_email therefore
+        # judges a config produced OFF-BOX by install.sh's own writer, in a temp
+        # HOME, with a synthetic number and no daemon.
         ("Ready to install?",                           "INSTALL"),
         # -- deliberate answers that differ from the shown default -----------
         # Enrichment stays OFF: Andy's decision 2026-08-18 (task #397).
@@ -345,7 +352,12 @@ def load_overrides():
 # THE WALK'S OWNER IDENTITY. KEY=VALUE lines, OWNER_NAME, OWNER_EMAIL and
 # OWNER_PHONE, staged 0600 by ttywalk.sh. Its values are answered but never
 # written to the Q&A record or the trace.
-OWNER_FILE = os.path.join(HOME, ".walk-owner.env")
+# OSTLER_WALK_OWNER_FILE is the DECLARATION that the driver decided whose
+# identity this walk installs (ttywalk.sh always sets it on the box, pointing at
+# the staged file, which is deliberately ABSENT for a synthetic walk). Unset, the
+# decision was never made: main() refuses rather than fall back to the
+# fictional-number default, whose 09:00/18:00 brief would attempt an outward send.
+OWNER_FILE = os.environ.get("OSTLER_WALK_OWNER_FILE") or os.path.join(HOME, ".walk-owner.env")
 OWNER_SOURCE_FILE = os.path.join(HOME, ".walk-owner-source")
 SYNTHETIC_OWNER_NAME = "Sam Doe"            # both tokens in the approved cast
 SYNTHETIC_ALLOWED = "+447700900000"          # Ofcom drama range, provably fictional
@@ -1156,6 +1168,16 @@ def main(argv):
                        "%s. Refusing to start, because a run that cannot clear "
                        "the old verdict can leave it behind to be read as its "
                        "own." % exc)
+
+    if not os.environ.get("OSTLER_WALK_OWNER_FILE"):
+        return verdict(CANNOT_RUN,
+                       "OSTLER_WALK_OWNER_FILE is not set",
+                       "Refusing to start: nobody declared whose identity this walk "
+                       "installs. Without it the driver would answer the fictional "
+                       "default recipient and the installed 09:00/18:00 brief would "
+                       "try an outward send. scripts/ttywalk.sh sets it; set it to "
+                       "the staged owner file path (the file may be absent for a "
+                       "synthetic walk).")
 
     log_path, err = read_config(".walk-log", "the pty log path")
     if err:

@@ -56,7 +56,7 @@ import sys
 from datetime import datetime, timezone
 
 from compiler import scouts as sc
-from compiler.interest_profile import (names_person_or_org,
+from compiler.interest_profile import (MEDIA_CATEGORIES, names_person_or_org,
                                        subject_names_known_contact)
 from compiler.scouts import Scout
 
@@ -149,11 +149,24 @@ def _interest_privacy(it: dict) -> str:
     return level if level in _KNOWN_LEVELS else _MOST_RESTRICTIVE
 
 
+def _consent_widens(it: dict) -> bool:
+    """Install-time online look-up consent widens ONE class of row: a media
+    title at exactly L2 that the producer marked ``consent_widenable``. L3,
+    unrecognised or missing levels, and unmarked rows are never widened."""
+    return (_interest_privacy(it) == "L2"
+            and it.get("consent_widenable") is True
+            and it.get("category") in MEDIA_CATEGORIES)
+
+
 def l1_interests(profile: dict, domain: str | None = None) -> list[dict]:
     """The only profile rows a query builder may draw on: liked interests
-    whose declared privacy level is L0 or L1. Fail-closed on the level: an
-    untagged, unrecognised, L2 or L3 row never reaches an outbound query
+    whose declared privacy level is L0 or L1, plus - ONLY while the owner's
+    persisted install answer says YES to online look-ups - media titles at L2
+    (viewing/listening log). The answer is re-read at every call (never
+    cached, missing/unreadable = no). Fail-closed on the level: an untagged,
+    unrecognised or L3 row never reaches an outbound query, consent or not
     (see the producer contract above)."""
+    agreed = sc.public_lookups_agreed()
     out: list[dict] = []
     for block in (profile or {}).get("domains", []):
         if domain is not None and block.get("domain") != domain:
@@ -163,7 +176,8 @@ def l1_interests(profile: dict, domain: str | None = None) -> list[dict]:
                 continue
             if it.get("polarity") == "dislike":
                 continue
-            if _interest_privacy(it) not in QUERYABLE_LEVELS:
+            if (_interest_privacy(it) not in QUERYABLE_LEVELS
+                    and not (agreed and _consent_widens(it))):
                 continue
             out.append(it)
     return out

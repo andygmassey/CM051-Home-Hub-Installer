@@ -120,6 +120,7 @@ import phonenumbers
 
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
+from . import privacy as _privacy
 from .participants import normalise_participants
 from .schemas import (
     Classification,
@@ -241,6 +242,12 @@ def _normalise_chat_identifier(channel: str, raw: str) -> str:
         return ""
     raw = raw.strip()
     if channel == "whatsapp":
+        # The `@lid` suffix is WhatsApp's own statement that the local part
+        # is an opaque linked id, whatever its digits happen to validate as
+        # (CM051 #2578: "the @lid suffix, or a local part is_valid_number
+        # rejects"). Only the second half used to be checked.
+        if raw.endswith("@lid"):
+            return raw
         local = raw.split("@", 1)[0] if "@" in raw else raw
         return ("+" + local) if _whatsapp_jid_is_genuine_phone(local) else raw
     return raw
@@ -583,8 +590,20 @@ def _write_oxigraph(
     # pwg:OutstandingTodo triples by attendee URI and surface them on
     # the next meeting with that person. Best-effort: missing sidecar
     # is a silent no-op (the extractor warns at run time).
-    for todo in _outstanding_todos.load_sidecar(state_dir):
-        triples.extend(_todo_to_triples(conversation_id, todo, settings))
+    #
+    # Each todo is born-tagged with the SOURCE conversation's privacy
+    # level (CM041's commitments reader is fail-closed on untagged
+    # nodes, and ostler-assistant's promise filter needs a per-row
+    # level). Same L1 default as Fact / RelationshipSignal; an L3
+    # conversation never reaches Oxigraph at all (the step-07
+    # short-circuit), and the guard below keeps that true for direct
+    # callers too.
+    todo_privacy = _conversation_privacy_level(metadata)
+    if todo_privacy != "L3":
+        for todo in _outstanding_todos.load_sidecar(state_dir):
+            triples.extend(_todo_to_triples(
+                conversation_id, todo, settings, privacy_level=todo_privacy
+            ))
 
     if not triples:
         return 0
@@ -839,10 +858,25 @@ def _signal_to_triples(conversation_id: str, sig: dict, settings: Settings) -> l
     return ["\n".join(t)]
 
 
+def _conversation_privacy_level(metadata: dict | None) -> str:
+    """The source conversation's privacy level for graph tagging.
+
+    Reads ``metadata['privacy_level']`` (the same field the step-07
+    L3 short-circuit reads); absent -> "L1", the Fact / signal default.
+    A present-but-unrecognised value fails closed to L3 via
+    ``privacy.normalise``, never to a visible level.
+    """
+    raw = (metadata or {}).get("privacy_level")
+    if raw is None or raw == "":
+        return "L1"
+    return _privacy.normalise(raw)
+
+
 def _todo_to_triples(
     conversation_id: str,
     todo: "_outstanding_todos.OutstandingTodo",
     settings: Settings,
+    privacy_level: str = "L1",
 ) -> list[str]:
     """Emit pwg:OutstandingTodo triples for one extracted action item.
 
@@ -850,6 +884,8 @@ def _todo_to_triples(
 
     - ``<urn:ostler:todo/<todo_id>> a <urn:ostler:OutstandingTodo>``
     - ``pwg:fromConversation`` → the source conversation URI
+    - ``pwg:privacyLevel`` → the source conversation's level (same
+      predicate as Fact / RelationshipSignal)
     - ``pwg:aboutPerson`` → one triple per non-user participant
       (so a 3-person meeting fans out 3 ``aboutPerson`` triples)
     - ``pwg:owner`` → the structured owner id (``"user"`` /
@@ -878,6 +914,7 @@ def _todo_to_triples(
     action_quoted = json.dumps(todo.action_text)
     safe_status = escape_turtle_literal(todo.status)
     safe_created_at = escape_turtle_literal(todo.created_at)
+    safe_privacy = escape_turtle_literal(privacy_level)
     safe_source_date = escape_turtle_literal(todo.source_conversation_date)
 
     lines = [
@@ -889,6 +926,7 @@ def _todo_to_triples(
         f'  <urn:ostler:owner> "{safe_owner}" ;',
         f'  <urn:ostler:ownerDisplay> "{safe_owner_display}" ;',
         f'  <urn:ostler:todoText> {action_quoted} ;',
+        f'  <urn:ostler:privacyLevel> "{safe_privacy}" ;',
         f'  <urn:ostler:status> "{safe_status}" ;',
         f'  <urn:ostler:todoCreatedAt> "{safe_created_at}"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;',
         f'  <urn:ostler:sourceConversationDate> "{safe_source_date}" ;',
