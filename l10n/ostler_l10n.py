@@ -753,7 +753,7 @@ def is_legal(u, cfg):
 
 def load_reviews(cfg=None):
     out = {}
-    # Andy's ruling (2026-10-22): legal and consent strings stay ENGLISH in every
+    # Owner ruling (2026-10-22): legal and consent strings stay ENGLISH in every
     # locale, so no review row can make a translation of one shippable.
     if cfg and cfg.get("legal_english_only"):
         return out
