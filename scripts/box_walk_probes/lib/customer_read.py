@@ -450,24 +450,44 @@ def judge(f, declared=None):
     # API returned is exempt on the Hub People screen and on a person detail
     # screen, ONE occurrence per API row, so Ostler's own label beside it, or a
     # second copy of the same text, still counts.
+    # The marked and linked titles only, BEFORE the people-name widening
+    # below: the ISO date and internal-value checks honour what a renderer
+    # marked as customer text, never a whole API name list (a handle-shaped
+    # People name is its own check, and must not be hidden here).
+    marked_titles = {k: list(v) for k, v in cust_titles.items()}
     _people_names = [p.get("name") or "" for p in (f.get("people_api") or []) if p.get("name")]
     for k in screens:
         if k == "people" or k.startswith("person"):
             cust_titles["hub " + k] = list(cust_titles.get("hub " + k, [])) + _people_names
     measured = [t for t in texts if t[1].strip()]
 
-    def over_text(name, pred, show):
+    def over_text(name, pred, show, exempt_customer=False):
         if not measured:
             add(name, None, "NOT MEASURED: no screen text was collected")
             return
         bad = []
         for where, t in measured:
-            hits = pred(t)
+            hits = pred(ostler_only(where, t)) if exempt_customer else pred(t)
             if hits:
                 bad.append("{}: {}".format(where, show(hits)))
         add(name, not bad, "; ".join(bad[:6]) + (" (+{} more)".format(len(bad) - 6) if len(bad) > 6 else ""))
 
-    over_text(DECLARED[0], lambda t: ISO_DATE.findall(t), lambda h: "{} ISO date(s) (values withheld)".format(len(h)))
+    def ostler_only(where, t):
+        # W9 (walks v1.0.116/117): the customer's own text is exempt from the
+        # ISO date and internal-value checks exactly as it already was from
+        # the em dash check, by the SAME field-level rule: each recorded
+        # customer title (a marked element, or an off-site link) removes ONE
+        # occurrence of itself, longest first, so a title cannot hide a second
+        # copy of its text and Ostler's own copy beside it still counts. An
+        # email subject reading "fix(ci): require_pairing on 2026-10-02" is
+        # the sender's words; Ostler never rewrites them (decision 2026-10-01),
+        # so a probe that counts them can never pass on a real mailbox.
+        for title in sorted(marked_titles.get(where, []), key=len, reverse=True):
+            t = t.replace(title, "", 1)
+        return t
+
+    over_text(DECLARED[0], lambda t: ISO_DATE.findall(t), lambda h: "{} ISO date(s) (values withheld)".format(len(h)),
+              exempt_customer=True)
     # Decision 2026-10-01: Ostler never rewrites the customer's own titles. The
     # exemption is FIELD-LEVEL: only the title of a Timeline row whose kind is
     # "event" (a verbatim calendar item, as the API returned it) is exempt, and
@@ -497,7 +517,7 @@ def judge(f, declared=None):
         add(DECLARED[1], not bad, "; ".join(bad[:6]))
     over_text(DECLARED[2],
               lambda t: [why for rx, why in JARGON if rx.search(STRIP_ADDRESSES.sub(" ", t))],
-              lambda h: ", ".join(sorted(set(h))))
+              lambda h: ", ".join(sorted(set(h))), exempt_customer=True)
 
     # page titles
     if not screens:
@@ -2083,6 +2103,42 @@ def self_test():
             missed.append("an em dash in {} on Hub People is hidden by the name exemption ({!r})".format(label, got))
         else:
             print("  ok    an em dash in {} on Hub People still FAILS".format(label))
+    # W9 (walks v1.0.116/117): a customer's own subject on the Conversations
+    # timeline carries an ISO date and a snake_case word. Marked, it is their
+    # data and PASSES both checks; the same text as Ostler copy beside it, a
+    # second unmarked copy, or a handle-shaped People NAME (exempt only from
+    # the em dash check) still FAILS. Synthetic text only.
+    subj = "fix(ci): require_pairing on 2026-10-02"
+    conv = copy.deepcopy(_good())
+    conv["wiki"]["nav_links"].append("Conversations/timeline/")
+    conv["wiki"]["crawl"]["Conversations/timeline/"] = {
+        "text": "Conversation timeline\n- Email -- Thread \"" + subj + "\". 1 message. 2 October 2026.\n",
+        "mono_dates": 0, "customer_titles": [subj]}
+    gotw = [ok for n, ok, _ in judge(conv) if n in (DECLARED[0], DECLARED[2])]
+    if gotw != [True, True]:
+        missed.append("a marked customer subject with an ISO date and a key still fails ({!r})".format(gotw))
+    else:
+        print("  ok    a marked customer subject with an ISO date and a snake_case word PASSES both checks")
+    for label, text, which in (("an ISO date in Ostler copy beside it", "1 message. 2026-10-02.\n", 0),
+                               ("a key in Ostler copy beside it", "source_kind: email\n", 2),
+                               ("a second unmarked copy of the subject (date)", subj + "\n", 0),
+                               ("a second unmarked copy of the subject (key)", subj + "\n", 2)):
+        mut = copy.deepcopy(conv)
+        mut["wiki"]["crawl"]["Conversations/timeline/"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[which]]
+        if got != [False]:
+            missed.append("{} is hidden by the customer-text exemption ({!r})".format(label, got))
+        else:
+            print("  ok    {} still FAILS".format(label))
+    handle = copy.deepcopy(_good())
+    handle["people_api"].append({"name": "ig_user_example", "email": ""})
+    handle["people_api_total"] = handle.get("people_api_total", 0) + 1
+    handle["screens"]["people"]["text"] += "ig_user_example\n"
+    goth = [ok for n, ok, _ in judge(handle) if n == DECLARED[2]]
+    if goth != [False]:
+        missed.append("a snake_case People name is hidden from the internal-values check by the name exemption ({!r})".format(goth))
+    else:
+        print("  ok    a snake_case People name still FAILS the internal-values check (names are exempt from dashes only)")
     twice = copy.deepcopy(browsed)
     twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
     got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]
