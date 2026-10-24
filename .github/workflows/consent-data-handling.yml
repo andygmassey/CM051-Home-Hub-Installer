@@ -205,6 +205,10 @@ jobs:
         if: always()
         run: bash tests/test_source_count_copy.sh
 
+      - name: installer copy claims match the measured walk
+        if: always()
+        run: bash tests/test_installer_copy_claims_match_measured.sh
+
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()
         run: bash tests/test_daemon_fda_app_bundle_path.sh

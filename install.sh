@@ -19577,7 +19577,7 @@ ASSISTANT_TMPDIR=""
 # the read-probe at lines ~4901-4937 below replaces that with an honest
 # first-byte read of Safari/Messages/Mail DBs that genuinely need FDA).
 
-progress "Extracting data from your Mac (the instant bit)" "fda_extract"
+progress "Extracting data from your Mac (the quick first look)" "fda_extract"
 
 if [[ "$HAS_FDA_MODULE" == true ]]; then
     # CX-101 (DMG #48j, 2026-05-29): pre-launch gate now checks
