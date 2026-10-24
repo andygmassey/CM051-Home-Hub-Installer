@@ -8,6 +8,7 @@ PERSON CONTEXT: Use http_request with url="http://localhost:8089/people/context?
 SEARCH: Use web_search_tool
 WEB PAGE: Use web_fetch
 MATHS: Use calculator
+BROWSING: Use http_request with url="http://localhost:8089/api/v1/browsing/search?q=local+ai&days=7&limit=5" - pages the user read, each with a short summary, topic tags and key entities (summary_status says whether one exists). Fetch the full url with web_fetch only when the summary is not enough.
 REMEMBER: Use memory_store and memory_recall
 
 IMPORTANT: For calendar, email, and people queries, ALWAYS use http_request to localhost:8089. Do NOT use google_workspace.

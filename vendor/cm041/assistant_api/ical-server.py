@@ -7641,6 +7641,22 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
     }, 200
 
 
+# Level served for a todo that carries no urn:ostler:privacyLevel (every
+# node CM048 wrote before it began tagging todos; measured 93 of 93 on the
+# box). L2 = the default person tag (see the contact-card note above), so an
+# untagged legacy row is served at the level the operator's own data has
+# always been treated at, and is never silently promoted to L0/L1.
+_COMMITMENT_DEFAULT_PRIVACY_LEVEL = "L2"
+
+
+def _commitment_privacy_level(raw):
+    """Per-row level: tagged+valid -> that level; untagged -> the default;
+    tagged but unparseable -> L3 (fail closed)."""
+    if raw is None or str(raw).strip() == "":
+        return _COMMITMENT_DEFAULT_PRIVACY_LEVEL
+    return pwg_privacy.parse_privacy_level(raw) or "L3"
+
+
 def commitments_list(owner=None, due_before=None, status="open",
                      limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
@@ -7666,9 +7682,16 @@ def commitments_list(owner=None, due_before=None, status="open",
         ``deadline`` strictly before it (undated commitments are dropped
         when this filter is set, kept otherwise).
 
+    Each row carries ``privacy_level`` read from the todo's own
+    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
+    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
+    present but unparseable -> "L3" (fail closed, never visible). Rows are
+    still served ungated: the consumer (ostler-assistant promise filter)
+    applies the level.
+
     Newest first by deadline then created-at. Returns
-    ``({"commitments": [{action, owner, due, status, source}], "count":
-    N}, 200)`` or the 503 degraded shape on Oxigraph failure.
+    ``({"commitments": [{action, owner, due, status, source,
+    privacy_level}], "count": N}, 200)`` or the 503 degraded shape on Oxigraph failure.
     """
     status_norm = (status or "").strip().lower()
     status_filter = ''
@@ -7735,7 +7758,7 @@ def commitments_list(owner=None, due_before=None, status="open",
         # DISTINCT is new and is load-bearing: without it a todo present in
         # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
-            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
             + (
                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                 '        <urn:ostler:todoText> ?action ;\n'
@@ -7744,6 +7767,7 @@ def commitments_list(owner=None, due_before=None, status="open",
                 '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
                 '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
                 '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
+                '  OPTIONAL { ?todo <urn:ostler:privacyLevel> ?plevel }\n'
                 + status_filter
             )
             + '\n}'
@@ -7774,6 +7798,7 @@ def commitments_list(owner=None, due_before=None, status="open",
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
+            "privacy_level": _commitment_privacy_level(r.get("plevel")),
             "_created": r.get("createdAt", ""),
         })
 
@@ -9385,6 +9410,18 @@ def api_suggestions():
     return out
 
 
+def _calendar_events_in_process(days):
+    """Events for the next ``days`` days, read IN-PROCESS for the pre-meeting
+    brief (CM041 #231: a handler must never HTTP-call this single-threaded
+    server). CM051 serves /calendar from build_calendar_response (local store
+    first), so this reads the same function. A failed read raises, so
+    api_meeting_upcoming reports degraded instead of an empty 200."""
+    status, body = build_calendar_response(days)
+    if status != 200:
+        raise RuntimeError("calendar unavailable: %s" % (body.get("detail") or status))
+    return body.get("events", [])
+
+
 def api_meeting_upcoming(within_minutes=120):
     """Return enriched pre-meeting briefs for events starting within
     ``within_minutes`` from now.
@@ -9441,8 +9478,18 @@ def api_meeting_upcoming(within_minutes=120):
     # miss an event right at the boundary).
     days_lookahead = max(1, int((within_minutes + 1439) // 1440))
 
+    # In-process calendar read (CM041 #231): never HTTP-call our own port from
+    # a handler. CM051: an explicitly configured CALENDAR_API_URL names a
+    # different calendar source and is still read over HTTP by the brief; the
+    # default resolves to this server's own /api/v1/calendar, which is
+    # build_calendar_response, so it is read in-process.
+    _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
+                 else _calendar_events_in_process)
     try:
-        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
+        all_briefs = _brief.pre_meeting_brief(
+            days=days_lookahead,
+            events_provider=_provider,
+        )
     except Exception as exc:
         return {
             "meetings": [],
@@ -12117,6 +12164,56 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     }
 
 
+def _sparql_select_unscoped(sparql):
+    """Like ``_sparql_select`` but WITHOUT the CM048 user-graph UNION scoper.
+
+    The derived-preferences read names its own graph (the derived named graph),
+    and ``_graph_scoped`` wraps the WHERE body in a UNION that would match an
+    explicitly-named graph once per user graph in scope -- doubling every row.
+    Store auth is injected by the ``ostler_store_auth`` .pth shim, same as
+    ``_sparql_select``. Returns flat binding dicts ({var: value})."""
+    req = urllib.request.Request(
+        OXIGRAPH_URL.rstrip("/") + "/query",
+        data=sparql.encode("utf-8"),
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    data = json.loads(resp.read())
+    return [{k: v["value"] for k, v in b.items()}
+            for b in data.get("results", {}).get("bindings", [])]
+
+
+def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph, built through the CM019 producer builder
+    (vendored verbatim in derived_preferences.py beside this file).
+
+    Read-only; ALWAYS returns 200 with a ``degraded`` flag on any failure
+    (silent-empty rule), never 5xx. An absent/empty derived graph degrades with
+    a reason rather than returning a healthy-looking empty list."""
+    import os as _os
+    import sys as _sys
+    _ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # Sibling module; the server's own dir is on sys.path (run as a script),
+        # but insert it explicitly so a test harness importing the handler also
+        # resolves it. A normal import registers it in sys.modules, which the
+        # @dataclass machinery needs under `from __future__ import annotations`.
+        _d = _os.path.dirname(_os.path.abspath(__file__))
+        if _d not in _sys.path:
+            _sys.path.insert(0, _d)
+        import derived_preferences as _dp
+    except Exception as exc:  # noqa: BLE001
+        return {"generated_at": _ts, "items": [], "degraded": True,
+                "cannot_check": "derived module unavailable: " + type(exc).__name__}
+    reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
+    return _dp.build_derived_preferences_response(
+        reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
@@ -13069,6 +13166,44 @@ class Handler(BaseHTTPRequestHandler):
         # sorted. Absent artefact -> empty list + 200 so the daemon degrades
         # gracefully; provenance (sources/confidence/polarity) is preserved.
         # Sits behind the Doctor auth proxy at /api/v1/* like the rest.
+        # Derived preferences ("What you like"): abstract affinities derived
+        # from the compiled interests, read from the derived named graph via
+        # the CM019 producer builder. Degrades (200 + degraded) when the graph
+        # is empty/unavailable so the digest + pwg_ tool never see a fake empty.
+        if parsed.path == "/api/v1/preferences/derived":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 8)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            min_conf, err = _safe_float(params, "min_confidence", 0.4)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            # No ?tier= means "not asked": broad, falling back to all while a
+            # pre-tier graph waits for the next derive run. An explicit value is strict.
+            raw_tier = (params.get("tier", [""])[0] or "").strip().lower()
+            tier = raw_tier or None
+            if tier is not None and tier not in ("broad", "specific", "all"):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(
+                    {"error": "tier must be broad, specific or all"}).encode())
+                return
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/preferences":
             params = parse_qs(parsed.query)
             limit, err = _safe_int(params, "limit", 0)

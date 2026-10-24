@@ -1679,4 +1679,39 @@ PWG #434 stamps `extra.about_minor` at ingest from the owner's registry (`OSTLER
 ### What a future sync must preserve
 
 `check_minors_registry`, `_minors_registry_path`, the `MINORS_UNREADABLE_*` copy, and the `ALL_RULES` entry. The reader contract is PWG `MinorsRegistry.load`. Guarded by `tests/test_doctor_minors_registry_row.py` (workflow `minors-registry-row.yml`). With the rule unregistered, the row tests go RED. Upstream: HR015 doctor `check_minors_registry` (same PR series); retire this note on a re-pin that carries it.
+## Added 2026-10-23, CM051 (118). `doctor`, graft from HR015 fd10f28: #975, #979 (wizard residue), #978 (evernote half)
+
+Pin NOT moved (b0b38310). Source delta measured with `git log b0b38310..fd10f28 -- doctor`
+in a non-shallow HR015 clone: 50 commits. Per-commit classification is in the PR body.
+`regenerate_forbidden` stands, so none of this is in `doctor.patch`: a grep of the patch
+for these names returns nothing, and that means NOT RECORDED, not NOT DIVERGED.
+
+What changed in the vendored tree, and where to find it again:
+
+- `agent/diagnostic_rules.py` -- HR015 #975 (ea223d3): `_dispatch_failure_count` matched
+  `rc=1` as a raw substring, so rc=10..19, 100..199 and the 124 timeout exit counted as a
+  dropped conversation. Applied by 3-way merge (`git merge-file`, base ea223d3^, theirs
+  ea223d3), zero conflicts, +41/-4 exactly as upstream. Pinned by
+  `tests/test_doctor_a_timeout_is_not_a_dispatch_failure.py` (5 of 5 arms fail on
+  origin/main, pass here).
+- `agent/first_run.py` -- HR015 #979 (5568237), the wizard half ONLY: `--bg` was still the
+  Lifeline ground `#0d0b08` under light cards and dark text, the command box was
+  `#0a0908`, shadows were black. Adds the named `STATUS_COLOUR` mapping and
+  `STATUS_COLOUR_UNKNOWN`. Pinned by `tests/test_doctor_wizard_is_light_not_lifeline_dark.py`.
+- `agent/dashboard_components.py` -- one literal, banned bright red `#ef4444` to `#A82A2A`.
+- `agent/import_evernote.py` -- HR015 #978 (1d13aa2), evernote half: `KNOWLEDGE_COLLECTION_DEFAULT`
+  and `OSTLER_KNOWLEDGE_COLLECTION`, `_collection_for_source` ignores `source`. Latent only
+  (DEFAULT_SOURCE is evernote). Merged cleanly.
+
+What was deliberately NOT taken from #979, so a re-pin does not "restore" it blind: the
+palette sweep of `web_ui.py` and `dashboard_components.py`. In THIS tree `#ece8dd` and
+`--ostler-ink*` are light-scheme tokens set by CM051 #2274, and upstream's mapping
+(`#ece8dd` -> `#14120e`, `#0d0b08` -> `#F8F8F4`) inverts those roles. Measured: applying it
+takes `tests/test_the_doctor_page_is_on_brand.py` (OSTLER_CUT_IN_PROGRESS=1) from 9 pass to
+7 pass / 2 fail (page ground dark, 21 of 21 inline colours unreadable). Reverted before
+commit.
+
+What a future sync must preserve: all four edits above. A re-pin that takes upstream
+`first_run.py` wholesale is fine for the wizard; for `web_ui.py` it is the reconciliation
+project the doctor manifest note already prices.
 

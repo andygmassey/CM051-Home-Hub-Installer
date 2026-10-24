@@ -1429,3 +1429,68 @@ Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 6249d1fe5ccea7d44
 - `hub_contract.yaml` regenerated against hub-v0.5.23; the four Doctor rows now resolve to `ical` rows instead of `upstream_missing`.
 - Proof: 27 passed in a clean venv with only pytest, httpx, fastapi, rapidfuzz and `./vendor/ostler_security` installed. Wired in minors-registry-row.yml.
 - Retire: re-pin `cm041/assistant_api` past the CM041 #236 squash.
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
+
+Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three
+was already grafted into ical-server.py. The three were 3-way cherry-picked onto
+the vendored file:
+- #215 (07a22b4c) GET /api/v1/preferences/derived, plus derived_preferences.py
+  and contract/derived_preferences_response.example.json (byte-identical to
+  upstream). hub_contract.yaml regenerated (265 routes). Supersedes CM051 #2956's
+  vendoring of the same route.
+- #232 (e33abeb) per-row privacy_level on /api/v1/commitments, applied to the
+  vendored allow-list scope (no read_across_graphs; see
+  tests/test_no_vendored_caller_of_read_across_graphs.py).
+- #231 (42d7310) the meeting brief reads the calendar in-process. CM051 ADAPTS
+  it: upstream's calendar_payload (iCloud script plus Google only) is NOT taken;
+  `_calendar_events_in_process` reads build_calendar_response (local store
+  first) and RAISES on a non-200, so /meeting/upcoming says degraded instead of
+  an empty 200.
+
+KEPT: everything recorded above in this file. browsing_enrich.py is the vendored
+copy unchanged. API.md keeps the vendored text (it drops upstream's
+/meeting/upcoming example section).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (a
+US-format example number in the API.md section the vendored copy drops would
+land on the MINUS side). The checked-in patch is stale against the new pin;
+the content gate reads RED for this tree, as on main before this change.
+
+Guarded by tests/test_vendored_cm041_revendor_07a22b4c_routes.py (5 pass here,
+5 fail on the pre-re-vendor tree).
+
+## 2026-10-23: round 2, pin 07a22b4c -> f2ef7891 (CM041 #233, #234, #235)
+
+All three commits touch only assistant_api. derived_preferences.py is byte-identical
+to upstream at f2ef7891 (#235: L3 and unparseable levels never served, privacy_level emitted) (it was byte-identical at 07a22b4c too). ical-server.py
+takes #234 (the ?tier= parameter, 400 on an unknown tier, tier passed to the
+builder) by 3-way merge, clean, 14 of 14 added lines present. hub_contract.yaml
+regenerated. No new divergence. Guarded by
+tests/test_vendored_cm041_revendor_07a22b4c_routes.py (4 tier/round-robin
+arms red on the 07a22b4c tree) and, for #225 already grafted in v1.0.112,
+tests/test_vendored_conversation_routes_refuse_path_traversal.py.
+
+## 2026-10-23 P13: a short code is up to 8 digits with no country code (cm041/assistant_api people_rules.py)
+
+Tree `cm041/assistant_api`, file `people_rules.py` (CM051-only, see the 2026-10-12
+move above; no upstream copy). v1.0.117 walk: a 7-digit SMS short code was
+listed as a person. `_is_short_code` / `_is_sender_id_handle` treated only 6
+digits or fewer as a short code. Now `_is_short_code_shape`: 6 or fewer whatever
+the punctuation, or 7 to 8 with no leading "+"; `_is_provisional_phone_name`
+excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
+`PersonNameFilter` (their P13 PRs). `tests/fixtures/people_rules_golden.json`:
+11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
+measured by recomputing the table and checking each delta's input. Pinned by
+`tests/test_people_rules_short_codes_up_to_8_digits.py`.
+
+## 2026-10-23: vendored test_people_list_endpoint.py agrees with P13 (people-list-correctness)
+
+Tree `cm041/assistant_api`, file `tests/test_people_list_endpoint.py`. After the
+re-vendor met main's P13 rule (CM051 #3143, `people_rules.py`: a 7 to 8 digit
+sender with no leading "+" is a short code), the upstream test still asserted
+the 7-digit sender 4477009 appears in `names` (line 337), so people-list-correctness
+failed on Python 3.11, 3.12 and 3.13. The rule is unchanged; the test now asserts
+that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
+57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
+next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
+this assertion, and the re-vendor makes the file byte-identical.
