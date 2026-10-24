@@ -1528,8 +1528,15 @@ final class InstallerCoordinator: ObservableObject {
             "PYTHONPYCACHEPREFIX": (NSHomeDirectory() as NSString)
                 .appendingPathComponent(".ostler/cache/pycache"),
         ]
-        let env = ProcessInfo.processInfo.environment
+        var env = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }
+        // The spoken-capture legal note is chosen by the Mac's REGION. Hand
+        // install.sh the exact AppleLocale value this window used, so the
+        // note it records in the consent log is the note the GUI showed,
+        // by construction rather than by two reads agreeing.
+        if let appleLocale = LegalRegion.currentAppleLocale() {
+            env["OSTLER_APPLE_LOCALE"] = appleLocale
+        }
         proc.environment = env
         // Surface the gate-relevant env values up-front so a
         // wedged install can be diagnosed from the Log drawer

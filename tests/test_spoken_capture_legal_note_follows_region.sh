@@ -28,7 +28,7 @@ pass() { echo "PASS $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 
 funcs="$(awk '/^_ostler_legal_apple_locale\(\) \{/{f=1} f{print} /^_ostler_spoken_capture_legal_note\(\) \{/{g=1} g&&/^\}/{exit}' install.sh)"
-for fn in _ostler_legal_apple_locale _ostler_legal_country_from_locale _ostler_legal_jurisdiction _ostler_spoken_capture_legal_note; do
+for fn in _ostler_legal_apple_locale _ostler_legal_country_from_locale _ostler_legal_jurisdiction _ostler_spoken_capture_legal_variant _ostler_spoken_capture_legal_note_for _ostler_spoken_capture_legal_note; do
     grep -q "^${fn}() {" <<< "${funcs}" || { echo "CANNOT-RUN: ${fn} not found in install.sh"; exit 2; }
 done
 
@@ -60,7 +60,7 @@ run_rows() {
             note="$(_ostler_spoken_capture_legal_note)"
             [[ "$got_iso" == "$iso" ]] || echo "FAIL $loc: iso [$got_iso] want [$iso]"
             [[ "$got_j" == "$juris" ]] || echo "FAIL $loc: jurisdiction [$got_j] want [$juris]"
-            [[ "$note" == "$MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX $MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE"* ]] || echo "FAIL $loc: note does not open with prefix + core"
+            [[ "$note" == "$MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX $MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE $MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL"* ]] || echo "FAIL $loc: note does not open with prefix + core + local"
             [[ "$note" == *" $MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY" ]] || echo "FAIL $loc: note does not end with the responsibility sentence"
             want=" ${keys//,/ } "
             for k in $all; do
@@ -94,7 +94,7 @@ sys.stdout.write(s)
 # Language picker: take the part BEFORE the first - or _ (the language), and ignore rg=.
 rg_mutant="$(mutate "${funcs}" 'cc="${base##*_}"' 'cc="${base%%[-_]*}"' 'rg="${rg:0:2}"' 'rg=""')" \
     || { echo "CANNOT-RUN self-test: the language mutant did not apply"; exit 2; }
-blind_mutant="$(mutate "${funcs}" 'juris="$(_ostler_legal_jurisdiction "${cc}")"' 'juris=other')" \
+blind_mutant="$(mutate "${funcs}" '    _ostler_spoken_capture_legal_note_for "${cc:-none}"' '    _ostler_spoken_capture_legal_note_for none')" \
     || { echo "CANNOT-RUN self-test: the region-blind mutant did not apply"; exit 2; }
 out="$(run_rows "${rg_mutant}")"
 if grep -q "FAIL zh-Hant_GB" <<< "${out}"; then
@@ -126,7 +126,7 @@ n="$(nos "")"
 python3 -I - "${STRINGS}" gui/OstlerInstaller/Resources/ViewCopy.json <<'PY' || fail=1
 import json, subprocess, sys
 d = json.load(open(sys.argv[2], encoding="utf-8"))["consent_spoken_capture"]
-keys = ["PREFIX", "CORE", "REGION_GB", "REGION_EU", "REGION_DE", "REGION_FR", "REGION_HK", "REGION_US", "RESPONSIBILITY"]
+keys = ["PREFIX", "CORE", "LOCAL", "REGION_GB", "REGION_EU", "REGION_DE", "REGION_FR", "REGION_HK", "REGION_US", "RESPONSIBILITY"]
 script = 'source "$1" >/dev/null 2>&1; for k in ' + " ".join(keys) + '; do v="MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_$k"; printf "%s\\0" "${!v}"; done'
 vals = subprocess.run(["bash", "-c", script, "_", sys.argv[1]], capture_output=True, text=True, check=True).stdout.split("\0")[:-1]
 bad = 0
@@ -143,6 +143,30 @@ if not bad:
 sys.exit(bad)
 PY
 
+# ── GUI and install.sh render the SAME note for every fixture row (the
+#    consent record pins install.sh's, so it must be the GUI's too)
+gui_vs_bash="$(bash -c '
+    source "$1" >/dev/null 2>&1; eval "$2"
+    while IFS=$'"'"'\t'"'"' read -r loc iso juris keys; do
+        case "$loc" in ""|"#"*|apple_locale) continue ;; esac
+        [[ "$iso" == "-" ]] && iso=none
+        printf "%s\t%s\t%s\n" "$keys" "$iso" "$(_ostler_spoken_capture_legal_note_for "$iso")"
+    done < "$3"' _ "${STRINGS}" "${funcs}" "${FIX}" | python3 -I -c '
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))["consent_spoken_capture"]
+bad = n = 0
+for line in sys.stdin:
+    keys, iso, bash_note = line.rstrip("\n").split("\t", 2)
+    regs = [] if keys == "-" else keys.split(",")
+    gui = " ".join([d["legal_prefix"], d["legal_core"], d["legal_local"]] + [d["legal_region_" + r] for r in regs] + [d["legal_responsibility"]])
+    n += 1
+    if gui != bash_note:
+        bad += 1; print("FAIL " + iso + ": GUI note differs from install.sh note")
+print(("PASS" if not bad else "FAIL") + f" GUI composition equals install.sh note on {n - bad} of {n} rows")
+' gui/OstlerInstaller/Resources/ViewCopy.json)"
+echo "${gui_vs_bash}"
+grep -q '^FAIL' <<< "${gui_vs_bash}" && fail=1
+
 # ── the surfaces the customer sees carry the composed note, and nothing region-blind
 grep -qF 'echo -e "  ${DIM}${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}${NC}"' install.sh \
     && pass "TTY echoes the composed note" || bad "TTY does not echo the composed note"
@@ -157,7 +181,7 @@ else
     pass "always-shown copy names no jurisdiction"
 fi
 newkeys="$(grep -oE '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_[A-Z_]+' "${STRINGS}")"
-[[ $(wc -l <<< "${newkeys}") -eq 9 ]] && pass "9 legal keys, all named CONSENT (l10n legal gate)" || bad "expected 9 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* keys, got: ${newkeys}"
+[[ $(wc -l <<< "${newkeys}") -eq 10 ]] && pass "10 legal keys, all named CONSENT (l10n legal gate)" || bad "expected 10 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* keys, got: ${newkeys}"
 if grep -E '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_' "${STRINGS}" | grep -q $'\xe2\x80\x94'; then bad "em dash in a legal key"; else pass "no em dash in the legal keys"; fi
 
 exit "${fail}"

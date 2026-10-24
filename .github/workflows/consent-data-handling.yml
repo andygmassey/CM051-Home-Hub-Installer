@@ -94,6 +94,12 @@ jobs:
         if: always()
         run: bash tests/test_spoken_capture_legal_note_follows_region.sh
 
+      # Archie 2026-10-24: the consent record must pin exactly the note shown.
+      # Drives install.sh's own recorder into the real vendored consent_cli.
+      - name: spoken-capture consent record pins the region note it showed
+        if: always()
+        run: bash tests/test_spoken_capture_consent_record_pins_the_region_note.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh

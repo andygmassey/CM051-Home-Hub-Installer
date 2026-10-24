@@ -1395,8 +1395,9 @@ MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any c
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
 # ── Spoken-capture legal note, chosen by the Mac's REGION (not its language) ──
 # Composed by _ostler_spoken_capture_legal_note in install.sh as
-#   "Legal note: " + CORE + the region line(s) + RESPONSIBILITY.
-# CORE and RESPONSIBILITY show in every region. The region is the country part
+#   "Legal note: " + CORE + LOCAL + the region line(s) + RESPONSIBILITY,
+# byte for byte the note the GUI renders, and the note the consent record pins.
+# CORE, LOCAL and RESPONSIBILITY show in every region. The region is the country part
 # of AppleLocale (zh-Hant_GB is GB), read the same way by the GUI
 # (LegalRegion in gui/OstlerInstaller/Steps/ViewCopy.swift), which renders the
 # same text from ViewCopy.json consent_spoken_capture.legal_*.
@@ -1408,6 +1409,8 @@ MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription
 # 226-1) or is certain (PDPO Cap. 486). Any region not listed: CORE only.
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX="Legal note:"
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE="Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere."
+# Shown in every region; the GUI twin is consent_spoken_capture.legal_local.
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac."
 # Region GB. Best-effort draft, needs local professional sign-off (UK).
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB="UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
 # Region EU-27 and EEA. Best-effort draft, needs local professional sign-off (EU).
