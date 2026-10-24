@@ -149,7 +149,6 @@ cast	johannes	generic German full name in a locale-override fixture, no surname 
 # spellings are different names. They carry no surname, no mailbox and no
 # number, so they identify nobody.
 # ---------------------------------------------------------------------------
-cast	alison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	allison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	ali	given-name spelling under test in the variants table; no surname or identifier attached
 cast	catherine	given-name spelling under test in the variants table; no surname or identifier attached

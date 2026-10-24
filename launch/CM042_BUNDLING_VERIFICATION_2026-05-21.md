@@ -3,7 +3,7 @@ title: CM042 RemoteCapture bundling verification – task #249
 date: 2026-05-21
 status: PASS-WITH-CAVEAT
 tracker: task #249
-dmg: /tmp/ostler-installer-dist-andy/OstlerInstaller-1.0.0.dmg
+dmg: /tmp/ostler-installer-dist-$USER/OstlerInstaller-1.0.0.dmg
 ---
 
 # CM042 RemoteCapture bundling verification
@@ -12,7 +12,7 @@ dmg: /tmp/ostler-installer-dist-andy/OstlerInstaller-1.0.0.dmg
 
 The DMG ships **no RemoteCapture binary** in `Contents/Resources/`. This is correct as designed: install.sh Phase 3.14f downloads RemoteCapture from a GitHub release at install time, then code-signs + LaunchAgent-bootstraps it on the customer Mac.
 
-**Caveat:** the install flow is gated on the existence of a real release tag at `ostler-ai/ostler-remote-capture` v1.0.0. The default `OSTLER_REMOTECAPTURE_VERSION=1.0.0` is documented in install.sh:5969 as a "placeholder; Andy bumps this when the first real release tag is cut". If that release tag does not exist by launch, RemoteCapture install fails warn-only and customers get a working Ostler minus the menubar transcription app.
+**Caveat:** the install flow is gated on the existence of a real release tag at `ostler-ai/ostler-remote-capture` v1.0.0. The default `OSTLER_REMOTECAPTURE_VERSION=1.0.0` is documented in install.sh:5969 as a "placeholder; the owner bumps this when the first real release tag is cut". If that release tag does not exist by launch, RemoteCapture install fails warn-only and customers get a working Ostler minus the menubar transcription app.
 
 ## What was verified
 
@@ -34,7 +34,7 @@ The DMG ships **no RemoteCapture binary** in `Contents/Resources/`. This is corr
 
 5. **Env-overridable** `OSTLER_REMOTECAPTURE_VERSION` + `OSTLER_REMOTECAPTURE_REPO` for beta cuts or forks. Productisation rule respected.
 
-## Outstanding pre-launch action for Andy
+## Outstanding pre-launch action for the owner
 
 **Confirm the `ostler-ai/ostler-remote-capture` v1.0.0 release tag exists at github.com.** Without it, the install warn-skips. To check from a non-auth shell:
 
