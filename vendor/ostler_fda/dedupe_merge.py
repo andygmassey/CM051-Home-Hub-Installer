@@ -28,7 +28,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import httpx
 
@@ -349,6 +349,36 @@ def _name_key(name: str) -> str:
     return " ".join((name or "").casefold().split())
 
 
+def _kinship_fn():
+    if __package__:
+        from .pwg_ingest import _is_relationship_label
+    else:  # run as a script, not as a package
+        from pwg_ingest import _is_relationship_label  # type: ignore
+    return _is_relationship_label
+
+
+def _kinship_words_of(persons: Set[str]) -> Dict[str, Set[str]]:
+    """``{person: {normalised kinship word, ...}}`` for people whose display
+    name is a kinship label ("Mum", "Dad"), in one query."""
+    if not persons:
+        return {}
+    values = " ".join(f"<{p}>" for p in sorted(persons))
+    rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        f"SELECT ?p ?n WHERE {{ VALUES ?p {{ {values} }} ?p pwg:displayName ?n . }}"
+    )
+    out: Dict[str, Set[str]] = {}
+    if not rows:
+        return out
+    # Lazy, like _tier_fn: pwg_ingest is only needed when there is a name.
+    is_kin = _kinship_fn()
+    for r in rows:
+        n = r["n"]["value"]
+        if is_kin(n):
+            out.setdefault(r["p"]["value"], set()).add(_name_key(n))
+    return out
+
+
 def _real_names_of(persons: Set[str]) -> Dict[str, Set[str]]:
     """``{person: {normalised real display name, ...}}`` in one query."""
     if not persons:
@@ -369,6 +399,9 @@ def _real_names_of(persons: Set[str]) -> Dict[str, Set[str]]:
 def apply_household_rule(
     collisions: Dict[Tuple[str, str], List[str]],
     names: Dict[str, Set[str]],
+    kin: Optional[Dict[str, Set[str]]] = None,
+    carded: Optional[Set[str]] = None,
+    refused_kinship: Optional[List[int]] = None,
 ) -> Tuple[Dict[Tuple[str, str], List[str]], int]:
     """Rewrite PHONE collisions so only same-named people are joined.
     Returns ``(collisions, refused)``; ``refused`` counts phone values held by
@@ -379,6 +412,23 @@ def apply_household_rule(
         if typ != "phone":
             out[(typ, value)] = persons
             continue
+        # P16b: a kinship word ("Mum") is not a name, so it used to fall
+        # through to the old rule: "Mum" and "Dad" on one landline merged, and
+        # "Mum" plus a separate Contacts card for Tom Jones folded Tom into
+        # Mum. A kinship-labelled holder joins NOBODY on this number when the
+        # number carries two different kinship words, or a kinship word and a
+        # named person who is already their own card.
+        kin = kin or {}
+        kin_people = [p for p in persons if kin.get(p) and not names.get(p)]
+        if kin_people:
+            words = set().union(*(kin[p] for p in kin_people))
+            named_carded = [p for p in persons if names.get(p) and p in (carded or set())]
+            if len(words) > 1 or named_carded:
+                if refused_kinship is not None:
+                    refused_kinship.append(1)
+                persons = [p for p in persons if p not in kin_people]
+                if len(persons) < 2:
+                    continue
         named = [p for p in persons if names.get(p)]
         common = set.intersection(*(names[p] for p in named)) if named else set()
         if len(named) <= 1 or common:
@@ -447,8 +497,23 @@ def run(dry_run: bool = False) -> Dict[str, int]:
     # P16: a shared phone joins only same-named people. A store error here is
     # a store error: it propagates like find_collisions' own read.
     phone_people = {p for (t, _), ps in collisions.items() if t == "phone" for p in ps}
+    kinship_refusals: List[int] = []
+    kin = _kinship_words_of(phone_people)
+    carded: Set[str] = set()
+    if kin:
+        # Only read card keys when a kinship word is in play. FAIL CLOSED:
+        # if they cannot be read, treat every holder as a separate card, so a
+        # kinship-labelled node joins nobody this run (a missed merge is
+        # visible and retried; a wrong one is a silently corrupted person).
+        try:
+            carded = set(canonical_keys_of(phone_people))
+        except Exception as exc:  # noqa: BLE001 -- fail closed, reported
+            logger.error("dedupe_merge: card keys unreadable for the kinship "
+                         "check (%s); kinship-labelled holders join nobody", exc)
+            carded = set(phone_people)
     collisions, refused_shared_phone = apply_household_rule(
-        collisions, _real_names_of(phone_people))
+        collisions, _real_names_of(phone_people),
+        kin=kin, carded=carded, refused_kinship=kinship_refusals)
     comps = _components(collisions)
 
     # ── RULE 2 VETO. THIS MODULE HAD NONE, AND IT IS WHY THE OVER-MERGE
@@ -530,7 +595,8 @@ def run(dry_run: bool = False) -> Dict[str, int]:
     )
     out = {"collision_keys": len(collisions), "merged": merged,
            "refused_rule2": refused, "refused_unreadable": False,
-           "refused_shared_phone": refused_shared_phone}
+           "refused_shared_phone": refused_shared_phone,
+           "refused_kinship_phone": len(kinship_refusals)}
     # P13: the number-named twins the exact-string pass cannot see.
     try:
         out.update(merge_provisional_phone_twins(dry_run=dry_run))
