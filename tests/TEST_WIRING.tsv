@@ -444,6 +444,7 @@ test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_i22_timeline_keeps_meeting_time.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_mismatch_shows_the_difference.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -1095,3 +1096,4 @@ scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
+test_i22b_allday_backfill.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
