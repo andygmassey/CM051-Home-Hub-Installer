@@ -138,7 +138,7 @@ functions `_timeline_from_graph`, `_timeline_conversations`, `api_timeline`,
 the `/api/v1/timeline` handler, and new helpers `_safe_iso_day`,
 `_conversation_title`, `_CHANNEL_LABELS`.
 
-Why: on Andy's v1.0.105 walk the Timeline opened a year ahead and ended part
+Why: on the owner's v1.0.105 walk the Timeline opened a year ahead and ended part
 way through today (the graph query had no upper date bound and sorted
 newest-first, so future all-day entries filled the 200-row cap), labelled every
 row MEETING (the entries mapper collapsed every non-meeting kind to
@@ -203,7 +203,7 @@ Two changes, both inside `api_hydration_status`:
   is ignored).
 - A new top-level `wiki_ready` boolean in the returned dict: `all(s == "done"
   for s in gating)`, reusing the `gating` list (contacts/graph/ai_summaries)
-  the function already computes for `overall_state`. Andy's decision: one
+  the function already computes for `overall_state`. The owner's decision: one
   failed phase must never hide the whole wiki. `overall_state` reads
   "needs_attention" the instant conversations has any failure (MEASURED on
   the same walk box: 10 of 17 dispatched), with the wiki itself fully built
@@ -274,7 +274,7 @@ helpers (`_looks_like_bare_email_or_phone`, `_SERVICE_NAME_SUFFIX_WORDS` +
 `_is_automated_or_service_name`, `_load_people_list_self_uris`). Shape:
 exclusion/relabelling only, nothing deleted.
 
-Andy's screen read of the People page on macmini16-walk found the top 10
+The owner's screen read of the People page on macmini16-walk found the top 10
 "recent" rows mostly wrong, in three ways (synthetic shapes standing in
 for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
 notification sender, a marketplace, an email SUBJECT LINE, an all-caps
@@ -1181,7 +1181,7 @@ extends), or the next re-sync of this tree reverts it.
 `ical-server.py`: People list and search rows carry `provisional_name: true`
 when the name is the phone number.
 
-Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+Why: the owner's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
 human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
 people; the 9 missing were phone-only. CM041 upstream and CM044
 `compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
@@ -1208,7 +1208,7 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
 - `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
 - `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
 
-WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+WHY: the owner's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
 ## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
 
 Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
