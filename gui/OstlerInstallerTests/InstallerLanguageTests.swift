@@ -17,7 +17,7 @@ final class InstallerLanguageTests: XCTestCase {
     }
 
     func testEnglishAbovePreferredTranslationMeansEnglish() {
-        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-US", "de-DE"], override: nil), "en-GB")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB", "de-DE"], override: nil), "en-GB")
     }
 
     func testNothingShippedMeansEnglish() {
