@@ -727,7 +727,7 @@ def save_state(st):
 # the catalogue carries ENGLISH and the machine translation waits in
 # l10n/legal_pending/<lang>.json for the reviewer.
 #
-# Andy, 2026-10-24: "yes, localisation with English prevails." So a reviewed
+# Owner ruling 2026-10-24: "yes, localisation with English prevails." So a reviewed
 # legal translation ships only when the "English version prevails" line
 # (config `legal_prevails_keys`) is ALSO reviewed for that language; without
 # it every legal key of that language stays English. The switch is per key:
@@ -1564,7 +1564,7 @@ def cmd_self_test(cfg):
         results["and parks the translation for review"] = load_legal_pending("de").get("sh::MSG_CONSENT_X", {}).get("text") == "Ich stimme %s zu"
         results["check passes with English"] = quiet(cmd_check, c2) == 0
         quiet(cmd_legal_approve, c2, ["de", "sh::MSG_CONSENT_X", "--by", "legal reviewer (de)", "--date", "2026-10-19"])
-        # Andy 2026-10-24, English prevails: a reviewed key alone does not switch the surface on
+        # owner ruling 2026-10-24, English prevails: a reviewed key alone does not switch the surface on
         results["reviewed key stays English while the prevails line is unreviewed"] = sh_de("MSG_CONSENT_X") == "I agree to %s"
         results["and its reviewed translation waits in legal_pending"] = load_legal_pending("de").get("sh::MSG_CONSENT_X", {}).get("text") == "Ich stimme %s zu"
         results["check passes (nothing legal localised yet)"] = quiet(cmd_check, c2) == 0

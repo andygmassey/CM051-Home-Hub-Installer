@@ -50,7 +50,7 @@ keep_english:
 # current row for every legal_prevails_keys unit in that language; otherwise
 # English ships and the translation waits in l10n/legal_pending/
 # (`legal-list`, `legal-approve`, `legal-pack`).
-# Andy, 2026-10-24: "yes, localisation with English prevails." This replaces
+# Owner ruling 2026-10-24: "yes, localisation with English prevails." This replaces
 # the 2026-10-22 ruling (legal_english_only: true, every legal string English).
 legal_english_only: false
 legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]

@@ -1,6 +1,6 @@
 // EnglishPrevailsNoteTests.swift
 //
-// Andy, 2026-10-24: "localisation with English prevails". A legal/consent
+// Owner ruling 2026-10-24: "localisation with English prevails". A legal/consent
 // screen shown in a translation carries the reviewed "English version
 // prevails" line; a screen whose legal wording is English carries nothing.
 // The line being translated in ViewCopy.<lang>.json is the signal, because

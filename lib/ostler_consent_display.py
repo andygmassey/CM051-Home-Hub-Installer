@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record WHICH WORDING a person saw when they answered a consent screen.
 
-Andy, 2026-10-24: "yes, localisation with English prevails." A legal or
+Owner ruling 2026-10-24: "yes, localisation with English prevails." A legal or
 consent line may now be shown translated, but only once a native reviewer has
 passed that translation (l10n/legal_reviews.tsv in CM051). The consent record
 must therefore say which language the screen was in and which reviewed

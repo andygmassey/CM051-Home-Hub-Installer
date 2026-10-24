@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A legal or consent translation ships ONLY when it is reviewed, English prevailing.
 
-Andy, 2026-10-24: "yes, localisation with English prevails." (This replaces the
+Owner ruling 2026-10-24: "yes, localisation with English prevails." (This replaces the
 2026-10-22 ruling that every legal string stays English.) Conditions:
 
   1. Per key: a legal unit's translation is in a shipped catalogue only with a

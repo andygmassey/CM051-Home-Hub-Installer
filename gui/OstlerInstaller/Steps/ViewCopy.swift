@@ -84,7 +84,7 @@ final class ViewCopy {
             ?? key
     }
 
-    /// The "English version prevails" line (Andy, 2026-10-24: "localisation
+    /// The "English version prevails" line (Owner ruling 2026-10-24: "localisation
     /// with English prevails"), in the installer's language, or nil when that
     /// line is NOT translated. l10n/ostler_l10n.py ships a translation of it,
     /// and of every other legal/consent string, only once a native reviewer

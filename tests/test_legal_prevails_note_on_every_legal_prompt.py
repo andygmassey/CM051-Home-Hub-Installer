@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Every legal/consent prompt in install.sh is preceded by legal_prevails_note.
 
-Andy, 2026-10-24: a localised legal surface carries the reviewed "English
+Owner ruling 2026-10-24: a localised legal surface carries the reviewed "English
 version prevails" line. On the terminal path install.sh prints it via
 legal_prevails_note (a no-op unless the line is translated, and in the GUI,
 which draws it itself under the consent body: ViewCopy.isLegalPrompt). This

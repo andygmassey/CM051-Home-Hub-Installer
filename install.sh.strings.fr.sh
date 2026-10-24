@@ -1390,7 +1390,7 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
-# Legal: the "English version prevails" line (Andy 2026-10-24). install.sh prints it
+# Legal: the "English version prevails" line (owner ruling 2026-10-24). install.sh prints it
 # before every legal/consent prompt, but ONLY when this line is itself translated
 # for OSTLER_LANG, i.e. a native reviewer has passed it (l10n/legal_reviews.tsv).
 MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."

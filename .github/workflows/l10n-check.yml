@@ -24,7 +24,7 @@ jobs:
         run: python3 -I l10n/ostler_l10n.py self-test
       - name: translations are drop-in for their English
         run: python3 -I l10n/ostler_l10n.py check
-      - name: a legal or consent translation ships only when reviewed, English prevailing (Andy 2026-10-24)
+      - name: a legal or consent translation ships only when reviewed, English prevailing (owner ruling 2026-10-24)
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_l10n_legal_ships_only_when_reviewed.py
       - name: every legal or consent prompt shows the English-prevails line when localised
         if: always()

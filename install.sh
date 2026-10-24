@@ -4791,8 +4791,8 @@ if [[ "$OSTLER_LANG" != "en-GB" && -f "$_STRINGS_FILE" ]]; then
 fi
 unset _STRINGS_FILE
 
-# Legal wording in the installer's language, English prevailing (Andy,
-# 2026-10-24). l10n/ostler_l10n.py writes a legal/consent translation into
+# Legal wording in the installer's language, English prevailing (owner
+# ruling 2026-10-24). l10n/ostler_l10n.py writes a legal/consent translation into
 # the catalogue only once a native reviewer has passed it AND has passed the
 # "English version prevails" line for that language (legal_reviews.tsv); every
 # other legal key carries English. So the prevails line being translated is

@@ -112,7 +112,7 @@ jobs:
       # each APPLIED to a copy and asserted present in the mutated text before
       # being driven: the terms back inside the SKIP_PHASE2 guard, an unknown
       # record upgraded to accepted, and the drift map reverted to five names.
-      - name: the consent log records the language and reviewed wording shown (Andy 2026-10-24)
+      - name: the consent log records the language and reviewed wording shown (owner ruling 2026-10-24)
         if: always()
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_display_record.py
 

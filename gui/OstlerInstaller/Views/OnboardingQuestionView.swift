@@ -239,7 +239,7 @@ struct OnboardingQuestionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // English prevails (Andy, 2026-10-24): every legal/consent screen
+            // English prevails (Owner ruling 2026-10-24): every legal/consent screen
             // whose wording is shown translated carries the reviewed
             // "English version prevails" line. nil (the line is untranslated)
             // means the legal wording is English, so nothing is shown.
