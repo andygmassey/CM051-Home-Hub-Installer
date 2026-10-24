@@ -1,0 +1,30 @@
+# SHARED vocabulary for food.cuisine. One canonical label per cuisine, with the
+# keywords that mean it. Every food reader (restaurant names, the places
+# enrichment's cuisine tags, delivery orders, stated likes) maps into THESE
+# labels, so evidence from different sources lands in the same group. Add a
+# cuisine or a keyword here, never a second list elsewhere.
+#
+# A keyword matches as a whole word, case-insensitive. A label that matches no
+# keyword is not a cuisine (a venue type such as "restaurant", a price facet)
+# and is dropped by readers that set vocab_strict.
+italian:     [italian, pizza, pizzeria, pasta, trattoria, ristorante, osteria, gelato]
+japanese:    [japanese, sushi, ramen, izakaya, yakitori, tempura, udon, sashimi, teppanyaki, omakase]
+chinese:     [chinese, dim sum, dimsum, cantonese, szechuan, sichuan, hotpot, "hot pot", noodle, noodles, dumpling, dumplings]
+thai:        [thai]
+indian:      [indian, curry, tandoori, biryani, masala, dosa]
+korean:      [korean, bbq, bibimbap, kimchi]
+vietnamese:  [vietnamese, pho, banh mi]
+mexican:     [mexican, taco, tacos, burrito, taqueria, cantina]
+french:      [french, bistro, brasserie, creperie, patisserie, boulangerie]
+spanish:     [spanish, tapas]
+greek:       [greek, souvlaki, gyros, taverna]
+turkish:     [turkish, kebab, doner]
+middle eastern: ["middle eastern", lebanese, persian, falafel, shawarma, mezze, halal]
+mediterranean: [mediterranean]
+american:    [american, burger, burgers, diner, steakhouse, steak, bbq grill, wings]
+british:     [british, "fish and chips", pub, gastropub]
+seafood:     [seafood, oyster, oysters, "fish restaurant"]
+vegetarian:  [vegetarian, vegan, "plant based", plant-based]
+cafe:        [cafe, café, coffee, coffeehouse, bakery, brunch]
+fast food:   ["fast food", mcdonald, kfc, "burger king", subway]
+dessert:     [dessert, "ice cream", icecream, dessert bar]

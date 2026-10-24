@@ -1412,6 +1412,23 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
 
+## 2026-10-23 118: hub_contract.yaml carries the four under-18 Doctor proxy rows
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry (the under-18 routes graft is a separate PR).
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.23>` adds four Doctor rows because install.sh DOCTOR_PROXY_PATHS gained `/api/v1/minors`, `/api/v1/minors/suggestions`, `/api/v1/people/{slug}/minor` and `/api/v1/people/{slug}/minor-suggestion/dismiss`. They are marked `upstream_missing: true`, which is the truth until the graft lands.
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.23> --check` reports current (284 routes).
+- Retire: the graft PR regenerates this file again with the ical routes present.
+
+## 2026-10-23 118: the under-18 setter, suggestion and dismissal routes (CM041 #236)
+
+Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 6249d1fe5ccea7d44deabfbca19c4bcc21ffe256.
+
+- `ical-server.py`: `_personal_identifiers_for` factored out of `api_people_suppress_suggestions`; the minors block (`MinorsRegistryUnreadable` through `api_minors_dismiss`, placed after `api_people_forget` so the forget tests that slice from `_forget_audit_has` do not pick it up); GET `/api/v1/minors` and `/api/v1/minors/suggestions`; POST `/api/v1/people/{slug}/minor` and `.../minor-suggestion/dismiss`. Applied with patch(1) at fuzz 0, 0 rejected hunks. `API.md` likewise.
+- `tests/test_minors_setter.py` copied verbatim (27 tests). It needs the real `ostler_security`, so the workflow installs `./vendor/ostler_security` first.
+- `hub_contract.yaml` regenerated against hub-v0.5.23; the four Doctor rows now resolve to `ical` rows instead of `upstream_missing`.
+- Proof: 27 passed in a clean venv with only pytest, httpx, fastapi, rapidfuzz and `./vendor/ostler_security` installed. Wired in minors-registry-row.yml.
+- Retire: re-pin `cm041/assistant_api` past the CM041 #236 squash.
 ## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
 
 Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three

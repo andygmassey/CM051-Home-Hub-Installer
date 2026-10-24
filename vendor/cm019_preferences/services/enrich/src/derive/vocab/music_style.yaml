@@ -1,0 +1,20 @@
+# SHARED vocabulary for media.music.genre: the broad styles a listener thinks in.
+# Subgenres fold into their parent style(s); a label that matches nothing here is
+# too narrow or not a style and is dropped by readers that set vocab_strict.
+rock:        [rock, "hard rock", "classic rock", "punk", "post-punk", "prog", "progressive rock", "psychedelic"]
+alternative: [alternative, indie, grunge, shoegaze, "post-rock", emo, "new wave", "britpop"]
+pop:         [pop, "synth-pop", synthpop, "dance-pop", "k-pop", kpop, "j-pop", "teen pop"]
+hip hop:     ["hip hop", "hip-hop", hiphop, rap, trap, grime, drill]
+r&b:         ["r&b", rnb, "rhythm and blues", soul, funk, motown, "neo soul", "neo-soul"]
+electronic:  [electronic, electronica, house, techno, trance, "drum and bass", dnb, dubstep, ambient, edm, synth, idm, downtempo]
+dance:       [dance, disco, garage, eurodance]
+jazz:        [jazz, bebop, swing, bossa, fusion]
+classical:   [classical, orchestra, orchestral, symphony, opera, baroque, chamber, piano, soundtrack, score]
+country:     [country, bluegrass, americana, honky]
+folk:        [folk, singer-songwriter, acoustic, celtic]
+metal:       [metal, hardcore, thrash, doom]
+reggae:      [reggae, ska, dub, dancehall]
+latin:       [latin, salsa, reggaeton, bachata, flamenco, tango, samba]
+blues:       [blues]
+world:       [world, afrobeat, afrobeats, highlife, "k-indie"]
+gospel:      [gospel, worship, christian]
