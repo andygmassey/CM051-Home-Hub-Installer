@@ -245,7 +245,7 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
-### T0j -- Smart Prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
+### T0j -- smart-prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
 
 `services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
 `services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
