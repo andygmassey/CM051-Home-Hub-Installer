@@ -230,7 +230,7 @@
   "src": "Three things we ask you not to do:"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_BUSINESS": {
-  "text": "它并非为商业用途而设计。请不要将 Ostler 部署给员工使用，也不要在工作中用它收集同事、客户、患者或顾客的信息。如果某个组织这样做，该组织就要对其收集到信息的每一个人负责，而 Ostler 并非为承担这种责任而设计。",
+  "text": "它并非为商业用途而设计。请不要将 Ostler 部署给员工使用，也不要在工作中用它收集同事、客户、病人或顾客的信息。如果某个组织这样做，该组织就要对其收集到信息的每一个人负责，而 Ostler 并非为承担这种责任而设计。",
   "src_hash": "532e1677520b",
   "src": "It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
  },
