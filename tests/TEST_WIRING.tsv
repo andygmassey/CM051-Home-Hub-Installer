@@ -251,6 +251,7 @@ test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/ve
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
 test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_crm_contacts.py	WIRED	.github/workflows/meeting-import.yml
 test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-strings-check.yml
 test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
@@ -521,6 +522,7 @@ test_meeting_brief_probe_sends_the_store_credential.py	WIRED	.github/workflows/m
 test_meeting_brief_real_hub.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_meeting_brief_sender.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_meeting_briefs_say_when_they_cannot_run.py	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
+test_meeting_import.py	WIRED	.github/workflows/meeting-import.yml
 test_memory_about_you.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_memory_assert_answers_inside_the_probe_timeout.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
