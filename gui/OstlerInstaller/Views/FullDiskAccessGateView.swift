@@ -190,19 +190,47 @@ struct FullDiskAccessGateView: View {
     // MARK: - Controls
 
     private var controls: some View {
-        HStack(spacing: CGFloat.ostlerSpace3) {
-            Button(ViewCopy.shared.string(for: "fda_gate.recheck_button")) {
-                coordinator.recheckFullDiskAccessAndProceed()
+        VStack(spacing: CGFloat.ostlerSpace2) {
+            if coordinator.fdaGateOffersContinueAnyway {
+                Text(ViewCopy.shared.string(for: "fda_gate.unconfirmed_note"))
+                    .font(.ostlerBody)
+                    .foregroundStyle(Color.ostlerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: CGFloat.ostlerSpace3) {
+                    Button(ViewCopy.shared.string(for: "fda_gate.quit_reopen_button")) {
+                        coordinator.quitAndReopenFromApplications()
+                    }
+                    .buttonStyle(.ostlerGhost)
+                    Spacer()
+                    Button(ViewCopy.shared.string(for: "fda_gate.continue_anyway_button")) {
+                        coordinator.continueWithoutConfirmedFullDiskAccess()
+                    }
+                    .buttonStyle(.ostlerGhost)
+                }
+            } else {
+                HStack {
+                    Button(ViewCopy.shared.string(for: "fda_gate.quit_reopen_button")) {
+                        coordinator.quitAndReopenFromApplications()
+                    }
+                    .buttonStyle(.ostlerGhost)
+                    Spacer()
+                }
             }
-            .buttonStyle(.ostlerGhost)
+            HStack(spacing: CGFloat.ostlerSpace3) {
+                Button(ViewCopy.shared.string(for: "fda_gate.recheck_button")) {
+                    coordinator.recheckFullDiskAccessAndProceed()
+                }
+                .buttonStyle(.ostlerGhost)
 
-            Spacer()
+                Spacer()
 
-            Button(ViewCopy.shared.string(for: "fda_gate.open_settings_button")) {
-                AuthorizationHelper.shared.openFullDiskAccessPane()
+                Button(ViewCopy.shared.string(for: "fda_gate.open_settings_button")) {
+                    AuthorizationHelper.shared.openFullDiskAccessPane()
+                }
+                .buttonStyle(.ostlerPrimary)
+                .keyboardShortcut(.defaultAction)
             }
-            .buttonStyle(.ostlerPrimary)
-            .keyboardShortcut(.defaultAction)
         }
     }
 }

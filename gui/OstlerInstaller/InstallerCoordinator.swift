@@ -88,6 +88,9 @@ final class InstallerCoordinator: ObservableObject {
     // no Full Disk Access yet; ContentView shows FullDiskAccessGateView
     // and nothing else runs until the customer grants it and reopens.
     @Published var needsFullDiskAccessUpfront: Bool = false
+    // 118 MUST: escape state for the gate (never a dead end).
+    @Published var fdaGateOffersContinueAnyway: Bool = false
+    private var fdaGateState = FullDiskAccessGuidance.GateState()
     @Published var needsSudo: String? = nil
     @Published var finished: StepStatus? = nil
     /// How many steps ended other than `ok`, as counted by the emitter and
@@ -898,32 +901,56 @@ final class InstallerCoordinator: ObservableObject {
     func gateFullDiskAccessThenStart() {
         // 118 MUST F008/F009: register in the FDA list BEFORE the check
         // and before the step is shown.
+        var evaluation = FullDiskAccessGuidance.AccessEvaluation(verdict: .unverifiable, failures: [])
+        fdaGateState = FullDiskAccessGuidance.GateState()
         let needed = FullDiskAccessGuidance.gateNeeded(
             register: { FullDiskAccessGuidance.registerInList(home: NSHomeDirectory()) },
-            hasAccess: { AuthorizationHelper.shared.hasFullDiskAccess() }
+            hasAccess: {
+                evaluation = FullDiskAccessGuidance.evaluateAccess(home: NSHomeDirectory())
+                return self.fdaGateState.record(evaluation, isRecheck: false)
+            }
         )
         if !needed {
             needsFullDiskAccessUpfront = false
             OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
             requestPermissionsThenStart()
         } else {
+            fdaGateOffersContinueAnyway = fdaGateState.offersContinueAnyway
             needsFullDiskAccessUpfront = true
-            OstlerLog.lifecycle.info("FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
+            OstlerLog.lifecycle.info("FDA gate: access NOT confirmed (\(String(describing: evaluation.verdict), privacy: .public)) probes: \(FullDiskAccessGuidance.failureLogLine(evaluation.failures), privacy: .public) -- showing up-front Full Disk Access screen")
         }
     }
 
     /// CX-87: bound to the "I've switched it on" button on the FDA gate,
     /// as a fallback for the case where macOS did not force-quit the app
     /// after the grant. Re-probes; if FDA is now present, drops the gate
-    /// and proceeds, otherwise leaves the gate up.
+    /// and proceeds, otherwise leaves the gate up. After two failed
+    /// rechecks (or when no probe file exists) it offers "Continue anyway".
     func recheckFullDiskAccessAndProceed() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        let evaluation = FullDiskAccessGuidance.evaluateAccess(home: NSHomeDirectory())
+        if fdaGateState.record(evaluation, isRecheck: true) {
             OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
             needsFullDiskAccessUpfront = false
             requestPermissionsThenStart()
         } else {
-            OstlerLog.lifecycle.info("FDA gate: re-check still without access -- holding on gate")
+            fdaGateOffersContinueAnyway = fdaGateState.offersContinueAnyway
+            OstlerLog.lifecycle.info("FDA gate: re-check \(self.fdaGateState.failedRechecks, privacy: .public) not confirmed (\(String(describing: evaluation.verdict), privacy: .public)) probes: \(FullDiskAccessGuidance.failureLogLine(evaluation.failures), privacy: .public) -- holding on gate")
         }
+    }
+
+    /// Escape from the gate once access could not be confirmed.
+    func continueWithoutConfirmedFullDiskAccess() {
+        guard fdaGateOffersContinueAnyway else { return }
+        OstlerLog.lifecycle.info("FDA gate: continuing without confirmed Full Disk Access")
+        needsFullDiskAccessUpfront = false
+        requestPermissionsThenStart()
+    }
+
+    /// One-tap Quit and reopen from /Applications. The relaunch runs the
+    /// gate again, so the customer resumes here.
+    func quitAndReopenFromApplications() {
+        let url = FullDiskAccessGuidance.quitAndReopen()
+        OstlerLog.lifecycle.info("FDA gate: relaunching \(url.lastPathComponent, privacy: .public)")
     }
 
     func requestPermissionsThenStart() {
