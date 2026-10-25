@@ -61,6 +61,7 @@ jobs:
       # pinned_artefact_freshness. Needs the repo's own git, which a fixture
       # repo inside the test provides.
       - name: Cut-freshness hotfix mode self-test
+        if: always()
         run: bash tests/test_cut_freshness_hotfix_mode.sh
 
       # A TYPED SHA CAN BE INVENTED; A RESOLVED ONE CANNOT.
