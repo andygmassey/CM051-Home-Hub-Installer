@@ -89,12 +89,13 @@ struct FDAProbeReport: Equatable {
 
 enum FullDiskAccessProbe {
     /// Paths relative to the home folder. Each is FDA-protected where it exists.
+    /// Only known FDA-protected paths belong here: a path that can be read
+    /// without FDA (e.g. com.apple.sharedfilelist) would report a false grant.
     static let relativePaths: [String] = [
         "Library/Application Support/com.apple.TCC/TCC.db",
         "Library/Safari/History.db",
         "Library/Mail",
         "Library/Messages/chat.db",
-        "Library/Application Support/com.apple.sharedfilelist",
     ]
 
     static func run(home: String, access: FDAFileAccess) -> FDAProbeReport {
