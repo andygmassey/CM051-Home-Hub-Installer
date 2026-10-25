@@ -947,9 +947,11 @@ test_vendored_derive_covers_all_of_life.py	WIRED	.github/workflows/derived-prefe
 test_vendored_derive_endpoint_mixes_categories.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_scroll_carries_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_qid_pass_reaches_the_thematic_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
