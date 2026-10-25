@@ -29,6 +29,7 @@
 		2D47AB35E1FB087DE3838834 /* ProgressDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88EEF0A1E14468F9B99A6663 /* ProgressDecoderTests.swift */; };
 		32EE05F704A2FC1663C79FBB /* AdminAuthorizationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */; };
 		334B7F253D89500E6A20408C /* ProgressProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */; };
+		334D0F1F499CB374043717FB /* FullDiskAccessGuidance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C757A6E1306E873A545AC28 /* FullDiskAccessGuidance.swift */; };
 		35F58AE80A7E5EDE1D91C87A /* Outfit-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */; };
 		3F2BBCBFC481F5B4DD84D30E /* ErrorCodeBannerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */; };
 		3F2D87F797014DECDE6E74CA /* StepStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */; };
@@ -114,6 +115,7 @@
 		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
 		EE2855BEB5855142F70AB7AA /* UninstallerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */; };
 		EF57D1AF9285D0FD899F2290 /* RecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BD33408C9334A350FE3C68 /* RecoveryCoordinator.swift */; };
+		F081C195A26D58DED3C4CCD5 /* FullDiskAccessGuidanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE392EE8039C64E7FC0077F /* FullDiskAccessGuidanceTests.swift */; };
 		F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1249B5BB363F304334F02 /* ContentView.swift */; };
 		F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 524B76726D10373975055BD0 /* GatewayClient.swift */; };
 		F94300D944302E7EA4A88CCD /* LogRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BE908E9E4B90F6733DD6FD /* LogRedactorTests.swift */; };
@@ -165,6 +167,7 @@
 		38CF88E41D08067999FC9583 /* IBMPlexSans-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-Regular.ttf"; sourceTree = "<group>"; };
 		3AF50C9109B4719629174364 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationClientTests.swift; sourceTree = "<group>"; };
+		3DE392EE8039C64E7FC0077F /* FullDiskAccessGuidanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessGuidanceTests.swift; sourceTree = "<group>"; };
 		40241AAA50AAB3FC5CE4B5A8 /* AdminAuthorizationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminAuthorizationGateTests.swift; sourceTree = "<group>"; };
 		40B3FBFC7DF22BBAA50C76B2 /* Outfit-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Medium.ttf"; sourceTree = "<group>"; };
 		411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerFormatTests.swift; sourceTree = "<group>"; };
@@ -184,6 +187,7 @@
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
 		597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmer.swift; sourceTree = "<group>"; };
 		5BD159481AED14E0F2873891 /* OstlerInstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OstlerInstaller.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5C757A6E1306E873A545AC28 /* FullDiskAccessGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessGuidance.swift; sourceTree = "<group>"; };
 		5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepStatusGlyph.swift; sourceTree = "<group>"; };
 		5D8C12F6029BAB9DEDF5EAD8 /* OstlerInstaller.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OstlerInstaller.entitlements; sourceTree = "<group>"; };
 		61C44A9C151DC4ED7850E818 /* Outfit-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-SemiBold.ttf"; sourceTree = "<group>"; };
@@ -364,6 +368,7 @@
 				42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */,
 				3865CDEDEE721BB0D50F6CE6 /* FDAPresetSubtitleFaceRecognitionClaimTests.swift */,
 				59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */,
+				3DE392EE8039C64E7FC0077F /* FullDiskAccessGuidanceTests.swift */,
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
 				C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */,
 				FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */,
@@ -431,6 +436,7 @@
 				F0FF342212E569C1E337355B /* CaffeinateManager.swift */,
 				578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */,
 				D32D456A934ED46ACD089EF7 /* FingerprintState.swift */,
+				5C757A6E1306E873A545AC28 /* FullDiskAccessGuidance.swift */,
 				7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */,
 				F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */,
 				A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */,
@@ -1320,6 +1326,7 @@
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
 				135D1027BD0F3B4762310C2D /* FingerprintState.swift in Sources */,
 				95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */,
+				334D0F1F499CB374043717FB /* FullDiskAccessGuidance.swift in Sources */,
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
 				F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */,
 				51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */,
@@ -1367,6 +1374,7 @@
 				4217257358F1341C6A4ACEFA /* FDAPresetSubtitleFaceRecognitionClaimTests.swift in Sources */,
 				D687020DA04D1B854FB03E39 /* FailureStateMachineTests.swift in Sources */,
 				E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */,
+				F081C195A26D58DED3C4CCD5 /* FullDiskAccessGuidanceTests.swift in Sources */,
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
 				1A23E840E7F3CF3C7163FD90 /* InstallFailedBannerTest.swift in Sources */,
 				2BCD8DD70C9BCF001725BC88 /* LicenseEntryDropzoneTests.swift in Sources */,

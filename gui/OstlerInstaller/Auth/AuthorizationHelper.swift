@@ -271,7 +271,10 @@ actor AuthorizationHelper {
     /// Open the System Settings deep-link for the Privacy > Full Disk
     /// Access pane. Used by the FDA orchestration sheet.
     nonisolated func openFullDiskAccessPane() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+        // Re-register before opening, so the app is in the list the
+        // pane is about to show (118 MUST F008/F009).
+        FullDiskAccessGuidance.registerInList(home: NSHomeDirectory())
+        let url = URL(string: FullDiskAccessGuidance.paneURLString)!
         DispatchQueue.main.async {
             NSWorkspace.shared.open(url)
         }

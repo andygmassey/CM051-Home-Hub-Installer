@@ -34,6 +34,8 @@ struct FullDiskAccessSheet: View {
                 .foregroundStyle(Color.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
 
+            fdaFallbackBlock(prefix: "fda_sheet")
+
             if !probe.isEmpty {
                 HStack(spacing: .ostlerSpace2) {
                     Image(systemName: "doc.text.magnifyingglass")
@@ -67,5 +69,27 @@ struct FullDiskAccessSheet: View {
         .padding(CGFloat.ostlerSpace4)
         .frame(width: 500)
         .background(Color.ostlerChassis)
+    }
+}
+
+// 118 MUST F008/F009: fallback copy + Show in Finder + translocation note,
+// shared by the up-front gate and the NEEDS_FDA sheet.
+@ViewBuilder
+func fdaFallbackBlock(prefix: String) -> some View {
+    VStack(alignment: .leading, spacing: CGFloat.ostlerSpace2) {
+        Text(ViewCopy.shared.string(for: "\(prefix).fallback"))
+            .font(.ostlerBody)
+            .foregroundStyle(Color.ostlerInk)
+            .fixedSize(horizontal: false, vertical: true)
+        if FullDiskAccessGuidance.isTranslocated(bundlePath: Bundle.main.bundlePath) {
+            Text(ViewCopy.shared.string(for: "\(prefix).translocated_note"))
+                .font(.ostlerBody)
+                .foregroundStyle(Color.ostlerOxblood)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Button(ViewCopy.shared.string(for: "\(prefix).show_in_finder_button")) {
+            FullDiskAccessGuidance.revealRunningBundle()
+        }
+        .buttonStyle(.ostlerGhost)
     }
 }
