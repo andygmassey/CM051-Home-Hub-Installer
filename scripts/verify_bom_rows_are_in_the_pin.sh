@@ -286,6 +286,30 @@ if [ "$((IN + OUT + NOTINHIST))" -eq 0 ]; then
     echo
     echo "CANNOT-RUN: not one row was checkable against the pin, so '0 absent'"
     echo "  here means 'nothing was examined', which must not read as success."
+    # A SINGLE-CUT ACK, and only for THIS shape (v1.0.118, Archie 2026-10-26).
+    # A GUI-only hotfix has no install.sh line to key on, so this gate can never
+    # answer for it. The ack does not turn the CANNOT-RUN into a pass: it is
+    # printed as ACKED CANNOT-RUN, it is honoured only when nothing at all was
+    # examined (no ABSENT, no out-of-history, no unmeasurable row can hide
+    # behind it), and it lives in cuts/<version>/ with that version written in
+    # it, so it cannot carry to the next cut. Columns, TAB-separated, one row:
+    #   version  date(YYYY-MM-DD)  approver(andy|archie)  reason
+    ACK="$HERE/cuts/$VER/BOM_PIN_CANNOT_RUN_ACK.tsv"
+    if [ "$UNMEASURABLE" -eq 0 ] && [ -r "$ACK" ]; then
+        _arow="$(grep -v '^#' "$ACK" | grep -v '^[[:space:]]*$' | head -1)"
+        IFS=$'\t' read -r _av _ad _aa _ar <<< "$_arow"
+        if [ "${_av:-}" = "$VER" ] \
+           && [[ "${_ad:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+           && { [ "${_aa:-}" = "andy" ] || [ "${_aa:-}" = "archie" ]; } \
+           && [ -n "${_ar:-}" ]; then
+            echo
+            echo "ACKED CANNOT-RUN for ${VER} only (${_aa}, ${_ad}): ${_ar}"
+            echo "  The rows above were NOT verified by this gate. The ack is the record of that."
+            exit 0
+        fi
+        echo
+        echo "  ack file ${ACK} is present but not valid for ${VER} (version, ISO date, approver andy|archie, reason): refused."
+    fi
     exit 2
 fi
 
