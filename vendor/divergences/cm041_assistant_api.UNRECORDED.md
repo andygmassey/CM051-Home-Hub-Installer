@@ -1494,3 +1494,19 @@ that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
 57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
 next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
 this assertion, and the re-vendor makes the file byte-identical.
+
+## 2026-10-24: strip tracking params at the extension POST and Save to Knowledge (CM051 #3043; upstream CM041 #227, OPEN)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Grafted ahead of the upstream merge.
+Upstream head at graft: CM041 #227 b1374d25.
+
+- `url_clean.py`: NEW file, byte-identical to `assistant_api/url_clean.py` at b1374d25
+  (diff -q against the upstream blob: identical, 106 lines) and to
+  `vendor/ostler_fda/url_clean.py` (parity checked by `tests/test_url_clean.py`).
+- `ical-server.py`: new helper `_strip_tracking_url(url)` (imports `url_clean` from the
+  file's own directory), and `api_safari_ingest` and `api_safari_save` wrap the
+  posted url in it before it is stored or keyed. Two call sites, one helper.
+- `tests/test_url_clean_ingest.py`: NEW, drives both handlers.
+- Proof: `vendor/cm041/assistant_api/tests/test_url_clean_ingest.py` (4), wired in
+  `url-clean.yml`.
+- Retire: when CM041 #227 merges, re-pin past it.

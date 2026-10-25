@@ -93,7 +93,10 @@ class Store:
                 if not categories or p["payload"]["category"] in categories]
 
     def sparql(self, query):
-        pred = re.search(r"enrichment/ontology#(\w+)>", query).group(1)
+        mp = re.search(r"enrichment/ontology#(\w+)>", query)
+        if mp is None:
+            return []   # not an overlay query (stated fact store, thematic QID count): no rows here
+        pred = mp.group(1)
         m = re.search(r'LCASE\(STR\(\?etype\)\) = "(\w+)"', query)
         out = []
         for pid, lab in self.tags.get((pred, m.group(1) if m else None), []):

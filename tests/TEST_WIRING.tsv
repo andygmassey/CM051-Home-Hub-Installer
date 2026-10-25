@@ -147,6 +147,7 @@ test_audit_log_row_factory.py	WIRED	.github/workflows/db-key-delivery-and-recove
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
+test_backfill_strip_tracking_urls.py	WIRED	.github/workflows/url-clean.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_background_qos_yields_to_chat.sh	WIRED	.github/workflows/ingest-slot.yml
 test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
@@ -906,6 +907,7 @@ test_upgrade_refreshes_assistant_api_and_context_refresh.sh	WIRED	.github/workfl
 test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh	WIRED	.github/workflows/derived-preferences.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_url_clean.py	WIRED	.github/workflows/url-clean.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_producer_parity_2472.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -945,9 +947,11 @@ test_vendored_derive_covers_all_of_life.py	WIRED	.github/workflows/derived-prefe
 test_vendored_derive_endpoint_mixes_categories.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_scroll_carries_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_qid_pass_reaches_the_thematic_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml

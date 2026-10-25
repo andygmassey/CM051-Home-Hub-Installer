@@ -44,6 +44,8 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
+      - 'tests/test_vendored_derived_route_privacy_level.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
@@ -56,6 +58,13 @@ on:
       - 'tests/test_ingest_contract.py'
       - 'tests/ingest_contract_registry.py'
       - 'tests/test_doctor_shows_derived_preferences_status.py'
+      - 'vendor/cm019_preferences/services/enrich/src/cli.py'
+      - 'vendor/cm019_preferences/services/enrich/src/enricher.py'
+      - 'vendor/cm019_preferences/services/enrich/src/hierarchy.py'
+      - 'vendor/cm019_preferences/services/common/recency.py'
+      - 'vendor/cm019_preferences/services/ingest/src/minors.py'
+      - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
+      - 'tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py'
       - '.github/workflows/derived-preferences.yml'
   push:
     branches: [main]
@@ -113,6 +122,12 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_tiers_and_rollup.py
+      - name: The vendored derived route passes privacy_level and never serves L3
+        # Real in-memory pyoxigraph store; L3 and unparseable levels dropped.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_vendored_derived_route_privacy_level.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
@@ -126,6 +141,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0'
           python3 tests/test_vendored_derive_scroll_carries_privacy_level.py
+      - name: The shipped enrich command fills topic QIDs behind consent, P9 and P10, and derive writes the theme
+        # T0i/T0j: python -m services.enrich.src.cli enrich --all from the
+        # vendored tree, then derive_runner over pyoxigraph; gated items
+        # (sensitive, minor, L3, never-read category) are never sent.
+        if: always()
+        run: |
+          python3 -m pip install --quiet -r vendor/cm019_preferences/requirements.txt 'pyoxigraph>=0.5.11,<0.6'
+          python3 tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py
       - name: Every importer declares and keeps the ingest contract (entity, category, real event time, owner, privacy, item key)
         # Derivation can only roll up and decay what ingest kept. The registry
         # refuses an unregistered parser; the fixtures refuse a dropped field;
