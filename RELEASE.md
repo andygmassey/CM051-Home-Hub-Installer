@@ -154,7 +154,8 @@ gh release upload v0.3.0 \
     "ostler-assistant-aarch64-apple-darwin-v0.3.0.tar.gz.sha256"
 
 # 7. Verify the live install.sh fetches the new release
-curl -sI https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz | head -10
+# (No install.tar.gz is published since v0.3.0: that URL 404s. The shipped artefact is the DMG.)
+curl -sI https://ostler.ai/install.dmg | head -10   # expect a 302 to the GitHub OstlerInstaller.dmg
 
 # 8. Smoke-test the SHA guard (cache-bust required)
 curl -sL "https://ostler.ai/install.sh?cb=$(date +%s)" | grep 'DEFAULT_INSTALLER_TARBALL_SHA256'
