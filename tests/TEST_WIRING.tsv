@@ -209,6 +209,7 @@ test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-part
 test_cm048_reminder_supersede_before_duplicate_thread.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_handle.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_reminder_title_quality_gate.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml

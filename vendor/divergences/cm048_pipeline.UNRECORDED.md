@@ -80,3 +80,27 @@ All of the above. Guarded by `tests/test_reply_debt_names_people_p13.py`, run by
 vendored ical-server. A re-pin to a CM048 commit that includes the branch makes
 the first three files redundant here; the service hunks stay a graft until the
 snapshot service itself is upstreamed.
+
+## Graft: reminder title quality gate, human notes, staleness (T1x, 2026-10-25)
+
+Tree `cm048_pipeline`. A graft of CM048 branch `todo-title-gate` (CM048 PR
+opened from it; replace this line with the squash sha when it merges). Files:
+`src/reminders_push.py`, `prompts/09_bundle_extract.md`.
+
+- `title_quality_reason()` in `decide_push`: empty, over 80 chars, @handle,
+  email, file path / URL, ISO date, and "Follow up ..." with no object or
+  person are ineligible (`skip_reason=no_specific_action`). The generic
+  fallbacks ("Follow up on a conversation", "Follow up on commitment",
+  "Follow up with <Name>") are deleted, so an unresolved partner, a group and
+  a solo note are skipped, not pushed generic. The L2 resolved 1:1
+  "<Name>: <text>" title (founder decision, 2026-10-11) is unchanged and passes the gate.
+- Staleness: a source older than 30 days is `skip_reason=stale_source`
+  (`OSTLER_TODO_MAX_AGE_DAYS`, 0 disables). Unknown age is not blocked.
+- Notes: "From your conversation with <Name>, 12 Aug 2021"; group and
+  unresolved partners are unnamed; no ISO date, no `file://` link.
+- Prompt: todo text is verb + object + person, <=60 chars, standalone, no
+  handles; return `[]` rather than a vague todo.
+
+Pinned by `tests/test_cm048_reminder_title_quality_gate.py` (wired in
+`cm048-participants-as-strings.yml`). Upstream differs only in the L2 branch:
+CM048 main has no name resolver, so its L2 always returns "" (skipped).

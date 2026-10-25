@@ -54,6 +54,7 @@ re-rendered ``todos.md`` reflects reality and the CM044 wiki
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -96,6 +97,8 @@ SKIP_REASON_L3 = "l3"
 SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
+SKIP_REASON_NO_SPECIFIC_ACTION = "no_specific_action"
+SKIP_REASON_STALE = "stale_source"
 # An organisation or automated sender (the People list's own rules say so).
 SKIP_REASON_NON_HUMAN = "non_human_sender"
 # The People rules could not be loaded. The organisation filter is a QUALITY
@@ -591,6 +594,107 @@ def thread_key_for(bundle: "ConversationBundle", user_id: str) -> str:
     return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------
+# Title quality gate + staleness
+# ---------------------------------------------------------------------------
+
+MAX_TITLE_CHARS = 80  # prompt asks for <=60; the gate only rejects runaways
+DEFAULT_MAX_AGE_DAYS = 30
+MAX_AGE_ENV = "OSTLER_TODO_MAX_AGE_DAYS"
+
+_HANDLE_RE = re.compile(r"(?<![\w])@\w")
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
+_PATH_RE = re.compile(
+    r"(file://|https?://|(?:^|\s)~/|(?:^|\s)/(?:Users|home|var|tmp|private)/"
+    r"|\.(?:md|txt|json|yaml|yml|pdf|csv)\b)",
+    re.IGNORECASE,
+)
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_FOLLOW_UP_RE = re.compile(r"^follow[\s-]?up\b[\s:,-]*", re.IGNORECASE)
+_VAGUE_OBJECT_RE = re.compile(
+    r"^(on|with|about|regarding)?\s*(the|a|an|this|that|these|those|our|your|my|it|"
+    r"commitment|conversation|discussion|thread|chat|call|meeting|message|"
+    r"investigation|matter|issue|item|items)\b",
+    re.IGNORECASE,
+)
+_FILLER_WORDS = frozenset(
+    {"on", "with", "about", "regarding", "the", "a", "an", "to", "of", "and"}
+)
+
+
+def title_quality_reason(title: str) -> Optional[str]:
+    """Return why ``title`` is not fit to show a customer, or None if it is.
+
+    Deterministic, no LLM. Rejects: empty, over-long, handles, emails,
+    file paths / URLs, ISO dates, and the generic "Follow up ..." family
+    that names neither an object nor a person.
+    """
+    t = (title or "").strip()
+    if not t or t == "(empty commitment)":
+        return "empty"
+    if len(t) > MAX_TITLE_CHARS:
+        return "too_long"
+    if _EMAIL_RE.search(t):
+        return "email"
+    if _HANDLE_RE.search(t):
+        return "handle"
+    if _PATH_RE.search(t):
+        return "path"
+    if _ISO_DATE_RE.search(t):
+        return "iso_date"
+    m = _FOLLOW_UP_RE.match(t)
+    if m:
+        rest = t[m.end():].strip(" .")
+        words = [w for w in re.findall(r"[\w'-]+", rest) if w.lower() not in _FILLER_WORDS]
+        if len(words) < 2:
+            # "Follow up", "Follow up with Sam": no object.
+            return "generic_follow_up"
+        if _VAGUE_OBJECT_RE.match(rest):
+            # "Follow up on the ...", "Follow up on a conversation".
+            return "vague_follow_up"
+    return None
+
+
+def max_age_days() -> Optional[int]:
+    """Staleness cutoff in days. ``OSTLER_TODO_MAX_AGE_DAYS`` overrides;
+    0 or a negative value disables the cutoff."""
+    raw = os.environ.get(MAX_AGE_ENV, "").strip()
+    if raw:
+        try:
+            v = int(raw)
+        except ValueError:
+            return DEFAULT_MAX_AGE_DAYS
+        return v if v > 0 else None
+    return DEFAULT_MAX_AGE_DAYS
+
+
+def _source_datetime(bundle: "ConversationBundle") -> Optional[datetime]:
+    """When the source conversation happened, or None if unknowable."""
+    for raw in (bundle.started_at, bundle.date):
+        if not raw or not isinstance(raw, str):
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return None
+
+
+def _is_stale(
+    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int]
+) -> bool:
+    if limit_days is None:
+        return False
+    src = _source_datetime(bundle)
+    if src is None:
+        return False  # age unknowable: the other gates still apply
+    ref = now or datetime.now(timezone.utc)
+    return (ref - src).days > limit_days
+
+
 def _format_push_title(
     todo: "Todo",
     privacy_level: str,
@@ -624,14 +728,32 @@ def _format_push_title(
             kind, name = participant or _classify_participant(others[0], name_resolver)
             if kind == KIND_PERSON and name:
                 text = _short_text(todo.text or "")
-                return f"{name}: {text}" if text else f"Follow up with {name}"
-            return GENERIC_FOLLOW_UP_TITLE
-        if others:
-            return GENERIC_FOLLOW_UP_TITLE
-        # Solo / no-other-party (e.g. a meeting note where the user is the
-        # only labelled participant). Don't name anyone.
-        return "Follow up on commitment"
-    return (todo.text or "").strip() or "(empty commitment)"
+                # No text left after stripping: "" is rejected by the gate.
+                return f"{name}: {text}" if text else ""
+            return ""
+        # Group / solo / unresolved partner: any title would be generic,
+        # which the quality gate rejects, so none is built.
+        return ""
+    return (todo.text or "").strip()
+
+
+_DISPLAY_NAME_RE = re.compile(r"^[^\W\d_]+(?:[ '.][^\W\d_]+)*$")
+
+
+def _display_name(label: str) -> Optional[str]:
+    """A participant label fit to print, or None for handles, emails,
+    phone numbers and slugs (anything that is not plain words)."""
+    lab = (label or "").strip()
+    if not lab or "@" in lab or not _DISPLAY_NAME_RE.match(lab):
+        return None
+    return lab
+
+
+def _human_date(bundle: "ConversationBundle") -> str:
+    src = _source_datetime(bundle)
+    if src is None:
+        return ""
+    return f"{src.day} {src.strftime('%b %Y')}"
 
 
 def _format_push_notes(
@@ -643,25 +765,25 @@ def _format_push_notes(
     name_resolver: Optional[NameResolver] = None,
     participant: Optional[tuple] = None,
 ) -> str:
-    """Notes body. Short context line + a ``file://`` deep link back
-    to the bundle's ``summary.md`` so a tap in Reminders.app opens
-    the source. No transcript dump.
-
-    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
-    the partner only when they resolve to a person; never a raw handle.
+    """Notes body: one human line, e.g. "From your conversation with Sam,
+    12 Aug 2021". No ISO date, no ``file://`` path or any link, no
+    transcript. The partner is named only when they resolve to a person;
+    never a raw handle. ``todo`` / ``summary_path`` kept for call
+    compatibility. L3 never reaches here.
     """
-    started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
-    if privacy_level == "L2":
-        context = f"From a private conversation on {started}"
+    others = _other_participants(bundle.participants, user_id="")
+    if len(others) == 1:
+        kind, name = participant or _classify_participant(others[0], name_resolver)
+        if kind == KIND_PERSON and name and _display_name(name):
+            context = f"From your conversation with {name}"
+        else:
+            context = "From your conversation"
+    elif len(others) > 1:
+        context = "From your group conversation"
     else:
-        others = _other_participants(bundle.participants, user_id="")
-        who = "the group"
-        if len(others) == 1:
-            kind, name = participant or _classify_participant(others[0], name_resolver)
-            who = name if (kind == KIND_PERSON and name) else "a contact"
-        context = f"From conversation with {who} on {started}"
-    file_link = f"file://{summary_path}"
-    return f"{context}\n\n{file_link}"
+        context = "From your conversation"
+    date = _human_date(bundle)
+    return f"{context}, {date}" if date else context
 
 
 def decide_push(
@@ -672,6 +794,8 @@ def decide_push(
     user_id: str,
     summary_path: Path,
     name_resolver: Optional[NameResolver] = None,
+    now: Optional[datetime] = None,
+    max_age_days_override: Optional[int] = None,
 ) -> PushDecision:
     """Run the writer-side gate for one todo.
 
@@ -719,6 +843,16 @@ def decide_push(
             push_deadline=None,
         )
 
+    limit = (
+        max_age_days_override if max_age_days_override is not None
+        else max_age_days()
+    )
+    if _is_stale(bundle, now=now, limit_days=limit):
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_STALE,
+            push_title="", push_notes="", push_deadline=None,
+        )
+
     others = _other_participants(bundle.participants, user_id=user_id)
     classified = [(_classify_participant(o, name_resolver)) for o in others]
     kinds = [k for k, _ in classified]
@@ -735,13 +869,20 @@ def decide_push(
         # fail open: name the person if we have a name, else stay generic
         participant = (KIND_PERSON, participant[1]) if participant[1] else (KIND_UNKNOWN, None)
 
+    title = _format_push_title(
+        todo, level, bundle=bundle, user_id=user_id,
+        name_resolver=name_resolver, participant=participant,
+    )
+    if title_quality_reason(title) is not None:
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_NO_SPECIFIC_ACTION,
+            push_title="", push_notes="", push_deadline=None,
+        )
+
     return PushDecision(
         eligible=True,
         skip_reason=None,
-        push_title=_format_push_title(
-            todo, level, bundle=bundle, user_id=user_id,
-            name_resolver=name_resolver, participant=participant,
-        ),
+        push_title=title,
         push_notes=_format_push_notes(
             todo, bundle, privacy_level=level, summary_path=summary_path,
             name_resolver=name_resolver, participant=participant,

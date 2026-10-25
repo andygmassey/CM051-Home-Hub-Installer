@@ -26,6 +26,12 @@ from src.conversation_writer import ConversationBundle, ConversationSummary, Tod
 from src.reminders_push import decide_push
 
 GENERIC = "Follow up on a conversation"
+
+
+def _rejected(d):
+    """A generic title is never pushed: the gate skips the todo."""
+    return (not d.eligible and d.skip_reason == "no_specific_action"
+            and d.push_title == "" and d.push_notes == "")
 PHONE = "+15550100"
 JID = "15550100@s.whatsapp.net"
 EMAIL = "partner_a@example.invalid"
@@ -65,9 +71,7 @@ def _decide(participants, level="L2", **kw):
 @pytest.mark.parametrize("handle", [PHONE, JID, EMAIL, "(555) 0100", "+15550100@lid"])
 def test_unresolved_handle_gives_generic_title_and_no_handle(handle):
     d = _decide(("user", handle))
-    assert d.eligible
-    assert d.push_title == GENERIC
-    assert handle not in d.push_title and handle not in d.push_notes
+    assert _rejected(d)
     assert "@" not in d.push_title
 
 
@@ -90,20 +94,20 @@ def test_resolved_handle_gives_name_and_short_text():
 
 def test_resolver_returning_a_handle_is_treated_as_unresolved():
     d = _decide(("user", PHONE), name_resolver=lambda h: "+15550199")
-    assert d.push_title == GENERIC
+    assert _rejected(d)
     d = _decide(("user", PHONE), name_resolver=lambda h: EMAIL)
-    assert d.push_title == GENERIC
+    assert _rejected(d)
 
 
 def test_resolver_that_raises_gives_generic_title():
     def boom(_h):
         raise RuntimeError("store down")
-    assert _decide(("user", PHONE), name_resolver=boom).push_title == GENERIC
+    assert _rejected(_decide(("user", PHONE), name_resolver=boom))
 
 
 def test_multi_party_is_generic_even_with_handles():
     d = _decide(("user", PHONE, EMAIL))
-    assert d.push_title == GENERIC
+    assert _rejected(d)
 
 
 def test_a_label_that_is_already_a_name_is_kept():
@@ -145,7 +149,7 @@ def test_default_resolver_reads_the_people_collection(monkeypatch):
     try:
         monkeypatch.setenv("OSTLER_QDRANT_URL", f"http://127.0.0.1:{srv.server_port}")
         assert _decide(("user", PHONE)).push_title == "Jane Doe: send the synthetic draft"
-        assert _decide(("user", "+15550111")).push_title == GENERIC
+        assert _rejected(_decide(("user", "+15550111")))
     finally:
         srv.shutdown()
     assert _People.seen and _People.seen[0][0] == "/collections/people/points/scroll"

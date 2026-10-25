@@ -49,16 +49,19 @@ def _decide(participants, deadline=DEADLINE):
     )
 
 
-@pytest.mark.parametrize("participants", [
-    ("user", "partner_a"),                  # one other party
-    ("user", "partner_a", "partner_b"),  # multi-party
-    ("user",),                                # solo
+@pytest.mark.parametrize("participants,pushed", [
+    (("user", "partner_a"), True),                 # one other party
+    (("user", "partner_a", "partner_b"), False),   # multi-party: generic, gated
+    (("user",), False),                            # solo: generic, gated
 ])
-def test_l2_title_has_no_iso_date_and_due_date_carries_deadline(participants):
+def test_l2_title_has_no_iso_date_and_due_date_carries_deadline(participants, pushed):
     d = _decide(participants)
-    assert d.eligible
-    # 1:1 with a resolved name reads "<Name>: <text>"; the rest are generic.
-    assert d.push_title.startswith("Follow up") or ": send the synthetic draft" in d.push_title
+    assert d.eligible is pushed
+    if not pushed:
+        assert d.skip_reason == "no_specific_action" and d.push_title == ""
+        return
+    # 1:1 with a resolved name reads "<Name>: <text>".
+    assert ": send the synthetic draft" in d.push_title
     assert not ISO_DATE.search(d.push_title), d.push_title
     assert d.push_deadline == DEADLINE
 

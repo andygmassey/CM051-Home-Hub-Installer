@@ -89,8 +89,8 @@ def test_text_is_truncated_and_stripped_of_handles():
 
 
 def test_unresolved_1to1_is_generic_and_multiparty_is_generic():
-    assert _decide(("user", "+15550999")).push_title == "Follow up on a conversation"
-    assert _decide(("user", PHONE, "+15550998")).push_title == "Follow up on a conversation"
+    assert _decide(("user", "+15550999")).skip_reason == "no_specific_action"
+    assert _decide(("user", PHONE, "+15550998")).skip_reason == "no_specific_action"
 
 
 # ---- (c) organisations / automated senders ------------------------------
@@ -148,10 +148,12 @@ def test_import_failure_does_not_block_distinct_people(tmp_path, monkeypatch):
     for n, who in enumerate((PHONE, "+15550999", "Jane Doe", "John Doe")):
         _apply(db, ("user", who), f"s-{n}", [_todo()])
     pend = [r for r in _rows(db) if r[2] == "pending"]
-    assert len(pend) == 4, "nobody is dropped when the filter is unavailable"
-    # a bare unresolved handle never needed the rules, so it carries no flag;
-    # every row that DID need them is flagged
-    assert sorted(str(r[3]) for r in pend) == ["None", "org_filter_unavailable", "org_filter_unavailable", "org_filter_unavailable"]
+    # the bare unresolved handle has no displayable name, so the title gate
+    # skips it (no_specific_action); every named person is still pushed and
+    # flagged
+    assert len(pend) == 3, "no named person is dropped when the filter is unavailable"
+    assert sorted(str(r[3]) for r in pend) == ["org_filter_unavailable"] * 3
+    assert len(_rows(db, "skip_reason='no_specific_action'")) == 1
 
 
 # ---- (a) one open reminder per person / thread --------------------------
@@ -167,8 +169,8 @@ def test_duplicates_for_one_person_collapse_to_one(tmp_path):
 
 def test_different_people_each_get_one(tmp_path):
     db = tmp_path / "m.db"
-    _apply(db, ("user", PHONE), "s-1", [_todo()])
-    _apply(db, ("user", "+15550999"), "s-2", [_todo()])
+    _apply(db, ("user", "Jane Doe"), "s-1", [_todo()])
+    _apply(db, ("user", "John Doe"), "s-2", [_todo()])
     assert len(_rows(db, "status='pending'")) == 2
 
 
