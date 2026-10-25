@@ -1,0 +1,8 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.118.
+#
+# v1.0.118 is a HOTFIX: v1.0.117 plus the F009 macOS 27 Full Disk Access probe fix ONLY
+# (decision FROM AESOP under Andy's delegation, 2026-10-25). The launch candidate that was
+# previously called 118 is v1.0.119 (cuts/v1.0.119/MUST_CONTAIN.tsv). No v1.0.118 artefact
+what	repo	ref	landed	capability_id	verify	ticket
+# exists yet, so landed=no on the row is correct.
+F009: Full Disk Access gate probes several paths (user TCC.db, Safari History.db, Mail, Messages chat.db) so macOS 27, which has no user TCC.db, no longer reads as denied; Continue anyway after 2 failed rechecks; Quit and reopen. Squash of CM051 #3173 onto v1.0.117 (branch hotfix/v1.0.117-base)	CM051	4f56f104	no	f009_fda_multi_path_probe	capability_matrix.sh gate	CM051 #3173
