@@ -67,6 +67,12 @@ entries:
     # to prove the same wire-through against the current source.
     incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.118 (ORM 2026-10-26): pinned to the daemon this cut SHIPS (cut.env
+    # DAEMON_COMMIT d9854a99 = tag hub-v0.5.28). Without source_sha the proof
+    # read the oa clone's HEAD (main), where 5011a2d6 rewrote the welcome
+    # modal, so it failed for a daemon the cut does not ship (dispatch
+    # 40223671703). Pattern count: 1 at d9854a99, 0 at oa main.
+    source_sha: d9854a9954eaeae1f9fa1392de923ab839a97cc4
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
