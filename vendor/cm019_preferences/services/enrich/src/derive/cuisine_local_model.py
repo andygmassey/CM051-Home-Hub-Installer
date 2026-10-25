@@ -75,11 +75,11 @@ def prompt_for(name: str, area: str = "", dishes: Iterable[str] = ()) -> str:
         "Answer only when the name itself, the dishes, or a well-known restaurant makes the cuisine clear. "
         "If the name is just a surname, a place, a person, a pun or a generic word, answer unknown. "
         "A wrong label is worse than unknown.\n\n"
-        "Restaurant: Bella Napoli Pizzeria\nAnswer: italian\n"
-        "Restaurant: The Corner House\nAnswer: unknown\n"
-        "Restaurant: Jade Garden\nAnswer: unknown\n"
-        "Restaurant: Wong Kei Roast Goose\nAnswer: chinese\n"
-        "Restaurant: Smith and Daughters\nAnswer: unknown\n\n"
+        "Restaurant: The Little Pizzeria\nAnswer: italian\n"
+        "Restaurant: The Willow Tree\nAnswer: unknown\n"
+        "Restaurant: The Golden Lantern\nAnswer: unknown\n"
+        "Restaurant: The Wonton Kitchen\nAnswer: chinese\n"
+        "Restaurant: Jones and Daughters\nAnswer: unknown\n\n"
         + "\n".join(bits) + "\nAnswer:"
     )
 

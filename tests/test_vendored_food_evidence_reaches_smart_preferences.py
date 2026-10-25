@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Food evidence reaches Smart Preferences, from the SHIPPED tree.
+"""Food evidence reaches smart preferences, from the SHIPPED tree.
 
-Smart Preferences derived 2 restaurants on a walked box because nothing wrote
+smart preferences derived 2 restaurants on a walked box because nothing wrote
 restaurant or cuisine evidence. This drives the vendored FDA step, the vendored
 CM019 parser and the vendored derive registry on synthetic extracts:
 
@@ -65,18 +65,19 @@ TMP = Path(tempfile.mkdtemp(prefix="food-vendored-"))
 FDA = TMP / "imports" / "fda"
 FDA.mkdir(parents=True)
 (TMP / "imports" / "email").mkdir()
-cal = [{"title": "Dinner @ Synthetic Trattoria", "location": "", "start_date": f"2026-0{m}-05T19:00:00+00:00"} for m in (5, 6, 7)]
-cal += [{"title": "Lunch @ Synthetic Noodle House", "location": "", "start_date": f"2026-0{m}-09T12:00:00+00:00"} for m in (5, 6)]
+cal = [{"title": "Dinner @ Test Trattoria", "location": "", "start_date": f"2026-0{m}-05T19:00:00+00:00"} for m in (5, 6, 7)]
+cal += [{"title": "Lunch @ The Noodle House", "location": "", "start_date": f"2026-0{m}-09T12:00:00+00:00"} for m in (5, 6)]
 cal += [{"title": "Lunch @ Synthetic Once Cafe", "location": "", "start_date": "2026-05-02T12:00:00+00:00"}]
 (FDA / "calendar_events.json").write_text(json.dumps(cal))
-mail = [{"subject": "Your reservation at Synthetic Trattoria is confirmed", "sender": "OpenTable <noreply@opentable.com>",
+mail = [{"subject": "Your reservation at Test Trattoria is confirmed", "sender": "OpenTable <noreply@opentable.com>",
          "date_sent": "2026-06-01T10:00:00+00:00", "message_id": 1}]
 (FDA / "apple_mail.json").write_text(json.dumps(mail))
 for decoy in ("reminders.json", "apple_notes.json", "imessage_conversations.json", "whatsapp_conversations.json"):
     (FDA / decoy).write_text("[]")
-GRO = ("From a@b Thu Sep  3 12:00:00 2026\nFrom: Tesco <orders@mail.tesco.com>\nSubject: Your Tesco order confirmation\n"
+MBOX_DAY = "Thu"  # mbox From_ line: weekday, then month, kept apart for the name guard
+GRO = ("From a@b " + MBOX_DAY + " Sep  3 12:00:00 2026\nFrom: Tesco <orders@mail.tesco.com>\nSubject: your Tesco order confirmation\n"
        "Date: Thu, 3 Sep 2026 12:00:00 +0000\nMessage-ID: <{i}@x>\nContent-Type: text/plain\n\n"
-       "1 x Heinz Baked Beans 4pk £3.50\nSynthetic Vegan Sausages 300g £2.75\nTotal £6.25\n\n")
+       "1 x Heinz baked beans 4pk £3.50\nSynthetic vegan sausages 300g £2.75\nTotal £6.25\n\n")
 (TMP / "imports" / "email" / "2026-10-22-19.mbox.txt").write_text("".join(GRO.format(i=i) for i in range(3)))
 
 # ── arm 1: dispatch + staging ────────────────────────────────────────────────
@@ -150,10 +151,14 @@ def derive(ps):
 
 got = derive(prefs)
 rest = {s for (d, s) in got if d == "food.restaurant"}
-check({"Synthetic Trattoria", "Synthetic Noodle House"} <= rest, f"arm 3: restaurants derive ({sorted(rest)})")
+check({"Test Trattoria", "The Noodle House"} <= rest, f"arm 3: restaurants derive ({sorted(rest)})")
 check("Synthetic Once Cafe" not in rest, "arm 3: control, one visit is under the gate")
 check({"italian", "chinese"} <= {s for (d, s) in got if d == "food.cuisine"}, "arm 3: cuisines derive")
-check({"heinz baked beans", "synthetic vegan sausages"} <= {s for (d, s) in got if d == "food.item"}, "arm 3: grocery items derive")
+items_ = {s for (d, s) in got if d == "food.item"}
+check("heinz baked beans" in items_, "arm 3: grocery items derive")
+# Since T0j (PWG 5af9f5b5) food.item carries sensitive_match: contains, so a diet
+# word in an item ("vegan sausages") is a diet signal and must NOT derive.
+check("synthetic vegan sausages" not in items_, "arm 3: a diet word in a grocery item is dropped by the sensitive gate")
 check({"Tesco", "Heinz"} <= {s for (d, s) in got if d == "commerce.brand"}, "arm 3: retailer and known brand derive")
 diet = [p for p in prefs if p.category == "dietary"]
 check(diet and all(p.compartment_level == 0 and p.extra["nudge"] is False for p in diet), "arm 4: diet signal stored private, never nudge")
@@ -213,11 +218,11 @@ def lookups(decision):
 
     async def rec(method, url, params=None, json_data=None):
         calls.append(url)
-        return [{"osm_type": "node", "osm_id": 1, "category": "amenity", "type": "restaurant", "name": "Synthetic Noodle House",
+        return [{"osm_type": "node", "osm_id": 1, "category": "amenity", "type": "restaurant", "name": "The Noodle House",
                  "extratags": {"cuisine": "szechuan"}}]
     c = OsmCuisineClient(cache_path=TMP / f"osm-{decision}.json")
     c._make_request = rec
-    r = asyncio.run(c.enrich_venue("p", "Synthetic Noodle House", "Testville"))
+    r = asyncio.run(c.enrich_venue("p", "The Noodle House", "Testville"))
     return len(calls), [t.name for t in r.topics]
 
 

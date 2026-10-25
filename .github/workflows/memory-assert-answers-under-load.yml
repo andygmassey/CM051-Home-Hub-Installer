@@ -27,6 +27,10 @@ on:
       - 'tests/test_enrichqueue_retries_not_drops.py'
       - 'vendor/cm041/assistant_api/browsing_enrich.py'
       - 'tests/test_api_list_pagination_is_additive.py'
+      - 'tests/test_vendored_cm041_revendor_07a22b4c_routes.py'
+      - 'tests/test_vendored_conversation_routes_refuse_path_traversal.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/meeting_syncer/**'
       - 'tests/fixtures/pagination_golden_*.json'
       - '.github/workflows/memory-assert-answers-under-load.yml'
   push:
@@ -64,3 +68,9 @@ jobs:
       - name: the knowledge drain retries through a store outage and never drops
         if: always()
         run: python3 -m pytest -v tests/test_enrichqueue_retries_not_drops.py
+      - name: CM041 07a22b4c re-vendor - meeting/upcoming in-process, commitments privacy_level, derived preferences route
+        if: always()
+        run: python3 -m pytest -v tests/test_vendored_cm041_revendor_07a22b4c_routes.py
+      - name: CM041 #225 in the vendored server - conversation routes refuse path traversal
+        if: always()
+        run: python3 -m pytest -v tests/test_vendored_conversation_routes_refuse_path_traversal.py

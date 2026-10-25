@@ -8,6 +8,11 @@
 #   tier          broad = a TYPE (genre, cuisine, topic, city); specific = a single
 #                 thing (artist, series, restaurant, site). Front Page and the
 #                 brief lead with broad; specific follows once broad is settled.
+#   half_life_days  recency half-life of this dimension's evidence. Omit for the 540d
+#                 preference default (services/common/recency.py, the hygiene table).
+#   evergreen     true = never decays (dietary / medical). Dimensions under
+#                 food.ingredient, food.diet, health.dietary/medical/allergy are
+#                 evergreen by prefix even without the flag.
 #   max_items     keep only the strongest N nodes of the dimension. Set on the
 #                 high-cardinality ones (every artist, every site) so they cannot
 #                 crowd the rest out of a top-N read.
@@ -23,12 +28,14 @@
   label: "Film director"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2        # fewer films per director is expected
 
 - dimension: media.film.actor
   label: "Film actor"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 40
 
@@ -36,6 +43,7 @@
   label: "Film writer"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -43,6 +51,7 @@
   label: "Film composer"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -51,6 +60,7 @@
   label: "TV series"
   category: tv
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3        # three episodes of one show
   max_items: 40
 
@@ -64,6 +74,7 @@
   label: "TV cast"
   category: tv
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 30
 
@@ -72,6 +83,7 @@
   label: "Music artist"
   category: music
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 40
 
@@ -86,6 +98,7 @@
   label: "Book author"
   category: books
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -107,6 +120,7 @@
   label: "Podcast"
   category: podcasts
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -125,6 +139,13 @@
   min_evidence: 3
   max_items: 40
 
+- dimension: theme.concept
+  label: "Broad theme"
+  category: themes
+  tier: broad
+  min_evidence: 2        # distinct preferences; the reader also needs 2 distinct topics
+  max_items: 20
+
 - dimension: web.site
   label: "Site you return to"
   category: web
@@ -138,12 +159,27 @@
   tier: specific
   min_evidence: 2
   max_items: 20
+  half_life_days: 180    # reading habits follow the news cycle; 540d would keep a 2-year-old source at 0.5
 
 # --- Food, places, brands ----------------------------------------------------
 - dimension: food.cuisine
   label: "Cuisine and venue type"
   category: food
   tier: broad
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.drink
+  label: "Drink"
+  category: food
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.ingredient
+  label: "Ingredient or dish"
+  category: food
+  tier: specific
   min_evidence: 2
   max_items: 20
 
@@ -225,5 +261,6 @@
   label: "Food you buy or order"
   category: food
   tier: specific
+  sensitive_match: contains   # a diet word in a grocery item ("vegan sausages") is a diet signal
   min_evidence: 3
   max_items: 30

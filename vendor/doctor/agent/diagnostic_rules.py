@@ -27,6 +27,10 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    MINORS_UNREADABLE_TITLE,
+    MINORS_UNREADABLE_DETAIL_FMT,
+    MINORS_UNREADABLE_FIX,
+    MINORS_UNREADABLE_FIX_COMMAND_FMT,
     TM_SECRETS_NOT_EXCLUDED_TITLE,
     TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
     TM_NOT_EXCLUDED_DETAIL_FMT,
@@ -1961,6 +1965,42 @@ def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
 # customer already dealt with weeks ago.
 _DISPATCH_FAIL_TOKENS = ("rc=1", "sessions_failed")
 
+# 🔴 AND rc=1 AS A RAW SUBSTRING COUNTS rc=10, rc=124 AND rc=199 AS FAILURES.
+# Board row 967. The tuple above is the vocabulary and is still correct; the
+# MATCH was not. `"rc=1" in line` is true of every return code from 10 to 19,
+# 100 to 199, and of 124 in particular, which is the conventional timeout exit
+# code and the one a 90-second watchdog produces. The first time the
+# conversation processor is killed rather than failing, a raw substring tells
+# the owner a dispatch FAILED.
+#
+# rc=124 is not hypothetical here: this very file carries it as the worked
+# example of the log format these rules read, in the shape
+# `status=error rc=124 sent=0,skipped=0`.
+#
+# WHY AN INFLATED COUNT IS THE SAME HARM AS A DEFLATED ONE. This rule exists
+# because Doctor once said "Everything looks healthy" while the bundle error
+# log carried a fresh failure, and the number it produces is shown to the owner
+# as how many conversations were READ and could not be PROCESSED. A number that
+# is too high makes the page just as unusable as one that is too low, and the
+# second time a product reports a wrong state is the time it stops being
+# trusted.
+#
+# 🗿 AND IT IS DELIBERATELY NOT WIDENED TO rc=<non-zero>. sessions_failed is a
+# separate token with its own meaning and the two are different shapes on
+# purpose. The change is exactly one of intent: rc=1 counts only when the 1 is
+# the whole number. A negative lookahead does that and nothing else.
+_DISPATCH_FAIL_RE = re.compile(r"rc=1(?!\d)|sessions_failed")
+
+
+def _is_dispatch_failure(line: str) -> bool:
+    """True when a log line records a dispatch that failed.
+
+    Named rather than inlined so the tokens, the reason and the match live in
+    one place; the previous version had the vocabulary at one line and the
+    predicate twenty lines away, which is how the two came to disagree.
+    """
+    return _DISPATCH_FAIL_RE.search(line) is not None
+
 
 def _dispatch_failure_count() -> int:
     """How many dispatch failures appear in the tail of the bundle error log.
@@ -1981,10 +2021,7 @@ def _dispatch_failure_count() -> int:
             tail = fh.read().decode("utf-8", errors="replace")
     except OSError:
         return 0
-    return sum(
-        1 for line in tail.splitlines()
-        if any(tok in line for tok in _DISPATCH_FAIL_TOKENS)
-    )
+    return sum(1 for line in tail.splitlines() if _is_dispatch_failure(line))
 
 
 def check_conversation_dispatch_failures(snapshot: Any) -> list[dict]:
@@ -2898,7 +2935,57 @@ def check_licence_expiry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _minors_registry_path():
+    """Same resolution as the ingest loader (PWG services/ingest/src/minors.py):
+    env OSTLER_MINORS_FILE, else ~/.ostler/minors.json."""
+    from pathlib import Path
+    return Path(os.environ.get("OSTLER_MINORS_FILE") or (Path.home() / ".ostler" / "minors.json"))
+
+
+def check_minors_registry(snapshot: Any) -> list[dict]:
+    """Doctor row for an unreadable under-18 list.
+
+    Mirrors ``MinorsRegistry.load``: file absent = nobody marked, no row.
+    Present but not a JSON object holding a ``minors`` list = the ingest
+    raises and imports stop, so say so. The file holds children's names:
+    nothing from it is logged or put in the finding (the exception CLASS
+    only).
+    """
+    import json
+    import shlex
+
+    findings: list[dict] = []
+    path = _minors_registry_path()
+    if not path.exists():
+        return findings
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data["minors"], list):
+            raise TypeError("minors must be a list")
+        # The ingest loader also builds the registry here, so an entry that is
+        # not an object, or whose names/identifiers cannot be iterated, stops
+        # imports too (it surfaces as a raw AttributeError/TypeError there).
+        for entry in data["minors"]:
+            entry.get("slug")
+            iter(entry.get("names", []))
+            iter(entry.get("identifiers", []))
+    except Exception as exc:
+        log.warning("under-18 list unreadable: %s", type(exc).__name__)
+        quoted = shlex.quote(str(path))
+        findings.append({
+            "severity": "critical",
+            "title": MINORS_UNREADABLE_TITLE,
+            "detail": MINORS_UNREADABLE_DETAIL_FMT.format(path=str(path)),
+            "fix": MINORS_UNREADABLE_FIX,
+            "fix_command": MINORS_UNREADABLE_FIX_COMMAND_FMT.format(path=quoted),
+            "risk": "low",
+            "category": "privacy",
+        })
+    return findings
+
+
 ALL_RULES = [
+    check_minors_registry,
     check_scheduled_agents,
     check_hydrate_ingest,
     check_first_install,

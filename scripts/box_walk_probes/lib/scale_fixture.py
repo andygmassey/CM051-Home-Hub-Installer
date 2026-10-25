@@ -56,7 +56,7 @@ from datetime import datetime, timedelta, timezone
 
 # Approved synthetic cast (.pii-name-registry.tsv), lower case on purpose.
 _FIRST = ("jane john alex alexander alexandra mary raj liz elizabeth sam samuel jonathan ana ben "
-          "carl tom thomas hans alison allison ali catherine katherine kathryn kathleen geoffrey "
+          "carl tom thomas hans allison ali catherine katherine kathryn kathleen geoffrey "
           "jeffrey stephen steven philip phillip lawrence laurence nathaniel nathan charles rebecca "
           "margaret bob robert").split()
 _LAST = "doe smith jones ross coe patel brown andersen stewart".split()

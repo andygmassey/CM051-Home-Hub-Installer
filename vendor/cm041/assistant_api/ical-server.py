@@ -3299,6 +3299,45 @@ def _is_fixed_line(value):
         return False
 
 
+def _personal_identifiers_for(person_uris, slug):
+    """The PERSONAL identifiers of the person behind ``person_uris``, for a
+    durable identity-keyed record (the do-not-suggest record and the minors
+    registry both key on these). Raises on a store failure; callers decide
+    how to degrade.
+
+    The contact-card UID is unique to this person and always kept. A
+    phone/email is kept only when NO differently-named person holds it; a
+    fixed landline is never kept. This stops a record from ever excluding a
+    living relative on a shared line / family email (Archie review #216,
+    round 2).
+    """
+    if not person_uris:
+        return []
+    values = " ".join(f"<{u}>" for u in sorted(set(person_uris)))
+    id_rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT DISTINCT ?t ?v WHERE {{\n'
+        '  VALUES ?person {{ {values} }}\n'
+        '  ?person pwg:hasIdentifier ?id .\n'
+        '  ?id pwg:identifierType ?t ; pwg:identifierValue ?v .\n'
+        '}}'.format(ns=PWG_NS, values=values)
+    )
+    typed = [(r.get("t", ""), r["v"]) for r in id_rows if r.get("v")]
+    cand_values = sorted({v for (_t, v) in typed})
+    shared_values = _identifiers_shared_with_other_than(cand_values, slug)
+    identifiers = []
+    for t, v in typed:
+        if t == "icloud_contact_uid":
+            identifiers.append(v)            # the card: always personal
+            continue
+        if v in shared_values:
+            continue                          # held by someone else: skip
+        if t == "phone" and _is_fixed_line(v):
+            continue                          # never a landline
+        identifiers.append(v)
+    return sorted(set(identifiers))
+
+
 def api_people_suppress_suggestions(slug, payload):
     """Handle POST /api/v1/people/{slug}/suppress-suggestions.
 
@@ -3379,33 +3418,7 @@ def api_people_suppress_suggestions(slug, payload):
 
     if person_uris and suppressed:
         try:
-            values = " ".join(f"<{u}>" for u in sorted(set(person_uris)))
-            id_rows = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT DISTINCT ?t ?v WHERE {{\n'
-                '  VALUES ?person {{ {values} }}\n'
-                '  ?person pwg:hasIdentifier ?id .\n'
-                '  ?id pwg:identifierType ?t ; pwg:identifierValue ?v .\n'
-                '}}'.format(ns=PWG_NS, values=values)
-            )
-            typed = [(r.get("t", ""), r["v"]) for r in id_rows if r.get("v")]
-            # STORE PERSONAL IDENTIFIERS ONLY (Archie review #216, round 2).
-            # The contact-card UID is unique to this person and always kept.
-            # A phone/email is kept only when NO differently-named person holds
-            # it; a fixed landline is never kept. This stops the record from
-            # ever excluding a living relative on a shared line / family email.
-            cand_values = sorted({v for (_t, v) in typed})
-            shared_values = _identifiers_shared_with_other_than(cand_values, slug)
-            for t, v in typed:
-                if t == "icloud_contact_uid":
-                    identifiers.append(v)            # the card: always personal
-                    continue
-                if v in shared_values:
-                    continue                          # held by someone else: skip
-                if t == "phone" and _is_fixed_line(v):
-                    continue                          # never a landline
-                identifiers.append(v)
-            identifiers = sorted(set(identifiers))
+            identifiers = _personal_identifiers_for(person_uris, slug)
         except Exception:
             identifiers = []  # slug-only record still suppresses
 
@@ -3728,6 +3741,331 @@ def api_people_forget(slug):
     # customer can try again, instead of being told it is done.
     status_code = 200 if forgotten else 503
     return response, status_code
+
+
+# ── Under-18 registry: owner-set "mark as minor" (Andy 2026-10-19, 118) ──
+#
+# project_minors_flag: a minor is stored and searchable, but never nudged, never
+# sent to Reminders, never used for facts or suggestions. PWG #434 stamps
+# ``extra.about_minor`` at ingest from an owner-set registry file; THIS is the
+# setter that writes it. Schema (shared contract with PWG
+# services/ingest/src/minors.py):
+#
+#     {"version": 1, "minors": [
+#         {"slug": "sam-doe", "names": ["Sam Doe"],
+#          "identifiers": ["+447700900123", "sam@example.test"]}]}
+#
+# PRIVACY. The file holds CHILDREN'S NAMES. It is written mode 0600 (owner
+# only), lives under ~/.ostler (excluded from Time Machine and Spotlight by the
+# installer's at-rest hardening), and must NEVER leave the box or reach a log.
+# No logging or print call in this block may interpolate a name, slug,
+# identifier or any file content: log the exception CLASS only. The static
+# test tests/test_minors_setter.py::TestNothingIsLogged enforces this.
+#
+# FAIL LOUD. A registry that is present but unreadable is never read as "no
+# minors" and is never overwritten: reads report 503 and the setter refuses.
+class MinorsRegistryUnreadable(RuntimeError):
+    """The registry (or dismissals) file exists but cannot be trusted."""
+
+
+def _minors_path():
+    env = os.environ.get("OSTLER_MINORS_FILE")
+    return Path(env) if env else Path.home() / ".ostler" / "minors.json"
+
+
+def _minors_dismissed_path():
+    env = os.environ.get("OSTLER_MINORS_DISMISSED_FILE")
+    return Path(env) if env else Path.home() / ".ostler" / "state" / "minors-dismissed.json"
+
+
+_MINORS_UNREADABLE_BODY = {
+    "registry": "unreadable", "minors": [],
+    "error": "under-18 list unreadable",
+}
+
+
+def _atomic_write_private_json(path, obj):
+    """Write ``obj`` as JSON to ``path``: tmp file created 0600 in the same
+    directory, fsync'd, os.replace'd, mode forced to 0600 again. No partial
+    file is ever visible at ``path``; the tmp file is removed on any failure."""
+    path = Path(path)
+    os.makedirs(str(path.parent), mode=0o700, exist_ok=True)
+    tmp = path.with_name("{}.tmp-{}-{}".format(path.name, os.getpid(), uuid.uuid4().hex[:8]))
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(obj, indent=2, sort_keys=True))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(tmp), str(path))
+        os.chmod(str(path), 0o600)
+    except BaseException:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise
+
+
+class _private_file_lock:
+    """flock on a sidecar ``<name>.lock`` (0600) so concurrent read-modify-write
+    cycles on the registry serialise."""
+
+    def __init__(self, path):
+        self._lock_path = Path(path).with_name(Path(path).name + ".lock")
+        self._fd = None
+
+    def __enter__(self):
+        import fcntl
+        os.makedirs(str(self._lock_path.parent), mode=0o700, exist_ok=True)
+        self._fd = os.open(str(self._lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(self._fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        import fcntl
+        try:
+            fcntl.flock(self._fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self._fd)
+        return False
+
+
+def _read_minors_entries(path=None):
+    """Return the registry's entry list. Absent file = []. Present but
+    invalid JSON / not an object / ``minors`` not a list / a non-object entry
+    raises MinorsRegistryUnreadable (same rule as PWG MinorsRegistry.load,
+    plus the entry-shape check, so ingest and the setter agree on 'broken')."""
+    p = Path(path) if path else _minors_path()
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        entries = data["minors"]
+        if not isinstance(data, dict) or not isinstance(entries, list):
+            raise TypeError("shape")
+        if not all(isinstance(e, dict) for e in entries):
+            raise TypeError("entry shape")
+    except Exception as exc:
+        raise MinorsRegistryUnreadable(type(exc).__name__) from None
+    return entries
+
+
+def _read_dismissed_slugs(path=None):
+    p = Path(path) if path else _minors_dismissed_path()
+    if not p.exists():
+        return set()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        slugs = data["dismissed"]
+        if not isinstance(data, dict) or not isinstance(slugs, list):
+            raise TypeError("shape")
+        return {s for s in slugs if isinstance(s, str)}
+    except Exception as exc:
+        raise MinorsRegistryUnreadable(type(exc).__name__) from None
+
+
+def api_minors_list():
+    """GET /api/v1/minors -> (body, status). Slug + name only."""
+    try:
+        entries = _read_minors_entries()
+    except MinorsRegistryUnreadable:
+        return dict(_MINORS_UNREADABLE_BODY), 503
+    minors = []
+    for e in entries:
+        names = [n for n in (e.get("names") or []) if isinstance(n, str) and n]
+        minors.append({"slug": str(e.get("slug") or ""), "name": names[0] if names else ""})
+    return {"registry": "ok", "minors": minors}, 200
+
+
+def _suppression_reason(slug):
+    """The reason on an existing do-not-suggest record for ``slug``: None when
+    there is no record, "" when there is one without a reason."""
+    record_uri = PWG_NS + "suppression_" + slug
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?reason WHERE {{\n'
+        '  <{r}> a pwg:SuggestionSuppression .\n'
+        '  OPTIONAL {{ <{r}> pwg:suppressReason ?reason }}\n'
+        '}}'.format(ns=PWG_NS, r=record_uri)
+    )
+    if not rows:
+        return None
+    return rows[0].get("reason", "") or ""
+
+
+def api_people_set_minor(slug, payload):
+    """POST /api/v1/people/{slug}/minor, body {"minor": bool} -> (body, status).
+
+    Marks / unmarks a person as under 18 in the owner's registry file
+    (atomic, 0600), and keeps them out of every existing proactive surface by
+    also writing the do-not-suggest record with reason "minor" (never
+    overwriting a deceased record; unmark clears only a "minor" one).
+    Idempotent. Refuses (503) rather than overwrite an unreadable registry.
+    """
+    if not _SLUG_PATTERN.match(slug or ""):
+        return {"error": "Invalid slug. Expected lowercase ASCII letters, "
+                         "digits, hyphens (max 80 chars)."}, 400
+    minor = payload.get("minor") if isinstance(payload, dict) else None
+    if not isinstance(minor, bool):
+        return {"error": "`minor` must be a boolean"}, 400
+
+    try:
+        candidates = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?person ?name WHERE {{\n'
+            '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+            '}}'.format(ns=PWG_NS)
+        )
+    except Exception as exc:
+        return {"minor": minor, "degraded": True,
+                "reason": "store_lookup_failed: " + type(exc).__name__}, 503
+    matched = [c for c in candidates
+               if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
+    person_uris = sorted({c["person"] for c in matched})
+    names = sorted({c["name"] for c in matched if c.get("name")})
+    if minor and not person_uris:
+        return {"error": "No such person"}, 404
+
+    identifiers = []
+    identifier_degraded = False
+    if minor:
+        try:
+            identifiers = _personal_identifiers_for(person_uris, slug)
+        except Exception:
+            identifier_degraded = True  # name-only entry still matches
+
+    path = _minors_path()
+    with _private_file_lock(path):
+        try:
+            entries = _read_minors_entries(path)
+        except MinorsRegistryUnreadable:
+            return dict(_MINORS_UNREADABLE_BODY, minor=minor, refused=True), 503
+        others = [e for e in entries if e.get("slug") != slug]
+        existing = [e for e in entries if e.get("slug") == slug]
+        if minor:
+            new_entry = {"slug": slug, "names": names, "identifiers": identifiers}
+            changed = existing != [new_entry]
+            new_entries = others + [new_entry]
+        else:
+            changed = bool(existing)
+            new_entries = others
+        if changed:
+            _atomic_write_private_json(path, {"version": 1, "minors": new_entries})
+
+    # Keep the owner out of every existing proactive surface as well.
+    try:
+        reason = _suppression_reason(slug)
+        if minor and reason is None:
+            body, status = api_people_suppress_suggestions(
+                slug, {"suppressed": True, "reason": "minor"})
+            if status != 200:
+                raise RuntimeError("suppression_write_failed")
+        elif not minor and reason == "minor":
+            body, status = api_people_suppress_suggestions(
+                slug, {"suppressed": False})
+            if status != 200:
+                raise RuntimeError("suppression_clear_failed")
+    except Exception as exc:
+        return {"slug": slug, "minor": minor, "degraded": True,
+                "registry_written": True,
+                "reason": "suppression_failed: " + type(exc).__name__}, 503
+
+    out = {"slug": slug, "minor": minor, "changed": changed,
+           "identifiers_recorded": len(identifiers)}
+    if identifier_degraded:
+        out["identifier_lookup_degraded"] = True
+    return out, 200
+
+
+_MINOR_AGE_LIMIT = 18
+_FULL_BIRTHDAY_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$")
+
+
+def _age_from_birthday(bday, today):
+    """Whole years old on ``today`` from a FULL YYYY-MM-DD birthday, else
+    None (no year, bad date, in the future)."""
+    m = _FULL_BIRTHDAY_RE.match((bday or "").strip())
+    if not m:
+        return None
+    try:
+        born = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).date()
+    except ValueError:
+        return None
+    if born > today:
+        return None
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def api_minors_suggestions(today=None):
+    """GET /api/v1/minors/suggestions -> (body, status).
+
+    The Hub ASKS, it never marks: contacts whose birthday year says they are
+    under 18 today, not already marked, not dismissed, not already
+    do-not-suggest. Read-only; NEVER writes the registry."""
+    try:
+        marked = {str(e.get("slug") or "") for e in _read_minors_entries()}
+    except MinorsRegistryUnreadable:
+        return dict(_MINORS_UNREADABLE_BODY), 503
+    try:
+        dismissed = _read_dismissed_slugs()
+    except MinorsRegistryUnreadable:
+        return {"suggestions": [], "degraded": True,
+                "error": "dismissed list unreadable"}, 503
+    today = today or datetime.now().date()
+    try:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?p ?name ?bday WHERE {{\n'
+            '  ?p a pwg:Person ; pwg:displayName ?name ; pwg:birthday ?bday .\n'
+            '}}'.format(ns=PWG_NS)
+        )
+        suppressed_slugs, suppressed_uris = _suppressed_identity_index()
+        self_uris = _load_people_list_self_uris()
+        carded_uris = _load_carded_uris(r.get("p") for r in rows)
+    except Exception as exc:
+        return {"suggestions": [], "degraded": True,
+                "reason": "store_lookup_failed: " + type(exc).__name__}, 503
+    seen = {}
+    for r in rows:
+        name = r.get("name", "")
+        uri = r.get("p") or ""
+        if not name or _is_nameless_name(name):
+            continue
+        slug = _wiki_slug(name)
+        if (not slug or slug in marked or slug in dismissed
+                or slug in suppressed_slugs or uri in suppressed_uris):
+            continue
+        if uri and uri in self_uris:
+            continue
+        if uri not in carded_uris and (
+                _is_automated_or_service_name(name) or _is_service_mailbox_name(name)):
+            continue
+        age = _age_from_birthday(r.get("bday", ""), today)
+        if age is None or age >= _MINOR_AGE_LIMIT:
+            continue
+        seen.setdefault(slug, {"slug": slug, "name": name, "age": age})
+    out = sorted(seen.values(), key=lambda s: (s["name"].casefold(), s["slug"]))
+    return {"suggestions": out}, 200
+
+
+def api_minors_dismiss(slug):
+    """POST /api/v1/people/{slug}/minor-suggestion/dismiss -> (body, status).
+    Remembers (slug only, 0600) that the owner said 'not under 18'."""
+    if not _SLUG_PATTERN.match(slug or ""):
+        return {"error": "Invalid slug. Expected lowercase ASCII letters, "
+                         "digits, hyphens (max 80 chars)."}, 400
+    path = _minors_dismissed_path()
+    with _private_file_lock(path):
+        try:
+            dismissed = _read_dismissed_slugs(path)
+        except MinorsRegistryUnreadable:
+            return {"error": "dismissed list unreadable", "refused": True}, 503
+        if slug not in dismissed:
+            dismissed.add(slug)
+            _atomic_write_private_json(
+                path, {"version": 1, "dismissed": sorted(dismissed)})
+    return {"slug": slug, "dismissed": True}, 200
 
 
 # ── Speaker naming + chunked conversation upload ─────────────────────
@@ -7303,6 +7641,22 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
     }, 200
 
 
+# Level served for a todo that carries no urn:ostler:privacyLevel (every
+# node CM048 wrote before it began tagging todos; measured 93 of 93 on the
+# box). L2 = the default person tag (see the contact-card note above), so an
+# untagged legacy row is served at the level the operator's own data has
+# always been treated at, and is never silently promoted to L0/L1.
+_COMMITMENT_DEFAULT_PRIVACY_LEVEL = "L2"
+
+
+def _commitment_privacy_level(raw):
+    """Per-row level: tagged+valid -> that level; untagged -> the default;
+    tagged but unparseable -> L3 (fail closed)."""
+    if raw is None or str(raw).strip() == "":
+        return _COMMITMENT_DEFAULT_PRIVACY_LEVEL
+    return pwg_privacy.parse_privacy_level(raw) or "L3"
+
+
 def commitments_list(owner=None, due_before=None, status="open",
                      limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
@@ -7328,9 +7682,16 @@ def commitments_list(owner=None, due_before=None, status="open",
         ``deadline`` strictly before it (undated commitments are dropped
         when this filter is set, kept otherwise).
 
+    Each row carries ``privacy_level`` read from the todo's own
+    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
+    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
+    present but unparseable -> "L3" (fail closed, never visible). Rows are
+    still served ungated: the consumer (ostler-assistant promise filter)
+    applies the level.
+
     Newest first by deadline then created-at. Returns
-    ``({"commitments": [{action, owner, due, status, source}], "count":
-    N}, 200)`` or the 503 degraded shape on Oxigraph failure.
+    ``({"commitments": [{action, owner, due, status, source,
+    privacy_level}], "count": N}, 200)`` or the 503 degraded shape on Oxigraph failure.
     """
     status_norm = (status or "").strip().lower()
     status_filter = ''
@@ -7397,7 +7758,7 @@ def commitments_list(owner=None, due_before=None, status="open",
         # DISTINCT is new and is load-bearing: without it a todo present in
         # BOTH graphs would be listed twice by the UNION.
         rows = _sparql_select(
-            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt WHERE {\n'
+            'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
             + (
                 '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                 '        <urn:ostler:todoText> ?action ;\n'
@@ -7406,6 +7767,7 @@ def commitments_list(owner=None, due_before=None, status="open",
                 '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
                 '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
                 '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
+                '  OPTIONAL { ?todo <urn:ostler:privacyLevel> ?plevel }\n'
                 + status_filter
             )
             + '\n}'
@@ -7436,6 +7798,7 @@ def commitments_list(owner=None, due_before=None, status="open",
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
+            "privacy_level": _commitment_privacy_level(r.get("plevel")),
             "_created": r.get("createdAt", ""),
         })
 
@@ -9047,6 +9410,18 @@ def api_suggestions():
     return out
 
 
+def _calendar_events_in_process(days):
+    """Events for the next ``days`` days, read IN-PROCESS for the pre-meeting
+    brief (CM041 #231: a handler must never HTTP-call this single-threaded
+    server). CM051 serves /calendar from build_calendar_response (local store
+    first), so this reads the same function. A failed read raises, so
+    api_meeting_upcoming reports degraded instead of an empty 200."""
+    status, body = build_calendar_response(days)
+    if status != 200:
+        raise RuntimeError("calendar unavailable: %s" % (body.get("detail") or status))
+    return body.get("events", [])
+
+
 def api_meeting_upcoming(within_minutes=120):
     """Return enriched pre-meeting briefs for events starting within
     ``within_minutes`` from now.
@@ -9103,8 +9478,18 @@ def api_meeting_upcoming(within_minutes=120):
     # miss an event right at the boundary).
     days_lookahead = max(1, int((within_minutes + 1439) // 1440))
 
+    # In-process calendar read (CM041 #231): never HTTP-call our own port from
+    # a handler. CM051: an explicitly configured CALENDAR_API_URL names a
+    # different calendar source and is still read over HTTP by the brief; the
+    # default resolves to this server's own /api/v1/calendar, which is
+    # build_calendar_response, so it is read in-process.
+    _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
+                 else _calendar_events_in_process)
     try:
-        all_briefs = _brief.pre_meeting_brief(days=days_lookahead)
+        all_briefs = _brief.pre_meeting_brief(
+            days=days_lookahead,
+            events_provider=_provider,
+        )
     except Exception as exc:
         return {
             "meetings": [],
@@ -11779,6 +12164,56 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     }
 
 
+def _sparql_select_unscoped(sparql):
+    """Like ``_sparql_select`` but WITHOUT the CM048 user-graph UNION scoper.
+
+    The derived-preferences read names its own graph (the derived named graph),
+    and ``_graph_scoped`` wraps the WHERE body in a UNION that would match an
+    explicitly-named graph once per user graph in scope -- doubling every row.
+    Store auth is injected by the ``ostler_store_auth`` .pth shim, same as
+    ``_sparql_select``. Returns flat binding dicts ({var: value})."""
+    req = urllib.request.Request(
+        OXIGRAPH_URL.rstrip("/") + "/query",
+        data=sparql.encode("utf-8"),
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
+    )
+    resp = urllib.request.urlopen(req, timeout=30)
+    data = json.loads(resp.read())
+    return [{k: v["value"] for k, v in b.items()}
+            for b in data.get("results", {}).get("bindings", [])]
+
+
+def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph, built through the CM019 producer builder
+    (vendored verbatim in derived_preferences.py beside this file).
+
+    Read-only; ALWAYS returns 200 with a ``degraded`` flag on any failure
+    (silent-empty rule), never 5xx. An absent/empty derived graph degrades with
+    a reason rather than returning a healthy-looking empty list."""
+    import os as _os
+    import sys as _sys
+    _ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        # Sibling module; the server's own dir is on sys.path (run as a script),
+        # but insert it explicitly so a test harness importing the handler also
+        # resolves it. A normal import registers it in sys.modules, which the
+        # @dataclass machinery needs under `from __future__ import annotations`.
+        _d = _os.path.dirname(_os.path.abspath(__file__))
+        if _d not in _sys.path:
+            _sys.path.insert(0, _d)
+        import derived_preferences as _dp
+    except Exception as exc:  # noqa: BLE001
+        return {"generated_at": _ts, "items": [], "degraded": True,
+                "cannot_check": "derived module unavailable: " + type(exc).__name__}
+    reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
+    return _dp.build_derived_preferences_response(
+        reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
@@ -12196,6 +12631,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode())
                 return
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
+        if parsed.path in ("/api/v1/minors", "/api/v1/minors/suggestions"):
+            try:
+                if parsed.path == "/api/v1/minors":
+                    result, status = api_minors_list()
+                else:
+                    result, status = api_minors_suggestions()
+            except Exception as exc:
+                result, status = {"error": type(exc).__name__}, 500
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -12717,6 +13166,44 @@ class Handler(BaseHTTPRequestHandler):
         # sorted. Absent artefact -> empty list + 200 so the daemon degrades
         # gracefully; provenance (sources/confidence/polarity) is preserved.
         # Sits behind the Doctor auth proxy at /api/v1/* like the rest.
+        # Derived preferences ("What you like"): abstract affinities derived
+        # from the compiled interests, read from the derived named graph via
+        # the CM019 producer builder. Degrades (200 + degraded) when the graph
+        # is empty/unavailable so the digest + pwg_ tool never see a fake empty.
+        if parsed.path == "/api/v1/preferences/derived":
+            params = parse_qs(parsed.query)
+            limit, err = _safe_int(params, "limit", 8)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            min_conf, err = _safe_float(params, "min_confidence", 0.4)
+            if err:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(err).encode())
+                return
+            # No ?tier= means "not asked": broad, falling back to all while a
+            # pre-tier graph waits for the next derive run. An explicit value is strict.
+            raw_tier = (params.get("tier", [""])[0] or "").strip().lower()
+            tier = raw_tier or None
+            if tier is not None and tier not in ("broad", "specific", "all"):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(
+                    {"error": "tier must be broad, specific or all"}).encode())
+                return
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         if parsed.path == "/api/v1/preferences":
             params = parse_qs(parsed.query)
             limit, err = _safe_int(params, "limit", 0)
@@ -12809,6 +13296,8 @@ class Handler(BaseHTTPRequestHandler):
             "/email?q=is:unread": "Gmail query (default: unread)",
             "/api/v1/email/recent?hours=24&limit=20": "Recent emails (subject + snippet only)",
             "/api/v1/suggestions": "Composite: birthdays + stale contacts + recent meetings",
+            "/api/v1/minors": "Owner's under-18 list (slug + name only; 503 if unreadable)",
+            "/api/v1/minors/suggestions": "Contacts who look under 18 from their birthday (the Hub asks, never marks)",
             "/api/v1/timeline?days=7": "Merged calendar + meetings timeline",
             "/api/v1/contacts/diff": "Tidy Contacts report (read-only hygiene findings)",
             "/api/v1/meeting/upcoming?within_minutes=120": "Enriched pre-meeting briefs for events starting within the window",
@@ -12868,6 +13357,36 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # Route: POST /api/v1/people/{slug}/minor-suggestion/dismiss, body
+        # ignored (the Hub UI may send none), handled before body validation.
+        if (parsed.path.startswith("/api/v1/people/")
+                and parsed.path.endswith("/minor-suggestion/dismiss")):
+            slug = parsed.path[len("/api/v1/people/"):-len("/minor-suggestion/dismiss")]
+            # Drain the body before replying. The oa client sends `{}`; an
+            # unread body on a keep-alive socket made the reply race the
+            # client's write and reset the connection. Cap it, as forget does.
+            try:
+                _dismiss_clen = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                _dismiss_clen = 0
+            if _dismiss_clen > 65536:
+                self.send_response(413)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
+                return
+            if _dismiss_clen > 0:
+                self.rfile.read(_dismiss_clen)
+            try:
+                result, status = api_minors_dismiss(slug)
+            except Exception as exc:
+                result, status = {"error": type(exc).__name__}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
+
         # Security: content-type must be JSON
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
@@ -12910,6 +13429,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"error": f"Body read failed: {exc}"}).encode())
+            return
+
+        # Route: POST /api/v1/people/{slug}/minor, body {"minor": bool}.
+        # Owner-set under-18 registry (118). See api_people_set_minor.
+        if (parsed.path.startswith("/api/v1/people/")
+                and parsed.path.endswith("/minor")):
+            slug = parsed.path[len("/api/v1/people/"):-len("/minor")]
+            try:
+                result, status = api_people_set_minor(slug, payload)
+            except Exception as exc:
+                result, status = {"error": type(exc).__name__}, 500
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
         # Route: POST /api/v1/people/{slug}/suppress-suggestions
