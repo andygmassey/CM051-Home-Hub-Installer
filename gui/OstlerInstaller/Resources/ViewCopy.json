@@ -159,7 +159,10 @@
     "step_2": "Switch on OstlerInstaller in the list.",
     "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
     "open_settings_button": "Open System Settings",
-    "recheck_button": "I've switched it on, continue"
+    "recheck_button": "I've switched it on, continue",
+    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
+    "continue_anyway_button": "Continue anyway",
+    "quit_reopen_button": "Quit and reopen"
   },
 
   "log_drawer": {
