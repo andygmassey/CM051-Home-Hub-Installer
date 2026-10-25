@@ -31,3 +31,5 @@
 v1.0.61
 v1.0.62
 v1.0.65
+# v1.0.118 ADDED BY ARCHIE RULING despite "Never add one" above: "hotfix: the single BOM row IS the fix commit that the cut pins; proof is the DMG binary check (FullDiskAccessProbe 0 in 117, present in 118). Archie 2026-10-26"
+v1.0.118

@@ -38,6 +38,7 @@ on:
       - 'scripts/box_walk_probes/**'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
+      - 'tests/test_promote_scope_hotfix_base.sh'
       # broken_probe visibility in the scoped adjudication, and its guard.
       # scripts/post_walk_qa.sh (the broken_probe writer) is already watched
       # above; this test file is the other trigger a run: step needs, or
@@ -454,6 +455,12 @@ jobs:
       - name: The blocking set only ever grows
         if: always()
         run: bash tests/test_promote_scope_only_ever_grows.sh
+
+      # A CUT_KIND=hotfix cut ratchets against its HOTFIX_BASE_TAG, every
+      # other branch against origin/main (Archie, 2026-10-26).
+      - name: The ratchet base is the hotfix tag only for a hotfix
+        if: always()
+        run: bash tests/test_promote_scope_hotfix_base.sh
 
       # The companion to the check above. That one refuses an absent path being
       # counted as zero; this one refuses a probe the SUITE cannot see. The glob
