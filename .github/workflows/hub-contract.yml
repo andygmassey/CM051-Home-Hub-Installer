@@ -74,7 +74,7 @@ jobs:
           ref: ${{ steps.hub.outputs.tag }}
           # CM051_RELEASES_READ: fine-grained, resource owner ostler-ai, repos
           # ostler-assistant + ostler-remote-capture + ostler-releases, read code,
-          # metadata and pull requests (Andy's token page, 2026-10-09). The
+          # metadata and pull requests (the owner's token page, 2026-10-09). The
           # andygmassey-owned token can never read ostler-ai contents.
           token: ${{ secrets.CM051_RELEASES_READ }}
       - name: regenerate and compare

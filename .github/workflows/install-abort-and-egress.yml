@@ -176,7 +176,7 @@ jobs:
         if: always()
         run: /bin/bash tests/test_egress_pool_member_is_not_a_policy_violation.sh
 
-      # The tripwire on Andy's one ratified cut of deferral. v1.0.36 ships the
+      # The tripwire on the owner's one ratified cut of deferral. v1.0.36 ships the
       # enrichment agent gated OFF; the cut after it must carry the question
       # that lets the customer decide. This step is green today and turns red
       # by itself the moment CFBundleShortVersionString goes past 1.0.36, so

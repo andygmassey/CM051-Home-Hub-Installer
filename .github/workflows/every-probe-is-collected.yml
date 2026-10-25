@@ -3,7 +3,7 @@ name: every-probe-is-collected
 # Every probe-shaped script must actually be COLLECTED, or exempted with a
 # written reason.
 #
-# Andy, 2026-09-05: "surely we need to make sure all the instruments work as
+# The owner, 2026-09-05: "surely we need to make sure all the instruments work as
 # well, so I'd actually rather we count them in the manifest." A broken
 # instrument is how a customer defect survives, so an apparatus defect is not
 # DEFER-able on the grounds of being apparatus.

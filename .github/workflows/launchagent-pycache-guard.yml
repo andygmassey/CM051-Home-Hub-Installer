@@ -2,7 +2,7 @@ name: launchagent-pycache-guard
 
 # A LaunchAgent must not be able to run a python with no bytecode redirect.
 #
-# v1.0.45 installed cleanly and BRICKED ANDY'S MAC: Gatekeeper refused the app
+# v1.0.45 installed cleanly and BRICKED THE OWNER'S MAC: Gatekeeper refused the app
 # because 69 .pyc files had appeared inside the notarised bundle. The fix was
 # present and correct, and set on the ONE Process() the GUI installer spawns.
 # launchd is not in that process tree. The CM059 front-page agent ran the app's
@@ -11,7 +11,7 @@ name: launchagent-pycache-guard
 #
 # Four agents had worked in that area over months. Nothing caught it. The only
 # reason it was found is that a customer's Mac stopped working, and that
-# customer was Andy.
+# customer was the owner.
 #
 # WHY HERE AS WELL AS IN cut.yml. cut.yml fires ONLY on a 'v1.0.*' tag, so a
 # gate living only there first speaks at ship time, after review is over and

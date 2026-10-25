@@ -2,7 +2,7 @@ name: cut-checklist-complete
 
 # The one pre-cut checklist must stay complete.
 #
-# Andy, 2026-09-05, on being shown the first honest count of remaining work:
+# The owner, 2026-09-05, on being shown the first honest count of remaining work:
 # "maintain this discipline. Do NOT let it slip."
 #
 # cut-manifests/vX.Y.Z.yaml registers every open issue and marks the ones with
@@ -164,7 +164,7 @@ jobs:
         run: python3 tests/test_a_verdict_is_not_a_mention.py
 
       # A row that calls itself a blocker and blocks nothing is the defect
-      # Andy's 2026-09-06 call created the BLOCKING property to stop, and it
+      # The owner's 2026-09-06 call created the BLOCKING property to stop, and it
       # survived inside the property: every row that declares itself blocking
       # on this board carries `repo: none`, and those were printed as a note
       # and dropped. This pins both halves, the predicate and the gate acting

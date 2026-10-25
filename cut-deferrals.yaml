@@ -17,7 +17,7 @@
 #   CM031  #154     hardcoded $24.99 price                 OPEN DRAFT PR, green,
 #                                                          four days old
 #
-# Nobody chose to defer any of them. They were just forgotten, and Andy walked
+# Nobody chose to defer any of them. They were just forgotten, and the owner walked
 # a DMG and hit every one. A deferral recorded here would have been fine. The
 # silence was not.
 #
@@ -66,7 +66,7 @@ pr_exemptions:
   # v1.0.111 PR-AGE EXEMPTION, ruled 2026-10-19 by Archie (option c). Cut
   # candidate run 39220981137 named #2939 open 50h at check-pr-age.
   - ref: "CM051-Home-Hub-Installer#2939"
-    reason: "Archie 2026-10-19: licence-model change, NOT in v1.0.111's scope. It predates Andy's locked 19 Oct model (all ongoing ingestion is Pro, the first export import is a free taster, the G7 check sits at each connector's entry point), is DIRTY against main (28 files, +1762/-83) and has no review. It needs a rework against that model and its own review before any cut takes it."
+    reason: "Archie 2026-10-19: licence-model change, NOT in v1.0.111's scope. It predates the owner's locked 19 Oct model (all ongoing ingestion is Pro, the first export import is a free taster, the G7 check sits at each connector's entry point), is DIRTY against main (28 files, +1762/-83) and has no review. It needs a rework against that model and its own review before any cut takes it."
     review_by: 2026-10-26
   - ref: "CM051-Home-Hub-Installer#2879"
     reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. Instagram bare handle shown as @handle rather than a name (S9). Data-display polish, not an install, data-loss, privacy or core-flow break under the F&F ship rule. Next train. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
@@ -96,7 +96,7 @@ pr_exemptions:
     reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. Walk-scope doc row only (assistant_answers_grounded stale red claim). Compiles into nothing in the DMG. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-24
   - ref: "CM051-Home-Hub-Installer#2753"
-    reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. DRAFT and HOLD: 3 months of Pro with a Hub sale. Pricing is Andy's call and he is steering it himself. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
+    reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. DRAFT and HOLD: 3 months of Pro with a Hub sale. Pricing is the owner's call and he is steering it himself. Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-24
   - ref: "CM051-Home-Hub-Installer#2741"
     reason: "Not in v1.0.108: cut/v1.0.108 is frozen at main 120a756a (launch directive item 4), so an open PR cannot change that DMG. Hub contract: gateway ports per route. Contract/test change tied to the 8443 phone route, which has no consumer in v1.0.108 (iOS out). Added 2026-10-17 by Archie. NOT A JUDGEMENT ON MERIT."
@@ -128,7 +128,7 @@ pr_exemptions:
     reason: "board(2219): verifies row 2219 against the row rather than the PR. Opened 2026-09-23 and never exempted, so it would red check-pr-age on the next cut run by age alone. Row 2219 has since been adjudicated on measured v1.0.102 evidence in #2368 (merged), so this PR is very likely superseded; it is not closed here because it is another lane's evidence and closing it is the author's call. Under LAUNCH DIRECTIVE ITEM 4 an open board PR cannot change the frozen cut/v1.0.102 DMG. Retire when the PR is closed or merged. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-02
   - ref: "CM051-Home-Hub-Installer#2272"
-    reason: "CI surface for the v1.0.101 freeze, and its own title says DO NOT MERGE. It exists only so the frozen tip receives check-runs, because a branch push alone yields zero and the cut reads zero as CANNOT-RUN. Merging it would destroy the thing it is for. RETIRES WITH THE TAG: close the PR the moment v1.0.101 is tagged and let this exemption expire with it, which is why its date is the day after the tag and not after the walk. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    reason: "CI surface for the v1.0.101 freeze, and its own title says DO NOT MERGE. It exists only so the frozen tip receives check-runs, because a branch push alone yields zero and the cut reads zero as CANNOT-RUN. Merging it would destroy the thing it is for. RETIRES WITH THE TAG: close the PR the moment v1.0.101 is tagged and let this exemption expire with it, which is why its date is the day after the tag and not after the walk. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is the owner's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-09-24
   - ref: "CM051-Home-Hub-Installer#1818"
     reason: "Ostler Uninstaller: colima-safe teardown, --purge-data, standalone Uninstaller.app. DRAFT, and its own title carries the condition: LAUNCH ITEM, do not merge until walk clears. The walk has not cleared. The exemption expired because it was dated rather than conditioned, and the condition it names is still live and still unmet. Re-dated once, to the day after this walk, on the PR's own stated terms. RE-DECIDED 2026-09-26 by Archie for v1.0.102: the freeze this row cited (v1.0.101 at 878db0a9) is spent, because v1.0.101 was superseded and never tagged, so its old date lapsed on a dead ground rather than being renewed on it. The ground that holds now is the same rule applied to the live cut: cut/v1.0.102 is frozen on its own branch, so under LAUNCH DIRECTIVE ITEM 4 no open PR on main can change one byte of that DMG. Triage after the v1.0.102 tag, by this date: merge, close, or re-argue on merit. RE-DECIDED 2026-10-03 by Archie on Aesop's ruling for v1.0.107, when 24 exemptions lapsed together: the other 23 were CLOSED (tips recorded on each PR, commits kept at refs/pull/N/head); this one is the only row whose own stated condition is still live and unmet, so it alone is re-dated rather than closed. cut/v1.0.107 is frozen on its own branch, so under LAUNCH DIRECTIVE ITEM 4 it cannot change one byte of the v1.0.107 DMG. Triage by this date: merge after a clean walk, close, or re-argue on merit. NOT A JUDGEMENT ON MERIT."
@@ -160,7 +160,7 @@ pr_exemptions:
     reason: "fix(cut-gates): guard EVERY checkout a cut gate reads, and fetch first (#1550). Same class as #2009: it edits the gates the cut runs. Correct fix, wrong hour. It lands before the NEXT cut so the next cut is the one it protects. RE-DECIDED 2026-09-26 by Archie for v1.0.102: the freeze this row cited (v1.0.101 at 878db0a9) is spent, because v1.0.101 was superseded and never tagged, so its old date lapsed on a dead ground rather than being renewed on it. The ground that holds now is the same rule applied to the live cut: cut/v1.0.102 is frozen on its own branch, so under LAUNCH DIRECTIVE ITEM 4 no open PR on main can change one byte of that DMG. Triage after the v1.0.102 tag, by this date: merge, close, or re-argue on merit. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-10-02
   - ref: "CM051-Home-Hub-Installer#2040"
-    reason: "fix(pairing): a refused pairing code must not say the gateway is still starting up (#2011). Customer-visible message fix on the pairing failure path. Wanted, and it changes a surface the walk's pairing arms read, so it lands after this walk rather than during it. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is Andy's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
+    reason: "fix(pairing): a refused pairing code must not say the gateway is still starting up (#2011). Customer-visible message fix on the pairing failure path. Wanted, and it changes a surface the walk's pairing arms read, so it lands after this walk rather than during it. LAUNCH DIRECTIVE ITEM 4, verbatim: cut/v1.0.NN is branched at a SHA, and open PRs on main do not block it. This cut is frozen at 878db0a9, so no open PR on main can change one byte of this DMG. That is the owner's written decision of 2026-09-07 and it predates this gate, which was written without reference to it. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-09-25
   - ref: "CM051-Home-Hub-Installer#2046"
     reason: "gate(privacy): ratchet the crossings between the two level scales, and ban intent-comments on privacy numbers. A new gate. A gate that has never run a full cut cannot be introduced during one: it would either pass vacuously or red the cut for a reason nobody could separate from the tree. RE-DECIDED 2026-09-26 by Archie for v1.0.102: the freeze this row cited (v1.0.101 at 878db0a9) is spent, because v1.0.101 was superseded and never tagged, so its old date lapsed on a dead ground rather than being renewed on it. The ground that holds now is the same rule applied to the live cut: cut/v1.0.102 is frozen on its own branch, so under LAUNCH DIRECTIVE ITEM 4 no open PR on main can change one byte of that DMG. Triage after the v1.0.102 tag, by this date: merge, close, or re-argue on merit. NOT A JUDGEMENT ON MERIT."
@@ -920,7 +920,7 @@ deferrals:
       v1.0.54 cut at make check-orphans AFTER preflight had passed, which is how
       it came to need a row at all. CONSEQUENCE STATED PLAINLY SO NOBODY READS
       THIS AS CLOSURE: three of the five required usage-journal producers still
-      write nothing on any install, so the Bursar has no denominator and Andy's
+      write nothing on any install, so the Bursar has no denominator and the owner's
       A4 stays open. Land it in v1.0.56 once its own two checks are green; it
       needs no other prerequisite.
   - ref: "CM051:#1300"
@@ -944,7 +944,7 @@ deferrals:
   # just a PR number that was asserted.
   #
   # HOW THE CLOSES READ, and why that mattered: both PRs were closed by the login
-  # `andygmassey`. Andy confirmed 2026-08-27 that he never closes anything by
+  # `andygmassey`. The owner confirmed 2026-08-27 that he never closes anything by
   # hand -- every agent acts under that credential. So the actor field cannot
   # tell a human decision from an agent one, and #1099 carried NO closing comment
   # at all. A prohibition whose grounds nobody wrote down can only be obeyed, not
@@ -1043,7 +1043,7 @@ deferrals:
       that its arms ran "on a mounted artefact and a scratch HOME, never a real
       install". THERE IS NO BOX TO WALK UNTIL THIS DMG EXISTS. Tagging first is
       the only order that gets #1055 the proof it asks for, and it explicitly does
-      not make #1051/#1053/#1054 redundant, so deferring costs no coverage. Andy
+      not make #1051/#1053/#1054 redundant, so deferring costs no coverage. The owner
       owes the ship-or-hold call and has not given it; deferring is the direction
       that withholds rather than ships. Measured green: 72 checks pass, 0 fail.
     until_cut: "v1.0.47"
@@ -4074,7 +4074,7 @@ deferrals:
   # count is not a sudden pile-up; it is a gate that finally got to speak.
   #
   # 🔴 THE ADJUDICATION THAT MATTERS: NONE OF THE FIFTEEN IS A v1.0.44 WALK
-  # FIX. Andy's rule of 2026-08-23 is that the next DMG he walks carries every
+  # FIX. The owner's rule of 2026-08-23 is that the next DMG he walks carries every
   # fix from the last walk. All six of those (#873 #874 #875 #876 #877 and the
   # wiki re-pin) are in this cut's BOM at landed=yes. Checked by reading each
   # of the fifteen, not by assuming.
@@ -4200,7 +4200,7 @@ deferrals:
       plus the SPA. Merging it moves oa main off the DAEMON_COMMIT pin, which
       flips the daemon freshness row to RED STALE and forces a full rebuild,
       re-sign, re-notarise and five-site re-pin of a daemon that is already
-      published and artefact-verified -- hours before Andy walks this DMG. Its
+      published and artefact-verified -- hours before the owner walks this DMG. Its
       own body states the work is unfinished ('the remaining blocker is the
       Python producers for ingestion'). Land it first in v1.0.46, on a daemon
       rebuild it can be gated by from the start.
@@ -4391,13 +4391,13 @@ deferrals:
   # ────────────────────────────────────────────────────────────────────────────
   # #551 LAUNCH HOLD -- the five open PRs of the #550 store-exposure fix stack.
   #
-  # Andy held the launch on 2026-08-28 over #550: an unprivileged second macOS
+  # The owner held the launch on 2026-08-28 over #550: an unprivileged second macOS
   # account read the knowledge graph with one curl and no credential. v1.0.49
   # is frozen as a prerelease -- no tag, no cut, no promote -- so by definition
   # none of this work is in it.
   #
   # ⚠️ THE until_cut BELOW IS A PREDICTION, NOT A BLESSED VERSION. No version
-  # after v1.0.49 has been chosen; Andy blesses cuts and has not. v1.0.50 is
+  # after v1.0.49 has been chosen; the owner blesses cuts and has not. v1.0.50 is
   # written because this field is PARSED and compared for expiry (`until_cut
   # sorts strictly BEFORE the version being cut` -> EXPIRED), so a prose value
   # here would sort unpredictably and read as a false expiry. It means "the
@@ -4447,7 +4447,7 @@ deferrals:
       'chore(cut): record the five #551-hold PRs as conscious deferrals'. The PR
       that writes the five rows above. Data-only -- no product code, no gate
       logic, five additive rows. Not in v1.0.49 because v1.0.49 is frozen under
-      Andy's #551 hold, which is the same reason as the five it records.
+      The owner's #551 hold, which is the same reason as the five it records.
       Caught by @TNM: while this PR is OPEN the rows are written but NOT landed,
       so the live uncovered count is SIX, not five -- the five plus this. The
       count only drops to zero when this merges.
