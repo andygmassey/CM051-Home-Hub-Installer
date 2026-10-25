@@ -28,12 +28,14 @@
   label: "Film director"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2        # fewer films per director is expected
 
 - dimension: media.film.actor
   label: "Film actor"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 40
 
@@ -41,6 +43,7 @@
   label: "Film writer"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -48,6 +51,7 @@
   label: "Film composer"
   category: films
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -56,6 +60,7 @@
   label: "TV series"
   category: tv
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3        # three episodes of one show
   max_items: 40
 
@@ -69,6 +74,7 @@
   label: "TV cast"
   category: tv
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 30
 
@@ -77,6 +83,7 @@
   label: "Music artist"
   category: music
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
   max_items: 40
 
@@ -91,6 +98,7 @@
   label: "Book author"
   category: books
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -112,6 +120,7 @@
   label: "Podcast"
   category: podcasts
   tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2
   max_items: 30
 
@@ -129,6 +138,13 @@
   tier: broad
   min_evidence: 3
   max_items: 40
+
+- dimension: theme.concept
+  label: "Broad theme"
+  category: themes
+  tier: broad
+  min_evidence: 2        # distinct preferences; the reader also needs 2 distinct topics
+  max_items: 20
 
 - dimension: web.site
   label: "Site you return to"
@@ -150,6 +166,20 @@
   label: "Cuisine and venue type"
   category: food
   tier: broad
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.drink
+  label: "Drink"
+  category: food
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.ingredient
+  label: "Ingredient or dish"
+  category: food
+  tier: specific
   min_evidence: 2
   max_items: 20
 
@@ -226,3 +256,11 @@
   tier: specific
   min_evidence: 4        # the proof that a new dimension is a config row; no live source yet
   max_items: 20
+
+- dimension: food.item
+  label: "Food you buy or order"
+  category: food
+  tier: specific
+  sensitive_match: contains   # a diet word in a grocery item ("vegan sausages") is a diet signal
+  min_evidence: 3
+  max_items: 30

@@ -20,12 +20,20 @@ def _service_token():
         return ""
 
 
-def fetch_events(api_url, days=30):
+def fetch_events(api_url, days=30, events_provider=None):
     """Fetch calendar events from the unified calendar API.
 
     Returns list of event dicts. Only events with both a UID and at least
     one attendee are included.
+
+    ``events_provider`` (``days -> list of event dicts``) reads the calendar
+    in-process instead of over HTTP. The Hub passes it when the brief runs
+    inside one of its own request handlers, where an HTTP call back to
+    ``api_url`` would hang the single-threaded server.
     """
+    if events_provider is not None:
+        events = events_provider(days)
+        return [e for e in events if e.get("attendees") and e.get("uid")]
     url = api_url.rstrip("/") + "/calendar"
     headers = {}
     token = _service_token()

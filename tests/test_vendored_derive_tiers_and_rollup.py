@@ -34,7 +34,8 @@ from derive.model import PREF_URN_PREFIX  # noqa: E402
 PASS = FAIL = 0
 BROAD = {"media.film.genre", "media.tv.genre", "media.music.genre", "media.book.genre",
          "media.book.topic", "media.podcast.topic", "food.cuisine", "interests.topic",
-         "place.city", "health.activity", "work.industry"}
+         "place.city", "health.activity", "work.industry",
+         "theme.concept"}   # thematic rollup (PWG #438): a broad concept over 2+ topics
 
 
 def check(cond, msg):
@@ -59,7 +60,10 @@ class Store:
         return [p for p in self.points if not categories or p["payload"]["category"] in categories]
 
     def sparql(self, q):
-        pred = re.search(r"enrichment/ontology#(\w+)>", q).group(1)
+        mp = re.search(r"enrichment/ontology#(\w+)>", q)
+        if mp is None:
+            return []   # not an overlay query: the stated readers ask the fact store, which has no rows here
+        pred = mp.group(1)
         return [{"s": {"value": PREF_URN_PREFIX + pid}, "label": {"value": lab},
                  "conf": {"value": "0.9"}} for pid, lab in self.tags.get(pred, [])]
 

@@ -77,9 +77,9 @@ def score_group(
     """Score one (dimension, value) group of evidence into a derived node's axes.
 
     Every evidence item is weighted by its OWN age (recency.recency_weight,
-    540d half-life by default, floor 0.35). Repetition across time still raises
-    confidence (more weighted items = a larger effective frequency) but old
-    evidence fades. Likes and dislikes decay identically; an evergreen
+    540d half-life by default, floor 0.35), applied once, in the strength mean.
+    Repetition still raises strength (frequency is the item count) and
+    confidence, but old evidence fades. Likes and dislikes decay identically; an evergreen
     (dietary/medical) dimension does not decay at all.
     """
     now = now or datetime.now(timezone.utc)
@@ -92,13 +92,15 @@ def score_group(
     hl = resolve_half_life(items[0].dimension, half_life_days, evergreen)
     weights = [recency_weight(_age_days(i.observed_at, now), hl) for i in items]
 
-    # base_strength: recency-weighted evidence mean over ALL items (NOT max) so
-    # one binge cannot dominate and a stale item contributes less; sign
-    # preserved so dislikes roll into a negative derived strength.
+    # The recency weight is applied in ONE place: base_strength, the
+    # recency-weighted evidence mean over ALL items (NOT max) so one binge
+    # cannot dominate and a stale item contributes less; sign preserved so
+    # dislikes roll into a negative derived strength. Frequency is the plain
+    # item count: weighting it as well applied the decay twice, so a group of 3
+    # or 8 identical 540d-old items kept 0.39 / 0.42 of a fresh group's
+    # strength instead of 0.5, and very old ones fell below the 0.35 floor.
     base_strength = sum(w * i.item_strength for w, i in zip(weights, items)) / count
-    # Effective frequency: each item counts for its weight, so three old
-    # mentions are worth less confidence than three recent ones.
-    effective_frequency = sum(weights)
+    frequency = count
 
     sources = {i.source for i in items if i.source}
     source_count = max(len(sources), 1)
@@ -111,7 +113,7 @@ def score_group(
     # days_since_last=0: the per-item weights above ARE the decay. Passing the
     # V2 10-year decay as well would double-apply (and floor at 0.4, not 0.35).
     strength = calculate_strength(
-        frequency=effective_frequency,
+        frequency=frequency,
         base_strength=base_strength,
         days_since_last=0,
         source_count=source_count,
