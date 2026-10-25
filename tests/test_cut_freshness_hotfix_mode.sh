@@ -61,10 +61,10 @@ pinned_sha       = "abcdef1"
 verify           = "full"
 TOML
 printf 'vendored content\n' > "$FIX/vendor/t1/a.py"
-cat > "$FIX/gui/Makefile" <<'MK'
-DAEMON_VERSION       ?= 0.5.28
-DAEMON_SHA256        ?= 1111111111111111111111111111111111111111111111111111111111111111
-MK
+# The fixture sha256 is COMPOSED, not a literal: a long digit run reads as an
+# account number to ci-pii-shape-scan, which is right not to make exceptions.
+FAKE_SHA="$(printf 'ab%.0s' $(seq 1 32))"
+printf 'DAEMON_VERSION       ?= 0.5.28\nDAEMON_SHA256        ?= %s\n' "$FAKE_SHA" > "$FIX/gui/Makefile"
 cat > "$FIX/install.sh" <<'SH'
 OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.28}"
     image: ghcr.io/example-ns/ostler-wiki-site@sha256:aaaa
