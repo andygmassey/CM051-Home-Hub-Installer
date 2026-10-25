@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The spoken-capture legal note follows the Mac's REGION, not its language
-# (Andy, 2026-10-24). Launch markets: GB, EU, HK, US; anything else gets the
+# (the owner, 2026-10-24). Launch markets: GB, EU, HK, US; anything else gets the
 # neutral core only. Every region line is a best-effort draft that needs
 # local professional sign-off; this test pins WHICH lines show, not that the
 # law in them is right.

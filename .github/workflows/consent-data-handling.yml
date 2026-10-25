@@ -87,7 +87,7 @@ jobs:
         if: always()
         run: bash tests/test_q23_spoken_capture_copy_fits_the_window.sh
 
-      # Andy 2026-10-24: the spoken-capture legal note is chosen by the Mac's
+      # the owner 2026-10-24: the spoken-capture legal note is chosen by the Mac's
       # REGION (AppleLocale country), never its language. Runs install.sh's own
       # functions against the fixture the GUI's Swift tests also read.
       - name: spoken-capture legal note follows the Mac's region, not its language

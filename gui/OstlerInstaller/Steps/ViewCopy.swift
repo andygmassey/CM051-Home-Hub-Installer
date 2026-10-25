@@ -71,7 +71,7 @@ final class ViewCopy {
 }
 
 /// The legal note under the spoken-capture consent screen, chosen by the
-/// Mac's REGION, never its language (Andy, 2026-10-24): a Chinese reader
+/// Mac's REGION, never its language (the owner, 2026-10-24): a Chinese reader
 /// living in London gets the UK line.
 ///
 /// The region is the country part of the global `AppleLocale` default

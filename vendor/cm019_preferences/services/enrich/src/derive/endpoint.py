@@ -26,7 +26,7 @@ def _now_iso(now: Optional[datetime]) -> str:
 
 
 def _item(view) -> dict:
-    return {
+    d = {
         "dimension": view.dimension,
         "label": view.subject,
         "strength": round(float(view.strength), 4),
@@ -34,6 +34,25 @@ def _item(view) -> dict:
         "intensity": view.intensity,
         "because": list(view.because),
     }
+    # Only when the evidence carried a level: consumers apply their L2 handling.
+    if getattr(view, "privacy", ""):
+        d["privacy_level"] = view.privacy
+    # Optional pattern fields: present only when derived, so a consumer written
+    # against derived-preferences.v1 without them is unaffected.
+    trend = getattr(view, "trend", "")
+    if trend:
+        d["trend"] = trend
+    winner = getattr(view, "contradiction_winner", "")
+    if winner:
+        d["contradiction"] = {
+            "winner": winner,
+            "suppress": bool(getattr(view, "suppress", False)),
+            "reason": getattr(view, "contradiction_reason", ""),
+        }
+    context = getattr(view, "context", ())
+    if context:
+        d["context"] = list(context)
+    return d
 
 
 def build_derived_preferences_response(
