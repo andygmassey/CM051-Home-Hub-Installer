@@ -232,13 +232,20 @@ class SubscriptionReceiptRouteRegressionTests(unittest.TestCase):
     """
 
     def test_do_post_dispatches_subscription_receipt(self):
+        import ast
+
         source = ICAL_SERVER_PY.read_text(encoding="utf-8")
-        # The route must appear inside the do_POST method block.
-        do_post_idx = source.find("def do_POST(self):")
-        self.assertGreater(do_post_idx, 0, "could not locate do_POST")
-        # Take a generous slice; the routing block sits within the next
-        # ~5KB. Asserts are independent so we don't slice too tight.
-        block = source[do_post_idx : do_post_idx + 8000]
+        # The route must appear inside the do_POST method. Take the method by
+        # its AST span (lineno to end_lineno), NOT a fixed-width slice: a fixed
+        # slice silently shrinks the window every time a route is added above
+        # this one, and the route is still in do_POST when it stops finding it.
+        nodes = [
+            n for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.FunctionDef) and n.name == "do_POST"
+        ]
+        self.assertEqual(len(nodes), 1, "could not locate exactly one do_POST")
+        lines = source.splitlines()
+        block = "\n".join(lines[nodes[0].lineno - 1 : nodes[0].end_lineno])
         self.assertIn(
             '"/api/v1/subscription/receipt"', block,
             "G1 regression: do_POST must route "

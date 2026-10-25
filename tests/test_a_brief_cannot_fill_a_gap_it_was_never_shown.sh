@@ -171,6 +171,20 @@ elif scenario == "all-sections-full":
         "/api/v1/coach/recent": {"observations": [
             {"tip": "Prefers short written updates"},
         ]},
+        # The owner-brief sections (Lane 7): each needs a source that answers
+        # with content, or "no gaps" would stop being true of this fixture.
+        "/api/v1/preferences": {"interests": [
+            {"subject": "Ramen", "domain": "Food", "polarity": "like",
+             "privacy": "L2", "score": 0.9},
+        ]},
+        "/api/v1/commitments": {"commitments": [
+            {"action": "Send the floor plan", "owner": "user",
+             "due": "2099-01-01", "status": "open"},
+        ]},
+        "/api/v1/memory": {"facts": [
+            {"id": "fact_a", "object": "x", "source": "user_correction",
+             "corrected": True},
+        ]},
     })
     ROWS = [
         {"text": "Mary is your spouse", "name": "Mary Jones",
@@ -182,6 +196,8 @@ elif scenario == "all-sections-full":
         # organisations). Same row answers the count and the detail query.
         {"p": "https://example.invalid/person/sam", "n": "12",
          "name": "Sam Patel", "org": "Acme Ltd"},
+        # Channel style: the owner's sent / received counts per channel.
+        {"t": "linkedin_messaging", "sent": "4", "got": "6", "threads": "1"},
     ]
 
     def _sparql(sparql):
@@ -312,7 +328,10 @@ fi
 # exactly the installs with the most to say. Green-while-blind, seasonally.
 
 if drive_or_cant "oversized-with-a-gap" "${WORK}/big.md"; then
-    if grep -q "digest truncated to fit the prompt budget" "${WORK}/big.md"; then
+    # An oversized digest is cut in one of two honest ways: whole low-priority
+    # sections are dropped AND declared ("Left out to fit the size cap"), or,
+    # when nothing droppable is left, the tail is clipped and marked.
+    if grep -q "digest truncated to fit the prompt budget\|Left out to fit the size cap" "${WORK}/big.md"; then
         if grep -q "COULD NOT BE READ" "${WORK}/big.md"; then
             ok "the gap declaration survives the MAX_CHARS clip on an oversized digest"
         else

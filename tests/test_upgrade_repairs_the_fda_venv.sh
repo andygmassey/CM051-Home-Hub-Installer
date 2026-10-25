@@ -46,15 +46,19 @@ printf 'test_upgrade_repairs_the_fda_venv\n'
 [ -f "$INSTALL_SH" ] || { bad "premise: install.sh not found at $INSTALL_SH"; exit 1; }
 
 # --- 1. the call site, inside the upgrade block -----------------------------
-BLOCK_END="$(awk 'NR>=122 && /^fi$/{print NR; exit}' "$INSTALL_SH")"
+# The block's start is FOUND, not assumed: a hard-coded 122 stopped being inside it
+# the moment anything above it moved (the derive agent function is hoisted there).
+BLOCK_START="$(grep -nE '^if \[\[ "\$\{OSTLER_UPGRADE_MODE:-0\}" == "1"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+BLOCK_START="${BLOCK_START:-122}"
+BLOCK_END="$(awk -v s="$BLOCK_START" 'NR>=s && /^fi$/{print NR; exit}' "$INSTALL_SH")"
 if [ -z "$BLOCK_END" ]; then
     bad "premise: could not find the end of the upgrade block; every check below would be vacuous"
     exit 1
 fi
-BLOCK="$(sed -n "122,${BLOCK_END}p" "$INSTALL_SH")"
+BLOCK="$(sed -n "${BLOCK_START},${BLOCK_END}p" "$INSTALL_SH")"
 
 if grep -qE '^\s+_upg_repair_fda_venv\s*$' <<< "$BLOCK"; then
-    ok "the repair is CALLED inside the upgrade block (lines 122-${BLOCK_END})"
+    ok "the repair is CALLED inside the upgrade block (lines ${BLOCK_START}-${BLOCK_END})"
 else
     bad "the repair is never called inside the upgrade block -- this is exactly #595"
 fi

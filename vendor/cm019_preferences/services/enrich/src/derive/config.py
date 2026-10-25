@@ -13,7 +13,13 @@ from typing import List
 import yaml
 
 from .engine import DimensionConfig
-from .readers import OxigraphOverlayReader, QdrantFieldReader, StoreGateway
+from .readers import (
+    LexiconReader,
+    OxigraphOverlayReader,
+    QdrantFieldReader,
+    RollupReader,
+    StoreGateway,
+)
 
 _HERE = Path(__file__).resolve().parent
 DIMENSIONS_YAML = _HERE / "dimensions.yaml"
@@ -27,6 +33,8 @@ def load_dimensions(path: Path = DIMENSIONS_YAML) -> List[DimensionConfig]:
             dimension=r["dimension"],
             category=r.get("category", r["dimension"].split(".")[0]),
             min_evidence=int(r.get("min_evidence", 3)),
+            tier=str(r.get("tier", "specific")),
+            max_items=int(r["max_items"]) if r.get("max_items") else None,
         )
         for r in rows
     ]
@@ -49,11 +57,51 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML) -> list:
                 OxigraphOverlayReader(
                     tag_predicate=r["tag_predicate"],
                     tag_entity_type=r.get("tag_entity_type"),
+                    value_exclude_regex=r.get("value_exclude_regex"),
+                    vocab=r.get("vocab"),
+                    vocab_strict=bool(r.get("vocab_strict", False)),
                     **common,
                 )
             )
         elif kind == "qdrant_field":
-            readers.append(QdrantFieldReader(field_path=r["field"], **common))
+            readers.append(
+                QdrantFieldReader(
+                    field_path=r["field"],
+                    fallback_field=r.get("fallback_field"),
+                    split=r.get("split"),
+                    part=r.get("part", "first"),
+                    transform=r.get("transform"),
+                    strip_regex=r.get("strip_regex"),
+                    allowlist=tuple(str(a).lower() for a in r.get("allowlist", [])),
+                    evidence_confidence=float(r.get("evidence_confidence", 0.5)),
+                    **common,
+                )
+            )
+        elif kind in ("rollup", "lexicon"):
+            field_reader = QdrantFieldReader(
+                field_path=r["key_field" if kind == "rollup" else "field"],
+                fallback_field=r.get("fallback_field"),
+                split=r.get("split"),
+                part=r.get("part", "first"),
+                transform=r.get("transform"),
+                strip_regex=r.get("strip_regex"),
+                **common,
+            )
+            if kind == "lexicon":
+                readers.append(LexiconReader(
+                    source_field=field_reader, vocab=r["vocab"],
+                    evidence_confidence=float(r.get("evidence_confidence", 0.6)), **common))
+            else:
+                readers.append(RollupReader(
+                    key=field_reader,
+                    tags=OxigraphOverlayReader(
+                        tag_predicate=r["tag_predicate"],
+                        tag_entity_type=r.get("tag_entity_type"),
+                        value_exclude_regex=r.get("value_exclude_regex"),
+                        vocab=r.get("vocab"),
+                        vocab_strict=bool(r.get("vocab_strict", False)),
+                        **common),
+                    rollup_factor=float(r.get("rollup_factor", 0.85)), **common))
         else:
             # Unknown kind: loud, never a silent skip.
             raise ValueError(f"unknown reader kind {kind!r} for dimension {r['dimension']!r}")

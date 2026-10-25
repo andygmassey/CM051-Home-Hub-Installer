@@ -22,6 +22,14 @@ class DimensionConfig:
     dimension: str
     category: str
     min_evidence: int = 3
+    # Keep only the strongest N nodes of this dimension. None = no cap. A
+    # high-cardinality dimension (every artist, every site) would otherwise
+    # write thousands of nodes and crowd the others out of any top-N read.
+    max_items: Optional[int] = None
+    # "broad" = a TYPE of thing (a genre, a cuisine, a topic); "specific" = a
+    # single thing (an artist, a series, a restaurant). Consumers that lead with
+    # types ask for the broad tier; the specific one follows once broad is settled.
+    tier: str = "specific"
 
 
 class Aggregator:
@@ -49,8 +57,17 @@ class Aggregator:
     ) -> List[DerivedPreference]:
         now = now or datetime.now(timezone.utc)
         groups: Dict[tuple, List[EvidenceItem]] = defaultdict(list)
+        seen = set()
         for it in items:
-            groups[(it.dimension, normalize_value(it.value))].append(it)
+            norm = normalize_value(it.value)
+            # One literal preference is ONE observation of a value, however many
+            # readers or tags report it (an artist named by both the payload
+            # and the overlay, an actor listed twice).
+            key = (it.dimension, norm, it.preference_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            groups[(it.dimension, norm)].append(it)
 
         out: List[DerivedPreference] = []
         for (dimension, _norm), members in groups.items():
@@ -82,12 +99,43 @@ class Aggregator:
                 derivation_version=self._version,
                 derivation_method="rollup",
                 is_contested=score.is_contested,
+                evidence_titles=_evidence_titles(members),
+                tier=cfg.tier,
             )
             out.append(node)
 
         # Deterministic order: strongest-by-confidence first, then URI.
         out.sort(key=lambda n: (-abs(n.preference_strength), -n.confidence, n.uri))
-        return out
+        return self._apply_caps(out)
+
+    def _apply_caps(self, nodes: List[DerivedPreference]) -> List[DerivedPreference]:
+        kept: List[DerivedPreference] = []
+        per_dim: Dict[str, int] = defaultdict(int)
+        for n in nodes:  # already strongest-first
+            cap = self._config_for(n.dimension).max_items
+            if cap is not None and per_dim[n.dimension] >= cap:
+                continue
+            per_dim[n.dimension] += 1
+            kept.append(n)
+        return kept
+
+
+def _evidence_titles(items: Sequence[EvidenceItem], limit: int = 3) -> List[str]:
+    """Up to ``limit`` distinct literal titles behind a node, strongest first.
+
+    These become the "because" line a consumer shows, so it works for evidence
+    that has no enrichment title (a play count, a bookmark).
+    """
+    seen, out = set(), []
+    for it in sorted(items, key=lambda i: (-i.item_strength, i.raw_subject)):
+        t = (it.raw_subject or "").strip()[:120]
+        k = t.lower()
+        if t and k not in seen:
+            seen.add(k)
+            out.append(t)
+            if len(out) >= limit:
+                break
+    return out
 
 
 def _modal_value(items: Sequence[EvidenceItem]) -> str:
