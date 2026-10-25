@@ -95,7 +95,7 @@ class Store:
     def sparql(self, query):
         mp = re.search(r"enrichment/ontology#(\w+)>", query)
         if mp is None:
-            return []   # the stated-conversation reader asks the fact store, not the overlay
+            return []   # not an overlay query (stated fact store, thematic QID count): no rows here
         pred = mp.group(1)
         m = re.search(r'LCASE\(STR\(\?etype\)\) = "(\w+)"', query)
         out = []

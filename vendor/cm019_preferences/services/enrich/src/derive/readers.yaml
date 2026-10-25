@@ -224,6 +224,18 @@
   select_categories: [bookmark, interest, page, saved, shared_link, search, instagram_creator, social_media, social, video, lifestyle, hobby, art, education, community, technology, photography, hardware, marketing, home, kids, toys, networking, organization, professional]
   tag_predicate: hasTopic
 
+# Themes: a topic above rolls UP to its broader Wikidata concept ("psychology"
+# + "economics" -> "social science"), broad before specific. Needs the
+# enricher's QID pass (topic -> enr:wikidataId) and the topic hierarchy graph;
+# without them it reads nothing and reports a degraded status (thematic.py).
+# Same categories as the topic readers (books, podcasts, interests).
+- dimension: theme.concept
+  domain: themes
+  category: themes
+  kind: thematic
+  select_categories: [book, books, podcast, podcasts, bookmark, interest, page, saved, shared_link, search, instagram_creator, social_media, social, video, lifestyle, hobby, art, education, community, technology, photography, hardware, marketing, home, kids, toys, networking, organization, professional]
+  min_leaves: 2
+
 - dimension: web.site
   domain: web
   category: web

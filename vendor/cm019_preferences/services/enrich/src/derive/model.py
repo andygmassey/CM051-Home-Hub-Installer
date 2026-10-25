@@ -141,6 +141,10 @@ class DerivedPreference:
     evidence_titles: list = field(default_factory=list)
     tier: str = ""       # "broad" | "specific"; "" = not stated (older graphs)
     privacy_level: str = ""            # highest evidence level; "" = none stated
+    # Pattern derivers (patterns.py). All optional: absent means "not derived".
+    # contradiction = {"winner": "stated"|"behaviour", "suppress": bool, "reason": str}
+    contradiction: Optional[dict] = None
+    context: list = field(default_factory=list)   # ["evening", "weekend"]
 
     @property
     def uri(self) -> str:
@@ -198,6 +202,13 @@ class DerivedPreference:
                 t.append(f'    pwg:{dt_prop} "{dt.isoformat()}"^^xsd:dateTime ;')
         if self.tier:
             t.append(f'    pwg:tier "{_esc(self.tier)}" ;')
+        if self.contradiction:
+            c = self.contradiction
+            t.append(f'    pwg:contradictionWinner "{_esc(str(c.get("winner", "")))}" ;')
+            t.append(f'    pwg:contradictionReason "{_esc(str(c.get("reason", "")))}" ;')
+            t.append(f'    pwg:suppressSuggestion {str(bool(c.get("suppress"))).lower()} ;')
+        if self.context:
+            t.append(f'    pwg:timeContext "{_esc(",".join(self.context))}" ;')
         for title in self.evidence_titles:
             t.append(f'    pwg:evidenceTitle "{_esc(title)}" ;')
         # derivedFrom last; MANDATORY (SHACL sh:minCount 1).

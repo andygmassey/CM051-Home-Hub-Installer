@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import time
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ import httpx
 from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
+from .privacy_gate import outbound_refusal, REASON_UNKNOWN_LEVEL
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -28,6 +30,8 @@ from .clients.events import EventClient
 from .clients.domain_topics import DomainTopicMapper
 from .clients.youtube import YouTubeClient
 from .clients.places import PlacesClient
+from .derive.sensitive import never_read_categories
+from .derive.thematic import HIERARCHY_GRAPH, WD_ENTITY, leaf_is_sensitive
 from .clients.osm_cuisine import OsmCuisineClient
 from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, EntityResult
 
@@ -45,11 +49,14 @@ _WIKIDATA_PENDING_TOPICS_QUERY = """
 PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-SELECT DISTINCT ?topic ?label WHERE {
-    GRAPH ?g {
-        ?pref pwg:hasTopic ?topic .
-        ?topic rdfs:label ?label .
-    }
+SELECT DISTINCT ?topic ?label ?pref WHERE {
+    # The enrichment overlay is written to the DEFAULT graph (_store_enrichment
+    # INSERT DATA, no GRAPH), and Oxigraph runs WITHOUT --union-default-graph,
+    # so GRAPH ?g alone never sees it: read the default graph AND named graphs.
+    { ?pref pwg:hasTopic ?topic . } UNION { GRAPH ?g { ?pref pwg:hasTopic ?topic . } }
+    { ?topic rdfs:label ?label . } UNION { GRAPH ?gl { ?topic rdfs:label ?label . } }
+    # ?pref: the per-item privacy gate decides from the preferences that carry
+    # the topic whether its label may be sent to wikidata.org.
     # Exclude topics that already have a Wikidata Q-ID
     # Writes land in the default graph (POST /store), so look there
     # as well as in named graphs, or every run redoes every topic.
@@ -66,10 +73,9 @@ PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT DISTINCT ?topic ?label WHERE {
-    GRAPH ?g {
-        ?pref pwg:hasTopic ?topic .
-        ?topic rdfs:label ?label .
-    }
+    # Default graph AND named graphs (see _WIKIDATA_PENDING_TOPICS_QUERY).
+    { ?pref pwg:hasTopic ?topic . } UNION { GRAPH ?g { ?pref pwg:hasTopic ?topic . } }
+    { ?topic rdfs:label ?label . } UNION { GRAPH ?gl { ?topic rdfs:label ?label . } }
     # Writes land in the default graph (POST /store), so look there
     # as well as in named graphs, or every run redoes every topic.
     FILTER NOT EXISTS {
@@ -80,6 +86,33 @@ SELECT DISTINCT ?topic ?label WHERE {
 }
 """
 
+
+# Topics that carry a QID whose broader-concept edges are not stored yet. The
+# hierarchy pass sends the QID (not the label) to Wikidata, but a QID names the
+# label, so the same per-item gate runs on ?label and ?pref first.
+_HIERARCHY_PENDING_QUERY = f"""
+PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?topic ?label ?qid ?pref WHERE {{
+    {{ ?pref pwg:hasTopic ?topic . }} UNION {{ GRAPH ?g {{ ?pref pwg:hasTopic ?topic . }} }}
+    {{ ?topic rdfs:label ?label . }} UNION {{ GRAPH ?gl {{ ?topic rdfs:label ?label . }} }}
+    {{ ?topic pwg:wikidataId ?qid . }} UNION {{ GRAPH ?gq {{ ?topic pwg:wikidataId ?qid . }} }}
+    FILTER(REGEX(STR(?qid), "^Q[1-9][0-9]*$"))
+    BIND(IRI(CONCAT("{WD_ENTITY}", STR(?qid))) AS ?wd)
+    FILTER NOT EXISTS {{ GRAPH <{HIERARCHY_GRAPH}> {{ ?wd pwg:hierarchyStoredAt ?t . }} }}
+}}
+"""
+
+# Reason codes the QID pass adds to privacy_gate.py's (counts only).
+REASON_SENSITIVE_LABEL = "sensitive"          # P9: Art. 9 / diet / abstention term
+REASON_SENSITIVE_MATCH = "sensitive_match"    # Wikidata answered with a sensitive label
+REASON_NEVER_READ = "never_read_category"     # dietary, minors... (sensitive_terms.yaml)
+REASON_NO_OWNER = "no_owner"
+
+
+def _turtle_escape(text: str) -> str:
+    return str(text or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
 
 @dataclass
 class EnrichmentStats:
@@ -97,6 +130,10 @@ class EnrichmentStats:
     skipped_already_enriched: int = 0
     skipped_no_client: int = 0
     skipped_ineligible: int = 0
+    # Withheld by the per-item privacy gate (L0/L1/L3, unknown level, minor).
+    # Counts only, keyed by reason code; never a subject.
+    skipped_private: int = 0
+    by_privacy_reason: Dict[str, int] = field(default_factory=dict)
 
     # True when the pass stopped because it ran out of its wall-clock
     # allowance rather than because it ran out of work. The distinction
@@ -139,6 +176,7 @@ class EnrichmentStats:
             f"  No match: {self.no_match}\n"
             f"  Already enriched: {self.skipped_already_enriched}\n"
             f"  No client: {self.skipped_no_client}\n"
+            f"  Withheld (privacy): {self.skipped_private} {self.by_privacy_reason}\n"
             f"  Not sendable: {self.skipped_ineligible}\n"
             f"  Budget exhausted: {self.budget_exhausted}\n"
             f"  By source: {self.by_source}\n"
@@ -340,6 +378,10 @@ class EnrichmentService:
 
         # Track already-enriched preferences (in memory for this run)
         self._enriched_ids: Set[str] = set()
+
+        # Items refused by the per-item privacy gate in enrich_preference,
+        # by reason code. Counts only.
+        self.privacy_refusals: Dict[str, int] = {}
 
     @property
     def _foursquare(self) -> FoursquareClient:
@@ -625,6 +667,13 @@ INSERT DATA {{
             EnrichmentResult or None
         """
         if not self._consent_or_log("enrich_preference"):
+            return None
+
+        # Per-item privacy gate, AFTER consent: L0/L1/L3, an unknown or
+        # missing level, or an item about a minor never leaves the Mac.
+        refusal = outbound_refusal(preference)
+        if refusal is not None:
+            self.privacy_refusals[refusal] = self.privacy_refusals.get(refusal, 0) + 1
             return None
 
         pref_id = preference.get("id", "")
@@ -925,6 +974,17 @@ INSERT DATA {{
                 stats.skipped_no_client += 1
                 continue
 
+            # Per-item privacy gate (see privacy_gate.py). Counted here so the
+            # run summary says how many were withheld and why; never logged
+            # with the subject.
+            refusal = outbound_refusal(pref)
+            if refusal is not None:
+                stats.skipped_private += 1
+                stats.by_privacy_reason[refusal] = (
+                    stats.by_privacy_reason.get(refusal, 0) + 1
+                )
+                continue
+
             # The classifier decided this subject is a book/film/artist. It
             # is sometimes wrong, and when it is wrong the subject still
             # goes out as a query. Refuse anything shaped like prose before
@@ -985,6 +1045,11 @@ INSERT DATA {{
                 if len(stats.errors) < 100:
                     stats.errors.append(f"{pref_id}: {str(e)}")
 
+        if stats.skipped_private:
+            logger.info(
+                "Privacy gate withheld %d item(s) from public lookups: %s",
+                stats.skipped_private, stats.by_privacy_reason,
+            )
         return results
 
     async def enrich_all(
@@ -1227,6 +1292,11 @@ INSERT DATA {{
             combined_stats.skipped_already_enriched += stats.skipped_already_enriched
             combined_stats.skipped_no_client += stats.skipped_no_client
             combined_stats.skipped_ineligible += stats.skipped_ineligible
+            combined_stats.skipped_private += stats.skipped_private
+            for reason, count in stats.by_privacy_reason.items():
+                combined_stats.by_privacy_reason[reason] = (
+                    combined_stats.by_privacy_reason.get(reason, 0) + count
+                )
             combined_stats.budget_exhausted = (
                 combined_stats.budget_exhausted or stats.budget_exhausted
             )
@@ -1339,9 +1409,94 @@ INSERT DATA {{
             "cache": self._cache.stats(),
         }
 
+    async def _topic_owner_refusals(
+        self, client: "httpx.AsyncClient", pref_ids: List[str]
+    ) -> Optional[Dict[str, Optional[str]]]:
+        """pref id -> outbound refusal reason (None = may go out), read from the
+        preferences' own Qdrant payloads. A point that is not found reads as
+        level_unknown. None when the store could not be read (the caller then
+        sends NOTHING: fail closed)."""
+        out: Dict[str, Optional[str]] = {pid: REASON_UNKNOWN_LEVEL for pid in pref_ids}
+        url = (f"{settings.qdrant_url}/collections/"
+               f"{settings.qdrant_collection}/points")
+        for i in range(0, len(pref_ids), 256):
+            chunk = pref_ids[i:i + 256]
+            ids = [int(x) if x.isdigit() else x for x in chunk]
+            try:
+                resp = await client.post(url, json={
+                    "ids": ids,
+                    "with_payload": ["privacy_level", "compartment_level",
+                                     "about_minor", "extra", "category"],
+                    "with_vector": False,
+                })
+            except Exception as e:  # noqa: BLE001 - fail closed, counted by caller
+                logger.error(f"QID pass privacy read failed: {type(e).__name__}")
+                return None
+            if resp.status_code != 200:
+                logger.error(f"QID pass privacy read failed: HTTP {resp.status_code}")
+                return None
+            try:
+                points = resp.json().get("result") or []
+            except ValueError:
+                return None
+            banned = set(never_read_categories())
+            for p in points:
+                pid = str(p.get("id"))
+                if pid in out:
+                    payload = p.get("payload") or {}
+                    reason = outbound_refusal(payload)
+                    if reason is None and str(payload.get("category") or "").strip().lower() in banned:
+                        reason = REASON_NEVER_READ
+                    out[pid] = reason
+        return out
+
+    async def _gate_topic_labels(
+        self,
+        client: "httpx.AsyncClient",
+        topics: Dict[str, object],
+        owners: Dict[str, set],
+        stats: Dict[str, any],
+    ) -> bool:
+        """Drop from ``topics`` (label -> anything) every label that may not go
+        to Wikidata, counting each by reason in ``stats``. False when the
+        preferences' privacy levels could not be read: the caller then sends
+        NOTHING (fail closed).
+
+        A label goes out only when (P9) it is not a sensitive or abstention term
+        (``derive.thematic.leaf_is_sensitive``, the same rule the thematic
+        reader applies to a leaf) AND at least one preference carrying it may
+        itself go out: L2, not about a minor (P10, ``extra.about_minor``), not
+        in a never-read category. Counted, never logged."""
+        stats.setdefault("withheld_private", 0)
+        stats.setdefault("by_privacy_reason", {})
+
+        def withhold(label: str, reason: str) -> None:
+            stats["by_privacy_reason"][reason] = stats["by_privacy_reason"].get(reason, 0) + 1
+            stats["withheld_private"] += 1
+            del topics[label]
+
+        for label in list(topics):
+            if leaf_is_sensitive(label):
+                withhold(label, REASON_SENSITIVE_LABEL)
+        all_ids = sorted({pid for lab in topics for pid in owners.get(lab, ())})
+        refusals = await self._topic_owner_refusals(client, all_ids) if all_ids else {}
+        if refusals is None:
+            stats["privacy_check_failed"] = True
+            stats["withheld_private"] += len(topics)
+            topics.clear()
+            return False
+        for label in list(topics):
+            reasons = [refusals.get(pid, REASON_UNKNOWN_LEVEL)
+                       for pid in sorted(owners.get(label, ()))]
+            if any(r is None for r in reasons):
+                continue
+            withhold(label, reasons[0] if reasons else REASON_NO_OWNER)
+        return True
+
     async def normalize_topics_with_wikidata(
         self,
         progress_callback: Optional[callable] = None,
+        deadline: Optional[float] = None,
     ) -> Dict[str, any]:
         """
         Normalize all enriched topics to Wikidata Q-IDs.
@@ -1361,6 +1516,9 @@ INSERT DATA {{
             "normalized": 0,
             "failed": 0,
             "already_normalized": 0,
+            "deferred": 0,  # left for the next pass: the deadline was reached
+            "withheld_private": 0,
+            "by_privacy_reason": {},
             "topics": {},  # topic -> qid mapping
         }
 
@@ -1394,13 +1552,30 @@ INSERT DATA {{
                 data = response.json()
                 bindings = data.get("results", {}).get("bindings", [])
 
-                # Extract unique topic labels
+                # Extract unique topic labels, and which preferences carry each
                 topics_to_normalize = {}
+                owners: Dict[str, set] = {}
                 for binding in bindings:
                     topic_uri = binding.get("topic", {}).get("value", "")
                     label = binding.get("label", {}).get("value", "")
+                    pref = binding.get("pref", {}).get("value", "")
                     if label and topic_uri:
                         topics_to_normalize[label] = topic_uri
+                        if pref.startswith("urn:ostler:preference:"):
+                            owners.setdefault(label, set()).add(
+                                pref[len("urn:ostler:preference:"):])
+
+                # Per-item gate, AFTER consent (see _gate_topic_labels): P9
+                # sensitive labels and P10 minors never reach wikidata.org.
+                if not await self._gate_topic_labels(client, topics_to_normalize, owners, stats):
+                    logger.warning(
+                        "Wikidata normalization skipped: the preferences' privacy "
+                        "levels could not be read (no outbound request made)")
+                    return stats
+                if stats["withheld_private"]:
+                    logger.info(
+                        f"Wikidata normalization: {stats['withheld_private']} topic(s) "
+                        f"withheld by the privacy gate {stats['by_privacy_reason']}")
 
                 stats["total_topics"] = len(topics_to_normalize)
                 logger.info(f"Found {len(topics_to_normalize)} unique topics to normalize")
@@ -1408,20 +1583,31 @@ INSERT DATA {{
                 # Normalize each topic
                 processed = 0
                 for label, topic_uri in topics_to_normalize.items():
+                    if deadline is not None and time.monotonic() >= deadline:
+                        stats["deferred"] = stats["total_topics"] - processed
+                        logger.info(f"Wikidata normalization: budget spent, "
+                                    f"{stats['deferred']} topic(s) left for the next pass")
+                        break
                     processed += 1
 
                     try:
                         # Call Wikidata normalization
                         norm_result = await self._wikidata.normalize_topic(label)
 
-                        if norm_result.qid:
+                        if norm_result.qid and norm_result.label and leaf_is_sensitive(norm_result.label):
+                            # P9 on the answer too: a harmless label can match a
+                            # sensitive entity. Not stored, so nothing rolls up.
+                            stats["by_privacy_reason"][REASON_SENSITIVE_MATCH] = (
+                                stats["by_privacy_reason"].get(REASON_SENSITIVE_MATCH, 0) + 1)
+                            stats["withheld_private"] += 1
+                        elif norm_result.qid:
                             # Store the Q-ID back to Oxigraph
                             update_turtle = f"""
 @prefix pwg: <https://schema.ostler.ai/enrichment/ontology#> .
 @prefix wd: <http://www.wikidata.org/entity/> .
 
 <{topic_uri}> pwg:wikidataId "{norm_result.qid}" .
-<{topic_uri}> pwg:wikidataLabel "{norm_result.label}" .
+<{topic_uri}> pwg:wikidataLabel "{_turtle_escape(norm_result.label)}" .
 <{topic_uri}> pwg:normalizationConfidence "{norm_result.confidence}"^^<http://www.w3.org/2001/XMLSchema#decimal> .
 """
                             store_response = await client.post(
@@ -1462,6 +1648,105 @@ INSERT DATA {{
         )
 
         return stats
+
+    async def store_topic_hierarchies(
+        self,
+        deadline: Optional[float] = None,
+        hierarchy_service=None,
+    ) -> Dict[str, any]:
+        """Second half of the QID pass: store broader-concept edges for every
+        QID'd topic that has none yet, so the thematic reader (kind: thematic)
+        has something to roll up into. Consent-gated, and the same per-item
+        gate as normalize_topics_with_wikidata runs on the topic's label and
+        carrying preferences first: a QID whose label is sensitive, or that
+        only a minor's / private item carries, is never sent."""
+        stats: Dict[str, any] = {
+            "pending": 0, "stored": 0, "failed": 0, "deferred": 0,
+            "withheld_private": 0, "by_privacy_reason": {},
+        }
+        if not public_lookup_allowed():
+            logger.warning("Hierarchy pass skipped: owner has not accepted "
+                           "enrichment (no outbound request made)")
+            stats["status"] = "skipped:no_consent"
+            return stats
+        try:
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{settings.oxigraph_url}/query",
+                    content=_HIERARCHY_PENDING_QUERY,
+                    headers={"Content-Type": "application/sparql-query",
+                             "Accept": "application/sparql-results+json"},
+                )
+                if response.status_code != 200:
+                    stats["status"] = "failed:store_query"
+                    return stats
+                bindings = response.json().get("results", {}).get("bindings", [])
+                label_qids: Dict[str, set] = {}
+                owners: Dict[str, set] = {}
+                for b in bindings:
+                    label = b.get("label", {}).get("value", "")
+                    qid = b.get("qid", {}).get("value", "")
+                    pref = b.get("pref", {}).get("value", "")
+                    if not label or not qid:
+                        continue
+                    label_qids.setdefault(label, set()).add(qid)
+                    if pref.startswith("urn:ostler:preference:"):
+                        owners.setdefault(label, set()).add(pref[len("urn:ostler:preference:"):])
+                if not await self._gate_topic_labels(client, label_qids, owners, stats):
+                    stats["status"] = "failed:privacy_unreadable"
+                    return stats
+        except Exception as e:  # noqa: BLE001 - counted, never silent
+            logger.error(f"Hierarchy pass: store unreachable: {type(e).__name__}")
+            stats["status"] = "failed:store_unreachable"
+            return stats
+
+        qids = sorted({q for qs in label_qids.values() for q in qs})
+        stats["pending"] = len(qids)
+        if hierarchy_service is None:
+            from .hierarchy import TopicHierarchyService
+            hierarchy_service = TopicHierarchyService(wikidata_client=self._wikidata)
+        for i, qid in enumerate(qids):
+            if deadline is not None and time.monotonic() >= deadline:
+                stats["deferred"] = len(qids) - i
+                break
+            result = await hierarchy_service.store_topic_hierarchy(qid, depth=2)
+            if result.success:
+                stats["stored"] += 1
+            else:
+                stats["failed"] += 1
+            if i < len(qids) - 1:
+                await asyncio.sleep(0.5)
+        stats["status"] = "partial:budget" if stats["deferred"] else "ok"
+        return stats
+
+    async def run_qid_pass(self, deadline: Optional[float] = None) -> Dict[str, any]:
+        """The QID pass the shipped enrich entry point runs after enrichment:
+        topic label -> Wikidata QID (normalize_topics_with_wikidata), then the
+        QID's broader concepts into the hierarchy graph. Together they are what
+        the thematic reader joins; without them it reports
+        degraded:no_topic_qids and derives nothing. Consent-gated (no consent:
+        zero outbound requests, status skipped:no_consent) and gated per item
+        (P9 sensitive labels, P10 minors, private levels). Never raises."""
+        if not public_lookup_allowed():
+            return {"status": "skipped:no_consent", "normalize": {}, "hierarchy": {}}
+        out: Dict[str, any] = {"status": "ok"}
+        try:
+            out["normalize"] = await self.normalize_topics_with_wikidata(deadline=deadline)
+            out["hierarchy"] = await self.store_topic_hierarchies(deadline=deadline)
+        except Exception as e:  # noqa: BLE001 - recorded, never silent
+            logger.error(f"QID pass failed: {type(e).__name__}")
+            out.setdefault("normalize", {})
+            out.setdefault("hierarchy", {})
+            out["status"] = f"failed:{type(e).__name__}"
+            return out
+        n, h = out["normalize"], out["hierarchy"]
+        if n.get("privacy_check_failed"):
+            out["status"] = "failed:privacy_unreadable"
+        elif str(h.get("status", "")).startswith("failed"):
+            out["status"] = h["status"]
+        elif n.get("deferred") or h.get("deferred"):
+            out["status"] = "partial:budget"
+        return out
 
     @staticmethod
     def local_topic_key(label: str) -> str:

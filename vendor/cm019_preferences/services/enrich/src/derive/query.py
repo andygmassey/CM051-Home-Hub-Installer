@@ -13,6 +13,7 @@ from dataclasses import replace
 
 from .consume import AffinityView, interleave_by_category
 from .model import DERIVED_GRAPH, ENRICH_NS, PWG_NS
+from .sensitive import derived_value_is_sensitive, is_sensitive, never_read_categories
 
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
 
@@ -37,7 +38,7 @@ class DerivedGraphReader:
             dim_filter = f'    ?s pwg:dimension "{dimension}" .\n'
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy ?trend ?cwin ?creason ?csup ?ctx WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -49,6 +50,11 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
             "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            "    OPTIONAL { ?s pwg:trend ?trend }\n"
+            "    OPTIONAL { ?s pwg:contradictionWinner ?cwin }\n"
+            "    OPTIONAL { ?s pwg:contradictionReason ?creason }\n"
+            "    OPTIONAL { ?s pwg:suppressSuggestion ?csup }\n"
+            "    OPTIONAL { ?s pwg:timeContext ?ctx }\n"
             f"{dim_filter}"
             f"    FILTER(?confidence >= {min_confidence})\n"
             "  }\n"
@@ -56,8 +62,18 @@ class DerivedGraphReader:
             f"LIMIT {int(limit)}"
         )
         views: List[AffinityView] = []
+        banned = set(never_read_categories())
+        self.withheld_sensitive = 0
         for b in self._sparql(q):
             subj = b["s"]["value"]
+            # READ-OUT GATE (defence in depth): a node written before the
+            # write-side gate existed, or by any other writer, is still never
+            # served if its label is sensitive or its category is never surfaced.
+            category = b.get("category", {}).get("value", "")
+            if (category.lower() in banned
+                    or derived_value_is_sensitive(b["dimension"]["value"], b["subject"]["value"])):
+                self.withheld_sensitive += 1
+                continue
             because = self._evidence_titles(subj) if with_evidence else ()
             views.append(
                 AffinityView(
@@ -67,10 +83,16 @@ class DerivedGraphReader:
                     confidence=float(b["confidence"]["value"]),
                     intensity=b.get("intensity", {}).get("value", "casual"),
                     because=because,
-                    category=b.get("category", {}).get("value", ""),
+                    category=category,
                     node=subj,
                     tier=b.get("tier", {}).get("value", ""),
                     privacy=b.get("privacy", {}).get("value", ""),
+                    trend=b.get("trend", {}).get("value", ""),
+                    contradiction_winner=b.get("cwin", {}).get("value", ""),
+                    contradiction_reason=b.get("creason", {}).get("value", ""),
+                    suppress=b.get("csup", {}).get("value", "") == "true",
+                    context=tuple(
+                        c for c in b.get("ctx", {}).get("value", "").split(",") if c),
                 )
             )
         return views
@@ -117,7 +139,7 @@ class DerivedGraphReader:
         except Exception:
             titles = []
         if titles:
-            return tuple(titles)
+            return tuple(t for t in titles if not is_sensitive(t))
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
             "SELECT ?title WHERE {\n"
@@ -129,7 +151,7 @@ class DerivedGraphReader:
         try:
             for b in self._sparql(q):
                 t = b.get("title", {}).get("value")
-                if t:
+                if t and not is_sensitive(t):
                     titles.append(t)
         except Exception:
             return ()

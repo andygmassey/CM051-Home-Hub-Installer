@@ -79,7 +79,7 @@ def labels() -> Tuple[str, ...]:
 
 # Labels that describe a kind of venue or an eating style, not a regional cuisine.
 # The local model is not asked to guess these.
-VENUE_LABELS = ("cafe", "dessert", "fast food", "vegetarian")
+VENUE_LABELS = ("cafe", "dessert", "fast food")
 
 
 def normalise_cuisines(value) -> List[str]:

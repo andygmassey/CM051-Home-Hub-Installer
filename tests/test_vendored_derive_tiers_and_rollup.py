@@ -34,7 +34,8 @@ from derive.model import PREF_URN_PREFIX  # noqa: E402
 PASS = FAIL = 0
 BROAD = {"media.film.genre", "media.tv.genre", "media.music.genre", "media.book.genre",
          "media.book.topic", "media.podcast.topic", "food.cuisine", "interests.topic",
-         "place.city", "health.activity", "work.industry"}
+         "place.city", "health.activity", "work.industry",
+         "theme.concept"}   # thematic rollup (PWG #438): a broad concept over 2+ topics
 
 
 def check(cond, msg):

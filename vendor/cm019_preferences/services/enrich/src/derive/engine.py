@@ -15,6 +15,13 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 from .model import DerivedPreference, EvidenceItem, max_privacy, normalize_value
 from .scoring import score_group
+from .sensitive import (
+    THEME_PREFIX,
+    is_about_minor_text,
+    is_sensitive,
+    is_sensitive_exact,
+    is_sensitive_theme,
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,18 @@ class DimensionConfig:
     # single thing (an artist, a series, a restaurant). Consumers that lead with
     # types ask for the broad tier; the specific one follows once broad is settled.
     tier: str = "specific"
+    # How the sensitive gate reads this dimension's values: "contains" (a
+    # sensitive word anywhere withholds it: genres, cuisines, topics, grocery
+    # items, venues, brands, sites) or "exact" (only when the value IS a
+    # sensitive term: the NAMES of people, films, shows and artists, which may
+    # contain one legitimately, e.g. an actor whose surname is a faith word). "" and unknown dimensions:
+    # contains (fail closed). dimensions.yaml opts a dimension into "exact".
+    sensitive_match: str = ""
+    # Recency half-life in days for this dimension's evidence. None = the 540d
+    # preference default (services/common/recency.py). `evergreen` = never decays
+    # (dietary/medical). Both come from dimensions.yaml.
+    half_life_days: Optional[float] = None
+    evergreen: bool = False
 
 
 class Aggregator:
@@ -42,6 +61,11 @@ class Aggregator:
     ):
         self._cfg: Dict[str, DimensionConfig] = {d.dimension: d for d in dimensions}
         self._version = derivation_version
+        # Evidence withheld because its value is an Art. 9 / diet term, or its
+        # source text is about a minor, counted so the gate is visible rather
+        # than a silent drop.
+        self.withheld_sensitive = 0
+        self.withheld_minor = 0
 
     def _config_for(self, dimension: str) -> DimensionConfig:
         cfg = self._cfg.get(dimension)
@@ -52,13 +76,34 @@ class Aggregator:
         leaf = dimension.split(".")[0] if dimension else "unknown"
         return DimensionConfig(dimension=dimension, category=leaf, min_evidence=3)
 
+    def _sensitive_value(self, it: EvidenceItem) -> bool:
+        if it.dimension.startswith(THEME_PREFIX):
+            # A broad theme is held to the strictest rule (alcohol, "disease").
+            return is_sensitive_theme(it.value)
+        cfg = self._cfg.get(it.dimension)
+        mode = (cfg.sensitive_match if cfg else "") or "contains"
+        return is_sensitive_exact(it.value) if mode == "exact" else is_sensitive(it.value)
+
     def aggregate(
         self, items: Iterable[EvidenceItem], now: Optional[datetime] = None
     ) -> List[DerivedPreference]:
         now = now or datetime.now(timezone.utc)
         groups: Dict[tuple, List[EvidenceItem]] = defaultdict(list)
         seen = set()
+        self.withheld_sensitive = 0
+        self.withheld_minor = 0
         for it in items:
+            # Sensitive values (religion, health and diet, sexuality, politics,
+            # ethnicity, union membership) are stored but never derived, so no
+            # surface (Front Page, brief, assistant tools, wiki) can read them.
+            if self._sensitive_value(it):
+                self.withheld_sensitive += 1
+                continue
+            # Evidence ABOUT a child (a kids' party, a nursery pickup) derives
+            # nothing, even when the value itself (the venue) is innocuous.
+            if is_about_minor_text(it.raw_subject):
+                self.withheld_minor += 1
+                continue
             norm = normalize_value(it.value)
             # One literal preference is ONE observation of a value, however many
             # readers or tags report it (an artist named by both the payload
@@ -81,7 +126,10 @@ class Aggregator:
             if len(members) < cfg.min_evidence and not stated:
                 continue  # anti-spurious gate (negative control covers this)
 
-            score = score_group(members, now=now)
+            score = score_group(
+                members, now=now,
+                half_life_days=cfg.half_life_days, evergreen=cfg.evergreen,
+            )
             user_id = members[0].user_id
             # display subject: the most common raw value spelling in the group
             subject = _modal_value(members)
@@ -136,6 +184,11 @@ def _evidence_titles(items: Sequence[EvidenceItem], limit: int = 3) -> List[str]
     seen, out = set(), []
     for it in sorted(items, key=lambda i: (-i.item_strength, i.raw_subject)):
         t = (it.raw_subject or "").strip()[:120]
+        if is_sensitive(t):
+            # The "because" line is read out verbatim: any sensitive word in it
+            # ("Mosque iftar dinner", "Diabetic clinic canteen") withholds the
+            # title, whatever matching mode the node's dimension uses.
+            continue
         k = t.lower()
         if t and k not in seen:
             seen.add(k)
@@ -172,6 +225,9 @@ class RunResult:
     nodes: List[DerivedPreference]
     failed_readers: List[str] = field(default_factory=list)
     readers_total: int = 0
+    # A pattern deriver that raised. The base nodes still stand (a deriver only
+    # annotates), so this does NOT make the run unsafe to write; it is reported.
+    failed_derivers: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -190,6 +246,17 @@ class DerivationEngine:
 
     readers: list
     aggregator: Aggregator
+    # Pattern derivers (patterns.py): annotate the aggregated nodes in place.
+    # None (the default) = the REGISTERED set (patterns.default_derivers), so a
+    # runner that passes no derivers (CM051 derive_runner.py) still runs trend,
+    # say-vs-do and time-of-day. Pass [] to run none.
+    derivers: Optional[list] = None
+
+    def __post_init__(self) -> None:
+        if self.derivers is None:
+            from .patterns import default_derivers
+
+            self.derivers = default_derivers(list(getattr(self.aggregator, "_cfg", {}).values()))
 
     def run_result(self, user_id: str, now: Optional[datetime] = None) -> RunResult:
         """Run every reader, recording FAILURES rather than crashing the batch.
@@ -208,7 +275,16 @@ class DerivationEngine:
             except Exception as exc:  # noqa: BLE001 - recorded, never silently dropped
                 failed.append(f"{name}: {type(exc).__name__}: {exc}")
         nodes = self.aggregator.aggregate(items, now=now)
-        return RunResult(nodes=nodes, failed_readers=failed, readers_total=len(self.readers))
+        failed_derivers: List[str] = []
+        for d in self.derivers:
+            try:
+                d.derive(items, nodes, now=now)
+            except Exception as exc:  # noqa: BLE001 - recorded, base nodes stand
+                failed_derivers.append(
+                    f"{getattr(d, 'method', d.__class__.__name__)}: "
+                    f"{type(exc).__name__}: {exc}")
+        return RunResult(nodes=nodes, failed_readers=failed, readers_total=len(self.readers),
+                         failed_derivers=failed_derivers)
 
     def run(self, user_id: str, now: Optional[datetime] = None) -> List[DerivedPreference]:
         """Backward-compatible: just the node list. Callers that must honour the

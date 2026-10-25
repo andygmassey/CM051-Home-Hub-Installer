@@ -20,8 +20,12 @@ already carries:
 - chats with a person the owner marked "deceased / stop suggesting" (the
   ``pwg:SuggestionSuppression`` records, matched on identifier and slug). If that
   lookup fails the reader RAISES rather than reading without the filter;
-- minors: no minors flag exists on the person in this graph, so a message that
-  names a minor is dropped, and a caller can pass ``minor_conversations``.
+- minors: a conversation with anyone in the owner's minors registry (the same
+  file and matcher the ingest producer uses, services/ingest/src/minors.py:
+  names, phones on the national number, handles) is skipped, as is a message
+  that names a minor or a child's event. An unreadable registry, or a missing
+  matcher, RAISES (fail closed: the engine records a failed reader and the
+  writer keeps the old graph). A caller can also pass ``minor_conversations``.
 
 Attribution: only lines the transcript labels as the owner ("You" by default,
 see ``owner_labels``) are read, so a friend's line never counts. A quoted or
@@ -29,7 +33,7 @@ forwarded line inside an owner message is not the owner's taste: ``> `` quote
 lines and "Forwarded"/"Fwd" blocks are removed, quoted strings are removed, and
 the first-person gate rejects "he said he hates coffee". Known false positive:
 an owner message that restates someone else's words in the first person without
-quotation marks ("as Dave puts it, I hate coffee") is counted.
+quotation marks ("as Tom puts it, I hate coffee") is counted.
 
 Output is dimension, value, polarity and counts. No text, no message id: the
 evidence points at an opaque hash of the conversation and a month, and the
@@ -51,19 +55,43 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 from .model import PWG_NS, EvidenceItem, max_privacy
-from .stated import STATED_BECAUSE, StatedMapper, mentions_a_minor
+from .stated import STATED_BECAUSE, StatedMapper, gate_stances, mentions_a_minor
 
 MAX_MONTHS_PER_CONVERSATION = 3
 DEFAULT_CHANNELS = ("im", "imessage", "whatsapp")
-DEFAULT_OWNER_LABELS = ("you", "me")
+# "You" only: CM048 labels the owner "You"; a CONTACT whose display name is
+# "Me" must never be read as the owner.
+DEFAULT_OWNER_LABELS = ("you",)
 DEFAULT_ALLOWED_PRIVACY = ("L0", "L1", "L2")   # L3 stays out; the node inherits the level
 
 ASSISTANT_SEND_PREFIX = "\U0001F916"
 ASSISTANT_SEND_MARKER = "⁣⁤⁣"
 
 _QUOTED = re.compile(r"“[^”]*”|\"[^\"]*\"")
-_LABEL = re.compile(r"^\*\*(?P<who>[^*]+?)\*\* \((?P<ts>[^)]*)\):[ \t]?(?P<rest>.*)$")
+# `**Name** (ts): text`, and `**Name**: text` (the WhatsApp renderer omits the
+# timestamp when it has none). Missing the second form appended another
+# person's line to the owner's previous block.
+_LABEL = re.compile(r"^\*\*(?P<who>[^*]+?)\*\*(?: \((?P<ts>[^)]*)\))?:[ \t]?(?P<rest>.*)$")
 _FORWARD = re.compile(r"^(?:-{2,}\s*)?(?:forwarded|fwd?:|begin forwarded)", re.I)
+
+
+MINORS_PY = Path(__file__).resolve().parents[3] / "ingest" / "src" / "minors.py"
+
+
+def load_minors_registry(path: Path = MINORS_PY):
+    """The owner's minors registry through the ingest producer's own matcher,
+    loaded by path (derive does not import the ingest package). Raises when the
+    matcher is missing or the registry file is unreadable."""
+    import importlib.util
+    import sys
+
+    if not Path(path).is_file():
+        raise ImportError(f"minors matcher not found at {path}")
+    spec = importlib.util.spec_from_file_location("_derive_minors", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod.MinorsRegistry.load()
 
 
 def conversation_key(raw: str) -> str:
@@ -154,6 +182,7 @@ class StatedTranscriptReader:
     owner_labels: Tuple[str, ...] = DEFAULT_OWNER_LABELS
     allowed_privacy: Tuple[str, ...] = DEFAULT_ALLOWED_PRIVACY
     minor_conversations: Set[str] = field(default_factory=set)   # conversation_id values
+    minors: Optional[object] = None   # a MinorsRegistry; None = load the owner's on read
     verdicts: Optional[object] = None   # a VerdictCache of tier-model polarity verdicts (stated_model)
     dimension: str = "stated.transcripts"
     domain: str = "stated"
@@ -178,6 +207,7 @@ class StatedTranscriptReader:
 
     def _lines(self) -> Iterator[OwnerLine]:
         sup_ids, sup_slugs = self._suppressed()
+        minors = self.minors if self.minors is not None else load_minors_registry()
         root = Path(self.root)
         if not root.is_dir():
             self.stats["root_absent"] += 1
@@ -201,6 +231,10 @@ class StatedTranscriptReader:
                 continue
             others = [p for p in fm_participants(fm) if p.lower() != "user"]
             others.append(fm_value(fm, "chat_identifier"))
+            others.append(fm_value(fm, "title"))
+            if minors and any(minors.names_a_minor(p) for p in others if p):
+                self.stats["skipped_minor_conversation"] += 1
+                continue
             if any(normalise_identifier(p) in sup_ids or p.lower() in sup_slugs for p in others if p):
                 self.stats["skipped_deceased_or_suppressed"] += 1
                 continue
@@ -238,6 +272,7 @@ class StatedTranscriptReader:
             if self.verdicts is not None:
                 have = {(s.dimension, s.value) for s in stances}
                 stances += [s for s in self.verdicts.stances_for(ol) if (s.dimension, s.value) not in have]
+            stances = gate_stances(ol.text, stances, self.stats)
             if not stances:
                 continue
             self.stats["cue_hits"] += 1

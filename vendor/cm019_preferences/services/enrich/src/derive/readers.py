@@ -27,6 +27,7 @@ from typing import Dict, Iterable, List, Optional, Protocol
 import yaml
 
 from .model import ENRICH_NS, PREF_URN_PREFIX, EvidenceItem
+from .sensitive import never_read_categories
 
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 
@@ -34,6 +35,10 @@ RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 # repeated category set from one scroll instead of one per reader.
 SCROLL_FIELDS = [
     "category", "preference_id", "subject", "source", "strength", "observed_at", "extra",
+    # The privacy level, so an online lookup driven from these points can refuse
+    # private items (src/privacy_gate.py). Both the canonical and legacy keys.
+    "privacy_level", "compartment_level",
+    "user_id",
 ]
 
 
@@ -178,6 +183,23 @@ def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> L
     return [] if strict else [text]
 
 
+def _not_minor(points):
+    """Drop evidence ABOUT a minor (a person node or chat flagged by its producer
+    with extra.about_minor), and evidence stored under a never-read category
+    (sensitive_terms.yaml never_read_categories: dietary, minors...). Both are
+    stored and searchable, never derived. An adult's interest in kids' or toys'
+    topics is not about a minor and stays."""
+    banned = set(never_read_categories())
+    for p in points:
+        pl = p.get("payload") or {}
+        extra = pl.get("extra") or {}
+        if isinstance(extra, dict) and extra.get("about_minor") in (True, "true", "True", 1, "1"):
+            continue
+        if str(pl.get("category") or "").strip().lower() in banned:
+            continue
+        yield p
+
+
 def _as_float(v, default: float = 0.0) -> float:
     try:
         return float(v)
@@ -260,10 +282,10 @@ class OxigraphOverlayReader:
 
     def read(self, user_id: str) -> Iterable[EvidenceItem]:
         tags_by_id = self._overlay_tags()
-        points = self.gateway.scroll(
+        points = _not_minor(self.gateway.scroll(
             self.select_categories,
             SCROLL_FIELDS,
-        )
+        ))
         for p in points:
             pid = str(p.get("id"))
             tags = tags_by_id.get(pid)
@@ -346,7 +368,7 @@ class QdrantFieldReader:
         return v
 
     def read(self, user_id: str) -> Iterable[EvidenceItem]:
-        points = self.gateway.scroll(self.select_categories, SCROLL_FIELDS)
+        points = _not_minor(self.gateway.scroll(self.select_categories, SCROLL_FIELDS))
         for p in points:
             pl = p.get("payload", {})
             value = self._value(pl)
@@ -397,7 +419,7 @@ class RollupReader:
 
     def read(self, user_id: str) -> Iterable[EvidenceItem]:
         tags_by_id = self.tags._overlay_tags()
-        points = self.gateway.scroll(self.select_categories, SCROLL_FIELDS)
+        points = _not_minor(self.gateway.scroll(self.select_categories, SCROLL_FIELDS))
         keyed = []
         group_tags: Dict[str, Dict[str, float]] = {}
         for p in points:
@@ -447,7 +469,7 @@ class LexiconReader:
     evidence_confidence: float = 0.6
 
     def read(self, user_id: str) -> Iterable[EvidenceItem]:
-        for p in self.gateway.scroll(self.select_categories, SCROLL_FIELDS):
+        for p in _not_minor(self.gateway.scroll(self.select_categories, SCROLL_FIELDS)):
             pl = p.get("payload", {})
             text = self.source_field._value(pl)
             for label in with_parent_rollup(canonical_labels(text, self.vocab, strict=True), self.vocab):

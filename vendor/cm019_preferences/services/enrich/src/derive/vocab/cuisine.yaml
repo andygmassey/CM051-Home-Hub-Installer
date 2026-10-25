@@ -31,12 +31,13 @@ french:      [french, bistro, brasserie, creperie, patisserie, boulangerie, crep
 spanish:     [spanish, tapas, paella, jamon, "patatas bravas", churros, spain, portuguese]
 greek:       [greek, souvlaki, gyros, taverna, moussaka, tzatziki, spanakopita, greece]
 turkish:     [turkish, kebab, doner, lahmacun, pide, iskender, turkey]
-middle eastern: ["middle eastern", lebanese, persian, falafel, shawarma, mezze, halal, hummus, kebabs, shish, manakish, "baba ganoush", israeli, arabic, levantine]
+middle eastern: ["middle eastern", lebanese, persian, falafel, shawarma, mezze, hummus, kebabs, shish, manakish, "baba ganoush", israeli, arabic, levantine]
 mediterranean: [mediterranean]
 american:    [american, burger, burgers, diner, steakhouse, steak, bbq grill, wings, "mac and cheese", "mac & cheese", "hot dog", milkshake, cheeseburger, ribeye, sirloin, "rib eye", "steak house", smokehouse, brisket, "pulled pork", barbecue, barbeque]
 british:     [british, "fish and chips", pub, gastropub, "sunday roast", "fish & chips", "pie and mash", "full english", english, tavern, taproom, alehouse]
 seafood:     [seafood, oyster, oysters, "fish restaurant", "oyster bar", lobster, crab, prawns]
-vegetarian:  [vegetarian, vegan, "plant based", plant-based]
+# vegetarian / vegan / halal are DIETS, not cuisines: category `dietary`, stored, never
+# surfaced (see sensitive_terms.yaml). They are deliberately absent from this file.
 cafe:        [cafe, café, coffee, coffeehouse, bakery, brunch, espresso, latte, "flat white"]
 fast food:   ["fast food", mcdonald, kfc, "burger king", subway]
 dessert:     [dessert, "ice cream", icecream, dessert bar, gelateria, "frozen yogurt"]

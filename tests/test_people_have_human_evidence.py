@@ -258,6 +258,10 @@ def test_imessage_ingest_does_not_mint_a_person_for_a_sender_id(tmp_path, monkey
     # No store here: the writers now follow pwg:mergedInto first and fail
     # CLOSED when the store cannot be read (DMG #27 S2), so stub that read too.
     monkeypatch.setattr(pwg_ingest, "_resolve_merged", lambda uri: uri)
+    # P13: the writer asks who already holds a phone number (phone_twins).
+    # No store here, so that read is faked as "nobody holds it".
+    from ostler_fda import phone_twins
+    monkeypatch.setattr(phone_twins, "load_index", lambda *a, **k: phone_twins.PhoneTwinIndex(()))
     monkeypatch.setattr(pwg_ingest, "_upsert_display_name", lambda *a, **k: None)
     monkeypatch.setattr(pwg_ingest, "_update_last_contact", lambda *a, **k: None)
     monkeypatch.setattr(pwg_ingest, "_is_forgotten", lambda *a, **k: False)

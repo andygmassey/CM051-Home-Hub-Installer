@@ -3,7 +3,7 @@ title: WSA-003 verification – Sparkle SUFeedURL + SUPublicEDKey in shipping DM
 date: 2026-05-21
 status: PASS
 tracker: task #405
-dmg: /tmp/ostler-installer-dist-andy/OstlerInstaller-1.0.0.dmg
+dmg: /tmp/ostler-installer-dist-$USER/OstlerInstaller-1.0.0.dmg
 ---
 
 # WSA-003 verification – Sparkle keys in shipping DMG
@@ -14,7 +14,7 @@ Both Sparkle keys are present, correctly typed, and match the production keystor
 
 ## Method
 
-1. Mounted today's canonical DMG at `/tmp/ostler-installer-dist-andy/OstlerInstaller-1.0.0.dmg`.
+1. Mounted today's canonical DMG at `/tmp/ostler-installer-dist-$USER/OstlerInstaller-1.0.0.dmg`.
 2. Extracted `Info.plist` from the embedded Ostler.app at the path:
    `/Volumes/Install Ostler/OstlerInstaller.app/Contents/Resources/Ostler.app/Contents/Info.plist`
 3. Read Sparkle keys via `PlistBuddy`:

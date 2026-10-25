@@ -210,6 +210,10 @@ class DerivedGraphWriter:
                 "intensity": node.intensity_tier,
                 "derivation_version": node.derivation_version,
                 "privacy_level": node.privacy_level,
+                # Optional pattern fields (patterns.py); absent when not derived.
+                **({"trend": node.trend} if node.trend else {}),
+                **({"contradiction": node.contradiction} if node.contradiction else {}),
+                **({"context": list(node.context)} if node.context else {}),
             },
         }
 
