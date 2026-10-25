@@ -75,14 +75,24 @@ final class FullDiskAccessProbeTests: XCTestCase {
         XCTAssertEqual(lines.count, FullDiskAccessProbe.relativePaths.count)
     }
 
-    func testProbeListCoversTheFiveSources() {
-        XCTAssertEqual(Set(FullDiskAccessProbe.relativePaths), [
+    func testProbeListIsExactlyTheFourProtectedSources() {
+        XCTAssertEqual(FullDiskAccessProbe.relativePaths, [
             "Library/Application Support/com.apple.TCC/TCC.db",
             "Library/Safari/History.db",
             "Library/Mail",
             "Library/Messages/chat.db",
-            "Library/Application Support/com.apple.sharedfilelist",
         ])
+    }
+
+    func testReadableNonProtectedPathNeverCounts() {
+        // A path outside the probe list that reads fine (as sharedfilelist
+        // can without FDA) must not grant; every listed probe is denied.
+        let unprotected = path("Library/Application Support/com.apple.sharedfilelist")
+        var a = FakeAccess(fallback: .denied(errno: EPERM))
+        a.outcomes[unprotected] = .readable
+        let r = report(a)
+        XCTAssertFalse(r.granted, "a readable non-protected path must never grant")
+        XCTAssertFalse(r.results.contains { $0.path == unprotected })
     }
 
     func testSystemAccessClassifiesRealTempPaths() throws {
