@@ -23,6 +23,8 @@ on:
       - 'scripts/wiki_image_provenance.tsv'
       - 'scripts/_vendor_lib.sh'
       - 'tests/test_cut_freshness_gate.sh'
+      - 'tests/test_cut_freshness_hotfix_mode.sh'
+      - 'scripts/verify_cut_manifest.py'
       - 'gui/Makefile'
       - 'release.sh'
       - '.github/workflows/cut-freshness.yml'
@@ -53,6 +55,13 @@ jobs:
 
       - name: Cut-freshness gate self-test (hermetic, mocked gh)
         run: bash tests/test_cut_freshness_gate.sh
+
+      # Hotfix mode (CUT_KIND=hotfix): every input byte-identical to the base
+      # tag, checked in git, in this gate and in the manifest gate's
+      # pinned_artefact_freshness. Needs the repo's own git, which a fixture
+      # repo inside the test provides.
+      - name: Cut-freshness hotfix mode self-test
+        run: bash tests/test_cut_freshness_hotfix_mode.sh
 
       # A TYPED SHA CAN BE INVENTED; A RESOLVED ONE CANNOT.
       #

@@ -223,6 +223,41 @@ else
     bad "a zero-denominator BOM gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-100)"
 fi
 
+echo "── a single-cut ack is honoured ONLY for the zero-denominator shape ──"
+# The zero-denominator BOM from the arm above is still in place.
+ACKF="$FIX/cuts/v9.9.9/BOM_PIN_CANNOT_RUN_ACK.tsv"
+printf 'v9.9.9\t2026-10-26\tarchie\tsynthetic reason\n' > "$ACKF"
+rc="$(_run)"
+if [ "$rc" = "0" ] && grep -q 'ACKED CANNOT-RUN for v9.9.9' "${WORK}/out"; then
+    ok "a valid ack for THIS version turns the zero-denominator refusal into ACKED CANNOT-RUN"
+else
+    bad "a valid ack gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-100)"
+fi
+printf 'v9.9.8\t2026-10-26\tarchie\tsynthetic reason\n' > "$ACKF"
+rc="$(_run)"
+[ "$rc" = "2" ] && ok "an ack naming another version is refused, so it cannot carry to the next cut" \
+                || bad "an ack for another version gave rc=${rc}"
+printf 'v9.9.9\t2026-10-26\tsomeone\tsynthetic reason\n' > "$ACKF"
+rc="$(_run)"
+[ "$rc" = "2" ] && ok "an ack whose approver is not andy or archie is refused" \
+                || bad "an ack with an unknown approver gave rc=${rc}"
+printf 'v9.9.9\t2026-10-26\tarchie\t\n' > "$ACKF"
+rc="$(_run)"
+[ "$rc" = "2" ] && ok "an ack with no reason is refused" \
+                || bad "an ack with no reason gave rc=${rc}"
+# The ack must never rescue a definite finding: a stale pin with a valid ack
+# is still ABSENT and still exits 1.
+printf 'v9.9.9\t2026-10-26\tarchie\tsynthetic reason\n' > "$ACKF"
+_bom "$AFTER" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+_cutenv "$BEFORE" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+if [ "$rc" = "1" ] && grep -q 'ABSENT' "${WORK}/out" && ! grep -q 'ACKED' "${WORK}/out"; then
+    ok "a valid ack does not rescue an ABSENT row: still exit 1, and no ACKED line"
+else
+    bad "an ack on a stale pin gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-100)"
+fi
+rm -f "$ACKF"
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
