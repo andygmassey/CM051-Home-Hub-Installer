@@ -175,7 +175,7 @@ entries:
       # customer behaviour. v1.0.14 will cut from a fresh main so this
       # hold_ack becomes harmless (diverging set empty).
       hold_ack:
-        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N+1) 2026-10-19 v1.0.111 (Archie): pin hub-v0.5.23 = oa graft de05a70a; the 34 oa main commits outside the graft are 15 GRAFTED as cherry-picks (shipping bugfixes and the brief stack) and 19 HELD features (Telegram, i18n, invites, frontpage). Same adjudication as scripts/daemon_hold_ack.tsv row de05a70a. (N+2) 2026-10-26 v1.0.118 HOTFIX (Archie): daemon stays hub-v0.5.28 = oa graft d9854a99, unchanged from v1.0.117; the 37 crates/** oa main commits after it (e6b50101..6e15d619, measured by verify_cut_manifest compare) are HELD for v1.0.119, single cut, expires after v1.0.118. Same adjudication as scripts/daemon_hold_ack.tsv row d9854a99."
+        reason: "TWO EPOCHS, both listed below. (1) v1.0.13.2 hotfix from hub-v0.4.45 (c638a6d7); 23 crates/** commits on oa/main are v1.1 candidates or CI-only, intentionally not in this hotfix. (2) v1.0.49, 2026-08-28: oa #366's two commits (3464215ba5, d9ea32dd18), merged mid-cut, held rather than rebuilt because BOTH are confined to `#[cfg(test)] mod tests` (mod.rs lines 6193..12765 encloses all four changed hunks) plus a tokio test-util feature added under [dev-dependencies] only. Neither is compiled or linked into a release binary, so a new daemon release would be behaviourally identical. hub-v0.4.67 is the newest published tag and points at the pinned f1c7c57d, so no existing release covers them. This is NOT a claim the pin is fresh: v1.0.49 ships without these two commits, decided on that measurement rather than by omission. (N+1) 2026-10-19 v1.0.111 (Archie): pin hub-v0.5.23 = oa graft de05a70a; the 34 oa main commits outside the graft are 15 GRAFTED as cherry-picks (shipping bugfixes and the brief stack) and 19 HELD features (Telegram, i18n, invites, frontpage). Same adjudication as scripts/daemon_hold_ack.tsv row de05a70a."
         shas:
           - c1d830c4bd  # HELD for 118: oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
           - 68f7517784  # HELD for 118: oa #614 /ws/nodes follow-up or #617; not in 0.5.27 by ruling
@@ -206,45 +206,6 @@ entries:
           - 76dd4903da  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
           - caa78153f5  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
           - 4f9f7f2437  # HELD for 118: oa send-safety/prompt-trim/webauthn stack (S4/C1 per Andy's 118 picks); 117 daemon is the A/B-proven hub-v0.5.28 graft d9854a99
-          - e6b50101  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 7c40a2b9  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - ace38551  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 2115d3b4  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 999aae80  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 4609401a  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 4e26d9dd  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - df4c2f1f  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - fb3783f0  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 163cb49e  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 8a6430fe  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 13ebb44f  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - b0161d56  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 082d8864  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 9a80193e  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 7aa1f64f  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - b82cf5ac  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 9acde48d  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - f3e5785c  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 053d7670  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - bfbdceba  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - d774947b  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 2bbbc728  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - ba35fc34  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 9bbc38cf  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 27eccd8f  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 861d1ad0  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - c36811e3  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 31717f60  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - ede195c6  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 428e0f01  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 6e9c5e1e  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 4cc153ea  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 43d0e30c  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 51e19d67  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 33a1e8b4  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 6e15d619  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 5011a2d600  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
-          - 3ea03a5767  # HELD for v1.0.119 (v1.0.118 is the F009 FDA hotfix; daemon d9854a99 unchanged by Archie's ruling 2026-10-26; this hold expires after v1.0.118)
           - 5b09e2af4e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #624 Allowed contacts spacing
           - ed56800620  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #623 first run shows existing wiki/Home
           - c849b8c07e  # hub-v0.5.28 graft d9854a99 (cherry-picked): oa #622 Home first-run hero copy
