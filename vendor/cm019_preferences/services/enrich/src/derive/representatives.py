@@ -94,6 +94,18 @@ def _default_gateway():
         return HttpStoreGateway()
 
 
+def _ensure_common_on_path() -> None:
+    """Put services/common (the shared ``strength`` / ``recency`` modules that
+    derive.scoring imports top-level) on sys.path, as the shipped
+    derive_runner.py does. Without this, ``python -m src.cli enrich`` could
+    not import the derive registry and the pass reported derive_unavailable on
+    every real run. Same relative layout in the source tree and in the CM051
+    vendored copy (services/enrich/src/derive -> services/common)."""
+    common = Path(__file__).resolve().parents[3] / "common"
+    if common.is_dir() and str(common) not in sys.path:
+        sys.path.insert(0, str(common))
+
+
 def _state_dir() -> Path:
     base = os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
     return Path(base) / "state"
@@ -120,6 +132,7 @@ def rollup_rows(gateway, only_categories: Optional[Iterable[str]] = None) -> lis
     grouping for ordering purposes only if they also share tag predicate; keep
     them apart otherwise because coverage is per tag predicate.
     """
+    _ensure_common_on_path()
     from .config import build_readers
     from .readers import RollupReader
 
@@ -248,6 +261,8 @@ class RepStats:
     reps_missed: int = 0
     reps_errored: int = 0
     budget_exhausted: bool = False
+    cap_reached: bool = False
+    points_other_user: int = 0
 
     def as_status(self) -> dict:
         d = dict(self.__dict__)
@@ -286,6 +301,7 @@ async def run_representative_pass(
     categories: Optional[Iterable[str]] = None,
     batch_size: int = CHUNK,
     deadline=None,                       # datetime (utc) or None
+    max_reps: Optional[int] = None,      # at most this many lookups (the CLI's --limit)
     gateway=None,
     consent: Optional[Callable[[], bool]] = None,
     state_dir: Optional[Path] = None,
@@ -295,6 +311,11 @@ async def run_representative_pass(
 
     Never raises: any failure is a state on the returned stats and the caller
     carries on to the long tail exactly as before.
+
+    ``user_id``: only that owner's points are grouped or looked up (a point
+    with a different or missing ``user_id`` is skipped and counted in
+    ``points_other_user``). ``None`` = no filter (tests, single-user stores).
+    ``max_reps`` caps the lookups; ``deadline`` stops between chunks.
     """
     from datetime import datetime
 
@@ -329,6 +350,10 @@ async def run_representative_pass(
 
     def read_stores():
         points = gateway.scroll(cats, [])
+        if user_id is not None:
+            mine = [p for p in points if str((p.get("payload") or {}).get("user_id", "")) == str(user_id)]
+            stats.points_other_user = len(points) - len(mine)
+            points = mine
         tagged = [set(r.tags._overlay_tags()) for r in rows]
         rowsq = gateway.sparql(
             "SELECT DISTINCT ?p WHERE { ?p <%senrichedAt> ?d }" % ENRICH_NS
@@ -368,6 +393,9 @@ async def run_representative_pass(
             _write_json(status_path, stats.as_status())
         if not plan.reps:
             break
+        if max_reps is not None and stats.reps_attempted >= max_reps:
+            stats.cap_reached = True
+            break
         if deadline is not None and datetime.utcnow() >= deadline:
             stats.budget_exhausted = True
             break
@@ -375,7 +403,8 @@ async def run_representative_pass(
             stats.state = "consent_declined"
             break
 
-        chunk = plan.reps[: max(1, min(batch_size, CHUNK))]
+        room = CHUNK if max_reps is None else max_reps - stats.reps_attempted
+        chunk = plan.reps[: max(1, min(batch_size, CHUNK, room))]
         chunk_stats = _fresh_stats(service)
         try:
             results = await service.enrich_batch(chunk, chunk_stats)

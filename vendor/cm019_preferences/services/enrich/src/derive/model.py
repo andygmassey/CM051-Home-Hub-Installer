@@ -84,11 +84,28 @@ class EvidenceItem:
     enrichment_confidence: float   # 0..1, from the overlay
     context: dict = field(default_factory=dict)  # {time_of_day, activity, ...}
     raw_subject: str = ""     # literal item title, for explanations
+    # Where pwg:derivedFrom points when the evidence is not a literal
+    # preference point. Stated evidence points at the conversation FACT node, so
+    # the link resolves to something real without carrying the words said.
+    provenance: Optional[str] = None
+    # The privacy level of the conversation/fact this came from ("" = unstated,
+    # as for behavioural evidence). A derived node inherits the HIGHEST level of
+    # its evidence, so a taste learned from an L2 chat is itself L2.
+    privacy_level: str = ""
 
     @property
     def provenance_uri(self) -> str:
         """The literal subject this evidence links back to (pwg:derivedFrom)."""
-        return f"{PREF_URN_PREFIX}{self.preference_id}"
+        return self.provenance or f"{PREF_URN_PREFIX}{self.preference_id}"
+
+
+PRIVACY_ORDER = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+
+
+def max_privacy(levels) -> str:
+    """The highest of the given levels ("" entries ignored; "" if none)."""
+    known = [l for l in levels if l in PRIVACY_ORDER]
+    return max(known, key=PRIVACY_ORDER.__getitem__) if known else ""
 
 
 def _esc(s: str) -> str:
@@ -123,6 +140,11 @@ class DerivedPreference:
     # A few literal titles behind this node, for the "because" line.
     evidence_titles: list = field(default_factory=list)
     tier: str = ""       # "broad" | "specific"; "" = not stated (older graphs)
+    privacy_level: str = ""            # highest evidence level; "" = none stated
+    # Pattern derivers (patterns.py). All optional: absent means "not derived".
+    # contradiction = {"winner": "stated"|"behaviour", "suppress": bool, "reason": str}
+    contradiction: Optional[dict] = None
+    context: list = field(default_factory=list)   # ["evening", "weekend"]
 
     @property
     def uri(self) -> str:
@@ -163,6 +185,8 @@ class DerivedPreference:
         t.append(f"    pwg:isContested {str(self.is_contested).lower()} ;")
         t.append(f'    pwg:derivationVersion "{_esc(self.derivation_version)}" ;')
         t.append(f'    pwg:derivationMethod "{_esc(self.derivation_method)}" ;')
+        if self.privacy_level:
+            t.append(f'    pwg:privacyLevel "{_esc(self.privacy_level)}" ;')
         if self.value_qid:
             t.append(f'    pwg:valueQid "{_esc(self.value_qid)}" ;')
         if self.is_hard_constraint:
@@ -178,6 +202,13 @@ class DerivedPreference:
                 t.append(f'    pwg:{dt_prop} "{dt.isoformat()}"^^xsd:dateTime ;')
         if self.tier:
             t.append(f'    pwg:tier "{_esc(self.tier)}" ;')
+        if self.contradiction:
+            c = self.contradiction
+            t.append(f'    pwg:contradictionWinner "{_esc(str(c.get("winner", "")))}" ;')
+            t.append(f'    pwg:contradictionReason "{_esc(str(c.get("reason", "")))}" ;')
+            t.append(f'    pwg:suppressSuggestion {str(bool(c.get("suppress"))).lower()} ;')
+        if self.context:
+            t.append(f'    pwg:timeContext "{_esc(",".join(self.context))}" ;')
         for title in self.evidence_titles:
             t.append(f'    pwg:evidenceTitle "{_esc(title)}" ;')
         # derivedFrom last; MANDATORY (SHACL sh:minCount 1).

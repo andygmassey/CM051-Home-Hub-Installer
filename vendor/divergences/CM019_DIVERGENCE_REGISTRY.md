@@ -245,13 +245,23 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
-### smart-prefs -- representative-first enrichment (ahead of the pin; personal-world-graph #424)
+### T0j -- smart-prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
 
-`services/enrich/src/derive/representatives.py` is new and byte-identical to
-upstream #424 (open, stacked on #422). `services/enrich/src/cli.py` carries the
-same option plus a `deadline=` pass-through that upstream's cli.py has no
-equivalent for. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
-"2026-10-22 smart-prefs: representative-first enrichment".
+`services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
+`services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
+upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml`, `derive/patterns.py` and `ingest/src/minors.py`. `enricher.py`,
+`cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
+onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
+NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
+
+### smart-prefs -- representative-first CLI wiring (personal-world-graph #431; CM051 #3120)
+
+`services/enrich/src/cli.py` gains `--representative-first/--no-representative-first`
+(default on) and runs `derive/representatives.py` (on main since T0j, equal to
+upstream@5af9f5b5) before the long tail, with the same `deadline=` as the sweep.
+Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 representative-first CLI".
 
 ## How to add a row
 
@@ -274,3 +284,13 @@ Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas
 - Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
 - Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
 - Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. `privacy_gate.py` byte-identical; `enricher.py` changed lines equal upstream's; `derive/readers.py` SCROLL_FIELDS not carried (the vendored derive tree predates it and drives no online lookup). Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.

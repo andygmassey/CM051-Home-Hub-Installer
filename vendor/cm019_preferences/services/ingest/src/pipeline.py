@@ -14,6 +14,7 @@ from .loaders.qdrant_loader import (
     COMPARTMENT_AT_OR_ABOVE as QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
 )
 from .filters import PreferenceFilter
+from .minors import MinorsRegistry, MinorsRegistryError
 from .parsers import (
     BaseParser,
     ParsedPreference,
@@ -187,6 +188,8 @@ class IngestPipeline:
             "preferences_date_excluded": 0,
             "triples_inserted": 0,
             "vectors_inserted": 0,
+            "about_minor": 0,
+            "minors_registry_unreadable": False,
             "errors": [],
             "duration_seconds": 0
         }
@@ -207,7 +210,10 @@ class IngestPipeline:
             date_excluded_count = 0
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment,
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                ),
                 default_category=category
             ):
                 # Check date range exclusions first
@@ -227,6 +233,8 @@ class IngestPipeline:
                     result["preferences_created"] += batch_result["preferences"]
                     result["triples_inserted"] += batch_result["triples"]
                     result["vectors_inserted"] += batch_result["vectors"]
+                    result["about_minor"] += batch_result.get("about_minor", 0)
+                    result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
                     result["errors"].extend(batch_result["errors"])
                     batch = []
 
@@ -236,6 +244,8 @@ class IngestPipeline:
                 result["preferences_created"] += batch_result["preferences"]
                 result["triples_inserted"] += batch_result["triples"]
                 result["vectors_inserted"] += batch_result["vectors"]
+                result["about_minor"] += batch_result.get("about_minor", 0)
+                result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
                 result["errors"].extend(batch_result["errors"])
 
             result["preferences_filtered"] = filtered_count
@@ -306,6 +316,8 @@ class IngestPipeline:
             "preferences_capped": 0,
             "triples_inserted": 0,
             "vectors_inserted": 0,
+            "about_minor": 0,
+            "minors_registry_unreadable": False,
             "errors": [],
             "duration_seconds": 0,
             "frequency_stats": None,
@@ -337,7 +349,10 @@ class IngestPipeline:
         try:
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                )
             ):
                 # Check date range exclusions first
                 if settings.is_date_excluded(pref.source, pref.observed_at):
@@ -393,6 +408,8 @@ class IngestPipeline:
             result["preferences_created"] += batch_result["preferences"]
             result["triples_inserted"] += batch_result["triples"]
             result["vectors_inserted"] += batch_result["vectors"]
+            result["about_minor"] += batch_result.get("about_minor", 0)
+            result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
             result["errors"].extend(batch_result["errors"])
 
         result["duration_seconds"] = (datetime.utcnow() - start_time).total_seconds()
@@ -455,6 +472,8 @@ class IngestPipeline:
             "total_capped": 0,
             "total_triples": 0,
             "total_vectors": 0,
+            "total_about_minor": 0,
+            "minors_registry_unreadable": False,
             "file_results": [],
             "errors": [],
             "frequency_stats": None,
@@ -487,6 +506,8 @@ class IngestPipeline:
                 result["total_filtered"] += file_result["preferences_filtered"]
                 result["total_triples"] += file_result["triples_inserted"]
                 result["total_vectors"] += file_result["vectors_inserted"]
+                result["total_about_minor"] += file_result.get("about_minor", 0)
+                result["minors_registry_unreadable"] |= bool(file_result.get("minors_registry_unreadable"))
                 result["file_results"].append(file_result)
                 result["errors"].extend(file_result["errors"])
 
@@ -540,7 +561,10 @@ class IngestPipeline:
             try:
                 async for pref in parser.parse(
                     file_path,
-                    default_compartment=compartment_level or settings.default_compartment
+                    default_compartment=(
+                        compartment_level if compartment_level is not None
+                        else settings.default_compartment
+                    )
                 ):
                     # Check date range exclusions first
                     if settings.is_date_excluded(pref.source, pref.observed_at):
@@ -597,6 +621,8 @@ class IngestPipeline:
             result["total_preferences"] += batch_result["preferences"]
             result["total_triples"] += batch_result["triples"]
             result["total_vectors"] += batch_result["vectors"]
+            result["total_about_minor"] += batch_result.get("about_minor", 0)
+            result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
             result["errors"].extend(batch_result["errors"])
 
         duration = (datetime.utcnow() - start_time).total_seconds()
@@ -644,6 +670,20 @@ class IngestPipeline:
 
         if not preferences:
             return result
+
+        # Minors: stored, never derived. Stamp extra.about_minor BEFORE anything is
+        # written (Qdrant payload and the derive readers' filter both depend on it).
+        # An owner registry that exists but cannot be read fails CLOSED by
+        # stamping EVERY item about_minor (stored, never derived) and flagging
+        # the batch, never by dropping the data.
+        result["about_minor"] = 0
+        try:
+            registry = MinorsRegistry.load()
+            result["about_minor"] = registry.stamp(preferences)
+        except MinorsRegistryError as exc:
+            logger.error("minors registry unreadable, every item in this batch is treated as about a minor: %s", exc)
+            result["about_minor"] = MinorsRegistry.stamp_all(preferences)
+            result["minors_registry_unreadable"] = True
 
         # Generate embeddings
         texts = [p.embedding_text for p in preferences]

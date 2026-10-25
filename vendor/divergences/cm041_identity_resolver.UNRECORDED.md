@@ -224,7 +224,7 @@ NO UPSTREAM COUNTERPART (checked CM041 origin/main e2dffc0, 2026-10-21):
 vendored tree (graft from CM051 #2663); upstream `resolve()` Tier 1 merges on a shared
 exact identifier after RULE 2 alone, so the nameless pair already merges there and
 there is nothing to port. Upstreaming this change means upstreaming the whole BW-1
-guard first, which reverses upstream's RULE 1 and is a decision for Andy/Archie, not
+guard first, which reverses upstream's RULE 1 and is a decision for the owner/Archie, not
 a like-for-like port. This record stays until that decision is made.
 
 Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
@@ -255,3 +255,20 @@ in every store order; all green here; mutant dropping the matched-node side goes
 red on the named-card control). Does NOT repair duplicates already in an installed
 graph: the BatchResolver exact-identifier tier requires the same full name, so
 existing nameless pairs are not collapsed by this change.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 5cb0c24a -> 07a22b4c)
+
+3-way merge result is byte-identical to the tree before the re-pin: every
+upstream change in the range (#186 to #191, #200, #210) was already grafted.
+KEPT: exact_identifier / merge_journal imports in batch_resolver.py,
+rename_survivor_upward and the degraded-resolve wrapper in resolver.py, the
+upward_name import in repair_merge_consistency.py, the unreadable-tombstone
+set-aside in forget_tombstone.py, the composed 15-digit control in
+repair_lid_as_phone.py. NOT VENDORED, now declared in `exclude`:
+repair_kinship_display_names.py, repair_misformatted_phones.py,
+reconcile_people_stores.py (operator repair tools, never shipped).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses
+(the 15-digit literal upstream keeps in repair_lid_as_phone.py would land on
+the MINUS side). The checked-in patch is stale against the new pin; the
+content gate reads RED for this tree, as on main before this change.

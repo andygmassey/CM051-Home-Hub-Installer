@@ -107,8 +107,32 @@ check(len(spec_only["items"]) == 8, f"tier=specific: {len(spec_only['items'])} i
 allt = build_derived_preferences_response(rd, "u", limit=20, min_confidence=0.0, tier="all")
 check(len(allt["items"]) == 12, f"tier=all keeps today's behaviour: {len(allt['items'])} items")
 none = build_derived_preferences_response(DerivedGraphReader(Store(spec5, broad_n=0)), "u",
-                                          limit=5, min_confidence=0.0)
+                                          limit=5, min_confidence=0.0, tier="broad")
 check(none["degraded"] and "broad tier" in none["cannot_check"], "an empty broad tier is degraded and says so")
+
+print("arm 6: a pre-tier graph on an upgraded box")
+pre = Store(spec5, broad_n=0)
+for r in pre.rows:
+    r["tier"] = ""
+    r["tier_absent"] = True
+_orig = Store.__call__
+def _no_tier(self, q):
+    rows = _orig(self, q)
+    for b in rows:
+        if b.get("tier", {}).get("value", None) == "":
+            del b["tier"]
+    return rows
+Store.__call__ = _no_tier
+dflt = build_derived_preferences_response(DerivedGraphReader(pre), "u", limit=6, min_confidence=0.0)
+check(dflt["items"] and dflt.get("tier") == "all" and dflt.get("tier_fallback") is True,
+      "default tier on a pre-tier graph serves items and flags tier_fallback")
+strict = build_derived_preferences_response(DerivedGraphReader(pre), "u", limit=6,
+                                            min_confidence=0.0, tier="broad")
+check(strict["items"] == [] and strict["degraded"] and "tier_fallback" not in strict,
+      "an explicit tier=broad stays strict")
+tiered = build_derived_preferences_response(DerivedGraphReader(Store(spec5, broad_n=2)), "u",
+                                            limit=6, min_confidence=0.0)
+check(tiered["items"] and "tier_fallback" not in tiered, "a tiered graph is not flagged")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

@@ -2,7 +2,7 @@
 """Representative-first enrichment, on the SHIPPED vendored tree.
 
 Enriching one representative per rollup group (artist, album, series,
-restaurant), biggest group first, is what multiplies Smart Preferences coverage:
+restaurant), biggest group first, is what multiplies smart preferences coverage:
 on a measured walk box 402 of 117,730 points were enriched and the rollup
 readers apply one item's genre to its whole group. Synthetic values only.
 
@@ -134,11 +134,11 @@ class Service:
 def scenario():
     s = Store()
     for i in range(5):
-        s.point(f"big{i}", "music", f"s{i}", strength=0.1 + i / 10, artist="Big Artist")
+        s.point(f"big{i}", "music", f"s{i}", strength=0.1 + i / 10, artist="artist big")
     for i in range(3):
-        s.point(f"mid{i}", "music", f"t{i}", strength=0.5, artist="Mid Artist")
+        s.point(f"mid{i}", "music", f"t{i}", strength=0.5, artist="artist mid")
     for i in range(2):
-        s.point(f"tv{i}", "tv_show", f"Some Series - ep {i}", strength=0.5)
+        s.point(f"tv{i}", "tv_show", f"series one - ep {i}", strength=0.5)
     s.point("lone", "music", "x", artist="Lonely")
     for i in range(4):
         s.point(f"done{i}", "music", f"d{i}", artist="Done Artist")
@@ -216,7 +216,7 @@ n = len(svc.lookups)
 run(R.run_representative_pass(svc, gateway=s, consent=yes, state_dir=sd))
 check("arm3 a finished corpus does no work", len(svc.lookups) == n)
 raw = (sd / R.STATUS_NAME).read_text()
-leaks = [w for w in ("Big Artist", "Mid Artist", "Some Series", "big4") if w in raw]
+leaks = [w for w in ("artist big", "artist mid", "series one", "big4") if w in raw]
 check("arm3 status file is counts only and 0600",
       not leaks and oct((sd / R.STATUS_NAME).stat().st_mode & 0o777) == "0o600", str(leaks))
 

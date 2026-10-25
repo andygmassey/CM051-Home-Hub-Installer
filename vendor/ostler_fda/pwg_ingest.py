@@ -33,6 +33,7 @@ import httpx
 import phonenumbers
 
 from . import forget_tombstone
+from . import phone_twins as _phone_twins
 from .person_audit import record_person_removal
 from .role_addresses import is_role_identifier  # noqa: F401
 from .role_addresses import is_sender_id_identifier
@@ -81,6 +82,58 @@ def _record_embed_usage(response: dict) -> None:
 
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
 DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
+
+
+# INGEST CONTRACT (smart-prefs foundations, 2026-10-22). Every point written to
+# the `preferences` collection must carry the same shape the CM019 parsers
+# write, because the derive engine and the wiki read them as one population:
+#   * compartment_level is an INTEGER (CM019 writes 2 for L2). This module used
+#     to write the string "L2", so two writers disagreed on the type of one
+#     field and any reader that compares or sorts it saw a mixed population.
+#   * user_id says whose preference it is. These points carried none, so they
+#     could not be told apart from, or attributed to, the owner.
+#   * observed_at is the time of the EVENT, never the time of the import.
+def _compartment_int(level: str = "") -> int:
+    """2 for "L2". Falls back to 2 (Trusted), the CM019 default."""
+    text = (level or DEFAULT_PRIVACY or "").strip().upper().lstrip("L")
+    try:
+        return int(text)
+    except ValueError:
+        return 2
+
+
+def _owner_user_id() -> Optional[str]:
+    """The owner's user id, or None when it cannot be known.
+
+    OSTLER_USER_ID wins; else the USER_ID line of the install's config/.env.
+    Never invented: a point without an owner is honest, a point attributed to
+    a made-up owner is not.
+    """
+    value = (os.getenv("OSTLER_USER_ID") or "").strip()
+    if value:
+        return value
+    base = Path(os.getenv("OSTLER_DIR") or (Path.home() / ".ostler"))
+    try:
+        for line in (base / "config" / ".env").read_text(encoding="utf-8").splitlines():
+            if line.startswith("USER_ID="):
+                return line.split("=", 1)[1].strip().strip("\"'") or None
+    except OSError:
+        return None
+    return None
+
+
+def _iso_or_none(value) -> Optional[str]:
+    """A real event time as ISO-8601, or None. Never `now`."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
 
 
 # ── Wiki slug (CM041 reader-contract parity) ──────────────────────
@@ -804,6 +857,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
     people_enriched = 0
     owner_addrs = load_owner_addresses(fda_dir)
     lookup_failed = 0
+    twins = _TwinLookup()
 
     for convo in conversations:
         participants = convo.get("participants", [])
@@ -848,6 +902,17 @@ def ingest_imessage(fda_dir: Path) -> dict:
             except _StoreUnavailable:
                 lookup_failed += 1
                 continue
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and _identifier_kind(participant) == "phone":
+                holder = twins.holder(participant)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 # Create a minimal person node
@@ -924,6 +989,7 @@ def ingest_imessage(fda_dir: Path) -> dict:
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
     }
 
 
@@ -1008,6 +1074,36 @@ def _live_person(uri: str):
     Raises ``_StoreUnavailable``."""
     live = _resolve_merged(uri)
     return live, _person_exists(live)
+
+
+class _TwinLookup:
+    """P13: before minting a person for a phone handle, ask who already holds
+    that number (normalised), once per ingest run. See phone_twins.py for the
+    root cause and the household rule. ``holder(phone)`` returns the single
+    named holder, None, or ``_LOOKUP_FAILED`` when the index could not be
+    read (the caller then skips the participant rather than mint a twin)."""
+
+    def __init__(self):
+        self._index = None
+        self._failed = False
+        self.linked = 0
+
+    def holder(self, phone: Optional[str]):
+        if not phone:
+            return None
+        if self._index is None and not self._failed:
+            try:
+                self._index = _phone_twins.load_index(_sparql_query)
+            except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
+                logger.warning(
+                    "phone-twin index could not be read (%s); participants with "
+                    "a phone handle are skipped this run rather than duplicated",
+                    type(exc).__name__,
+                )
+                self._failed = True
+        if self._failed:
+            return _LOOKUP_FAILED
+        return self._index.holder_for(phone)
 
 
 def _identifier_exists(id_uri: str) -> bool:
@@ -1231,6 +1327,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
     people_created = 0
     people_enriched = 0
     lookup_failed = 0
+    twins = _TwinLookup()
     tier_t1 = 0
     owner_addrs = load_owner_addresses(fda_dir)
     tier_t2_intimate = 0
@@ -1319,6 +1416,17 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
             # phone-JID suffix). The caller must not write that value under
             # identifierType "phone" -- see _whatsapp_phone_e164.
             phone_e164 = _whatsapp_phone_e164(participant)
+
+            # P13: a contact the owner already has in Contacts is THAT person,
+            # not a new number-named one (phone_twins.py).
+            if not exists and phone_e164 is not None:
+                holder = twins.holder(phone_e164)
+                if holder is _LOOKUP_FAILED:
+                    lookup_failed += 1
+                    continue
+                if holder:
+                    uri, exists = holder, True
+                    twins.linked += 1
 
             if not exists:
                 triples = [
@@ -1421,6 +1529,7 @@ def ingest_whatsapp(fda_dir: Path) -> dict:
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
+        "people_linked_to_contact": twins.linked,
         "tier_t1_dm_chats": tier_t1,
         "tier_t2_intimate_chats": tier_t2_intimate,
         "tier_t2_active_chats": tier_t2_active,
@@ -2538,6 +2647,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
         }
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    owner_id = _owner_user_id()
     skipped_sensitive = 0
     queue: list[dict] = []
     seen_urls: set[str] = set()
@@ -2555,6 +2665,7 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
         strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
             folder, _BOOKMARK_DEFAULT_STRENGTH
         )
+        observed_at = _iso_or_none(b.get("date_added"))
 
         # Embedding document: title carries the human-readable signal;
         # domain anchors it. Mirrors the browsing path's doc construction
@@ -2580,18 +2691,24 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
                 "source": "safari_bookmarks",
                 "context": folder or None,
                 "size": "Medium",
-                "compartment_level": DEFAULT_PRIVACY,
+                "compartment_level": _compartment_int(),
                 "privacy_level": DEFAULT_PRIVACY,
                 "created_at": now_iso,
-                "observed_at": now_iso,
+                # The save date when the plist has one (Reading List items
+                # only); None otherwise. It used to be `now`, the import time,
+                # so a bookmark saved years ago decayed as if saved today.
+                "observed_at": observed_at,
                 "extra": {
                     "url": url,
                     "domain": domain,
                     "folder": folder,
                     "source_type": "safari_bookmarks",
+                    "observed_at_known": observed_at is not None,
                 },
             },
         })
+        if owner_id:
+            queue[-1]["payload"]["user_id"] = owner_id
 
     if not queue:
         logger.info(
@@ -2846,6 +2963,7 @@ def ingest_social(fda_dir: Path) -> dict:
     # Aggregate per handle: a contact may appear across several 1:1
     # threads (e.g. phone + email handle); sum their messages.
     handle_messages: dict[str, int] = {}
+    handle_last: dict[str, str] = {}
     skipped_group = 0
     for convo in conversations:
         if convo.get("is_group"):
@@ -2857,8 +2975,14 @@ def ingest_social(fda_dir: Path) -> dict:
             if not handle:
                 continue
             handle_messages[handle] = handle_messages.get(handle, 0) + msg_count
+            # The real time of the last message, kept so decay reads the
+            # conversation, not the day the importer ran.
+            last_iso = _iso_or_none(convo.get("last_message"))
+            if last_iso and last_iso > handle_last.get(handle, ""):
+                handle_last[handle] = last_iso
 
     skipped_thin = 0
+    owner_id = _owner_user_id()
     queue: list[dict] = []
     for handle, total_messages in handle_messages.items():
         if total_messages < _SOCIAL_MIN_MESSAGES:
@@ -2884,17 +3008,20 @@ def ingest_social(fda_dir: Path) -> dict:
                 "strength": strength,
                 "source": "imessage",
                 "size": "Medium",
-                "compartment_level": DEFAULT_PRIVACY,
+                "compartment_level": _compartment_int(),
                 "privacy_level": DEFAULT_PRIVACY,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "observed_at": handle_last.get(handle),
                 "extra": {
                     "message_count": total_messages,
                     "source_type": "imessage_social",
                     "handle_kind": "phone" if _is_phone_handle(handle) else "email",
+                    "observed_at_known": handle in handle_last,
                 },
             },
         })
+        if owner_id:
+            queue[-1]["payload"]["user_id"] = owner_id
 
     if not queue:
         logger.info(

@@ -224,6 +224,18 @@
   select_categories: [bookmark, interest, page, saved, shared_link, search, instagram_creator, social_media, social, video, lifestyle, hobby, art, education, community, technology, photography, hardware, marketing, home, kids, toys, networking, organization, professional]
   tag_predicate: hasTopic
 
+# Themes: a topic above rolls UP to its broader Wikidata concept ("psychology"
+# + "economics" -> "social science"), broad before specific. Needs the
+# enricher's QID pass (topic -> enr:wikidataId) and the topic hierarchy graph;
+# without them it reads nothing and reports a degraded status (thematic.py).
+# Same categories as the topic readers (books, podcasts, interests).
+- dimension: theme.concept
+  domain: themes
+  category: themes
+  kind: thematic
+  select_categories: [book, books, podcast, podcasts, bookmark, interest, page, saved, shared_link, search, instagram_creator, social_media, social, video, lifestyle, hobby, art, education, community, technology, photography, hardware, marketing, home, kids, toys, networking, organization, professional]
+  min_leaves: 2
+
 - dimension: web.site
   domain: web
   category: web
@@ -285,6 +297,42 @@
   tag_predicate: hasTopic
   vocab: cuisine
   vocab_strict: true
+
+# Cuisine written by the food evidence parser (reservations, delivery orders,
+# calendar meals, web pages), mapped through the SAME shared vocabulary
+# (vocab/cuisine.yaml) as every other reader, so Szechuan, Sichuanese and
+# Sichuan are all `chinese`. extra.cuisine is a rule or tag reading;
+# extra.cuisine_inferred is a local-model guess from a venue name and weighs
+# less (0.4, the 'inferred' tier). The stated-likes writer can use either field.
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [food]
+  field: extra.cuisine
+  vocab: cuisine
+  evidence_confidence: 0.7
+
+- dimension: food.cuisine
+  domain: food
+  category: food
+  kind: lexicon
+  select_categories: [food]
+  field: extra.cuisine_inferred
+  vocab: cuisine
+  evidence_confidence: 0.4
+
+# What the owner buys or orders: grocery items and delivery dishes from the food
+# evidence parser. Diet-shaped signals are NOT here: they are category
+# 'dietary', private, and no row of this file reads that category.
+- dimension: food.item
+  domain: food
+  category: food
+  kind: qdrant_field
+  select_categories: [food]
+  field: extra.food_item
+  transform: lower
+  evidence_confidence: 0.6
 
 - dimension: place.city
   domain: place
@@ -396,3 +444,29 @@
   kind: qdrant_field
   select_categories: [transaction, finance, banking]
   field: extra.mcc_category
+
+# === Stated in conversations ===============================================
+# What the owner SAYS ("I hate coffee", "love Sichuan, not a fan of Cantonese")
+# as extracted by the CM048 conversation processor into owner-attributed
+# `preference` facts. One reader reads the fact store (Oxigraph, read-only) and
+# fans out into whichever dimension the vocabulary (stated_vocab.yaml) maps the
+# value to, with polarity. Other people's facts are never read. A single remark
+# can exist as a node but only repetition across conversations raises its
+# confidence past the consume threshold.
+- dimension: stated.conversations
+  domain: stated
+  category: stated
+  kind: stated_conversation
+  fact_types: [preference]
+
+# The same stated preferences, from the owner's own lines in the iMessage and
+# WhatsApp transcripts CM048 has already written. Deterministic (no model), the
+# same privacy filters as the fact path (L2/L3, deceased/suppressed, minors), and
+# it never opens chat.db. L2 is admitted (the CM048 baseline for a chat) and the
+# derived node inherits the highest level of its evidence; L3 stays out.
+- dimension: stated.transcripts
+  domain: stated
+  category: stated
+  kind: stated_transcripts
+  channels: [im, imessage, whatsapp]
+  allowed_privacy: [L0, L1, L2]
