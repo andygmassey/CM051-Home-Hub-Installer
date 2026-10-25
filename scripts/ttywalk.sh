@@ -909,8 +909,14 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # patterns are written so they cannot match their own text (a bracket
         # or a class in each), and the shell running this block, and its own
         # forked subshells, are dropped by comparing command lines.
-        _self_cmd="$(ps -o command= -p $$ 2>/dev/null)"
-        _left_procs="$(ps -axo pid=,command= 2>/dev/null | awk -v self="$_self_cmd" "{pid=\$1; c=\$0; sub(/^ *[0-9]+ /, \"\", c); if (c == self) next; if (c ~ /Ostler[.]app\/Contents\/MacOS\/|\/[.]ostler\/|ostler[-]assistant|ostler[-]engine/) print pid \" \" c}")"
+        # BY PID, NOT BY TEXT (v1.0.118 walk, 2026-10-26). The command-line
+        # comparison never matched: this block runs as a multi-line `zsh -c`,
+        # and `ps -o command=` and `ps -axo command=` render its newlines
+        # differently, so the shell running this check was reported as a
+        # leftover Ostler process (its own text says /.ostler/) and every
+        # --reset ended CANNOT-RUN. Drop this shell and anything it forked
+        # (a command-substitution subshell carries the parent command line) by pid and ppid.
+        _left_procs="$(ps -axo pid=,ppid=,command= 2>/dev/null | awk -v me="$$" "{pid=\$1; pp=\$2; if (pid == me || pp == me) next; c=\$0; sub(/^ *[0-9]+ +[0-9]+ /, \"\", c); if (c ~ /Ostler[.]app\/Contents\/MacOS\/|\/[.]ostler\/|ostler[-]assistant|ostler[-]engine/) print pid \" \" c}")"
         if [[ -n "$_left_procs" ]]; then
             echo "LEFTOVER Ostler processes after the reset:"
             echo "$_left_procs" | head -10 | sed "s/^/  /"
