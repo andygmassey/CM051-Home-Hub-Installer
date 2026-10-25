@@ -315,7 +315,7 @@ jobs:
         run: bash scripts/payload_delta.sh --self-test
 
       # A walk may not record a failure without saying what it is a regression
-      # of. Andy, 2026-09-07: nobody goes back to the last successful walk, so
+      # of. The owner, 2026-09-07: nobody goes back to the last successful walk, so
       # the same ground gets reinvented. This makes the answer mandatory and
       # the tool above makes it one command.
       - name: A walk failure says what it is a regression of
@@ -361,7 +361,7 @@ jobs:
           fi
           echo "OK: 6 of 6 attribution cases, and the control fails as phase 1 requires."
 
-      # Andy's 2026-09-05 decision: the promote binds on the probes that describe
+      # The owner's 2026-09-05 decision: the promote binds on the probes that describe
       # the DMG, not on the whole 24-probe scoreboard. These two guard the change.
       # The first proves the gate still REFUSES on an artefact-owned probe and fails
       # closed on an undeclared one, a missing scope file, and an incomplete failure
@@ -743,7 +743,7 @@ jobs:
         run: /bin/bash scripts/tests/test_run_box_walk_records_phase1_verdicts.sh
       - name: CM051 #2564 -- a read-only walk never runs a writer
         # `--only` used to run every seed/kickstart regardless of which probe
-        # it selected, which wrote a synthetic person into Andy's own box
+        # it selected, which wrote a synthetic person into the owner's own box
         # mid-walk. Seven arms against a staged runner with the five writers
         # replaced by sentinels, plus a mutation control proving the guard
         # this test depends on is the one actually caught.

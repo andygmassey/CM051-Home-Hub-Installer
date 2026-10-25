@@ -1,7 +1,7 @@
 # v1018-D658 repair. CM051 #548 stopped the writer stacking names; this
 # collapses the ones already stacked. The load-bearing property is a
 # NEGATIVE one: when two names are of equal standing the repair must not
-# choose (Andy 2026-08-10, "review list"), because a deleted name has no
+# choose (the owner 2026-08-10, "review list"), because a deleted name has no
 # undo.
 name: name-repair
 

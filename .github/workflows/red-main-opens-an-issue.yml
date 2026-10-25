@@ -1,9 +1,9 @@
 name: red-main-opens-an-issue
 
-# A RED MAIN MUST OPEN AN ISSUE, NOT AN EMAIL TO ANDY.
+# A RED MAIN MUST OPEN AN ISSUE, NOT AN EMAIL TO THE OWNER.
 #
 # MEASURED 2026-09-05: main was red for about an hour across three shas and
-# nothing in this repo noticed. It surfaced because Andy read a notification
+# nothing in this repo noticed. It surfaced because the owner read a notification
 # email and pasted a screenshot into a session. This closes that loop inside
 # the repo, where every agent can see it and no human has to remember.
 #

@@ -102,7 +102,7 @@ jobs:
       #
       # The shipped uninstaller's confirm was a bare `read -p` with no override
       # of any kind, so a GUI button or a scripted caller blocked forever on a
-      # prompt it could not see. #1562, a GUI uninstall Andy asked for directly,
+      # prompt it could not see. #1562, a GUI uninstall the owner asked for directly,
       # cannot be built on that.
       #
       # The half that matters is the refusal: no consent and no way to obtain it
@@ -123,7 +123,7 @@ jobs:
       # #1562: A GUI UNINSTALL NEEDS A SCRIPT THAT SAYS WHAT IT IS DOING.
       #
       # Measured before the change: 0 structured markers against 78 plain print
-      # sites, with 19 gui_emit sites in install.sh as the control. Andy asked
+      # sites, with 19 gui_emit sites in install.sh as the control. The owner asked
       # for a GUI uninstall because the customers are not technical, and a
       # button that shells out to a script it cannot read is not a GUI.
       #
@@ -167,7 +167,7 @@ jobs:
       # colima `default` is the SHARED Docker VM. install.sh starts it with no
       # --profile, so a customer may have created it for their own Docker work
       # before installing Ostler; deleting it then wipes their unrelated data.
-      # Andy's rule: "if it could wipe something else that was already there,
+      # The owner's rule: "if it could wipe something else that was already there,
       # then we need to ask for permission first." So --yes on its own, and an
       # EOF/no-tty run, KEEP the VM; only --remove-colima or an explicit 'yes'
       # deletes it, the delete is verified gone, and a SIBLING profile (a build

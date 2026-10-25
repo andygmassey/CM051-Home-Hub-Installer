@@ -723,7 +723,7 @@ jobs:
 
       # THE DAEMON WAS ALIVE AND ITS :8443 LISTENER WAS DEAD FOR 4 HOURS.
       #
-      # Andy's box, 2026-10-17: launchd saw a running process, so nothing
+      # The owner's box, 2026-10-17: launchd saw a running process, so nothing
       # respawned it, and the iPhone app sat on "Hub unreachable". The
       # watchdog install.sh writes (LISTENERWDEOF) is driven against a fake
       # :8443 the test SIGSTOPs; the Doctor reads the state file that run

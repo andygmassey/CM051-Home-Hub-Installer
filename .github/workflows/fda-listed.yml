@@ -10,7 +10,7 @@ name: fda-listed
 # had merely RUN. It never confirmed a TCC row. Its own comment argued "if the
 # nudge ran the row exists" -- and the v1.0.50 fresh-account walk refuted it: the
 # nudge ran, logged success, and OstlerAssistant was absent from the Full Disk
-# Access list. Andy hit it live, then could not add it by hand either.
+# Access list. The owner hit it live, then could not add it by hand either.
 #
 # One invented boolean drove three customer-facing branches, all the wrong way:
 # it suppressed the Finder reveal, printed "already listed" at a customer looking

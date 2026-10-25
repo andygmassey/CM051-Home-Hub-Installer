@@ -84,7 +84,7 @@ jobs:
 
       # #875. The step above asks whether the sign-in WAIT is entered when it
       # cannot succeed. This asks whether the sign-in QUESTION is put to a
-      # customer who has already answered it -- measured on Andy's v1.0.44
+      # customer who has already answered it -- measured on the owner's v1.0.44
       # upgrade walk, where a re-run over an existing install jumped Phase 2
       # and the Phase-3 fallback asked from scratch on an already-joined box.
       #

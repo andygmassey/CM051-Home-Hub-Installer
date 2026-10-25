@@ -243,7 +243,7 @@ jobs:
           set -e
           # Exit 2 is NOT a PR failure and NOT a pass. It means this denylist
           # could not run, which in CI is the DESIGNED state: the inventory is
-          # Andy's real PII, so it cannot be committed, and the fallback at
+          # The owner's real PII, so it cannot be committed, and the fallback at
           # .github/operator-pii-inventory.toml is a blank template (every
           # scalar empty, every array empty). Reporting that as a PII hit is a
           # false accusation on every pull request, and a red that means

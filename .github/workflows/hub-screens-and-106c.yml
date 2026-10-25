@@ -1,6 +1,6 @@
 name: hub screens and the 106c screen fixes
 
-# #106c (Andy's v1.0.105 console walk, 2026-09-28). The screen judge must be
+# #106c (the owner's v1.0.105 console walk, 2026-09-28). The screen judge must be
 # able to fail on every assertion (13 mutants), and the server-side fixes it
 # measures are pinned by their own behavioural tests. Each test exits 2 on
 # CANNOT-RUN, never 0: a check that could not run has not passed.

@@ -152,7 +152,7 @@ permissions:
   #     secrets.GITHUB_TOKEN cannot reach the release because it lives under a
   #     different owner. Every gh call in it is `GH_TOKEN="$PUBLISH_RELEASE_TOKEN"`.
   #   * the appcast step runs `make publish-appcast PUBLISH_APPCAST=onbox`,
-  #     which publishes nothing from CI by Andy's 2026-08-19 decision.
+  #     which publishes nothing from CI by the owner's 2026-08-19 decision.
   #   * the `cut` job was searched, comments excluded, for `git push`,
   #     `gh release create|edit|upload`, `gh api` with a write method,
   #     attestation and action-gh-release. Zero.
@@ -368,7 +368,7 @@ jobs:
       # and I have both spent the day finding elsewhere.
       # THE CHECKLIST MUST BE EMPTY OF UNGATED ROWS BEFORE A CUT.
       #
-      # Andy, 2026-09-05, on being shown the first honest count of remaining
+      # The owner, 2026-09-05, on being shown the first honest count of remaining
       # work: "maintain this discipline. Do NOT let it slip."
       #
       # The step above proves the cut record EXISTS. This one proves it is
@@ -820,7 +820,7 @@ jobs:
       # STALE WIKI IMAGE.
       # A LAUNCHAGENT MUST NOT BE ABLE TO RUN A PYTHON WITH NO BYTECODE REDIRECT.
       #
-      # v1.0.45 installed cleanly and BRICKED ANDY'S MAC. Gatekeeper refused the
+      # v1.0.45 installed cleanly and BRICKED THE OWNER'S MAC. Gatekeeper refused the
       # app because 69 .pyc files had appeared inside the notarised bundle. The
       # fix was present and correct; it was set on the ONE Process() the GUI
       # spawns, and launchd is not in that process tree. The CM059 front-page
@@ -829,7 +829,7 @@ jobs:
       #
       # Four agents had worked in that area. Nothing caught it. The only reason
       # it was found is that a customer's Mac stopped working, and the customer
-      # was Andy.
+      # was the owner.
       #
       # PROVEN RED before being wired: run against the pre-fix origin/main it
       # names all four unguarded agents and exits 1, editor-frontpage included.
@@ -893,7 +893,7 @@ jobs:
           ./tests/test_no_local_cuts.sh
           # The appcast debt is collected HERE, before a version is spent.
           # PUBLISH_APPCAST=onbox means CI cuts a good DMG and does NOT
-          # publish the feed, by Andy's settled decision (no Sparkle private
+          # publish the feed, by the owner's settled decision (no Sparkle private
           # key on a public repo). That deferral exits 0, so without this gate
           # it would be a silent one, and an unpublished appcast is invisible
           # from the product side: Sparkle polls, finds nothing, reports no
@@ -1329,7 +1329,7 @@ jobs:
           # GITHUB_TOKEN cannot read a sibling repo even under the same owner,
           # and the daemon is in a different org entirely. Making CI able to
           # see them needs a cross-repo PAT, which is a credential decision for
-          # Andy and not something to provision inside a cut.
+          # The owner and not something to provision inside a cut.
           #
           # So this declares the boundary instead of faking coverage. The gate
           # prints "NOT CHECKED IN THIS ENVIRONMENT" and downgrades its verdict
@@ -1737,7 +1737,7 @@ jobs:
       # release objects. Every cut produced a verified artefact no customer
       # could obtain, because ostler.ai/install.dmg resolves via
       # /releases/latest/ and no release carried the asset. This step is the
-      # permanent fix for that; the v1.0.37 publish was done by hand and Andy's
+      # permanent fix for that; the v1.0.37 publish was done by hand and the owner's
       # instruction was that it belongs in the scripted process, not in a
       # human's terminal.
       #
@@ -1797,7 +1797,7 @@ jobs:
           OSTLER_SPARKLE_SIGNING_KEY: ${{ secrets.OSTLER_SPARKLE_SIGNING_KEY }}
         run: |
           set -uo pipefail
-          # PUBLISH_APPCAST=onbox. Andy's decision, 2026-08-19, settled: a
+          # PUBLISH_APPCAST=onbox. The owner's decision, 2026-08-19, settled: a
           # Sparkle EdDSA PRIVATE key is not held as an Actions secret on a
           # PUBLIC repo. Signing happens on the box.
           #

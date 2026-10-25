@@ -133,7 +133,7 @@ jobs:
         if: always()
         run: bash tests/test_reuse_run_keeps_the_daily_briefs.sh
 
-      # v1.0.107 console walk (Andy, candidate #9, BLOCKING): web_search
+      # v1.0.107 console walk (the owner, candidate #9, BLOCKING): web_search
       # 401s on a fresh install; the assistant tells the customer the
       # search tool "returned an authorization error". SAME EMITTER, a
       # THIRD failure shape again: not a missing field in a present table,
