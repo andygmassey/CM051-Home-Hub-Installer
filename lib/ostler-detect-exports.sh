@@ -55,8 +55,10 @@ DO_LOOSE=0
 #             less, so 1001 is the floor here and a smaller file is reported
 #             as skipped rather than as imported
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
-#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
-#             WhatsApp's "Export chat" gives the file
+#   WhatsApp  NO importer reads a per-chat WhatsApp text file (universal_import
+#             recognises the name and has no parser), and none is needed:
+#             history comes from WhatsApp Desktop's own store. Recognised so a
+#             file dropped in anyway is answered plainly, never "imported".
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -65,7 +67,7 @@ LOOSE=(
   $'Mailbox\x1f\\.mbox$\x1f1\x1f'
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
-  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1fOstler does not need this file. It reads your WhatsApp history from WhatsApp Desktop on this Mac, so there is nothing to export'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
 
