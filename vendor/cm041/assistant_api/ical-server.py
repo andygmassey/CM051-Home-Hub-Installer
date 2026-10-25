@@ -6292,6 +6292,25 @@ def _merged_cluster(person_uri):
     return out
 
 
+_PRIVACY_ORDER = ("L0", "L1", "L2", "L3")
+
+
+def _effective_privacy_level(record_level, owner_level):
+    """Most-restrictive parseable level of a record and its owner, or None.
+
+    Same doctrine as ``pwg_privacy.is_l3`` (which decides hide/show): only
+    L0..L3 count, the stricter wins, and None means no parseable signal on
+    either axis, which every caller treats as hidden. This returns the LEVEL
+    so a reader can serve it alongside the record.
+    """
+    levels = [lvl for lvl in (pwg_privacy.parse_privacy_level(record_level),
+                              pwg_privacy.parse_privacy_level(owner_level))
+              if lvl is not None]
+    if not levels:
+        return None
+    return max(levels, key=_PRIVACY_ORDER.index)
+
+
 def person_context(name):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
@@ -6482,21 +6501,38 @@ def person_context(name):
             if visible:
                 entry["facts"] = [f["text"] for f in visible]
 
-        # Meetings
+        # Meetings -- fail-closed L3 filter, and every served meeting carries
+        # its effective privacy_level (118 MUST, A14 review). A meeting summary
+        # reaches the assistant's model, and from there can leave by iMessage,
+        # WhatsApp or email, so the same doctrine as facts applies: the
+        # meeting's own pwg:privacyLevel and the person's, most-restrictive
+        # wins, and with no parseable level on either the meeting is
+        # withheld. Consumers (oa pwg_people) render a meeting ONLY when it
+        # carries an explicit non-L3 privacy_level, so the field is required,
+        # not decoration. LIMIT 10 is applied to the VISIBLE meetings, after
+        # the filter, so hidden rows cannot crowd visible ones out.
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?summary ?date ?location WHERE {{\n'
+            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '}} ORDER BY DESC(?date) LIMIT 10'.format(ns=PWG_NS, uri=uri)
+            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri)
         )
-        if meetings:
-            entry["meetings"] = [{
+        visible_meetings = []
+        for m in meetings:
+            level = _effective_privacy_level(m.get("mpriv"), person.get("priv"))
+            if level is None or level == "L3":
+                continue
+            visible_meetings.append({
                 "summary": m["summary"],
                 "date": m.get("date", "")[:10] if m.get("date") else "",
                 "location": m.get("location", ""),
-            } for m in meetings]
+                "privacy_level": level,
+            })
+        if visible_meetings:
+            entry["meetings"] = visible_meetings[:10]
 
         # Relationship signal (CM048 tier 2 — warmth/trust from conversations)
         person_slug = _wiki_slug(pname)
