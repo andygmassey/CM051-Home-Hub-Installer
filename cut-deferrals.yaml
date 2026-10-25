@@ -1053,6 +1053,15 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  - ref: "CM051:hotfix/v1.0.117-base"
+    reason: "ORM 2026-10-26, v1.0.118: Archie's hotfix base branch = the v1.0.117 tag plus the CM051 #3173 squash 4f56f104. Its 91 commits not on main are the v1.0.117 cut commits plus F009; the cut being made (cut/v1.0.118) CONTAINS all of it, so nothing on it is missing from this artefact."
+    until_cut: "v1.0.119"
+  - ref: "CM051:fix/derived-route-privacy-level-graft"
+    reason: "ORM 2026-10-26, v1.0.118: PR #3125 CLOSED unmerged; graft of CM041 #235 (derived-preferences route privacy_level). Smart-preferences work for the v1.0.119 launch candidate; NOT in the v1.0.118 hotfix scope (v1.0.117 plus CM051 #3173 only, Archie). Archie to confirm."
+    until_cut: "v1.0.119"
+  - ref: "CM051:fix/q32b-calendar-classify-118"
+    reason: "ORM 2026-10-26, v1.0.118: no PR; 3 commits, tip 'Q32b paused, what is done and what is left'. Paused v1.0.119-candidate work; NOT in the v1.0.118 hotfix scope (v1.0.117 plus CM051 #3173 only, Archie). Archie to confirm."
+    until_cut: "v1.0.119"
   - ref: "CM051:feat/abcddb-contact-photos"
     reason: "ORM 2026-10-23, v1.0.117 (the coordinator named the vendor-stated-preferences branches as our own 118 graft branches; Archie to confirm): PR #3026 CLOSED unmerged (contact photos); 3 commits, not in the 117 scope (v1.0.116 plus named picks only). Branch tip stays on the remote."
     until_cut: "v1.0.118"
