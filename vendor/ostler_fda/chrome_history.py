@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import Iterator, Optional
 from urllib.parse import urlparse
 
+from .url_clean import strip_tracking
+
 logger = logging.getLogger(__name__)
 
 # WebKit / Chrome epoch offset (1601-01-01 UTC -> 1970-01-01 UTC), seconds.
@@ -251,7 +253,7 @@ def extract_history(
 
     entries: list[HistoryEntry] = []
     for row in rows:
-        url = row["url"]
+        url = strip_tracking(row["url"])
         try:
             parsed = urlparse(url)
             domain = parsed.netloc.lower()

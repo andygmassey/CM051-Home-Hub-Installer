@@ -58,6 +58,7 @@ on:
       # narrowed in a PR that never runs it.
       - 'tests/test_every_detected_export_reaches_the_importer.sh'
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
+      - 'tests/test_wiki_compiler_gets_assistant_name.sh'
       - 'tests/test_the_shipped_compose_mounts_ai_conversations.sh'
       - 'tests/test_the_shipped_compose_mounts_conversations.sh'
       - 'tests/test_the_shipped_stores_have_fd_headroom.sh'
@@ -131,6 +132,15 @@ jobs:
       - name: the shipped compose mounts the human Conversations tree
         if: always()
         run: /bin/bash tests/test_the_shipped_compose_mounts_conversations.sh
+
+      # S16b. THE CUSTOMER'S ASSISTANT NAME NEVER REACHED THE WIKI COMPILER.
+      #    install.sh wrote ASSISTANT_NAME only to config/.env; the compiler's
+      #    env is interpolated from the compose .env, so CM044 could only use
+      #    the neutral chat wing. This runs the shipped writer block and
+      #    resolves the real wiki-compiler env block against its output.
+      - name: the wiki compiler gets the customer's assistant name
+        if: always()
+        run: /bin/bash tests/test_wiki_compiler_gets_assistant_name.sh
       # 8. A GUARD THAT SILENCED ITS OWN FAILURE (#950). The store-auth .pth
       #    is written only for the bundled interpreter, correctly, but the
       #    warn sat INSIDE the same `if`, so on any of six ordinary values of
