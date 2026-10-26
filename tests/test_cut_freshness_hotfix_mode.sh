@@ -134,6 +134,39 @@ else
     bad "a non-hotfix cut gave rc=${rc} with $(wc -l < "$WORK/calls" | tr -d ' ') gh calls: $(squash)"
 fi
 
+echo "-- 6b. declared wiki-site delta (HOTFIX_DECLARED_DELTAS=wiki-site) --"
+mkdir -p "$FIX/scripts"
+printf 'wiki-site\tsha256:aaaa\tbase\n' > "$FIX/scripts/wiki_image_provenance.tsv"
+git -C "$FIX" add -A >/dev/null 2>&1
+sed -i.bak 's/ostler-wiki-site@sha256:aaaa/ostler-wiki-site@sha256:cccc/' "$FIX/install.sh" && rm -f "$FIX/install.sh.bak"
+hotfix_env 'HOTFIX_BASE_TAG=v9.9.8'
+rc="$(run_gate)"
+[ "$rc" = "1" ] && grep -q 'wiki-site image (install.sh).*RED' "$WORK/out" \
+    && ok "an UNdeclared wiki-site change is RED" || bad "undeclared wiki-site change gave rc=${rc}: $(squash)"
+hotfix_env 'HOTFIX_BASE_TAG=v9.9.8
+HOTFIX_DECLARED_DELTAS=wiki-site'
+rc="$(run_gate)"
+[ "$rc" = "1" ] && grep -q 'declared delta without provenance' "$WORK/out" \
+    && ok "a declared wiki-site delta with no provenance row is RED" || bad "declared delta without provenance gave rc=${rc}: $(squash)"
+printf 'wiki-site\tsha256:cccc\tfixcommit\n' >> "$FIX/scripts/wiki_image_provenance.tsv"
+rc="$(run_gate)"
+[ "$rc" = "0" ] && grep -q 'DECLARED delta' "$WORK/out" \
+    && ok "a declared wiki-site delta with provenance passes as DECLARED" || bad "declared delta with provenance gave rc=${rc}: $(squash)"
+sed -i.bak 's/ostler-wiki-compiler@sha256:bbbb/ostler-wiki-compiler@sha256:dddd/' "$FIX/install.sh" && rm -f "$FIX/install.sh.bak"
+rc="$(run_gate)"
+[ "$rc" = "1" ] && grep -q 'wiki-compiler image (install.sh).*RED' "$WORK/out" \
+    && ok "declaring wiki-site does not excuse a wiki-compiler change" || bad "compiler change under a site declaration gave rc=${rc}: $(squash)"
+git -C "$FIX" checkout -q -- install.sh
+rc="$(run_gate)"
+[ "$rc" = "1" ] && grep -q 'declared delta but unchanged' "$WORK/out" \
+    && ok "a declaration with no actual change is RED (stale declaration)" || bad "stale declaration gave rc=${rc}: $(squash)"
+hotfix_env 'HOTFIX_BASE_TAG=v9.9.8
+HOTFIX_DECLARED_DELTAS=daemon'
+rc="$(run_gate)"
+[ "$rc" = "1" ] && grep -q 'undeclarable delta' "$WORK/out" \
+    && ok "a delta outside the closed set is RED" || bad "an undeclarable delta gave rc=${rc}: $(squash)"
+rm -f "$FIX/scripts/wiki_image_provenance.tsv"; git -C "$FIX" checkout -q -- . 2>/dev/null
+
 echo "-- 7-9. manifest gate pinned_artefact_freshness --"
 cat > "$WORK/mf.py" <<'PY'
 import importlib.util, sys

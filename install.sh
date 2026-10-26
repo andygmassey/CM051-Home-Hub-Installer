@@ -21125,7 +21125,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:29c97480ce9b7200d82df2ca1c32fef56ed136a5157f168864849da8b1243b15
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:4d2996f95c5c0f993a1077db613d23a18af3885a04c4db96deabcb403c63f634
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #

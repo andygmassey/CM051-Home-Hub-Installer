@@ -466,7 +466,7 @@ echo
 # fallback to the normal path. The version that finds cut.env comes from
 # FRESHNESS_CUT_VERSION, then OSTLER_CUT_VERSION (the cut job sets it to the
 # ref name, e.g. cut/v1.0.118 or v1.0.118), then the installer Info.plist.
-HOTFIX_MODE=0; HOTFIX_BASE=""; n_frozen=0
+HOTFIX_MODE=0; HOTFIX_BASE=""; HOTFIX_DELTAS=""; n_frozen=0; n_declared=0
 _fv="${FRESHNESS_CUT_VERSION:-${OSTLER_CUT_VERSION:-}}"; _fv="${_fv##*/}"
 _plist="$REPO_ROOT/gui/OstlerInstaller/Info.plist"
 if [ -z "$_fv" ] && [ -r "$_plist" ]; then
@@ -481,6 +481,9 @@ if [ -n "$CUT_ENV_FILE" ] && [ -r "$CUT_ENV_FILE" ] \
    && grep -qE '^CUT_KIND=hotfix[[:space:]]*$' "$CUT_ENV_FILE"; then
     HOTFIX_MODE=1
     HOTFIX_BASE="$(grep -m1 -E '^HOTFIX_BASE_TAG=' "$CUT_ENV_FILE" | cut -d= -f2- | tr -d "\"' ")"
+    # DECLARED DELTAS (Archie, 2026-10-26, v1.0.118 + CM044 #406). A closed set:
+    # a token outside it is RED, so a hotfix cannot widen itself by typing a name.
+    HOTFIX_DELTAS="$(grep -m1 -E '^HOTFIX_DECLARED_DELTAS=' "$CUT_ENV_FILE" | cut -d= -f2- | tr -d "\"'" | tr ',' ' ')"
 fi
 
 # label  path: RED unless the working tree at <path> is byte-identical to the
@@ -543,7 +546,39 @@ if [ "$HOTFIX_MODE" = "1" ]; then
         _hotfix_path_frozen "vendor/ (whole directory)" "vendor"
         _hotfix_lines_frozen "daemon pin (gui/Makefile)" "gui/Makefile" '^DAEMON_(VERSION|SHA256)[[:space:]]*\?='
         _hotfix_lines_frozen "daemon pin (install.sh)" "install.sh" '^OSTLER_ASSISTANT_VERSION='
-        _hotfix_lines_frozen "wiki images (install.sh)" "install.sh" 'image: ghcr\.io/[a-z0-9-]+/ostler-wiki-(compiler|site)@sha256:'
+        _decl_site=0
+        for _t in $HOTFIX_DELTAS; do
+            case "$_t" in
+                wiki-site) _decl_site=1 ;;
+                *) n_stale=$((n_stale+1)); add_row "hotfix delta:$_t" "-" "-" "RED undeclarable delta"
+                   add_detail "hotfix delta:$_t RED: HOTFIX_DECLARED_DELTAS admits only: wiki-site." ;;
+            esac
+        done
+        _hotfix_lines_frozen "wiki-compiler image (install.sh)" "install.sh" 'image: ghcr\.io/[a-z0-9-]+/ostler-wiki-compiler@sha256:'
+        if [ "$_decl_site" = "1" ]; then
+            # The ONE declared delta: the site digest may differ from the base,
+            # and then it MUST (a) actually differ, a stale declaration is RED,
+            # and (b) carry a row in the provenance ledger naming the CM044
+            # commit it was built from.
+            _re='image: ghcr\.io/[a-z0-9-]+/ostler-wiki-site@sha256:'
+            _now="$(grep -m1 -E "$_re" "$REPO_ROOT/install.sh" 2>/dev/null | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
+            _base="$(git -C "$REPO_ROOT" show "${HOTFIX_BASE}:install.sh" 2>/dev/null | grep -m1 -E "$_re" | sed -E 's/.*@(sha256:[0-9a-f]+).*/\1/')"
+            _prov="$(awk -F'\t' -v d="$_now" '!/^[[:space:]]*#/ && $1=="wiki-site" && $2==d {print $3; exit}' "$WIKI_PROVENANCE_FILE" 2>/dev/null)"
+            if [ -z "$_now" ] || [ -z "$_base" ]; then
+                n_cannot=$((n_cannot+1)); add_row "wiki-site image (declared)" "$HOTFIX_BASE" "-" "CANNOT-VERIFY digest not found"
+            elif [ "$_now" = "$_base" ]; then
+                n_stale=$((n_stale+1)); add_row "wiki-site image (declared)" "$HOTFIX_BASE" "=base" "RED declared delta but unchanged"
+                add_detail "wiki-site RED: HOTFIX_DECLARED_DELTAS names wiki-site but its digest equals the base tag's. Drop the declaration."
+            elif [ -z "$_prov" ]; then
+                n_stale=$((n_stale+1)); add_row "wiki-site image (declared)" "$HOTFIX_BASE" "${_now#sha256:}" "RED declared delta without provenance"
+                add_detail "wiki-site RED: ${_now} has no row in ${WIKI_PROVENANCE_FILE#$REPO_ROOT/}; a declared delta must name its CM044 commit."
+            else
+                n_declared=$((n_declared+1)); add_row "wiki-site image (declared)" "${_base#sha256:}" "${_now#sha256:}" "DECLARED delta, CM044 ${_prov:0:8}"
+                add_detail "wiki-site DECLARED: hotfix of ${HOTFIX_BASE} carries wiki-site ${_now} (CM044 ${_prov}) in place of ${_base}."
+            fi
+        else
+            _hotfix_lines_frozen "wiki-site image (install.sh)" "install.sh" 'image: ghcr\.io/[a-z0-9-]+/ostler-wiki-site@sha256:'
+        fi
     fi
 fi
 
@@ -1148,7 +1183,7 @@ while IFS=$'\t' read -r input pinned live status; do
     printf '%-34s %-9s %-10s %s\n' "$input" "$pinned" "$live" "$status"
 done < "$ROWS_FILE"
 echo "-----------------------------------------------------------------------"
-echo "fresh=$n_fresh  held=$n_held  exempt=$n_exempt  frozen=$n_frozen  stale/RED=$n_stale  cannot-verify=$n_cannot"
+echo "fresh=$n_fresh  held=$n_held  exempt=$n_exempt  frozen=$n_frozen  declared=$n_declared  stale/RED=$n_stale  cannot-verify=$n_cannot"
 echo
 
 # Detail block: RED reasons, EXEMPT reasons, HELD reasons + un-acked commits.
@@ -1188,6 +1223,7 @@ extra=""
 [ "$n_held" -gt 0 ]   && extra="$extra $n_held held (acknowledged)"
 [ "$n_exempt" -gt 0 ] && extra="$extra${extra:+,} $n_exempt exempt (with reason)"
 [ "$n_frozen" -gt 0 ] && extra="$extra${extra:+,} $n_frozen frozen (hotfix of ${HOTFIX_BASE}, byte-identical)"
+[ "$n_declared" -gt 0 ] && extra="$extra${extra:+,} $n_declared declared hotfix delta(s)"
 if [ -n "$extra" ]; then
     echo "GATE: GREEN -- every input is fresh, held or exempt.$extra. See DETAIL above (audit them)."
 else
