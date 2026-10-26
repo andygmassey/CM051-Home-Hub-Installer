@@ -38,6 +38,51 @@ pr_exemptions:
   # reason; #1818's existing row is re-dated in place.
   # -------------------------------------------------------------------------
   # v1.0.118 PR-AGE EXEMPTIONS, ORM 2026-10-26: every CM051 PR over 48h or within ~1 day of it (the 118 hotfix cut cycle).
+  - ref: "CM051-Home-Hub-Installer#3178"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3176"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3174"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3170"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3169"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3168"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3163"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3161"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3159"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3158"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3156"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3152"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3150"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3149"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
+  - ref: "CM051-Home-Hub-Installer#3148"
+    reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118 (second pass, #406 re-cut): open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 and CM044 #406 only, Archie)."
+    review_by: 2026-10-30
   - ref: "CM051-Home-Hub-Installer#3141"
     reason: "Coordinator standing ruling 2026-10-19 (exempt the same way any PR that crosses 48h during the cut), applied by ORM for v1.0.118: open PR on main, NOT taken by the v1.0.118 hotfix (v1.0.117 plus CM051 #3173 only, Archie)."
     review_by: 2026-10-30
