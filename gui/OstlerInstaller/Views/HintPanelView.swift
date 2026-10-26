@@ -219,6 +219,32 @@ struct HintPanelView: View {
                 )
             }
 
+            // F010: Command Line Tools wait. Says what we are waiting for,
+            // says so explicitly once the timeout passes (the install keeps
+            // waiting, it never aborts), and offers the button that re-pops
+            // Apple's dialog. Never an invisible wait.
+            if let clt = coordinator.cltWaitState,
+               coordinator.finished == nil,
+               coordinator.error == nil {
+                VStack(alignment: .leading, spacing: .ostlerSpace2) {
+                    Text(ViewCopy.shared.string(
+                        for: clt == "timeout" ? "hint_panel.clt_waiting_timeout" : "hint_panel.clt_waiting"
+                    ))
+                        .font(.ostlerBody)
+                        .foregroundStyle(Color.ostlerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(ViewCopy.shared.string(for: "hint_panel.clt_install_button")) {
+                        InstallerCoordinator.popCommandLineToolsDialog()
+                    }
+                }
+                .padding(CGFloat.ostlerSpace3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.ostlerInkBlueSoft)
+                )
+            }
+
             Spacer()
         }
         .padding(CGFloat.ostlerSpace4)
