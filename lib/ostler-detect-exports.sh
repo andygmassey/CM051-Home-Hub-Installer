@@ -34,8 +34,14 @@ DO_LOOSE=0
 # (its own Library/ and Documents/ tree). Three guards, all env-overridable:
 #   OSTLER_SCAN_MAXDEPTH  find depth cap (default 6, the depth every known
 #                         export shape fits in)
-#   OSTLER_SCAN_BUDGET_S  wall-clock budget in seconds PER INVOCATION (default
-#                         300). 0 = scan nothing and report budget_hit=1.
+#   OSTLER_SCAN_BUDGET_S  wall-clock budget in seconds for the WHOLE INSTALL
+#                         (default 300). 0 = scan nothing and report
+#                         budget_hit=1.
+#   OSTLER_SCAN_DEADLINE_EPOCH  absolute epoch-seconds deadline. install.sh
+#                         computes it ONCE (now + budget) and exports it, so
+#                         every invocation (unzip, loose, default) shares one
+#                         budget. Unset or non-numeric: this invocation starts
+#                         its own (now + budget), which is the standalone case.
 #   nested backups        any directory below DIR that itself holds a Library/
 #                         or Users/ subtree is pruned, never walked.
 # Counts only (never paths) go to STDERR as one SCAN_SUMMARY line, so the
@@ -46,7 +52,8 @@ SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
 case "$SCAN_MAXDEPTH" in ''|*[!0-9]*|0) SCAN_MAXDEPTH=6 ;; esac
 case "$SCAN_BUDGET_S" in ''|*[!0-9]*) SCAN_BUDGET_S=300 ;; esac
 _SCAN_STATE="$(mktemp -d "${TMPDIR:-/tmp}/ostler-scan.XXXXXX")" || exit 1
-_SCAN_T0=$SECONDS
+SCAN_DEADLINE="${OSTLER_SCAN_DEADLINE_EPOCH:-}"
+case "$SCAN_DEADLINE" in ''|*[!0-9]*) SCAN_DEADLINE=$(( $(date +%s) + SCAN_BUDGET_S )) ;; esac
 _scan_summary() {
     local skipped=0 hit=0
     [[ -f "$_SCAN_STATE/skipped" ]] && skipped="$(cat "$_SCAN_STATE/skipped")"
@@ -61,7 +68,7 @@ trap _scan_summary EXIT
 # Kills only the find it started. Output is whatever was found before the stop.
 _bfind() {
     local out pid
-    if (( SECONDS - _SCAN_T0 >= SCAN_BUDGET_S )); then
+    if (( $(date +%s) >= SCAN_DEADLINE )); then
         : > "$_SCAN_STATE/budget_hit"
         return 0
     fi
@@ -69,7 +76,7 @@ _bfind() {
     find "$@" > "$out" 2>/dev/null &
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
-        if (( SECONDS - _SCAN_T0 >= SCAN_BUDGET_S )); then
+        if (( $(date +%s) >= SCAN_DEADLINE )); then
             kill "$pid" 2>/dev/null
             : > "$_SCAN_STATE/budget_hit"
             break

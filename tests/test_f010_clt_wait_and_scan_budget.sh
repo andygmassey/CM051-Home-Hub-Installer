@@ -145,6 +145,53 @@ left="$(find "$TMP" -maxdepth 1 -name 'ostler-scan.*' | wc -l | tr -d ' ')"
 grep -q "GDPR export scan: \${_scan_line#SCAN_SUMMARY }" "$INSTALL_SH" \
     && ok "install.sh consumes SCAN_SUMMARY (wired)" || bad "SCAN_SUMMARY has no consumer in install.sh"
 
+# ── Shared budget across ALL detector invocations in one install ───────────
+# Three slow passes (unzip, loose, default) under ONE deadline computed once by
+# install.sh's scan-deadline block. Per-call budgets would cost 3 x budget.
+DLBLOCK="$TMP/scan_deadline_block.sh"
+awk '/^# >>> scan-deadline$/{f=1;next} /^# <<< scan-deadline$/{f=0} f' "$INSTALL_SH" > "$DLBLOCK"
+if [[ ! -s "$DLBLOCK" ]]; then
+    bad "scan-deadline block markers not found in install.sh"
+else
+    SD="$TMP/shared_scan"; mkdir -p "$SD"
+    # run_three <detector> <budget>: sets T3_EL (seconds), T3_LOG.
+    run_three() {
+        local det="$1" budget="$2" h="$TMP/three.$RANDOM.sh" t0
+        cat > "$h" <<H
+set -uo pipefail
+info() { echo "INFO \$*" >> "$TMP/three.log"; }
+warn() { echo "WARN \$*" >> "$TMP/three.log"; }
+export OSTLER_SCAN_BUDGET_S=$budget
+unset OSTLER_SCAN_DEADLINE_EPOCH
+export TMPDIR="$TMP"
+source "$DLBLOCK"
+for mode in --unzip --loose ""; do
+    err="\$(bash "$det" "$SD" \$mode 2>&1 >/dev/null || true)"
+    _ostler_scan_note "\$err"
+done
+H
+        : > "$TMP/three.log"
+        t0=$SECONDS
+        PATH="$TMP/slowbin:$PATH" /bin/bash "$h" >/dev/null 2>&1 || true
+        T3_EL=$((SECONDS - t0)); T3_LOG="$(cat "$TMP/three.log")"
+    }
+    run_three "$DETECT" 3
+    hits="$(grep -c 'shared time budget' <<<"$T3_LOG" || true)"
+    lines="$(grep -c 'GDPR export scan: ' <<<"$T3_LOG" || true)"
+    if [[ "$T3_EL" -le 5 && "$hits" -eq 1 && "$lines" -ge 3 ]]; then
+        ok "three slow passes under one 3s budget took ${T3_EL}s (<=5s); budget-hit logged once"
+    else bad "shared budget: ${T3_EL}s hits=$hits summary_lines=$lines log=$T3_LOG"; fi
+
+    # Mutant: restore per-call budgets (detector ignores the shared deadline).
+    DMUT2="$TMP/detect_percall.sh"
+    sed 's/^SCAN_DEADLINE="\${OSTLER_SCAN_DEADLINE_EPOCH:-}"$/SCAN_DEADLINE=""/' "$DETECT" > "$DMUT2"
+    cmp -s "$DETECT" "$DMUT2" && bad "per-call mutant did not change the file"
+    run_three "$DMUT2" 3
+    if [[ "$T3_EL" -gt 5 ]]; then
+        ok "MUTANT (per-call budgets) goes RED: three passes took ${T3_EL}s (>5s)"
+    else bad "per-call mutant not detected (${T3_EL}s)"; fi
+fi
+
 echo
 [[ "$FAILS" -eq 0 ]] && { echo "ALL F010 CLT/SCAN TESTS PASSED"; exit 0; }
 echo "$FAILS F010 TEST(S) FAILED" >&2; exit 1
