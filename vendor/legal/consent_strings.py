@@ -249,6 +249,30 @@ Legal note: Recording the spoken word can be regulated by national law – for e
 )
 
 
+# The spoken-capture LEGAL NOTE is chosen by the Mac's region (CM051,
+# 2026-10-24), so the note in SPOKEN_CAPTURE_RECORDING_CONSENT.text above is
+# not what every customer sees. The installer records the note it actually
+# showed alongside the wording (consent.record_consent legal_note: region,
+# variant, verbatim text, sha256), and the recorded wording_version becomes
+# "<version>+<variant>", so two regions record two different versions.
+# wording_hash stays the hash of .text, so `check`, Doctor and the Rust gates
+# are unchanged and records written before this existed stay current.
+# Every region line is a best-effort draft that needs local professional
+# sign-off; the strings live in CM051 install.sh.strings.en-GB.sh
+# (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
+SPOKEN_CAPTURE_LEGAL_VARIANTS = ("core", "gb", "eu", "eu.de", "eu.fr", "hk", "us")
+
+
+def spoken_capture_recorded_version(variant: str) -> str:
+    """The wording_version recorded for a spoken-capture legal-note variant."""
+    if variant not in SPOKEN_CAPTURE_LEGAL_VARIANTS:
+        raise ValueError(
+            f"unknown spoken-capture legal variant {variant!r}; "
+            f"known: {SPOKEN_CAPTURE_LEGAL_VARIANTS}"
+        )
+    return f"{SPOKEN_CAPTURE_RECORDING_CONSENT.version}+{variant}"
+
+
 # Personal-use-only terms, shown to every user in the Phase-2 consent batch.
 #
 # WHY THIS EXISTS, and why it is a CONSENT STRING rather than a terms page

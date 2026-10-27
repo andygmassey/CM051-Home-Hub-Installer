@@ -1,6 +1,6 @@
 """The INGEST CONTRACT registry: every importer declares what it keeps.
 
-WHY THIS FILE EXISTS (Andy, 2026-10-22): "If we don't get this preference work
+WHY THIS FILE EXISTS (the owner, 2026-10-22): "If we don't get this preference work
 (ingest > enrich > derivation) right at the start, then the user will NEVER get
 their preferences determined." Measured the same day on a walk box: 68,311
 Apple Music points carried a song and an album and no artist field, so no

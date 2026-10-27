@@ -1,6 +1,8 @@
+diff --git a/__init__.py b/__init__.py
+index 35e00dd6..efc3886b 100644
 --- a/__init__.py
 +++ b/__init__.py
-@@ -21,6 +21,7 @@
+@@ -21,6 +21,7 @@ Bumping wording text:
  from .consent_strings import (
      ARTICLE_9_EU_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT,
@@ -8,7 +10,7 @@
      SPOKEN_CAPTURE_RECORDING_CONSENT,
      THIRD_PARTY_DATA_NOTICE,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-@@ -30,6 +31,7 @@
+@@ -30,6 +31,7 @@ from .consent_strings import (
  __all__ = [
      "ARTICLE_9_EU_CONSENT",
      "EU_VOICE_SPEAKER_ID_CONSENT",
@@ -16,9 +18,11 @@
      "SPOKEN_CAPTURE_RECORDING_CONSENT",
      "THIRD_PARTY_DATA_NOTICE",
      "WHATSAPP_UNOFFICIAL_RISK_CONSENT",
+diff --git a/consent_strings.py b/consent_strings.py
+index 8aeb4bcb..eecf93b0 100644
 --- a/consent_strings.py
 +++ b/consent_strings.py
-@@ -91,7 +91,7 @@
+@@ -91,7 +91,7 @@ You can change your mind any time. You can:
  
  - turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source
  - delete everything Ostler has stored using "Reset Ostler" in the menu
@@ -27,12 +31,34 @@
  
  Withdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.
  
-@@ -245,5 +245,57 @@
- [ ] Not now – keep spoken transcription off. (You can turn it on later in Settings.)
- 
+@@ -247,3 +247,79 @@ What we ask of you:
  Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
-+""",
-+)
+ """,
+ )
++
++
++# The spoken-capture LEGAL NOTE is chosen by the Mac's region (CM051,
++# 2026-10-24), so the note in SPOKEN_CAPTURE_RECORDING_CONSENT.text above is
++# not what every customer sees. The installer records the note it actually
++# showed alongside the wording (consent.record_consent legal_note: region,
++# variant, verbatim text, sha256), and the recorded wording_version becomes
++# "<version>+<variant>", so two regions record two different versions.
++# wording_hash stays the hash of .text, so `check`, Doctor and the Rust gates
++# are unchanged and records written before this existed stay current.
++# Every region line is a best-effort draft that needs local professional
++# sign-off; the strings live in CM051 install.sh.strings.en-GB.sh
++# (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
++SPOKEN_CAPTURE_LEGAL_VARIANTS = ("core", "gb", "eu", "eu.de", "eu.fr", "hk", "us")
++
++
++def spoken_capture_recorded_version(variant: str) -> str:
++    """The wording_version recorded for a spoken-capture legal-note variant."""
++    if variant not in SPOKEN_CAPTURE_LEGAL_VARIANTS:
++        raise ValueError(
++            f"unknown spoken-capture legal variant {variant!r}; "
++            f"known: {SPOKEN_CAPTURE_LEGAL_VARIANTS}"
++        )
++    return f"{SPOKEN_CAPTURE_RECORDING_CONSENT.version}+{variant}"
 +
 +
 +# Personal-use-only terms, shown to every user in the Phase-2 consent batch.
@@ -83,5 +109,5 @@
 +[ ] I understand. I am using Ostler for myself, personally.
 +
 +Legal note: Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction.
- """,
- )
++""",
++)
