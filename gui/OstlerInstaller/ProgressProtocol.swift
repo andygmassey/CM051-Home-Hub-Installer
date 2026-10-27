@@ -18,6 +18,7 @@
 //   PHASE       id title
 //   NEEDS_FDA   probe reason
 //   NEEDS_SUDO  reason
+//   CLT_WAIT    state=waiting|timeout|done
 //   DONE        status
 
 import Foundation
@@ -58,6 +59,12 @@ enum InstallerEvent: Equatable {
     case phase(id: String, title: String)
     case needsFDA(probe: String, reason: String)
     case needsSudo(reason: String)
+    /// F010: install.sh is waiting on Apple's Command Line Tools dialog.
+    /// `state` is waiting | timeout | done. `timeout` means the 15 minute
+    /// mark passed and the install is STILL waiting (it never aborts on
+    /// this); the GUI shows an explicit message plus an "Install developer
+    /// tools" button that re-runs `xcode-select --install`.
+    case cltWait(state: String)
     /// CX-53 (DMG ship, 2026-05-24): install.sh emits a structured
     /// RECOVERY_KEY marker carrying the value the customer must save
     /// to get back in if they lose both their passphrase AND their
@@ -355,6 +362,8 @@ struct ProgressDecoder {
             return .needsFDA(probe: kv["probe"] ?? "", reason: kv["reason"] ?? "")
         case "NEEDS_SUDO":
             return .needsSudo(reason: kv["reason"] ?? "")
+        case "CLT_WAIT":
+            return .cltWait(state: kv["state"] ?? "")
         case "DONE":
             // CX-126: a deliberate user-cancel emits status=cancelled,
             // which is neither ok nor fail -- route it to its own event
