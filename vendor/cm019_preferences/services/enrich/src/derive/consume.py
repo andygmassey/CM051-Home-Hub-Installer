@@ -80,7 +80,12 @@ class DerivedAffinityScorer:
 
     def suppressed(self, candidate: Candidate) -> bool:
         """True when the candidate matches a disliked thing (a plain dislike or a
-        contradicted one). Callers that must NEVER suggest a dislike filter on this."""
+        contradicted one). Callers that must NEVER suggest a dislike filter on this.
+
+        UNWIRED (2026-10-23): nothing in this repo calls it, and no consumer in
+        CM051 or the assistant does yet. ``contribution`` (used by score/rank)
+        already honours the marker; this hard filter is for a suggestion surface
+        that has not been built."""
         for dim, val in candidate.tags:
             a = self._by_key.get((dim, normalize_value(val)))
             if a is not None and (a.suppress or a.strength < 0):

@@ -1,6 +1,6 @@
 """Pattern derivers: trend, say-vs-do contradiction, time-of-day context.
 
-Ported and reworked from CM019 #413 (feat/pwg-derive-general, chunks 7-9) onto the
+Ported and reworked from CM019 #413 (the derive-general branch, chunks 7-9) onto the
 all-of-life engine (#422). Three differences from #413, each on purpose:
 
 - ANNOTATE ONLY. #413 emitted companion nodes; a companion shares the base node's
@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .model import DerivedPreference, EvidenceItem, normalize_value
+from .sensitive import derived_value_is_sensitive, is_abstention_value, is_sensitive
 
 try:  # the shared half-life source (services/common/recency.py)
     import recency as _recency
@@ -245,6 +246,11 @@ class ContradictionDeriver:
         contradiction = {"winner": "stated"|"behaviour", "suppress": True,
                          "reason": "<counts only>"}
 
+    NEVER derived for a sensitive value or an abstention value (alcohol, pork,
+    meat): "you said you quit, but you keep buying beer" is a health or
+    religion inference, so no marker is computed, written or served for it.
+    Those keys are counted in ``withheld_sensitive``.
+
     The winner is always the side that says DISLIKE. A dislike that behaviour
     contradicts may be a gift, a habit or someone else's order, and suggesting a
     thing the owner said they hate costs more than missing one they might like, so
@@ -258,12 +264,20 @@ class ContradictionDeriver:
                  min_lean: float = CONTRA_MIN_LEAN):
         self.min_behavioural = min_behavioural
         self.min_lean = min_lean
+        self.withheld_sensitive = 0
 
     def derive(self, items, nodes, now=None) -> None:
         base = _by_key(nodes)
+        self.withheld_sensitive = 0
         for key, members in _groups(items).items():
             node = base.get(key)
             if node is None:
+                continue
+            if (derived_value_is_sensitive(node.dimension, node.subject)
+                    or is_abstention_value(node.subject)
+                    or any(is_abstention_value(m.value) or is_sensitive(m.value) for m in members)):
+                if any(m.polarity_source == STATED for m in members):
+                    self.withheld_sensitive += 1
                 continue
             stated = [m for m in members if m.polarity_source == STATED]
             behav = [m for m in members if m.polarity_source != STATED]
@@ -280,7 +294,7 @@ class ContradictionDeriver:
                 reason = (
                     f"stated dislike ({len(stated)} statement"
                     f"{'s' if len(stated) != 1 else ''}) against {len(behav)} "
-                    f"behavioural signals leaning positive; the dislike wins for "
+                    f"behavioural signals tending positive; the dislike wins for "
                     f"suggestions"
                 )
             else:
@@ -288,7 +302,7 @@ class ContradictionDeriver:
                 reason = (
                     f"stated like ({len(stated)} statement"
                     f"{'s' if len(stated) != 1 else ''}) against {len(behav)} "
-                    f"behavioural signals leaning negative; the behavioural dislike "
+                    f"behavioural signals tending negative; the behavioural dislike "
                     f"wins for suggestions"
                 )
             node.contradiction = {"winner": winner, "suppress": True, "reason": reason}
@@ -296,6 +310,11 @@ class ContradictionDeriver:
 
 
 # --- Time of day ------------------------------------------------------------
+
+def _date_only(dt: datetime) -> bool:
+    """An event stamped exactly midnight (in its own offset) is a date with no time."""
+    return dt.timetz().replace(tzinfo=None) == datetime.min.time()
+
 
 def _tod_bucket(hour: int) -> str:
     if 5 <= hour < 12:
@@ -314,7 +333,9 @@ class ContextDeriver:
     evidence sits in it (a negative control: evenly spread evidence gets none).
     Times are read in the owner's local zone. An event stamped exactly midnight UTC
     is a date with no time, so it is left out of the time-of-day count (it would
-    read as "night") but still counts toward weekend. No season, no mood.
+    read as "night") and counts toward weekend on its OWN calendar date: it is
+    never shifted into the owner's zone (Monday 00:00Z is Sunday evening in New
+    York, which made five date-only Mondays read as "weekend"). No season, no mood.
     """
 
     method = "context"
@@ -329,6 +350,12 @@ class ContextDeriver:
     def _local(self, dt: datetime) -> datetime:
         return _aware(dt).astimezone(self.tz)
 
+    def _weekday(self, dt: datetime) -> int:
+        a = _aware(dt)
+        if _date_only(a):
+            return a.weekday()   # date-only: its own calendar date, never shifted
+        return self._local(a).weekday()
+
     def derive(self, items, nodes, now=None) -> None:
         base = _by_key(nodes)
         for key, members in _groups(_event_timed(items)).items():
@@ -338,8 +365,7 @@ class ContextDeriver:
             dated = [m for m in members if m.observed_at is not None]
             labels: List[str] = []
 
-            timed = [m for m in dated if _aware(m.observed_at).timetz().replace(
-                tzinfo=None) != datetime.min.time()]
+            timed = [m for m in dated if not _date_only(_aware(m.observed_at))]
             if len(timed) >= self.min_items:
                 counts: Dict[str, int] = defaultdict(int)
                 for m in timed:
@@ -349,7 +375,7 @@ class ContextDeriver:
                     labels.append(top)
 
             if len(dated) >= self.min_items:
-                wk = sum(1 for m in dated if self._local(m.observed_at).weekday() >= 5)
+                wk = sum(1 for m in dated if self._weekday(m.observed_at) >= 5)
                 if wk / len(dated) >= self.concentration:
                     labels.append("weekend")
 

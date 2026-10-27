@@ -22,6 +22,7 @@ from .readers import (
     StoreGateway,
 )
 from .stated import StatedConversationReader, StatedMapper
+from .thematic import HIERARCHY_GRAPH, ThematicReader
 from .stated_messages import StatedTranscriptReader
 from .stated_model import VerdictCache
 
@@ -38,7 +39,10 @@ def load_dimensions(path: Path = DIMENSIONS_YAML) -> List[DimensionConfig]:
             category=r.get("category", r["dimension"].split(".")[0]),
             min_evidence=int(r.get("min_evidence", 3)),
             tier=str(r.get("tier", "specific")),
+            sensitive_match=str(r.get("sensitive_match", "")),
             max_items=int(r["max_items"]) if r.get("max_items") else None,
+            half_life_days=float(r["half_life_days"]) if r.get("half_life_days") else None,
+            evergreen=bool(r.get("evergreen", False)),
         )
         for r in rows
     ]
@@ -107,6 +111,17 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML, stated_model
                         vocab_strict=bool(r.get("vocab_strict", False)),
                         **common),
                     rollup_factor=float(r.get("rollup_factor", 0.85)), **common))
+        elif kind == "thematic":
+            # Topic -> Wikidata QID -> broader concept (thematic.py). Degrades to
+            # no evidence, with a status, when the QID pass has not run.
+            readers.append(
+                ThematicReader(
+                    hierarchy_graph=r.get("hierarchy_graph", HIERARCHY_GRAPH),
+                    min_leaves=int(r.get("min_leaves", 2)),
+                    evidence_confidence=float(r.get("evidence_confidence", 0.5)),
+                    **common,
+                )
+            )
         elif kind == "stated_conversation":
             # One reader, many dimensions: the vocabulary decides which. The
             # model may only answer with a dimension the registry carries.

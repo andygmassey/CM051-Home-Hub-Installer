@@ -22,7 +22,14 @@ coffee is five pieces of evidence, saying it five times in one chat is one.
 
 Excluded by construction: facts about anyone but the owner (a friend loving jazz
 is not the owner loving jazz; that belongs on a person page), facts that mention
-a minor, and private (L2/L3) facts.
+a minor, L3 facts, facts with NO privacy level (fail closed: an unknown level is
+never read as L1), and every statement the sensitive gate (sensitive.py, the
+one terms file) withholds: a sentence touching health, religion, sexuality,
+politics, ethnicity, union membership, diet or a child derives nothing ("I
+avoid beer since I got sober" is a health inference, not a taste); a value
+that is itself sensitive is dropped; and a DISLIKE of an abstention value
+(alcohol, pork, meat) is dropped, because not drinking or not eating pork is a
+health or religion signal. L2 facts are read and the derived node inherits L2.
 """
 
 from __future__ import annotations
@@ -41,6 +48,7 @@ import yaml
 
 from .cuisine_vocab import VENUE_LABELS
 from .model import PRIVACY_ORDER, EvidenceItem
+from .sensitive import is_about_minor_text, is_abstention_value, is_sensitive
 from .readers import canonical_labels, load_vocab as shared_vocab, vocab_parents
 
 VOCAB_YAML = Path(__file__).resolve().parent / "stated_vocab.yaml"
@@ -117,7 +125,7 @@ _MINOR_WORDS = re.compile(
     r"teen|teens|teenager|teenagers|minor|nephew|niece|grandson|granddaughter|"
     r"schoolboy|schoolgirl|pupil)\b"
 )
-_AGE = re.compile(r"\b(\d{1,2})[- ]years?[- ]old\b")
+_AGE = re.compile(r"\b(\d{1,2})[- ]years?[- ]old\b|\baged?\s+(\d{1,2})\b|[a-z]\s*\(\s*(\d{1,2})\s*\)")
 
 
 def mentions_a_minor(text: str) -> bool:
@@ -125,7 +133,39 @@ def mentions_a_minor(text: str) -> bool:
     t = (text or "").lower()
     if _MINOR_WORDS.search(t):
         return True
-    return any(int(m.group(1)) < 18 for m in _AGE.finditer(t))
+    if any(int(next(g for g in m.groups() if g)) < 18 for m in _AGE.finditer(t)):
+        return True
+    return is_about_minor_text(t)   # the shared minors terms (a kids' party, a nursery)
+
+
+def gate_stances(text: str, stances: List["Stance"], stats: Optional[Counter] = None) -> List["Stance"]:
+    """The ONE sensitive gate for stated evidence, on the fact path, the
+    transcript path and the model path alike.
+
+    - a statement whose text is sensitive derives NOTHING (the context is the
+      inference: "I avoid beer since I got sober");
+    - a value that is itself sensitive is dropped ("Bible study", "Alcoholics
+      Anonymous" from a model);
+    - a negative stance on an abstention value (alcohol, pork, meat) is dropped.
+    """
+    if not stances:
+        return stances
+    if is_sensitive(text):
+        if stats is not None:
+            stats["withheld_sensitive_statement"] += 1
+        return []
+    kept = []
+    for st in stances:
+        if is_sensitive(st.value):
+            reason = "withheld_sensitive_value"
+        elif st.strength < 0 and is_abstention_value(st.value):
+            reason = "withheld_abstention"
+        else:
+            kept.append(st)
+            continue
+        if stats is not None:
+            stats[reason] += 1
+    return kept
 
 
 @dataclass(frozen=True)
@@ -480,8 +520,13 @@ class StatedConversationReader:
         for b in rows:
             self.stats["facts_seen"] += 1
             text = b.get("text", {}).get("value", "")
-            level = b.get("priv", {}).get("value") or "L1"
-            if level in BLOCKED_PRIVACY:
+            level = b.get("priv", {}).get("value") or ""
+            if not level:
+                # Fail CLOSED, as the transcript path does: a fact with no level
+                # is never read as L1.
+                self.stats["skipped_no_privacy_level"] += 1
+                continue
+            if level in BLOCKED_PRIVACY or level not in PRIVACY_ORDER:
                 self.stats["skipped_private"] += 1
                 continue
             if mentions_a_minor(text):
@@ -489,6 +534,7 @@ class StatedConversationReader:
                 continue
             stances, how = self.mapper.map_fact(text)
             self.stats["via_" + how] += 1
+            stances = gate_stances(text, stances, self.stats)
             if not stances:
                 continue
             conv = b.get("conv", {}).get("value", "")

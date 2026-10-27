@@ -153,6 +153,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small grey dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small grey macOS dialog is asking to install developer tools, click Install on it – this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
+MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog."
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
@@ -1034,7 +1035,6 @@ MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. 
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."
-MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
 #    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
@@ -1107,8 +1107,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="birthdays"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri suggestions"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="a calendar you subscribe to"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="reminders"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Use \"%s\" for your brief?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="We set this one aside because it looks like %s. Say yes if it is really someone's diary."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
@@ -1271,7 +1271,7 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Cont
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Have you requested your data exports?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
 Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
@@ -1384,7 +1384,7 @@ MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
 MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe."
 MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
@@ -1393,7 +1393,37 @@ MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Y
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
-MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+# ── Spoken-capture legal note, chosen by the Mac's REGION (not its language) ──
+# Composed by _ostler_spoken_capture_legal_note in install.sh as
+#   "Legal note: " + CORE + LOCAL + the region line(s) + RESPONSIBILITY,
+# byte for byte the note the GUI renders, and the note the consent record pins.
+# CORE, LOCAL and RESPONSIBILITY show in every region. The region is the country part
+# of AppleLocale (zh-Hant_GB is GB), read the same way by the GUI
+# (LegalRegion in gui/OstlerInstaller/Steps/ViewCopy.swift), which renders the
+# same text from ViewCopy.json consent_spoken_capture.legal_*.
+# These are consent / legal keys (l10n legal gate: key carries CONSENT): a
+# translation needs human legal review, and English prevails.
+# Each REGION line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and NEEDS LOCAL
+# PROFESSIONAL SIGN-OFF before it is relied on. Statute numbers appear only
+# where the wording predates this change (UK GDPR, StGB 201, French Penal Code
+# 226-1) or is certain (PDPO Cap. 486). Any region not listed: CORE only.
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX="Legal note:"
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE="Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere."
+# Shown in every region; the GUI twin is consent_spoken_capture.legal_local.
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac."
+# Region GB. Best-effort draft, needs local professional sign-off (UK).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB="UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+# Region EU-27 and EEA. Best-effort draft, needs local professional sign-off (EU).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU="The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+# Region DE, shown after the EU line. Best-effort draft, needs local professional sign-off (DE).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE="In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes)."
+# Region FR, shown after the EU line. Best-effort draft, needs local professional sign-off (FR).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR="In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code."
+# Region HK. Best-effort draft, needs local professional sign-off (HK).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful."
+# Region US. Best-effort draft, needs local professional sign-off (US).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US="In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY="As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
@@ -1403,9 +1433,9 @@ Ostler can turn spoken conversations you capture – calls and meetings – into
 What we ask of you:
 • Get whatever consent your local law requires before you capture audio.
 • Make it clear audio is being captured – say so, or keep a visible indicator on.
-• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
-
-Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings."
+# install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
+# to this help text at the gui_read call, so the help carries no legal note itself.
 MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"

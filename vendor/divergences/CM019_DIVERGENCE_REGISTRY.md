@@ -245,6 +245,22 @@ of the pin: they carry upstream #422 (open). Not a divergence from intent: the
 same diff, to be re-pinned when #422 merges. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
 
+### T0j -- smart-prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
+
+`services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
+`services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
+upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml`, `derive/patterns.py` and `ingest/src/minors.py`. `enricher.py`,
+`cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
+onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
+NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
+
+### food evidence -- restaurants, cuisines, what you buy (personal-world-graph #432; CM051 #3124)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`
+(`derive/{cuisine_vocab,cuisine_local_model}.py` and `derive/vocab/cuisine.yaml` are on main via T0j).
+Changed: `enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
 ### smart-prefs -- stated conversation preferences (ahead of the pin; personal-world-graph #423, stacked on #427)
 
 `derive/stated.py`, `derive/stated_messages.py`, `derive/stated_model.py` and `derive/stated_vocab.yaml` are new, and `derive/{config,engine,model,query,endpoint,consume,writer}.py`, `dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are changed again, byte-identical to #423's head. Cuisines map through the shared `vocab/cuisine.yaml` (#427). Not a divergence from intent: re-pin when #423 merges. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs stated".
@@ -257,15 +273,14 @@ New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/client
 (food.cuisine lexicon rows on `extra.cuisine`/`extra.cuisine_inferred`, new food.item),
 `enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
 `ingest/src/{pipeline,parsers/__init__}.py` (register the parser). Detail:
-`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 food evidence".
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 food evidence".
 
-### smart-prefs -- trend, say-vs-do contradiction, time-of-day context (ahead of the pin; personal-world-graph, stacked on #422)
+### smart-prefs -- trend, say-vs-do contradiction, time-of-day context (wiring only; CM051 #3130)
 
-New `services/enrich/src/derive/patterns.py`, plus optional-field changes in
-`derive/{consume,endpoint,engine,model,query,writer}.py` and the two ontology
-files. Byte-identical to the CM019 branch `feat/smart-prefs-patterns` (5a508ed); the
-vendor-only `derive_runner.py` registers the derivers. Detail:
-`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs patterns".
+`derive/patterns.py` and the optional-field edits under `derive/` are on main byte-equal to
+upstream@5af9f5b5 (T0j #3160). This PR carries only the vendor-only `derive_runner.py`,
+which registers the derivers and prints their counts. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 patterns wiring".
 
 ## How to add a row
 
@@ -288,3 +303,13 @@ Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas
 - Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
 - Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
 - Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. `privacy_gate.py` byte-identical; `enricher.py` changed lines equal upstream's; `derive/readers.py` SCROLL_FIELDS not carried (the vendored derive tree predates it and drives no online lookup). Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.

@@ -313,6 +313,29 @@ Per-section failure capture: a section that fails will have its array
 present-but-empty plus a sibling `<section>_error` field. Aliases
 mirror the legacy section, so they too will be empty in that case.
 
+### Under-18 list (`minors`)
+
+The owner-set list of people who are under 18. A minor is stored and searchable
+but never nudged, never sent to Reminders and never used for facts or
+suggestions. All four routes need the service token. The list lives in
+`~/.ostler/minors.json` (`OSTLER_MINORS_FILE`), written atomically, mode 0600.
+It holds children's names: it never leaves the box and is never logged.
+
+- `GET /api/v1/minors` returns `{"registry":"ok","minors":[{"slug","name"}]}`.
+  A file that exists but cannot be read returns 503
+  `{"registry":"unreadable","minors":[],"error":"under-18 list unreadable"}`.
+- `POST /api/v1/people/{slug}/minor` with `{"minor": true|false}` returns
+  `{"slug","minor","changed","identifiers_recorded"}`. 404 for an unknown slug
+  when marking; 503 (and no write) when the list is unreadable. Marking also
+  writes the do-not-suggest record with reason `minor`; unmarking clears that
+  record only if its reason is `minor`.
+- `GET /api/v1/minors/suggestions` returns `{"suggestions":[{"slug","name","age"}]}`
+  for contacts whose full birthday says they are under 18 today and who are not
+  marked, dismissed or already do-not-suggest. Read-only: it never marks anyone.
+- `POST /api/v1/people/{slug}/minor-suggestion/dismiss` returns
+  `{"slug","dismissed":true}`; remembered (slugs only, mode 0600) in
+  `~/.ostler/state/minors-dismissed.json` (`OSTLER_MINORS_DISMISSED_FILE`).
+
 ### `GET /api/v1/email/recent?hours=<n>&limit=<n>`
 
 Recent emails from Gmail via `gws`. Returns subject + from + date +
@@ -327,6 +350,41 @@ the last 168 hours (7 days).
 
 Submit a conversation transcript for CM048 processing. Returns 202
 with a `job_id`. Status via `GET /api/v1/conversation/status/{id}`.
+
+### `POST /api/v1/conversation/upload-part`
+
+Chunked upload for a transcript over the 1 MiB request limit (Lane 11).
+Body: `{meeting_id, part_index, part_total, transcript, metadata?}`; `meeting_id` is a UUID
+or slug, `part_index` is 0-based, `part_total` is 1..64 and identical on every part,
+`metadata` is read from part 0 only. Each request body must stay under 1 MiB; the
+reassembled transcript may reach 32 MiB. Parts may arrive in any order and may be
+re-sent (same text is a no-op, different text for a held index is 409, a changed
+`part_total` is 409). Each part is acknowledged with 200 and `missing`; the part that
+completes the set joins them in index order and hands the result to
+`conversation/process` under `metadata.meeting_id = meeting_id`, so the reply is that
+route's 202 plus `parts`. Incomplete uploads are deleted after 24 hours. If the final
+`process` step fails the spool is already consumed: resend every part.
+
+### `POST /api/v1/speakers/identify`
+
+Body `{transcript, attendees, timestamp, duration, source}` (CM042 RemoteCapture).
+Reply `{speakers: [{label, person_id, display_name, confidence, reasoning}]}`, one entry per
+distinct speaker label found in the transcript. Order of evidence: a stored correction
+(0.97), the operator for `User`/`You`/`Me` (0.90), a label that matches an attendee or
+contact (0.92 / 0.85), a first-name match (0.75), the single non-operator attendee for a
+generic `Remote`/`Speaker N` label (0.80). Several candidates are never guessed between:
+`person_id` and `display_name` are null and `confidence` is 0. `person_id` is the wiki slug.
+The Hub holds no voiceprints by design, so no audio evidence is used.
+
+### `POST /api/v1/speakers/correct`
+
+Stores a correction so later transcripts get the real name. Body
+`{meeting_id?, attendees?, corrections: [{label, display_name, person_id?}]}`, or the CM031
+`SpeakerUpdateRequest` shape `{meeting_id, identifications: [{speaker_label, person_id,
+display_name, confidence, status}]}` (entries with status `unknown` or no name are skipped).
+A correction for a generic label (`Remote`, `Speaker 2`) only applies to a later meeting
+whose attendees include the corrected name. Names only; stored 0600 at
+`~/.ostler/state/speaker_corrections.json`.
 
 ### `POST /api/v1/ingest/ios`
 
@@ -479,3 +537,13 @@ the defaults; every customer override is explicit.
 | `OSTLER_DB_KEY`       | unset                        | Required to read encrypted coach DB. |
 | `OSTLER_PYTHON`       | unset (skips Ostler bridge)  | Path to Ostler venv python; unset disables the bridge. |
 | `OSTLER_PROJECT_DIR`  | unset (skips Ostler bridge)  | Path to Ostler project root; unset disables the bridge. |
+
+## Browsing summaries and Save to Knowledge (Lane 6)
+
+All three routes sit behind the Doctor proxy and the service-token guard (401 without credentials).
+
+- `POST /api/safari/ingest` accepts optional `text` (readable page text, clamped to 20480 chars) and `dwell_ms`. Text is summarised locally by a low-priority worker (1 to 2 sentences, 3 to 6 tags, key entities) and then dropped. Response adds `summary_status`: `queued`, `unsummarised` or `skipped_text`. Skip-listed pages (banking, health, mail, login, checkout, search results, intranet, localhost) keep the visit and capture no text. Edit the list in `~/.ostler/config/browsing_text_skiplist.txt`.
+- `POST /api/safari/save` takes `url`, `title`, `text` (up to 200 KB), `timestamp`, `device`, optional `tags` and `note`. Returns 202; a Knowledge item (`source: web_clip`, `compartment_level: 2`) appears in the `evernote_knowledge` collection, linked to the visit.
+- `GET /api/v1/browsing/search?q=&days=&limit=` returns visits with `summary`, `tags`, `entities`, `summary_status`. Entries from the History.db and Chrome history importers have no text and read as `unsummarised`.
+
+Wire contract shared with the extensions: `assistant_api/tests/fixtures/hub_contract.json`.

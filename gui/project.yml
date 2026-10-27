@@ -1421,6 +1421,10 @@ targets:
       - path: Uninstaller
       - path: OstlerInstaller/ProgressProtocol.swift
       - path: OstlerInstaller/OutputLineBuffer.swift
+      # The Ostler brand mark, the installer's own AppIcon set, so Finder shows
+      # it in /Applications/Ostler (118 U4: it shipped with the blank icon).
+      # Guarded by scripts/verify_payload_app_icons.py on the staged DMG.
+      - path: OstlerInstaller/Assets.xcassets
     # NO `info:` BLOCK, deliberately, for the reason the Recover Ostler target
     # below records: a second CFBundleShortVersionString key in this file is
     # the ambiguity the installer-version-consistency gate fails on. The plist
@@ -1470,6 +1474,8 @@ targets:
     sources:
       - path: Recovery
       - path: OstlerInstaller/Theme/OstlerTheme.swift
+      # The Ostler brand mark (118 U4), same set and guard as the Uninstaller.
+      - path: OstlerInstaller/Assets.xcassets
     # NO `info:` BLOCK, AND THAT IS DELIBERATE. An `info:` block makes
     # xcodegen GENERATE the plist from properties listed here, which would
     # put a second `CFBundleShortVersionString:` key into project.yml. The

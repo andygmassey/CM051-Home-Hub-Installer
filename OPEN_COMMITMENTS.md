@@ -1,6 +1,6 @@
 # What I said I would do, and whether I did it
 
-Andy, 2026-09-16: *"How can I hold you accountable for doing a shit job and
+The owner, 2026-09-16: *"How can I hold you accountable for doing a shit job and
 lying to me like this?"*
 
 A fair question with no good answer while the record of what I promised lives

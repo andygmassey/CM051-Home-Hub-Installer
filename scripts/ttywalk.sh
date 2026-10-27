@@ -56,13 +56,13 @@
 #   they degrade to CANNOT-RUN rather than FAIL, which is the quietest way for
 #   a blocking probe to stop asserting anything.
 #
-#   scripts/ttywalk.sh --host ... --expect-name ... --reset      # uninstall first
-#   scripts/ttywalk.sh --host ... --reset --wipe-stores          # AND wipe the stores
+#   scripts/ttywalk.sh --host ... --expect-name ... --reset      # cold box first
 #
-#   --wipe-stores DESTROYS the graph, the vectors, the cached wiki and redis.
-#   It dumps the graph to the box first and REFUSES to continue if it cannot
-#   prove the volumes actually went. Requires --reset. See the block below for
-#   why a plain --reset deliberately does not do this.
+#   --reset IS A WIPE (v1.0.117 W4, approved by Archie: the launch directive
+#   requires a cold box). It runs the shipped uninstaller, boots out every
+#   Ostler job, deletes the colima VM WITH its data disk, and refuses the walk
+#   (CANNOT-RUN) unless the box is then clean. --wipe-stores is retired; it is
+#   accepted as an alias of --reset so old command lines keep working.
 #   scripts/ttywalk.sh --host ... --expect-name ... --report-only # read last run
 #
 #   THE WALK RECORDS ITSELF. When the install reaches an adjudication this runs
@@ -143,7 +143,7 @@ while [[ $# -gt 0 ]]; do
         --expect-model) EXPECT_MODEL="${2:-}"; shift 2 ;;
         --expect-user)  EXPECT_USER="${2:-}"; shift 2 ;;
         --reset)        DO_RESET=1; shift ;;
-        --wipe-stores)  WIPE_STORES=1; shift ;;
+        --wipe-stores)  WIPE_STORES=1; DO_RESET=1; shift ;;
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --no-record)    NO_RECORD=1; shift ;;
@@ -163,8 +163,8 @@ done
 # that has nothing to do with the network. A CANNOT-RUN with the wrong REASON
 # is barely better than a wrong verdict: it sends the next person to the wrong
 # problem.
-if [[ "$WIPE_STORES" -eq 1 && "$DO_RESET" -ne 1 ]]; then
-    die "--wipe-stores requires --reset. Wiping the stores without running the uninstall path first would leave a half-torn install that no probe describes."
+if [[ "$WIPE_STORES" -eq 1 ]]; then
+    say "--wipe-stores is retired: --reset now deletes the VM with its data disk, which removes every store. Treating it as --reset."
 fi
 
 SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
@@ -630,451 +630,65 @@ esac
 # part of what we are testing, and then reports what is still holding a port.
 # Anything that genuinely needs a virgin box is CANNOT-RUN here and must be
 # said so out loud rather than approximated.
-# ── Wipe the stores, ONLY when explicitly asked ──────────────────────
-#
-# WHY THIS EXISTS, AND IT IS THE ANSWER TO "WHY CAN WE NOT GET A CLEAN 24".
-# MEASURED on the v1.0.68 artefact walk, archie@.240, 2026-09-05:
-#
-#     store volumes created        2026-09-05T02:53:08Z
-#     v1.0.68 installed at         2026-09-05T07:42:12Z   -- 4.8h LATER
-#     oldest node in the graph     2026-09-05T03:10:26Z   -- v1.0.67 data
-#
-# A plain --reset is not a wipe and says so. So the v1.0.68 walk graded a graph
-# that v1.0.67 had built. Two probes then failed on damage that predates the
-# artefact under test: no_person_holds_two_contact_cards (54 people holding two
-# contact cards) and people_stores_reconcile (13 orphan vectors). NO CHANGE TO
-# THE ARTEFACT CAN TURN THOSE GREEN, because the walk never rebuilds the data.
-#
-# A WALK VERDICT IS A FUNCTION OF THE BUILD *AND* THE BOX STATE, and only the
-# build is recorded. This flag is how an operator holds the second variable
-# still, so a red means the artefact and not the history.
-#
-# IT IS OPT-IN AND IT STAYS OPT-IN. The default reset must keep working on a
-# box whose accumulated data is the subject of an investigation.
-if [[ "$WIPE_STORES" -eq 1 ]]; then
-    rule "WIPE STORES (destructive, explicitly requested)"
-    "${SSH[@]}" 'set -u
-        export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH
-        # ABSOLUTE PATH for docker, same reason as colima below: the login PATH
-        # on a real walk box has no Homebrew entry.
-        DOCKER=/opt/homebrew/bin/docker
-        [ -x "$DOCKER" ] || DOCKER=/usr/local/bin/docker
-        if [ ! -x "$DOCKER" ]; then
-            echo "CANNOT-WIPE: no docker at /opt/homebrew/bin or /usr/local/bin."
-            exit 2
-        fi
+# ── The old --wipe-stores block is retired (v1.0.117 W4) ─────────────────
+# It dumped the graph, ran the uninstaller and counted docker volumes. The reset
+# below now deletes the colima VM WITH its data disk (colima delete --data) and
+# asserts the disk is gone, which removes every store whatever the uninstaller
+# did, so a separate opt-in wipe only duplicated it. On the cold box the launch
+# directive walks there is no graph to dump. The flag remains an alias.
 
-        echo "BEFORE, the volumes that exist:"
-        "$DOCKER" volume ls --format "  {{.Name}}" 2>/dev/null | sort || true
-        _before=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
-        echo "  count: ${_before:-0}"
-
-        # THE URL BELOW IS QUOTED AND MUST STAY QUOTED. This block runs over
-        # ssh and the walk box login shell is zsh. Unquoted, zsh GLOBS the
-        # question mark in /store?default, finds no matching file, and aborts
-        # the command with "no matches found" -- so curl never runs, the dump
-        # is empty, and the guard below correctly refuses the wipe. Measured
-        # 2026-09-07: --wipe-stores had NEVER succeeded against this box for
-        # exactly this reason, and the failure reads as "the graph did not
-        # dump", which sends you looking at Oxigraph instead of at the shell.
-        # bash would have been fine. The remote shell is not yours to choose.
-        #
-        # AND IT MUST BE DOUBLE QUOTES, NOT SINGLE. This whole block is one
-        # SINGLE-QUOTED bash string starting at the ssh call above. A single
-        # quote inside it CLOSES that string, so the shell concatenates and the
-        # quotes are stripped before ssh ever sees them -- the remote still gets
-        # a bare URL and still globs it. Measured: printf of a single-quoted URL
-        # nested in a single-quoted string yields no quotes; the double-quoted
-        # form yields them intact. My first fix used single quotes, looked
-        # correct in the source, passed a source-text lint, and changed nothing
-        # about what was transmitted. The walk failed identically.
-        # NO BACKTICKS IN THIS COMMENT. It sits inside a heredoc that is sent
-        # over ssh, so a backtick here is command substitution, not decoration
-        # -- a first attempt at this very note broke the script, caught by
-        # bash -n against an unmodified control that parsed.
-        # PRESERVE THE EVIDENCE BEFORE DESTROYING IT. The graph on this box is
-        # the only copy of whatever produced the 71 absent person nodes. A wipe
-        # that loses it trades one investigation for another.
-        # 🔴 DUMP THE WHOLE STORE. THE URL IS /store WITH NO QUERY STRING.
-        #
-        # This used to request /store?default, which is the DEFAULT GRAPH ONLY.
-        # Oxigraph runs here WITHOUT --union-default-graph (install.sh:17504)
-        # and compartment.py:32 REQUIRES it stay off, so the default graph is
-        # not a view over the named graphs: everything in a named graph is
-        # simply absent from that dump.
-        #
-        # MEASURED on the founder box, v1.0.98, 2026-09-16:
-        #
-        #     /store?default      155,048 quads    22.7 MB
-        #     /store              231,105 quads    36.4 MB
-        #     SPARQL store total  231,105 quads
-        #
-        # The 76,057 quads the old URL silently dropped were the two named
-        # graphs in their entirety: urn:ostler:user/Andy (37,625, i.e. EVERY
-        # CM048 triple) and the projected-preferences graph (38,432). Both
-        # counted ZERO in the default-only dump and both are whole in the
-        # store-wide one, and the two graph counts add up to the difference
-        # exactly.
-        #
-        # So every walk record this project holds was graded by an instrument
-        # that could not read a third of the customer data, which is how a
-        # season of defects accumulated while the walks stayed green.
-        #
-        # THE QUOTES ON THE URL STILL MATTER even without the question mark:
-        # leave them, because the next person to add a parameter will not
-        # re-derive the zsh globbing note above.
-        _dump="$HOME/ostler-prewipe-$(date -u +%Y%m%dT%H%M%SZ).nq"
-        _tok="$HOME/.ostler/secrets/oxigraph_token"
-        if [ -r "$_tok" ]; then
-            if curl -fsS -m 300 -H "Authorization: Bearer $(cat "$_tok")" \
-                    -H "Accept: application/n-quads" \
-                    "http://127.0.0.1:7878/store" > "$_dump" 2>/dev/null; then
-                echo "graph dumped before wipe: $_dump ($(wc -c < "$_dump" | tr -d " ") bytes)"
-            else
-                echo "CANNOT-WIPE: the graph did not dump, and a wipe that loses"
-                echo "  the only copy of the evidence is not a reset, it is a deletion."
-                rm -f "$_dump"
-                exit 2
-            fi
-
-            # ── THE GUARD THAT WOULD HAVE CAUGHT THE ABOVE ────────────────
-            #
-            # A backup that silently captures two thirds is WORSE than no
-            # backup, because it is trusted. The old dump looked healthy by
-            # every signal this script had: exit 0, no stderr, 22.7 MB on
-            # disk. Size alone cannot tell a complete dump from a partial one,
-            # so compare the dump against what the store SAYS it holds.
-            #
-            # Oxigraph answers SPARQL text/csv as a header row plus the value,
-            # CRLF terminated, so tail plus tr is the whole parse. The UNION is
-            # required for the same reason as above: with union-default-graph
-            # off, one bare pattern counts the default graph only.
-            #
-            # N-Quads writes exactly one statement per line, so wc -l is the
-            # quad count. A literal containing a newline is escaped as a
-            # two-character sequence and does not add a line.
-            _store_total=$(curl -fsS -m 120 \
-                -H "Authorization: Bearer $(cat "$_tok")" \
-                -H "Accept: text/csv" \
-                --data-urlencode "query=SELECT (COUNT(*) AS ?c) WHERE { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }" \
-                "http://127.0.0.1:7878/query" 2>/dev/null | tail -1 | tr -d "\r")
-            _dumped=$(wc -l < "$_dump" | tr -d " ")
-
-            # CANNOT-RUN IS NOT A PASS. If the total did not come back as a
-            # number the guard has not cleared the dump, it has failed to look
-            # at it, and a destructive wipe is not the place to assume the
-            # best.
-            case "$_store_total" in
-                ""|*[!0-9]*)
-                    echo "CANNOT-WIPE: could not read the store quad total from Oxigraph,"
-                    echo "  so the dump at $_dump cannot be shown to be complete."
-                    echo "  Not knowing is not the same as knowing it is whole."
-                    exit 2
-                    ;;
-            esac
-
-            # 1% of slack absorbs live writes landing between the dump and the
-            # count. It does not absorb a missing graph, which is what the
-            # 33% shortfall above looked like.
-            _min_ok=$(( _store_total * 99 / 100 ))
-            if [ "$_dumped" -lt "$_min_ok" ]; then
-                echo "CANNOT-WIPE: the dump is materially short of the store."
-                echo "  store reports : $_store_total quads"
-                echo "  dump contains : $_dumped quads"
-                echo "  required      : $_min_ok quads (99%)"
-                echo "  A backup that captures part of the store and says nothing is"
-                echo "  worse than none, because the wipe that follows trusts it."
-                exit 2
-            fi
-            echo "dump verified complete: $_dumped of $_store_total quads reported by the store"
-        else
-            echo "CANNOT-WIPE: no oxigraph token at ~/.ostler/secrets/oxigraph_token,"
-            echo "  so the graph cannot be dumped and cannot be safely destroyed."
-            exit 2
-        fi
-
-        # POSITIVE CONTROL, TAKEN BEFORE ANYTHING IS DESTROYED. The residue
-        # count below can read zero for two reasons that print identically:
-        # nothing survived, or it is looking somewhere nothing ever was. An
-        # installed box that has not been wiped MUST have both of these, so
-        # their absence here means the probe cannot see the subject and its
-        # zero is worthless. Recorded now because after the uninstaller runs
-        # there is nothing left to take a control from.
-        _CTL_OSTLER_BEFORE=0; [ -d "$HOME/.ostler" ] && _CTL_OSTLER_BEFORE=1
-        _CTL_CONTENT_BEFORE=0; [ -d "$HOME/Documents/Ostler" ] && _CTL_CONTENT_BEFORE=1
-        echo "positive control before the wipe: ~/.ostler=${_CTL_OSTLER_BEFORE} content-root=${_CTL_CONTENT_BEFORE}"
-
-        # ── PRESERVE THE LICENCE ACROSS THE WIPE ──────────────────────────────
-        #
-        # 🔴 MEASURED 2026-09-09, and it kills every wipe walk. The shipped
-        # uninstaller removes EVERYTHING under ~/.ostler except power.conf
-        # (install.sh:21732), and the licence lives at
-        # ~/.ostler/license/license.json (install.sh:1970). The licence
-        # preflight in this file runs at :487, BEFORE this block, so it passes;
-        # the wipe then deletes the licence; and the install that follows dies
-        # at ERR-02-LICENCE-REQUIRED with the box already wiped and no
-        # uninstaller left for a retry.
-        #
-        # That is not a hypothetical: the v1.0.82 walk hit the ERR-02 shape on
-        # its second priming attempt, straight after its first attempt had run
-        # the real uninstaller. Tonight was the FIRST wipe that ever found a
-        # shipped uninstaller to run, which is the only reason this had never
-        # fired before.
-        #
-        # The copy goes to mktemp OUTSIDE ~/.ostler on purpose: anywhere inside
-        # it is deleted by the very find this is protecting against.
-        #
-        # 🗿 THIS STAYS EVEN THOUGH THE UNINSTALLER NOW SPARES THE LICENCE.
-        # The uninstaller that runs here is the one ALREADY ON THE BOX, staged
-        # by whichever DMG was installed last. A box carrying a pre-fix build
-        # still deletes the licence, and that is precisely the box a walk is
-        # most likely to be resetting. The restore below is a `cp` over a file
-        # that may now already be there, which is idempotent, so keeping this
-        # costs nothing and removing it would strand exactly the case it was
-        # written for.
-        _LIC="$HOME/.ostler/license/license.json"
-        _LIC_BAK=""
-        if [ -s "$_LIC" ]; then
-            # PORTABLE mktemp. The BSD-only form that takes a bare prefix after
-            # the -t flag is DESCRIBED rather than written here, for the reason
-            # this same file records at its #1560 note: a comment that reproduces
-            # the wrong form satisfies the very grep meant to find remaining uses
-            # of it. BSD accepts that form; GNU REFUSES it, "too few X-s in
-            # template".
-            # Measured on the Linux runner: the -t form failed, _LIC_BAK stayed
-            # empty, the limb printed LICENCE PRESENT BUT COULD NOT BE COPIED,
-            # and the licence was destroyed. This limb runs on the macOS box in
-            # life, so it would never have failed there, and the test running it
-            # on the runner is the ONLY reason it was caught before it shipped.
-            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
-            if cp "$_LIC" "$_LIC_BAK" 2>/dev/null; then
-                echo "licence saved before the wipe: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes"
-            else
-                _LIC_BAK=""
-                echo "LICENCE PRESENT BUT COULD NOT BE COPIED. The install after this wipe"
-                echo "  will refuse at ERR-02-LICENCE-REQUIRED. Continuing so the wipe itself"
-                echo "  is still measured, but expect that failure."
-            fi
-        else
-            echo "no licence to preserve at ~/.ostler/license/license.json"
-        fi
-
-        # The REAL uninstaller. install.sh writes ~/.ostler/bin/ostler-uninstall
-        # and the store teardown (docker compose down -v) lives inside it.
-        if [ -x "$HOME/.ostler/bin/ostler-uninstall" ]; then
-            echo "running the shipped uninstaller: $HOME/.ostler/bin/ostler-uninstall"
-            # #1560: OSTLER_UNINSTALL_ASSUME_YES is the name the uninstaller
-            # actually reads. Both call sites in this file used to pass a
-            # DIFFERENT, shorter spelling that existed nowhere -- the
-            # uninstaller had no override of any kind -- so every --reset this
-            # harness ever performed uninstalled NOTHING and looked exactly like
-            # a polite refusal. The variable was invented at the call site and
-            # never checked against a reader.
-            #
-            # The old spelling is described rather than written here on purpose:
-            # a comment that reproduces the wrong name satisfies the very grep
-            # that is meant to find remaining uses of it. That happened while
-            # writing this fix, and the second call site 50 lines below was
-            # found only because the check counted BOTH directions -- what the
-            # uninstaller reads, and what every caller passes -- and refused to
-            # accept a one-sided match.
-            #
-            # --yes would do as well; the env var is used here so the intent
-            # survives being read out of a log line.
-            OSTLER_UNINSTALL_ASSUME_YES=1 bash "$HOME/.ostler/bin/ostler-uninstall" 2>&1 | tail -30
-        elif [ -f "$HOME/.ostler/docker-compose.yml" ]; then
-            echo "no shipped uninstaller; falling back to docker compose down -v"
-            cd "$HOME/.ostler" && "$DOCKER" compose down -v 2>&1 | tail -20
-        else
-            echo "CANNOT-WIPE: neither ~/.ostler/bin/ostler-uninstall nor a compose file."
-            exit 2
-        fi
-
-        # MEASURE THE RESULT. An uninstaller that exits 0 having removed nothing
-        # is exactly the silent no-op this whole block exists to refuse.
-        echo "AFTER, the volumes that remain:"
-        "$DOCKER" volume ls --format "  {{.Name}}" 2>/dev/null | sort || true
-        _after=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c . || true)
-        echo "  count: ${_after:-0}"
-        _left=$("$DOCKER" volume ls --quiet 2>/dev/null | grep -c "^ostler_" || true)
-        if [ "${_left:-0}" -gt 0 ]; then
-            echo "WIPE INCOMPLETE: ${_left} ostler_ volume(s) survived. The next walk"
-            echo "  would still be grading carried-over data, so this is CANNOT-RUN"
-            echo "  rather than a reset that quietly did less than it said."
-            exit 2
-        fi
-        # THE VOLUME COUNT IS NOT THE BOX. Everything above measures Docker and
-        # nothing above measures the filesystem, so "WIPE CONFIRMED" was a claim
-        # about VOLUMES wearing the format of a claim about the BOX.
-        #
-        # MEASURED 2026-09-06 on the walk box: 29 files under the content root
-        # predated the install that was live at the time, and 42M of Captures,
-        # Conversations, Daily-Briefs, Exports, Transcripts and Wiki survived a
-        # wipe that had already printed CONFIRMED. 4 of the 26 box-walk probes
-        # read under that root, including the two that open the compiled wiki
-        # index. One of them treats a MISSING index as CANNOT-RUN, which is the
-        # correct third state -- and a surviving index from the previous walk
-        # disarms exactly that arm, so a walk where the compiler never ran can
-        # be graded against output the previous walk left behind. Fail-open,
-        # fail-open is the direction that ships.
-        #
-        # WHY THEY SURVIVE, AND IT IS NOT A DEFECT IN THE UNINSTALLER. Run
-        # without --remove-content it ASKS whether to keep the content root,
-        # and on a non-tty `read` fails, so it takes its documented safe
-        # default and keeps. That default is RIGHT for a customer: never
-        # destroy a customer wiki because stdin was closed. It is wrong for a
-        # walk, whose entire purpose is a cold box.
-        #
-        # The harness removes the root ITSELF rather than passing
-        # --remove-content, because the uninstaller on the box is the one the
-        # INSTALLED version wrote, and an older one exits 2 on an argument it
-        # does not know. Removing it here works against every version, which is
-        # the point of using the shipped uninstaller in the first place.
-        _CONTENT_ROOT="$HOME/Documents/Ostler"
-        case "$_CONTENT_ROOT" in
-            # `[!/]` after the leading slash: TNM measured HOME=/ across seven
-            # values and found it yields //Documents/Ostler, which the old
-            # pattern accepted. Pathological rather than dangerous -- nothing
-            # lives at /Documents on a Mac -- but a guard that accepts a root
-            # nobody owns is one symlink away from being interesting, and the
-            # fix is one character.
-            /[!/]*/Documents/Ostler) : ;;
-            *)  echo "REFUSING to remove an unexpected content root: ${_CONTENT_ROOT}"
-                echo "  \$HOME is not what this harness assumes; nothing was deleted."
-                exit 2 ;;
-        esac
-        if [ -e "$_CONTENT_ROOT" ]; then
-            echo "content root survived the uninstaller, which is its documented default:"
-            echo "  removing it for the walk: ${_CONTENT_ROOT}"
-            rm -rf "$_CONTENT_ROOT"
-        fi
-
-        # THE CONTROL DECIDES WHETHER A ZERO MEANS ANYTHING. If neither root
-        # existed before the wipe, this is not a wiped box, it is a box this
-        # probe cannot see, and reporting it clean would be the uniform zero
-        # that reads as success.
-        if [ "${_CTL_OSTLER_BEFORE:-0}" -eq 0 ] && [ "${_CTL_CONTENT_BEFORE:-0}" -eq 0 ]; then
-            echo "CANNOT-CONFIRM-WIPE: neither ~/.ostler nor ${_CONTENT_ROOT} existed"
-            echo "  BEFORE the uninstaller ran. An installed box has both, so a zero"
-            echo "  residue count here measures the wrong place rather than a clean box."
-            exit 2
-        fi
-
-        # NOW COUNT WHAT IS LEFT, allowing only the keep the uninstaller
-        # DECLARES in its own --help: "Always removes ~/.ostler/ (except
-        # power.conf)". An UNDECLARED survivor is residue, and residue is
-        # CANNOT-RUN rather than a reset that quietly did less than it said.
-        #
-        # 🔴 COUNT FILES, NOT ENTRIES, AND THIS COST A WALK. MEASURED
-        # 2026-09-09T17:16:52Z on the v1.0.82 walk box. This counted ENTRIES at
-        # maxdepth 1 and aborted the walk on ONE of them:
-        # ~/.ostler/data, which contained only ~/.ostler/data/knowledge-staging,
-        # which contained NOTHING. Zero files, zero bytes, and docker volume ls
-        # returned no volumes at all. The wipe had SUCCEEDED and the check said
-        # "The next walk would be grading carried-over content" about a tree with
-        # no content in it.
-        #
-        # IT IS NOT A ONE-OFF, IT IS A CLOSED LOOP. install.sh:22341 creates
-        # ~/.ostler/data/knowledge-staging on EVERY install, unconditionally, and
-        # says so at :22324-22327. The shipped uninstaller preserves it by design
-        # (install.sh:21724-21741, which only ever preserves an EXISTING one and
-        # never creates it). So install makes it, uninstall keeps it, and this
-        # check called it residue. Every wipe walk that finds a real uninstaller
-        # aborted here, and under the WIPE decision Andy made on 2026-09-09 that
-        # is every
-        # walk from now on. It had never fired before only because no earlier
-        # walk had found a shipped uninstaller to run.
-        #
-        # The two halves of this check disagreed about their own question: the
-        # content root below counts FILES (-type f), this counted ENTRIES. The
-        # question the error line asks is about CONTENT. So this counts files
-        # too, at any depth, and the declared keep is excluded BY ITS EXACT PATH
-        # rather than by name, so that a file called power.conf buried somewhere
-        # deeper is still residue.
-        #
-        # 🔴 THE LICENCE IS NOW A SECOND DECLARED KEEP, AND THIS HAD TO MOVE
-        # WITH THE UNINSTALLER OR EVERY WIPE WALK WOULD ABORT.
-        #
-        # Andy decided on 2026-09-10 that an uninstall must not destroy the
-        # thing the customer paid for, so the uninstaller install.sh generates
-        # now spares ~/.ostler/license/ alongside power.conf, and its own
-        # printed contract names it in the "will NOT remove" half. This
-        # predicate reads the same tree the uninstaller just finished with. Had
-        # it stayed keyed to power.conf alone it would have counted the
-        # surviving licence as one undeclared file and exited 2, CANNOT-RUN, on
-        # every single walk -- a check failing because the code it checks was
-        # fixed.
-        #
-        # Excluded by EXACT PATH, exactly like power.conf above and for exactly
-        # the same reason: a file called license.json buried somewhere deeper
-        # is residue like any other. `! -name` would open that hole.
-        _fs_left=0
-        if [ -d "$HOME/.ostler" ]; then
-            _fs_left=$(find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null | grep -c . || true)
-        fi
-        _content_left=0
-        if [ -e "$_CONTENT_ROOT" ]; then
-            _content_left=$(find "$_CONTENT_ROOT" -type f 2>/dev/null | grep -c . || true)
-        fi
-        if [ "${_fs_left:-0}" -gt 0 ] || [ "${_content_left:-0}" -gt 0 ]; then
-            echo "WIPE INCOMPLETE ON DISK: ${_fs_left} undeclared entr(ies) under ~/.ostler,"
-            echo "  ${_content_left} file(s) under ${_CONTENT_ROOT}."
-            find "$HOME/.ostler" -mindepth 1 -type f ! -path "$HOME/.ostler/power.conf" ! -path "$HOME/.ostler/license/license.json" 2>/dev/null \
-                | head -10 | sed "s|^|    |"
-            echo "  The next walk would be grading carried-over content, so this is"
-            echo "  CANNOT-RUN, not a wipe."
-            exit 2
-        fi
-        echo "WIPE CONFIRMED: 0 ostler_ volumes remain (was ${_before:-0} total),"
-        echo "  0 undeclared entries under ~/.ostler, 0 files under ${_CONTENT_ROOT}."
-        # AND SAY SO IN THE RECORD. This block runs in its OWN ssh session, so
-        # the _ran_uninstaller variable in the reset block below never sees it.
-        # Without this line a walk that really did wipe would be recorded as
-        # carried-over-from-previous-install -- a lie in the one field that
-        # exists to stop a red being blamed on the wrong thing. Written only
-        # AFTER the volume count is confirmed zero, so the claim is measured.
-        printf "wiped-by-explicit-store-wipe(0 ostler_ volumes remain)\n" > ~/.walk-stores-provenance-run
-
-        # ── AND PUT THE LICENCE BACK, AFTER THE COUNT, NEVER BEFORE ───────────
-        #
-        # THE ORDER IS THE WHOLE POINT. The residue count above reads FILES under
-        # ~/.ostler and refuses on any it finds. Restoring the licence before it
-        # would make this harness plant a file and then fail the walk for finding
-        # it. So the restore happens here: after the count, after WIPE CONFIRMED,
-        # and after the provenance marker, so nothing downstream reads it as
-        # residue and the wipe is still measured on a genuinely empty tree.
-        #
-        # The RESET block below cannot undo this. It searches three paths for an
-        # uninstaller and the wipe has just deleted all of them, so it finds none
-        # and says so. If that ever changes, this restore moves after it.
-        if [ -n "$_LIC_BAK" ] && [ -s "$_LIC_BAK" ]; then
-            mkdir -p "$HOME/.ostler/license"
-            if cp "$_LIC_BAK" "$_LIC" 2>/dev/null; then
-                chmod 600 "$_LIC"
-                echo "licence restored ($(wc -c < "$_LIC" | tr -d " ") bytes)"
-            else
-                echo "LICENCE COULD NOT BE RESTORED. The install after this wipe will refuse"
-                echo "  at ERR-02-LICENCE-REQUIRED. The wipe itself is measured and confirmed."
-            fi
-            rm -f "$_LIC_BAK"
-        else
-            echo "no saved licence to restore; the preflight at :487 already refuses a walk"
-            echo "  that starts without one, so this path means the licence was unreadable."
-        fi
-    ' || die "the store wipe did not complete; refusing to walk against a half-wiped box"
-fi
 
 if [[ "$DO_RESET" -eq 1 ]]; then
-    rule "RESET (uninstall + port survey; this is NOT a wipe)"
-    "${SSH[@]}" 'set -u
+    rule "RESET (uninstall + bootout + VM and data disk delete + port check)"
+    if ! "${SSH[@]}" 'set -u
+        # v1.0.117 W4 (Archie review): EVERY check below that finds the box not
+        # clean adds a reason here, and the block ends CANNOT-RUN if any is set.
+        # The reset still runs every step first, so the box gets as clean as it
+        # can before the refusal.
+        _reset_fail=""
+        _df_kb() { df -k "$HOME" 2>/dev/null | awk "NR==2{print \$4}"; }
+        _df_before="$(_df_kb)"
+        echo "free space before the reset: ${_df_before:-unknown} KB available on the home volume"
+        # THE LICENCE (Archie re-review). The --wipe-stores block used to save
+        # and restore it; that left with the block. The shipped uninstaller is
+        # meant to keep ~/.ostler/license, but nothing checked that it did: an
+        # uninstaller that deletes it still exits 0, and the install after the
+        # reset dies at ERR-02-LICENCE-REQUIRED. So: copy it out first (mode and
+        # owner recorded), put it back afterwards if it is gone or changed, and
+        # refuse the walk if it cannot be restored exactly.
+        _LIC="$HOME/.ostler/license/license.json"
+        _LIC_BAK=""; _LIC_MODE=""; _LIC_OWNER=""; _LIC_DMODE=""
+        if [[ -f "$_LIC" ]]; then
+            _LIC_BAK="$(mktemp "${TMPDIR:-/tmp}/ostler-walk-licence.XXXXXX")"
+            _LIC_MODE="$(stat -f "%Lp" "$_LIC" 2>/dev/null)"
+            _LIC_OWNER="$(stat -f "%u:%g" "$_LIC" 2>/dev/null)"
+            _LIC_DMODE="$(stat -f "%Lp" "${_LIC%/*}" 2>/dev/null)"
+            if cp -p "$_LIC" "$_LIC_BAK" 2>/dev/null; then
+                echo "licence saved before the uninstall: $(wc -c < "$_LIC_BAK" | tr -d " ") bytes, mode ${_LIC_MODE:-?}, owner ${_LIC_OWNER:-?}"
+            else
+                echo "LICENCE PRESENT BUT COULD NOT BE COPIED: ${_LIC}"
+                _reset_fail="${_reset_fail} licence-not-saved"
+                _LIC_BAK=""
+            fi
+        else
+            echo "no licence on the box at ${_LIC} (the licence preflight decides whether that matters)"
+        fi
         _ran_uninstaller=""
-        for u in ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
+        _u_rc=""
+        for u in ~/.ostler/bin/ostler-uninstall \
+                 ~/Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  /Applications/Ostler.app/Contents/Resources/uninstall.sh \
                  ~/.ostler/uninstall.sh; do
             if [[ -x "$u" ]]; then
                 echo "running shipped uninstaller: $u"
-                OSTLER_UNINSTALL_ASSUME_YES=1 bash "$u" 2>&1 | tail -25
+                # CAPTURE, THEN PRINT, so the rc is the uninstaller and not tail.
+                _u_out="$(OSTLER_UNINSTALL_ASSUME_YES=1 bash "$u" 2>&1)" && _u_rc=0 || _u_rc=$?
+                echo "$_u_out" | tail -25
+                echo "uninstaller rc=${_u_rc}"
                 _ran_uninstaller="$u"
+                if [[ "$_u_rc" != "0" ]]; then
+                    _reset_fail="${_reset_fail} uninstaller-rc-${_u_rc}"
+                fi
                 break
             fi
         done
@@ -1090,22 +704,26 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # to ssh inside a SINGLE-QUOTED shell string, so one typed apostrophe
         # closes it and bash -n dies at EOF. Measured: it happened writing this.
         #
-        # DELIBERATELY NOT FIXED BY ADDING bin/ostler-uninstall TO THE LIST.
-        # The store teardown lives inside that uninstaller (docker compose
-        # down -v over qdrant_data, oxigraph_data, redis_data, wiki-docs,
-        # vane_data). Adding the real path would make the NEXT walk wipe stores
-        # that are currently the subject of an open investigation into 543
-        # absent person nodes. Whether a walk should wipe is a decision for the
-        # operator, not a side effect of making a log line honest.
+        # v1.0.117 THIN WALK, W4: bin/ostler-uninstall IS NOW FIRST IN THE LIST.
+        # This block used to leave it out on purpose, because that uninstaller
+        # runs docker compose down -v and a 2026-09 investigation needed the
+        # stores kept. That left the installed assistant (KeepAlive) loaded: it
+        # restarted colima 22s after the VM delete, held all six store ports,
+        # and walk attempt 1 was CANNOT-RUN. The shipped uninstaller is the one
+        # thing that knows every job it installed, writes the deliberate-stop
+        # marker first, and keeps the licence (install.sh, its find excludes
+        # license/). CONSEQUENCE, stated: a plain --reset on a box whose VM is
+        # up now removes the store volumes, and the provenance line below says
+        # wiped-by-shipped-uninstaller. On the cold box the launch directive
+        # walks, the VM is already gone and there is nothing to remove.
         if [[ -z "$_ran_uninstaller" ]]; then
             echo "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall."
-            echo "  searched: ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
+            echo "  searched: ~/.ostler/bin/ostler-uninstall"
+            echo "            ~/Applications/Ostler.app/Contents/Resources/uninstall.sh"
             echo "            /Applications/Ostler.app/Contents/Resources/uninstall.sh"
             echo "            ~/.ostler/uninstall.sh"
-            echo "  install.sh writes ~/.ostler/bin/ostler-uninstall, NOT in that list."
-            echo "  Docker volumes were NOT removed: the graph, the vectors and the compiled"
-            echo "  wiki are CARRIED OVER from the previous install. Any probe reading them is"
-            echo "  measuring history, not this artefact."
+            echo "  The store volumes are still removed below, by colima delete --data (the VM"
+            echo "  and its data disk). Nothing is carried over; the provenance line says so."
         fi
         # #1828 config-only teardown. With no shipped uninstaller present the box
         # keeps its previous ~/.ostler config, so the next install skips its
@@ -1127,7 +745,26 @@ if [[ "$DO_RESET" -eq 1 ]]; then
                     rm -rf "$_cfg"
                 fi
             done
-            echo "  store volumes (qdrant/oxigraph/redis/wiki/vane) LEFT INTACT: use --wipe-stores to remove them"
+            echo "  store volumes (qdrant/oxigraph/redis/wiki/vane): removed below with the colima data disk"
+        fi
+        if [[ -n "$_LIC_BAK" ]]; then
+            if [[ -f "$_LIC" ]] && cmp -s "$_LIC" "$_LIC_BAK"; then
+                echo "licence survived the uninstall unchanged"
+            else
+                echo "LICENCE GONE OR CHANGED after the uninstall; restoring it"
+                mkdir -p "${_LIC%/*}" && chmod "${_LIC_DMODE:-700}" "${_LIC%/*}" \
+                    && cp -p "$_LIC_BAK" "$_LIC" && chmod "${_LIC_MODE:-600}" "$_LIC" \
+                    && { [[ -z "$_LIC_OWNER" ]] || chown "$_LIC_OWNER" "$_LIC"; } 2>/dev/null
+                if [[ -f "$_LIC" ]] && cmp -s "$_LIC" "$_LIC_BAK" \
+                   && [[ "$(stat -f "%Lp" "$_LIC" 2>/dev/null)" == "$_LIC_MODE" ]] \
+                   && [[ "$(stat -f "%u:%g" "$_LIC" 2>/dev/null)" == "$_LIC_OWNER" ]]; then
+                    echo "licence restored: $(wc -c < "$_LIC" | tr -d " ") bytes, mode ${_LIC_MODE}, owner ${_LIC_OWNER}"
+                else
+                    echo "LICENCE COULD NOT BE RESTORED to ${_LIC} with mode ${_LIC_MODE} and owner ${_LIC_OWNER}"
+                    _reset_fail="${_reset_fail} licence-lost"
+                fi
+            fi
+            rm -f "$_LIC_BAK"
         fi
         # RECORDED BELOW THE ANNOUNCEMENT, NOT ABOVE IT. The honesty gate for
         # this block extracts it with an awk RANGE that ends at the first
@@ -1144,13 +781,6 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # DO NOT OVERWRITE A WIPE. The --wipe-stores block runs earlier, in its
         # own ssh session, and records the stronger fact with a measured volume
         # count behind it. This arm only speaks when nothing has spoken already.
-        if [[ ! -f ~/.walk-stores-provenance-run ]]; then
-            if [[ -n "$_ran_uninstaller" ]]; then
-                printf "wiped-by-shipped-uninstaller(%s)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
-            else
-                printf "carried-over-from-previous-install\n" > ~/.walk-stores-provenance-run
-            fi
-        fi
         # Stop the container VM. A previous install leaves colima running, and
         # colima publishes the container ports through an ssh multiplexer of its
         # own -- so ALL SIX preflight ports read HELD by a process called `ssh`
@@ -1171,8 +801,32 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # A reset that stops colima without stopping its supervisor is racing
         # a component designed to win that race.
         # Booting it out is not destructive: the install re-loads it.
-        echo "booting out the engine supervisor so it cannot restart colima under us"
-        launchctl bootout "gui/$(id -u)/com.ostler.engine-supervisor" 2>&1 | head -2 || true
+        # v1.0.117 W4: NOT ONLY THE SUPERVISOR. com.creativemachines.ostler.assistant
+        # is KeepAlive and restarts colima too; it did, 22s after the VM delete.
+        # Boot out EVERY Ostler job still loaded (the uninstaller should have
+        # left none; when it is absent or failed, this is the backstop). The two
+        # known restarters are named explicitly as well, in case launchctl list
+        # itself fails. An unquoted command substitution, not a variable,
+        # because the remote login shell is zsh and zsh does not word-split
+        # a plain variable expansion.
+        echo "booting out every Ostler launchd job so nothing can restart colima under us"
+        _uid="$(id -u)"
+        for _l in com.ostler.engine-supervisor com.creativemachines.ostler.assistant \
+                  $(launchctl list 2>/dev/null | awk "{print \$3}" | grep -Ei "(^|[.-])ostler([.-]|$)" | sort -u); do
+            if launchctl bootout "gui/${_uid}/${_l}" >/dev/null 2>&1; then
+                echo "  booted out ${_l}"
+            fi
+        done
+        # The label match is ostler between separators, so it also catches
+        # com.creativemachines.ostler-remotecapture, which the old prefix
+        # match (ostler followed by a dot) missed.
+        _left_jobs="$(launchctl list 2>/dev/null | awk "{print \$3}" | grep -Ei "(^|[.-])ostler([.-]|$)" | tr "\n" " ")"
+        if [[ -n "$_left_jobs" ]]; then
+            echo "STILL LOADED after bootout: ${_left_jobs}"
+            _reset_fail="${_reset_fail} job-still-loaded"
+        else
+            echo "no Ostler launchd job is loaded"
+        fi
         COLIMA=""
         for c in /opt/homebrew/bin/colima /usr/local/bin/colima; do
             [[ -x "$c" ]] && { COLIMA="$c"; break; }
@@ -1216,23 +870,114 @@ if [[ "$DO_RESET" -eq 1 ]]; then
             # that catches it is a grep for a quote inside the block.
             echo "$_stop_out" | tail -3
             echo "colima stop rc=${_stop_rc}"
+            # v1.0.117 W4: DELETE THE VM AND ITS DATA DISK. A plain
+            # `colima delete -f` (colima 0.10.3) KEEPS the data disk at
+            # ~/.colima/_lima/_disks/colima, so the images and store volumes of
+            # earlier walks survived every "cold" walk. --data removes it. The
+            # assertion below reads the DISK path, not ~/.colima/_lima/colima
+            # (the instance directory), which is gone even when the disk is not.
+            _del_out="$(PATH="${_colima_bin_dir}:${PATH}" "$COLIMA" delete --data -f 2>&1)" \
+                && _del_rc=0 || _del_rc=$?
+            echo "$_del_out" | tail -3
+            echo "colima delete --data -f rc=${_del_rc}"
         else
             echo "no colima binary found at either Homebrew prefix."
             echo "If the ports below are HELD, THAT is why -- not a clean box."
         fi
-        echo "--- install.sh processes still up ---"
-        pgrep -fl "install.sh" || echo "none"
-        echo "--- preflight ports still held ---"
-        for p in 3000 6333 6379 7878 8044 8144; do
-            if lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1; then
-                echo "  $p HELD"
-            else
-                echo "  $p free"
+        # THE DISK, ASSERTED. With or without a colima binary: a disk left by
+        # an earlier walk is carried-over store data whatever deleted the VM.
+        _colima_disk="${HOME}/.colima/_lima/_disks/colima"
+        if [[ -e "$_colima_disk" ]]; then
+            echo "RESET FAILED: the colima data disk is still present at ${_colima_disk}"
+            du -sh "$_colima_disk" 2>/dev/null | tail -1
+            echo "  Images and store volumes from earlier walks would be carried into this one,"
+            echo "  so it would not be a cold walk."
+            _reset_fail="${_reset_fail} colima-data-disk-present"
+        else
+            echo "colima data disk absent: ${_colima_disk}"
+        fi
+        # THE APP. The shipped uninstaller removes /Applications/Ostler.app and
+        # the /Applications/Ostler folder; either surviving means the box still
+        # carries a previous install.
+        for _app in /Applications/Ostler.app /Applications/Ostler ~/Applications/Ostler.app; do
+            if [[ -e "$_app" ]]; then
+                echo "STILL PRESENT after the reset: ${_app}"
+                _reset_fail="${_reset_fail} app-present"
             fi
         done
-        echo "NOTE: lsof is PERMISSION-SCOPED. A port held by ANOTHER account is"
-        echo "invisible here. This survey is evidence about THIS account only."
-    ' 2>&1
+        # LEFTOVER PROCESSES. Anything still running from an Ostler install. The
+        # patterns are written so they cannot match their own text (a bracket
+        # or a class in each), and the shell running this block, and its own
+        # forked subshells, are dropped by comparing command lines.
+        # BY PID, NOT BY TEXT (v1.0.118 walk, 2026-10-26). The command-line
+        # comparison never matched: this block runs as a multi-line `zsh -c`,
+        # and `ps -o command=` and `ps -axo command=` render its newlines
+        # differently, so the shell running this check was reported as a
+        # leftover Ostler process (its own text says /.ostler/) and every
+        # --reset ended CANNOT-RUN. Drop this shell and anything it forked
+        # (a command-substitution subshell carries the parent command line) by pid and ppid.
+        _left_procs="$(ps -axo pid=,ppid=,command= 2>/dev/null | awk -v me="$$" "{pid=\$1; pp=\$2; if (pid == me || pp == me) next; c=\$0; sub(/^ *[0-9]+ +[0-9]+ /, \"\", c); if (c ~ /Ostler[.]app\/Contents\/MacOS\/|\/[.]ostler\/|ostler[-]assistant|ostler[-]engine/) print pid \" \" c}")"
+        if [[ -n "$_left_procs" ]]; then
+            echo "LEFTOVER Ostler processes after the reset:"
+            echo "$_left_procs" | head -10 | sed "s/^/  /"
+            _reset_fail="${_reset_fail} leftover-processes"
+        else
+            echo "no Ostler process is running"
+        fi
+        # v1.0.117 W4: VERIFY, DO NOT SURVEY. This used to print HELD and carry
+        # on, so the walk started, the installer preflight found all six ports
+        # held, and the attempt was CANNOT-RUN after staging. Now the reset
+        # waits for the ports to clear (colima stop is not instant) and FAILS
+        # LOUDLY if they do not. A port is held if lsof sees a listener OR a
+        # TCP connect succeeds: lsof is permission-scoped and cannot see a
+        # listener owned by another account, a connect can.
+        echo "--- preflight ports (must all be free) ---"
+        _try=0
+        while :; do
+            _held=""
+            for p in 3000 6333 6379 7878 8044 8144; do
+                if lsof -nP -iTCP:$p -sTCP:LISTEN >/dev/null 2>&1 || nc -z -G 1 127.0.0.1 $p >/dev/null 2>&1; then
+                    _held="${_held} ${p}"
+                fi
+            done
+            [[ -z "$_held" ]] && break
+            _try=$((_try + 1))
+            [[ "$_try" -ge 10 ]] && break
+            sleep 3
+        done
+        if [[ -n "$_held" ]]; then
+            echo "RESET FAILED: port(s)${_held} still held after the uninstall, the bootout and 30s."
+            for p in $(echo "$_held"); do
+                lsof -nP -iTCP:$p -sTCP:LISTEN 2>/dev/null | tail -n +2 | head -3
+            done
+            echo "  Something is still serving the stores. Walking now would be CANNOT-RUN at"
+            echo "  the installer preflight, after staging."
+            _reset_fail="${_reset_fail} ports-held"
+        else
+            echo "  all six ports free: 3000 6333 6379 7878 8044 8144"
+        fi
+        _df_after="$(_df_kb)"
+        echo "free space after the reset: ${_df_after:-unknown} KB available (before: ${_df_before:-unknown} KB)"
+        # PROVENANCE, WRITTEN FROM WHAT HAPPENED. colima delete --data removes
+        # the store volumes whether or not an uninstaller ran, so the old
+        # carried-over-from-previous-install value (written when no uninstaller
+        # was found) was false the moment the disk went. Written only once the
+        # disk is asserted gone; a failed reset writes no provenance at all.
+        if [[ -z "$_reset_fail" ]]; then
+            if [[ -n "$_ran_uninstaller" ]]; then
+                printf "wiped-by-shipped-uninstaller(%s; colima delete --data, data disk absent)\n" "$_ran_uninstaller" > ~/.walk-stores-provenance-run
+            else
+                printf "wiped-by-explicit-store-wipe(colima delete --data, data disk absent; no uninstaller on the box)\n" > ~/.walk-stores-provenance-run
+            fi
+            echo "stores provenance: $(cat ~/.walk-stores-provenance-run)"
+            exit 0
+        fi
+        rm -f ~/.walk-stores-provenance-run
+        echo "RESET FAILED:${_reset_fail}"
+        exit 5
+    ' 2>&1; then
+        die "--reset did not leave the box clean (see RESET FAILED above, or the ssh session failed); refusing to stage or walk"
+    fi
 fi
 
 # ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────
