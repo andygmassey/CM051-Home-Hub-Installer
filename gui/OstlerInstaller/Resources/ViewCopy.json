@@ -253,7 +253,10 @@
 
   "hint_panel": {
     "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
-    "watchdog_still_going": "Still going, please wait..."
+    "watchdog_still_going": "Still going, please wait...",
+    "clt_waiting": "Waiting for Apple's developer tools. Click Install in the macOS dialog when it appears.",
+    "clt_waiting_timeout": "Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog.",
+    "clt_install_button": "Install developer tools"
   },
 
   "passkey_ack": {
@@ -276,13 +279,22 @@
   },
 
   "consent_spoken_capture": {
-    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline.",
+    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline. REGION (2026-10-24): the single legal_note is split into legal_prefix + legal_core + legal_local + legal_region_{gb,eu,de,fr,hk,us} + legal_responsibility, composed by LegalRegion.spokenCaptureLegalNote (ViewCopy.swift) from the Mac's REGION (the country part of AppleLocale, never the language), the same rule install.sh uses. Every legal_region_* line is a best-effort draft, not legal advice, and needs local professional sign-off. Consent / legal keys: translations need human legal review; English prevails. Every value except legal_local equals its MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* twin (tests/test_spoken_capture_legal_note_follows_region.sh).",
     "intro_body": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
     "ask_heading": "What we ask of you:",
     "bullet_1": "Get any consent your local law requires before you capture a conversation.",
     "bullet_2": "Tell people audio is being captured, or keep a visible indicator on.",
     "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
-    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+    "legal_prefix": "Legal note:",
+    "legal_core": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere.",
+    "legal_local": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac.",
+    "legal_region_gb": "UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_eu": "The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_de": "In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes).",
+    "legal_region_fr": "In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code.",
+    "legal_region_hk": "In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful.",
+    "legal_region_us": "In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in.",
+    "legal_responsibility": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
   },
 
   "recovery_passphrase": {

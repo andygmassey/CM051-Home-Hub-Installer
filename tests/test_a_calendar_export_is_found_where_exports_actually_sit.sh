@@ -79,7 +79,9 @@ _ics() { # make a >1k .ics so -size +1k keeps it
     } > "$1"
 }
 
-_run() { bash "$RUNNER" "$1" 2>&1; }
+# F010: the detector prints one counts-only SCAN_SUMMARY line on stderr; it is a
+# summary, not a hit, so it is not counted as a calendar.
+_run() { bash "$RUNNER" "$1" 2>&1 | /usr/bin/grep -v '^SCAN_SUMMARY ' || true; }
 _count() { _run "$1" | /usr/bin/grep -c . || true; }
 
 printf 'A CALENDAR EXPORT IS FOUND WHERE EXPORTS ACTUALLY SIT\n\n'

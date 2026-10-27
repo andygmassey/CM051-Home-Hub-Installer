@@ -133,6 +133,7 @@ def record_consent(
     hub_version: Optional[str] = None,
     user_id: Optional[str] = None,
     scope: Optional[str] = None,
+    legal_note: Optional[dict] = None,
 ) -> Path:
     """Persist a consent record for ``tickbox_id``.
 
@@ -161,6 +162,15 @@ def record_consent(
             EU AI Act Annex III: a future emotion-recognition feature
             requires a NEW tickbox, never silent expansion of an
             existing record.
+        legal_note: Optional pin of a REGION-CHOSEN legal note shown with
+            the wording (CM051, 2026-10-24: the spoken-capture note follows
+            the Mac's region). A dict with ``region`` (ISO-3166 alpha-2 or
+            ``"none"``), ``variant``, ``text`` and ``sha256``; stored as
+            ``legal_note_region`` / ``legal_note_variant`` /
+            ``legal_note_text`` / ``legal_note_sha256``. Absent on records
+            written before it existed; readers must treat it as optional.
+            ``wording_hash`` stays the hash of ``wording_text``, so
+            :func:`is_current` and every gate keyed on it are unchanged.
 
     Returns:
         Path to the consent file (single registry, not per-tickbox).
@@ -202,6 +212,14 @@ def record_consent(
         "user_id": user_id,
         "scope": scope,
     }
+    if legal_note is not None:
+        for key in ("region", "variant", "text", "sha256"):
+            if not legal_note.get(key):
+                raise ValueError(f"legal_note.{key} is required")
+        record["legal_note_region"] = legal_note["region"]
+        record["legal_note_variant"] = legal_note["variant"]
+        record["legal_note_text"] = legal_note["text"]
+        record["legal_note_sha256"] = legal_note["sha256"]
 
     registry = _load_registry()
     registry["schema_version"] = CONSENT_SCHEMA_VERSION

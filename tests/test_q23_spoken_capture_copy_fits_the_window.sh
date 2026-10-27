@@ -6,14 +6,21 @@
 # copy exactly, the legal note byte for byte (sha256), and that no em dash
 # appears. Copy only: no layout is asserted or touched here.
 #
+# Since 2026-10-24 the legal note is composed per REGION from legal_* keys
+# (LegalRegion.spokenCaptureLegalNote). The sha now covers every legal_* key,
+# and the LONGEST composed note (DE: core + local + EU + DE + responsibility)
+# must stay within LEGAL_MAX characters. The single region-blind note it
+# replaced was 829; LEGAL_MAX allows under one extra caption line.
+#
 # Self-test first: the predicate must reject the pre-fix copy.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VC=gui/OstlerInstaller/Resources/ViewCopy.json
-LEGAL_SHA=00aee79eb6b20ef17ad9dc77cae187e121b47bf56493ee9c07d00b5980cfffbd
+LEGAL_SHA=75f4d9c5ed653bbdc492edd18c65902378d7df981ae7519841dd3a2104194bb0
+LEGAL_MAX=900
 
 check() { # $1 file
-    python3 -I - "$1" "$LEGAL_SHA" <<'PY'
+    python3 -I - "$1" "$LEGAL_SHA" "$LEGAL_MAX" <<'PY'
 import hashlib, json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))["consent_spoken_capture"]
 want = {
@@ -26,8 +33,16 @@ want = {
 bad = [k for k, v in want.items() if d.get(k) != v]
 if bad:
     print("FAIL copy differs for: " + ", ".join(bad)); sys.exit(1)
-if hashlib.sha256(d["legal_note"].encode()).hexdigest() != sys.argv[2]:
-    print("FAIL legal_note changed"); sys.exit(1)
+lk = sorted(k for k in d if k.startswith("legal_"))
+if hashlib.sha256("\n".join(k + "=" + d[k] for k in lk).encode()).hexdigest() != sys.argv[2]:
+    print("FAIL legal_* copy changed"); sys.exit(1)
+base = [d["legal_prefix"], d["legal_core"], d["legal_local"]]
+longest = max(
+    len(" ".join(base + [d["legal_region_" + r] for r in regs] + [d["legal_responsibility"]]))
+    for regs in ([], ["gb"], ["eu"], ["eu", "de"], ["eu", "fr"], ["hk"], ["us"])
+)
+if longest > int(sys.argv[3]):
+    print(f"FAIL longest composed legal note is {longest} chars, over {sys.argv[3]}"); sys.exit(1)
 if any("—" in v for v in d.values()):
     print("FAIL em dash in copy"); sys.exit(1)
 print("PASS")
@@ -45,4 +60,15 @@ if check "$old" >/dev/null; then
     echo "FAIL self-test: predicate accepted the pre-fix copy"; exit 1
 fi
 echo "PASS self-test: pre-fix copy rejected"
+long="$(mktemp -d)/long.json"
+python3 -I - "$VC" "$long" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+d["consent_spoken_capture"]["legal_region_de"] += " " + "x" * 200
+json.dump(d, open(sys.argv[2], "w", encoding="utf-8"))
+PY
+if check "$long" >/dev/null; then
+    echo "FAIL self-test: predicate accepted an over-long legal note"; exit 1
+fi
+echo "PASS self-test: over-long legal note rejected"
 check "$VC"
