@@ -24,6 +24,7 @@ Exit: 0 pass, 1 real failure, 2 cannot-run.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import json
 import os
@@ -230,6 +231,27 @@ for bad in ("declined", "ACCEPTED", "Accepted", " accepted ", "accepted\t"):
     check(lookups(bad) == (0, []), f"arm 5: {bad!r} -> zero requests (consent is EXACT 'accepted')")
 check(lookups(None) == (0, []), "arm 5: absent -> zero requests")
 check(lookups("accepted") == (1, ["sichuan"]), "arm 5: accepted -> one request, cuisine read and normalised")
+
+# ── arm 8: REACH, the hourly FDA tick's entry point (install.sh:25900 ingest_all) ──
+# install.sh imports `ingest_all` and calls it on the imports/fda folder; it loops
+# _INGEST_DISPATCH. Run THAT, with every other writer stubbed (they need live
+# stores) and ingest_food real, and check the food step staged the extracts.
+reach = {}
+
+
+def reach_run(stage, ostler_dir, user):
+    reach["files"] = sorted(p.name for p in Path(stage).iterdir())
+    return True
+
+
+_others = [fn for (_n, fn) in fda._INGEST_DISPATCH if fn != "ingest_food"]
+with contextlib.ExitStack() as stack:
+    for fn in _others:
+        stack.enter_context(mock.patch.object(fda, fn, lambda d: {"status": "stubbed"}))
+    stack.enter_context(mock.patch("ostler_fda.apple_music_refresh.run_cm019_ingest", reach_run))
+    reach_res = fda.ingest_all(FDA)
+check(reach_res.get("food") == {"status": "ok", "staged": 3} and "calendar_events.json" in reach.get("files", []),
+      f"arm 8: ingest_all reaches ingest_food and stages the food extracts (food={reach_res.get('food')}, files={reach.get('files')})")
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
