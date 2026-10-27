@@ -1534,7 +1534,7 @@ change was grafted.
   unparseable level, carry `privacy_level`, and the limit applies to visible rows.
 - `tests/test_meeting_routes_privacy.py`: ported from upstream with one named difference, SLUG is
   `jane-doe` because the vendored `tests/test_person_context_meetings_privacy.py` helper uses
-  `Jane Doe` where upstream uses `Testsubject Synthetic`. The other two upstream test edits
+  a different synthetic person name from upstream. The other two upstream test edits
   (`test_person_enrichment_endpoint.py`, `test_person_timeline_endpoint.py`) are not vendored.
 - Proof: 8 pass on the graft, 8 fail on the pre-graft ical-server, 6 fail with the L3 filter
   mutated out (pyoxigraph/rdflib/cryptography venv, `PYTHONPATH=vendor`).
