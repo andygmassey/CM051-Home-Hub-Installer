@@ -89,6 +89,11 @@ final class InstallerCoordinator: ObservableObject {
     // and nothing else runs until the customer grants it and reopens.
     @Published var needsFullDiskAccessUpfront: Bool = false
     @Published var needsSudo: String? = nil
+    /// F010: Command Line Tools wait state from the CLT_WAIT marker:
+    /// nil (not waiting), "waiting", or "timeout" (past the 15 minute mark,
+    /// still waiting -- the install never aborts on this). Drives the
+    /// "Install developer tools" button in HintPanelView.
+    @Published var cltWaitState: String? = nil
     @Published var finished: StepStatus? = nil
     /// How many steps ended other than `ok`, as counted by the emitter and
     /// carried on the terminal DONE marker's `failed_steps=` field.
@@ -1625,6 +1630,19 @@ final class InstallerCoordinator: ObservableObject {
         tickMemoryCeiling()
 
         guard let last = lastSubprocessOutputAt else { return }
+        // F010: while a prompt is pending the customer, not the installer, is
+        // the slow path: install.sh is blocked reading the answer. A tester
+        // logged 60+ "[ERROR] subprocess still silent" lines doing exactly
+        // that. Re-arm the silence clock and ladder instead of judging, so
+        // the count starts from the moment the answer is sent -- otherwise
+        // the first tick after Continue would fire all three stages at once
+        // against a clock that ran through the whole wait.
+        if pendingPrompt != nil {
+            lastSubprocessOutputAt = Date()
+            watchdogStage = 0
+            if watchdogSilent { watchdogSilent = false }
+            return
+        }
         let elapsed = Date().timeIntervalSince(last)
 
         // CX-14 D5 (2026-05-23): expose the watchdog state to the
@@ -1834,6 +1852,7 @@ final class InstallerCoordinator: ObservableObject {
         case .phase:       key = "phase"
         case .needsFDA:    key = "needsFDA"
         case .needsSudo:   key = "needsSudo"
+        case .cltWait:     key = "cltWait"
         case .done:        key = "done"
         case .cancelled:   key = "cancelled"
         case .recoveryKey: key = "recoveryKey"
@@ -1996,6 +2015,9 @@ final class InstallerCoordinator: ObservableObject {
             needsFDA = NeedsFDA(probe: probe, reason: reason)
             appendLog(level: "warn", msg: "Needs FDA: \(reason)")
             OstlerLog.subprocess.warning("event NEEDS_FDA probe=\(probe, privacy: .public) reason=\(reason, privacy: .public)")
+        case .cltWait(let state):
+            cltWaitState = (state == "waiting" || state == "timeout") ? state : nil
+            OstlerLog.subprocess.info("event CLT_WAIT state=\(state, privacy: .public)")
         case .needsSudo(let reason):
             needsSudo = reason
             OstlerLog.subprocess.info("event NEEDS_SUDO reason=\(reason, privacy: .public)")
@@ -2305,6 +2327,25 @@ final class InstallerCoordinator: ObservableObject {
 
     /// m:ss for the countdown label. Pure + static so the format is asserted
     /// directly rather than through a rendered view.
+    /// F010: the command behind the "Install developer tools" button. A
+    /// constant so a test can pin it; user-level, no sudo, no TCC prompt.
+    nonisolated static let cltPopCommand: (path: String, args: [String]) =
+        ("/usr/bin/xcode-select", ["--install"])
+
+    /// Re-pop Apple's Command Line Tools dialog. Fire and forget: if the
+    /// install is already running this no-ops, if the dialog was dismissed
+    /// it comes back. The installer's own poll notices completion.
+    static func popCommandLineToolsDialog() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: cltPopCommand.path)
+        p.arguments = cltPopCommand.args
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch {
+            OstlerLog.subprocess.error("clt pop failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     static func mmss(_ seconds: Int) -> String {
         let s = max(0, seconds)
         return String(format: "%d:%02d", s / 60, s % 60)
