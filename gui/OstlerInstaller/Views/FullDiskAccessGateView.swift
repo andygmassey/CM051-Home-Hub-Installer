@@ -154,6 +154,8 @@ struct FullDiskAccessGateView: View {
                 stepRow(3, key: "fda_gate.step_3")
             }
 
+            fdaFallbackBlock(prefix: "fda_gate")
+
             Text(ViewCopy.shared.string(for: "fda_gate.permissions_note"))
                 .font(.ostlerCaption)
                 .foregroundStyle(Color.ostlerInkMuted)

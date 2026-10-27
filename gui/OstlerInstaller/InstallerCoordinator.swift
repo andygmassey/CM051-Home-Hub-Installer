@@ -901,7 +901,13 @@ final class InstallerCoordinator: ObservableObject {
     /// once with FDA in place. This is what stops the mid-install
     /// quit-and-reopen that used to drop the app onto the reuse path.
     func gateFullDiskAccessThenStart() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        // 118 MUST F008/F009: register in the FDA list BEFORE the check
+        // and before the step is shown.
+        let needed = FullDiskAccessGuidance.gateNeeded(
+            register: { FullDiskAccessGuidance.registerInList(home: NSHomeDirectory()) },
+            hasAccess: { AuthorizationHelper.shared.hasFullDiskAccess() }
+        )
+        if !needed {
             needsFullDiskAccessUpfront = false
             OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
             requestPermissionsThenStart()
