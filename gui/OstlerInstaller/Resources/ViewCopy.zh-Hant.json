@@ -261,8 +261,7 @@
     "ask_heading": "What we ask of you:",
     "bullet_1": "Get any consent your local law requires before you capture a conversation.",
     "bullet_2": "Tell people audio is being captured, or keep a visible indicator on.",
-    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
-    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings."
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
