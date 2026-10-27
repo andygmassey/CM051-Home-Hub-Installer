@@ -132,7 +132,9 @@ final class SystemRequirementsGateTests: XCTestCase {
     private func makeCoordinator(_ r: SystemReadings) -> (InstallerCoordinator, RecordingTransport) {
         let coord = InstallerCoordinator(systemReadings: r)
         coord.licensePath = tempDir.appendingPathComponent("license.json")
-        coord.fullDiskAccessProbe = { true }
+        coord.fullDiskAccessReport = {
+            FDAProbeReport(results: [FDAProbeResult(path: "synthetic", outcome: .readable)])
+        }
         let req = requester!
         coord.setPermissionsPrewarmerFactory {
             PermissionsPrewarmer(emitLog: { _, _ in }, requester: req, gapMillis: 0)
