@@ -3743,7 +3743,7 @@ def api_people_forget(slug):
     return response, status_code
 
 
-# ── Under-18 registry: owner-set "mark as minor" (Andy 2026-10-19, 118) ──
+# ── Under-18 registry: owner-set "mark as minor" (the owner 2026-10-19, 118) ──
 #
 # project_minors_flag: a minor is stored and searchable, but never nudged, never
 # sent to Reminders, never used for facts or suggestions. PWG #434 stamps
