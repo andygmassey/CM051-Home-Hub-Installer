@@ -178,6 +178,41 @@ def main():
         ok, text = PyShaclValidator().validate_turtle(node.to_turtle()) if node is not None else (False, "no node")
         check(ok, "negative-strength stated node conforms" + ("" if ok else ": " + text[:200]))
 
+    print("arm 9: REACH, the tick's entry point (derive_runner main --user-id, install.sh:410) derives a stated node")
+    try:
+        import pyoxigraph
+        import pyshacl  # noqa: F401
+    except ImportError:
+        print("  CANNOT-RUN pyoxigraph/pyshacl not installed (neither pass nor fail)")
+    else:
+        import derive.readers as _readers
+        import derive.writer as _writer
+        import derive_runner
+        from derive.model import DERIVED_GRAPH
+        from derive.shacl import PyShaclValidator
+        from test_derive_engine_writes_a_derived_preference import Mirror, OxigraphStore
+
+        gw = FactStore()
+        for t in ("Owner hates coffee.", "Owner can't stand coffee.", "Owner dislikes coffee."):
+            gw.fact(t)
+        graph = OxigraphStore(pyoxigraph.Store())
+        status = Path(tempfile.mkdtemp(prefix="stated-main-")) / "state.json"
+        saved = (_readers.HttpStoreGateway, _writer.HttpGraphStore, _writer.QdrantDerivedMirror, derive_runner.run)
+        real_run = derive_runner.run
+        _readers.HttpStoreGateway = lambda **k: gw
+        _writer.HttpGraphStore = lambda **k: graph
+        _writer.QdrantDerivedMirror = lambda **k: Mirror()
+        derive_runner.run = lambda **k: real_run(now=NOW, **k)
+        try:
+            rc = derive_runner.main(["--user-id", "ostler", "--status-file", str(status)])
+        finally:
+            (_readers.HttpStoreGateway, _writer.HttpGraphStore, _writer.QdrantDerivedMirror,
+             derive_runner.run) = saved
+        q = "SELECT ?o WHERE { GRAPH <%s> { ?s ?p ?o } }" % DERIVED_GRAPH
+        objs = [r["o"]["value"] for r in graph._select(q)]
+        check(rc == 0 and "Coffee" in objs,
+              f"main() rc={rc}, derived graph holds the stated Coffee node ({len(objs)} objects)")
+
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
 
