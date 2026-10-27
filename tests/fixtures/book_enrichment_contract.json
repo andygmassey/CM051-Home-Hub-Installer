@@ -21,7 +21,7 @@
         ],
         "entities": [
           [
-            "Alison Patel",
+            "Margaret Andersen",
             "author"
           ],
           [
@@ -32,7 +32,7 @@
         "book_metadata": {
           "title": "The Riverside cartographer's \"last\" tide",
           "authors": [
-            "Alison Patel",
+            "Margaret Andersen",
             "Ben Brown"
           ],
           "subjects": [
@@ -66,7 +66,7 @@
           "Maritime fiction"
         ],
         "authors": [
-          "Alison Patel",
+          "Margaret Andersen",
           "Ben Brown"
         ],
         "publish_year": 1987,
@@ -85,10 +85,10 @@
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasTopic <pwg:topic_islands> .",
         "<pwg:topic_islands> rdfs:label \"Islands\" .",
         "<pwg:topic_islands> a pwg:Topic .",
-        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasEntity <pwg:entity_alison_patel> .",
-        "<pwg:entity_alison_patel> rdfs:label \"Alison Patel\" .",
-        "<pwg:entity_alison_patel> pwg:entityType \"author\" .",
-        "<pwg:entity_alison_patel> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasEntity <pwg:entity_margaret_andersen> .",
+        "<pwg:entity_margaret_andersen> rdfs:label \"Margaret Andersen\" .",
+        "<pwg:entity_margaret_andersen> pwg:entityType \"author\" .",
+        "<pwg:entity_margaret_andersen> a pwg:Entity .",
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000b0c01> pwg:hasEntity <pwg:entity_ben_brown> .",
         "<pwg:entity_ben_brown> rdfs:label \"Ben Brown\" .",
         "<pwg:entity_ben_brown> pwg:entityType \"author\" .",

@@ -1,0 +1,5 @@
+# Apps allowed to fail scripts/verify_payload_app_icons.py, by bundle name AND version.
+# name<TAB>CFBundleShortVersionString<TAB>reason. An equality, not an allow-list:
+# a row whose app now passes is itself a failure, and a re-pin to a new version
+# is not covered by an old row. Delete the row in the PR that fixes it.
+RemoteCapture	0.1.7	CM042 ships no AppIcon asset catalog (118 U4); fixed in CM042 source, this row goes when install.sh re-pins RemoteCapture to a release built with it

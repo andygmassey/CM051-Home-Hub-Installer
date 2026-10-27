@@ -1,7 +1,7 @@
 # Egress inventory: what leaves the Mac, and why
 
 > **STATUS: NOT PUBLISHED, and the reason changed on 2026-08-17.**
-> Andy approved publication conditional on the inventory being complete. It is
+> The owner approved publication conditional on the inventory being complete. It is
 > now materially more complete than the first draft (9 declared destinations to
 > 45) and it is not finishable as a document, because the section on
 > public-data enrichment needs a MEASURED run before we put a number on it.
@@ -187,7 +187,7 @@ it is not finished.** Before publication we owe:
    real preference set, and what the query strings contain. Reading the source
    tells us what CAN happen. It is the same distinction that made the first
    draft of this document wrong.
-2. a decision, which is Andy's and not an engineering call: enrichment on by
+2. a decision, which is the owner's and not an engineering call: enrichment on by
    default, opt-in, or on with the destination list on screen at the moment of
    consent.
 3. whatever (2) decides, the copy has to match it exactly.

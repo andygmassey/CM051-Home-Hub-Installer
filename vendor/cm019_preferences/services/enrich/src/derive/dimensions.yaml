@@ -1,21 +1,266 @@
 # Controlled-vocabulary REGISTER for derived dimensions (display + governance).
 # This is DATA, not code: adding a dimension never touches the engine. Unknown
 # dimensions are still accepted and logged into a counted "unknown" bucket by the
-# Aggregator; this file only governs labels, category and the min_evidence gate.
+# Aggregator; this file only governs labels, category and the gates.
 #
-# dimension: { label, category, min_evidence, min_evidence_strong? }
+# dimension: { label, category, min_evidence, max_items? }
+#   min_evidence  an item needs this many distinct literal preferences
+#   tier          broad = a TYPE (genre, cuisine, topic, city); specific = a single
+#                 thing (artist, series, restaurant, site). Front Page and the
+#                 brief lead with broad; specific follows once broad is settled.
+#   half_life_days  recency half-life of this dimension's evidence. Omit for the 540d
+#                 preference default (services/common/recency.py, the hygiene table).
+#   evergreen     true = never decays (dietary / medical). Dimensions under
+#                 food.ingredient, food.diet, health.dietary/medical/allergy are
+#                 evergreen by prefix even without the flag.
+#   max_items     keep only the strongest N nodes of the dimension. Set on the
+#                 high-cardinality ones (every artist, every site) so they cannot
+#                 crowd the rest out of a top-N read.
 
+# --- Films -------------------------------------------------------------------
 - dimension: media.film.genre
   label: "Film genre"
   category: films
+  tier: broad
   min_evidence: 3
 
 - dimension: media.film.director
   label: "Film director"
   category: films
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 2        # fewer films per director is expected
 
 - dimension: media.film.actor
   label: "Film actor"
   category: films
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
   min_evidence: 3
+  max_items: 40
+
+- dimension: media.film.writer
+  label: "Film writer"
+  category: films
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.film.composer
+  label: "Film composer"
+  category: films
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 2
+  max_items: 30
+
+# --- TV ----------------------------------------------------------------------
+- dimension: media.tv.series
+  label: "TV series"
+  category: tv
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 3        # three episodes of one show
+  max_items: 40
+
+- dimension: media.tv.genre
+  label: "TV genre"
+  category: tv
+  tier: broad
+  min_evidence: 3
+
+- dimension: media.tv.actor
+  label: "TV cast"
+  category: tv
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 3
+  max_items: 30
+
+# --- Music -------------------------------------------------------------------
+- dimension: media.music.artist
+  label: "Music artist"
+  category: music
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 3
+  max_items: 40
+
+- dimension: media.music.genre
+  label: "Music genre"
+  category: music
+  tier: broad
+  min_evidence: 3
+
+# --- Books -------------------------------------------------------------------
+- dimension: media.book.author
+  label: "Book author"
+  category: books
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.book.genre
+  label: "Book genre"
+  category: books
+  tier: broad
+  min_evidence: 2
+
+- dimension: media.book.topic
+  label: "Book topic"
+  category: books
+  tier: broad
+  min_evidence: 3
+  max_items: 30
+
+# --- Podcasts ----------------------------------------------------------------
+- dimension: media.podcast.show
+  label: "Podcast"
+  category: podcasts
+  tier: specific
+  sensitive_match: exact      # a NAME: withheld only when it IS a sensitive term
+  min_evidence: 2
+  max_items: 30
+
+- dimension: media.podcast.topic
+  label: "Podcast topic"
+  category: podcasts
+  tier: broad
+  min_evidence: 2
+  max_items: 20
+
+# --- Topics and interests ----------------------------------------------------
+- dimension: interests.topic
+  label: "Topic you follow"
+  category: interests
+  tier: broad
+  min_evidence: 3
+  max_items: 40
+
+- dimension: theme.concept
+  label: "Broad theme"
+  category: themes
+  tier: broad
+  min_evidence: 2        # distinct preferences; the reader also needs 2 distinct topics
+  max_items: 20
+
+- dimension: web.site
+  label: "Site you return to"
+  category: web
+  tier: specific
+  min_evidence: 4        # bookmarked or visited four separate times
+  max_items: 30
+
+- dimension: news.source
+  label: "News source"
+  category: news
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+  half_life_days: 180    # reading habits follow the news cycle; 540d would keep a 2-year-old source at 0.5
+
+# --- Food, places, brands ----------------------------------------------------
+- dimension: food.cuisine
+  label: "Cuisine and venue type"
+  category: food
+  tier: broad
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.drink
+  label: "Drink"
+  category: food
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+
+- dimension: food.ingredient
+  label: "Ingredient or dish"
+  category: food
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+
+- dimension: place.city
+  label: "City"
+  category: place
+  tier: broad
+  min_evidence: 2
+  max_items: 20
+
+- dimension: commerce.brand
+  label: "Brand"
+  category: brands
+  tier: specific
+  min_evidence: 2
+  max_items: 30
+
+# --- Food, health, work, money (union with feat/pwg-derive-general chunk 6) ---
+- dimension: food.restaurant
+  label: "Restaurant"
+  category: food
+  tier: specific
+  min_evidence: 2
+  max_items: 30
+
+- dimension: health.activity
+  label: "Workout type"
+  category: health
+  tier: broad
+  min_evidence: 2
+  max_items: 20
+
+# Career dimensions come from the owner's own LinkedIn export. Each is a stated
+# fact, so one record is enough (min_evidence 1); they are still gated by the
+# confidence floor every consumer applies.
+- dimension: work.skill
+  label: "Skill"
+  category: work
+  tier: specific
+  min_evidence: 1
+  max_items: 40
+
+- dimension: work.role
+  label: "Job title"
+  category: work
+  tier: specific
+  min_evidence: 1
+  max_items: 20
+
+- dimension: work.employer
+  label: "Employer"
+  category: work
+  tier: specific
+  min_evidence: 1
+  max_items: 20
+
+- dimension: work.industry
+  label: "Industry"
+  category: work
+  tier: broad
+  min_evidence: 1
+  max_items: 5
+
+- dimension: place.area
+  label: "Area"
+  category: place
+  tier: specific
+  min_evidence: 2
+  max_items: 20
+
+- dimension: finance.spend_category
+  label: "Spending category"
+  category: finance
+  tier: specific
+  min_evidence: 4        # the proof that a new dimension is a config row; no live source yet
+  max_items: 20
+
+- dimension: food.item
+  label: "Food you buy or order"
+  category: food
+  tier: specific
+  sensitive_match: contains   # a diet word in a grocery item ("vegan sausages") is a diet signal
+  min_evidence: 3
+  max_items: 30

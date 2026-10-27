@@ -475,6 +475,26 @@ def cli():
     help="Batch size for processing (default: 50)"
 )
 @click.option(
+    "--qid-pass/--no-qid-pass",
+    default=None,
+    help=(
+        "After enrichment, map topic labels to Wikidata QIDs and store their "
+        "broader concepts, so the thematic roll-up can derive broad themes. "
+        "Consent-gated, and sensitive, private or minors' items are never "
+        "sent (default: on with --all, off with --category)"
+    )
+)
+@click.option(
+    "--qid-pass-seconds",
+    default=None,
+    type=int,
+    help=(
+        "Wall-clock allowance for the QID pass; what it does not reach is "
+        "left for the next run (default: the --budget-seconds value, capped "
+        "at 300; 300 when that is 0)"
+    )
+)
+@click.option(
     "--verbose", "-v",
     is_flag=True,
     help="Enable verbose output"
@@ -488,6 +508,8 @@ def enrich(
     skip_enriched: bool,
     dry_run: bool,
     batch_size: int,
+    qid_pass: Optional[bool],
+    qid_pass_seconds: Optional[int],
     verbose: bool,
 ):
     """Enrich preferences with external metadata.
@@ -582,7 +604,46 @@ def enrich(
             batch_size=batch_size,
             verbose=verbose,
             budget_seconds=budget_seconds,
+            qid_pass=all_categories if qid_pass is None else qid_pass,
+            qid_pass_seconds=_qid_allowance(budget_seconds, qid_pass_seconds),
         ))
+
+
+QID_PASS_CAP_SECONDS = 300
+
+
+def _qid_allowance(budget_seconds: int, qid_pass_seconds: Optional[int]) -> int:
+    if qid_pass_seconds is not None:
+        return max(0, qid_pass_seconds)
+    if budget_seconds and budget_seconds > 0:
+        return min(budget_seconds, QID_PASS_CAP_SECONDS)
+    return QID_PASS_CAP_SECONDS
+
+
+async def _run_qid_pass(service: EnrichmentService, allowance_s: int) -> dict:
+    """The thematic roll-up's input: topic -> QID -> broader concepts. Prints
+    ONE counts-only line (never a label) that a log reader can act on."""
+    import time as _time
+
+    deadline = _time.monotonic() + allowance_s if allowance_s > 0 else None
+    try:
+        res = await service.run_qid_pass(deadline=deadline)
+    except Exception as e:  # noqa: BLE001 - must never change enrich's exit code
+        res = {"status": f"failed:{type(e).__name__}"}
+    n, h = res.get("normalize") or {}, res.get("hierarchy") or {}
+    withheld = dict(n.get("by_privacy_reason") or {})
+    for k, v in (h.get("by_privacy_reason") or {}).items():
+        withheld[k] = withheld.get(k, 0) + v
+    click.echo(
+        f"QID pass: {res.get('status')}; topics normalized "
+        f"{n.get('normalized', 0)}/{n.get('total_topics', 0)} "
+        f"(failed {n.get('failed', 0)}, deferred {n.get('deferred', 0)}); "
+        f"hierarchies stored {h.get('stored', 0)}/{h.get('pending', 0)} "
+        f"(failed {h.get('failed', 0)}, deferred {h.get('deferred', 0)}); "
+        f"withheld {sum(withheld.values())} {dict(sorted(withheld.items()))}",
+        err=True,
+    )
+    return res
 
 
 async def _dry_run(
@@ -692,8 +753,10 @@ async def _run_enrichment(
     batch_size: int,
     verbose: bool,
     budget_seconds: int = 0,
+    qid_pass: bool = False,
+    qid_pass_seconds: int = QID_PASS_CAP_SECONDS,
 ):
-    """Execute actual enrichment."""
+    """Execute actual enrichment, then (qid_pass) the QID pass."""
     click.echo("\nStarting enrichment...\n", err=True)
 
     service = EnrichmentService()
@@ -790,6 +853,13 @@ async def _run_enrichment(
                 click.echo(f"  {error}", err=True)
             if len(stats.errors) > 10:
                 click.echo(f"  ... and {len(stats.errors) - 10} more errors", err=True)
+
+        # The QID pass runs BEFORE the exit decision below, so a slice whose
+        # item look-ups mostly failed still advances the roll-up. It never
+        # raises and never changes the exit code. (Grafted from upstream
+        # personal-world-graph #439, 5af9f5b5.)
+        if qid_pass:
+            await _run_qid_pass(service, qid_pass_seconds)
 
         duration = (datetime.utcnow() - start_time).total_seconds()
         click.echo(f"\nTotal duration: {duration:.1f}s", err=True)
