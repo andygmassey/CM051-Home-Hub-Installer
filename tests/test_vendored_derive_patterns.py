@@ -260,5 +260,36 @@ check(own.contradiction and own.contradiction["winner"] == "stated" and own.cont
 check(marker_for("person/John").contradiction is None,
       "control: someone else's statement makes no marker")
 
+print("arm 7: REACH, the tick's entry point (derive_runner main --user-id, install.sh:410) writes trend and context")
+import derive.readers as _readers  # noqa: E402
+import derive.writer as _writer  # noqa: E402
+
+
+def run_main():
+    """main() as `python -m services.enrich.src.derive_runner --user-id U` runs
+    it; only the three network-facing classes are swapped for the in-memory
+    fakes, and the clock is pinned (main passes no now)."""
+    raw = Store()
+    st = OxigraphStore(raw)
+    points = seed(raw)
+    status = Path(tempfile.mkdtemp(prefix="patterns-main-")) / "state.json"
+    saved = (_readers.HttpStoreGateway, _writer.HttpGraphStore, _writer.QdrantDerivedMirror, derive_runner.run)
+    _readers.HttpStoreGateway = lambda **k: Gateway(st, points)
+    _writer.HttpGraphStore = lambda **k: st
+    _writer.QdrantDerivedMirror = lambda **k: Mirror()
+    real_run = derive_runner.run
+    derive_runner.run = lambda **k: real_run(now=NOW, **k)
+    try:
+        rc = derive_runner.main(["--user-id", "synthetic_owner", "--status-file", str(status)])
+    finally:
+        (_readers.HttpStoreGateway, _writer.HttpGraphStore, _writer.QdrantDerivedMirror,
+         derive_runner.run) = saved
+    return rc, st
+
+
+rc, st = run_main()
+check(rc == 0 and "rising" in graph_values(st, "trend") and "evening" in graph_values(st, "timeContext"),
+      f"main() rc={rc} trend={graph_values(st, 'trend')} timeContext={graph_values(st, 'timeContext')}")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
