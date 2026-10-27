@@ -91,7 +91,7 @@ def seed(raw):
         ttl2.append(f"<urn:ostler:preference:{pid}> enr:hasGenre <urn:test:genreb> ; "
                     "enr:enrichmentConfidence 0.9 .")
         points.append({"id": pid, "payload": {
-            "category": "movie", "subject": f"Peer Film {j}", "source": "netflix",
+            "category": "movie", "subject": f"peer film {j}", "source": "netflix",
             "strength": 0.8, "observed_at": w}})
     raw.load("\n".join(["@prefix enr: <%s> ." % ENRICH_NS, "@prefix rdfs: <%s> ." % RDFS_NS] + ttl2).encode(),
              format=RdfFormat.TURTLE)
