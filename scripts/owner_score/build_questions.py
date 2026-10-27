@@ -76,8 +76,8 @@ add("work", "V", "What is my flagship project at the moment?",
     "The Sound array, a tidal array of 12 turbines off the Devon coast.",
     [G("sound array")])
 add("work", "V", "Who is my line manager at work?",
-    "Your line manager is the COO, Alison Li.",
-    [G("alison li", "alison")])
+    "Your line manager is the COO, Kathleen Li.",
+    [G("kathleen li", "kathleen")])
 add("work", "H", "How many people are on my delivery team?",
     "You lead a delivery team of 14 people.",
     [G("14", "fourteen")])
@@ -209,7 +209,7 @@ add("people", "H", "Who is my contact for survey boats?",
 add("people", "V", "Who is my dentist?",
     "doctor Raj Patel.",
     [G("raj patel", "raj")])
-add("people", "H", "What is Alison Li's job?",
+add("people", "H", "What is Kathleen Li's job?",
     "She is the chief operating officer at Acme.",
     [G("chief operating officer", "coo")])
 add("people", "V", "What is Sam Ross's home address?",
@@ -255,7 +255,7 @@ add("todos", "V", "What is the deadline to renew Rory's passport?",
 add("todos", "V", "Which maintenance job do I still need to book for the house?",
     "The boiler service.",
     [G("boiler")])
-add("todos", "V", "What do I owe Alison and by when?",
+add("todos", "V", "What do I owe Kathleen and by when?",
     "A reply about the Sound array budget by Friday 9 October.",
     [G("budget"), D(9, 10)])
 add("todos", "V", "What am I planning to buy Tom for his birthday?",
@@ -290,7 +290,7 @@ add("conversations", "V", "What big news did Sam give me on Saturday?",
 add("conversations", "V", "Why did Tom and I pick the Skaill cottage?",
     "It had a wood burner, unlike the one in Birsay.",
     [G("wood burner", "wood-burner", "woodburner")])
-add("conversations", "V", "What contingency did Alison ask for on the budget?",
+add("conversations", "V", "What contingency did Kathleen ask for on the budget?",
     "6 per cent.",
     [G("6 per cent", "6 percent", "6%", "six per cent", "six percent")])
 add("conversations", "V", "What hydration did I settle on for my sourdough?",

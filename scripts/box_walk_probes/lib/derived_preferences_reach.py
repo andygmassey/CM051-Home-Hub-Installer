@@ -32,7 +32,7 @@ DECLARED = [
     "digest: the Preferences section names a derived preference",
     "tool: asked what the owner likes, the assistant names a derived preference",
 ]
-ROUTE_URL = os.environ.get("OSTLER_HUB_URL", "http://127.0.0.1:8090") + "/api/v1/preferences/derived?limit=50&min_confidence=0"
+ROUTE_URL = os.environ.get("OSTLER_HUB_URL", "http://127.0.0.1:8090") + "/api/v1/preferences/derived?limit=50&min_confidence=0&tier=all"
 PREFERENCES = "Preferences and things to keep in mind"
 QUESTION = "What kinds of things do I like? Answer from my derived preferences."
 

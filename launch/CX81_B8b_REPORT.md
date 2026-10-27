@@ -3,7 +3,7 @@
 Date: 2026-05-26
 Branch: feat/cx81-b8b-dialog-icon-2026-05-26 (branched from B8's
 pushed `feat/cx81-b8-fda-dialog-icon-wording-2026-05-26`)
-Parent issue: feedback from Andy's DMG run that B8's FDA dialog icon
+Parent issue: feedback from the owner's DMG run that B8's FDA dialog icon
 showed a visible "feint square outline" around the marque.
 
 ## Diagnosis recap

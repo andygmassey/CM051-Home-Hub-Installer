@@ -66,6 +66,24 @@ pwg:evidenceCount a owl:DatatypeProperty ;
     rdfs:label "evidence count"@en ;
     rdfs:comment "Number of literal items rolled up."@en .
 
+pwg:tier a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "tier"@en ;
+    rdfs:comment "broad (a type of thing: genre, cuisine, topic) or specific (a single thing). Consumers lead with broad."@en .
+
+pwg:privacyLevel a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "privacy level"@en ;
+    rdfs:comment "The highest privacy level (L0-L3) of the evidence behind this node. A taste learned from an L2 conversation is itself L2, so consumers apply their L2 handling. Absent when no evidence stated a level."@en .
+
+pwg:evidenceTitle a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "evidence title"@en ;
+    rdfs:comment "A literal title behind this node (at most three, strongest first). Feeds the 'because' line for evidence that has no enrichment title."@en .
+
 pwg:evidenceSourceCount a owl:DatatypeProperty ;
     rdfs:domain pwg:DerivedPreference ;
     rdfs:range xsd:integer ;
@@ -117,6 +135,30 @@ pwg:trend a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "trend"@en ;
     rdfs:comment "rising / falling / stable, from the evolution deriver."@en .
+
+pwg:contradictionWinner a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "contradiction winner"@en ;
+    rdfs:comment "Say-vs-do: which side wins for surfacing, 'stated' or 'behaviour'. Always the dislike side. Never changes preferenceStrength."@en .
+
+pwg:contradictionReason a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "contradiction reason"@en ;
+    rdfs:comment "Why that side won. Counts only, never a quoted message."@en .
+
+pwg:suppressSuggestion a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "suppress suggestion"@en ;
+    rdfs:comment "True on a contradicted dislike: a consumer must never suggest it, whatever the sign of preferenceStrength."@en .
+
+pwg:timeContext a owl:DatatypeProperty ;
+    rdfs:domain pwg:DerivedPreference ;
+    rdfs:range xsd:string ;
+    rdfs:label "time context"@en ;
+    rdfs:comment "Comma-joined when the preference is expressed: morning, afternoon, evening, night, weekend."@en .
 
 pwg:supersededBy a owl:ObjectProperty ;
     rdfs:domain pwg:DerivedPreference ;

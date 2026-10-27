@@ -50,6 +50,17 @@ except ImportError as exc:  # pragma: no cover - smoke
         f"[consent_cli] could not import legal package: {exc}", file=sys.stderr,
     )
     sys.exit(2)
+try:
+    from legal.consent_strings import (  # noqa: E402
+        SPOKEN_CAPTURE_LEGAL_VARIANTS,
+        spoken_capture_recorded_version,
+    )
+except ImportError as exc:  # pragma: no cover - smoke
+    print(
+        f"[consent_cli] legal package has no region variants: {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 # Map cli tickbox arg -> ConsentString. Single source of truth.
@@ -93,16 +104,58 @@ def _cmd_record(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Region-chosen legal note (spoken capture only, CM051 2026-10-24): pin
+    # exactly the note the customer was shown. All three flags or none; a
+    # partial set is refused rather than recorded as a half-pin.
+    legal_flags = (args.legal_region, args.legal_variant, args.legal_note_file)
+    legal_note = None
+    wording_version = cs.version
+    if any(legal_flags):
+        if not all(legal_flags):
+            print(
+                "[consent_cli] --legal-region, --legal-variant and "
+                "--legal-note-file go together",
+                file=sys.stderr,
+            )
+            return 2
+        region = args.legal_region
+        if region != "none" and not (len(region) == 2 and region.isascii()
+                                     and region.isalpha() and region.isupper()):
+            print(
+                f"[consent_cli] --legal-region must be ISO alpha-2 or 'none', "
+                f"got {region!r}",
+                file=sys.stderr,
+            )
+            return 2
+        if cs is not SPOKEN_CAPTURE_RECORDING_CONSENT:
+            print(
+                f"[consent_cli] {cs.tickbox_id} has no region-chosen legal note",
+                file=sys.stderr,
+            )
+            return 2
+        note_text = Path(args.legal_note_file).read_text(encoding="utf-8")
+        if not note_text.strip():
+            print("[consent_cli] --legal-note-file is empty", file=sys.stderr)
+            return 2
+        import hashlib
+        legal_note = {
+            "region": args.legal_region,
+            "variant": args.legal_variant,
+            "text": note_text,
+            "sha256": hashlib.sha256(note_text.encode("utf-8")).hexdigest(),
+        }
+        wording_version = spoken_capture_recorded_version(args.legal_variant)
     consent.record_consent(
         tickbox_id=cs.tickbox_id,
         wording_text=cs.text,
-        wording_version=cs.version,
+        wording_version=wording_version,
         decision=args.decision,
         region=args.region,
         wording_hash=cs.sha256(),
         hub_version=args.hub_version,
         user_id=args.user_id,
         scope=cs.scope,
+        legal_note=legal_note,
     )
     return 0
 
@@ -180,6 +233,17 @@ def main(argv: list[str] | None = None) -> int:
     p_rec.add_argument(
         "--hub-version",
         default=os.environ.get("OSTLER_HUB_VERSION", "0.1.0"),
+    )
+    p_rec.add_argument(
+        "--legal-region",
+        help="ISO-3166 alpha-2 region the legal note was chosen for, or 'none'",
+    )
+    p_rec.add_argument(
+        "--legal-variant", choices=list(SPOKEN_CAPTURE_LEGAL_VARIANTS),
+    )
+    p_rec.add_argument(
+        "--legal-note-file",
+        help="file holding the verbatim legal note shown on screen",
     )
     p_rec.set_defaults(func=_cmd_record)
 

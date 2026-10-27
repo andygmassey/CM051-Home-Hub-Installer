@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		04D973B9B26B7BD22BE77086 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = BC0E7514B707DAC348288C34 /* OFL.txt */; };
 		07E7852B3C38DC22171FE85C /* ReuseSettingsExplanationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83899BF5EEEC0C2F975B0421 /* ReuseSettingsExplanationTests.swift */; };
+		09B769748421F2BBCC84D745 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9EA7B9285055EFB24937AA9A /* Assets.xcassets */; };
 		0D1D04125C9C73F01291E94A /* ProgressProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F30F204F6FC5AB19BC84461 /* ProgressProtocol.swift */; };
 		0DC239B7F1A049A5293EEF7D /* StringsCatalogueYNSuffixTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE2A31F120A9538AB52609C /* StringsCatalogueYNSuffixTest.swift */; };
 		0DC6DCED71D464D233EF5727 /* OpenWikiDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254380055987D9C3C6678384 /* OpenWikiDeepLinkTests.swift */; };
@@ -77,6 +78,7 @@
 		98C877552A588390D0F9D15B /* ViewCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 143B97F50F4AF5CC13BFCECB /* ViewCopy.json */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
 		9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA415C1B21A151B849E39CE1 /* ViewCopy.swift */; };
+		9E41C208279229561731542E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9EA7B9285055EFB24937AA9A /* Assets.xcassets */; };
 		A173988D39EB18BA05DEF850 /* RecoveryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7F8AA37BD12A43858C1420 /* RecoveryRootView.swift */; };
 		A24306F6E5743370D87800DF /* OnboardingQuestionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD18ABF66EF05A82075CC66C /* OnboardingQuestionView.swift */; };
 		A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */; };
@@ -494,6 +496,7 @@
 			buildConfigurationList = 760CEBCB37B3A281C2096631 /* Build configuration list for PBXNativeTarget "Ostler Uninstaller" */;
 			buildPhases = (
 				8DC4C6B615ACFBF1EC212F84 /* Sources */,
+				D3F7BDFD2A1F29B33E78985E /* Resources */,
 			);
 			buildRules = (
 			);
@@ -529,6 +532,7 @@
 			buildConfigurationList = 8F7C609771A09A441208294D /* Build configuration list for PBXNativeTarget "Recover Ostler" */;
 			buildPhases = (
 				8E03EFF55E612BAA996FE483 /* Sources */,
+				A01398B2E3E49AC19E20B471 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -639,6 +643,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A01398B2E3E49AC19E20B471 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				09B769748421F2BBCC84D745 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BC061E46C88E5D80D0115AEC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -661,6 +673,14 @@
 				98C877552A588390D0F9D15B /* ViewCopy.json in Resources */,
 				4D4F8EDE2DB63519463E4666 /* generate_appicon.py in Resources */,
 				E34095B158EB713C918CD59E /* test_icon_geometry.py in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3F7BDFD2A1F29B33E78985E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9E41C208279229561731542E /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

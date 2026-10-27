@@ -149,7 +149,6 @@ cast	johannes	generic German full name in a locale-override fixture, no surname 
 # spellings are different names. They carry no surname, no mailbox and no
 # number, so they identify nobody.
 # ---------------------------------------------------------------------------
-cast	alison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	allison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	ali	given-name spelling under test in the variants table; no surname or identifier attached
 cast	catherine	given-name spelling under test in the variants table; no surname or identifier attached
@@ -2437,3 +2436,18 @@ nonperson	scripts/box_walk_probes/probes/derived_preferences_breadth.sh::bf4da12
 nonperson	scripts/walk_promote_scope.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_every_probe_on_disk_is_collected.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_smart_prefs_probes.sh::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
+# NONPERSON, the spoken-capture legal note by region (2026-10-24). The pairs are
+# the country a region line is about ("In Germany", "In France", "In Hong Kong");
+# the line exists only because of that country, so a synthetic name would falsify it.
+nonperson	install.sh.strings.en-GB.sh::9c9af6101bd6b491	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE, the country whose recording law the line describes.
+nonperson	install.sh.strings.en-GB.sh::8d4f9085dbc23b57	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR, the country whose recording law the line describes.
+nonperson	install.sh.strings.en-GB.sh::d85533ba786e2766	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK, the territory whose data-protection law the line describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::9c9af6101bd6b491	JURISDICTION: consent_spoken_capture.legal_region_de, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE; the country whose recording law it describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::8d4f9085dbc23b57	JURISDICTION: consent_spoken_capture.legal_region_fr, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR; the country whose recording law it describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::d85533ba786e2766	JURISDICTION: consent_spoken_capture.legal_region_hk, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK; the territory whose data-protection law it describes.
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/sensitive.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored sensitive-term gate
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored stated-preferences reader
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated_model.py::8570b74a7dfae960	PRODUCT: the local model runtime (Ollama) on loopback, named in a vendored docstring; a software product, not a person
+nonperson	vendor/cm019_preferences/ontology/shacl/derived-preference-shapes.ttl::99a1b8e75f8ed287	PRODUCT: a SHACL shape title (sh:name) for the derived-preference pattern fields; an ontology term, not a person
+nonperson	scripts/verify_payload_app_icons.py::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
+nonperson	tests/test_payload_app_icons_gate.sh::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
