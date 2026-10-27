@@ -1715,3 +1715,14 @@ What a future sync must preserve: all four edits above. A re-pin that takes upst
 `first_run.py` wholesale is fine for the wizard; for `web_ui.py` it is the reconciliation
 project the doctor manifest note already prices.
 
+
+## 2026-10-25: owner name re-worded to a role in one comment (CM051 #3154)
+
+Tree `doctor`. Pin NOT moved. Comment-only, no behaviour change.
+
+- `agent/diagnostic_copy.py`, the `check_minors_registry` section comment (about line 1061):
+  "# Andy 2026-10-19 (project_minors_flag)" is now "# the owner 2026-10-19
+  (project_minors_flag)". One line. The merge of main into #3154 carried the re-word;
+  this entry records it so the divergence gate sees it described.
+- Retire: when HR015 carries the same re-word and a re-vendor makes the file
+  byte-identical.

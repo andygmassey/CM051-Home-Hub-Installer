@@ -1,0 +1,35 @@
+name: installer-doc-links
+
+# Every docs URL the installer shows a customer must return 200. The EXPORTS_ACK
+# help text linked docs.ostler.ai/data-exports, which 404s; nothing fetched it.
+# Links rot without a code change, so this also runs weekly.
+# OSTLER_REQUIRE_NETWORK=1: an unreachable site fails the job (CANNOT-RUN is
+# not PASS); locally the live check skips when offline.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  doc-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Installer docs links resolve (live fetch)
+        env:
+          OSTLER_REQUIRE_NETWORK: "1"
+        run: python3 tests/test_installer_doc_links_resolve.py
