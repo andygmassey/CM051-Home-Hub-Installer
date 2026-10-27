@@ -147,6 +147,37 @@ enum LegalRegion {
         }
     }
 
+    /// Region-line suffix for the Article 9 and third-party-data notes (CM051
+    /// row L7): `gb`, `eu` or `hk`; US and every other region get the neutral
+    /// core only (empty). Same region rule as the spoken-capture note.
+    static func basicRegionKey(forCountry iso: String?) -> String? {
+        switch jurisdiction(forCountry: iso) {
+        case .gb: return "gb"
+        case .eu: return "eu"
+        case .hk: return "hk"
+        case .us, .other: return nil
+        }
+    }
+
+    /// The legal note for a ViewCopy section (`consent_article_9` or
+    /// `consent_third_party`), byte for byte what install.sh composes
+    /// (`_ostler_article_9_legal_note_for` / `_ostler_third_party_legal_note_for`).
+    static func legalNote(
+        section: String,
+        appleLocale: String?,
+        copy: ViewCopy = .shared
+    ) -> String {
+        let base = section + "."
+        var parts = [
+            copy.string(for: base + "legal_prefix"),
+            copy.string(for: base + "legal_core")
+        ]
+        if let key = basicRegionKey(forCountry: country(fromAppleLocale: appleLocale)) {
+            parts.append(copy.string(for: base + "legal_region_" + key))
+        }
+        return parts.joined(separator: " ")
+    }
+
     /// The whole legal note for the given AppleLocale value.
     static func spokenCaptureLegalNote(
         appleLocale: String?,

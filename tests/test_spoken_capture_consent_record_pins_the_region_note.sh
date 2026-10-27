@@ -141,7 +141,7 @@ mkdir -p "${WORK}/m1"; cp "${WORK}/ex/"*.sh "${WORK}/m1/"
 mut "${WORK}/m1/recorder_call.sh" '&& -n "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}"' '&& -z "pin-dropped"' || exit 2
 # M2: consent_cli records the base version for every region.
 mkdir -p "${WORK}/v2"; cp -R "${REPO}/vendor/legal" "${REPO}/vendor/ostler_security" "${WORK}/v2/"
-mut "${WORK}/v2/ostler_security/consent_cli.py" 'wording_version = spoken_capture_recorded_version(args.legal_variant)' 'wording_version = cs.version' || exit 2
+mut "${WORK}/v2/ostler_security/consent_cli.py" 'wording_version = legal_note_recorded_version(cs, args.legal_variant)' 'wording_version = cs.version' || exit 2
 # M3: consent.py drops the region from the record.
 mkdir -p "${WORK}/v3"; cp -R "${REPO}/vendor/legal" "${REPO}/vendor/ostler_security" "${WORK}/v3/"
 mut "${WORK}/v3/ostler_security/consent.py" '        record["legal_note_region"] = legal_note["region"]' '        pass' || exit 2

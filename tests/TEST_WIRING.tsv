@@ -746,6 +746,7 @@ test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_capture_consent_does_not_claim_audio_is_kept.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_article_9_third_party_notes_follow_region.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_capture_consent_record_pins_the_region_note.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_capture_legal_note_follows_region.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml

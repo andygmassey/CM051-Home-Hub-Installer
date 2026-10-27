@@ -355,7 +355,10 @@ struct OnboardingQuestionView: View {
     /// the TTY install path still renders the full text inline.
     private func consentThirdPartyBody() -> some View {
         let intro = ViewCopy.shared.string(for: "consent_third_party.intro_body")
-        let legal = ViewCopy.shared.string(for: "consent_third_party.legal_note")
+        let legal = LegalRegion.legalNote(
+            section: "consent_third_party",
+            appleLocale: LegalRegion.currentAppleLocale()
+        ) + " " + ViewCopy.shared.string(for: "consent_third_party.legal_link")
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)
@@ -397,7 +400,10 @@ struct OnboardingQuestionView: View {
     /// TTY install path still renders the full text inline.
     private func consentArticle9Body() -> some View {
         let intro = ViewCopy.shared.string(for: "consent_article_9.intro_body")
-        let legal = ViewCopy.shared.string(for: "consent_article_9.legal_note")
+        let legal = LegalRegion.legalNote(
+            section: "consent_article_9",
+            appleLocale: LegalRegion.currentAppleLocale()
+        )
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)

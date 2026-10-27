@@ -100,6 +100,12 @@ jobs:
         if: always()
         run: bash tests/test_spoken_capture_consent_record_pins_the_region_note.sh
 
+      # CM051 row L7: the Article 9 and third-party notes follow the region too,
+      # and the consent record pins the region + note version it showed.
+      - name: Article 9 and third-party legal notes follow the region and the record pins them
+        if: always()
+        run: bash tests/test_article_9_third_party_notes_follow_region.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
