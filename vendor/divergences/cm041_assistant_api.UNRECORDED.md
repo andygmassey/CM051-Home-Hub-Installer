@@ -138,7 +138,7 @@ functions `_timeline_from_graph`, `_timeline_conversations`, `api_timeline`,
 the `/api/v1/timeline` handler, and new helpers `_safe_iso_day`,
 `_conversation_title`, `_CHANNEL_LABELS`.
 
-Why: on Andy's v1.0.105 walk the Timeline opened a year ahead and ended part
+Why: on the owner's v1.0.105 walk the Timeline opened a year ahead and ended part
 way through today (the graph query had no upper date bound and sorted
 newest-first, so future all-day entries filled the 200-row cap), labelled every
 row MEETING (the entries mapper collapsed every non-meeting kind to
@@ -203,7 +203,7 @@ Two changes, both inside `api_hydration_status`:
   is ignored).
 - A new top-level `wiki_ready` boolean in the returned dict: `all(s == "done"
   for s in gating)`, reusing the `gating` list (contacts/graph/ai_summaries)
-  the function already computes for `overall_state`. Andy's decision: one
+  the function already computes for `overall_state`. The owner's decision: one
   failed phase must never hide the whole wiki. `overall_state` reads
   "needs_attention" the instant conversations has any failure (MEASURED on
   the same walk box: 10 of 17 dispatched), with the wiki itself fully built
@@ -274,7 +274,7 @@ helpers (`_looks_like_bare_email_or_phone`, `_SERVICE_NAME_SUFFIX_WORDS` +
 `_is_automated_or_service_name`, `_load_people_list_self_uris`). Shape:
 exclusion/relabelling only, nothing deleted.
 
-Andy's screen read of the People page on macmini16-walk found the top 10
+The owner's screen read of the People page on macmini16-walk found the top 10
 "recent" rows mostly wrong, in three ways (synthetic shapes standing in
 for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
 notification sender, a marketplace, an email SUBJECT LINE, an all-caps
@@ -1181,7 +1181,7 @@ extends), or the next re-sync of this tree reverts it.
 `ical-server.py`: People list and search rows carry `provisional_name: true`
 when the name is the phone number.
 
-Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+Why: the owner's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
 human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
 people; the 9 missing were phone-only. CM041 upstream and CM044
 `compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
@@ -1208,7 +1208,7 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
 - `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
 - `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
 
-WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+WHY: the owner's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
 ## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
 
 Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
@@ -1412,6 +1412,23 @@ Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafte
 - Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
 - Retire: re-pin `cm041/assistant_api` past e2dffc09.
 
+## 2026-10-23 118: hub_contract.yaml carries the four under-18 Doctor proxy rows
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry (the under-18 routes graft is a separate PR).
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.23>` adds four Doctor rows because install.sh DOCTOR_PROXY_PATHS gained `/api/v1/minors`, `/api/v1/minors/suggestions`, `/api/v1/people/{slug}/minor` and `/api/v1/people/{slug}/minor-suggestion/dismiss`. They are marked `upstream_missing: true`, which is the truth until the graft lands.
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.23> --check` reports current (284 routes).
+- Retire: the graft PR regenerates this file again with the ical routes present.
+
+## 2026-10-23 118: the under-18 setter, suggestion and dismissal routes (CM041 #236)
+
+Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 6249d1fe5ccea7d44deabfbca19c4bcc21ffe256.
+
+- `ical-server.py`: `_personal_identifiers_for` factored out of `api_people_suppress_suggestions`; the minors block (`MinorsRegistryUnreadable` through `api_minors_dismiss`, placed after `api_people_forget` so the forget tests that slice from `_forget_audit_has` do not pick it up); GET `/api/v1/minors` and `/api/v1/minors/suggestions`; POST `/api/v1/people/{slug}/minor` and `.../minor-suggestion/dismiss`. Applied with patch(1) at fuzz 0, 0 rejected hunks. `API.md` likewise.
+- `tests/test_minors_setter.py` copied verbatim (27 tests). It needs the real `ostler_security`, so the workflow installs `./vendor/ostler_security` first.
+- `hub_contract.yaml` regenerated against hub-v0.5.23; the four Doctor rows now resolve to `ical` rows instead of `upstream_missing`.
+- Proof: 27 passed in a clean venv with only pytest, httpx, fastapi, rapidfuzz and `./vendor/ostler_security` installed. Wired in minors-registry-row.yml.
+- Retire: re-pin `cm041/assistant_api` past the CM041 #236 squash.
 ## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
 
 Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three
@@ -1477,3 +1494,30 @@ that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
 57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
 next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
 this assertion, and the re-vendor makes the file byte-identical.
+
+## 2026-10-24: strip tracking params at the extension POST and Save to Knowledge (CM051 #3043; upstream CM041 #227, OPEN)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Grafted ahead of the upstream merge.
+Upstream head at graft: CM041 #227 b1374d25.
+
+- `url_clean.py`: NEW file, byte-identical to `assistant_api/url_clean.py` at b1374d25
+  (diff -q against the upstream blob: identical, 106 lines) and to
+  `vendor/ostler_fda/url_clean.py` (parity checked by `tests/test_url_clean.py`).
+- `ical-server.py`: new helper `_strip_tracking_url(url)` (imports `url_clean` from the
+  file's own directory), and `api_safari_ingest` and `api_safari_save` wrap the
+  posted url in it before it is stored or keyed. Two call sites, one helper.
+- `tests/test_url_clean_ingest.py`: NEW, drives both handlers.
+- Proof: `vendor/cm041/assistant_api/tests/test_url_clean_ingest.py` (4), wired in
+  `url-clean.yml`.
+- Retire: when CM041 #227 merges, re-pin past it.
+
+## 2026-10-25: owner name re-worded to a role in one comment (CM051 #3154)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
+
+- `ical-server.py`, the section comment above the under-18 registry (about line 3746):
+  "(Andy 2026-10-19, 118)" is now "(the owner 2026-10-19, 118)". One line. The merge of
+  main into #3154 carried the re-word; this entry records it so the divergence gate
+  sees it described.
+- Retire: when CM041 carries the same re-word and a re-vendor makes the file
+  byte-identical.

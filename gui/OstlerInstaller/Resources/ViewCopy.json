@@ -250,7 +250,10 @@
 
   "hint_panel": {
     "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
-    "watchdog_still_going": "Still going, please wait..."
+    "watchdog_still_going": "Still going, please wait...",
+    "clt_waiting": "Waiting for Apple's developer tools. Click Install in the macOS dialog when it appears.",
+    "clt_waiting_timeout": "Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog.",
+    "clt_install_button": "Install developer tools"
   },
 
   "passkey_ack": {

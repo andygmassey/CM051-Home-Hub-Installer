@@ -29,6 +29,16 @@ class AffinityView:
     confidence: float
     intensity: str = "casual"
     because: Tuple[str, ...] = ()
+    category: str = ""       # films / tv / music / ...; "" when the store did not say
+    node: str = ""           # the derived node's URI, to resolve "because" later
+    tier: str = ""           # "broad" | "specific"; "" for graphs written before tiers
+    privacy: str = ""        # highest privacy level of the evidence ("" = none stated)
+    # Optional pattern-deriver fields ("" / () / False when absent).
+    trend: str = ""          # "rising" | "falling" | "stable"
+    contradiction_winner: str = ""   # "stated" | "behaviour"
+    contradiction_reason: str = ""
+    suppress: bool = False   # a contradicted dislike: never suggest, whatever the sign
+    context: Tuple[str, ...] = ()    # ("evening", "weekend")
 
 
 @dataclass
@@ -62,8 +72,25 @@ class DerivedAffinityScorer:
         for dim, val in candidate.tags:
             a = self._by_key.get((dim, normalize_value(val)))
             if a is not None:
-                total += a.strength * a.confidence
+                # A contradicted dislike still subtracts, whatever sign the mixed
+                # evidence netted to: the marker never lets it rank as a like.
+                s = -abs(a.strength) if a.suppress else a.strength
+                total += s * a.confidence
         return total
+
+    def suppressed(self, candidate: Candidate) -> bool:
+        """True when the candidate matches a disliked thing (a plain dislike or a
+        contradicted one). Callers that must NEVER suggest a dislike filter on this.
+
+        UNWIRED (2026-10-23): nothing in this repo calls it, and no consumer in
+        CM051 or the assistant does yet. ``contribution`` (used by score/rank)
+        already honours the marker; this hard filter is for a suggestion surface
+        that has not been built."""
+        for dim, val in candidate.tags:
+            a = self._by_key.get((dim, normalize_value(val)))
+            if a is not None and (a.suppress or a.strength < 0):
+                return True
+        return False
 
     def score(self, candidate: Candidate) -> float:
         return candidate.base_relevance + self.contribution(candidate)
@@ -71,3 +98,32 @@ class DerivedAffinityScorer:
     def rank(self, candidates: Sequence[Candidate]) -> List[Candidate]:
         """Highest score first; stable for equal scores (preserves input order)."""
         return sorted(candidates, key=lambda c: -self.score(c))
+
+
+def interleave_by_category(views: Sequence[AffinityView], limit: int) -> List[AffinityView]:
+    """Round-robin a ranked list by category, so one category cannot own the top-N.
+
+    Round 1 takes each category's best item, round 2 each category's second, and
+    so on. Inside a round the items are ordered by confidence then strength, and
+    within a category the input order is kept (the input is already ranked). A
+    category that runs out simply drops out of later rounds, so when the others
+    are empty the one left still fills the list.
+    """
+    by_cat: Dict[str, List[AffinityView]] = {}
+    for v in views:
+        by_cat.setdefault(v.category, []).append(v)
+    # Types before things: inside a category a broad item leads a specific one
+    # (the sort is stable, so confidence order is kept within each tier).
+    for items in by_cat.values():
+        items.sort(key=lambda v: v.tier != "broad")
+    out: List[AffinityView] = []
+    rnd = 0
+    while len(out) < limit:
+        this_round = [items[rnd] for items in by_cat.values() if len(items) > rnd]
+        if not this_round:
+            break
+        # Types before things: inside a round a broad item leads a specific one.
+        this_round.sort(key=lambda v: (v.tier != "broad", -v.confidence, -v.strength))
+        out.extend(this_round[: limit - len(out)])
+        rnd += 1
+    return out

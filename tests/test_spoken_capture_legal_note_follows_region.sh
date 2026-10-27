@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The spoken-capture legal note follows the Mac's REGION, not its language
-# (Andy, 2026-10-24). Launch markets: GB, EU, HK, US; anything else gets the
+# (the owner, 2026-10-24). Launch markets: GB, EU, HK, US; anything else gets the
 # neutral core only. Every region line is a best-effort draft that needs
 # local professional sign-off; this test pins WHICH lines show, not that the
 # law in them is right.
@@ -182,6 +182,7 @@ else
 fi
 newkeys="$(grep -oE '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_[A-Z_]+' "${STRINGS}")"
 [[ $(wc -l <<< "${newkeys}") -eq 10 ]] && pass "10 legal keys, all named CONSENT (l10n legal gate)" || bad "expected 10 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* keys, got: ${newkeys}"
-if grep -E '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_' "${STRINGS}" | grep -q $'\xe2\x80\x94'; then bad "em dash in a legal key"; else pass "no em dash in the legal keys"; fi
+legal_lines="$(grep -E '^MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_' "${STRINGS}")"
+if grep -q $'\xe2\x80\x94' <<< "${legal_lines}"; then bad "em dash in a legal key"; else pass "no em dash in the legal keys"; fi
 
 exit "${fail}"

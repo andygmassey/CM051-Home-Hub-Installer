@@ -71,7 +71,7 @@ Referenced by `cut.yml`, deliberately NOT stored. **This repo is PUBLIC** and a
 Sparkle EdDSA private key does not live in one. The key is held on the
 OstlerSecrets volume and appcast signing is a local post-cut act.
 `PUBLISH_APPCAST=onbox` is the mechanism, and the step prints the exact
-on-box command then exits 0 without failing the cut. Settled by Andy
+on-box command then exits 0 without failing the cut. Settled by the owner
 2026-08-19.
 
 ### OPERATOR_PII_INVENTORY

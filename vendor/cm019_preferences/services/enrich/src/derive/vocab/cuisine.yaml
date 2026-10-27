@@ -1,0 +1,46 @@
+# SHARED vocabulary for food.cuisine. One canonical label per cuisine, with the
+# keywords that mean it. Every food reader (restaurant names, the places
+# enrichment's cuisine tags, delivery orders, stated likes) maps into THESE
+# labels, so evidence from different sources lands in the same group. Add a
+# cuisine or a keyword here, never a second list elsewhere.
+#
+# A keyword matches as a whole word, case-insensitive. A label that matches no
+# keyword is not a cuisine (a venue type such as "restaurant", a price facet)
+# and is dropped by readers that set vocab_strict.
+italian:     [italian, pizza, pizzeria, pasta, trattoria, ristorante, osteria, gelato, italian, pepperoni, risotto, tiramisu, carbonara, margherita, lasagne, lasagna, gnocchi, bruschetta, focaccia, spaghetti, ravioli, italy]
+japanese:     [japanese, izakaya, yakitori, tempura, udon, teppanyaki, tonkatsu, okonomiyaki, gyoza, donburi, katsu, robata, soba, japan]
+sushi:        {parent: japanese, words: [sushi, sashimi, omakase, nigiri]}
+ramen:        {parent: japanese, words: [ramen, tonkotsu]}
+chinese:      [chinese, hotpot, "hot pot", noodle, noodles, dumpling, dumplings, "peking duck", "chow mein", "lo mein", china]
+# REGIONAL cuisines. `parent:` rolls the evidence up for "likes Chinese food", but a regional
+# value is its own node and is NEVER merged into its parent: "love Sichuan, not a fan of
+# Cantonese" is two opposite preferences. Spellings live on the regional row.
+sichuan:      {parent: chinese, words: [sichuan, sichuanese, szechuan, szechwan, szechuanese, "si chuan", mapo, "dan dan", "kung pao", "twice cooked pork", "hot and sour", mala]}
+cantonese:    {parent: chinese, words: [cantonese, "hong kong style", "hk style", "hongkong style", "dim sum", dimsum, "yum cha", congee, wonton, "char siu", "siu mei", "cha chaan teng", "roast goose", "har gow", "siu mai", "cheung fun", "claypot rice", canton]}
+shanghainese: {parent: chinese, words: [shanghainese, shanghai, xiaolongbao, "xiao long bao"]}
+taiwanese:    {parent: chinese, words: [taiwanese, taiwan]}
+hunan:        {parent: chinese, words: [hunan, hunanese]}
+thai:        [thai, "pad thai", "tom yum", "green curry", "red curry", massaman, "som tam", "tom kha", "pad see ew", thailand]
+indian:       [indian, curry, biryani, masala, korma, vindaloo, paneer, dal, saag, balti, thali, samosa, bhaji, india, pakistani, nepalese, "sri lankan"]
+north indian: {parent: indian, words: [tandoori, tikka, naan, "butter chicken", punjabi, "north indian"]}
+south indian: {parent: indian, words: [dosa, idli, sambar, "south indian", chettinad, kerala, vada]}
+korean:      [korean, bbq, bibimbap, kimchi, "korean bbq", bulgogi, tteokbokki, japchae, galbi, samgyeopsal, korea]
+vietnamese:  [vietnamese, pho, banh mi, "bun cha", "goi cuon", "bun bo", vietnam]
+mexican:     [mexican, taco, tacos, burrito, taqueria, cantina, quesadilla, enchilada, enchiladas, nachos, guacamole, fajita, fajitas, mexico]
+french:      [french, bistro, brasserie, creperie, patisserie, boulangerie, crepe, crepes, croissant, croque, "coq au vin", bouillabaisse, escargot, france]
+spanish:     [spanish, tapas, paella, jamon, "patatas bravas", churros, spain, portuguese]
+greek:       [greek, souvlaki, gyros, taverna, moussaka, tzatziki, spanakopita, greece]
+turkish:     [turkish, kebab, doner, lahmacun, pide, iskender, turkey]
+middle eastern: ["middle eastern", lebanese, persian, falafel, shawarma, mezze, hummus, kebabs, shish, manakish, "baba ganoush", israeli, arabic, levantine]
+mediterranean: [mediterranean]
+american:    [american, burger, burgers, diner, steakhouse, steak, bbq grill, wings, "mac and cheese", "mac & cheese", "hot dog", milkshake, cheeseburger, ribeye, sirloin, "rib eye", "steak house", smokehouse, brisket, "pulled pork", barbecue, barbeque]
+british:     [british, "fish and chips", pub, gastropub, "sunday roast", "fish & chips", "pie and mash", "full english", english, tavern, taproom, alehouse]
+seafood:     [seafood, oyster, oysters, "fish restaurant", "oyster bar", lobster, crab, prawns]
+# vegetarian / vegan / halal are DIETS, not cuisines: category `dietary`, stored, never
+# surfaced (see sensitive_terms.yaml). They are deliberately absent from this file.
+cafe:        [cafe, café, coffee, coffeehouse, bakery, brunch, espresso, latte, "flat white"]
+fast food:   ["fast food", mcdonald, kfc, "burger king", subway]
+dessert:     [dessert, "ice cream", icecream, dessert bar, gelateria, "frozen yogurt"]
+african:     [african, ethiopian, moroccan]
+latin american: [peruvian, brazilian, argentinian, argentine, "latin american", ceviche]
+german:      [german, germany, bratwurst, schnitzel]

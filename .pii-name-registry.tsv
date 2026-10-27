@@ -149,7 +149,6 @@ cast	johannes	generic German full name in a locale-override fixture, no surname 
 # spellings are different names. They carry no surname, no mailbox and no
 # number, so they identify nobody.
 # ---------------------------------------------------------------------------
-cast	alison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	allison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	ali	given-name spelling under test in the variants table; no surname or identifier attached
 cast	catherine	given-name spelling under test in the variants table; no surname or identifier attached
@@ -2446,3 +2445,9 @@ nonperson	install.sh.strings.en-GB.sh::d85533ba786e2766	JURISDICTION: the openin
 nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::9c9af6101bd6b491	JURISDICTION: consent_spoken_capture.legal_region_de, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE; the country whose recording law it describes.
 nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::8d4f9085dbc23b57	JURISDICTION: consent_spoken_capture.legal_region_fr, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR; the country whose recording law it describes.
 nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::d85533ba786e2766	JURISDICTION: consent_spoken_capture.legal_region_hk, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK; the territory whose data-protection law it describes.
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/sensitive.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored sensitive-term gate
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored stated-preferences reader
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated_model.py::8570b74a7dfae960	PRODUCT: the local model runtime (Ollama) on loopback, named in a vendored docstring; a software product, not a person
+nonperson	vendor/cm019_preferences/ontology/shacl/derived-preference-shapes.ttl::99a1b8e75f8ed287	PRODUCT: a SHACL shape title (sh:name) for the derived-preference pattern fields; an ontology term, not a person
+nonperson	scripts/verify_payload_app_icons.py::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
+nonperson	tests/test_payload_app_icons_gate.sh::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.

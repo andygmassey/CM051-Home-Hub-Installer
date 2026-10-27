@@ -1472,6 +1472,24 @@ jobs:
           fi
           bash scripts/verify_dmg_delivers_fixes.sh "$DMG"
 
+      # 118 U4. v1.0.117 shipped Ostler Uninstaller.app and Recover Ostler.app
+      # with no icon: Finder showed the blank placeholder in /Applications/Ostler
+      # and every gate above was green, because none of them looks at what the
+      # customer sees. This reads every .app in the staged DMG (nested ones
+      # included) and requires its CFBundleIconFile / CFBundleIconName to
+      # resolve. Demonstrated red on the real v1.0.117 artefact (2 apps).
+      # Exit 2 is CANNOT-RUN and is not a pass.
+      - name: Every app in the DMG has an icon (118 U4)
+        if: always()
+        run: |
+          set -uo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to inspect::The app-icon gate found no dist/*.dmg. It failed to look. DO NOT SHIP."
+              exit 1
+          fi
+          python3 scripts/verify_payload_app_icons.py "$DMG"
+
       # ── THE ARTEFACT WALK ITSELF (#719 successor) ───────────────────────
       # scripts/walk_dmg.sh is 498 lines of eight-arm artefact walk and it has
       # had ZERO INVOCATIONS since it was written. Its only reference anywhere

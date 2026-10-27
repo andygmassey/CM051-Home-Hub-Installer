@@ -209,7 +209,7 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
 }
 
 /// The spoken-capture legal note follows the Mac's REGION, not its language
-/// (Andy, 2026-10-24). Reads tests/fixtures/legal_region_contract.tsv, the
+/// (the owner, 2026-10-24). Reads tests/fixtures/legal_region_contract.tsv, the
 /// SAME fixture tests/test_spoken_capture_legal_note_follows_region.sh runs
 /// install.sh's functions against, so the two sides cannot drift apart.
 /// Region lines are best-effort drafts needing local professional sign-off;
