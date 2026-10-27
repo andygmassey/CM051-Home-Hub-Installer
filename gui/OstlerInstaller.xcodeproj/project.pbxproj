@@ -73,6 +73,7 @@
 		92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */; };
 		9518827AC07902091C0940C0 /* OstlerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290A4E2AACD1F8BA2DABFE13 /* OstlerTheme.swift */; };
 		95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66DA22186CCE95593E86761D /* FullDiskAccessGateView.swift */; };
+		962FEF511E32047540A8A392 /* FullDiskAccessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DC1B8689373434548BFB4A7 /* FullDiskAccessProbe.swift */; };
 		98C877552A588390D0F9D15B /* ViewCopy.json in Resources */ = {isa = PBXBuildFile; fileRef = 143B97F50F4AF5CC13BFCECB /* ViewCopy.json */; };
 		9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3014DBC9CAECCD4EBBD90 /* DeviceLimitReachedView.swift */; };
 		9D4F4FAFE6D88FFBBBABAD08 /* ViewCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA415C1B21A151B849E39CE1 /* ViewCopy.swift */; };
@@ -90,6 +91,7 @@
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
+		BD5297A4F5D99111BA8D8B46 /* FullDiskAccessProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A04B03E7988A2CD3A2A433 /* FullDiskAccessProbeTests.swift */; };
 		C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E1974AECCE8C351193A5257 /* DialogIcon.icns */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
 		C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */; };
@@ -144,6 +146,7 @@
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateTerminationTests.swift; sourceTree = "<group>"; };
+		0DC1B8689373434548BFB4A7 /* FullDiskAccessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessProbe.swift; sourceTree = "<group>"; };
 		0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicRefreshMode.swift; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
 		17105FDC6EFFD5D0E009D529 /* UninstallFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallFlags.swift; sourceTree = "<group>"; };
@@ -153,6 +156,7 @@
 		1CEB41E273B497EC1E884EE3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1E50EE8CD2AF7059E753EEE6 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
 		206E78E1FD55698261A6A774 /* ErrorCodeBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorCodeBannerTest.swift; sourceTree = "<group>"; };
+		21A04B03E7988A2CD3A2A433 /* FullDiskAccessProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessProbeTests.swift; sourceTree = "<group>"; };
 		2506E3AD81DD970743B00309 /* OnboardingButtonFooterProofTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingButtonFooterProofTests.swift; sourceTree = "<group>"; };
 		254380055987D9C3C6678384 /* OpenWikiDeepLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWikiDeepLinkTests.swift; sourceTree = "<group>"; };
 		260069E8B35BBB27233D9472 /* InstallCompleteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallCompleteView.swift; sourceTree = "<group>"; };
@@ -364,6 +368,7 @@
 				42B30C4B72F0216B459295F7 /* FailureStateMachineTests.swift */,
 				3865CDEDEE721BB0D50F6CE6 /* FDAPresetSubtitleFaceRecognitionClaimTests.swift */,
 				59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */,
+				21A04B03E7988A2CD3A2A433 /* FullDiskAccessProbeTests.swift */,
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
 				C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */,
 				FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */,
@@ -431,6 +436,7 @@
 				F0FF342212E569C1E337355B /* CaffeinateManager.swift */,
 				578EA8428F05B39C8652C7CA /* DeviceRegistration.swift */,
 				D32D456A934ED46ACD089EF7 /* FingerprintState.swift */,
+				0DC1B8689373434548BFB4A7 /* FullDiskAccessProbe.swift */,
 				7BE0CF828CCF9ED9B1E1129C /* HardwareFingerprint.swift */,
 				F7E6CE9C7446E8D37F19010D /* LicensePersistence.swift */,
 				A2CC753BA3079BE36F7A7CF4 /* LicenseVerifier.swift */,
@@ -1320,6 +1326,7 @@
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
 				135D1027BD0F3B4762310C2D /* FingerprintState.swift in Sources */,
 				95D9BCFA662C1E7244D50C83 /* FullDiskAccessGateView.swift in Sources */,
+				962FEF511E32047540A8A392 /* FullDiskAccessProbe.swift in Sources */,
 				E645DB417FE085A54F3474A7 /* FullDiskAccessSheet.swift in Sources */,
 				F22ED4BB1C2FC75CA9CFAD41 /* GatewayClient.swift in Sources */,
 				51E255E2F487381E460923C0 /* HardwareFingerprint.swift in Sources */,
@@ -1367,6 +1374,7 @@
 				4217257358F1341C6A4ACEFA /* FDAPresetSubtitleFaceRecognitionClaimTests.swift in Sources */,
 				D687020DA04D1B854FB03E39 /* FailureStateMachineTests.swift in Sources */,
 				E276D8572DB30C132C431CCA /* FingerprintStateTests.swift in Sources */,
+				BD5297A4F5D99111BA8D8B46 /* FullDiskAccessProbeTests.swift in Sources */,
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
 				1A23E840E7F3CF3C7163FD90 /* InstallFailedBannerTest.swift in Sources */,
 				2BCD8DD70C9BCF001725BC88 /* LicenseEntryDropzoneTests.swift in Sources */,
