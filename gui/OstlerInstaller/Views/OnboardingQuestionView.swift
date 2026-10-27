@@ -429,8 +429,9 @@ struct OnboardingQuestionView: View {
     /// blocks, all fed from ViewCopy keys (Rule 0.9 catalogue):
     ///   - intro_body                (primary body copy)
     ///   - ask_heading + bullet_1..3 (a scannable ask list)
-    ///   - legal_note                (smaller italic .secondary fine
-    ///                                print)
+    ///   - legal note                (smaller italic .secondary fine
+    ///                                print), composed per REGION by
+    ///                                LegalRegion.spokenCaptureLegalNote
     ///
     /// Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so
     /// the TTY install path still renders the full text inline.
@@ -442,7 +443,12 @@ struct OnboardingQuestionView: View {
             ViewCopy.shared.string(for: "consent_spoken_capture.bullet_2"),
             ViewCopy.shared.string(for: "consent_spoken_capture.bullet_3")
         ]
-        let legal = ViewCopy.shared.string(for: "consent_spoken_capture.legal_note")
+        // Legal note chosen by the Mac's REGION (country part of
+        // AppleLocale), never its language; same rule as install.sh.
+        // Region lines are best-effort drafts needing local sign-off.
+        let legal = LegalRegion.spokenCaptureLegalNote(
+            appleLocale: LegalRegion.currentAppleLocale()
+        )
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)

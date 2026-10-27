@@ -147,6 +147,7 @@ test_audit_log_row_factory.py	WIRED	.github/workflows/db-key-delivery-and-recove
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
+test_backfill_strip_tracking_urls.py	WIRED	.github/workflows/url-clean.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_background_qos_yields_to_chat.sh	WIRED	.github/workflows/ingest-slot.yml
 test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
@@ -389,6 +390,7 @@ test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-de
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
+test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -480,6 +482,7 @@ test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflow
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
 test_installer_authenticates_to_qdrant.sh	WIRED	.github/workflows/venv-store-shim.yml
+test_installer_doc_links_resolve.py	WIRED	.github/workflows/installer-doc-links.yml
 test_installer_installs_every_pipeline_requirements_file.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
@@ -744,6 +747,8 @@ test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_capture_consent_does_not_claim_audio_is_kept.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_spoken_capture_consent_record_pins_the_region_note.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_spoken_capture_legal_note_follows_region.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_spool_sweep_quarantines_a_bad_row.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -907,6 +912,7 @@ test_upgrade_refreshes_assistant_api_and_context_refresh.sh	WIRED	.github/workfl
 test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh	WIRED	.github/workflows/derived-preferences.yml
 test_upgrade_reloads_the_launchagent_it_rewrote.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_upgrade_repairs_the_fda_venv.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_url_clean.py	WIRED	.github/workflows/url-clean.yml
 test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_producer_parity_2472.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
@@ -990,6 +996,7 @@ test_wiki_catchup_skips_while_installer_runs.sh	WIRED	.github/workflows/wiki-com
 test_wiki_compile_gets_owner_tz.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_compile_has_a_page_count_oracle.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
 test_wiki_compile_honours_public_lookup_consent.sh	WIRED	.github/workflows/ingest-slot.yml
+test_wiki_compiler_gets_assistant_name.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_wiki_compiler_gets_the_qdrant_key.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_wiki_compose_paths.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_content_gate_is_invoked_and_cannot_run_is_not_pass.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
