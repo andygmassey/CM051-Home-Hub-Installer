@@ -1521,3 +1521,11 @@ Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
   sees it described.
 - Retire: when CM041 carries the same re-word and a re-vendor makes the file
   byte-identical.
+
+## 2026-10-28 119: hub_contract.yaml regenerated against hub-v0.5.29
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.29 = 9c6c2b55>` re-derives the gateway rows for the re-pinned daemon (CM051 #3192; contract-is-current was RED against the new pin).
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.29> --check` reports current (279 routes).
+- Retire: the next hub re-pin regenerates this file again.
