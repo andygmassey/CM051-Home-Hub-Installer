@@ -4084,7 +4084,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9507   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9552   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9561 and :17335, both of which run
+    # Its two top-level arming calls are :9561 and :17466, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
     # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
@@ -4102,13 +4102,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :539: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18130, where the note reads
+    # WhatsApp Web session path did it again at :18261, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18147 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18278 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4121,9 +4121,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9561, :17335) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9561, :17466) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20327 / :20505 / :20662 / :21107 path. There the
+    # :20458 / :20636 / :20793 / :21238 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10252,6 +10252,82 @@ DO_LOOSE=0
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
 
+# --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
+# A 52-minute scan was measured when Desktop held a copied old-Mac home folder
+# (its own Library/ and Documents/ tree). Three guards, all env-overridable:
+#   OSTLER_SCAN_MAXDEPTH  find depth cap (default 6, the depth every known
+#                         export shape fits in)
+#   OSTLER_SCAN_BUDGET_S  wall-clock budget in seconds for the WHOLE INSTALL
+#                         (default 300). 0 = scan nothing and report
+#                         budget_hit=1.
+#   OSTLER_SCAN_DEADLINE_EPOCH  absolute epoch-seconds deadline. install.sh
+#                         computes it ONCE (now + budget) and exports it, so
+#                         every invocation (unzip, loose, default) shares one
+#                         budget. Unset or non-numeric: this invocation starts
+#                         its own (now + budget), which is the standalone case.
+#   nested backups        any directory below DIR that itself holds a Library/
+#                         or Users/ subtree is pruned, never walked.
+# Counts only (never paths) go to STDERR as one SCAN_SUMMARY line, so the
+# "LABEL<TAB>path" hits on stdout stay parseable. State lives in files because
+# every find runs inside a process substitution (a subshell).
+SCAN_MAXDEPTH="${OSTLER_SCAN_MAXDEPTH:-6}"
+SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
+case "$SCAN_MAXDEPTH" in ''|*[!0-9]*|0) SCAN_MAXDEPTH=6 ;; esac
+case "$SCAN_BUDGET_S" in ''|*[!0-9]*) SCAN_BUDGET_S=300 ;; esac
+_SCAN_STATE="$(mktemp -d "${TMPDIR:-/tmp}/ostler-scan.XXXXXX")" || exit 1
+SCAN_DEADLINE="${OSTLER_SCAN_DEADLINE_EPOCH:-}"
+case "$SCAN_DEADLINE" in ''|*[!0-9]*) SCAN_DEADLINE=$(( $(date +%s) + SCAN_BUDGET_S )) ;; esac
+_scan_summary() {
+    local skipped=0 hit=0
+    [[ -f "$_SCAN_STATE/skipped" ]] && skipped="$(cat "$_SCAN_STATE/skipped")"
+    [[ -f "$_SCAN_STATE/budget_hit" ]] && hit=1
+    printf 'SCAN_SUMMARY skipped_nested_backups=%s budget_hit=%s maxdepth=%s budget_s=%s\n' \
+        "$skipped" "$hit" "$SCAN_MAXDEPTH" "$SCAN_BUDGET_S" >&2
+    rm -rf "$_SCAN_STATE"
+}
+trap _scan_summary EXIT
+
+# _bfind <find args...>: run find to a temp file under the shared deadline.
+# Kills only the find it started. Output is whatever was found before the stop.
+_bfind() {
+    local out pid
+    if (( $(date +%s) >= SCAN_DEADLINE )); then
+        : > "$_SCAN_STATE/budget_hit"
+        return 0
+    fi
+    out="$(mktemp "$_SCAN_STATE/find.XXXXXX")" || return 0
+    find "$@" > "$out" 2>/dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( $(date +%s) >= SCAN_DEADLINE )); then
+            kill "$pid" 2>/dev/null
+            : > "$_SCAN_STATE/budget_hit"
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$pid" 2>/dev/null
+    cat "$out"
+    rm -f "$out"
+    return 0
+}
+
+# Nested home-folder backups: parents (below DIR) of a Library/ or Users/ dir.
+# Depth 4 finds roots up to 3 levels down, where a copied backup sits.
+SCAN_PRUNE=()
+_scan_find_backups() {
+    local root esc n=0
+    while IFS= read -r root; do
+        [[ -n "$root" && "$root" != "$DIR" ]] || continue
+        esc="${root//\\/\\\\}"; esc="${esc//\*/\\*}"; esc="${esc//\?/\\?}"; esc="${esc//\[/\\[}"
+        SCAN_PRUNE+=( -path "$esc" -prune -o )
+        n=$((n + 1))
+    done < <(_bfind "$DIR" -maxdepth 4 -type d \( -name Library -o -name Users \) -prune -print \
+                | while IFS= read -r hit; do dirname "$hit"; done | sort -u)
+    echo "$n" > "$_SCAN_STATE/skipped"
+}
+_scan_find_backups
+
 # --- 0. LOOSE FILES: the ONE table both detectors read (#30, 2026-10-15) ------
 #
 # Usage: ostler-detect-exports.sh <dir> --loose
@@ -10331,7 +10407,8 @@ if [[ "$DO_LOOSE" == "1" ]]; then
             printf '%s\t%s\timport\t\n' "$_lx_label" "$_lx_path"
         fi
         _lx_any=0
-    done < <(find "$DIR" -maxdepth 6 -xdev \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" -xdev \
+                  ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
                      -o -name '*.photoslibrary' -o -name '*.aplibrary' \
@@ -10438,7 +10515,7 @@ if [[ "$DO_UNZIP" == "1" ]]; then
                 _uz_skipped_other=$((_uz_skipped_other + 1))
             fi
         fi
-    done < <(find "$DIR" -maxdepth 2 -type f -iname '*.zip' 2>/dev/null || true)
+    done < <(_bfind "$DIR" -maxdepth 2 ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} -type f -iname '*.zip' -print)
     # Counts only, no filenames, on STDERR -- so it never mixes with the
     # "LABEL<TAB>path" hits on stdout that callers (install.sh, the export
     # watcher) already parse.
@@ -10474,7 +10551,7 @@ for entry in "${SIGS[@]}"; do
         SEEN_TOPS+=("$label::$top")
         printf '%s\t%s\n' "$label" "$top"
         found_any=0
-    done < <(find "$DIR" -maxdepth 6 \( -type f -o -type d \) 2>/dev/null \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \( -type f -o -type d \) -print \
                 | awk -F/ -v re="$re" 'tolower($NF) ~ tolower(re) || $NF ~ re {print}' \
                 | head -5)
 done
@@ -12148,9 +12225,38 @@ _ostler_zip_count_add() {  # $1=running total  $2="key=NN"; echoes the new total
     esac
     echo "$(( cur + raw ))"
 }
+# >>> scan-deadline
+# F010: ONE time budget for every detector invocation in this install (unzip,
+# loose, default). The deadline is computed once, here, and exported; each
+# invocation honours the same absolute epoch, so three slow passes cannot cost
+# 3x the budget. OSTLER_SCAN_BUDGET_S (default 300, 0 = scan nothing) is the
+# total. An already-exported OSTLER_SCAN_DEADLINE_EPOCH is respected.
+_OSTLER_SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
+case "$_OSTLER_SCAN_BUDGET_S" in ''|*[!0-9]*) _OSTLER_SCAN_BUDGET_S=300 ;; esac
+case "${OSTLER_SCAN_DEADLINE_EPOCH:-}" in
+    ''|*[!0-9]*) OSTLER_SCAN_DEADLINE_EPOCH=$(( $(date +%s) + _OSTLER_SCAN_BUDGET_S )) ;;
+esac
+export OSTLER_SCAN_DEADLINE_EPOCH
+_OSTLER_SCAN_BUDGET_LOGGED=0
+# _ostler_scan_note <detector stderr>: log the counts line; budget-hit once.
+_ostler_scan_note() {
+    local _scan_line
+    _scan_line="$(grep '^SCAN_SUMMARY ' <<<"${1:-}" || true)"
+    [[ -n "$_scan_line" ]] || return 0
+    info "GDPR export scan: ${_scan_line#SCAN_SUMMARY }"   # i18n-exempt: diagnostic counts
+    if [[ "$_scan_line" == *"budget_hit=1"* && "$_OSTLER_SCAN_BUDGET_LOGGED" -eq 0 ]]; then
+        _OSTLER_SCAN_BUDGET_LOGGED=1
+        warn "GDPR export scan: shared time budget of ${_OSTLER_SCAN_BUDGET_S}s reached, remaining scans skipped"   # i18n-exempt: diagnostic counts
+    fi
+}
+_OSTLER_SCAN_ERR="$(mktemp "${TMPDIR:-/tmp}/ostler-scan-err.XXXXXX" 2>/dev/null || echo /dev/null)"
+# <<< scan-deadline
 for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$_sd" ]] || continue
-    _uz_line="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
+    _uz_all="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null || true)"
+    _uz_line="$(grep '^UNZIP_SUMMARY ' <<<"$_uz_all" || true)"
+    # F010: counts only (skipped nested-backup dirs, budget hit), never paths.
+    _ostler_scan_note "$_uz_all"
     if [[ -n "${_uz_line:-}" ]]; then
         read -r _ _uzf _uzo _uza _uzsn _uzsp _uzso <<<"$_uz_line" || true
         _OSTLER_ZIPS_FOUND="$(_ostler_zip_count_add "$_OSTLER_ZIPS_FOUND" "${_uzf:-found=0}")"
@@ -12309,8 +12415,11 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
             EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$_lx_path")}"
             DETECTED_EXPORT_ROOTS+=("$(dirname "$_lx_path")")
         fi
-    done < <(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$search_dir" --loose || true)
+    done < <(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$search_dir" --loose 2>"${_OSTLER_SCAN_ERR:-/dev/null}" || true)
     # <<< loose-export-scan
+    # F010: same shared deadline; log the loose pass counts once (budget-hit once).
+    _ostler_scan_note "$(cat "${_OSTLER_SCAN_ERR:-/dev/null}" 2>/dev/null || true)"
+    : > "${_OSTLER_SCAN_ERR:-/dev/null}" 2>/dev/null || true
 
     # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
     # data/ directory. CX-126: current X exports ship `tweets.js`; the
@@ -12330,6 +12439,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     done < <(find "$search_dir" -maxdepth 2 -name "takeout-*.zip" 2>/dev/null || true)
 
 done
+[[ "${_OSTLER_SCAN_ERR:-/dev/null}" == /dev/null ]] || rm -f "$_OSTLER_SCAN_ERR"   # F010: scan stderr scratch
 
 # #619: surface any folder the scan could not read. Without this, a
 # permission-denied folder is silently indistinguishable from an empty
@@ -14367,43 +14477,64 @@ progress "Checking Homebrew and system tools" "homebrew_install"
 # customer (and the GUI watchdog) see we're alive. This is the ONLY
 # wait-for-CLT block in install.sh; the prereq-check phase trigger is
 # fire-and-forget.
-if ! /usr/bin/xcode-select -p &>/dev/null; then
+# >>> clt-wait
+# F010: the wait NEVER aborts. A tester who did not finish Apple's dialog
+# used to lose the whole install (ERR-02-PREREQ-XCODE-CLI) after 15 minutes
+# and had to start again from the questions. Now: skip entirely when CLT is
+# already present (the first check below), otherwise keep waiting forever,
+# and past XCODE_TIMEOUT say so out loud, on every heartbeat, in the log AND
+# on screen (CLT_WAIT marker -> the GUI's "Install developer tools" button,
+# which runs xcode-select --install). Seams for tests only: the binary, the
+# timeout and the poll interval are env-overridable; production uses defaults.
+_CLT_SELECT="${OSTLER_XCODE_SELECT_BIN:-/usr/bin/xcode-select}"
+if ! "$_CLT_SELECT" -p &>/dev/null; then
     info "$MSG_INFO_WAITING_FOR_CLT_TO_FINISH"
+    gui_emit CLT_WAIT "state=waiting"
     XCODE_WAIT=0
-    XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
+    XCODE_TIMEOUT="${OSTLER_XCODE_TIMEOUT:-900}"  # 15 minutes, then announce, never abort
+    XCODE_POLL="${OSTLER_CLT_POLL_S:-10}"
     LAST_HEARTBEAT=0
     XCODE_REPOPPED=0
-    until /usr/bin/xcode-select -p &>/dev/null; do
-        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
-            fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
+    XCODE_TIMEOUT_ANNOUNCED=0
+    until "$_CLT_SELECT" -p &>/dev/null; do
+        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT && $XCODE_TIMEOUT_ANNOUNCED -eq 0 ]]; then
+            # Not a failure: say what we are waiting for, once, loudly.
+            XCODE_TIMEOUT_ANNOUNCED=1
+            warn "$MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT"
+            gui_emit CLT_WAIT "state=timeout"
         fi
-        sleep 10
-        XCODE_WAIT=$((XCODE_WAIT + 10))
+        sleep "$XCODE_POLL"
+        XCODE_WAIT=$((XCODE_WAIT + XCODE_POLL))
         # .153 cold-wipe walk: the wait is driven by the macOS "install
         # developer tools?" GUI dialog, which the customer must CLICK. If
         # they look away (as on .153) the only repeated line was a passive
         # "Still waiting...", reading as a download in progress -- so they
-        # never clicked, and a dismissed/lost dialog would silently burn the
-        # full 15-min timeout into ERR-02. Two safe, no-sudo mitigations:
+        # never clicked. Two safe, no-sudo mitigations:
         #
         # (a) Re-pop the dialog ONCE at ~2 min. `xcode-select --install` is
         #     user-level; if the install is genuinely running it no-ops, if
         #     the dialog was dismissed it comes back. `|| true` keeps it
-        #     errexit-safe.
+        #     errexit-safe. After that the GUI button is the re-pop.
         if [[ $XCODE_REPOPPED -eq 0 && $XCODE_WAIT -ge 120 ]]; then
-            /usr/bin/xcode-select --install &>/dev/null || true
+            "$_CLT_SELECT" --install &>/dev/null || true
             XCODE_REPOPPED=1
         fi
         # (b) Heartbeat every 30s so the GUI watchdog stays quiet AND the
         # customer sees an ACTIONABLE line (click the dialog), not a passive
         # "still waiting" that hides the pending click.
         if (( XCODE_WAIT - LAST_HEARTBEAT >= 30 )); then
-            info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
+            if [[ $XCODE_TIMEOUT_ANNOUNCED -eq 1 ]]; then
+                info "$MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT"
+            else
+                info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
+            fi
             LAST_HEARTBEAT=$XCODE_WAIT
         fi
     done
+    gui_emit CLT_WAIT "state=done"
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
+# <<< clt-wait
 
 if command -v brew &>/dev/null; then
     ok "$MSG_OK_HOMEBREW_INSTALLED"
@@ -41458,8 +41589,8 @@ SWIFTEOF
         # v1.0.109: NO `security add-generic-password -w <key>` FALLBACK.
         # It put the recovery key on argv, readable by any process via ps
         # for the life of the call. It is not needed: the CLT wait (search
-        # ERR-02-PREREQ-XCODE-CLI) is top-level and fails the install unless
-        # `xcode-select -p` succeeds, and CLT ships swift, so SWIFT_BIN is
+        # ERR-02-PREREQ-XCODE-CLI) is top-level and holds the install until
+        # `xcode-select -p` succeeds (it waits, never aborts: F010), and CLT ships swift, so SWIFT_BIN is
         # set on every run that reaches this line. `security -i` (commands on
         # stdin) was measured and rejected: it exits 0 when its command
         # fails, so a save could not be told from a non-save. If swift does
