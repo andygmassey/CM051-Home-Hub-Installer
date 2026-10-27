@@ -1058,7 +1058,7 @@ TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
 
 
 # ── check_minors_registry ────────────────────────────────────────────
-# Andy 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
+# the owner 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
 # the ingest on every import. A list that is present but cannot be read makes
 # the ingest stop (it fails closed rather than read "unknown" as "nobody").
 # This row says so. It must never print a name from the file.

@@ -390,6 +390,7 @@ test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-de
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
+test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
@@ -481,6 +482,7 @@ test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflow
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
 test_installer_authenticates_to_qdrant.sh	WIRED	.github/workflows/venv-store-shim.yml
+test_installer_doc_links_resolve.py	WIRED	.github/workflows/installer-doc-links.yml
 test_installer_installs_every_pipeline_requirements_file.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
@@ -745,6 +747,8 @@ test_source_status_contract.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_source_status_prefers_a_live_routine_over_a_stale_sentinel.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_source_status_reports_ongoing_not_just_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_spoken_capture_consent_does_not_claim_audio_is_kept.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_spoken_capture_consent_record_pins_the_region_note.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_spoken_capture_legal_note_follows_region.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_spoken_transcripts_absence_discriminated.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_spool_sweep_quarantines_a_bad_row.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_stage_payload_strips_ambient_pyc.sh	WIRED	.github/workflows/cut-gate-wrappers.yml

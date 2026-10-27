@@ -1510,3 +1510,14 @@ Upstream head at graft: CM041 #227 b1374d25.
 - Proof: `vendor/cm041/assistant_api/tests/test_url_clean_ingest.py` (4), wired in
   `url-clean.yml`.
 - Retire: when CM041 #227 merges, re-pin past it.
+
+## 2026-10-25: owner name re-worded to a role in one comment (CM051 #3154)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
+
+- `ical-server.py`, the section comment above the under-18 registry (about line 3746):
+  "(Andy 2026-10-19, 118)" is now "(the owner 2026-10-19, 118)". One line. The merge of
+  main into #3154 carried the re-word; this entry records it so the divergence gate
+  sees it described.
+- Retire: when CM041 carries the same re-word and a re-vendor makes the file
+  byte-identical.
