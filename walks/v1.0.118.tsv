@@ -27,7 +27,7 @@ version	v1.0.118
 version_source	measured(CFBundleShortVersionString, matches argument)
 artefact_sha256	unavailable
 artefact_sha256_source	asserted-unverifiable(no OstlerInstaller-1.0.118.dmg on the box)
-walked_at	2026-10-26T01:03:24Z
+walked_at	2026-10-26T10:47:10Z
 box_fp	a5e332e85987fb70
 walk_kind	thin
 walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
@@ -62,7 +62,7 @@ walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this 
 # reset fixes: a correct, clean, committed sha that was nonetheless
 # not main. Resolve the sha before assuming the lineage -- this
 # field answers WHICH probes ran, never WHERE they came from.
-instrument_rev	39a0d122ba88c9410609fc33c9dcb7a6a7c6bab4
+instrument_rev	e281be699d9d8fe60815694075dc13a7032932bc
 instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 #
 # stores_provenance answers the question every store-reading probe
@@ -72,7 +72,7 @@ instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 # or people_count_agreement means something different in each case. A
 # reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can
 # find one and says so when it cannot.
-stores_provenance	wiped-by-explicit-store-wipe(colimadelete--data,datadiskabsent;nouninstalleronthebox)
+stores_provenance	wiped-by-shipped-uninstaller(~/.ostler/bin/ostler-uninstall;colimadelete--data,datadiskabsent)
 #
 # grounding_seed answers the one question assistant_answers_grounded
 # begs and has never stated: was this box SEEDED before the probe
@@ -83,28 +83,26 @@ stores_provenance	wiped-by-explicit-store-wipe(colimadelete--data,datadiskabsent
 # marker could not be read, which is NOT the same as unrun.
 grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
 counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
-pass	33
-fail	13
-cannot_run	17
+pass	38
+fail	11
+cannot_run	14
 broken	0
 advisory	1
 advisory_probe	owner_knowledge_score
 measured	64 of 64 (pass+fail+cannot_run+advisory; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
 verdict	FAILED
 qa_exit	1
-failed_probe_names_recorded	13 of 13
+failed_probe_names_recorded	11 of 11
 failed_probe	derived_preferences_breadth
 failed_probe	derived_preferences_dislike
 failed_probe	derived_preferences_not_others
 failed_probe	derived_preferences_reach_digest_and_tool
 failed_probe	derived_preferences_runs
 failed_probe	dislike_respected_in_brief
-failed_probe	followup_keys_match_chat_threads
 failed_probe	hub_screens_customer_read
+failed_probe	meeting_brief_text_is_grounded
 failed_probe	no_person_holds_two_contact_cards
-failed_probe	owner_digest_knows_the_owner
 failed_probe	people_count_agreement
-failed_probe	people_seed_and_retrieval
 failed_probe	people_stores_reconcile
 failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
 not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
@@ -116,10 +114,7 @@ not_measured_probe	companion_listener_refuses_unauthenticated
 not_measured_probe	cron_run_makes_no_sends
 not_measured_probe	data_conservation
 not_measured_probe	gateway_never_serves_a_stored_secret
-not_measured_probe	hub_screens_render_for_a_customer
-not_measured_probe	meeting_brief_text_is_grounded
-not_measured_probe	morning_brief_catches_me_up
-not_measured_probe	no_store_port_is_tcp_reachable
+not_measured_probe	owner_digest_knows_the_owner
 not_measured_probe	pair_endpoints_refuse_off_window
 not_measured_probe	scheduled_brief_reaches_messages
 not_measured_probe	stranger_cannot_trigger_send
@@ -131,10 +126,8 @@ regression_of	derived_preferences_not_others	v1.0.117
 regression_of	derived_preferences_reach_digest_and_tool	v1.0.115
 regression_of	derived_preferences_runs	v1.0.117
 regression_of	dislike_respected_in_brief	v1.0.117
-regression_of	followup_keys_match_chat_threads	v1.0.117
 regression_of	hub_screens_customer_read	v1.0.106
+regression_of	meeting_brief_text_is_grounded	v1.0.117
 regression_of	no_person_holds_two_contact_cards	v1.0.112
-regression_of	owner_digest_knows_the_owner	v1.0.106
 regression_of	people_count_agreement	v1.0.115
-regression_of	people_seed_and_retrieval	v1.0.117
 regression_of	people_stores_reconcile	v1.0.115
