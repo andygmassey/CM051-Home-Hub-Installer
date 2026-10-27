@@ -1521,3 +1521,21 @@ Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
   sees it described.
 - Retire: when CM041 carries the same re-word and a re-vendor makes the file
   byte-identical.
+
+## 2026-10-28: person_enrichment and the person timeline withhold L3 meetings (upstream CM041 #240 fe3290d7, MERGED; re-vendor for 119)
+
+Tree `cm041/assistant_api`. Pin NOT moved (688463bb). A mechanical re-vendor is refused by
+`sync_vendor.sh` (the vendored tree is ahead of upstream, v1018-D684), so the one upstream
+change was grafted.
+
+- `ical-server.py`: the `git diff 688463bb fe3290d7 -- assistant_api/ical-server.py` hunks, applied
+  with `git apply` and no conflict (34 added, 6 removed). Meetings served by person_enrichment
+  and the person timeline use the stricter of meeting and person level, withhold L3 and any
+  unparseable level, carry `privacy_level`, and the limit applies to visible rows.
+- `tests/test_meeting_routes_privacy.py`: ported from upstream with one named difference, SLUG is
+  `jane-doe` because the vendored `tests/test_person_context_meetings_privacy.py` helper uses
+  `Jane Doe` where upstream uses `Testsubject Synthetic`. The other two upstream test edits
+  (`test_person_enrichment_endpoint.py`, `test_person_timeline_endpoint.py`) are not vendored.
+- Proof: 8 pass on the graft, 8 fail on the pre-graft ical-server, 6 fail with the L3 filter
+  mutated out (pyoxigraph/rdflib/cryptography venv, `PYTHONPATH=vendor`).
+- Retire: re-pin past fe3290d7.

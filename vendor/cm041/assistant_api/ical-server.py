@@ -6873,20 +6873,32 @@ def person_enrichment(slug):
             if visible:
                 entry["facts"] = [f["text"] for f in visible]
 
+        # Meetings: same fail-closed L3 rule as person_context (118 MUST,
+        # S23). Stricter of the meeting's and the person's level wins, no
+        # parseable level on either axis withholds, every served meeting
+        # carries privacy_level. LIMIT applies to VISIBLE rows.
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?summary ?date ?location WHERE {{\n'
+            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '}} ORDER BY DESC(?date) LIMIT 10'.format(ns=PWG_NS, uri=person_uri)
+            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=person_uri)
         )
-        if meetings:
-            entry["meetings"] = [{
+        visible_meetings = []
+        for m in meetings:
+            level = _effective_privacy_level(m.get("mpriv"), row.get("priv"))
+            if level is None or level == "L3":
+                continue
+            visible_meetings.append({
                 "summary": m["summary"],
                 "date": m.get("date", "")[:10] if m.get("date") else "",
                 "location": m.get("location", ""),
-            } for m in meetings]
+                "privacy_level": level,
+            })
+        if visible_meetings:
+            entry["meetings"] = visible_meetings[:10]
 
         # CM048 writes these signals into the per-user NAMED graph, so an
         # unqualified read returns nothing. Measured 0 rows as shipped,
@@ -7128,16 +7140,31 @@ def person_timeline(slug, limit=50, days=None):
 
     # --- Meetings (one dated event per meeting) -------------------------
     try:
+        # Fail-closed L3 rule (118 MUST, S23), same as person_context: the
+        # stricter of meeting and person level wins; no parseable level
+        # withholds. The person's level is read here (this route did not
+        # read it before); if that read fails the meetings source degrades
+        # rather than serving unlabelled rows.
+        owner_rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?priv WHERE {{ <{uri}> pwg:privacyLevel ?priv }} LIMIT 1'
+            .format(ns=PWG_NS, uri=person_uri)
+        )
+        owner_level = owner_rows[0].get("priv") if owner_rows else None
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?summary ?date ?location WHERE {{\n'
+            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; '
             'pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
+            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
             '}} ORDER BY DESC(?date)'.format(ns=PWG_NS, uri=person_uri)
         )
         for m in meetings:
+            level = _effective_privacy_level(m.get("mpriv"), owner_level)
+            if level is None or level == "L3":
+                continue
             iso = (m.get("date") or "")[:10]
             if not iso:
                 continue
@@ -7149,6 +7176,7 @@ def person_timeline(slug, limit=50, days=None):
                 "title": m.get("summary", "") or "Meeting",
                 "summary": m.get("summary", ""),
                 "location": m.get("location", ""),
+                "privacy_level": level,
             })
     except Exception as exc:
         degraded_sources.append(f"meetings: {exc}")
