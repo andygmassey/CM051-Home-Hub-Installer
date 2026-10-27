@@ -3776,7 +3776,7 @@ def api_people_forget(slug):
     return response, status_code
 
 
-# ── Under-18 registry: owner-set "mark as minor" (Andy 2026-10-19, 118) ──
+# ── Under-18 registry: owner-set "mark as minor" (the owner 2026-10-19, 118) ──
 #
 # project_minors_flag: a minor is stored and searchable, but never nudged, never
 # sent to Reminders, never used for facts or suggestions. PWG #434 stamps
@@ -6325,6 +6325,25 @@ def _merged_cluster(person_uri):
     return out
 
 
+_PRIVACY_ORDER = ("L0", "L1", "L2", "L3")
+
+
+def _effective_privacy_level(record_level, owner_level):
+    """Most-restrictive parseable level of a record and its owner, or None.
+
+    Same doctrine as ``pwg_privacy.is_l3`` (which decides hide/show): only
+    L0..L3 count, the stricter wins, and None means no parseable signal on
+    either axis, which every caller treats as hidden. This returns the LEVEL
+    so a reader can serve it alongside the record.
+    """
+    levels = [lvl for lvl in (pwg_privacy.parse_privacy_level(record_level),
+                              pwg_privacy.parse_privacy_level(owner_level))
+              if lvl is not None]
+    if not levels:
+        return None
+    return max(levels, key=_PRIVACY_ORDER.index)
+
+
 def person_context(name):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
@@ -6515,21 +6534,38 @@ def person_context(name):
             if visible:
                 entry["facts"] = [f["text"] for f in visible]
 
-        # Meetings
+        # Meetings -- fail-closed L3 filter, and every served meeting carries
+        # its effective privacy_level (118 MUST, A14 review). A meeting summary
+        # reaches the assistant's model, and from there can leave by iMessage,
+        # WhatsApp or email, so the same doctrine as facts applies: the
+        # meeting's own pwg:privacyLevel and the person's, most-restrictive
+        # wins, and with no parseable level on either the meeting is
+        # withheld. Consumers (oa pwg_people) render a meeting ONLY when it
+        # carries an explicit non-L3 privacy_level, so the field is required,
+        # not decoration. LIMIT 10 is applied to the VISIBLE meetings, after
+        # the filter, so hidden rows cannot crowd visible ones out.
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?summary ?date ?location WHERE {{\n'
+            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '}} ORDER BY DESC(?date) LIMIT 10'.format(ns=PWG_NS, uri=uri)
+            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri)
         )
-        if meetings:
-            entry["meetings"] = [{
+        visible_meetings = []
+        for m in meetings:
+            level = _effective_privacy_level(m.get("mpriv"), person.get("priv"))
+            if level is None or level == "L3":
+                continue
+            visible_meetings.append({
                 "summary": m["summary"],
                 "date": m.get("date", "")[:10] if m.get("date") else "",
                 "location": m.get("location", ""),
-            } for m in meetings]
+                "privacy_level": level,
+            })
+        if visible_meetings:
+            entry["meetings"] = visible_meetings[:10]
 
         # Relationship signal (CM048 tier 2 — warmth/trust from conversations)
         person_slug = _wiki_slug(pname)
@@ -10575,7 +10611,7 @@ def api_safari_ingest(payload):
     if not isinstance(payload, dict):
         return {"error": "body must be a JSON object"}, 400
 
-    url = (payload.get("url") or "").strip()
+    url = _strip_tracking_url((payload.get("url") or "").strip())
     if not url:
         return {"error": "missing 'url'"}, 400
     title = (payload.get("title") or "").strip()
@@ -10726,6 +10762,17 @@ _ENRICH_QUEUE = None
 _ENRICH_QUEUE_LOCK = threading.Lock()
 
 
+def _strip_tracking_url(url):
+    """Drop known tracking params before the url is stored or keyed.
+    url_clean.py lives beside this file (byte-identical to
+    ostler_fda/url_clean.py; tests/test_url_clean.py checks parity)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from url_clean import strip_tracking
+    return strip_tracking(url)
+
+
 def _bn():
     """browsing_enrich lives beside this file; put the directory on
     sys.path so the import also works when this module is loaded by file
@@ -10869,7 +10916,7 @@ def api_safari_save(payload):
 
     if not isinstance(payload, dict):
         return {"error": "body must be a JSON object"}, 400
-    url = (payload.get("url") or "").strip()
+    url = _strip_tracking_url((payload.get("url") or "").strip())
     if not url:
         return {"error": "missing 'url'"}, 400
     bn = _bn()

@@ -15,11 +15,13 @@
     {
       "date": "2026-05-21",
       "location": "Studio Nine",
+      "privacy_level": "L1",
       "summary": "Lisbon workshop budget review"
     },
     {
       "date": "2025-12-12",
       "location": "Riverside Town",
+      "privacy_level": "L1",
       "summary": "Autumn roadmap check-in"
     }
   ],
@@ -41,11 +43,13 @@
       {
         "date": "2026-05-21",
         "location": "Studio Nine",
+        "privacy_level": "L1",
         "summary": "Lisbon workshop budget review"
       },
       {
         "date": "2025-12-12",
         "location": "Riverside Town",
+        "privacy_level": "L1",
         "summary": "Autumn roadmap check-in"
       }
     ],
