@@ -88,6 +88,9 @@ final class InstallerCoordinator: ObservableObject {
     // no Full Disk Access yet; ContentView shows FullDiskAccessGateView
     // and nothing else runs until the customer grants it and reopens.
     @Published var needsFullDiskAccessUpfront: Bool = false
+    /// True after two failed FDA rechecks: the gate then offers a way on.
+    @Published var showFDAContinueAnyway: Bool = false
+    private var fdaGate = FDAGateState()
     @Published var needsSudo: String? = nil
     /// F010: Command Line Tools wait state from the CLT_WAIT marker:
     /// nil (not waiting), "waiting", or "timeout" (past the 15 minute mark,
@@ -901,27 +904,72 @@ final class InstallerCoordinator: ObservableObject {
     /// once with FDA in place. This is what stops the mid-install
     /// quit-and-reopen that used to drop the app onto the reuse path.
     func gateFullDiskAccessThenStart() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        let report = AuthorizationHelper.shared.fullDiskAccessReport()
+        if fdaGate.launchDecision(report) == .proceed {
             needsFullDiskAccessUpfront = false
-            OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            if report.granted {
+                OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            } else {
+                logFDAProbeFailures(report, note: "FDA gate: could not confirm access (no probe file present) -- continuing")
+            }
             requestPermissionsThenStart()
         } else {
             needsFullDiskAccessUpfront = true
-            OstlerLog.lifecycle.info("FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
+            logFDAProbeFailures(report, note: "FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
         }
     }
 
     /// CX-87: bound to the "I've switched it on" button on the FDA gate,
     /// as a fallback for the case where macOS did not force-quit the app
-    /// after the grant. Re-probes; if FDA is now present, drops the gate
-    /// and proceeds, otherwise leaves the gate up.
+    /// after the grant. Re-probes; if FDA is now present (or cannot be
+    /// ruled out), drops the gate and proceeds, otherwise holds. After two
+    /// failed rechecks the gate offers "Continue anyway".
     func recheckFullDiskAccessAndProceed() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        let report = AuthorizationHelper.shared.fullDiskAccessReport()
+        if fdaGate.recheck(report) == .proceed {
             OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
             needsFullDiskAccessUpfront = false
             requestPermissionsThenStart()
         } else {
-            OstlerLog.lifecycle.info("FDA gate: re-check still without access -- holding on gate")
+            showFDAContinueAnyway = fdaGate.showContinueAnyway
+            logFDAProbeFailures(report, note: "FDA gate: re-check \(fdaGate.failedRechecks) still without access -- holding on gate")
+        }
+    }
+
+    /// Escape hatch after two failed rechecks. The customer has been told
+    /// honestly that access could not be confirmed.
+    func continueWithoutConfirmedFullDiskAccess() {
+        guard fdaGate.showContinueAnyway else { return }
+        OstlerLog.lifecycle.info("FDA gate: customer chose Continue anyway after \(self.fdaGate.failedRechecks) failed re-checks")
+        needsFullDiskAccessUpfront = false
+        requestPermissionsThenStart()
+    }
+
+    /// Relaunch the bundle in /Applications; the new process runs the
+    /// gate again from the top. Arguments are exposed for tests, which
+    /// must never launch the real app.
+    nonisolated static let relaunchCommand: [String] = [
+        "/bin/sh", "-c", "sleep 1; /usr/bin/open -n \"$0\"", "/Applications/OstlerInstaller.app",
+    ]
+
+    func quitAndReopenFromApplications() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: Self.relaunchCommand[0])
+        task.arguments = Array(Self.relaunchCommand.dropFirst())
+        do {
+            try task.run()
+        } catch {
+            OstlerLog.lifecycle.error("FDA gate: relaunch failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        NSApplication.shared.terminate(nil)
+    }
+
+    /// Paths and errno only, never contents.
+    private func logFDAProbeFailures(_ report: FDAProbeReport, note: String) {
+        OstlerLog.lifecycle.info("\(note, privacy: .public)")
+        for line in report.failureLines {
+            OstlerLog.lifecycle.info("FDA probe not readable: \(line, privacy: .public)")
         }
     }
 
