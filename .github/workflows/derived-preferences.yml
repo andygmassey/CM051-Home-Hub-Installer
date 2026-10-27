@@ -135,7 +135,7 @@ jobs:
         # mutants. Exit 2 is CANNOT-RUN and fails.
         if: always()
         run: |
-          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'pyshacl>=0.25.0'
           python3 tests/test_derive_half_life_matches_hygiene.py
       - name: The endpoint's top-N interleaves by category
         if: always()

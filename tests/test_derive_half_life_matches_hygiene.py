@@ -101,5 +101,66 @@ try:
 finally:
     recency.PREFERENCE_HALF_LIFE_DAYS, recency.RECENCY_FLOOR = real
 
+print("arm 7: REACH, the tick's entry point (derive_runner main --user-id, install.sh:410) fades old evidence")
+try:
+    import pyshacl  # noqa: F401
+except ImportError as exc:
+    print(f"CANNOT-RUN: {exc}. pip install pyshacl (derive_runner.main refuses to start without it)")
+    sys.exit(2)
+import tempfile  # noqa: E402
+import derive.readers as _readers  # noqa: E402
+import derive.shacl as _shacl  # noqa: E402
+import derive.writer as _writer  # noqa: E402
+import derive.config as _config  # noqa: E402
+import derive_runner  # noqa: E402
+
+
+def runner_strength(ages):
+    """derive_runner.main() end to end; the readers, the store clients, the SHACL
+    validator and the writer are in-memory stand-ins, the engine and Aggregator
+    are the shipped ones. The writer captures the nodes main() would persist."""
+    got = []
+
+    class Reader:
+        dimension = GENRE
+
+        def read(self, user):
+            return items(GENRE, ages)
+
+    class Writer:
+        def __init__(self, *a, **k):
+            pass
+
+        def write(self, nodes, **k):
+            got.extend(nodes)
+            return type("W", (), {"node_count": len(nodes), "literals_untouched": True})()
+
+    saved = (_config.build_readers, _readers.HttpStoreGateway, _writer.HttpGraphStore,
+             _writer.QdrantDerivedMirror, _writer.DerivedGraphWriter, _shacl.PyShaclValidator,
+             derive_runner.run, derive_runner.count_derived_nodes)
+    _config.build_readers = lambda gateway, **k: [Reader()]
+    _readers.HttpStoreGateway = lambda **k: object()
+    _writer.HttpGraphStore = lambda **k: object()
+    _writer.QdrantDerivedMirror = lambda **k: object()
+    _writer.DerivedGraphWriter = Writer
+    _shacl.PyShaclValidator = lambda: object()
+    real_run = derive_runner.run
+    derive_runner.run = lambda **k: real_run(now=NOW, **k)
+    derive_runner.count_derived_nodes = lambda *a, **k: len(got)
+    try:
+        status = Path(tempfile.mkdtemp(prefix="halflife-main-")) / "state.json"
+        rc = derive_runner.main(["--user-id", "synthetic_owner", "--status-file", str(status)])
+    finally:
+        (_config.build_readers, _readers.HttpStoreGateway, _writer.HttpGraphStore,
+         _writer.QdrantDerivedMirror, _writer.DerivedGraphWriter, _shacl.PyShaclValidator,
+         derive_runner.run, derive_runner.count_derived_nodes) = saved
+    return rc, (got[0].preference_strength if got else None)
+
+
+rc_r, rec_r = runner_strength([5, 10, 20])
+rc_o, old_r = runner_strength([1460, 1470, 1480])
+check(rc_r == 0 and rc_o == 0 and rec_r is not None and old_r is not None and rec_r - old_r > 0.1,
+      f"main() rc={rc_r}/{rc_o}: 3 recent beat 3 old by more than 0.1 (recent {rec_r}, old {old_r})")
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
