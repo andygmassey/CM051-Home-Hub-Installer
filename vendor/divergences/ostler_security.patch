@@ -1,6 +1,64 @@
+diff --git a/README.md b/README.md
+index d074893c..166b61c7 100644
+--- a/README.md
++++ b/README.md
+@@ -68,7 +68,7 @@ Pre-passkey legacy code still ships for reference:
+ 
+ ## Public API – what downstream consumers use
+ 
+-Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
++Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
+ `whatsapp_bridge`) import exactly one symbol:
+ 
+ ```python
+diff --git a/consent.py b/consent.py
+index cbf49e10..fd4bc4b0 100644
+--- a/consent.py
++++ b/consent.py
+@@ -133,6 +133,7 @@ def record_consent(
+     hub_version: Optional[str] = None,
+     user_id: Optional[str] = None,
+     scope: Optional[str] = None,
++    legal_note: Optional[dict] = None,
+ ) -> Path:
+     """Persist a consent record for ``tickbox_id``.
+ 
+@@ -161,6 +162,15 @@ def record_consent(
+             EU AI Act Annex III: a future emotion-recognition feature
+             requires a NEW tickbox, never silent expansion of an
+             existing record.
++        legal_note: Optional pin of a REGION-CHOSEN legal note shown with
++            the wording (CM051, 2026-10-24: the spoken-capture note follows
++            the Mac's region). A dict with ``region`` (ISO-3166 alpha-2 or
++            ``"none"``), ``variant``, ``text`` and ``sha256``; stored as
++            ``legal_note_region`` / ``legal_note_variant`` /
++            ``legal_note_text`` / ``legal_note_sha256``. Absent on records
++            written before it existed; readers must treat it as optional.
++            ``wording_hash`` stays the hash of ``wording_text``, so
++            :func:`is_current` and every gate keyed on it are unchanged.
+ 
+     Returns:
+         Path to the consent file (single registry, not per-tickbox).
+@@ -202,6 +212,14 @@ def record_consent(
+         "user_id": user_id,
+         "scope": scope,
+     }
++    if legal_note is not None:
++        for key in ("region", "variant", "text", "sha256"):
++            if not legal_note.get(key):
++                raise ValueError(f"legal_note.{key} is required")
++        record["legal_note_region"] = legal_note["region"]
++        record["legal_note_variant"] = legal_note["variant"]
++        record["legal_note_text"] = legal_note["text"]
++        record["legal_note_sha256"] = legal_note["sha256"]
+ 
+     registry = _load_registry()
+     registry["schema_version"] = CONSENT_SCHEMA_VERSION
+diff --git a/consent_cli.py b/consent_cli.py
+index 0b6acb4e..05bfd81b 100644
 --- a/consent_cli.py
 +++ b/consent_cli.py
-@@ -40,7 +40,9 @@
+@@ -40,7 +40,9 @@ try:
      from legal import (  # noqa: E402
          ARTICLE_9_EU_CONSENT,
          EU_VOICE_SPEAKER_ID_CONSENT,
@@ -10,7 +68,25 @@
          WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      )
  except ImportError as exc:  # pragma: no cover - smoke
-@@ -55,13 +57,29 @@
+@@ -48,6 +50,17 @@ except ImportError as exc:  # pragma: no cover - smoke
+         f"[consent_cli] could not import legal package: {exc}", file=sys.stderr,
+     )
+     sys.exit(2)
++try:
++    from legal.consent_strings import (  # noqa: E402
++        SPOKEN_CAPTURE_LEGAL_VARIANTS,
++        spoken_capture_recorded_version,
++    )
++except ImportError as exc:  # pragma: no cover - smoke
++    print(
++        f"[consent_cli] legal package has no region variants: {exc}",
++        file=sys.stderr,
++    )
++    sys.exit(2)
+ 
+ 
+ # Map cli tickbox arg -> ConsentString. Single source of truth.
+@@ -55,13 +68,29 @@ TICKBOX_REGISTRY = {
      ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
@@ -41,9 +117,89 @@
  }
  
  
+@@ -75,16 +104,58 @@ def _cmd_record(args: argparse.Namespace) -> int:
+         )
+         return 2
+ 
++    # Region-chosen legal note (spoken capture only, CM051 2026-10-24): pin
++    # exactly the note the customer was shown. All three flags or none; a
++    # partial set is refused rather than recorded as a half-pin.
++    legal_flags = (args.legal_region, args.legal_variant, args.legal_note_file)
++    legal_note = None
++    wording_version = cs.version
++    if any(legal_flags):
++        if not all(legal_flags):
++            print(
++                "[consent_cli] --legal-region, --legal-variant and "
++                "--legal-note-file go together",
++                file=sys.stderr,
++            )
++            return 2
++        region = args.legal_region
++        if region != "none" and not (len(region) == 2 and region.isascii()
++                                     and region.isalpha() and region.isupper()):
++            print(
++                f"[consent_cli] --legal-region must be ISO alpha-2 or 'none', "
++                f"got {region!r}",
++                file=sys.stderr,
++            )
++            return 2
++        if cs is not SPOKEN_CAPTURE_RECORDING_CONSENT:
++            print(
++                f"[consent_cli] {cs.tickbox_id} has no region-chosen legal note",
++                file=sys.stderr,
++            )
++            return 2
++        note_text = Path(args.legal_note_file).read_text(encoding="utf-8")
++        if not note_text.strip():
++            print("[consent_cli] --legal-note-file is empty", file=sys.stderr)
++            return 2
++        import hashlib
++        legal_note = {
++            "region": args.legal_region,
++            "variant": args.legal_variant,
++            "text": note_text,
++            "sha256": hashlib.sha256(note_text.encode("utf-8")).hexdigest(),
++        }
++        wording_version = spoken_capture_recorded_version(args.legal_variant)
+     consent.record_consent(
+         tickbox_id=cs.tickbox_id,
+         wording_text=cs.text,
+-        wording_version=cs.version,
++        wording_version=wording_version,
+         decision=args.decision,
+         region=args.region,
+         wording_hash=cs.sha256(),
+         hub_version=args.hub_version,
+         user_id=args.user_id,
+         scope=cs.scope,
++        legal_note=legal_note,
+     )
+     return 0
+ 
+@@ -163,6 +234,17 @@ def main(argv: list[str] | None = None) -> int:
+         "--hub-version",
+         default=os.environ.get("OSTLER_HUB_VERSION", "0.1.0"),
+     )
++    p_rec.add_argument(
++        "--legal-region",
++        help="ISO-3166 alpha-2 region the legal note was chosen for, or 'none'",
++    )
++    p_rec.add_argument(
++        "--legal-variant", choices=list(SPOKEN_CAPTURE_LEGAL_VARIANTS),
++    )
++    p_rec.add_argument(
++        "--legal-note-file",
++        help="file holding the verbatim legal note shown on screen",
++    )
+     p_rec.set_defaults(func=_cmd_record)
+ 
+     p_show = sub.add_parser("show", help="print one record as JSON")
+diff --git a/database.py b/database.py
+index 00a42721..4edaaab4 100644
 --- a/database.py
 +++ b/database.py
-@@ -25,16 +25,23 @@
+@@ -25,16 +25,23 @@ from typing import Optional
  
  logger = logging.getLogger(__name__)
  
@@ -71,7 +227,7 @@
      )
  
  
-@@ -80,15 +87,15 @@
+@@ -80,15 +87,15 @@ def get_db_connection(
          # pattern the 2026-04-28 fixes removed from CM048 and the
          # other two downstream services -- propagating the same
          # discipline here so the security boundary holds even when
@@ -90,7 +246,7 @@
              f"without an encryption_key_hex if plaintext is intentional."
          )
  
-@@ -118,7 +125,7 @@
+@@ -118,7 +125,7 @@ def migrate_to_encrypted(
          or SQLCipher not available).
      """
      if not HAS_SQLCIPHER:
@@ -99,9 +255,11 @@
          return False
  
      db_path = Path(db_path)
+diff --git a/migrate_dbs_cli.py b/migrate_dbs_cli.py
+index 5c26860e..65f4bb2b 100644
 --- a/migrate_dbs_cli.py
 +++ b/migrate_dbs_cli.py
-@@ -204,8 +204,8 @@
+@@ -204,8 +204,8 @@ def main(argv: list[str] | None = None) -> int:
  
      if not HAS_SQLCIPHER:
          print(
@@ -112,9 +270,11 @@
              file=sys.stderr,
          )
          return 2
+diff --git a/passphrase_recovery_cli.py b/passphrase_recovery_cli.py
+index 943251c3..4082ecc3 100644
 --- a/passphrase_recovery_cli.py
 +++ b/passphrase_recovery_cli.py
-@@ -54,13 +54,15 @@
+@@ -54,13 +54,15 @@ the product consumes: 64 hex characters, identical to what
      ostler-unlock --recovery-key --install-key-file
  
      # know the passphrase, just want a one-off key on stdout
@@ -132,7 +292,7 @@
  Every other line goes to stderr.
  
  SECRETS NEVER TOUCH ARGV
-@@ -75,13 +77,16 @@
+@@ -75,13 +77,16 @@ interactive prompt. Same discipline as ``migrate_recovery_key_aad.py``.
  Exit codes
  ----------
  
@@ -150,7 +310,7 @@
  """
  from __future__ import annotations
  
-@@ -105,6 +110,10 @@
+@@ -105,6 +110,10 @@ EXIT_AUTH_FAILED = 1
  EXIT_NOTHING_TO_UNLOCK = 2
  EXIT_INTERNAL = 3
  EXIT_KEY_FILE_WRITE_FAILED = 4
@@ -161,7 +321,7 @@
  
  SecretReader = Callable[[str], str]
  
-@@ -230,6 +239,7 @@
+@@ -230,6 +239,7 @@ def run(
      passphrase_reader: SecretReader = hidden_reader,
      max_attempts: int = 3,
      write_key_file: bool = False,
@@ -169,7 +329,7 @@
      key_file: Optional[Path] = None,
      stdout: TextIO = sys.stdout,
      stderr: TextIO = sys.stderr,
-@@ -395,9 +405,51 @@
+@@ -395,9 +405,51 @@ def run(
                  "gui/$(id -u)/com.ostler.ical-server",
              )
  
@@ -224,10 +384,11 @@
      return rc
  
  
-@@ -456,6 +508,15 @@
+@@ -455,6 +507,15 @@ def build_parser() -> argparse.ArgumentParser:
+             "they stop opening databases in plaintext."
          ),
      )
-     parser.add_argument(
++    parser.add_argument(
 +        "--print-key",
 +        action="store_true",
 +        help=(
@@ -236,11 +397,10 @@
 +            "--install-key-file unless you are scripting."
 +        ),
 +    )
-+    parser.add_argument(
+     parser.add_argument(
          "--key-file",
          type=Path,
-         default=None,
-@@ -480,6 +541,7 @@
+@@ -480,6 +541,7 @@ def main(argv: Optional[list] = None) -> int:
          secret_file=args.secret_file,
          max_attempts=args.max_attempts,
          write_key_file=args.install_key_file,
@@ -248,9 +408,11 @@
          key_file=args.key_file,
      )
  
+diff --git a/pyproject.toml b/pyproject.toml
+index 144c098a..b0e618d8 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -17,19 +17,25 @@
+@@ -17,19 +17,25 @@ keywords = ["security", "encryption", "sqlcipher", "passkey", "audit"]
  # Pinned versions for supply chain safety (AV-7). Update deliberately,
  # not automatically. pyproject is now the source of truth for installs.
  #
@@ -283,17 +445,8 @@
  ]
  # OPF (OpenAI Privacy Filter) runtime – pulled in only when the
  # caller actually needs the privacy classifier. Switched from
---- a/README.md
-+++ b/README.md
-@@ -68,7 +68,7 @@
- 
- ## Public API – what downstream consumers use
- 
--Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
-+Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
- `whatsapp_bridge`) import exactly one symbol:
- 
- ```python
+diff --git a/requirements.txt b/requirements.txt
+index 0fcd0462..24b8ecde 100644
 --- a/requirements.txt
 +++ b/requirements.txt
 @@ -3,7 +3,7 @@

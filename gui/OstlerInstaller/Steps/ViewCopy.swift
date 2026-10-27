@@ -124,3 +124,99 @@ final class ViewCopy {
         return s
     }
 }
+
+/// The legal note under the spoken-capture consent screen, chosen by the
+/// Mac's REGION, never its language (the owner, 2026-10-24): a Chinese reader
+/// living in London gets the UK line.
+///
+/// The region is the country part of the global `AppleLocale` default
+/// (System Settings > General > Language & Region > Region), parsed with the
+/// SAME rule as install.sh (`_ostler_legal_country_from_locale`). Both sides
+/// are pinned by tests/fixtures/legal_region_contract.tsv. The
+/// `OSTLER_APPLE_LOCALE` environment variable is the test seam on both sides.
+///
+/// Every `legal_region_*` line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and
+/// needs local professional sign-off. Any region not listed gets the neutral
+/// core and the responsibility sentence only.
+enum LegalRegion {
+    enum Jurisdiction: String {
+        case gb, eu, hk, us, other
+    }
+
+    /// EU-27 plus the EEA states (IS, LI, NO), where the GDPR applies.
+    static let gdprRegions: Set<String> = [
+        "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+        "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+        "SI", "ES", "SE", "IS", "LI", "NO"
+    ]
+
+    /// The raw AppleLocale value: the test seam first, then the user's
+    /// global default. nil when the Mac has none (region unknown).
+    static func currentAppleLocale(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        if let seam = environment["OSTLER_APPLE_LOCALE"] { return seam }
+        return defaults.string(forKey: "AppleLocale")
+    }
+
+    /// ISO-3166 alpha-2 region from an AppleLocale value (`en_GB`,
+    /// `zh-Hant_GB`, `en_US@rg=hkzzzz`, `es_419`), uppercased, or nil when it
+    /// names no two-letter region. The language part is never consulted.
+    static func country(fromAppleLocale raw: String?) -> String? {
+        guard let raw = raw else { return nil }
+        func twoLetters(_ s: Substring) -> String? {
+            guard s.count == 2, s.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+            return s.uppercased()
+        }
+        if let r = raw.range(of: "rg=") {
+            if let rg = twoLetters(raw[r.upperBound...].prefix(2)) { return rg }
+        }
+        var base = Substring(raw)
+        if let at = base.firstIndex(of: "@") { base = base[..<at] }
+        if let dot = base.firstIndex(of: ".") { base = base[..<dot] }
+        guard let us = base.lastIndex(of: "_") else { return nil }
+        return twoLetters(base[base.index(after: us)...])
+    }
+
+    static func jurisdiction(forCountry iso: String?) -> Jurisdiction {
+        guard let iso = iso else { return .other }
+        if iso == "GB" { return .gb }
+        if gdprRegions.contains(iso) { return .eu }
+        if iso == "HK" { return .hk }
+        if iso == "US" { return .us }
+        return .other
+    }
+
+    /// Region-line suffixes in display order (`gb`, `eu` + `de`, ...).
+    static func spokenCaptureRegionKeys(forCountry iso: String?) -> [String] {
+        switch jurisdiction(forCountry: iso) {
+        case .gb: return ["gb"]
+        case .eu:
+            if iso == "DE" { return ["eu", "de"] }
+            if iso == "FR" { return ["eu", "fr"] }
+            return ["eu"]
+        case .hk: return ["hk"]
+        case .us: return ["us"]
+        case .other: return []
+        }
+    }
+
+    /// The whole legal note for the given AppleLocale value.
+    static func spokenCaptureLegalNote(
+        appleLocale: String?,
+        copy: ViewCopy = .shared
+    ) -> String {
+        let base = "consent_spoken_capture."
+        var parts = [
+            copy.string(for: base + "legal_prefix"),
+            copy.string(for: base + "legal_core"),
+            copy.string(for: base + "legal_local")
+        ]
+        for key in spokenCaptureRegionKeys(forCountry: country(fromAppleLocale: appleLocale)) {
+            parts.append(copy.string(for: base + "legal_region_" + key))
+        }
+        parts.append(copy.string(for: base + "legal_responsibility"))
+        return parts.joined(separator: " ")
+    }
+}

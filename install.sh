@@ -4080,11 +4080,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9416) captures the path BY
+    # _ostler_write_store_curl_config (defined :9506) captures the path BY
     # VALUE and never re-reads it:
-    #     :9417   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9462   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9471 and :17241, both of which run
+    #     :9507   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9552   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9561 and :17466, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
     # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
@@ -4102,13 +4102,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :539: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18036, where the note reads
+    # WhatsApp Web session path did it again at :18261, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18053 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18278 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4117,13 +4117,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6744 against a definition at :9416. Top-level
+    # writer's own definition: :6835 against a definition at :9506. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9471, :17241) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9561, :17466) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20226 / :20404 / :20561 / :21006 path. There the
+    # :20458 / :20636 / :20793 / :21238 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6565,6 +6565,126 @@ OSTLER_CONSENT_PERSONAL_USE_DECISION=""
 # Spoken-capture recording-consent acknowledgement (every region). Empty
 # default = spoken transcription off on a reuse run until re-acknowledged.
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""
+# The region its legal note was chosen for (ISO alpha-2, or "none"), set when
+# the screen is shown and kept in config/.env. Empty = not shown on any run
+# that stored it (an install from before this existed): the recorder then
+# writes the old record shape rather than pin a note nobody was shown.
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION=""
+
+# LEGAL NOTE BY REGION (Andy, 2026-10-24). The legal note under the
+# spoken-capture screen is chosen by the Mac's REGION, never its language: a Chinese reader living
+# in London gets the UK line. The region is the country part of the global
+# AppleLocale default (System Settings > General > Language & Region >
+# Region), read here and by the GUI (LegalRegion in
+# gui/OstlerInstaller/Steps/ViewCopy.swift) with the same rule, pinned on both
+# sides by tests/fixtures/legal_region_contract.tsv. OSTLER_APPLE_LOCALE is
+# the test seam and overrides the real default in both.
+#
+# Every region line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and needs local
+# professional sign-off. The strings and their per-region notes live in
+# install.sh.strings.en-GB.sh (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
+#
+# Defined HERE, above the reuse gate, because the Phase-3 recorder needs them
+# on a reuse run too, where Phase 2 (the screen) never runs.
+#
+# This is deliberately NOT OSTLER_REGION (section 2.5): that one decides the
+# Article 9 screen from contacts / phone code / LANG with an EU default, a
+# different question with a different safe direction.
+_ostler_legal_apple_locale() {
+    if [[ -n "${OSTLER_APPLE_LOCALE+x}" ]]; then
+        printf '%s' "${OSTLER_APPLE_LOCALE}"
+        return 0
+    fi
+    # A Mac with no Region set has no AppleLocale; `defaults` then exits
+    # non-zero. That is "region unknown" (neutral core only), not an error,
+    # so the status is read here rather than left to the ERR trap.
+    local _v
+    if _v="$(defaults read -g AppleLocale 2>&1)"; then
+        printf '%s' "${_v}"
+    fi
+    return 0
+}
+
+_ostler_legal_country_from_locale() {
+    # $1 = an AppleLocale value: en_GB, zh-Hant_GB, en_US@rg=hkzzzz, es_419.
+    # Prints the ISO-3166 alpha-2 REGION, uppercased, or "" when the value
+    # names no two-letter region. The language part is never consulted.
+    local raw="$1" rg="" base cc
+    if [[ "${raw}" == *rg=* ]]; then
+        rg="${raw#*rg=}"
+        rg="${rg:0:2}"
+        if [[ "${rg}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+            printf '%s' "${rg}" | tr '[:lower:]' '[:upper:]'
+            return 0
+        fi
+    fi
+    base="${raw%%@*}"
+    base="${base%%.*}"
+    if [[ "${base}" != *_* ]]; then
+        return 0
+    fi
+    cc="${base##*_}"
+    if [[ "${cc}" =~ ^[A-Za-z][A-Za-z]$ ]]; then
+        printf '%s' "${cc}" | tr '[:lower:]' '[:upper:]'
+    fi
+    return 0
+}
+
+_ostler_legal_jurisdiction() {
+    # $1 = ISO alpha-2 region. gb | eu | hk | us | other.
+    # eu = the EU-27 plus the EEA states (IS, LI, NO), where the GDPR applies.
+    case "$1" in
+        GB) printf 'gb' ;;
+        AT|BE|BG|HR|CY|CZ|DK|EE|FI|FR|DE|GR|HU|IE|IT|LV|LT|LU|MT|NL|PL|PT|RO|SK|SI|ES|SE|IS|LI|NO)
+            printf 'eu' ;;
+        HK) printf 'hk' ;;
+        US) printf 'us' ;;
+        *) printf 'other' ;;
+    esac
+}
+
+_ostler_spoken_capture_legal_variant() {
+    # $1 = ISO region or "none". Prints the variant the consent record pins:
+    # core | gb | eu | eu.de | eu.fr | hk | us (legal.consent_strings
+    # SPOKEN_CAPTURE_LEGAL_VARIANTS; consent_cli refuses anything else).
+    case "$(_ostler_legal_jurisdiction "$1")" in
+        gb) printf 'gb' ;;
+        eu)
+            case "$1" in
+                DE) printf 'eu.de' ;;
+                FR) printf 'eu.fr' ;;
+                *) printf 'eu' ;;
+            esac
+            ;;
+        hk) printf 'hk' ;;
+        us) printf 'us' ;;
+        *) printf 'core' ;;
+    esac
+}
+
+_ostler_spoken_capture_legal_note_for() {
+    # $1 = ISO region or "none". Prints the whole legal note, byte for byte
+    # what the GUI renders (LegalRegion.spokenCaptureLegalNote) for the same
+    # region, so the recorded note is the note that was shown.
+    local note="${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL}"
+    case "$(_ostler_spoken_capture_legal_variant "$1")" in
+        gb) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB}" ;;
+        eu) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU}" ;;
+        eu.de) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE}" ;;
+        eu.fr) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR}" ;;
+        hk) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK}" ;;
+        us) note="${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US}" ;;
+    esac
+    printf '%s' "${note} ${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY}"
+}
+
+_ostler_spoken_capture_legal_note() {
+    # The note for this Mac's region right now.
+    local cc
+    cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+    _ostler_spoken_capture_legal_note_for "${cc:-none}"
+}
+
 
 # Region + ISO + source. Read at line ~3498 (EU branch entry),
 # ~5265 (region-persist Python heredoc), ~5300 (consent_cli
@@ -10162,6 +10282,82 @@ DO_LOOSE=0
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
 
+# --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
+# A 52-minute scan was measured when Desktop held a copied old-Mac home folder
+# (its own Library/ and Documents/ tree). Three guards, all env-overridable:
+#   OSTLER_SCAN_MAXDEPTH  find depth cap (default 6, the depth every known
+#                         export shape fits in)
+#   OSTLER_SCAN_BUDGET_S  wall-clock budget in seconds for the WHOLE INSTALL
+#                         (default 300). 0 = scan nothing and report
+#                         budget_hit=1.
+#   OSTLER_SCAN_DEADLINE_EPOCH  absolute epoch-seconds deadline. install.sh
+#                         computes it ONCE (now + budget) and exports it, so
+#                         every invocation (unzip, loose, default) shares one
+#                         budget. Unset or non-numeric: this invocation starts
+#                         its own (now + budget), which is the standalone case.
+#   nested backups        any directory below DIR that itself holds a Library/
+#                         or Users/ subtree is pruned, never walked.
+# Counts only (never paths) go to STDERR as one SCAN_SUMMARY line, so the
+# "LABEL<TAB>path" hits on stdout stay parseable. State lives in files because
+# every find runs inside a process substitution (a subshell).
+SCAN_MAXDEPTH="${OSTLER_SCAN_MAXDEPTH:-6}"
+SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
+case "$SCAN_MAXDEPTH" in ''|*[!0-9]*|0) SCAN_MAXDEPTH=6 ;; esac
+case "$SCAN_BUDGET_S" in ''|*[!0-9]*) SCAN_BUDGET_S=300 ;; esac
+_SCAN_STATE="$(mktemp -d "${TMPDIR:-/tmp}/ostler-scan.XXXXXX")" || exit 1
+SCAN_DEADLINE="${OSTLER_SCAN_DEADLINE_EPOCH:-}"
+case "$SCAN_DEADLINE" in ''|*[!0-9]*) SCAN_DEADLINE=$(( $(date +%s) + SCAN_BUDGET_S )) ;; esac
+_scan_summary() {
+    local skipped=0 hit=0
+    [[ -f "$_SCAN_STATE/skipped" ]] && skipped="$(cat "$_SCAN_STATE/skipped")"
+    [[ -f "$_SCAN_STATE/budget_hit" ]] && hit=1
+    printf 'SCAN_SUMMARY skipped_nested_backups=%s budget_hit=%s maxdepth=%s budget_s=%s\n' \
+        "$skipped" "$hit" "$SCAN_MAXDEPTH" "$SCAN_BUDGET_S" >&2
+    rm -rf "$_SCAN_STATE"
+}
+trap _scan_summary EXIT
+
+# _bfind <find args...>: run find to a temp file under the shared deadline.
+# Kills only the find it started. Output is whatever was found before the stop.
+_bfind() {
+    local out pid
+    if (( $(date +%s) >= SCAN_DEADLINE )); then
+        : > "$_SCAN_STATE/budget_hit"
+        return 0
+    fi
+    out="$(mktemp "$_SCAN_STATE/find.XXXXXX")" || return 0
+    find "$@" > "$out" 2>/dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( $(date +%s) >= SCAN_DEADLINE )); then
+            kill "$pid" 2>/dev/null
+            : > "$_SCAN_STATE/budget_hit"
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$pid" 2>/dev/null
+    cat "$out"
+    rm -f "$out"
+    return 0
+}
+
+# Nested home-folder backups: parents (below DIR) of a Library/ or Users/ dir.
+# Depth 4 finds roots up to 3 levels down, where a copied backup sits.
+SCAN_PRUNE=()
+_scan_find_backups() {
+    local root esc n=0
+    while IFS= read -r root; do
+        [[ -n "$root" && "$root" != "$DIR" ]] || continue
+        esc="${root//\\/\\\\}"; esc="${esc//\*/\\*}"; esc="${esc//\?/\\?}"; esc="${esc//\[/\\[}"
+        SCAN_PRUNE+=( -path "$esc" -prune -o )
+        n=$((n + 1))
+    done < <(_bfind "$DIR" -maxdepth 4 -type d \( -name Library -o -name Users \) -prune -print \
+                | while IFS= read -r hit; do dirname "$hit"; done | sort -u)
+    echo "$n" > "$_SCAN_STATE/skipped"
+}
+_scan_find_backups
+
 # --- 0. LOOSE FILES: the ONE table both detectors read (#30, 2026-10-15) ------
 #
 # Usage: ostler-detect-exports.sh <dir> --loose
@@ -10241,7 +10437,8 @@ if [[ "$DO_LOOSE" == "1" ]]; then
             printf '%s\t%s\timport\t\n' "$_lx_label" "$_lx_path"
         fi
         _lx_any=0
-    done < <(find "$DIR" -maxdepth 6 -xdev \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" -xdev \
+                  ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
                      -o -name '*.photoslibrary' -o -name '*.aplibrary' \
@@ -10348,7 +10545,7 @@ if [[ "$DO_UNZIP" == "1" ]]; then
                 _uz_skipped_other=$((_uz_skipped_other + 1))
             fi
         fi
-    done < <(find "$DIR" -maxdepth 2 -type f -iname '*.zip' 2>/dev/null || true)
+    done < <(_bfind "$DIR" -maxdepth 2 ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} -type f -iname '*.zip' -print)
     # Counts only, no filenames, on STDERR -- so it never mixes with the
     # "LABEL<TAB>path" hits on stdout that callers (install.sh, the export
     # watcher) already parse.
@@ -10384,7 +10581,7 @@ for entry in "${SIGS[@]}"; do
         SEEN_TOPS+=("$label::$top")
         printf '%s\t%s\n' "$label" "$top"
         found_any=0
-    done < <(find "$DIR" -maxdepth 6 \( -type f -o -type d \) 2>/dev/null \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \( -type f -o -type d \) -print \
                 | awk -F/ -v re="$re" 'tolower($NF) ~ tolower(re) || $NF ~ re {print}' \
                 | head -5)
 done
@@ -12058,9 +12255,38 @@ _ostler_zip_count_add() {  # $1=running total  $2="key=NN"; echoes the new total
     esac
     echo "$(( cur + raw ))"
 }
+# >>> scan-deadline
+# F010: ONE time budget for every detector invocation in this install (unzip,
+# loose, default). The deadline is computed once, here, and exported; each
+# invocation honours the same absolute epoch, so three slow passes cannot cost
+# 3x the budget. OSTLER_SCAN_BUDGET_S (default 300, 0 = scan nothing) is the
+# total. An already-exported OSTLER_SCAN_DEADLINE_EPOCH is respected.
+_OSTLER_SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
+case "$_OSTLER_SCAN_BUDGET_S" in ''|*[!0-9]*) _OSTLER_SCAN_BUDGET_S=300 ;; esac
+case "${OSTLER_SCAN_DEADLINE_EPOCH:-}" in
+    ''|*[!0-9]*) OSTLER_SCAN_DEADLINE_EPOCH=$(( $(date +%s) + _OSTLER_SCAN_BUDGET_S )) ;;
+esac
+export OSTLER_SCAN_DEADLINE_EPOCH
+_OSTLER_SCAN_BUDGET_LOGGED=0
+# _ostler_scan_note <detector stderr>: log the counts line; budget-hit once.
+_ostler_scan_note() {
+    local _scan_line
+    _scan_line="$(grep '^SCAN_SUMMARY ' <<<"${1:-}" || true)"
+    [[ -n "$_scan_line" ]] || return 0
+    info "GDPR export scan: ${_scan_line#SCAN_SUMMARY }"   # i18n-exempt: diagnostic counts
+    if [[ "$_scan_line" == *"budget_hit=1"* && "$_OSTLER_SCAN_BUDGET_LOGGED" -eq 0 ]]; then
+        _OSTLER_SCAN_BUDGET_LOGGED=1
+        warn "GDPR export scan: shared time budget of ${_OSTLER_SCAN_BUDGET_S}s reached, remaining scans skipped"   # i18n-exempt: diagnostic counts
+    fi
+}
+_OSTLER_SCAN_ERR="$(mktemp "${TMPDIR:-/tmp}/ostler-scan-err.XXXXXX" 2>/dev/null || echo /dev/null)"
+# <<< scan-deadline
 for _sd in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     [[ -d "$_sd" ]] || continue
-    _uz_line="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null | grep '^UNZIP_SUMMARY ' || true)"
+    _uz_all="$(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$_sd" --unzip 2>&1 >/dev/null || true)"
+    _uz_line="$(grep '^UNZIP_SUMMARY ' <<<"$_uz_all" || true)"
+    # F010: counts only (skipped nested-backup dirs, budget hit), never paths.
+    _ostler_scan_note "$_uz_all"
     if [[ -n "${_uz_line:-}" ]]; then
         read -r _ _uzf _uzo _uza _uzsn _uzsp _uzso <<<"$_uz_line" || true
         _OSTLER_ZIPS_FOUND="$(_ostler_zip_count_add "$_OSTLER_ZIPS_FOUND" "${_uzf:-found=0}")"
@@ -12219,8 +12445,11 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
             EXPORTS_DIR="${EXPORTS_DIR:-$(dirname "$_lx_path")}"
             DETECTED_EXPORT_ROOTS+=("$(dirname "$_lx_path")")
         fi
-    done < <(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$search_dir" --loose || true)
+    done < <(bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "$search_dir" --loose 2>"${_OSTLER_SCAN_ERR:-/dev/null}" || true)
     # <<< loose-export-scan
+    # F010: same shared deadline; log the loose pass counts once (budget-hit once).
+    _ostler_scan_note "$(cat "${_OSTLER_SCAN_ERR:-/dev/null}" 2>/dev/null || true)"
+    : > "${_OSTLER_SCAN_ERR:-/dev/null}" 2>/dev/null || true
 
     # Twitter/X: tweets.js (2026 export name) or legacy tweet.js, in a
     # data/ directory. CX-126: current X exports ship `tweets.js`; the
@@ -12240,6 +12469,7 @@ for search_dir in "${HOME}/Downloads" "${HOME}/Desktop" "${HOME}/Documents"; do
     done < <(find "$search_dir" -maxdepth 2 -name "takeout-*.zip" 2>/dev/null || true)
 
 done
+[[ "${_OSTLER_SCAN_ERR:-/dev/null}" == /dev/null ]] || rm -f "$_OSTLER_SCAN_ERR"   # F010: scan stderr scratch
 
 # #619: surface any folder the scan could not read. Without this, a
 # permission-denied folder is silently indistinguishable from an empty
@@ -13074,7 +13304,8 @@ done
 # law, so every region sees it.
 #
 # Wording is verbatim from legal/consent_strings.py
-# (SPOKEN_CAPTURE_RECORDING_CONSENT). Decision held in
+# (SPOKEN_CAPTURE_RECORDING_CONSENT), except the legal note, which is now
+# chosen by the Mac's region (see LEGAL NOTE BY REGION below). Decision held in
 # OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION until Phase 3 pip-installs
 # ostler_security; then persisted via consent_cli alongside the others.
 #
@@ -13082,6 +13313,14 @@ done
 # EU voice gate -- declining just keeps spoken transcription off; text
 # conversations are unaffected. Default seeded "n" so spoken transcription
 # is opt-in (the safe posture for someone who clicks straight through).
+#
+# The legal note is chosen by the Mac's region: see LEGAL NOTE BY REGION at
+# the Phase-2 defaults. OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION is what the
+# Phase-3 recorder pins, with the exact note, into the consent record.
+_ostler_legal_cc="$(_ostler_legal_country_from_locale "$(_ostler_legal_apple_locale)")"
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION="${_ostler_legal_cc:-none}"
+unset _ostler_legal_cc
+_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE="$(_ostler_spoken_capture_legal_note_for "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}")"
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
@@ -13104,13 +13343,13 @@ echo ""
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y}"
 echo "    ${MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N}"
 echo ""
-echo -e "  ${DIM}${MSG_CONSENT_SPOKEN_CAPTURE_LEGAL}${NC}"
+echo -e "  ${DIM}${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}${NC}"
 echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
     legal_prevails_note
-    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP" "" "consent_spoken_capture")"
+    SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "${MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP}"$'\n\n'"${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}" "" "consent_spoken_capture")"
     case "${SPOKEN_CAPTURE:-}" in
         y|Y)
             OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="accepted"
@@ -14275,43 +14514,64 @@ progress "Checking Homebrew and system tools" "homebrew_install"
 # customer (and the GUI watchdog) see we're alive. This is the ONLY
 # wait-for-CLT block in install.sh; the prereq-check phase trigger is
 # fire-and-forget.
-if ! /usr/bin/xcode-select -p &>/dev/null; then
+# >>> clt-wait
+# F010: the wait NEVER aborts. A tester who did not finish Apple's dialog
+# used to lose the whole install (ERR-02-PREREQ-XCODE-CLI) after 15 minutes
+# and had to start again from the questions. Now: skip entirely when CLT is
+# already present (the first check below), otherwise keep waiting forever,
+# and past XCODE_TIMEOUT say so out loud, on every heartbeat, in the log AND
+# on screen (CLT_WAIT marker -> the GUI's "Install developer tools" button,
+# which runs xcode-select --install). Seams for tests only: the binary, the
+# timeout and the poll interval are env-overridable; production uses defaults.
+_CLT_SELECT="${OSTLER_XCODE_SELECT_BIN:-/usr/bin/xcode-select}"
+if ! "$_CLT_SELECT" -p &>/dev/null; then
     info "$MSG_INFO_WAITING_FOR_CLT_TO_FINISH"
+    gui_emit CLT_WAIT "state=waiting"
     XCODE_WAIT=0
-    XCODE_TIMEOUT=900  # 15 minutes -- generous; CLI install is ~150 MB
+    XCODE_TIMEOUT="${OSTLER_XCODE_TIMEOUT:-900}"  # 15 minutes, then announce, never abort
+    XCODE_POLL="${OSTLER_CLT_POLL_S:-10}"
     LAST_HEARTBEAT=0
     XCODE_REPOPPED=0
-    until /usr/bin/xcode-select -p &>/dev/null; do
-        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT ]]; then
-            fail_with_code "ERR-02-PREREQ-XCODE-CLI" "$MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID"
+    XCODE_TIMEOUT_ANNOUNCED=0
+    until "$_CLT_SELECT" -p &>/dev/null; do
+        if [[ $XCODE_WAIT -ge $XCODE_TIMEOUT && $XCODE_TIMEOUT_ANNOUNCED -eq 0 ]]; then
+            # Not a failure: say what we are waiting for, once, loudly.
+            XCODE_TIMEOUT_ANNOUNCED=1
+            warn "$MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT"
+            gui_emit CLT_WAIT "state=timeout"
         fi
-        sleep 10
-        XCODE_WAIT=$((XCODE_WAIT + 10))
+        sleep "$XCODE_POLL"
+        XCODE_WAIT=$((XCODE_WAIT + XCODE_POLL))
         # .153 cold-wipe walk: the wait is driven by the macOS "install
         # developer tools?" GUI dialog, which the customer must CLICK. If
         # they look away (as on .153) the only repeated line was a passive
         # "Still waiting...", reading as a download in progress -- so they
-        # never clicked, and a dismissed/lost dialog would silently burn the
-        # full 15-min timeout into ERR-02. Two safe, no-sudo mitigations:
+        # never clicked. Two safe, no-sudo mitigations:
         #
         # (a) Re-pop the dialog ONCE at ~2 min. `xcode-select --install` is
         #     user-level; if the install is genuinely running it no-ops, if
         #     the dialog was dismissed it comes back. `|| true` keeps it
-        #     errexit-safe.
+        #     errexit-safe. After that the GUI button is the re-pop.
         if [[ $XCODE_REPOPPED -eq 0 && $XCODE_WAIT -ge 120 ]]; then
-            /usr/bin/xcode-select --install &>/dev/null || true
+            "$_CLT_SELECT" --install &>/dev/null || true
             XCODE_REPOPPED=1
         fi
         # (b) Heartbeat every 30s so the GUI watchdog stays quiet AND the
         # customer sees an ACTIONABLE line (click the dialog), not a passive
         # "still waiting" that hides the pending click.
         if (( XCODE_WAIT - LAST_HEARTBEAT >= 30 )); then
-            info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
+            if [[ $XCODE_TIMEOUT_ANNOUNCED -eq 1 ]]; then
+                info "$MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT"
+            else
+                info "$(printf "$MSG_INFO_CLT_STILL_INSTALLING_ELAPSED" "$XCODE_WAIT")"
+            fi
             LAST_HEARTBEAT=$XCODE_WAIT
         fi
     done
+    gui_emit CLT_WAIT "state=done"
     ok "$MSG_OK_GIT_AVAILABLE"
 fi
+# <<< clt-wait
 
 if command -v brew &>/dev/null; then
     ok "$MSG_OK_HOMEBREW_INSTALLED"
@@ -16768,6 +17028,7 @@ OSTLER_CONSENT_ARTICLE_9_DECISION="${OSTLER_CONSENT_ARTICLE_9_DECISION:-}"
 OSTLER_CONSENT_VOICE_EU_DECISION="${OSTLER_CONSENT_VOICE_EU_DECISION:-}"
 OSTLER_CONSENT_THIRD_PARTY_DECISION="${OSTLER_CONSENT_THIRD_PARTY_DECISION:-}"
 OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION="${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}"
+OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION="${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}"
 OSTLER_CONSENT_ENRICHMENT_DECISION="${OSTLER_CONSENT_ENRICHMENT_DECISION:-}"
 OSTLER_CONSENT_PERSONAL_USE_DECISION="${OSTLER_CONSENT_PERSONAL_USE_DECISION:-}"
 
@@ -16997,6 +17258,20 @@ if grep -q '^OSTLER_LANG=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'OSTLER_LANG=%s\n' "${OSTLER_LANG:-en-GB}" >> "$OSTLER_ENV_FILE"
+
+# >>> assistant-name-compose-env
+# Assistant name to the wiki compiler (S16b). Same mechanism as
+# USER_FIRST_NAME above: ASSISTANT_NAME is captured to config/.env for the
+# host tools, but the wiki-compiler's ${ASSISTANT_NAME:-} is interpolated
+# from THIS compose .env. Without it CM044 falls back to the neutral
+# "assistant" and never recognises the customer's own assistant chats in
+# Conversations. Idempotent: replace any prior line, preserve the rest.
+if grep -q '^ASSISTANT_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^ASSISTANT_NAME=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'ASSISTANT_NAME=%s\n' "${ASSISTANT_NAME:-}" >> "$OSTLER_ENV_FILE"
+# <<< assistant-name-compose-env
 
 # #259 (the load-bearing half): the wiki-compiler compose block references
 # ${AI_MODEL:-qwen3.5:9b}. docker-compose.yml is a QUOTED heredoc, so that
@@ -19016,7 +19291,9 @@ PY
     #              ${OSTLER_DIR}/posture/consent-cli-failures.log so
     #              Doctor surfaces it without bothering the user.
     _consent_cli_record() {
+        # $5.. = extra consent_cli record flags (the spoken-capture legal pin).
         local mode="$1" tickbox="$2" decision="$3" fail_msg="$4"
+        shift 4
         local stderr_file
         stderr_file=$(mktemp)
         if OSTLER_HOME="${OSTLER_DIR}" \
@@ -19025,7 +19302,8 @@ PY
                 --tickbox "$tickbox" \
                 --decision "$decision" \
                 --region "$OSTLER_REGION" \
-                --user-id "${USER_ID:?USER_ID must be set before consent recording}" 2>"$stderr_file"; then
+                --user-id "${USER_ID:?USER_ID must be set before consent recording}" \
+                "$@" 2>"$stderr_file"; then
             rm -f "$stderr_file"
             _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
             # Which wording the person SAW: the installer's language and the
@@ -19141,17 +19419,38 @@ PY
     # accepted => spoken/meeting transcription allowed; declined => it
     # stays off (decline does not abort the install). Record either way so
     # Doctor shows "user declined" rather than "missing".
+    #
+    # The record PINS the region-chosen legal note that was shown (Archie,
+    # 2026-10-24): region, variant (wording_version becomes
+    # "<version>+<variant>") and the verbatim note with its sha256. A reuse
+    # run whose stored answers predate the region (empty) keeps the old record
+    # shape rather than pin a note it never showed.
+    _spoken_legal_args=()
+    _spoken_legal_file=""
+    if [[ -n "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}" && -n "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION:-}" ]]; then
+        _spoken_legal_file="$(mktemp)"
+        _ostler_spoken_capture_legal_note_for "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}" > "${_spoken_legal_file}"
+        _spoken_legal_args=(
+            --legal-region "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}"
+            --legal-variant "$(_ostler_spoken_capture_legal_variant "${OSTLER_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION}")"
+            --legal-note-file "${_spoken_legal_file}"
+        )
+    fi
     if [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "accepted" ]]; then
         _consent_cli_record blocking \
             spoken_capture_recording_consent \
             accepted \
-            "Could not persist spoken-capture consent (continuing - transcription will stay off)"
+            "Could not persist spoken-capture consent (continuing - transcription will stay off)" \
+            ${_spoken_legal_args[@]+"${_spoken_legal_args[@]}"}
     elif [[ "$OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION" == "declined" ]]; then
         _consent_cli_record declined \
             spoken_capture_recording_consent \
             declined \
-            "Could not persist spoken-capture decline record"
+            "Could not persist spoken-capture decline record" \
+            ${_spoken_legal_args[@]+"${_spoken_legal_args[@]}"}
     fi
+    if [[ -n "${_spoken_legal_file}" ]]; then rm -f "${_spoken_legal_file}"; fi
+    unset _spoken_legal_args _spoken_legal_file
 
     # Background-enrichment decision (#794). Until 2026-08-20 the only thing
     # that happened to this answer was `export OSTLER_CONSENT_ENRICHMENT_DECISION`
@@ -22005,6 +22304,10 @@ services:
       # ~/.ostler/.env or the env block at install time.
       - PWG_USER_ID=${PWG_USER_ID:-}
       - PWG_AI_CHAT_WINGS=${PWG_AI_CHAT_WINGS:-}
+      # The customer's assistant name (S16b), written to the compose .env by
+      # the installer like USER_FIRST_NAME. CM044 uses it for the default AI
+      # chat wings; empty = the neutral "assistant".
+      - ASSISTANT_NAME=${ASSISTANT_NAME:-}
       # Operator self-identity for the wiki self/me-card exclusion (CM044
       # PR #92). Without these the operator's OWN person node surfaces as the
       # #1 Featured Contact / top Frequent Collaborator (meetings with self)
@@ -41359,8 +41662,8 @@ SWIFTEOF
         # v1.0.109: NO `security add-generic-password -w <key>` FALLBACK.
         # It put the recovery key on argv, readable by any process via ps
         # for the life of the call. It is not needed: the CLT wait (search
-        # ERR-02-PREREQ-XCODE-CLI) is top-level and fails the install unless
-        # `xcode-select -p` succeeds, and CLT ships swift, so SWIFT_BIN is
+        # ERR-02-PREREQ-XCODE-CLI) is top-level and holds the install until
+        # `xcode-select -p` succeeds (it waits, never aborts: F010), and CLT ships swift, so SWIFT_BIN is
         # set on every run that reaches this line. `security -i` (commands on
         # stdin) was measured and rejected: it exits 0 when its command
         # fails, so a save could not be told from a non-save. If swift does

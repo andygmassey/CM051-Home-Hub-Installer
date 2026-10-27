@@ -1,0 +1,31 @@
+# legal_region_contract.tsv -- which legal region line(s) the spoken-capture
+# consent shows, by the Mac's AppleLocale value. Read by BOTH sides:
+#   install.sh  tests/test_spoken_capture_legal_note_follows_region.sh
+#   GUI         gui/OstlerInstallerTests/OnboardingQuestionViewSnapshotTests.swift
+#               (LegalRegionContractTests)
+# Columns: apple_locale, iso ("-" = none), jurisdiction, region line keys
+# (comma separated, "-" = none: neutral core only). "<unset>" = no AppleLocale.
+# zh-Hant_GB, en_DE, en_HK, fr_US and en_US@rg=hkzzzz have a language that points
+# somewhere else, so a picker that reads the language instead of the region
+# goes red on them.
+apple_locale	iso	jurisdiction	region_keys
+en_GB	GB	gb	gb
+zh-Hant_GB	GB	gb	gb
+de_DE	DE	eu	eu,de
+en_DE	DE	eu	eu,de
+fr_FR	FR	eu	eu,fr
+nl_NL	NL	eu	eu
+es_ES	ES	eu	eu
+it_IT	IT	eu	eu
+en_IE	IE	eu	eu
+nb_NO	NO	eu	eu
+zh-Hant_HK	HK	hk	hk
+en_HK	HK	hk	hk
+en_US	US	us	us
+fr_US	US	us	us
+en_US@rg=hkzzzz	HK	hk	hk
+de_CH	CH	other	-
+ja_JP	JP	other	-
+es_419	-	other	-
+zh-Hant	-	other	-
+<unset>	-	other	-

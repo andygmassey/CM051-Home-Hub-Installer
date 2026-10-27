@@ -17,4 +17,5 @@ reggae:      [reggae, ska, dub, dancehall]
 latin:       [latin, salsa, reggaeton, bachata, flamenco, tango, samba]
 blues:       [blues]
 world:       [world, afrobeat, afrobeats, highlife, "k-indie"]
-gospel:      [gospel, worship, christian]
+# gospel / worship / christian are NOT a style here: religious music implies belief
+# (GDPR Art. 9). Stored, never surfaced. See sensitive_terms.yaml.
