@@ -342,6 +342,7 @@ scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed> [preins
         echo "qwen3.5:9b    6488c96fa5fa    6.6 GB    3 weeks ago" >> "$st/list"
     fi
     PATH="$W/bin:/usr/bin:/bin" STATE="$st" OLLAMA_MODELS="$st/models" SEED_qwen3_5="$chat" \
+    OLLAMA_APP_BIN="$W/bin/ollama" \
     GE="$ge" GC="$gc" FNS="$W/fns.sh" SEC="$W/section.sh" STRINGS="$STRINGS" bash -c '
         set -Eeuo pipefail
         trap "echo x >> \"\$STATE/errs\"" ERR
