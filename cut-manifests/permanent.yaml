@@ -637,6 +637,18 @@ entries:
       kind: box_walk_probe
       probe: "gateway_not_exposed_on_lan"
 
+  - id: box-walk-install-log-error-lines
+    title: every level=error and Command failed line in the box install.log is printed with its count
+    incident: >-
+      the install's DONE errors= counter misses errors raised in subshells
+      (lib/progress_emitter.sh err() funnel counts in the parent shell only),
+      so "DONE errors=0" can sit beside real errors in the same log. ADVISORY
+      for its first cut via walk_promote_scope.tsv (a new row expires after one
+      cut), then blocking against the reviewed allowlist (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "install_log_error_lines"
+
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.
   # Searched OS003 and CM051 with a positive control before building: the only
