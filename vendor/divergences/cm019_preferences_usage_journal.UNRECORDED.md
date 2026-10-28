@@ -406,7 +406,7 @@ Tree `cm019_preferences`. RE-PINNED 5622a763 -> 5af9f5b5 (Archie, 2026-10-24: co
 Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` is byte-equal to the pin (the food derive pieces came with T0j). ACKS the upstream food PR #432 (feat/food-prefs-evidence).
 
 - New, byte-identical to the PR head: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`.
-- Applied by patch(1), the rest of each file untouched: `enricher.py` (route `food` to `osm_cuisine`; skipped when the cuisine is already known), `models/enrichment.py`, `ingest/src/pipeline.py`, `ingest/src/parsers/__init__.py`.
+- Applied by patch(1), the rest of each file untouched: `enricher.py` (a food point with `extra.restaurant` and no known cuisine routes to `osm_cuisine`; every other food point stays on wikidata, see "2026-10-28 food routing"), `models/enrichment.py`, `ingest/src/pipeline.py`, `ingest/src/parsers/__init__.py`.
 - Consent: the OSM client returns before any HTTP client exists unless `public_lookup_allowed()` (exact `accepted` only). Nominatim policy: identifying User-Agent, one request per second across processes, a per-run lookup ceiling.
 - Retire: when #432 is re-pinned, delete this section.
 
@@ -425,3 +425,11 @@ Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when writ
 - `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
 - Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-10-28 food routing (CM051 #3130)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. Corrects the food graft above, which added a SECOND `"food"` key (`osm_cuisine`) to `CATEGORY_CLIENTS` that silently overrode the first (`wikidata`) and whose branch returned None without `extra.restaurant`, so every non-restaurant food preference lost its Wikidata enrichment.
+
+- `services/enrich/src/enricher.py`: ONE `"food": "wikidata"` key (as on main). In `enrich_preference`, `category == "food"` with `extra.restaurant` and no `extra.cuisine` re-routes to `osm_cuisine`; everything else falls through to the wikidata branch. The `osm_cuisine` branch no longer has a None return. Consent/L3/minor gating untouched (`consent_or_log`, `outbound_refusal` run first).
+- Proof: `tests/test_enrichment_reaches_the_corpus.sh` (restaurant point -> osm_cuisine; plain food, empty extra, and cuisine-known -> wikidata). Red on ee0a2e47, green here, red on the any-food-to-osm mutant.
+- Owed upstream: yes, CM019 (personal-world-graph #432, the food PR). The upstream branch carries the second key; carry this routing into it. Row: `CM019_DIVERGENCE_REGISTRY.md`, "food routing". Retire: when #432 lands with this routing and the tree is re-pinned.

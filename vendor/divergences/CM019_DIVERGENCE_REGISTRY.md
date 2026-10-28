@@ -282,6 +282,15 @@ upstream@5af9f5b5 (T0j #3160). This PR carries only the vendor-only `derive_runn
 which registers the derivers and prints their counts. Detail:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 patterns wiring".
 
+### food routing -- one `food` key, restaurant points only to OSM (CM051 #3130)
+
+`enricher.py`: `CATEGORY_CLIENTS` keeps the single `"food": "wikidata"` key; a food point with
+`extra.restaurant` and no `extra.cuisine` routes to `osm_cuisine`, any other falls through to
+wikidata as on main. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-28 food routing".
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph #432, CM019): the PR's second
+`"food"` key and its None return for a non-restaurant point lose the Wikidata enrichment.
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in

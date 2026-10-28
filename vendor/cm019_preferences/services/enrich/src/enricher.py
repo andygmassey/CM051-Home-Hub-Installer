@@ -287,10 +287,6 @@ class EnrichmentService:
         "venue": "wikidata_place",
         "restaurant": "wikidata_place",
 
-        # Food evidence (reservations, delivery, calendar meals): the restaurant
-        # is in extra.restaurant. Keyless OpenStreetMap lookup, consent-gated.
-        "food": "osm_cuisine",
-
         # Events - Ticketmaster
         "event": "events",
         "ticket": "events",
@@ -691,6 +687,14 @@ INSERT DATA {{
             logger.debug(f"No client for category: {category}")
             return None
 
+        # Food routes to wikidata (the single "food" key above); only a
+        # restaurant point whose cuisine is not known goes to the keyless,
+        # consent-gated OSM lookup. Anything else falls through to wikidata.
+        if category == "food":
+            _extra = preference.get("extra", {}) or {}
+            if _extra.get("restaurant") and not _extra.get("cuisine"):
+                client_name = "osm_cuisine"
+
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
@@ -888,8 +892,6 @@ INSERT DATA {{
         elif client_name == "osm_cuisine":
             extra = preference.get("extra", {}) or {}
             restaurant = extra.get("restaurant")
-            if not restaurant or extra.get("cuisine"):
-                return None  # not a restaurant point, or the cuisine is already known locally
             return await self._osm_cuisine.enrich_venue(pref_id, restaurant, extra.get("area") or "")
 
         elif client_name == "events":

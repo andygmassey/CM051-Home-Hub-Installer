@@ -292,16 +292,52 @@ for expected in ("bookmark", "interest", "page", "book", "music"):
 
 # Films and places are now KEYLESS, routed to Wikidata rather than to
 # TMDB and Google Places, so they must be SWEPT rather than excluded.
-# `food` routes to the keyless, consent-gated OSM cuisine client (food
-# evidence carries the restaurant in extra.restaurant), not to Wikidata.
 for expected in ("movie", "movie_tv", "tv", "place", "venue", "education", "food"):
     if expected not in cats:
         bad.append("%s is not swept; it should route to a keyless client" % expected)
 for cat, client in (("movie", "wikidata_film"), ("tv", "wikidata_film"),
                     ("place", "wikidata_place"), ("venue", "wikidata_place"),
-                    ("education", "wikidata"), ("food", "osm_cuisine")):
+                    ("education", "wikidata"), ("food", "wikidata")):
     if S.CATEGORY_CLIENTS.get(cat) != client:
         bad.append("%s routes to %r, expected %r" % (cat, S.CATEGORY_CLIENTS.get(cat), client))
+
+# Behavioural arm (enrich_preference, not the table): `food` is ONE key that
+# routes to wikidata. Only a restaurant point with no known cuisine goes to
+# the keyless OSM client; a plain food subject falls through to wikidata
+# exactly as on main. A second "food" key silently overrides the first and
+# makes every non-restaurant food preference lose its Wikidata enrichment.
+import asyncio
+_calls = []
+class _Wd:
+    async def normalize_topic(self, subject):
+        _calls.append("wikidata")
+        class _R:
+            qid = None
+        return _R()
+class _Osm:
+    async def enrich_venue(self, pref_id, restaurant, area):
+        _calls.append("osm_cuisine")
+        return None
+_svc = S.__new__(S)
+_svc._consent_or_log = lambda _op: True
+_svc.privacy_refusals = {}
+_svc._wikidata = _Wd()
+_svc._EnrichmentService__osm_cuisine = _Osm()
+def _route(extra):
+    del _calls[:]
+    pref = {"id": "p", "category": "food", "subject": "ramen", "privacy_level": "L2"}
+    if extra is not None:
+        pref["extra"] = extra
+    asyncio.run(_svc.enrich_preference(pref))
+    return list(_calls)
+for label, extra, want in (
+        ("restaurant point", {"restaurant": "Example Noodle Bar"}, ["osm_cuisine"]),
+        ("plain food subject (no restaurant)", None, ["wikidata"]),
+        ("plain food subject, empty extra", {}, ["wikidata"]),
+        ("restaurant with cuisine already known", {"restaurant": "Example Noodle Bar", "cuisine": "ramen"}, ["wikidata"])):
+    got = _route(extra)
+    if got != want:
+        bad.append("food %s routed to %r, expected %r" % (label, got, want))
 
 # Andy excluded `professional` explicitly. Asserted so that adding it back
 # is a decision someone has to make against a failing test, not a drift.
