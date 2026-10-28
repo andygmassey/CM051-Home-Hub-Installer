@@ -311,7 +311,10 @@ _probe_tick_state() {
     if [ "$rc" -eq 113 ]; then
         case "$out" in
             *"Could not find service"*)
-                printf 'notloaded'
+                # The rc and the first line of launchctl's own answer travel with
+                # the state (instr119): "not loaded" used to be all a walk printed,
+                # with no way to tell which domain was asked or what it said.
+                printf 'notloaded rc=%s %s' "$rc" "$(printf '%s' "$out" | head -n1 | tr '\t' ' ' | cut -c1-140)"
                 return 0
                 ;;
         esac
@@ -341,6 +344,7 @@ box_wait_ingest_quiet() {
             UNREADABLE*)
                 PROBE_TICK_DETAIL="could not read the state of the hourly ingest tick ${label} (${state#UNREADABLE }); a box prepared by ttywalk --reset has that job loaded, so this is a missing prerequisite and not a quiet box"
                 probe_note "ingest tick ${label}: state UNREADABLE after ${PROBE_TICK_WAITED}s"
+                probe_note_fda_rerun_install "${label}"
                 return 2
                 ;;
             running)
@@ -353,8 +357,13 @@ box_wait_ingest_quiet() {
                 _probe_tick_sleep "$step"
                 PROBE_TICK_WAITED=$((PROBE_TICK_WAITED + step))
                 ;;
-            notloaded)
+            notloaded*)
                 probe_note "ingest tick ${label}: not loaded on this host, so it is not moving the stores"
+                case "$state" in
+                    "notloaded rc="*) probe_note "  launchctl print gui/<uid>/${label}: exit ${state#notloaded rc=}" ;;
+                    *)                probe_note "  launchctl print gui/<uid>/${label}: exit code NOT RECORDED (this reading carried none)" ;;
+                esac
+                probe_note_fda_rerun_install "${label}"
                 return 0
                 ;;
             noplatform)
@@ -367,6 +376,58 @@ box_wait_ingest_quiet() {
                 ;;
         esac
     done
+}
+
+# probe_note_fda_rerun_install <label> -- WHY is the recurring writer not loaded?
+#
+# v1.0.118 walk 3 printed "com.ostler.fda-rerun: not loaded on this host" in two
+# people probes and nothing else, so whether install.sh ever registered it was
+# NOT INSTRUMENTED. install.sh says so itself, once, at the deferred fda-rerun
+# load (the ok MSG_OK_FDA_RE_RUN_SCHEDULED_RECURRING line or the warn
+# MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED line), so read that line back from the
+# install log, and whether the plist is on disk. Output only: no verdict reads
+# any of this. The home path is masked to ~ (it carries the account name).
+# Matched on the en-GB message text, the language the walk installs in.
+FDA_RERUN_OK_TEXT="FDA re-run scheduled every"
+FDA_RERUN_WARN_TEXT="The background top-up helper could not be scheduled"
+FDA_RERUN_WARN2_TEXT="so the recurring re-run was NOT registered"
+probe_fda_rerun_install_read() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then
+        printf '%s' "${FAKE_FDA_INSTALL:-LOG_ABSENT}"
+        return 0
+    fi
+    local log="${OSTLER_INSTALL_LOG:-\$HOME/.ostler/logs/install.log}"
+    box_run "L=\"${log}\"; P=\"\$HOME/Library/LaunchAgents/${1}.plist\"; if [ -e \"\$P\" ]; then echo PLIST present; else echo PLIST absent; fi; if [ ! -r \"\$L\" ]; then echo LOG_ABSENT; else M=\$(/usr/bin/grep -nF -e '${FDA_RERUN_OK_TEXT}' -e '${FDA_RERUN_WARN_TEXT}' -e '${FDA_RERUN_WARN2_TEXT}' \"\$L\" | tail -n 3); if [ -z \"\$M\" ]; then echo LOG_NOLINE; else printf '%s\\n' \"\$M\" | sed \"s#\$HOME#~#g\" | sed 's/^/LINE /'; fi; fi"
+}
+
+# Classify what probe_fda_rerun_install_read returned and print it. Pure apart
+# from probe_note, so the self-tests drive it on canned input.
+probe_note_fda_rerun_install() {
+    local raw line kind any=0
+    raw="$(probe_fda_rerun_install_read "$1")"
+    case "$raw" in
+        *"PLIST present"*) probe_note "  ${1}.plist in ~/Library/LaunchAgents: present" ;;
+        *"PLIST absent"*)  probe_note "  ${1}.plist in ~/Library/LaunchAgents: ABSENT" ;;
+    esac
+    case "$raw" in
+        *LOG_ABSENT*) probe_note "  install.sh fda-rerun line: NOT MEASURED -- the install log is not readable on the box"; return 0 ;;
+        *LOG_NOLINE*) probe_note "  install.sh fda-rerun line: NONE -- the install log carries neither the scheduled (ok) nor the not-scheduled (warn) line, so the deferred load was never reached"; return 0 ;;
+    esac
+    while IFS= read -r line; do
+        case "$line" in
+            "LINE "*) : ;;
+            *) continue ;;
+        esac
+        line="${line#LINE }"
+        case "$line" in
+            *"${FDA_RERUN_OK_TEXT}"*) kind="ok" ;;
+            *)                         kind="warn" ;;
+        esac
+        any=1
+        probe_note "  install.sh fda-rerun line (${kind}): $(printf '%s' "$line" | cut -c1-220)"
+    done <<< "$raw"
+    [ "$any" -eq 1 ] || probe_note "  install.sh fda-rerun line: NOT MEASURED -- unrecognised answer from the box ($(printf '%s' "$raw" | head -n1 | cut -c1-80))"
+    return 0
 }
 
 _probe_tick_sleep() {

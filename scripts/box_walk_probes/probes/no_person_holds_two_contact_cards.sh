@@ -254,6 +254,87 @@ print(len(n), sum(n), (max(n) if n else 0))
 ' 2>/dev/null
 }
 
+# ── WHICH KEY JOINED THE CARDS (instr119) ───────────────────────────────
+#
+# v1.0.118 walk 3 FAILED with 59 over-merged nodes and printed three opaque
+# digests, so WHY they merged was NOT INSTRUMENTED. For each offending node
+# (cap 20) ask the graph for the phone, email and name on the node and on every
+# node merged INTO it, and name the key they share: that is the key the
+# resolver matched on. Values never leave the box raw: each is normalised and
+# printed as <type>:<sha256 prefix>, so two nodes sharing a key show the same
+# digest and nobody's number or address is disclosed.
+JOIN_CAP="${OSTLER_PROBE_JOIN_CAP:-20}"
+_q_join() {
+    printf '%s' "PREFIX p: <${ONTO}>
+SELECT ?side ?t ?v WHERE {
+  { <${1}> p:hasIdentifier ?i . ?i p:identifierType ?t ; p:identifierValue ?v . FILTER(?t IN (\"phone\", \"email\")) BIND(\"self\" AS ?side) }
+  UNION { ?s p:mergedInto <${1}> ; p:hasIdentifier ?i . ?i p:identifierType ?t ; p:identifierValue ?v . FILTER(?t IN (\"phone\", \"email\")) BIND(STR(?s) AS ?side) }
+  UNION { <${1}> p:displayName ?v . BIND(\"name\" AS ?t) BIND(\"self\" AS ?side) }
+  UNION { ?s p:mergedInto <${1}> ; p:displayName ?v . BIND(\"name\" AS ?t) BIND(STR(?s) AS ?side) }
+}"
+}
+
+_fetch_join() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_JOIN_JSON:-}"; return; fi
+    _ox_curl "$(_q_join "$1")"
+}
+
+# explain_join <cards> <sparql-json>: one masked line naming the join key. Pure.
+explain_join() {
+    printf '%s' "$2" | python3 -c '
+import hashlib, json, re, sys
+cards = sys.argv[1]
+def norm(t, v):
+    v = (v or "").strip().lower()
+    if t == "phone":
+        d = re.sub(r"[^0-9]", "", v)
+        return d[-9:] if len(d) >= 7 else d
+    return re.sub(r"\s+", " ", v)
+def mask(t, v):
+    return "%s:%s" % (t, hashlib.sha256(norm(t, v).encode()).hexdigest()[:8])
+try:
+    rows = json.loads(sys.stdin.read())["results"]["bindings"]
+except Exception:
+    print("%s cards; join key NOT MEASURED (the graph did not answer)" % cards); sys.exit(0)
+selfk, srck = set(), {}
+for r in rows:
+    side, t, v = r["side"]["value"], r["t"]["value"], r["v"]["value"]
+    if not norm(t, v):
+        continue
+    k = (t, norm(t, v))
+    if side == "self":
+        selfk.add(k)
+    else:
+        srck.setdefault(side, set()).add(k)
+pool = set(selfk)
+for ks in srck.values():
+    pool |= ks
+shared = set()
+for s, ks in srck.items():
+    others = set(selfk)
+    for s2, ks2 in srck.items():
+        if s2 != s:
+            others |= ks2
+    shared |= (ks & others)
+order = {"phone": 0, "email": 1, "name": 2}
+def show(ks):
+    return ",".join(sorted(("%s:%s" % (t, hashlib.sha256(v.encode()).hexdigest()[:8]) for t, v in ks),
+                           key=lambda x: (order.get(x.split(":")[0], 9), x)))
+if srck:
+    if shared:
+        print("%s cards; %d node(s) merged in; joined by %s" % (cards, len(srck), show(shared)))
+    else:
+        print("%s cards; %d node(s) merged in; NO shared phone, email or name on record (the join key is not in the graph)" % (cards, len(srck)))
+else:
+    cnt = {}
+    for t, _ in selfk:
+        cnt[t] = cnt.get(t, 0) + 1
+    tally = " ".join("%s x%d" % (t, cnt[t]) for t in sorted(cnt, key=lambda x: order.get(x, 9)))
+    print("%s cards; no node merged in (written onto one node at sync time); candidate keys on the node: %s%s" %
+          (cards, tally or "none", (" [" + show(selfk) + "]") if selfk else ""))
+' "$1" 2>/dev/null || printf '%s cards; join key NOT MEASURED (classifier failed)' "$1"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)}; the graph was not queried"
@@ -330,6 +411,16 @@ run_probe() {
         # graph does not, and the two must not be confused.
         probe_note "first offending nodes (opaque, sha256 prefix): $(printf '%s' "$rows" | head -3 | awk '{print $2}' | while read -r u; do printf '%s ' "$(printf '%s' "$u" | shasum -a 256 | cut -c1-10)"; done)"
         probe_note "  the real URIs stay on the box; re-run this query there if you need them"
+        # instr119: the join key per offending node, worst first, capped.
+        probe_note "join key per offending node (worst first, at most ${JOIN_CAP}; values masked as type:sha256-prefix):"
+        local _u _k _n=0
+        while read -r _k _u; do
+            [ -n "$_u" ] || continue
+            case "$_k" in ''|*[!0-9]*) continue ;; esac
+            _n=$((_n + 1)); [ "$_n" -gt "$JOIN_CAP" ] && break
+            probe_note "  node $(printf '%s' "$_u" | shasum -a 256 | cut -c1-10): $(explain_join "$_k" "$(_fetch_join "$_u")")"
+        done <<< "$(printf '%s\n' "$rows" | sort -k1,1nr)"
+        [ "$nodes" -gt "$JOIN_CAP" ] && probe_note "  ... $((nodes - JOIN_CAP)) more node(s) not explained (cap ${JOIN_CAP}, OSTLER_PROBE_JOIN_CAP)"
         probe_fail "${nodes} Person node(s) each carry 2+ distinct icloud_contact_uid, collapsing ${cards} Contacts cards. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
     fi
 
@@ -447,6 +538,34 @@ self_test() {
     if [ "$s" != "UNMEASURED" ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable count adjudicated '$s', expected UNMEASURED."
     fi
+
+    # 6. instr119: the join key is NAMED, masked, and never printed raw.
+    #    Synthetic values only (reserved +44 7700 900xxx, example.com).
+    local _j
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900123"}},
+      {"side":{"value":"self"},"t":{"value":"email"},"v":{"value":"one@example.com"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"phone"},"v":{"value":"07700 900123"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"email"},"v":{"value":"two@example.com"}}]}}')"
+    case "$_j" in
+        "2 cards; 1 node(s) merged in; joined by phone:"*) ;;
+        *) probe_pass "JOIN CONTROL: a shared phone was not named as the join key: ${_j}" ;;
+    esac
+    case "$_j" in *900123*|*example.com*) probe_pass "JOIN CONTROL: a raw phone or email reached the output: ${_j}" ;; esac
+    _j="$(explain_join 3 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"name"},"v":{"value":"Jane Doe"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"name"},"v":{"value":"jane  doe"}}]}}')"
+    case "$_j" in "3 cards; 1 node(s) merged in; joined by name:"*) ;; *) probe_pass "JOIN CONTROL: a shared name was not named as the join key: ${_j}" ;; esac
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"email"},"v":{"value":"a@example.com"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"email"},"v":{"value":"b@example.com"}}]}}')"
+    case "$_j" in *"NO shared phone, email or name"*) ;; *) probe_pass "JOIN CONTROL: two nodes with nothing in common were given a join key: ${_j}" ;; esac
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900124"}},
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900125"}}]}}')"
+    case "$_j" in *"no node merged in"*"phone x2"*) ;; *) probe_pass "JOIN CONTROL: a node with no merged-in source did not list its candidate keys: ${_j}" ;; esac
+    _j="$(explain_join 2 'garbage')"
+    case "$_j" in *"NOT MEASURED"*) ;; *) probe_pass "JOIN CONTROL: an unreadable answer did not say NOT MEASURED: ${_j}" ;; esac
 
     probe_fail "negative control behaved correctly (counted planted over-merges, passed a clean set, survived malformed rows, and told an earned zero from an unexercised one)"
 }

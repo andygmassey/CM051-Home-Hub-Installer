@@ -252,6 +252,59 @@ print("UNAVAILABLE")
 ' 2>/dev/null || printf 'UNAVAILABLE'
 }
 
+# ── WHICH PEOPLE MAKE THE GAP (instr119) ─────────────────────────────────
+#
+# v1.0.118 walk 3: oxigraph=8905 doctor=8247, and nothing said who the 658 were.
+# The doctor number is the Qdrant `people` points_count (ical-server.py
+# _wiki_people_count), and the only writer of that collection,
+# ostler_fda.pwg_ingest._load_people_from_oxigraph, selects
+# "?uri a pwg:Person ; pwg:displayName ?d" with NO pwg:mergedInto. So split the
+# oxigraph Person count into the three populations that query treats
+# differently: named (indexable), unnamed stub (no displayName, never indexed)
+# and merged (has mergedInto, pruned by design). OUTPUT ONLY: no verdict reads
+# it, and an unreadable breakdown says NOT MEASURED rather than zero.
+_Q_BREAKDOWN='PREFIX p: <https://schema.ostler.ai/ontology#>
+SELECT (COUNT(DISTINCT ?n) AS ?named) (COUNT(DISTINCT ?u) AS ?unnamed) (COUNT(DISTINCT ?m) AS ?merged) WHERE {
+  { ?n a p:Person ; p:displayName ?d . FILTER NOT EXISTS { ?n p:mergedInto ?x } }
+  UNION { ?u a p:Person . FILTER NOT EXISTS { ?u p:displayName ?d2 } FILTER NOT EXISTS { ?u p:mergedInto ?x2 } }
+  UNION { ?m a p:Person ; p:mergedInto ?x3 }
+}'
+count_oxigraph_breakdown() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_OXI_BREAKDOWN:-UNAVAILABLE}"; return; fi
+    _ox_curl "$_Q_BREAKDOWN" | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+try:
+    b=json.loads(raw)["results"]["bindings"][0]
+    print(int(b["named"]["value"]), int(b["unnamed"]["value"]), int(b["merged"]["value"]))
+except Exception:
+    print("UNAVAILABLE")
+' 2>/dev/null || printf 'UNAVAILABLE'
+}
+
+# note_breakdown "<named> <unnamed> <merged>" <oxi> <doc>: pure, prints only.
+note_breakdown() {
+    local bd="$1" oxi="$2" doc="$3" nm un mg
+    set -- $bd
+    nm="${1:-}"; un="${2:-}"; mg="${3:-}"
+    case "${nm}${un}${mg}" in
+        ''|*[!0-9]*) probe_note "breakdown by category : NOT MEASURED (oxigraph answered '${bd}')"; return 0 ;;
+    esac
+    probe_note "breakdown by category (oxigraph pwg:Person ${oxi} vs doctor ${doc} = Qdrant people points):"
+    probe_note "  named, not merged (what the vector writer indexes): ${nm}"
+    probe_note "  unnamed stub (no pwg:displayName, never indexed)  : ${un}"
+    probe_note "  merged (pwg:mergedInto, pruned by design)         : ${mg}"
+    case "$doc" in
+        ''|*[!0-9]*) probe_note "  doctor minus indexable named                       : NOT MEASURED (doctor ${doc})" ;;
+        *)           probe_note "  doctor minus indexable named                       : $((doc - nm))  (0 = the gap is exactly the unindexed categories)" ;;
+    esac
+    case "$oxi" in
+        ''|*[!0-9]*) : ;;
+        *) [ "$((nm + un + mg))" -ne "$oxi" ] && probe_note "  categories sum to $((nm + un + mg)), not ${oxi}: the remainder is typed foaf:Person only, or the graph moved between reads" ;;
+    esac
+    return 0
+}
+
 # adjudicate <a> <b> <tolerance_pct> -> "AGREE|DISAGREE|INSUFFICIENT <detail>"
 adjudicate_counts() {
     local a="$1" b="$2" tol="$3"
@@ -536,6 +589,7 @@ run_probe() {
     _ox_adjudicate "oxigraph people count"
     probe_note "oxigraph SPARQL count : $oxi"
     probe_note "doctor api count      : $doc"
+    case "$oxi" in ''|*[!0-9]*) : ;; *) note_breakdown "$(count_oxigraph_breakdown)" "$oxi" "$doc" ;; esac
 
     local readable=0
     for v in "$oxi" "$doc"; do [ "$v" != "UNAVAILABLE" ] && readable=$((readable + 1)); done
@@ -661,6 +715,17 @@ self_test() {
         [ "$(_converge_classify $pair)" = "INFLIGHT" ] && _inflight=$((_inflight + 1))
     done
     [ "$_inflight" -eq 2 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 8 mtime combinations classified INFLIGHT, want exactly 2. A classifier that answers the same thing everywhere proves nothing."
+
+    # instr119: the category breakdown is printed with the doctor gap, and an
+    # unreadable one says NOT MEASURED. Output only, no verdict reads it.
+    local _bd
+    _bd="$(note_breakdown "8247 645 13" 8905 8247)"
+    case "$_bd" in *"named, not merged (what the vector writer indexes): 8247"*"unnamed stub"*": 645"*"merged (pwg:mergedInto, pruned by design)         : 13"*"doctor minus indexable named                       : 0 "*) ;;
+        *) probe_pass "BREAKDOWN CONTROL: the category split did not print as expected: ${_bd}" ;; esac
+    _bd="$(note_breakdown "UNAVAILABLE" 8905 8247)"
+    case "$_bd" in *"NOT MEASURED"*) ;; *) probe_pass "BREAKDOWN CONTROL: an unreadable breakdown did not say NOT MEASURED: ${_bd}" ;; esac
+    _bd="$(note_breakdown "8000 600 13" 8905 8247)"
+    case "$_bd" in *"categories sum to 8613, not 8905"*) ;; *) probe_pass "BREAKDOWN CONTROL: a split that does not sum to the total was not flagged: ${_bd}" ;; esac
 
     probe_fail "negative control behaved correctly on all 8 pairs and all 8 converge-marker mtime combinations (exactly 2 of 8 are the in-flight window, including a STALE .done that an existence test cannot see) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }
