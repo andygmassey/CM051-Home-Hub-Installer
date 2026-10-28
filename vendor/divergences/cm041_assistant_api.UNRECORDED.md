@@ -1541,3 +1541,11 @@ The writer half is `vendor/ostler_fda/pwg_ingest.py` (see `ostler_fda.UNRECORDED
 Regeneration was not attempted: this tree's refusal is standing (sections above).
 Retire when CM041 #238 merges and a re-vendor brings the tree byte-identical; its squash sha
 then goes into hold_ack_shas.
+
+## 2026-10-28 119: hub_contract.yaml regenerated against hub-v0.5.29
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.29 = 9c6c2b55>` re-derives the gateway rows for the re-pinned daemon (CM051 #3192; contract-is-current was RED against the new pin).
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.29> --check` reports current (279 routes).
+- Retire: the next hub re-pin regenerates this file again.

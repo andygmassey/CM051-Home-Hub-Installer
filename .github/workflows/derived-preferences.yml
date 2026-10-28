@@ -49,6 +49,7 @@ on:
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'tests/test_vendored_derive_scroll_carries_privacy_level.py'
       - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
@@ -128,6 +129,14 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: Derived preferences fade on the same half-life table as memory hygiene
+        # Constants equal the vendored HygieneConfig; recent outranks old
+        # through the shipped registry; dietary dislikes do not decay; two
+        # mutants. Exit 2 is CANNOT-RUN and fails.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_half_life_matches_hygiene.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
