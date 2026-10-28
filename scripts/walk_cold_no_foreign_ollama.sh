@@ -21,8 +21,19 @@
 # run as the prefix owner), /Applications/Ollama.app, and any running ollama
 # process outside a .ostler directory.
 #
-# Each item found is printed with its size (du -sk) and, for a binary, its
-# sha256, then REMOVED. Then the whole examination runs AGAIN.
+# Each item found is printed with its size (du -sk) and a sha256 (of the file
+# for a binary; of a manifest of every file's relative path and size for a
+# directory, so a multi-GB model store is not read end to end).
+#
+# WHAT IS REMOVED, AND WHAT IS ONLY LISTED (Archie, #3205 review). Removal is
+# allowed ONLY in the WALKING account's home and in SYSTEM locations (the
+# Homebrew formula, cask and service, /usr/local/bin and other paths outside
+# /Users, /Applications/Ollama.app, running processes). Anything inside ANOTHER
+# account's home -- its ~/.ollama, ~/Applications/Ollama.app, its LaunchAgent,
+# its loaded agent, a binary on its PATH under its home -- is DETECTED ONLY:
+# printed, never deleted, and the run ends CANNOT-RUN with the list. A script
+# never deletes inside another person's home folder; a human or ORM clears it
+# deliberately after reading the list. Then the whole examination runs AGAIN.
 #
 # VERDICTS (the trichotomy):
 #   exit 0  PASS. Nothing foreign, or everything foreign removed and the second
@@ -162,7 +173,9 @@ describe() {
     local kind="$1" a="$2" s="$3" kb sha bin
     case "$kind" in
         BIN)     printf 'FOREIGN binary [%s] %s  %s KB  sha256 %s\n' "$a" "$s" "$(as_acct "$a" du -skL "$s" 2>/dev/null | awk '{print $1}')" "$(as_acct "$a" shasum -a 256 "$s" 2>/dev/null | awk '{print $1}')" ;;
-        DIR|USERAPP) printf 'FOREIGN %s [%s] %s  %s KB\n' "$kind" "$a" "$s" "$(as_acct "$a" du -sk "$s" 2>/dev/null | awk '{print $1}')" ;;
+        DIR|USERAPP) printf 'FOREIGN %s [%s] %s  %s KB  sha256(manifest) %s\n' "$kind" "$a" "$s" \
+                 "$(as_acct "$a" du -sk "$s" 2>/dev/null | awk '{print $1}')" \
+                 "$(as_acct "$a" /bin/bash -c 'cd "$1" && find . -type f -exec stat -f "%N %z" {} + 2>/dev/null | LC_ALL=C sort | shasum -a 256' _ "$s" 2>/dev/null | awk '{print $1}')" ;;
         AGENT|LOADED) printf 'FOREIGN launchd [%s] %s\n' "$a" "$s" ;;
         BREWF|BREWC|BREWSVC)
             bin="$(dirname "$(dirname "$s")")/opt/ollama/bin/ollama"
@@ -174,6 +187,28 @@ describe() {
         PROC)    printf 'FOREIGN process %s\n' "$s" ;;
         *)       printf '%s [%s] %s\n' "$kind" "$a" "$s" ;;
     esac
+}
+
+home_of() { awk -v n="$1" '$1==n{print $3}' "$WORK/accounts"; }
+# protected KIND ACCOUNT SUBJECT -> 0 when the item is inside ANOTHER
+# account's home (or is that account's launchd session), so it is listed only.
+protected() {
+    local kind="$1" a="$2" s="$3" h selfhome
+    case "$kind" in PROC|BREWSVC|BREWF|BREWC|APP) return 1 ;; esac
+    selfhome="$(home_of "$SELF")"
+    if [[ "$a" != "$SELF" ]]; then
+        case "$kind" in DIR|USERAPP|AGENT|LOADED) return 0 ;; esac
+        h="$(home_of "$a")"
+        case "$s" in "$h"/*) return 0 ;; esac
+    fi
+    # Any path under /Users that is not the walking account's own home is
+    # someone else's, whichever account's PATH it was found on.
+    [[ -n "$selfhome" ]] || return 0
+    case "$s" in
+        "$selfhome"/*) return 1 ;;
+        /Users/*) return 0 ;;
+    esac
+    return 1
 }
 
 remove_item() {
@@ -214,6 +249,10 @@ if [[ "$nfound" -gt 0 ]]; then
     for k in $PRIO; do
         while IFS='|' read -r kk a s; do
             [[ "$kk" == "$k" ]] || continue
+            if protected "$kk" "$a" "$s"; then
+                echo "  NOT REMOVED (inside another account's home; detect only) ${kk} [${a}] ${s}"
+                continue
+            fi
             if remove_item "$kk" "$a" "$s"; then echo "  removed ${kk} [${a}] ${s}"; else echo "  REMOVAL FAILED ${kk} [${a}] ${s}"; fi
         done < "$WORK/found1"
     done
@@ -229,6 +268,10 @@ if grep -q . "$WORK/found2"; then
         [[ -z "$k" ]] && continue
         if [[ "$k" == "NOEXAMINE" ]]; then echo "  NOT EXAMINED [${a}] ${s}"; else echo "  $(describe "$k" "$a" "$s")"; fi
     done < "$WORK/found2"
+    if grep -v '^NOEXAMINE|' "$WORK/found2" | grep -q .; then
+        echo "  Items inside another account's home are never deleted by this script."
+        echo "  A human or ORM clears them deliberately after reading the list above."
+    fi
     echo "NO-FOREIGN-OLLAMA: CANNOT-RUN (the box is not cold, or not every account could be examined; this is not a PASS)"
     exit 2
 fi

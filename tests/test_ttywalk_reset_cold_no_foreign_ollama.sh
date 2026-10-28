@@ -16,16 +16,21 @@
 #
 # SCENARIOS
 #   CLEAN       nothing foreign. PASS, with the examined list naming BOTH accounts.
-#   DIRTY       foreign ollama on alice's login PATH, bob's ~/.ollama, bob's
+#   DIRTY       foreign ollama on alice's login PATH, alice's ~/.ollama, alice's
 #               brew service plist (loaded), a brew formula, /Applications/
 #               Ollama.app and a running ollama process; plus an installer-owned
 #               ollama under alice's ~/.ostler. All foreign items printed with
 #               size and sha, removed; PASS; the .ostler one untouched.
+#   OTHER-HOME  (Archie, #3205) a foreign ~/.ollama, ~/Applications/Ollama.app,
+#               LaunchAgent (loaded) and PATH binary in BOB's home (not the
+#               walking account): each LISTED with path, size and sha256, NOT
+#               removed, and the run is CANNOT-RUN. Mutant that deletes them
+#               anyway (protection off) must be caught.
 #   STUCK       the brew uninstall fails. CANNOT-RUN (rc 2), never PASS.
 #   NO-EXAMINE  sudo refuses bob. CANNOT-RUN (rc 2), bob named as not examined.
 #   MUTANT      the script with its account loop cut to the first account. The
-#               bob-only dirty box then reads PASS with bob's ~/.ollama still
-#               there; the assertions below must catch it.
+#               bob-only dirty box then reads PASS (it never looked at bob);
+#               the assertions below must catch it.
 #   WIRING      ttywalk.sh runs the script under --reset, before staging, and dies
 #               on a non-zero.
 #
@@ -111,9 +116,9 @@ has() { printf '%s\n' "$OUT" | grep -qF -- "$1"; }
 dirty() {   # all foreign items, installer-owned one too
     printf 'fake-ollama-binary %s\n' "$1" > "$W/alicebin/ollama"; chmod +x "$W/alicebin/ollama"
     printf 'ours\n' > "$W/Users/alice/.ostler/bin/ollama"; chmod +x "$W/Users/alice/.ostler/bin/ollama"
-    mkdir -p "$W/Users/bob/.ollama/models"; head -c 8192 /dev/zero > "$W/Users/bob/.ollama/models/blob"
-    mkdir -p "$W/Users/bob/Library/LaunchAgents"; : > "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist"
-    : > "$W/loaded/bob"; : > "$W/brew/svc"; : > "$W/brew/formula"
+    mkdir -p "$W/Users/alice/.ollama/models"; head -c 8192 /dev/zero > "$W/Users/alice/.ollama/models/blob"
+    mkdir -p "$W/Users/alice/Library/LaunchAgents"; : > "$W/Users/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist"
+    : > "$W/loaded/alice"; : > "$W/brew/svc"; : > "$W/brew/formula"
     mkdir -p "$W/brew/opt/ollama/bin" "$W/brew/Cellar/ollama"; printf 'brewbin\n' > "$W/brew/opt/ollama/bin/ollama"
     mkdir -p "$W/Applications/Ollama.app/Contents/Resources"; printf 'appbin\n' > "$W/Applications/Ollama.app/Contents/Resources/ollama"
     mkdir -p "$W/procbin"; printf "#!/bin/bash\nexec sleep 300\n" > "$W/procbin/ollama"; chmod +x "$W/procbin/ollama"; "$W/procbin/ollama" </dev/null >/dev/null 2>&1 & echo $! >> "$ROOT/pids"; disown $! 2>/dev/null
@@ -133,9 +138,9 @@ kill -0 "$(tail -1 "$ROOT/pids")" 2>/dev/null && ok "control: the fake foreign o
 runbox "$SUBJECT"
 [ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS (cleaned" && ok "dirty box: cleaned, PASS" || { bad "dirty box: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
 has "FOREIGN binary [alice] $W/alicebin/ollama" && has "sha256 $want_sha" && ok "binary printed with sha256" || bad "binary not printed with its sha256"
-has "FOREIGN DIR [bob] $W/Users/bob/.ollama" && has "KB" && ok "bob ~/.ollama printed with size" || bad "bob ~/.ollama not printed with size"
-for p in "$W/alicebin/ollama" "$W/Users/bob/.ollama" "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
-         "$W/loaded/bob" "$W/brew/formula" "$W/brew/svc" "$W/Applications/Ollama.app"; do
+has "FOREIGN DIR [alice] $W/Users/alice/.ollama" && has "KB  sha256(manifest)" && ok "walking account ~/.ollama printed with size and sha" || bad "walking account ~/.ollama not printed with size and sha"
+for p in "$W/alicebin/ollama" "$W/Users/alice/.ollama" "$W/Users/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
+         "$W/loaded/alice" "$W/brew/formula" "$W/brew/svc" "$W/Applications/Ollama.app"; do
     [ ! -e "$p" ] && ok "removed ${p#$W/}" || bad "still present ${p#$W/}"
 done
 kill -0 "$(tail -1 "$ROOT/pids")" 2>/dev/null && bad "foreign ollama process still running" || ok "foreign ollama process killed"
@@ -147,6 +152,40 @@ mkbox stuck; dirty stuck; : > "$W/brew_stuck"; runbox "$SUBJECT"
 [ "$RC" -eq 2 ] && has "NO-FOREIGN-OLLAMA: CANNOT-RUN" && ok "unremovable item: CANNOT-RUN rc 2" || bad "unremovable item: rc=$RC"
 has "NO-FOREIGN-OLLAMA: PASS" && bad "unremovable item printed PASS" || ok "unremovable item never prints PASS"
 has "still present or not examined after removal" && has "FOREIGN homebrew BREWF" && ok "survivor named" || bad "survivor not named"
+
+echo "== OTHER-HOME (another account's home: list, never delete, CANNOT-RUN)"
+otherhome() {
+    mkdir -p "$W/Users/bob/.ollama/models"; head -c 4096 /dev/zero > "$W/Users/bob/.ollama/models/blob"
+    mkdir -p "$W/Users/bob/Applications/Ollama.app"; : > "$W/Users/bob/Applications/Ollama.app/x"
+    mkdir -p "$W/Users/bob/Library/LaunchAgents"; : > "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist"; : > "$W/loaded/bob"
+    mkdir -p "$W/Users/bob/bin"; printf 'bob-binary\n' > "$W/Users/bob/bin/ollama"; chmod +x "$W/Users/bob/bin/ollama"
+    sed -i '' "s#PATH=\"$W/Users/bob/.ostler/bin:#PATH=\"$W/Users/bob/bin:$W/Users/bob/.ostler/bin:#" "$W/shells/bob"
+    : > "$W/brew/formula"   # a system item alongside, which IS removable
+}
+otherhome_check() {   # $1 = label; sets OH_BAD to the number of red limbs
+    OH_BAD=0
+    [ "$RC" -eq 2 ] && has "NO-FOREIGN-OLLAMA: CANNOT-RUN" || OH_BAD=$((OH_BAD+1))
+    for p in "$W/Users/bob/.ollama" "$W/Users/bob/Applications/Ollama.app" "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
+             "$W/loaded/bob" "$W/Users/bob/bin/ollama"; do
+        [ -e "$p" ] || OH_BAD=$((OH_BAD+1))
+    done
+    has "NOT REMOVED (inside another account's home; detect only) DIR [bob] $W/Users/bob/.ollama" || OH_BAD=$((OH_BAD+1))
+    has "FOREIGN DIR [bob] $W/Users/bob/.ollama  " && has "sha256(manifest) " || OH_BAD=$((OH_BAD+1))
+    has "sha256 $(shasum -a 256 "$W/Users/bob/bin/ollama" 2>/dev/null | awk '{print $1}')" || OH_BAD=$((OH_BAD+1))
+}
+mkbox otherhome; otherhome; runbox "$SUBJECT"; otherhome_check
+[ "$OH_BAD" -eq 0 ] && ok "another account's home: every item listed with size and sha, none removed, CANNOT-RUN" \
+    || { bad "another account's home: $OH_BAD red limb(s), rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+[ ! -e "$W/brew/formula" ] && ok "system item (brew formula) still removed alongside" || bad "system item not removed"
+has "NO-FOREIGN-OLLAMA: PASS" && bad "another account's home printed PASS" || ok "another account's home never prints PASS"
+MUT2="$ROOT/mutant_deletes_other_home.sh"
+sed 's#^protected() {#protected() { return 1;#' "$SUBJECT" > "$MUT2"
+if cmp -s "$SUBJECT" "$MUT2"; then bad "delete-other-home mutant did not apply"
+else
+    mkbox mutdel; otherhome; runbox "$MUT2"; otherhome_check
+    [ "$OH_BAD" -gt 0 ] && [ ! -e "$W/Users/bob/.ollama" ] && ok "mutant that deletes inside another home is caught ($OH_BAD red limb(s))" \
+        || bad "mutant that deletes inside another home NOT caught (OH_BAD=$OH_BAD)"
+fi
 
 echo "== NO-EXAMINE (sudo refuses bob)"
 mkbox noexam; echo bob > "$W/sudo_refuse"; runbox "$SUBJECT"
@@ -160,15 +199,16 @@ if cmp -s "$SUBJECT" "$MUT"; then
 else
     mkbox mutant; mkdir -p "$W/Users/bob/.ollama/models"; : > "$W/Users/bob/.ollama/models/blob"
     runbox "$MUT"; caught=0
-    [ -e "$W/Users/bob/.ollama" ] && caught=$((caught+1))
     has "accounts (2): alice,bob" || caught=$((caught+1))
-    [ "$caught" -gt 0 ] && ok "mutant caught ($caught assertion(s) red: bob's ~/.ollama survives / examined list lacks bob)" \
-        || bad "mutant NOT caught"
-    # and the real subject on the same bob-only box is green
+    has "FOREIGN DIR [bob]" || caught=$((caught+1))
+    [ "$RC" -eq 0 ] && caught=$((caught+1))
+    [ "$caught" -gt 0 ] && ok "skip-account mutant caught ($caught red limb(s): bob not examined / not listed / PASS)" \
+        || bad "skip-account mutant NOT caught"
+    # and the real subject on the same bob-only box sees bob and refuses
     mkbox mutctl; mkdir -p "$W/Users/bob/.ollama/models"; : > "$W/Users/bob/.ollama/models/blob"
     runbox "$SUBJECT"
-    [ "$RC" -eq 0 ] && [ ! -e "$W/Users/bob/.ollama" ] && has "accounts (2): alice,bob" \
-        && ok "control: real subject cleans the bob-only box" || bad "control: real subject did not clean the bob-only box (rc=$RC)"
+    [ "$RC" -eq 2 ] && [ -e "$W/Users/bob/.ollama" ] && has "accounts (2): alice,bob" && has "FOREIGN DIR [bob]" \
+        && ok "control: real subject lists bob's ~/.ollama and refuses (rc 2)" || bad "control: real subject on the bob-only box (rc=$RC)"
 fi
 
 echo "== WIRING (ttywalk.sh)"
