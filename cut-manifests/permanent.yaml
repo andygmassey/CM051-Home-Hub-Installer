@@ -303,6 +303,8 @@ entries:
         pattern: 'OSTLER_REMOTECAPTURE_VERSION="\$\{OSTLER_REMOTECAPTURE_VERSION:-(\d+\.\d+\.\d+)\}"'
       tag_format: "remote-capture-v{version}"
       source_repo: "ostler-ai/ostler-remote-capture"
+      # (v1.0.119, 2026-10-28 ORM) RC pin 0.1.9 = tag remote-capture-v0.1.9 -> CM042 f476394 (#37 the Ostler app icon,
+      # #38 version bump; 0.1.8 = #23 consent fail-closed is its ancestor). Tarball ecdf349b, notarised b982596d.
       # The RemoteCapture repo compiles the whole app from Sources/ + supporting
       # Swift/Xcode + package files; freshness matters for any of them.
       source_paths:
