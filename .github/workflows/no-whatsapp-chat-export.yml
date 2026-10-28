@@ -28,6 +28,7 @@ permissions:
 jobs:
   guard:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: No customer string tells anyone to export a WhatsApp chat
