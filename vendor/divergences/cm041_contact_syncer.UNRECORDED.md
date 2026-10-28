@@ -351,7 +351,7 @@ tree, as it did on main before this change.
 
 ## 2026-10-29, NEW-119, board row 963: a failed read never overwrites
 
-Location and shape only.
+Tree: cm041/contact_syncer (vendor/cm041/contact_syncer). Location and shape only.
 
 | file | change |
 |---|---|
