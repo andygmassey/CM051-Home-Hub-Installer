@@ -4244,7 +4244,7 @@
  """
  from __future__ import annotations
  
-@@ -54,8 +55,8 @@
+@@ -55,8 +56,8 @@
      """Compute ranked reply debts across all sources.
  
      ``thread_sources`` lets a test inject pre-built thread iterables. When
@@ -4254,8 +4254,8 @@
 +    snapshot the signed iMessage feed writes (never chat.db from this process). Email / WhatsApp adapters can be appended here
      as they are proven on the box.
      """
-     if thread_sources is None:
-@@ -66,13 +67,22 @@
+     live = thread_sources is None
+@@ -68,13 +69,22 @@
              ),
          ]
  
@@ -4279,12 +4279,12 @@
 +                "reply_debt_source_failed", f"{type(exc).__name__}: {str(exc)[:200]}"
 +            ) from exc
  
-     return reply_debt.detect(
-         all_threads,
-@@ -88,9 +98,19 @@
-         "count": len(debts),
-         "brief_line": reply_debt.render_brief_block(debts, limit=brief_limit),
-         "debts": [d.to_dict() for d in debts],
+     # P13 (v1.0.117 walk): name every counterpart from Contacts, and drop the
+     # owner's own handles and non-person senders, BEFORE detection. The live
+@@ -130,9 +140,19 @@
+         # Set when the People graph could not be read, so every counterpart
+         # reads "not in your contacts" for a reason the consumer can show.
+         "names_degraded": getattr(debts, "names_degraded", "") or "",
 +        "degraded": False,
      }
  
@@ -4301,7 +4301,7 @@
  def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
      """Handle GET /api/v1/reply-debt.
  
-@@ -102,9 +122,12 @@
+@@ -144,9 +164,12 @@
          debts = compute_reply_debts()
          payload = reply_debt_payload(debts)
          status = 200
@@ -4315,7 +4315,7 @@
          status = 200  # brief should degrade gracefully, not 500
  
      body = json.dumps(payload, indent=2).encode("utf-8")
-@@ -118,5 +141,6 @@
+@@ -160,5 +183,6 @@
  __all__ = [
      "compute_reply_debts",
      "reply_debt_payload",
