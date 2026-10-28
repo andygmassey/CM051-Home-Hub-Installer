@@ -301,6 +301,12 @@ jobs:
         if: always()
         run: bash tests/test_no_shipped_script_calls_a_bare_ollama.sh
 
+      # NEW-119: hub power's restart action kickstarts the Hub's own agent,
+      # com.ostler.ollama, not ai.ollama (which the Hub never installs).
+      - name: hub power restarts com.ostler.ollama, not ai.ollama (NEW-119)
+        if: always()
+        run: bash tests/test_hub_power_restarts_the_hub_ollama_agent.sh
+
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED
       # #852's shape: `|| JSON=""` collapses a timeout into "no contacts",

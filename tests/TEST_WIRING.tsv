@@ -439,6 +439,7 @@ test_hub_chat_carries_the_chat_tool_set.sh	WIRED	.github/workflows/assistant-con
 test_hub_contract_generator.py	WIRED	.github/workflows/hub-contract.yml
 test_hub_interest_card_shows_a_handle_as_at_handle.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_hub_power_restarts_the_hub_ollama_agent.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_hub_screens_calls_summing.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_hub_screens_people_judges_every_row.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_screens_real_person_name_never_printed.py	WIRED	.github/workflows/hub-screens-and-106c.yml
