@@ -1695,7 +1695,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "    ostler_fda, contact_syncer, hub-power, doctor, third-party"
     echo "    notices); under curl|bash we download the tarball, extract"
     echo "    it, and re-exec from inside."
-    echo "    Default: https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz"
+    echo "    No default is published (no tarball since v0.3.0). Use the DMG: https://ostler.ai/install.dmg"
     echo ""
     echo "  OSTLER_INSTALLER_TARBALL_SHA256"
     echo "    Expected SHA-256 (hex) of the install tarball. The download"
