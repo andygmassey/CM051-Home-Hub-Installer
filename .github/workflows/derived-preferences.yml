@@ -136,7 +136,7 @@ jobs:
         # derive/representatives.py (exit 1). Exit 2 is CANNOT-RUN and fails.
         if: always()
         run: |
-          python3 -m pip install --quiet 'pyyaml>=6.0' click httpx pydantic pydantic-settings aiofiles beautifulsoup4
+          python3 -m pip install --quiet 'pyyaml>=6.0' click httpx pydantic pydantic-settings aiofiles beautifulsoup4 aiolimiter
           python3 tests/test_vendored_enrich_representative_first.py
       - name: The endpoint's top-N interleaves by category
         if: always()

@@ -396,3 +396,11 @@ Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` is byte-equal to 
 - Changed in place: `services/enrich/src/cli.py` gains `--representative-first/--no-representative-first` (default on) and runs `run_representative_pass` before the tail inside the same `--budget-seconds` deadline (upstream's cli.py has no deadline, so the call here also passes `deadline=`).
 - Proof: `tests/test_vendored_enrich_representative_first.py` (wired in `derived-preferences.yml`).
 - Retire: when #431 is re-pinned, delete this section; the deadline pass-through stays a divergence.
+
+## 2026-10-24: geocoders never log an address, venue or coordinates (personal-world-graph #442, UNMERGED upstream; S8, 118)
+
+Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when written; main has since re-pinned to 5af9f5b5, see the T0j section above, and upstream #442 is still unmerged there). Grafted ahead of the upstream merge for v1.0.118.
+
+- `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
+- Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
+- Retire: re-pin past the upstream merge commit.
