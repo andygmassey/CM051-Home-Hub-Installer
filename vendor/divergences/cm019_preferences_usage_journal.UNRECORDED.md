@@ -396,3 +396,12 @@ Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when writ
 - `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
 - Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-10-29 NEW-119 row 2471b: genetic and biometric classes in sensitive_terms.yaml
+
+Tree `cm019_preferences`. Pin HELD at 5af9f5b5. Data only, no code change.
+
+- `services/enrich/src/derive/sensitive_terms.yaml`: two new `terms` categories, `genetic` and `biometric`, between `trade_union` and `minors`. The yaml carried six of the eight GDPR Art. 9(1) classes. These two are the missing ones. The words are the same terms as the Front Page list, `vendor/cm059_editor/compiler/sensitive_topics.py` (`genetic_data`, `biometric_data`), written as whole words because this matcher has no stems.
+- Effect: `sensitive.is_sensitive` and `surfaceable` now refuse a genetic or biometric value at every place the derive engine surfaces one (write side, derived reader, `/preferences/derived`, QueryClient).
+- Proof: `tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py` (wired in `derived-preferences.yml`). It FAILS on origin/main's yaml and passes here. It also checks that every Front Page term for the two classes classifies here, so the lists cannot drift apart.
+- Upstream owed: andygmassey/personal-world-graph `services/enrich/src/derive/sensitive_terms.yaml` needs the same two categories. Retire this section when a re-pin brings them in.

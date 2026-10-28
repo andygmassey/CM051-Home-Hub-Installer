@@ -26,6 +26,8 @@ on:
     paths:
       - 'install.sh'
       - 'vendor/cm019_preferences/services/enrich/src/derive/**'
+      - 'vendor/cm059_editor/compiler/sensitive_topics.py'
+      - 'tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py'
       - 'vendor/cm019_preferences/services/enrich/src/derive_runner.py'
       - 'vendor/cm019_preferences/services/common/strength.py'
       - 'vendor/cm019_preferences/ontology/**'
@@ -192,3 +194,8 @@ jobs:
       - name: The runner collects and invokes the derived-preferences probe (fake Hub)
         if: always()
         run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
+      - name: The vendored sensitive gate classifies genetic and biometric data (row 2471b)
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py

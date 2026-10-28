@@ -122,6 +122,7 @@ test_an_uninstall_that_cannot_ask_removes_nothing.sh	WIRED	.github/workflows/uni
 test_an_unmeasured_count_is_not_a_measured_zero.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unmeasured_flag_must_be_read.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_api_list_pagination_is_additive.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_api_preferences_never_returns_a_special_category_topic.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_app_binary_agents_bootstrap.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -186,6 +187,7 @@ test_cm019_enrich_consent_gate_vendored.py	WIRED	.github/workflows/enrichment-re
 test_cm019_enrich_privacy_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_explicit_l0_survives_ingest_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_cm019_local_store_ignores_proxy.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
+test_cm019_sensitive_terms_classify_genetic_and_biometric.py	WIRED	.github/workflows/derived-preferences.yml
 test_cm019_vectorizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_classifier_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_cm024k_email_summarizer_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
