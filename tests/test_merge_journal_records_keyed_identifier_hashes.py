@@ -53,7 +53,7 @@ EMAIL = "robin.vale@example.com"
 EMAIL_SPELLINGS = ("Robin.Vale@Example.COM", "  robin.vale@example.com\n")
 LINKEDIN_SPELLINGS = ("https://www.linkedin.com/in/robin-vale-example/?trk=x",
                       "http://LinkedIn.com/in/robin-vale-example")
-NAME = "Robin Vale"
+NAME = "Jane Doe"
 LABEL = b"ostler.merge-journal.v1"
 
 
