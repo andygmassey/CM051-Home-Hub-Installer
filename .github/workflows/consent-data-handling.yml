@@ -288,6 +288,19 @@ jobs:
         if: always()
         run: bash tests/test_ollama_pin_install_verifies_sha256.sh
 
+      # NEW-119: every model pull / list goes through the PINNED engine, run
+      # under env -i PATH=/usr/bin:/bin with no ollama on PATH; four mutants
+      # (each site put back to a bare `ollama`) must be caught. Then the
+      # tree-wide guard: no tracked shipped file reaches ollama by name, with
+      # a planted-positive control proving the scanner can see.
+      - name: model pull and list use the pinned ollama, not PATH (NEW-119)
+        if: always()
+        run: bash tests/test_model_pull_uses_the_pinned_ollama.sh
+
+      - name: no shipped script calls a bare ollama (NEW-119 guard)
+        if: always()
+        run: bash tests/test_no_shipped_script_calls_a_bare_ollama.sh
+
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED
       # #852's shape: `|| JSON=""` collapses a timeout into "no contacts",
