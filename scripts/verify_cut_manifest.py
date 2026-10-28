@@ -2139,6 +2139,27 @@ def _matches_source_path(filename: str, patterns: list[str]) -> Optional[str]:
     return None
 
 
+def _hotfix_of(cm051_dir: Path, version: str) -> tuple[bool, str]:
+    """(is_hotfix, base_tag) from cuts/<version>/cut.env.
+
+    A hotfix cut (CUT_KIND=hotfix, HOTFIX_BASE_TAG=<tag>) is the base tag plus
+    one product change, so its pinned artefacts must EQUAL the base tag's, not
+    track upstream (Archie, 2026-10-26, v1.0.118). scripts/verify_cut_freshness.sh
+    reads the same two keys; one mechanism, two gates.
+    """
+    v = version if version.startswith("v") else "v" + version
+    env = cm051_dir / "cuts" / v / "cut.env"
+    if not env.is_file():
+        return False, ""
+    kind, base = "", ""
+    for line in env.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("CUT_KIND="):
+            kind = line.split("=", 1)[1].strip().strip("\"'")
+        elif line.startswith("HOTFIX_BASE_TAG="):
+            base = line.split("=", 1)[1].strip().strip("\"'")
+    return kind == "hotfix", base
+
+
 def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[Optional[str], str]:
     """Extract the pinned version from `pinned_version_source`.
 
@@ -2650,6 +2671,41 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
     if verr:
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
                       f"resolving pinned version: {verr}", entry.get("source_pr", ""))
+    # HOTFIX MODE: the question is "is the pin the base tag's pin", CHECKED
+    # against the base tag's own file, never "is it at upstream HEAD".
+    is_hotfix, hotfix_base = ctx.get("hotfix", (False, ""))
+    if is_hotfix:
+        if not hotfix_base:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                          "cut.env says CUT_KIND=hotfix but names no HOTFIX_BASE_TAG",
+                          entry.get("source_pr", ""))
+        try:
+            shown = subprocess.run(
+                ["git", "-C", str(ctx["cm051_dir"]), "show", f"{hotfix_base}:{pin_source.get('file')}"],
+                capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "CANNOT-RUN",
+                          f"hotfix of {hotfix_base}: could not read the base pin: {e}",
+                          entry.get("source_pr", ""))
+        if shown.returncode != 0:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "CANNOT-RUN",
+                          f"hotfix of {hotfix_base}: git show rc={shown.returncode}: {shown.stderr.strip()[:200]}",
+                          entry.get("source_pr", ""))
+        m = re.search(pin_source.get("pattern") or "", shown.stdout)
+        base_version = m.group(1) if (m and m.groups()) else None
+        if base_version is None:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "CANNOT-RUN",
+                          f"hotfix of {hotfix_base}: pin pattern did not match in the base tag's "
+                          f"{pin_source.get('file')}", entry.get("source_pr", ""))
+        if base_version != version:
+            return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
+                          f"hotfix of {hotfix_base}, but the pinned {artefact} moved: "
+                          f"base v{base_version} -> this cut v{version}",
+                          entry.get("source_pr", ""))
+        return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "PASS",
+                      f"HOTFIX of {hotfix_base}: pinned {artefact} v{version} is the base tag's pin "
+                      f"(checked against {hotfix_base}:{pin_source.get('file')}); upstream recency is "
+                      f"not this cut's question", entry.get("source_pr", ""))
     tag = tag_format.replace("{version}", version)
     owner = _repo_owner(source_repo)
     try:
@@ -3232,6 +3288,7 @@ def main() -> int:
         "cm051_dir": cm051_dir,
         "extra_paths": {},
         "require_runtime_proofs": bool(args.require_runtime_proofs),
+        "hotfix": _hotfix_of(cm051_dir, per_cut.stem),
     }
 
     results: list[Result] = []
