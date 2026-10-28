@@ -296,6 +296,7 @@ test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
@@ -1075,6 +1076,7 @@ scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 scripts/tests/test_comment_strip_is_quote_aware.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_daemon_fda_case6_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
+scripts/tests/test_data_conservation_collect_budget.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_data_conservation_probe.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
