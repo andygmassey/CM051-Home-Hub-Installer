@@ -449,6 +449,7 @@ test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_i22_timeline_keeps_meeting_time.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_mismatch_shows_the_difference.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -956,6 +957,7 @@ test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-pre
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_logs_carry_no_personal_values.py	WIRED	.github/workflows/no-pii-in-logs.yml
 test_vendored_qid_pass_reaches_the_thematic_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
@@ -1056,6 +1058,7 @@ gui/OstlerInstallerTests/StatementHeaderTests.swift	WIRED	.github/workflows/swif
 gui/OstlerInstallerTests/StringsCatalogueEmDashTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/StringsCatalogueYNSuffixTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/SupportLogVisibilityTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/SystemRequirementsGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
