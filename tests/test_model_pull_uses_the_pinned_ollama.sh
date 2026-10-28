@@ -123,20 +123,20 @@ done
 # ollama`, got nothing, and skipped the unload.
 HP="$ROOT/vendor/hub_power/bin"
 if [ -z "${INSTALL_SH_OVERRIDDEN:-}" ] && [ -f "$HP/hub-power-actions.sh" ]; then
-    h="$W/hub"; mkdir -p "$h/home/.ostler/runtime/ollama-x" "$h/home/Library/LaunchAgents"
-    fake="$h/home/.ostler/runtime/ollama-x/ollama"
+    h="$W/hub"; mkdir -p "$h/hm/.ostler/runtime/ollama-x" "$h/hm/Library/LaunchAgents"
+    fake="$h/hm/.ostler/runtime/ollama-x/ollama"
     printf '%s\n' '#!/bin/sh' "echo \"\$*\" >> \"$h/argv\"" \
         'case "$1" in ps) printf "NAME ID\nqwen3.5:9b abc\n";; esac' 'exit 0' > "$fake"; chmod +x "$fake"
     printf '<plist><dict><key>ProgramArguments</key><array>\n<string>%s</string>\n<string>serve</string>\n</array></dict></plist>\n' "$fake" \
-        > "$h/home/Library/LaunchAgents/com.ostler.ollama.plist"
-    : > "$h/home/.ostler/hub-power.log"
-    env -i PATH=/usr/bin:/bin HOME="$h/home" DRY_RUN=1 HP="$HP" /bin/bash -c \
+        > "$h/hm/Library/LaunchAgents/com.ostler.ollama.plist"
+    : > "$h/hm/.ostler/hub-power.log"
+    env -i PATH=/usr/bin:/bin HOME="$h/hm" DRY_RUN=1 HP="$HP" /bin/bash -c \
         '. "$HP/hub-power-actions.sh"; hpa_ollama_stop' > "$h/out" 2>&1
-    if grep -q "stub: ollama stop qwen3.5:9b :: $fake stop qwen3.5:9b" "$h/home/.ostler/hub-power.log" \
+    if grep -q "stub: ollama stop qwen3.5:9b :: $fake stop qwen3.5:9b" "$h/hm/.ostler/hub-power.log" \
        && grep -qx 'ps' "$h/argv" 2>/dev/null; then
         pass "H hub power unloads models through the pinned engine read from the LaunchAgent, with no ollama on PATH"
     else
-        bad "H hub power: argv=[$(tr '\n' ' ' < "$h/argv" 2>/dev/null)] log=[$(tr '\n' ' ' < "$h/home/.ostler/hub-power.log" | cut -c1-300)] out=[$(tr '\n' ' ' < "$h/out" | cut -c1-200)]"
+        bad "H hub power: argv=[$(tr '\n' ' ' < "$h/argv" 2>/dev/null)] log=[$(tr '\n' ' ' < "$h/hm/.ostler/hub-power.log" | cut -c1-300)] out=[$(tr '\n' ' ' < "$h/out" | cut -c1-200)]"
     fi
 fi
 
@@ -145,7 +145,7 @@ fi
 if [ "$fails" -eq 0 ]; then
     n=0
     for spec in \
-        'A|s/^\([[:space:]]*\)"\$OLLAMA_APP_BIN" pull "\$model"$/\1ollama pull "$model"/' \
+        'A|s/^\([[:space:]]*\)"\$OLLAMA_APP_BIN" pull "\$model"  #/\1ollama pull "$model"  #/' \
         'B|s/_pull_rc=0; "\$OLLAMA_APP_BIN" pull "\$model"/_pull_rc=0; ollama pull "$model"/' \
         'C|s/^if "\$OLLAMA_APP_BIN" list 2>\/dev\/null | grep -q "nomic-embed-text"/if ollama list 2>\/dev\/null | grep -q "nomic-embed-text"/' \
         'D|s/^\([[:space:]]*\)if "\$OLLAMA_APP_BIN" list 2>\/dev\/null | grep -q "\${AI_MODEL}"/\1if ollama list 2>\/dev\/null | grep -q "${AI_MODEL}"/'

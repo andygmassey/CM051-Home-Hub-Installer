@@ -2356,11 +2356,8 @@ step()  {
 _gui_ollama_pull() {
     local model="$1"
     local step="${2:-ai_models}"
-    # NEW-119: the PINNED engine, never PATH. A clean Mac has no `ollama` on
-    # PATH at all (the pin lives only under ~/.ostler/runtime), so a bare
-    # `ollama pull` is rc 127 and the install aborts ERR-13-MODEL-PULL-NOMIC.
     if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
-        "$OLLAMA_APP_BIN" pull "$model"
+        "$OLLAMA_APP_BIN" pull "$model"  # NEW-119: the PINNED engine; a clean Mac has no ollama on PATH (rc 127)
         return
     fi
     local rc_file line pct last=-1 clean

@@ -34,7 +34,7 @@ if ollama list 2>/dev/null | grep -q qwen; then :; fi
 if command -v ollama >/dev/null; then :; fi
 hpa_run "unload" ollama stop "$m"
 "$OLLAMA_APP_BIN" pull nomic-embed-text
-/Users/x/.ostler/runtime/ollama-0.34.0/ollama list
+/opt/x/.ostler/runtime/ollama-0.34.0/ollama list
 # ollama pull is mentioned in this comment only
 pid="$(pgrep -f 'ollama serve' | head -1)"
 SH
@@ -50,7 +50,7 @@ cat > "$F/launchd/x.plist" <<'PL'
     <string>serve</string>
 </array>
 <array>
-    <string>/Users/x/.ostler/runtime/ollama-0.34.0/ollama</string>
+    <string>/opt/x/.ostler/runtime/ollama-0.34.0/ollama</string>
 </array>
 PL
 printf '%s\n' bin/run.sh agent/copy.py launchd/x.plist > "$W/fx.list"
@@ -80,7 +80,7 @@ else bad "R real tree has bare ollama calls:"; echo "$out"; fi
 
 # ── M ────────────────────────────────────────────────────────────────────────
 mkdir -p "$W/mut"
-sed 's/^\([[:space:]]*\)"\$OLLAMA_APP_BIN" pull "\$model"$/\1ollama pull "$model"/' "$ROOT/install.sh" > "$W/mut/install.sh"
+sed 's/^\([[:space:]]*\)"\$OLLAMA_APP_BIN" pull "\$model"  #/\1ollama pull "$model"  #/' "$ROOT/install.sh" > "$W/mut/install.sh"
 if cmp -s "$ROOT/install.sh" "$W/mut/install.sh"; then
     bad "M mutant did not apply (the pinned pull site moved): CANNOT-RUN"
 else

@@ -48,6 +48,7 @@ EXCLUDE_PREFIXES = (
     "walks/",                      # walk records
     "vendor/divergences/",         # patches quote BOTH sides of a diff
     "scripts/box_walk_probes/",    # walk harness, runs on the agent side over ssh, not in the DMG
+    "scripts/check_no_bare_ollama.py",  # this scanner: its docstring describes the shapes it hunts
 )
 EXCLUDE_SUFFIXES = (".md", ".tsv", ".yaml", ".yml", ".json", ".txt", ".patch", ".csv")
 EXCLUDE_PARTS = ("/tests/", "Tests/")  # vendored trees' own test dirs; Xcode test targets
