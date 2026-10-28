@@ -52,6 +52,8 @@ on:
       - 'tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh'
       - 'scripts/ttywalk.sh'
       - 'tests/test_the_walk_record_says_whether_the_stores_are_history.sh'
+      - 'tests/test_the_walk_record_says_whether_the_box_was_cold.sh'
+      - 'scripts/lib_walk_cold_state.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/running_config_matches_disk.sh'
       - 'scripts/box_walk_probes/probes/pair_state_agreement.sh'
@@ -250,6 +252,15 @@ jobs:
       - name: The walk record says whether the stores it measured are history
         if: always()
         run: bash tests/test_the_walk_record_says_whether_the_stores_are_history.sh
+
+      # The sibling one step earlier in the walk: was anything the install
+      # would DOWNLOAD or CREATE already on the box (colima VM, colima data
+      # disk, Ollama models)? The v1.0.117 walk reused all three and its
+      # record could say so for none. A NOT-COLD record is refused as promote
+      # evidence; ttywalk --require-cold refuses a warm box before staging.
+      - name: The walk record says whether the box was cold
+        if: always()
+        run: bash tests/test_the_walk_record_says_whether_the_box_was_cold.sh
 
       # `if: always()` BECAUSE IT IS NO LONGER FIRST. It had none while it led the
       # job, which was harmless: nothing could mask it. Inserting a step above it

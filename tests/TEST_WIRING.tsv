@@ -865,6 +865,7 @@ test_the_two_ws_clients_are_identical.sh	WIRED	.github/workflows/every-probe-is-
 test_the_uninstaller_resolves_docker_absolutely.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_the_uninstaller_speaks_the_gui_marker_protocol.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_vane_port_demands_a_credential.sh	WIRED	.github/workflows/colima-autostart.yml
+test_the_walk_record_says_whether_the_box_was_cold.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_record_says_whether_the_stores_are_history.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_the_walk_seed_person_reaches_the_digest.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_walk_seeds_the_conversation.sh	WIRED	.github/workflows/walk-record-gate.yml
