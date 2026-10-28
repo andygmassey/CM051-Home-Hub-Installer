@@ -4084,7 +4084,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9510   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9555   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9564 and :17469, both of which run
+    # Its two top-level arming calls are :9564 and :17471, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
     # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
@@ -4102,13 +4102,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :539: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18264, where the note reads
+    # WhatsApp Web session path did it again at :18266, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18281 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18283 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4121,9 +4121,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9564, :17469) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9564, :17471) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20461 / :20639 / :20796 / :21241 path. There the
+    # :20463 / :20641 / :20798 / :21243 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10357,8 +10357,10 @@ _scan_find_backups
 #             less, so 1001 is the floor here and a smaller file is reported
 #             as skipped rather than as imported
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
-#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
-#             WhatsApp's "Export chat" gives the file
+#   WhatsApp  NO importer reads a per-chat WhatsApp text file (universal_import
+#             recognises the name and has no parser), and none is needed:
+#             history comes from WhatsApp Desktop's own store. Recognised so a
+#             file dropped in anyway is answered plainly, never "imported".
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -10367,7 +10369,7 @@ LOOSE=(
   $'Mailbox\x1f\\.mbox$\x1f1\x1f'
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
-  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1fOstler does not need this file. It reads your WhatsApp history from WhatsApp Desktop on this Mac, so there is nothing to export'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
 
