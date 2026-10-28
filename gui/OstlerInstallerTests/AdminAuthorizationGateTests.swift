@@ -39,7 +39,10 @@ final class AdminAuthorizationGateTests: XCTestCase {
     /// guards in `bootstrapAsync()` let us through to the admin
     /// authorisation step.
     private func makeReadyCoordinator() -> InstallerCoordinator {
-        let coord = InstallerCoordinator()
+        // F006: pin the hardware reading. The default reads the HOST,
+        // and a CI runner with under 16 GB would gate bootstrap() before
+        // the admin step these tests exist to exercise.
+        let coord = InstallerCoordinator(systemReadings: .supportedMacForTests)
         coord.licenseVerified = true
         coord.registrationGate = .ready
         // CX-17 (2026-05-23): bootstrap() now also gates on the
