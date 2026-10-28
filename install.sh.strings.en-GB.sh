@@ -1305,7 +1305,7 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ ships its GDPR export as a passwor
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
 MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
 
-Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder.
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
 
 Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
