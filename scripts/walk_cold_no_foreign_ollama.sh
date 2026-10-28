@@ -53,6 +53,15 @@
 # and the system ones are booted out, then deleted, then looked for again;
 # another account's are listed only, and the run ends CANNOT-RUN.
 #
+# "com.ostler.*" ABOVE MEANS EVERY PREFIX IN OSTLER_LABEL_PREFIXES BELOW, which
+# is exactly the set of launchd Label prefixes install.sh writes, derived from
+# it (every <key>Label</key> string, resolved through its variable, and every
+# literal assigned to a *label* variable). tests/test_ttywalk_reset_cold_no_
+# foreign_ollama.sh re-derives that set from install.sh on every run and FAILS
+# when install.sh writes a label no prefix here covers. ai.ostler.assistant is
+# NOT in it: in install.sh it is only the daemon bundle CFBundleIdentifier
+# (its TCC identity), never a launchd Label.
+#
 # TEST SEAMS (fakes only; tests/test_ttywalk_reset_cold_no_foreign_ollama.sh).
 # Unset on a real walk.
 #   COLD_ACCOUNTS          lines "name uid home shell" instead of dscl
@@ -71,7 +80,8 @@ APPS="${COLD_APPLICATIONS_DIR:-/Applications}"
 BREWS="${COLD_BREW_CANDIDATES:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
 PS_CMD="${COLD_PS_CMD:-ps -axo pid=,command=}"
 LIB="${COLD_LIBRARY_DIR:-/Library}"
-OSTLER_RE='com[.]ostler[.][A-Za-z0-9._-]+'
+OSTLER_LABEL_PREFIXES="com.ostler. com.creativemachines.ostler. com.creativemachines.ostler-"
+OSTLER_RE="($(printf '%s\n' $OSTLER_LABEL_PREFIXES | sed 's/[.]/[.]/g' | paste -sd'|' -))[A-Za-z0-9._-]+"
 LABEL="homebrew.mxcl.ollama"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/walk-cold-ollama.XXXXXX")" || { echo "CANNOT-RUN: no scratch dir"; exit 2; }
@@ -117,7 +127,7 @@ unset IFS
 [ -e "$home/Applications/Ollama.app" ] && echo "USERAPP|$home/Applications/Ollama.app"
 [ -e "$home/Library/LaunchAgents/$label.plist" ] && echo "AGENT|$home/Library/LaunchAgents/$label.plist"
 if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then echo "LOADED|gui/$uid/$label"; fi
-for f in "$home"/Library/LaunchAgents/com.ostler.*.plist; do [ -e "$f" ] && echo "OSTPLIST|$f"; done
+for pfx in $5; do for f in "$home"/Library/LaunchAgents/"$pfx"*.plist; do [ -e "$f" ] && echo "OSTPLIST|$f"; done; done
 _gui="$(launchctl print "gui/$uid" 2>/dev/null)" && echo "__gui_ok"
 printf "%s\n" "$_gui" | grep -oE "$4" | sort -u | while read -r l; do echo "OSTLOADED|gui/$uid/$l"; done
 echo "__probe_ok"
@@ -154,7 +164,7 @@ examine() {
                 *)  echo "NONPATH|$n|command -v ollama answered a non-path: ${cv}" >> "$out" ;;
             esac
         fi
-        rec="$(as_acct "$n" /bin/bash -c "$ACCT_PROBE" _ "$home" "$LABEL" "$lpath" "$OSTLER_RE" 2>/dev/null </dev/null)"
+        rec="$(as_acct "$n" /bin/bash -c "$ACCT_PROBE" _ "$home" "$LABEL" "$lpath" "$OSTLER_RE" "$OSTLER_LABEL_PREFIXES" 2>/dev/null </dev/null)"
         if ! printf '%s\n' "$rec" | grep -qx '__probe_ok'; then
             echo "NOEXAMINE|$n|could not run the file probe as ${n}" >> "$out"; continue
         fi
@@ -162,7 +172,7 @@ examine() {
             echo "NOEXAMINE|$n|launchctl print gui/${uid} did not answer as ${n}; its loaded labels are unknown" >> "$out"
         fi
         printf '%s\n' "$rec" | grep -v -e '^__probe_ok$' -e '^__gui_ok$' -e '^OURS|' | sed "s#|#|$n|#" >> "$out"
-        echo "  ${n} (uid ${uid}, ${home}): login shell ${shell}, PATH dirs $(printf '%s' "$lpath" | awk -F: '{print NF}'), ~/.ollama, ~/Applications/Ollama.app, ${LABEL} plist + launchctl gui/${uid}, com.ostler.* plists + labels in gui/${uid}" >> "$ex"
+        echo "  ${n} (uid ${uid}, ${home}): login shell ${shell}, PATH dirs $(printf '%s' "$lpath" | awk -F: '{print NF}'), ~/.ollama, ~/Applications/Ollama.app, ${LABEL} plist + launchctl gui/${uid}, Ostler (${OSTLER_LABEL_PREFIXES}) plists + labels in gui/${uid}" >> "$ex"
     done < "$WORK/accounts"
     echo "  accounts (${nacct}): ${acct_list}" >> "$ex"
 
@@ -181,13 +191,15 @@ examine() {
         echo "  brew ${b} (owner ${owner}): formula ollama, cask ollama, services list" >> "$ex"
     done
     [[ -e "$APPS/Ollama.app" ]] && echo "APP|-|$APPS/Ollama.app" >> "$out"
-    for f in "$LIB"/LaunchAgents/com.ostler.*.plist "$LIB"/LaunchDaemons/com.ostler.*.plist; do
-        [[ -e "$f" ]] && echo "SYSPLIST|-|$f" >> "$out"
+    for pfx in $OSTLER_LABEL_PREFIXES; do
+        for f in "$LIB"/LaunchAgents/"$pfx"*.plist "$LIB"/LaunchDaemons/"$pfx"*.plist; do
+            [[ -e "$f" ]] && echo "SYSPLIST|-|$f" >> "$out"
+        done
     done
-    echo "  ${LIB}/LaunchAgents and ${LIB}/LaunchDaemons: com.ostler.* plists" >> "$ex"
+    echo "  ${LIB}/LaunchAgents and ${LIB}/LaunchDaemons: plists for ${OSTLER_LABEL_PREFIXES}" >> "$ex"
     if _sys="$(launchctl print system 2>/dev/null)"; then
         printf '%s\n' "$_sys" | grep -oE "$OSTLER_RE" | sort -u | while read -r l; do echo "SYSLOADED|-|system/$l"; done >> "$out"
-        echo "  launchctl print system: com.ostler.* labels" >> "$ex"
+        echo "  launchctl print system: labels for ${OSTLER_LABEL_PREFIXES}" >> "$ex"
     else
         echo "NOEXAMINE|-|launchctl print system did not answer; system labels are unknown" >> "$out"
     fi
@@ -274,7 +286,7 @@ remove_item() {
 # Order matters: stop what runs before deleting what it runs from.
 PRIO='PROC LOADED OSTLOADED SYSLOADED AGENT OSTPLIST SYSPLIST BREWSVC BREWF BREWC APP USERAPP DIR BIN'
 
-echo "NEW-119 cold precondition: no foreign ollama and no com.ostler.* launchd job, on any account"
+echo "NEW-119 cold precondition: no foreign ollama and no Ostler launchd job (${OSTLER_LABEL_PREFIXES}), on any account"
 examine "$WORK/found1" "$WORK/examined1"
 echo "examined:"; cat "$WORK/examined1"
 

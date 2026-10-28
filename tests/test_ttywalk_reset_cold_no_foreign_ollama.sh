@@ -35,6 +35,12 @@
 #   OSTLER-OTHER com.ostler.* plist + loaded label in BOB's domain: listed, NOT
 #               removed, CANNOT-RUN. Mutant that removes them must be caught.
 #   OSTLER-STUCK a label that will not boot out: CANNOT-RUN.
+#   LABEL GUARD re-derives every launchd Label prefix install.sh writes (each
+#               <key>Label</key> string, resolved through its variable; each
+#               literal assigned to a *label* variable) and FAILS if the
+#               script's OSTLER_LABEL_PREFIXES does not cover one. Mutants: a
+#               prefix dropped from the script, and a new label prefix injected
+#               into a copy of install.sh, must each turn it red.
 #   NO-EXAMINE  sudo refuses bob. CANNOT-RUN (rc 2), bob named as not examined.
 #   MUTANT      the script with its account loop cut to the first account. The
 #               bob-only dirty box then reads PASS (it never looked at bob);
@@ -212,26 +218,32 @@ ostler_mine() {
     for d in "$W/Users/alice/Library/LaunchAgents" "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"; do mkdir -p "$d"; done
     printf '<plist>sup</plist>\n' > "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
     printf '<plist>agent</plist>\n' > "$W/Library/LaunchAgents/com.ostler.helper.plist"
+    printf '<plist>rc</plist>\n' > "$W/Users/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
+    printf '<plist>cm</plist>\n' > "$W/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
     printf '<plist>daemon</plist>\n' > "$W/Library/LaunchDaemons/com.ostler.privileged.plist"
-    printf 'com.ostler.engine-supervisor\ncom.ostler.assistant\n' > "$W/olabels/alice"
+    printf 'com.ostler.engine-supervisor\ncom.creativemachines.ostler.assistant\ncom.creativemachines.ostler-remotecapture\n' > "$W/olabels/alice"
     printf 'com.ostler.privileged\n' > "$W/olabels/system"
 }
 mine_red() {   # red limbs for the walking-account + system scenario
     MR=0
     [ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS (cleaned" || MR=$((MR+1))
     for p in "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist" "$W/Library/LaunchAgents/com.ostler.helper.plist" \
-             "$W/Library/LaunchDaemons/com.ostler.privileged.plist"; do [ -e "$p" ] && MR=$((MR+1)); done
+             "$W/Library/LaunchDaemons/com.ostler.privileged.plist" \
+             "$W/Users/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" \
+             "$W/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"; do [ -e "$p" ] && MR=$((MR+1)); done
     grep -q ostler "$W/olabels/alice" "$W/olabels/system" 2>/dev/null && MR=$((MR+1))
     has "LEFTOVER Ostler plist [-] $W/Library/LaunchDaemons/com.ostler.privileged.plist" || MR=$((MR+1))
     has "sha256 $(printf '<plist>daemon</plist>\n' | shasum -a 256 | awk '{print $1}')" || MR=$((MR+1))
     has "LEFTOVER Ostler label loaded [alice] gui/" || MR=$((MR+1))
+    has "/com.creativemachines.ostler.assistant" || MR=$((MR+1))
+    has "/com.creativemachines.ostler-remotecapture" || MR=$((MR+1))
     has "LEFTOVER Ostler label loaded [-] system/com.ostler.privileged" || MR=$((MR+1))
 }
 mkbox ostmine; ostler_mine; runbox "$SUBJECT"; mine_red
 [ "$MR" -eq 0 ] && ok "walking account + system com.ostler.* plists and labels: printed, booted out, deleted, PASS" \
     || { bad "walking account + system com.ostler.*: $MR red limb(s), rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
 MUT3="$ROOT/mutant_skips_launchdaemons.sh"
-sed 's#"\$LIB"/LaunchDaemons/com.ostler.\*.plist##' "$SUBJECT" > "$MUT3"
+sed 's#"\$LIB"/LaunchDaemons/"\$pfx"\*.plist##' "$SUBJECT" > "$MUT3"
 if cmp -s "$SUBJECT" "$MUT3"; then bad "skip-LaunchDaemons mutant did not apply"
 else mkbox ostmut1; ostler_mine; runbox "$MUT3"; mine_red
      [ "$MR" -gt 0 ] && ok "mutant that never looks in LaunchDaemons is caught ($MR red limb(s))" || bad "skip-LaunchDaemons mutant NOT caught"
@@ -264,6 +276,78 @@ fi
 mkbox oststuck; printf 'com.ostler.assistant\n' > "$W/olabels/alice"; : > "$W/launchctl_stuck"; runbox "$SUBJECT"
 [ "$RC" -eq 2 ] && has "LEFTOVER Ostler label loaded [alice] gui/" && has "still present or not examined after removal" \
     && ok "a com.ostler.* label that will not boot out: CANNOT-RUN" || bad "stuck com.ostler.* label: rc=$RC"
+
+echo "== LABEL GUARD (every launchd label prefix install.sh writes is covered)"
+INSTALL_SH="${COLD_INSTALL_SH:-$REPO/install.sh}"
+label_guard() {   # label_guard SCRIPT INSTALL -> prints report; rc 0 covered, 1 uncovered, 2 cannot-run
+    python3 -I - "$1" "$2" <<'PYEOF'
+import re, sys
+script, install = sys.argv[1], sys.argv[2]
+m = re.search(r'^OSTLER_LABEL_PREFIXES="([^"]*)"', open(script).read(), re.M)
+if not m or not m.group(1).split():
+    print("CANNOT-RUN: no OSTLER_LABEL_PREFIXES in the script"); sys.exit(2)
+prefixes = m.group(1).split()
+lines = open(install, errors="replace").read().split("\n")
+assign = {}
+for i, l in enumerate(lines, 1):
+    a = re.match(r'\s*(?:local\s+|readonly\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"', l)
+    if a:
+        assign.setdefault(a.group(1), []).append((i, a.group(2)))
+labels = []   # (line, value, how)
+for i, l in enumerate(lines, 1):
+    if "<key>Label</key>" in l:
+        nxt = lines[i] if i < len(lines) else ""
+        sm = re.search(r'<string>([^<]*)</string>', nxt)
+        if not sm:
+            print(f"UNRESOLVED install.sh:{i}: Label with no <string> on the next line"); labels.append((i, None, "label")); continue
+        v = sm.group(1)
+        vm = re.fullmatch(r'\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?', v)
+        if vm:
+            cands = [c for c in assign.get(vm.group(1), []) if c[0] < i + 1]
+            if not cands:
+                print(f"UNRESOLVED install.sh:{i+1}: {v} has no literal assignment above it"); labels.append((i+1, None, "label")); continue
+            ln, val = cands[-1]
+            labels.append((ln, val, f"Label at :{i+1} via {vm.group(1)}"))
+        else:
+            labels.append((i+1, v, "Label literal"))
+for name, vals in assign.items():
+    if re.search(r'label', name, re.I):
+        for ln, val in vals:
+            if re.match(r'^[a-z]+\.[A-Za-z0-9]', val):
+                labels.append((ln, val, f"{name}="))
+bad = 0; seen = {}
+for ln, val, how in labels:
+    if val is None:
+        bad += 1; continue
+    lit = val.split("$", 1)[0]          # templated label: its literal prefix must be covered
+    hit = next((p for p in prefixes if lit.startswith(p)), None)
+    if hit is None:
+        bad += 1; print(f"UNCOVERED install.sh:{ln}: {val} ({how})")
+    else:
+        seen.setdefault(hit, []).append(ln)
+print(f"labels examined: {len(labels)}")
+for p in prefixes:
+    print(f"  {p}  {len(seen.get(p, []))} label(s), first at install.sh:{min(seen[p]) if p in seen else '-'}")
+unused = [p for p in prefixes if p not in seen]
+if unused:
+    print("UNUSED prefix(es), not written by install.sh: " + " ".join(unused)); bad += 1
+if len(labels) < 15:
+    print(f"CANNOT-RUN: only {len(labels)} labels found; the derivation is not a real look"); sys.exit(2)
+sys.exit(1 if bad else 0)
+PYEOF
+}
+[ -f "$INSTALL_SH" ] || { echo "CANNOT-RUN: no install.sh at $INSTALL_SH" >&2; exit 2; }
+G="$(label_guard "$SUBJECT" "$INSTALL_SH")"; GRC=$?
+printf '%s\n' "$G" | sed 's/^/      /'
+[ "$GRC" -eq 0 ] && ok "every label prefix install.sh writes is covered, and every covered prefix is one it writes" || bad "label guard rc=$GRC"
+GM1="$ROOT/mutant_drops_prefix.sh"
+sed 's#^OSTLER_LABEL_PREFIXES="com.ostler. com.creativemachines.ostler. com.creativemachines.ostler-"#OSTLER_LABEL_PREFIXES="com.ostler. com.creativemachines.ostler."#' "$SUBJECT" > "$GM1"
+if cmp -s "$SUBJECT" "$GM1"; then bad "drop-prefix mutant did not apply"
+else label_guard "$GM1" "$INSTALL_SH" >/dev/null; r=$?; [ "$r" -eq 1 ] && ok "mutant: a prefix dropped from the script turns the guard red" || bad "drop-prefix mutant not caught (rc=$r)"; fi
+GM2="$ROOT/install_with_new_prefix.sh"
+{ cat "$INSTALL_SH"; printf '    <key>Label</key>\n    <string>io.ostler.brand-new</string>\n'; } > "$GM2"
+label_guard "$SUBJECT" "$GM2" | grep -q 'UNCOVERED install.sh:.*io.ostler.brand-new' && { label_guard "$SUBJECT" "$GM2" >/dev/null; [ $? -eq 1 ]; } \
+    && ok "mutant: install.sh writing a new label prefix turns the guard red" || bad "new-prefix install.sh mutant not caught"
 
 echo "== NO-EXAMINE (sudo refuses bob)"
 mkbox noexam; echo bob > "$W/sudo_refuse"; runbox "$SUBJECT"
