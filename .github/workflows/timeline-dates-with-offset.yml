@@ -11,6 +11,8 @@ on:
       - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
       - '.github/workflows/timeline-dates-with-offset.yml'
       - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/allday_backfill.py'
+      - 'tests/test_i22b_allday_backfill.py'
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
   pull_request:
@@ -19,6 +21,8 @@ on:
       - 'tests/test_timeline_dates_are_event_dates_with_offset.py'
       - '.github/workflows/timeline-dates-with-offset.yml'
       - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/allday_backfill.py'
+      - 'tests/test_i22b_allday_backfill.py'
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
 
@@ -69,3 +73,15 @@ jobs:
       - name: "I22: the vendored api_timeline sends the time and the all_day flag (shared with CM041 #238)"
         if: always()
         run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py -v -rs
+      # I22b: Meeting nodes written before I22 have no all-day flag. The one-time
+      # backfill adds it (no deletes, idempotent, fail-soft); consumer-side proof
+      # through the real api_timeline.
+      - name: "I22b: old all-day Meeting rows gain the flag once (store to Timeline)"
+        if: always()
+        run: |
+          set -o pipefail
+          python -m pytest tests/test_i22b_allday_backfill.py -v -rs 2>&1 | tee /tmp/i22b.log
+          if grep -qE ' SKIPPED|no tests ran' /tmp/i22b.log; then
+            echo "REFUSING: a skipped I22b test is CANNOT-RUN, not a pass." >&2
+            exit 1
+          fi

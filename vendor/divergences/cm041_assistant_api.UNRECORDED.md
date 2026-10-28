@@ -1522,6 +1522,23 @@ Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
 - Retire: when CM041 carries the same re-word and a re-vendor makes the file
   byte-identical.
 
+## 2026-10-28: person_enrichment and the person timeline withhold L3 meetings (upstream CM041 #240 fe3290d7, MERGED; re-vendor for 119)
+
+Tree `cm041/assistant_api`. Pin NOT moved (688463bb). A mechanical re-vendor is refused by
+`sync_vendor.sh` (the vendored tree is ahead of upstream, v1018-D684), so the one upstream
+change was grafted.
+
+- `ical-server.py`: the `git diff 688463bb fe3290d7 -- assistant_api/ical-server.py` hunks, applied
+  with `git apply` and no conflict (34 added, 6 removed). Meetings served by person_enrichment
+  and the person timeline use the stricter of meeting and person level, withhold L3 and any
+  unparseable level, carry `privacy_level`, and the limit applies to visible rows.
+- `tests/test_meeting_routes_privacy.py`: ported from upstream with one named difference, SLUG is
+  `jane-doe` because the vendored `tests/test_person_context_meetings_privacy.py` helper uses
+  a different synthetic person name from upstream. The other two upstream test edits
+  (`test_person_enrichment_endpoint.py`, `test_person_timeline_endpoint.py`) are not vendored.
+- Proof: 8 pass on the graft, 8 fail on the pre-graft ical-server, 6 fail with the L3 filter
+  mutated out (pyoxigraph/rdflib/cryptography venv, `PYTHONPATH=vendor`).
+- Retire: re-pin past fe3290d7.
 ## 2026-10-24: I22, a past meeting keeps its time and the calendar's all-day flag (graft of CM041 #238)
 
 Tree `cm041/assistant_api`. Location and shape only:
@@ -1541,3 +1558,19 @@ The writer half is `vendor/ostler_fda/pwg_ingest.py` (see `ostler_fda.UNRECORDED
 Regeneration was not attempted: this tree's refusal is standing (sections above).
 Retire when CM041 #238 merges and a re-vendor brings the tree byte-identical; its squash sha
 then goes into hold_ack_shas.
+
+## 2026-10-28 119: hub_contract.yaml regenerated against hub-v0.5.29
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.29 = 9c6c2b55>` re-derives the gateway rows for the re-pinned daemon (CM051 #3192; contract-is-current was RED against the new pin).
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.29> --check` reports current (279 routes).
+- Retire: the next hub re-pin regenerates this file again.
+
+## 2026-10-28 119: hub_contract.yaml checked against hub-v0.5.30, no regeneration needed
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: UNCHANGED by this re-pin. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.30 = 610b0c5c> --check` reports current (279 routes): hub-v0.5.29..hub-v0.5.30 touches no gateway route (oa #642 security re-land, #643 version bump).
+- Control: the same check against a copy of that source with one route path renamed reports STALE, rc 1.
+- Retire: the next hub re-pin regenerates or re-checks this file again; the 0.5.29 entry above still describes the file's contents.
