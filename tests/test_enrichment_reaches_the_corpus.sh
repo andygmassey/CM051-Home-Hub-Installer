@@ -292,12 +292,14 @@ for expected in ("bookmark", "interest", "page", "book", "music"):
 
 # Films and places are now KEYLESS, routed to Wikidata rather than to
 # TMDB and Google Places, so they must be SWEPT rather than excluded.
+# `food` routes to the keyless, consent-gated OSM cuisine client (food
+# evidence carries the restaurant in extra.restaurant), not to Wikidata.
 for expected in ("movie", "movie_tv", "tv", "place", "venue", "education", "food"):
     if expected not in cats:
         bad.append("%s is not swept; it should route to a keyless client" % expected)
 for cat, client in (("movie", "wikidata_film"), ("tv", "wikidata_film"),
                     ("place", "wikidata_place"), ("venue", "wikidata_place"),
-                    ("education", "wikidata"), ("food", "wikidata")):
+                    ("education", "wikidata"), ("food", "osm_cuisine")):
     if S.CATEGORY_CLIENTS.get(cat) != client:
         bad.append("%s routes to %r, expected %r" % (cat, S.CATEGORY_CLIENTS.get(cat), client))
 
