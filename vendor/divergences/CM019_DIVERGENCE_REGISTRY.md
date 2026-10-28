@@ -290,6 +290,12 @@ wikidata as on main. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2
 
 **Upstream status:** not ported. Owed upstream (personal-world-graph #432, CM019): the PR's second
 `"food"` key and its None return for a non-restaurant point lose the Wikidata enrichment.
+### smart-prefs -- representative-first CLI wiring (personal-world-graph #431; CM051 #3120)
+
+`services/enrich/src/cli.py` gains `--representative-first/--no-representative-first`
+(default on) and runs `derive/representatives.py` (on main since T0j, equal to
+upstream@5af9f5b5) before the long tail, with the same `deadline=` as the sweep.
+Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 representative-first CLI".
 
 ## How to add a row
 
