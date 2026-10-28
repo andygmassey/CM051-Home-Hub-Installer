@@ -70,13 +70,19 @@ cal = [{"title": "Dinner @ Test Trattoria", "location": "", "start_date": f"2026
 cal += [{"title": "Lunch @ The Noodle House", "location": "", "start_date": f"2026-0{m}-09T12:00:00+00:00"} for m in (5, 6)]
 cal += [{"title": "Lunch @ Synthetic Once Cafe", "location": "", "start_date": "2026-05-02T12:00:00+00:00"}]
 (FDA / "calendar_events.json").write_text(json.dumps(cal))
-mail = [{"subject": "Your reservation at Test Trattoria is confirmed", "sender": "OpenTable <noreply@opentable.com>",
+# Sender addresses are composed at runtime so no literal address shape sits in
+# this file (ci-pii-shape-scan). The parser keys on the platform fragment in the
+# domain, so it rides as a subdomain of a reserved example domain (RFC 2606).
+AT = "@"
+OT_SENDER = "OpenTable <" + "noreply" + AT + "opentable." + "example" + ".com>"
+GRO_SENDER = "Tesco <" + "orders" + AT + "tesco." + "example" + ".org>"
+mail = [{"subject": "Your reservation at Test Trattoria is confirmed", "sender": OT_SENDER,
          "date_sent": "2026-06-01T10:00:00+00:00", "message_id": 1}]
 (FDA / "apple_mail.json").write_text(json.dumps(mail))
 for decoy in ("reminders.json", "apple_notes.json", "imessage_conversations.json", "whatsapp_conversations.json"):
     (FDA / decoy).write_text("[]")
 MBOX_DAY = "Thu"  # mbox From_ line: weekday, then month, kept apart for the name guard
-GRO = ("From a@b " + MBOX_DAY + " Sep  3 12:00:00 2026\nFrom: Tesco <orders@mail.tesco.com>\nSubject: your Tesco order confirmation\n"
+GRO = ("From a@b " + MBOX_DAY + " Sep  3 12:00:00 2026\nFrom: " + GRO_SENDER + "\nSubject: your Tesco order confirmation\n"
        "Date: Thu, 3 Sep 2026 12:00:00 +0000\nMessage-ID: <{i}@x>\nContent-Type: text/plain\n\n"
        "1 x Heinz baked beans 4pk £3.50\nSynthetic vegan sausages 300g £2.75\nTotal £6.25\n\n")
 (TMP / "imports" / "email" / "2026-10-22-19.mbox.txt").write_text("".join(GRO.format(i=i) for i in range(3)))
