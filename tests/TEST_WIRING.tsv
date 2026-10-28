@@ -296,6 +296,7 @@ test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
@@ -571,6 +572,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_vendored_caller_of_read_across_graphs.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
+test_no_whatsapp_chat_export_instruction.sh	WIRED	.github/workflows/no-whatsapp-chat-export.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_notes_are_opened_and_refreshed.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_notion_obsidian_import_runs_end_to_end.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -1075,6 +1077,7 @@ scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 scripts/tests/test_comment_strip_is_quote_aware.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_daemon_fda_case6_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
+scripts/tests/test_data_conservation_collect_budget.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_data_conservation_probe.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml

@@ -13,6 +13,7 @@ on:
       - 'scripts/box_walk_probes/lib/data_conservation.py'
       - 'scripts/box_walk_probes/fixtures/data_conservation/**'
       - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/tests/test_data_conservation_collect_budget.sh'
       - 'scripts/walk_promote_scope.tsv'
       - '.github/workflows/data-conservation-probe-tests.yml'
   push:
@@ -22,6 +23,7 @@ on:
       - 'scripts/box_walk_probes/lib/data_conservation.py'
       - 'scripts/box_walk_probes/fixtures/data_conservation/**'
       - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/tests/test_data_conservation_collect_budget.sh'
       - '.github/workflows/data-conservation-probe-tests.yml'
 
 concurrency:
@@ -44,3 +46,11 @@ jobs:
           bash scripts/box_walk_probes/probes/data_conservation.sh --self-test
           rc=$?
           [ "$rc" -eq 1 ] || { echo "self-test rc=$rc, want 1"; exit 1; }
+
+  collect-budget:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: collect budget kills the process group and yields CANNOT-RUN-BUDGET
+        run: /bin/bash scripts/tests/test_data_conservation_collect_budget.sh
