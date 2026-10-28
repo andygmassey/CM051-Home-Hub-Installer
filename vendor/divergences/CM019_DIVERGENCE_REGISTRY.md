@@ -256,6 +256,13 @@ onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNR
 "2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
 NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
 
+### smart-prefs -- representative-first CLI wiring (personal-world-graph #431; CM051 #3120)
+
+`services/enrich/src/cli.py` gains `--representative-first/--no-representative-first`
+(default on) and runs `derive/representatives.py` (on main since T0j, equal to
+upstream@5af9f5b5) before the long tail, with the same `deadline=` as the sweep.
+Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 representative-first CLI".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
