@@ -1705,6 +1705,15 @@ def ingest_calendar(fda_dir: Path) -> dict:
                 m_triples.append(
                     f'<{meeting_uri}> pwg:meetingDate "{_escape(start_date)}"'
                 )
+            # The calendar's own all-day flag (I22). meetingDate is the full
+            # start, so without this the Timeline could not tell a timed
+            # meeting from an all-day entry and showed every past meeting as
+            # "All day". Written only when the extract carries the field.
+            if isinstance(event.get("is_all_day"), bool):
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:meetingAllDay '
+                    f'"{"true" if event["is_all_day"] else "false"}"^^xsd:boolean'
+                )
             if location:
                 m_triples.append(
                     f'<{meeting_uri}> pwg:meetingLocation "{_escape(location)}"'
