@@ -30,7 +30,7 @@ F="$W/fx"; mkdir -p "$F/bin" "$F/agent" "$F/launchd"
 cat > "$F/bin/run.sh" <<'SH'
 #!/bin/bash
 ollama pull nomic-embed-text
-if ollama list 2>/dev/null | grep -q qwen; then :; fi
+models="$(ollama list 2>/dev/null)"
 if command -v ollama >/dev/null; then :; fi
 hpa_run "unload" ollama stop "$m"
 "$OLLAMA_APP_BIN" pull nomic-embed-text
