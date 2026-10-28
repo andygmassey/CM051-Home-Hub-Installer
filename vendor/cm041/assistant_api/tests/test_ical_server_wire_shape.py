@@ -130,8 +130,18 @@ class IngestIOSWireShapeTests(unittest.TestCase):
             ical_server, "INGEST_DIR", self._tmpdir
         )
         self._ingest_patch.start()
+        # Rule 0.8 (CM051 #1978, 7bde358c): api_ingest_ios now pauses with a
+        # 402 when Ostler Pro is not active, and an un-provisioned test
+        # process reads as "not active". These tests are about the wire
+        # shape of an ACTIVE Hub, so the gate is held open here; the paused
+        # arm is pinned separately by test_paused_hub_returns_402_before_parsing.
+        self._gate_patch = mock.patch.object(
+            ical_server, "_subscription_paused", lambda surface: None
+        )
+        self._gate_patch.start()
 
     def tearDown(self):
+        self._gate_patch.stop()
         self._ingest_patch.stop()
         # Best-effort cleanup; the dir contents are small JSONL files.
         for root, dirs, files in os.walk(self._tmpdir, topdown=False):
@@ -191,6 +201,25 @@ class IngestIOSWireShapeTests(unittest.TestCase):
     def test_rejects_non_dict_body(self):
         result, status = ical_server.api_ingest_ios(["not", "a", "dict"])
         self.assertEqual(status, 400)
+
+    def test_paused_hub_returns_402_before_parsing(self):
+        """Control for the setUp gate stub: with the gate CLOSED the surface
+        is named and nothing is spooled, so the stub above is what lets the
+        shape tests reach the parser, not a gate that never fires."""
+        paused = ({"status": "paused", "surface": "ios_ingest"}, 402)
+        seen = []
+
+        def _closed(surface):
+            seen.append(surface)
+            return paused
+
+        with mock.patch.object(ical_server, "_subscription_paused", _closed):
+            result, status = ical_server.api_ingest_ios(
+                {"items": [self._synthetic_item()]}
+            )
+        self.assertEqual(status, 402)
+        self.assertEqual(seen, ["ios_ingest"])
+        self.assertEqual(os.listdir(self._tmpdir), [])
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +371,7 @@ class PeopleStaleOrganisationKeyTests(unittest.TestCase):
                 "points": [
                     {
                         "payload": {
+                            "person_uri": "urn:ostler:person/test-person",
                             "display_name": "Test Person",
                             "last_contact_ts": 1_700_000_000,  # well in the past
                             "last_contact": "2023-11-14",
@@ -366,11 +396,29 @@ class PeopleStaleOrganisationKeyTests(unittest.TestCase):
                 import json as _json
                 return _json.dumps(self._body).encode()
 
+        # Since CM051 ddc9a88c (CM041 #179, CM051 #2521) people_stale
+        # rechecks every Qdrant candidate against the graph's per-source
+        # last-contact MAX and FAILS CLOSED (returns no contacts) when that
+        # recheck cannot run. The graph here knows the person and holds no
+        # later contact, so the candidate stays stale and reaches the wire.
+        sparql_calls = []
+
+        def _fake_sparql_select(query, *a, **k):
+            sparql_calls.append(query)
+            return [{"person": "urn:ostler:person/test-person"}]
+
         with mock.patch(
             "urllib.request.urlopen",
             return_value=_FakeResp(fake_qdrant_payload),
+        ), mock.patch.object(
+            ical_server, "_sparql_select", _fake_sparql_select
         ):
             result = ical_server.people_stale(months=3, limit=5)
+        self.assertTrue(
+            any("lastContactWhatsApp" in q for q in sparql_calls),
+            "the graph recheck must have run; without it this test would "
+            "pass on a reader that ships Qdrant-only dates",
+        )
 
         contacts = result.get("contacts", [])
         self.assertEqual(len(contacts), 1, msg=f"result={result!r}")
