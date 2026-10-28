@@ -445,7 +445,7 @@ spec = importlib.util.spec_from_file_location("subscription_gate", sys.argv[1])
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 tier = sys.argv[2] or None
-gate.activate_first_month_free(
+gate.activate_included_pro(
     datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     licence_tier=tier,
     licence_tier_state=sys.argv[3],
@@ -503,7 +503,7 @@ c_case "C5 an unverified install reports NO tier"          ""         unverified
 c_case "C6 a state outside the four reads as unverified"   beta       gold     none       unverified
 
 # C7. C6 ALONE DOES NOT TEST THE WRITER, and this was measured rather than
-# assumed. Mutating activate_first_month_free to accept any truthy state left
+# assumed. Mutating activate_included_pro to accept any truthy state left
 # C6 green, because the READER validates too and turned the bad value back
 # into "unverified" on the way out. Both halves validate on purpose, so the
 # only way to see the writer's half is to look at what landed on disk.

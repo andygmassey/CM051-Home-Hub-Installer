@@ -45,7 +45,7 @@ walks the FULL consumer path a real install-time backfill or hourly tick
 actually takes:
 
   0. the customer is put into the subscription state a real Hub is in on
-     the day it is installed, by calling ``activate_first_month_free`` --
+     the day it is installed, by calling ``activate_included_pro`` --
      the very writer install.sh calls -- rather than hand-writing JSON.
      This step is a PRECONDITION and reports as one. It replaced a literal
      ``{"status": "active"}`` fixture that failed in CI (run 35086634861):
@@ -222,18 +222,18 @@ def main() -> int:
         # rather than the PROPERTY the customer has, so it asserted a state
         # shape the product never actually writes.
         #
-        # activate_first_month_free is what install.sh invokes after licence
+        # activate_included_pro is what install.sh invokes after licence
         # verification, so this is a customer who bought a Hub today and is
         # inside their free month: the state cannot drift from what ships,
         # because it IS what ships that produced it.
         now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        subscription_gate.activate_first_month_free(now_iso)
+        subscription_gate.activate_included_pro(now_iso)
         if not subscription_gate.is_active_or_grace():
             # A precondition, reported as itself. Without this the next
             # reader debugs wire.post() for a defect that is in the fixture.
             failures.append(
                 f"fixture precondition: a Hub freshly activated via "
-                f"activate_first_month_free does not read as active or in "
+                f"activate_included_pro does not read as active or in "
                 f"grace, so step 4 cannot test what it claims to. state="
                 f"{subscription_gate.state_dict()!r}")
             print("\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)

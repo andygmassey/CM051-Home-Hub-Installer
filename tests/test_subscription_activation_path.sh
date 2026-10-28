@@ -4,7 +4,7 @@
 #
 # DMG #48d (2026-05-28) launch-blocker regression test.
 #
-# Locks the invariant that the G2 first-month-free activation block
+# Locks the invariant that the G2 included-Pro activation block
 # imports subscription_gate from a path that EXISTS in the assembled
 # DMG payload (and not just in the source tree).
 #
@@ -50,7 +50,7 @@ echo "PASS [case-1]: bundled \${SCRIPT_DIR}/assistant_api/ path present"
 # but the FIRST candidate inspected must be the bundled path.
 # Heuristic: find the activation block, confirm the bundled path
 # appears before the dev path within it.
-ACTIVATION_BLOCK=$(awk '/First-month-free subscription activation/,/^fi$/' "$INSTALL_SH")
+ACTIVATION_BLOCK=$(awk '/Included-months subscription activation/,/^fi$/' "$INSTALL_SH")
 if [[ -z "$ACTIVATION_BLOCK" ]]; then
     echo "FAIL [case-2]: could not isolate First-month-free activation block"
     exit 1
@@ -82,14 +82,14 @@ echo "PASS [case-3]: bash -n install.sh clean"
 # Case 4: end-to-end import resolution against the source tree layout.
 # Simulates running install.sh from the source tree (dev mode). The
 # fallback path must resolve to vendor/cm041/assistant_api/subscription_gate.py
-# and the activate_first_month_free symbol must be present.
+# and the activate_included_pro symbol must be present.
 HELPER=vendor/cm041/assistant_api/subscription_gate.py
 if [[ ! -f "$HELPER" ]]; then
     echo "FAIL [case-4]: $HELPER missing from source tree"
     exit 1
 fi
-if ! grep -qE "^def activate_first_month_free" "$HELPER"; then
-    echo "FAIL [case-4]: activate_first_month_free symbol missing from $HELPER"
+if ! grep -qE "^def activate_included_pro" "$HELPER"; then
+    echo "FAIL [case-4]: activate_included_pro symbol missing from $HELPER"
     exit 1
 fi
 echo "PASS [case-4]: dev-tree fallback path resolves to a helper with the right symbol"

@@ -2850,7 +2850,7 @@ _ostler_licence_refuse() {
 #   unknown     a verified tier this build does not recognise. Recorded
 #               verbatim. Grants nothing beyond hub, refuses nothing.
 #
-# The value is exported because the first-month-free activation (G2,
+# The value is exported because the included-Pro activation (G2,
 # ~30k lines below) runs in a child python3 and reads it from the
 # environment.
 #
@@ -27237,7 +27237,7 @@ cannot_deliver() {
 # the same contract as the ingestion tick wrappers: exit 3 is the ONLY code
 # that pauses; anything else (module missing, interpreter will not start)
 # fails OPEN, because a paying customer must never lose a brief because we
-# could not ask. The included first month and the grace window answer 0.
+# could not ask. The included Pro window and the grace window answer 0.
 # Paused exits 0: it is the steady state of an unsubscribed Hub, not a fault.
 _ostler_gate="${OSTLER_DIR}/services/ical-server/subscription_gate.py"
 if [ -f "$_ostler_gate" ]; then
@@ -41801,7 +41801,7 @@ else
     fi
 fi
 
-# ── First-month-free subscription activation (G2) ─────────────────
+# ── Included-months subscription activation (G2) ───────────────────────────
 #
 # The GUI verified the customer's Ed25519-signed licence file before
 # exec'ing this script (see the "Licence / activation check" block
@@ -41809,16 +41809,17 @@ fi
 # point install.sh has run to completion against a verified licence,
 # so this is the canonical "after licence verification succeeds"
 # mount point in the post-install lifecycle. Wire the customer's Hub
-# to 30 days of Ostler Pro for free per the G0 subscription_gate
+# to its INCLUDED Ostler Pro window (180 days founding, 90 standard; see
+# INCLUDED_DAYS in subscription_gate.py) per the G0 subscription_gate
 # contract (PR #190) -- single source of truth for whether ongoing
-# intelligence runs.
+# intelligence runs. The Apple receipt wins once the owner subscribes.
 #
 # Fail-open posture: if the Python call fails for ANY reason
 # (vendored helper missing, state dir not writable, disk full), the
 # install MUST continue. The customer can re-activate via the iOS
 # Companion once paired. We never block a legitimate customer on a
 # subscription-state write failure.
-info "$MSG_INFO_FIRST_MONTH_FREE_ACTIVATING"
+info "$MSG_INFO_INCLUDED_PRO_ACTIVATING"
 if python3 -c "
 import sys, os
 # The .app build (gui/project.yml postBuildScript L487-514) intentionally
@@ -41832,7 +41833,7 @@ for _p in (_bundled, _dev):
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
         break
-from subscription_gate import activate_first_month_free
+from subscription_gate import activate_included_pro
 from datetime import datetime, timezone
 # HR015 #928. The tier comes from the ENVIRONMENT, not from string
 # interpolation: it is customer-supplied data (it arrives inside their
@@ -41855,19 +41856,26 @@ if _tier_state == 'unverified':
 _lic_expiry = os.environ.get('OSTLER_LICENCE_EXPIRES_AT') or None
 if _lic_expiry == 'unparseable':
     _lic_expiry = None
-activate_first_month_free(
+# Which included window (founding 180d / standard 90d). Empty or junk
+# means 'no signal', which the gate resolves to its DEFAULT_INCLUDED_PLAN
+# (founding). Environment, not interpolation, for the same reason as the
+# tier above. No CM050 licence field carries the plan yet; see the TODO at
+# PLAN_FOUNDING in subscription_gate.py.
+_plan = os.environ.get('OSTLER_INCLUDED_PLAN') or None
+activate_included_pro(
     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+    included_plan=_plan,
     licence_tier=_tier,
     licence_tier_state=_tier_state,
     licence_expires_at=_lic_expiry,
 )
 " 2>&1; then
-    ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
+    ok "$MSG_OK_INCLUDED_PRO_ACTIVATED"
 else
     # NON-FATAL: install continues. Customer can re-activate via
     # Companion later. Per fail-open: never block install on
     # subscription-state write failure.
-    warn "$MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL"
+    warn "$MSG_WARN_INCLUDED_PRO_FAILED_NONFATAL"
 fi
 
 # ── AI Conversations hydration (#553 / #613) ───────────────────────
@@ -41889,7 +41897,7 @@ fi
 # ORDERING CONSTRAINT (do not hoist this block above G2): CM052's
 # wire.post() subscription gate PAUSES with no episodic write when
 # ~/.ostler/state/subscription_state.json is absent (CM052 CLAUDE.md
-# install-time gotcha 1). The first-month-free activation directly
+# install-time gotcha 1). The included-Pro activation directly
 # above writes that state, so the drain only runs once the gate is
 # open. The hydrate_* helpers (sentinel + heartbeat, defined ~L14420)
 # are still in scope here -- they are never unset.
@@ -43139,9 +43147,9 @@ fi
 echo "     Duration:      ${INSTALL_MINS}m ${INSTALL_SECS}s"
 echo ""
 
-# Subscription pricing hint -- surfaces the $9.99 USD/mo post-trial
-# pricing so the customer is never surprised when their first 30
-# days expire and the iOS Companion offers a subscription. Routed
+# Subscription pricing hint -- surfaces the $9.99 USD/mo pricing that
+# follows the included Pro months, so the customer is never surprised
+# when the window ends and the iOS Companion offers a subscription. Routed
 # through info() so it lands in both the TTY log and the GUI sidebar.
 # USD is canonical for v1.0 launch (locked 2026-05-27).
 info "$MSG_INFO_SUBSCRIPTION_PRICING_HINT"

@@ -55,8 +55,15 @@ jobs:
           echo "python3: $(command -v python3) -- $(python3 --version)"
           echo "grep:    /usr/bin/grep (BSD)"
 
-      - name: A customer 31 days in, who never subscribed, loses Ostler Pro
+      - name: A customer 181 days in, who never subscribed, loses Ostler Pro
         run: /bin/bash tests/test_the_trial_must_actually_end.sh
+
+      # The included window itself: 180 days founding, 90 standard, the
+      # Apple receipt wins over it, and a running 30-day window is extended
+      # once from its original activation date.
+      - name: The included Pro window is 180/90 days, the receipt wins, upgraders are extended
+        if: always()
+        run: python3 -m pytest tests/test_pro_included_window.py -q -p no:cacheprovider
 
       # HR015 #929. The same spine, from the other end: a tester whose
       # window is a BETA window rather than a calendar month, and who has

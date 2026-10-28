@@ -225,7 +225,7 @@ from datetime import datetime, timezone
 spec = importlib.util.spec_from_file_location("subscription_gate", sys.argv[1])
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
-gate.activate_first_month_free(
+gate.activate_included_pro(
     datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     licence_tier=sys.argv[2] or None,
     licence_tier_state=sys.argv[3],

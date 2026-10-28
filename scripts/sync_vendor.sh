@@ -346,7 +346,7 @@ _vo_root="$VLIB_REPO_ROOT/vendor"
 #
 # 2. THE REGISTRY COULD SILENTLY MISS A FILE, AND DID.
 #    `cm041/assistant_api/subscription_gate.py` is vendor-only and install.sh
-#    imports it (`from subscription_gate import activate_first_month_free`, the
+#    imports it (`from subscription_gate import activate_included_pro`, the
 #    30-day free Pro month). It was never registered, so a re-pin of
 #    cm041/assistant_api deleted it, and nothing downstream would have
 #    objected: git shows a clean commit and the DMG ships an installer whose
