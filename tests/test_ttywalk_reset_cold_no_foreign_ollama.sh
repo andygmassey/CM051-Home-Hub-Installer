@@ -27,6 +27,14 @@
 #               removed, and the run is CANNOT-RUN. Mutant that deletes them
 #               anyway (protection off) must be caught.
 #   STUCK       the brew uninstall fails. CANNOT-RUN (rc 2), never PASS.
+#   OSTLER-MINE (Archie, #3205; ORM found it) com.ostler.* plists in alice's
+#               ~/Library/LaunchAgents, /Library/LaunchAgents and
+#               /Library/LaunchDaemons, labels loaded in gui/alice and system:
+#               booted out, deleted, PASS. Mutant that never looks in
+#               LaunchDaemons must be caught.
+#   OSTLER-OTHER com.ostler.* plist + loaded label in BOB's domain: listed, NOT
+#               removed, CANNOT-RUN. Mutant that removes them must be caught.
+#   OSTLER-STUCK a label that will not boot out: CANNOT-RUN.
 #   NO-EXAMINE  sudo refuses bob. CANNOT-RUN (rc 2), bob named as not examined.
 #   MUTANT      the script with its account loop cut to the first account. The
 #               bob-only dirty box then reads PASS (it never looked at bob);
@@ -55,7 +63,8 @@ export HOME="$ROOT/home"; mkdir -p "$HOME"
 # ── one fake box per scenario ──────────────────────────────────────────────
 mkbox() {
     W="$ROOT/$1"; mkdir -p "$W/fakebin" "$W/Users/alice/.ostler/bin" "$W/Users/bob" "$W/alicebin" "$W/bobbin" \
-        "$W/brew/bin" "$W/Applications" "$W/loaded" "$W/shells"
+        "$W/brew/bin" "$W/Applications" "$W/loaded" "$W/shells" "$W/olabels" \
+        "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"
     : > "$W/ps.txt"
     for a in alice bob; do
         cat > "$W/shells/$a" <<EOF
@@ -77,9 +86,20 @@ FAKE_ACCT="\$u" exec "\$@"
 EOF
     cat > "$W/fakebin/launchctl" <<EOF
 #!/bin/bash
-case "\$1" in
-  print)   [ -e "$W/loaded/\${FAKE_ACCT:-none}" ] ;;
-  bootout) rm -f "$W/loaded/\${FAKE_ACCT:-none}" ;;
+# fake launchd: gui/<uid> domain = $W/olabels/<FAKE_ACCT>, system = $W/olabels/system,
+# the ollama brew label = $W/loaded/<FAKE_ACCT>. Never the real launchd.
+a="\${FAKE_ACCT:-none}"
+drop() { [ -f "\$1" ] && grep -vx "\$2" "\$1" > "\$1.n"; mv -f "\$1.n" "\$1" 2>/dev/null; return 0; }
+case "\$1 \$2" in
+  "print system")   sed 's/^/	0	-	/' "$W/olabels/system" 2>/dev/null; exit 0 ;;
+  print\ gui/*/*)   [ -e "$W/loaded/\$a" ] ;;
+  print\ gui/*)     sed 's/^/	0	-	/' "$W/olabels/\$a" 2>/dev/null; exit 0 ;;
+  bootout\ *)       [ -e "$W/launchctl_stuck" ] && exit 5
+                    case "\$2" in
+                      system/*) drop "$W/olabels/system" "\${2#system/}" ;;
+                      gui/*/homebrew.mxcl.ollama) rm -f "$W/loaded/\$a" ;;
+                      gui/*/*) drop "$W/olabels/\$a" "\${2##*/}" ;;
+                    esac ;;
   *) exit 64 ;;
 esac
 EOF
@@ -108,7 +128,7 @@ runbox() {   # runbox SUBJECT -> sets RC, OUT
         COLD_ACCOUNTS="alice 501 $W/Users/alice $W/shells/alice
 bob 502 $W/Users/bob $W/shells/bob" \
         COLD_SELF=alice COLD_SUDO="$W/fakebin/sudo" COLD_BREW_CANDIDATES="$W/brew/bin/brew" \
-        COLD_APPLICATIONS_DIR="$W/Applications" COLD_PS_CMD="$W/fakebin/fakeps" \
+        COLD_APPLICATIONS_DIR="$W/Applications" COLD_PS_CMD="$W/fakebin/fakeps" COLD_LIBRARY_DIR="$W/Library" \
         /bin/bash "$1" 2>&1)"; RC=$?
 }
 has() { printf '%s\n' "$OUT" | grep -qF -- "$1"; }
@@ -186,6 +206,64 @@ else
     [ "$OH_BAD" -gt 0 ] && [ ! -e "$W/Users/bob/.ollama" ] && ok "mutant that deletes inside another home is caught ($OH_BAD red limb(s))" \
         || bad "mutant that deletes inside another home NOT caught (OH_BAD=$OH_BAD)"
 fi
+
+echo "== OSTLER launchd leftovers"
+ostler_mine() {
+    for d in "$W/Users/alice/Library/LaunchAgents" "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"; do mkdir -p "$d"; done
+    printf '<plist>sup</plist>\n' > "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    printf '<plist>agent</plist>\n' > "$W/Library/LaunchAgents/com.ostler.helper.plist"
+    printf '<plist>daemon</plist>\n' > "$W/Library/LaunchDaemons/com.ostler.privileged.plist"
+    printf 'com.ostler.engine-supervisor\ncom.ostler.assistant\n' > "$W/olabels/alice"
+    printf 'com.ostler.privileged\n' > "$W/olabels/system"
+}
+mine_red() {   # red limbs for the walking-account + system scenario
+    MR=0
+    [ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS (cleaned" || MR=$((MR+1))
+    for p in "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist" "$W/Library/LaunchAgents/com.ostler.helper.plist" \
+             "$W/Library/LaunchDaemons/com.ostler.privileged.plist"; do [ -e "$p" ] && MR=$((MR+1)); done
+    grep -q ostler "$W/olabels/alice" "$W/olabels/system" 2>/dev/null && MR=$((MR+1))
+    has "LEFTOVER Ostler plist [-] $W/Library/LaunchDaemons/com.ostler.privileged.plist" || MR=$((MR+1))
+    has "sha256 $(printf '<plist>daemon</plist>\n' | shasum -a 256 | awk '{print $1}')" || MR=$((MR+1))
+    has "LEFTOVER Ostler label loaded [alice] gui/" || MR=$((MR+1))
+    has "LEFTOVER Ostler label loaded [-] system/com.ostler.privileged" || MR=$((MR+1))
+}
+mkbox ostmine; ostler_mine; runbox "$SUBJECT"; mine_red
+[ "$MR" -eq 0 ] && ok "walking account + system com.ostler.* plists and labels: printed, booted out, deleted, PASS" \
+    || { bad "walking account + system com.ostler.*: $MR red limb(s), rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+MUT3="$ROOT/mutant_skips_launchdaemons.sh"
+sed 's#"\$LIB"/LaunchDaemons/com.ostler.\*.plist##' "$SUBJECT" > "$MUT3"
+if cmp -s "$SUBJECT" "$MUT3"; then bad "skip-LaunchDaemons mutant did not apply"
+else mkbox ostmut1; ostler_mine; runbox "$MUT3"; mine_red
+     [ "$MR" -gt 0 ] && ok "mutant that never looks in LaunchDaemons is caught ($MR red limb(s))" || bad "skip-LaunchDaemons mutant NOT caught"
+fi
+
+ostler_other() {
+    mkdir -p "$W/Users/bob/Library/LaunchAgents"
+    printf '<plist>bob</plist>\n' > "$W/Users/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    printf 'com.ostler.engine-supervisor\n' > "$W/olabels/bob"
+}
+other_red() {
+    OR=0
+    [ "$RC" -eq 2 ] && has "NO-FOREIGN-OLLAMA: CANNOT-RUN" || OR=$((OR+1))
+    [ -e "$W/Users/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist" ] || OR=$((OR+1))
+    grep -qx com.ostler.engine-supervisor "$W/olabels/bob" 2>/dev/null || OR=$((OR+1))
+    has "NOT REMOVED (inside another account's home; detect only) OSTPLIST [bob]" || OR=$((OR+1))
+    has "NOT REMOVED (inside another account's home; detect only) OSTLOADED [bob]" || OR=$((OR+1))
+    has "sha256 $(printf '<plist>bob</plist>\n' | shasum -a 256 | awk '{print $1}')" || OR=$((OR+1))
+}
+mkbox ostother; ostler_other; runbox "$SUBJECT"; other_red
+[ "$OR" -eq 0 ] && ok "another account's com.ostler.* plist and label: listed with sha, not removed, CANNOT-RUN" \
+    || { bad "another account's com.ostler.*: $OR red limb(s), rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+MUT4="$ROOT/mutant_removes_other_ostler.sh"
+sed 's#|OSTPLIST|OSTLOADED) return 0#) return 0#' "$SUBJECT" > "$MUT4"
+if cmp -s "$SUBJECT" "$MUT4"; then bad "remove-other-ostler mutant did not apply"
+else mkbox ostmut2; ostler_other; runbox "$MUT4"; other_red
+     [ "$OR" -gt 0 ] && ok "mutant that removes another account's com.ostler.* is caught ($OR red limb(s))" || bad "remove-other-ostler mutant NOT caught"
+fi
+
+mkbox oststuck; printf 'com.ostler.assistant\n' > "$W/olabels/alice"; : > "$W/launchctl_stuck"; runbox "$SUBJECT"
+[ "$RC" -eq 2 ] && has "LEFTOVER Ostler label loaded [alice] gui/" && has "still present or not examined after removal" \
+    && ok "a com.ostler.* label that will not boot out: CANNOT-RUN" || bad "stuck com.ostler.* label: rc=$RC"
 
 echo "== NO-EXAMINE (sudo refuses bob)"
 mkbox noexam; echo bob > "$W/sudo_refuse"; runbox "$SUBJECT"

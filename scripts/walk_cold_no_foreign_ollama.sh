@@ -44,6 +44,15 @@
 #           did not answer, dscl listed nothing or did not list the walk user).
 #           Never PASS: an account nobody looked at is not a clean account.
 #
+# ALSO: NO OSTLER LAUNCHD JOB (Archie, #3205; found by ORM). --reset with no
+# uninstaller on the box left com.ostler.* LaunchAgent plists behind, which is
+# not cold either. So the same pass asserts NO com.ostler.* plist in any
+# account's ~/Library/LaunchAgents, /Library/LaunchAgents or
+# /Library/LaunchDaemons, and NO loaded com.ostler.* label in any account's
+# gui/<uid> domain or in the system domain. Same rules: the walking account's
+# and the system ones are booted out, then deleted, then looked for again;
+# another account's are listed only, and the run ends CANNOT-RUN.
+#
 # TEST SEAMS (fakes only; tests/test_ttywalk_reset_cold_no_foreign_ollama.sh).
 # Unset on a real walk.
 #   COLD_ACCOUNTS          lines "name uid home shell" instead of dscl
@@ -52,6 +61,7 @@
 #   COLD_BREW_CANDIDATES   space-separated brew paths
 #   COLD_APPLICATIONS_DIR  instead of /Applications
 #   COLD_PS_CMD            instead of `ps -axo pid=,command=`
+#   COLD_LIBRARY_DIR       instead of /Library
 
 set -u
 
@@ -60,6 +70,8 @@ SUDO="${COLD_SUDO:-sudo}"
 APPS="${COLD_APPLICATIONS_DIR:-/Applications}"
 BREWS="${COLD_BREW_CANDIDATES:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
 PS_CMD="${COLD_PS_CMD:-ps -axo pid=,command=}"
+LIB="${COLD_LIBRARY_DIR:-/Library}"
+OSTLER_RE='com[.]ostler[.][A-Za-z0-9._-]+'
 LABEL="homebrew.mxcl.ollama"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/walk-cold-ollama.XXXXXX")" || { echo "CANNOT-RUN: no scratch dir"; exit 2; }
@@ -105,6 +117,9 @@ unset IFS
 [ -e "$home/Applications/Ollama.app" ] && echo "USERAPP|$home/Applications/Ollama.app"
 [ -e "$home/Library/LaunchAgents/$label.plist" ] && echo "AGENT|$home/Library/LaunchAgents/$label.plist"
 if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then echo "LOADED|gui/$uid/$label"; fi
+for f in "$home"/Library/LaunchAgents/com.ostler.*.plist; do [ -e "$f" ] && echo "OSTPLIST|$f"; done
+_gui="$(launchctl print "gui/$uid" 2>/dev/null)" && echo "__gui_ok"
+printf "%s\n" "$_gui" | grep -oE "$4" | sort -u | while read -r l; do echo "OSTLOADED|gui/$uid/$l"; done
 echo "__probe_ok"
 '
 
@@ -139,12 +154,15 @@ examine() {
                 *)  echo "NONPATH|$n|command -v ollama answered a non-path: ${cv}" >> "$out" ;;
             esac
         fi
-        rec="$(as_acct "$n" /bin/bash -c "$ACCT_PROBE" _ "$home" "$LABEL" "$lpath" 2>/dev/null </dev/null)"
+        rec="$(as_acct "$n" /bin/bash -c "$ACCT_PROBE" _ "$home" "$LABEL" "$lpath" "$OSTLER_RE" 2>/dev/null </dev/null)"
         if ! printf '%s\n' "$rec" | grep -qx '__probe_ok'; then
             echo "NOEXAMINE|$n|could not run the file probe as ${n}" >> "$out"; continue
         fi
-        printf '%s\n' "$rec" | grep -v '^__probe_ok$' | grep -v '^OURS|' | sed "s#|#|$n|#" >> "$out"
-        echo "  ${n} (uid ${uid}, ${home}): login shell ${shell}, PATH dirs $(printf '%s' "$lpath" | awk -F: '{print NF}'), ~/.ollama, ~/Applications/Ollama.app, ${LABEL} plist + launchctl gui/${uid}" >> "$ex"
+        if ! printf '%s\n' "$rec" | grep -qx '__gui_ok'; then
+            echo "NOEXAMINE|$n|launchctl print gui/${uid} did not answer as ${n}; its loaded labels are unknown" >> "$out"
+        fi
+        printf '%s\n' "$rec" | grep -v -e '^__probe_ok$' -e '^__gui_ok$' -e '^OURS|' | sed "s#|#|$n|#" >> "$out"
+        echo "  ${n} (uid ${uid}, ${home}): login shell ${shell}, PATH dirs $(printf '%s' "$lpath" | awk -F: '{print NF}'), ~/.ollama, ~/Applications/Ollama.app, ${LABEL} plist + launchctl gui/${uid}, com.ostler.* plists + labels in gui/${uid}" >> "$ex"
     done < "$WORK/accounts"
     echo "  accounts (${nacct}): ${acct_list}" >> "$ex"
 
@@ -163,6 +181,16 @@ examine() {
         echo "  brew ${b} (owner ${owner}): formula ollama, cask ollama, services list" >> "$ex"
     done
     [[ -e "$APPS/Ollama.app" ]] && echo "APP|-|$APPS/Ollama.app" >> "$out"
+    for f in "$LIB"/LaunchAgents/com.ostler.*.plist "$LIB"/LaunchDaemons/com.ostler.*.plist; do
+        [[ -e "$f" ]] && echo "SYSPLIST|-|$f" >> "$out"
+    done
+    echo "  ${LIB}/LaunchAgents and ${LIB}/LaunchDaemons: com.ostler.* plists" >> "$ex"
+    if _sys="$(launchctl print system 2>/dev/null)"; then
+        printf '%s\n' "$_sys" | grep -oE "$OSTLER_RE" | sort -u | while read -r l; do echo "SYSLOADED|-|system/$l"; done >> "$out"
+        echo "  launchctl print system: com.ostler.* labels" >> "$ex"
+    else
+        echo "NOEXAMINE|-|launchctl print system did not answer; system labels are unknown" >> "$out"
+    fi
     echo "  ${APPS}/Ollama.app" >> "$ex"
     $PS_CMD 2>/dev/null | awk '{pid=$1; c=$0; sub(/^ *[0-9]+ +/, "", c); split(c, a, " "); b=a[1]; sub(/.*\//, "", b);
         if ((b=="ollama" || c ~ /Ollama[.]app\//) && c !~ /\/[.]ostler\//) print "PROC|-|" pid " " c}' >> "$out"
@@ -177,6 +205,11 @@ describe() {
                  "$(as_acct "$a" du -sk "$s" 2>/dev/null | awk '{print $1}')" \
                  "$(as_acct "$a" /bin/bash -c 'cd "$1" && find . -type f -exec stat -f "%N %z" {} + 2>/dev/null | LC_ALL=C sort | shasum -a 256' _ "$s" 2>/dev/null | awk '{print $1}')" ;;
         AGENT|LOADED) printf 'FOREIGN launchd [%s] %s\n' "$a" "$s" ;;
+        OSTPLIST|SYSPLIST) bin="$a"; [[ "$bin" == "-" ]] && bin="$SELF"
+                 printf 'LEFTOVER Ostler plist [%s] %s  %s bytes  sha256 %s\n' "$a" "$s" \
+                 "$(as_acct "$bin" /bin/bash -c 'wc -c < "$1"' _ "$s" 2>/dev/null | tr -d ' ')" \
+                 "$(as_acct "$bin" shasum -a 256 "$s" 2>/dev/null | awk '{print $1}')" ;;
+        OSTLOADED|SYSLOADED) printf 'LEFTOVER Ostler label loaded [%s] %s\n' "$a" "$s" ;;
         BREWF|BREWC|BREWSVC)
             bin="$(dirname "$(dirname "$s")")/opt/ollama/bin/ollama"
             kb=""; sha=""
@@ -194,10 +227,10 @@ home_of() { awk -v n="$1" '$1==n{print $3}' "$WORK/accounts"; }
 # account's home (or is that account's launchd session), so it is listed only.
 protected() {
     local kind="$1" a="$2" s="$3" h selfhome
-    case "$kind" in PROC|BREWSVC|BREWF|BREWC|APP) return 1 ;; esac
+    case "$kind" in PROC|BREWSVC|BREWF|BREWC|APP|SYSPLIST|SYSLOADED) return 1 ;; esac
     selfhome="$(home_of "$SELF")"
     if [[ "$a" != "$SELF" ]]; then
-        case "$kind" in DIR|USERAPP|AGENT|LOADED) return 0 ;; esac
+        case "$kind" in DIR|USERAPP|AGENT|LOADED|OSTPLIST|OSTLOADED) return 0 ;; esac
         h="$(home_of "$a")"
         case "$s" in "$h"/*) return 0 ;; esac
     fi
@@ -215,7 +248,16 @@ remove_item() {
     local kind="$1" a="$2" s="$3" uid
     case "$kind" in
         PROC)    kill "${s%% *}" 2>/dev/null || "$SUDO" -n kill "${s%% *}" 2>/dev/null; return 0 ;;
-        LOADED)  as_acct "$a" launchctl bootout "$s" >/dev/null 2>&1; return 0 ;;
+        LOADED|OSTLOADED) as_acct "$a" launchctl bootout "$s" >/dev/null 2>&1; return 0 ;;
+        SYSLOADED) launchctl bootout "$s" >/dev/null 2>&1 || "$SUDO" -n launchctl bootout "$s" >/dev/null 2>&1; return 0 ;;
+        OSTPLIST) uid="$(awk -v n="$a" '$1==n{print $2}' "$WORK/accounts")"
+                 as_acct "$a" launchctl bootout "gui/${uid}/$(basename "$s" .plist)" >/dev/null 2>&1
+                 as_acct "$a" rm -f "$s" ;;
+        SYSPLIST) uid="$(awk -v n="$SELF" '$1==n{print $2}' "$WORK/accounts")"
+                 case "$s" in */LaunchDaemons/*) d="system" ;; *) d="gui/${uid}" ;; esac
+                 launchctl bootout "${d}/$(basename "$s" .plist)" >/dev/null 2>&1 \
+                     || "$SUDO" -n launchctl bootout "${d}/$(basename "$s" .plist)" >/dev/null 2>&1
+                 rm -f "$s" 2>/dev/null || "$SUDO" -n rm -f "$s" ;;
         AGENT)   uid="$(awk -v n="$a" '$1==n{print $2}' "$WORK/accounts")"
                  as_acct "$a" launchctl bootout "gui/${uid}/${LABEL}" >/dev/null 2>&1
                  as_acct "$a" rm -f "$s" ;;
@@ -230,9 +272,9 @@ remove_item() {
 }
 
 # Order matters: stop what runs before deleting what it runs from.
-PRIO='PROC LOADED AGENT BREWSVC BREWF BREWC APP USERAPP DIR BIN'
+PRIO='PROC LOADED OSTLOADED SYSLOADED AGENT OSTPLIST SYSPLIST BREWSVC BREWF BREWC APP USERAPP DIR BIN'
 
-echo "NEW-119 cold precondition: no foreign ollama on any account"
+echo "NEW-119 cold precondition: no foreign ollama and no com.ostler.* launchd job, on any account"
 examine "$WORK/found1" "$WORK/examined1"
 echo "examined:"; cat "$WORK/examined1"
 
