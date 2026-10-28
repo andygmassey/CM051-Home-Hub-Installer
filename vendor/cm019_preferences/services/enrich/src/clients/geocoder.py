@@ -329,7 +329,8 @@ class GeocoderClient(BaseClient[GeocodingResult]):
         cached = self.cache.get(self.CACHE_PREFIX, cache_key)
         if cached is not None:
             self._cache_hits += 1
-            logger.debug(f"Cache hit for geocode: {query[:30]}...")
+            # Never the location text, not even a prefix (S8, 118).
+            logger.debug("Cache hit for geocode")
             return cached
 
         self._cache_misses += 1
@@ -363,7 +364,7 @@ class GeocoderClient(BaseClient[GeocodingResult]):
             if not response or len(response) == 0:
                 # Try again without bias if we used it
                 if use_bias:
-                    logger.debug(f"No results with bias, retrying without: {query[:30]}...")
+                    logger.debug("No results with bias, retrying without")
                     return await self.geocode(location_text, use_bias=False)
 
                 result = GeocodingResult(
@@ -380,16 +381,20 @@ class GeocoderClient(BaseClient[GeocodingResult]):
             # Cache the result
             self.cache.set(self.CACHE_PREFIX, cache_key, result)
 
+            # Neither the location text nor the coordinates: a geocoded home
+            # or office is the address in another form (S8, 118).
             logger.info(
-                f"Geocoded '{query[:30]}...' -> "
-                f"{result.formatted_coordinates() or 'no coords'} "
-                f"({result.place_type or 'unknown type'}, conf={result.confidence:.2f})"
+                "Geocoded a location: coords=%s (%s, conf=%.2f)",
+                "yes" if result.has_coordinates() else "no",
+                result.place_type or "unknown type", result.confidence,
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error geocoding '{query[:30]}...': {e}")
+            # The exception TYPE only: an HTTP error's text carries the request
+            # URL, and the URL carries the address as q= (S8, 118).
+            logger.error("Error geocoding a location: %s", type(e).__name__)
             return GeocodingResult(
                 query=location_text,
                 error=str(e),
@@ -507,7 +512,7 @@ class GeocoderClient(BaseClient[GeocodingResult]):
                 result = await self.geocode(location, use_bias)
                 results[location] = result
             except Exception as e:
-                logger.warning(f"Error geocoding '{location[:30]}...': {e}")
+                logger.warning("Error geocoding a location in a batch: %s", type(e).__name__)
                 results[location] = GeocodingResult(
                     query=location,
                     error=str(e),
@@ -625,13 +630,12 @@ class GeocoderClient(BaseClient[GeocodingResult]):
                 ))
 
             logger.info(
-                f"Enriched venue '{venue_name[:30]}...': "
-                f"{len(result.topics)} topics, {len(result.entities)} entities, "
-                f"confidence={result.confidence:.2f}"
+                "Enriched venue %s: %d topics, %d entities, confidence=%.2f",
+                preference_id, len(result.topics), len(result.entities), result.confidence,
             )
 
         except Exception as e:
-            logger.error(f"Error enriching venue '{venue_name}': {e}")
+            logger.error("Error enriching venue %s: %s", preference_id, type(e).__name__)
             result.error = str(e)
 
         return result

@@ -388,3 +388,11 @@ Tree `cm019_preferences`. RE-PINNED 5622a763 -> 5af9f5b5 (Archie, 2026-10-24: co
 - Tests: `tests/test_vendored_derive_tiers_and_rollup.py` and `tests/test_vendored_derive_covers_all_of_life.py` fake stores return no rows for a non-overlay query (same change as CM051 #3129's e7313d49); the broad set gains `theme.concept`.
 - Proof: `tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py` (wired in `derived-preferences.yml`): `python -m services.enrich.src.cli enrich --all` from this tree, then `derive_runner.run` over pyoxigraph, writes one `theme.concept` node from exactly the 3 admitted preferences; sensitive, minor, L3 and never-read topics are never sent. RED with the QID call unwired (13 of 29 fail).
 - Retire: the held hunks above when #3124 and #3120 land; verify=full once the shared-file reconciliation is done. The paraphrased comment lines stay a recorded divergence until upstream drops the names.
+
+## 2026-10-24: geocoders never log an address, venue or coordinates (personal-world-graph #442, UNMERGED upstream; S8, 118)
+
+Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when written; main has since re-pinned to 5af9f5b5, see the T0j section above, and upstream #442 is still unmerged there). Grafted ahead of the upstream merge for v1.0.118.
+
+- `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
+- Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
+- Retire: re-pin past the upstream merge commit.
