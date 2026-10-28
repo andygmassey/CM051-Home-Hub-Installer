@@ -1,0 +1,35 @@
+# Owner direction, 2026-10-25: the per-chat WhatsApp "Export chat" step is removed from
+# customer surfaces. Ostler never parsed those .txt files (universal_import has
+# no dispatcher); WhatsApp history comes from WhatsApp Desktop's own store.
+name: no-whatsapp-chat-export
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'lib/ostler-detect-exports.sh'
+      - 'gui/OstlerInstaller/Resources/*.json'
+      - 'tests/test_no_whatsapp_chat_export_instruction.sh'
+      - '.github/workflows/no-whatsapp-chat-export.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'lib/ostler-detect-exports.sh'
+      - 'gui/OstlerInstaller/Resources/*.json'
+      - 'tests/test_no_whatsapp_chat_export_instruction.sh'
+      - '.github/workflows/no-whatsapp-chat-export.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: No customer string tells anyone to export a WhatsApp chat
+        run: /bin/bash tests/test_no_whatsapp_chat_export_instruction.sh

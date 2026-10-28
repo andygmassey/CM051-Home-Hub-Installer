@@ -233,6 +233,62 @@ _FYI_ONLY = re.compile(
 _REQUEST_RE = re.compile("|".join(_REQUEST_PATTERNS), re.IGNORECASE)
 
 
+# A message that closes a conversation needs no reply, so it is never debt,
+# however close the contact (the score only down-weights it, and a strong
+# relationship kept it above the floor: 2026-10-26 brief listed a thread whose
+# last message was a closer). Conservative: the WHOLE message must be closer
+# phrases, emoji or an iMessage tapback line, and a question mark vetoes it.
+_CLOSER_PHRASES = (
+    "thank you", "thanks", "thank u", "thx", "ty", "cheers", "ok", "okay", "kk",
+    "cool", "great", "nice", "perfect", "lovely", "awesome", "got it", "noted",
+    "sounds good", "will do", "see you", "see you soon", "see you later",
+    "see ya", "bye", "goodnight", "good night", "night", "gn", "np",
+    "no worries", "so much", "very much", "a lot", "sure", "yep", "yup",
+    "alright", "fine", "again", "ttyl", "talk later", "appreciate it",
+    "much appreciated", "appreciated", "ta", "x", "xx", "xxx",
+    "唔該", "唔该", "多謝", "多谢", "謝謝", "谢谢", "好", "好的", "好呀", "好啊",
+    "收到", "明白", "了解", "再見", "再见", "拜拜", "晚安", "辛苦了", "辛苦晒",
+    "感謝", "感谢", "ok嘅", "晒",
+)
+_CLOSER_ALT = "|".join(
+    re.escape(p) for p in sorted(_CLOSER_PHRASES, key=len, reverse=True)
+)
+_CLOSER_ONLY = re.compile(r"^(?:%s)(?: (?:%s))*$" % (_CLOSER_ALT, _CLOSER_ALT))
+# CJK closers carry no spaces ("好的謝謝"): allow them to run together.
+_CLOSER_CJK_RUN = re.compile(
+    r"(?:%s)+" % "|".join(
+        re.escape(p) for p in sorted(_CLOSER_PHRASES, key=len, reverse=True)
+        if not p.isascii()
+    )
+)
+# iMessage tapbacks arrive as text lines in chat.db.
+_TAPBACK = re.compile(
+    r"^(?:liked|loved|disliked|laughed at|emphasized|questioned|"
+    r"reacted .{1,8} to)\b",
+    re.IGNORECASE,
+)
+_NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def is_conversation_closer(text: str) -> bool:
+    """True when an inbound message only closes the conversation: thanks, ok,
+    see you, an emoji, or a tapback. False for anything that asks."""
+    t = (text or "").strip()
+    if not t or "?" in t or "\uff1f" in t:
+        return False
+    if _TAPBACK.match(t):
+        return True
+    words = [w for w in _NON_WORD.split(t.lower()) if w]
+    if not words:
+        # No letters or digits at all: punctuation and emoji only.
+        return not any(ch.isalnum() for ch in t)
+    if len(words) > 6:
+        return False
+    return bool(_CLOSER_ONLY.match(" ".join(words))) or bool(
+        _CLOSER_CJK_RUN.fullmatch("".join(words))
+    )
+
+
 def expects_reply(text: str) -> bool:
     """Does this inbound message look like it expects a reply?
 
@@ -352,6 +408,9 @@ def detect_thread(
     # Owner sent the last message => ball is in the other person's court.
     if last.is_from_owner:
         return None
+
+    if is_conversation_closer(last.text):
+        return None  # a thanks / ok / emoji / tapback needs no reply
 
     waiting_since = _ensure_aware(last.timestamp)
     hours = (now - waiting_since).total_seconds() / 3600.0
@@ -488,6 +547,10 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
 # ---------------------------------------------------------------------------
 
 
+# Unsaved handles waiting longer than this (14 days) are not in the brief.
+UNSAVED_MAX_WAITING_HOURS = 14 * 24
+
+
 def render_brief_block(
     debts: list[ReplyDebt], *, limit: int = 5, names_unavailable: bool = False
 ) -> str:
@@ -501,6 +564,14 @@ def render_brief_block(
     """
     if not debts:
         return "No replies owed  -  you're all caught up."
+
+    # An unsaved or unknown handle waiting past the cut-off is stale noise,
+    # not a debt the owner can act on (same 14-day rule as the assistant's
+    # brief). Saved contacts are never dropped for age.
+    debts = [d for d in debts
+             if not (d.resolved is False and d.waiting_hours > UNSAVED_MAX_WAITING_HOURS)]
+    if not debts:
+        return ""
 
     top = debts[:limit]
     n = len(debts)
@@ -548,6 +619,7 @@ __all__ = [
     "Thread",
     "ReplyDebt",
     "expects_reply",
+    "is_conversation_closer",
     "score_debt",
     "detect_thread",
     "detect",

@@ -209,6 +209,7 @@ test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-part
 test_cm048_reminder_supersede_before_duplicate_thread.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_handle.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_reminder_title_quality_gate.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -284,6 +285,7 @@ test_daemon_hold_registers_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.ym
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_daemon_warmup_loads_at_chat_num_ctx.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_dead_tarball_url_is_not_advertised.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_decline_does_not_wipe_an_existing_install.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_declined_remote_access_is_not_promised.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_dedupe_defer_background.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -451,6 +453,7 @@ test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.y
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_i22_timeline_keeps_meeting_time.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
+test_i22b_allday_backfill.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_mismatch_shows_the_difference.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -571,6 +574,7 @@ test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_no_vendored_caller_of_read_across_graphs.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
+test_no_whatsapp_chat_export_instruction.sh	WIRED	.github/workflows/no-whatsapp-chat-export.yml
 test_no_xcodebuild_pipe_into_early_exit.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_notes_are_opened_and_refreshed.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_notion_obsidian_import_runs_end_to_end.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -1076,6 +1080,7 @@ scripts/tests/test_an_unreachable_box_is_not_a_defect.sh	WIRED	.github/workflows
 scripts/tests/test_artefact_version_read_is_shaped.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 scripts/tests/test_comment_strip_is_quote_aware.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_daemon_fda_case6_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
+scripts/tests/test_data_conservation_collect_budget.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_data_conservation_probe.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 scripts/tests/test_egress_declared_host_resolution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 scripts/tests/test_egress_probe_attribution.sh	WIRED	.github/workflows/install-abort-and-egress.yml
