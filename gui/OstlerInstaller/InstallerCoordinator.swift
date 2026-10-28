@@ -88,6 +88,9 @@ final class InstallerCoordinator: ObservableObject {
     // no Full Disk Access yet; ContentView shows FullDiskAccessGateView
     // and nothing else runs until the customer grants it and reopens.
     @Published var needsFullDiskAccessUpfront: Bool = false
+    /// True after two failed FDA rechecks: the gate then offers a way on.
+    @Published var showFDAContinueAnyway: Bool = false
+    private var fdaGate = FDAGateState()
     @Published var needsSudo: String? = nil
     /// F010: Command Line Tools wait state from the CLT_WAIT marker:
     /// nil (not waiting), "waiting", or "timeout" (past the 15 minute mark,
@@ -399,6 +402,67 @@ final class InstallerCoordinator: ObservableObject {
     /// ok" and "network failure, queued for deferred retry" -- the
     /// latter is the deliberate fail-open behaviour from the brief.
     @Published var registrationGate: RegistrationGate = .idle
+
+    // ── F006: hardware floor, checked before anything else ──────────
+    //
+    // Measured once, at construction, so the very first frame the
+    // window draws is already the refusal on an unsupported Mac. Not
+    // re-read later: RAM, chip and OS major do not change while the
+    // installer is open.
+    //
+    // While this is non-nil every entry point that leads to a
+    // permission prompt, the licence, device registration, the admin
+    // password or install.sh (and so the CLT download) returns at its
+    // first line. install.sh keeps its own ERR-02-PREREQ-RAM-LOW,
+    // ERR-02-PREREQ-MACOS-OLD and ERR-01-ARCH-INTEL-NOT-SUPPORTED as
+    // the backstop.
+    @Published private(set) var systemShortfall: SystemRequirements.Shortfall?
+
+    /// Where the licence is read from and written to. A property, not
+    /// the static default inline, so a test can point it at a temp dir
+    /// and never touch the real ~/.ostler.
+    var licensePath: URL = LicensePersistence.defaultLicensePath
+
+    /// The Full Disk Access probe, injectable so a test never reads the
+    /// real protected files.
+    var fullDiskAccessReport: () -> FDAProbeReport = { AuthorizationHelper.shared.fullDiskAccessReport() }
+
+    init(systemReadings: SystemReadings = SystemReadings.live()) {
+        self.systemShortfall = SystemRequirements.evaluate(systemReadings)
+    }
+
+    /// Which screen the root view shows. Lifted out of ContentView's
+    /// if-chain, unchanged in order, so the routing is assertable in a
+    /// unit test rather than trapped inside a view body.
+    enum RootScreen: Equatable {
+        case systemRequirements
+        case cancelled
+        case fullDiskAccess
+        case permissionsIntro
+        case licence
+        case install
+    }
+
+    var rootScreen: RootScreen {
+        if systemShortfall != nil { return .systemRequirements }
+        if cancelled { return .cancelled }
+        if needsFullDiskAccessUpfront { return .fullDiskAccess }
+        if !permissionsPrewarmFinished { return .permissionsIntro }
+        if licenseVerified { return .install }
+        return .licence
+    }
+
+    /// The window's onAppear entry point. On an unsupported Mac this
+    /// stops here: no move-to-Applications modal, no Full Disk Access
+    /// probe, nothing that leads on to a prompt.
+    func startFromFirstScreen(relocate: () -> Void = { SelfRelocator.checkAndRelocate() }) {
+        if let s = systemShortfall {
+            OstlerLog.lifecycle.info("system requirements: NOT met -- memoryGB=\(s.readings.memoryGB, privacy: .public) macOS=\(s.readings.macOSVersion, privacy: .public) appleSilicon=\(s.readings.isAppleSilicon, privacy: .public); holding on first screen")
+            return
+        }
+        relocate()
+        gateFullDiskAccessThenStart()
+    }
     /// Lazy so the verifier doesn't try to parse the embedded
     /// public key until we actually need it; that way the unit-
     /// test target's injected verifier short-circuits init.
@@ -425,6 +489,14 @@ final class InstallerCoordinator: ObservableObject {
     func setRegistrationClient(_ client: DeviceRegistrationClient) {
         self.registrationClient = client
     }
+
+    #if DEBUG
+    /// Test seam: a verifier built from a test key, so a test can hand
+    /// the coordinator a licence that genuinely verifies.
+    func setLicenseVerifierForTests(_ verifier: LicenseVerifier) {
+        self.licenseVerifier = verifier
+    }
+    #endif
 
     #if DEBUG
     /// Test seam. Routes a synthetic stdout line through the same
@@ -599,6 +671,7 @@ final class InstallerCoordinator: ObservableObject {
     /// can await `AuthorizationHelper` for the pre-launch sudo grant.
     /// See `bootstrapAsync()` for the actual sequencing.
     func bootstrap() {
+        guard systemShortfall == nil else { return }
         Task { @MainActor in await self.bootstrapAsync() }
     }
 
@@ -792,8 +865,9 @@ final class InstallerCoordinator: ObservableObject {
     /// Failure (including absence) is silent -- the view falls
     /// through to `LicenseEntryView`.
     func verifyExistingLicenseOnLaunch() {
+        guard systemShortfall == nil else { return }
         guard !licenseVerified else { return }
-        guard let data = LicensePersistence.readExisting() else { return }
+        guard let data = LicensePersistence.readExisting(at: licensePath) else { return }
         _ = verifyLicense(data: data, source: "on-disk")
     }
 
@@ -901,27 +975,73 @@ final class InstallerCoordinator: ObservableObject {
     /// once with FDA in place. This is what stops the mid-install
     /// quit-and-reopen that used to drop the app onto the reuse path.
     func gateFullDiskAccessThenStart() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        guard systemShortfall == nil else { return }
+        let report = fullDiskAccessReport()
+        if fdaGate.launchDecision(report) == .proceed {
             needsFullDiskAccessUpfront = false
-            OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            if report.granted {
+                OstlerLog.lifecycle.info("FDA gate: access present -- continuing to permissions/licence flow")
+            } else {
+                logFDAProbeFailures(report, note: "FDA gate: could not confirm access (no probe file present) -- continuing")
+            }
             requestPermissionsThenStart()
         } else {
             needsFullDiskAccessUpfront = true
-            OstlerLog.lifecycle.info("FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
+            logFDAProbeFailures(report, note: "FDA gate: access NOT granted -- showing up-front Full Disk Access screen")
         }
     }
 
     /// CX-87: bound to the "I've switched it on" button on the FDA gate,
     /// as a fallback for the case where macOS did not force-quit the app
-    /// after the grant. Re-probes; if FDA is now present, drops the gate
-    /// and proceeds, otherwise leaves the gate up.
+    /// after the grant. Re-probes; if FDA is now present (or cannot be
+    /// ruled out), drops the gate and proceeds, otherwise holds. After two
+    /// failed rechecks the gate offers "Continue anyway".
     func recheckFullDiskAccessAndProceed() {
-        if AuthorizationHelper.shared.hasFullDiskAccess() {
+        let report = fullDiskAccessReport()
+        if fdaGate.recheck(report) == .proceed {
             OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
             needsFullDiskAccessUpfront = false
             requestPermissionsThenStart()
         } else {
-            OstlerLog.lifecycle.info("FDA gate: re-check still without access -- holding on gate")
+            showFDAContinueAnyway = fdaGate.showContinueAnyway
+            logFDAProbeFailures(report, note: "FDA gate: re-check \(fdaGate.failedRechecks) still without access -- holding on gate")
+        }
+    }
+
+    /// Escape hatch after two failed rechecks. The customer has been told
+    /// honestly that access could not be confirmed.
+    func continueWithoutConfirmedFullDiskAccess() {
+        guard fdaGate.showContinueAnyway else { return }
+        OstlerLog.lifecycle.info("FDA gate: customer chose Continue anyway after \(self.fdaGate.failedRechecks) failed re-checks")
+        needsFullDiskAccessUpfront = false
+        requestPermissionsThenStart()
+    }
+
+    /// Relaunch the bundle in /Applications; the new process runs the
+    /// gate again from the top. Arguments are exposed for tests, which
+    /// must never launch the real app.
+    nonisolated static let relaunchCommand: [String] = [
+        "/bin/sh", "-c", "sleep 1; /usr/bin/open -n \"$0\"", "/Applications/OstlerInstaller.app",
+    ]
+
+    func quitAndReopenFromApplications() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: Self.relaunchCommand[0])
+        task.arguments = Array(Self.relaunchCommand.dropFirst())
+        do {
+            try task.run()
+        } catch {
+            OstlerLog.lifecycle.error("FDA gate: relaunch failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        NSApplication.shared.terminate(nil)
+    }
+
+    /// Paths and errno only, never contents.
+    private func logFDAProbeFailures(_ report: FDAProbeReport, note: String) {
+        OstlerLog.lifecycle.info("\(note, privacy: .public)")
+        for line in report.failureLines {
+            OstlerLog.lifecycle.info("FDA probe not readable: \(line, privacy: .public)")
         }
     }
 
@@ -945,6 +1065,7 @@ final class InstallerCoordinator: ObservableObject {
     /// per-permission results, then either advances to .complete (all
     /// granted) or .summary(denials:) (one or more denied).
     func beginPermissionsPrewarm() {
+        guard systemShortfall == nil else { return }
         guard permissionsIntroState == .intro else {
             OstlerLog.lifecycle.debug("beginPermissionsPrewarm: ignored -- state=\(String(describing: self.permissionsIntroState), privacy: .public)")
             return
@@ -999,6 +1120,13 @@ final class InstallerCoordinator: ObservableObject {
     /// result so the view can render an inline error.
     @discardableResult
     func verifyLicense(data: Data, source: String) -> LicenseVerificationResult {
+        // F006: no licence is accepted, persisted or registered on a Mac
+        // below the floor. The view never offers the licence screen
+        // there; this is the same rule at the method, so a drop that
+        // arrives some other way cannot spend a device slot.
+        guard systemShortfall == nil else {
+            return .malformed(reason: "this Mac does not meet the system requirements")
+        }
         guard let verifier = licenseVerifier else {
             appendLog(level: "error", msg: "Licence verifier unavailable -- production public key not embedded")
             return .malformed(reason: "verifier not initialised (production public key missing or invalid)")
@@ -1009,8 +1137,8 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: "info", msg: "Licence accepted (\(source), licence_id=\(claims.licenseId))")
             OstlerLog.lifecycle.info("verifyLicense: valid source=\(source, privacy: .public) license=\(claims.licenseId, privacy: .public)")
             do {
-                try LicensePersistence.write(licenseData: data)
-                appendLog(level: "info", msg: "Licence persisted to \(LicensePersistence.defaultLicensePath.path)")
+                try LicensePersistence.write(licenseData: data, to: licensePath)
+                appendLog(level: "info", msg: "Licence persisted to \(licensePath.path)")
             } catch {
                 appendLog(level: "warn", msg: "Licence verified but persistence failed: \(error.localizedDescription)")
                 OstlerLog.lifecycle.error("verifyLicense: persistence failed -- \(error.localizedDescription, privacy: .public)")

@@ -63,6 +63,13 @@ struct OstlerInstallerApp: App {
                     minHeight: 620, idealHeight: 620, maxHeight: 620
                 )
                 .onAppear {
+                    // F006: the hardware floor (16 GB, Apple Silicon,
+                    // macOS 14) is checked FIRST. On a Mac below it,
+                    // startFromFirstScreen returns before the relocator
+                    // and before the FDA gate, and ContentView shows the
+                    // requirements screen with a Quit button. Otherwise
+                    // it runs the two calls described below, in order.
+                    //
                     // First-launch self-relocator. If we're running
                     // from inside a mounted DMG or anywhere else
                     // outside /Applications, prompt the user to move
@@ -73,7 +80,6 @@ struct OstlerInstallerApp: App {
                     // /Applications copy, not the about-to-be-deleted
                     // DMG copy. (DMG brief explicitly requires this
                     // ordering; see CM051 PR #71.)
-                    SelfRelocator.checkAndRelocate()
 
                     // CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23).
                     // Mid-install auth pre-warm. Surfaces the intro
@@ -99,7 +105,7 @@ struct OstlerInstallerApp: App {
                     // path finds FDA present and proceeds. Only once FDA
                     // is in place do permissions/licence/install run --
                     // so the whole flow happens once, never mid-install.
-                    coordinator.gateFullDiskAccessThenStart()
+                    coordinator.startFromFirstScreen()
                 }
         }
         .windowResizability(.contentSize)

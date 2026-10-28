@@ -50,14 +50,25 @@ struct ContentView: View {
             // over the whole window with a calm neutral terminal. Checked
             // first so it overrides every other gate once install.sh has
             // emitted DONE status=cancelled.
-            if coordinator.cancelled {
+            // F006: one switch over `coordinator.rootScreen`, which holds
+            // the same order this if-chain always had, plus the hardware
+            // floor ahead of all of it. The comments below are the
+            // original ones, kept against the case they explain.
+            switch coordinator.rootScreen {
+            case .systemRequirements:
+                // An unsupported Mac stops here, before the FDA gate,
+                // permissions, licence, admin, CLT and any network call.
+                if let shortfall = coordinator.systemShortfall {
+                    SystemRequirementsView(shortfall: shortfall)
+                }
+            case .cancelled:
                 InstallCancelledView()
             // CX-87 (2026-06-01): Full Disk Access gate sits ahead of
             // everything except the cancelled terminal. On first launch
             // with no FDA, this is the only screen shown until the
             // customer grants it and reopens -- so the quit-and-reopen
             // happens before any questions, not mid-install.
-            } else if coordinator.needsFullDiskAccessUpfront {
+            case .fullDiskAccess:
                 FullDiskAccessGateView()
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
@@ -66,11 +77,11 @@ struct ContentView: View {
             // walked away to read their welcome email. Once the
             // intro flow is `.complete` or `.skipped` we fall
             // through to the existing licence + admin gates.
-            } else if !coordinator.permissionsPrewarmFinished {
+            case .permissionsIntro:
                 PermissionsIntroView()
-            } else if coordinator.licenseVerified {
+            case .install:
                 gatedContent
-            } else {
+            case .licence:
                 LicenseEntryView()
             }
         }
