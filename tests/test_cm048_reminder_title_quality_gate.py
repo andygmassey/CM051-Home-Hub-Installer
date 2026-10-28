@@ -47,7 +47,7 @@ def _decide(text, *, level="L1", participants=("user", "Sam"), age=2,
     )
 
 
-GOOD = ["Send Sam the venue quote", "Book Alex a dentist appointment",
+GOOD = ["Give Sam the venue quote", "Get Alex a dentist appointment",
         "Follow up with Sam about the venue quote", "Pay the plumber the deposit"]
 
 BAD = [
@@ -55,7 +55,7 @@ BAD = [
     ("Follow up on a conversation", "generic_follow_up"),
     ("Follow up with @sam", "handle"),
     ("Follow up with @sam-example-com", "handle"),
-    ("Send Sam the file at " + "/" + "Users" + "/x/Conversations/summary.md", "path"),
+    ("Give Sam the file at " + "/" + "Users" + "/x/Conversations/summary.md", "path"),
     ("Open file:///tmp/a/summary.md", "path"),
     ("Email sam@example.com the quote", "email"),
     ("Follow up on the investigation to determine what is needed", "vague_follow_up"),
@@ -84,7 +84,7 @@ def test_each_generic_pattern_is_rejected(title, reason):
 
 @pytest.mark.parametrize("participants", [("user", "Sam"), ("user", "Sam", "Alex"), ("user",)])
 def test_l2_group_solo_and_unresolved_are_never_generic_pushed(participants):
-    d = _decide("Send Sam the venue quote", level="L2", participants=participants,
+    d = _decide("Give Sam the venue quote", level="L2", participants=participants,
                 resolver=lambda h: None)
     assert not d.eligible and d.skip_reason == "no_specific_action"
 
@@ -95,7 +95,7 @@ def test_l2_resolved_one_to_one_keeps_name_and_text():
 
 
 def test_notes_are_human_readable():
-    d = _decide("Send Sam the venue quote", started_at="2026-10-12T10:00:00Z",
+    d = _decide("Give Sam the venue quote", started_at="2026-10-12T10:00:00Z",
                 max_age_days_override=10000)
     assert d.push_notes == "From your conversation with Sam, 12 Oct 2026"
     assert "file://" not in d.push_notes and "/" not in d.push_notes
@@ -107,25 +107,25 @@ def test_notes_are_human_readable():
     (("user", "Sam", "Alex"), "From your group conversation, 12 Oct 2026"),
 ])
 def test_notes_never_print_handles_or_numbers(participants, expected):
-    d = _decide("Send Sam the venue quote", participants=participants,
+    d = _decide("Give Sam the venue quote", participants=participants,
                 started_at="2026-10-12T10:00:00Z", max_age_days_override=10000,
                 resolver=lambda h: h if h.isalpha() else None)
     assert d.eligible and d.push_notes == expected
 
 
 def test_400_day_old_todo_is_not_pushed():
-    d = _decide("Send Sam the venue quote", age=400)
+    d = _decide("Give Sam the venue quote", age=400)
     assert not d.eligible and d.skip_reason == "stale_source"
 
 
 def test_cutoff_boundary_and_config(monkeypatch):
-    assert _decide("Send Sam the venue quote", age=29).eligible
-    assert not _decide("Send Sam the venue quote", age=31).eligible
+    assert _decide("Give Sam the venue quote", age=29).eligible
+    assert not _decide("Give Sam the venue quote", age=31).eligible
     monkeypatch.setenv("OSTLER_TODO_MAX_AGE_DAYS", "60")
-    assert _decide("Send Sam the venue quote", age=45).eligible
+    assert _decide("Give Sam the venue quote", age=45).eligible
     monkeypatch.setenv("OSTLER_TODO_MAX_AGE_DAYS", "0")
-    assert _decide("Send Sam the venue quote", age=400).eligible
+    assert _decide("Give Sam the venue quote", age=400).eligible
 
 
 def test_date_only_source_uses_bundle_date():
-    assert not _decide("Send Sam the venue quote", started_at="", date="2021-08-12").eligible
+    assert not _decide("Give Sam the venue quote", started_at="", date="2021-08-12").eligible

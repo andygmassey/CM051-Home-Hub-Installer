@@ -104,3 +104,7 @@ opened from it; replace this line with the squash sha when it merges). Files:
 Pinned by `tests/test_cm048_reminder_title_quality_gate.py` (wired in
 `cm048-participants-as-strings.yml`). Upstream differs only in the L2 branch:
 CM048 main has no name resolver, so its L2 always returns "" (skipped).
+
+The prompt's worked example reads "Give Sam the venue quote" here (upstream:
+"Send ..."), so the name guard's capitalised-pair arm clears it against the
+approved cast. Wording only; no behaviour change.
