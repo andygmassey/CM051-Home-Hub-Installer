@@ -1319,11 +1319,11 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Palavra-passe da exportação do Disney+"
 MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="O Disney+ fornece a exportação RGPD como uma folha de cálculo protegida por palavra-passe, o que é normal e não é um problema com a sua transferência. Introduza a palavra-passe para importar agora o seu histórico de visualização do Disney+ ou deixe em branco para ignorar; tudo o resto continua a ser importado."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Tem exportações de dados prontas?"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="O Ostler pode importar arquivos de redes sociais e de plataformas – todo o seu historial com amigos, família, locais, opiniões – logo desde o início. Quanto mais o Ostler souber no primeiro dia, mais útil será nesse dia. Também pode adicioná-los mais tarde; sem pressa.
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
 
-Peça a exportação dos seus dados a cada plataforma (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), transfira os ficheiros ZIP e coloque-os na pasta Transferências.
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
 
-Por predefinição, o Ostler procura em ~/Downloads. Quer outra pasta? Escolha uma abaixo. Caso contrário, ignore e importe mais tarde."
+Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Importar mensagens do Gmail deste Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Lê o conteúdo do Gmail diretamente do ficheiro Takeout. A Google nunca vê o Ostler."

@@ -1319,11 +1319,11 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Mot de passe de l’export Disney+"
 MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ fournit son export RGPD sous forme de feuille de calcul protégée par mot de passe. C’est normal et votre téléchargement n’est pas en cause. Saisissez le mot de passe pour importer dès maintenant votre historique de visionnage Disney+, ou laissez le champ vide pour l’ignorer ; tout le reste sera tout de même importé."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Avez-vous des exports de données prêts ?"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler peut importer des archives de réseaux sociaux et de plateformes – tout votre historique avec vos amis, votre famille, vos lieux, vos opinions – dès le départ. Plus Ostler en sait le premier jour, plus il est utile dès ce jour. Vous pouvez aussi l’ajouter plus tard, rien ne presse.
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
 
-Demandez l’export de vos données à chaque plateforme (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), téléchargez les fichiers ZIP et placez-les dans votre dossier Téléchargements.
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
 
-Ostler cherchera par défaut dans ~/Downloads. Vous préférez un autre dossier ? Choisissez-en un ci-dessous. Sinon, passez cette étape et importez plus tard."
+Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Importer les messages Gmail de ce Takeout ?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Lit le contenu Gmail directement depuis le fichier Takeout. Google ne voit jamais Ostler."
