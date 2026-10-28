@@ -331,10 +331,10 @@ def _route(extra):
     asyncio.run(_svc.enrich_preference(pref))
     return list(_calls)
 for label, extra, want in (
-        ("restaurant point", {"restaurant": "Example Noodle Bar"}, ["osm_cuisine"]),
+        ("restaurant point", {"restaurant": "restaurant-fixture-1"}, ["osm_cuisine"]),
         ("plain food subject (no restaurant)", None, ["wikidata"]),
         ("plain food subject, empty extra", {}, ["wikidata"]),
-        ("restaurant with cuisine already known", {"restaurant": "Example Noodle Bar", "cuisine": "ramen"}, ["wikidata"])):
+        ("restaurant with cuisine already known", {"restaurant": "restaurant-fixture-1", "cuisine": "ramen"}, ["wikidata"])):
     got = _route(extra)
     if got != want:
         bad.append("food %s routed to %r, expected %r" % (label, got, want))
