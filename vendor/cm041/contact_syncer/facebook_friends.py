@@ -436,13 +436,13 @@ def upsert_qdrant(
         # last-write-wins. Preserving the timestamp without its value would
         # create the same inconsistency the KeyError was hiding, so the pair
         # moves together or not at all.
-        ex_ts = existing[0].payload.get("last_contact_ts")
-        ex_lc = existing[0].payload.get("last_contact")
+        ex_ts = _existing.payload.get("last_contact_ts")
+        ex_lc = _existing.payload.get("last_contact")
         if ex_ts and ex_lc and ex_ts > last_contact_ts:
             payload["last_contact"] = ex_lc
             payload["last_contact_ts"] = ex_ts
         # Preserve source if already richer
-        ex_source = existing[0].payload.get("source", "")
+        ex_source = _existing.payload.get("source", "")
         if ex_source and ex_source != "facebook_friends":
             payload["source"] = ex_source
 

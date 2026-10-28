@@ -348,3 +348,21 @@ shape on the MINUS side: upstream syncer.py carries a US-format example number
 in a comment the vendored copy does not take). The checked-in patch is stale
 against the new pin and does not apply; the content gate reads RED for this
 tree, as it did on main before this change.
+
+## 2026-10-29, NEW-119, board row 963: a failed read never overwrites
+
+Location and shape only.
+
+| file | change |
+|---|---|
+| `syncer.py` | `_upsert_qdrant` reads the existing point through `qdrant_collection.read_existing_payload` (the bare `except Exception: pass` is gone). An unreadable store skips the upsert, logs, increments `qdrant_writes_skipped_unreadable`, returns False. Both callers add a `stage: qdrant_read` row to `skipped`. A missing collection is still a readable "no point". |
+| `facebook_friends.py`, `linkedin_connections.py` | the preservation block read an undefined name `existing` (NameError once a point was readable); now reads `_existing.payload`. |
+
+UPSTREAM ROW: CM041 `contact_syncer/syncer.py` still carries the bare `pass`
+(its #172 fixed only the social writers); the same change is owed to CM041.
+Retires when CM041 takes it and the tree is re-pinned.
+
+NOT FIXED HERE (separate cause): in all three social writers the
+`PointStruct` is built BEFORE the preservation block mutates `payload`, and
+pydantic copies the dict, so the preserved fields never reach the store.
+

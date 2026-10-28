@@ -1,0 +1,49 @@
+# Board row 963 (BLOCKING, data loss): a failed Qdrant read must never be
+# followed by an upsert that overwrites the stored person record, in the copy
+# that actually ships (vendor/cm041).
+name: people-writers-never-overwrite-on-failed-read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/contact_syncer/facebook_friends.py'
+      - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/qdrant_collection.py'
+      - 'tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py'
+      - '.github/workflows/people-writers-never-overwrite-on-failed-read.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/contact_syncer/syncer.py'
+      - 'vendor/cm041/contact_syncer/facebook_friends.py'
+      - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/qdrant_collection.py'
+      - 'tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py'
+      - '.github/workflows/people-writers-never-overwrite-on-failed-read.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  people-writers-never-overwrite-on-failed-read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
+      - name: A failed read leaves the stored record byte-identical
+        run: |
+          n="$(python -m pytest tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py -v
