@@ -149,13 +149,14 @@ class Geocoder:
                 self._last_request_time = asyncio.get_event_loop().time()
 
                 if response.status != 200:
-                    logger.warning(f"Geocoding failed for '{address}': HTTP {response.status}")
+                    # Never the address (S8, 118): logs leave the box.
+                    logger.warning("Geocoding failed: HTTP %s", response.status)
                     return None
 
                 data = await response.json()
 
                 if not data:
-                    logger.debug(f"No results for '{address}'")
+                    logger.debug("Geocoding found no results")
                     self._cache[cache_key] = None
                     return None
 
@@ -194,7 +195,9 @@ class Geocoder:
                 return geocode_result
 
         except Exception as e:
-            logger.error(f"Geocoding error for '{address}': {e}")
+            # The exception TYPE only: its text can carry the request URL,
+            # and the URL carries the address as q= (S8, 118).
+            logger.error("Geocoding error: %s", type(e).__name__)
             return None
 
     async def geocode_batch(
