@@ -3,6 +3,19 @@
     "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes – use ASCII '--' or en-dash with spaces."
   },
 
+  "system_requirements": {
+    "_meta": "F006 (2026-10-24): first screen on a Mac below the hardware floor (16 GB memory, Apple Silicon, macOS 14; the same floors install.sh enforces). Shown before Full Disk Access, permissions, licence, device registration, admin and the Command Line Tools download, so nothing has been installed or changed. Only the lines for the floors this Mac misses are shown.",
+    "heading": "Ostler can't run on this Mac",
+    "body": "Ostler needs a Mac with Apple Silicon and at least {min_gb} GB of memory, running macOS {min_macos} or later.",
+    "memory_line": "This Mac has {gb} GB of memory.",
+    "chip_line": "This Mac has an Intel processor.",
+    "macos_line": "This Mac is running macOS {version}.",
+    "nothing_changed": "Nothing has been installed or changed.",
+    "requirements_link": "See the system requirements",
+    "requirements_url": "https://ostler.ai/faq#requirements",
+    "quit_button": "Quit"
+  },
+
   "device_registration_error": {
     "heading": "We could not register this Mac",
     "quit_button": "Quit installer"
@@ -159,7 +172,10 @@
     "step_2": "Switch on OstlerInstaller in the list.",
     "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
     "open_settings_button": "Open System Settings",
-    "recheck_button": "I've switched it on, continue"
+    "recheck_button": "I've switched it on, continue",
+    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
+    "continue_anyway_button": "Continue anyway",
+    "quit_reopen_button": "Quit and reopen"
   },
 
   "log_drawer": {
