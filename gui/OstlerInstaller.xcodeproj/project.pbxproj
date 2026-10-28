@@ -113,10 +113,10 @@
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
 		B4DD67735BC1AF4ACBEB58CF /* PermissionsPrewarmInfoPlistTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */; };
+		BD5297A4F5D99111BA8D8B46 /* FullDiskAccessProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A04B03E7988A2CD3A2A433 /* FullDiskAccessProbeTests.swift */; };
 		BEBDED6F5ED5E9C11F373729 /* HintCopy.zh-Hans.json in Resources */ = {isa = PBXBuildFile; fileRef = 878CE3502064C620DB02C761 /* HintCopy.zh-Hans.json */; };
 		C152FF5A84EF59D6AEC650ED /* ViewCopy.zh-Hant.json in Resources */ = {isa = PBXBuildFile; fileRef = A62B0C6F04ADEBC7F5EB32E1 /* ViewCopy.zh-Hant.json */; };
 		C2C16CD2B5761A7CEF45B635 /* HintCopy.es.json in Resources */ = {isa = PBXBuildFile; fileRef = E4A719159886C8637CAEC452 /* HintCopy.es.json */; };
-		BD5297A4F5D99111BA8D8B46 /* FullDiskAccessProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A04B03E7988A2CD3A2A433 /* FullDiskAccessProbeTests.swift */; };
 		C3A1E7352271E7F5F925AC6E /* DialogIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 9E1974AECCE8C351193A5257 /* DialogIcon.icns */; };
 		C682AA064F38F35776B308FF /* ViewCopy.zh-Hans.json in Resources */ = {isa = PBXBuildFile; fileRef = F33D126445F0617A320859D3 /* ViewCopy.zh-Hans.json */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
@@ -181,8 +181,8 @@
 		0A8FE4423B311BB14298C94D /* Outfit-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Regular.ttf"; sourceTree = "<group>"; };
 		0B00C2C51EF6CA0F9AAC4D24 /* LogDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogDrawerView.swift; sourceTree = "<group>"; };
 		0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaffeinateTerminationTests.swift; sourceTree = "<group>"; };
-		0DE8B3DA2AB135521A463109 /* HintCopy.ko.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HintCopy.ko.json; sourceTree = "<group>"; };
 		0DC1B8689373434548BFB4A7 /* FullDiskAccessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDiskAccessProbe.swift; sourceTree = "<group>"; };
+		0DE8B3DA2AB135521A463109 /* HintCopy.ko.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HintCopy.ko.json; sourceTree = "<group>"; };
 		0E3925E18384B0486F2FA7FD /* MusicRefreshMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicRefreshMode.swift; sourceTree = "<group>"; };
 		12932CC2211D0A5C90581DB7 /* ViewCopy.zh-HK.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "ViewCopy.zh-HK.json"; sourceTree = "<group>"; };
 		143B97F50F4AF5CC13BFCECB /* ViewCopy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.json; sourceTree = "<group>"; };
