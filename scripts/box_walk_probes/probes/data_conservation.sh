@@ -29,8 +29,15 @@
 #                the exports; every row has an exact expected IN/STORED/SHOWN.
 #   <other>      set OSTLER_CONSERVATION_PROFILE.
 #
+# BUDGET. The collect has a hard wall-clock budget (OSTLER_CONSERVATION_COLLECT_BUDGET_S,
+# default 600). OS003 #420: on a large corpus it ran 2h and 45 min at 90% CPU and
+# was killed by hand. The budget is enforced ON THE BOX by a perl wrapper that puts
+# the collect in its own process group and TERM then KILLs that group at the deadline
+# (an ssh session has no pty, so killing the client would orphan the remote work).
+# A budget hit is CANNOT-RUN-BUDGET, never PASS and never FAIL.
+#
 # EXIT: 0 PASS, 1 FAIL (any LOST), 78 CANNOT-RUN (an instrument could not read,
-# or no rows). CANNOT-RUN is not a pass.
+# or no rows, or CANNOT-RUN-BUDGET). CANNOT-RUN is not a pass.
 #
 # macOS bash 3.2 + BSD userland. British English; " -- " not em-dashes.
 # ============================================================================
@@ -42,7 +49,7 @@ HERE_PROBE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROBE_NAME="data_conservation"
 PROBE_QUESTION="per source and category, do IN, STORED and SHOWN agree, or is there an unexplained loss?"
 
-DC_LIB="${HERE_PROBE}/../lib/data_conservation.py"
+DC_LIB="${OSTLER_CONSERVATION_LIB:-${HERE_PROBE}/../lib/data_conservation.py}"
 DC_EXPECTED="${OSTLER_CONSERVATION_EXPECTED:-${HERE_PROBE}/../fixtures/data_conservation/expected.json}"
 DC_PROFILE="${OSTLER_CONSERVATION_PROFILE:-chain}"
 DC_PY="${OSTLER_PROBE_PYTHON:-python3}"
@@ -50,8 +57,14 @@ DC_TABLE_OUT="${OSTLER_CONSERVATION_TABLE_OUT:-}"
 
 # Prints the facts JSON from the box. The lib is shipped as a heredoc so the
 # box needs nothing installed; its python3 is the system one (3.9 safe).
+DC_BUDGET_S="${OSTLER_CONSERVATION_COLLECT_BUDGET_S:-600}"
+DC_BUDGET_RC=142
+# perl runs the collect as the leader of its own process group; on alarm it TERMs,
+# waits 2s, KILLs the whole group, reaps, and exits 142.
+DC_BUDGET_PERL='my $t=shift; my $p=fork; defined $p or exit 70; if (!$p) { setpgrp(0,0); exec @ARGV or exit 127 } $SIG{ALRM}=sub { kill("TERM", -$p); select(undef,undef,undef,2); kill("KILL", -$p); waitpid($p, 0); exit 142 }; alarm $t; waitpid($p, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)'
+
 dc_collect() {
-    box_run "python3 - collect <<'PYPAYLOAD'
+    box_run "perl -e '${DC_BUDGET_PERL}' ${DC_BUDGET_S} python3 - collect <<'PYPAYLOAD'
 $(cat "$DC_LIB")
 PYPAYLOAD"
 }
@@ -67,7 +80,12 @@ run_probe() {
     local work facts_json out rc
     work="$(mktemp -d)" || probe_cannot_run "no scratch directory"
     facts_json="${work}/facts.json"
-    dc_collect > "$facts_json"
+    case "$DC_BUDGET_S" in ''|*[!0-9]*|0) probe_cannot_run "OSTLER_CONSERVATION_COLLECT_BUDGET_S must be a positive integer of seconds, got '${DC_BUDGET_S}'" ;; esac
+    local crc
+    dc_collect > "$facts_json"; crc=$?
+    if [ "$crc" -eq "$DC_BUDGET_RC" ]; then
+        probe_cannot_run "CANNOT-RUN-BUDGET: the collect hit its ${DC_BUDGET_S}s wall-clock budget and its process group was killed on the box. Nothing was adjudicated; this is not a pass and not a fail. Raise OSTLER_CONSERVATION_COLLECT_BUDGET_S to measure a larger corpus."
+    fi
     if ! "$DC_PY" -c 'import json,sys; json.load(open(sys.argv[1]))' "$facts_json" 2>/dev/null; then
         probe_cannot_run "the box returned no readable facts JSON (python3 missing on the box, or ssh dropped the payload). An empty answer is not a clean answer."
     fi
