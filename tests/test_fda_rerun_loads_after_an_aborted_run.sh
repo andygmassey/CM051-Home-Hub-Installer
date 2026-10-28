@@ -148,19 +148,21 @@ fi
 
 # ---- CONTROL 3: the mutant. Remove the launchctl-print limb; must go RED. ----
 mkdir -p "$WORK/mut"
-cp "$WORK/subj/load.sh" "$WORK/mut/"
-python3 - "$WORK/subj/decide.sh" "$WORK/mut/decide.sh" <<'PYEOF'
+cp "$WORK/subj/decide.sh" "$WORK/mut/"
+# The limb sits on the deferred load's condition (kept off the plist write so
+# install.sh's line-number citations do not move). The mutant collapses that
+# condition back to the flag alone.
+python3 - "$WORK/subj/load.sh" "$WORK/mut/load.sh" <<'PYEOF'
 import sys
 L = open(sys.argv[1]).read().split("\n")
 i = next((k for k, l in enumerate(L) if 'launchctl print "gui/$(id -u)/com.ostler.fda-rerun"' in l), None)
 if i is not None:
     s = i
-    while not L[s].lstrip().startswith("if "): s -= 1
-    e = next(k for k in range(i, len(L)) if L[k].strip() == "fi")
-    del L[s:e + 1]
+    while not L[s].startswith("if "): s -= 1
+    L[s:i + 1] = ['if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then']
 open(sys.argv[2], "w").write("\n".join(L))
 PYEOF
-if cmp -s "$WORK/subj/decide.sh" "$WORK/mut/decide.sh"; then
+if cmp -s "$WORK/subj/load.sh" "$WORK/mut/load.sh"; then
   if [ "$got" = "1 yes" ]; then
     bad "CONTROL (mutant): no launchctl-print limb to remove, yet the subject passed. Something"
     bad "                  else loads the agent and this gate is not measuring what it claims."
