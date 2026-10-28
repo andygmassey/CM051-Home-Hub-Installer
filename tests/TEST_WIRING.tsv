@@ -296,6 +296,7 @@ test_deferral_reachability.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
