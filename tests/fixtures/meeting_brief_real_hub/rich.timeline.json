@@ -14,6 +14,7 @@
     {
       "channel": "calendar",
       "location": "Studio Nine",
+      "privacy_level": "L1",
       "summary": "Lisbon workshop budget review",
       "title": "Lisbon workshop budget review",
       "type": "meeting",
@@ -23,6 +24,7 @@
     {
       "channel": "calendar",
       "location": "Riverside Town",
+      "privacy_level": "L1",
       "summary": "Autumn roadmap check-in",
       "title": "Autumn roadmap check-in",
       "type": "meeting",

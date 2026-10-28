@@ -1539,3 +1539,22 @@ change was grafted.
 - Proof: 8 pass on the graft, 8 fail on the pre-graft ical-server, 6 fail with the L3 filter
   mutated out (pyoxigraph/rdflib/cryptography venv, `PYTHONPATH=vendor`).
 - Retire: re-pin past fe3290d7.
+## 2026-10-24: I22, a past meeting keeps its time and the calendar's all-day flag (graft of CM041 #238)
+
+Tree `cm041/assistant_api`. Location and shape only:
+
+- `ical-server.py`: two new functions, `_graph_all_day` and `_timeline_row_time`, directly
+  before `# Google Calendar via gws CLI`.
+- `_timeline_from_graph`: the SELECT adds `(SAMPLE(?allDay) AS ?allDay)` and an OPTIONAL
+  `pwg:meetingAllDay` clause. Each row gains `start` (the full `meetingDate`) and `all_day`.
+- `api_timeline`: live-calendar items carry the parser's `all_day`. The entries loop takes
+  `(timestamp, all_day)` from `_timeline_row_time(start or date, all_day)`, and the entry's
+  `all_day` is that value. Before, it was a regex over the date already cut to 10 characters,
+  so it was true for every graph meeting. The unused `raw_s` local is gone.
+- New file `tests/test_timeline_keeps_meeting_time.py`, the same file as upstream #238.
+  It is tree-agnostic, so it runs unchanged here.
+
+The writer half is `vendor/ostler_fda/pwg_ingest.py` (see `ostler_fda.UNRECORDED.md`, same date).
+Regeneration was not attempted: this tree's refusal is standing (sections above).
+Retire when CM041 #238 merges and a re-vendor brings the tree byte-identical; its squash sha
+then goes into hold_ack_shas.

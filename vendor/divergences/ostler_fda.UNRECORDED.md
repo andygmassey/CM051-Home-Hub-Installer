@@ -48,3 +48,17 @@ HR015 #1176 5c9f5eae.
   dedupe, 4 mutants) and `tests/test_backfill_strip_tracking_urls.py`, wired in
   `url-clean.yml`.
 - Retire: when HR015 #1176 merges, re-pin past it; these edits are then source.
+
+## 2026-10-24: I22, the calendar ingest writes the calendar's all-day flag
+
+`vendor/ostler_fda/pwg_ingest.py`, `ingest_calendar`, in the Meeting-node triples right
+after `pwg:meetingDate`. When the extract row carries a bool `is_all_day` (every row
+`extract_all.py` writes does, from `CalendarEvent.is_all_day`), the node gains
+`pwg:meetingAllDay "true"|"false"^^xsd:boolean`. Nothing else changes.
+
+Why: `meetingDate` is the full start. Without the flag the Timeline could not tell a timed
+meeting from an all-day item, and the app showed every past meeting as "All day" (I22, F&F
+TestFlight walk 2026-10-24). The reader half is the cm041/assistant_api graft of the same date.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same seven lines (HR015 PR linked
+from CM051's I22 PR). Retire when it lands there and the tree is re-pinned past it.
