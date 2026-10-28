@@ -29,6 +29,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
@@ -79,6 +80,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
@@ -177,6 +179,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_has_no_iso_date.py -v
+      - name: A reminder needs a specific title, a human notes line and a fresh source
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_quality_gate.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_quality_gate.py -v
       - name: A redacted reminder title never carries a raw messaging handle
         if: always()
         run: |

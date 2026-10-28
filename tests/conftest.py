@@ -10,3 +10,14 @@ import pytest
 @pytest.fixture(autouse=True)
 def _private_person_deletion_log(tmp_path, monkeypatch):
     monkeypatch.setenv("OSTLER_PERSON_DELETION_LOG", str(tmp_path / "person-deletions.jsonl"))
+
+
+@pytest.fixture(autouse=True)
+def _reminder_fixture_dates_are_not_stale(request, monkeypatch):
+    """The older cm048_reminder tests carry fixed 2026-10 source dates; the
+    30-day staleness cutoff would turn them red as the calendar moves. They
+    test other rules, so the cutoff is off for them. The gate's own test
+    (test_cm048_reminder_title_quality_gate.py) sets the env var itself."""
+    name = request.module.__name__
+    if name.startswith("test_cm048_reminder") and "quality_gate" not in name:
+        monkeypatch.setenv("OSTLER_TODO_MAX_AGE_DAYS", "0")
