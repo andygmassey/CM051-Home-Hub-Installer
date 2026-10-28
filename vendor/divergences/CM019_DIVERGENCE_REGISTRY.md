@@ -256,6 +256,40 @@ onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNR
 "2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
 NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
 
+### food evidence -- restaurants, cuisines, what you buy (personal-world-graph #432; CM051 #3124)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`
+(`derive/{cuisine_vocab,cuisine_local_model}.py` and `derive/vocab/cuisine.yaml` are on main via T0j).
+Changed: `enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
+### smart-prefs -- stated conversation preferences (ahead of the pin; personal-world-graph #423, stacked on #427)
+
+`derive/stated.py`, `derive/stated_messages.py`, `derive/stated_model.py` and `derive/stated_vocab.yaml` are new, and `derive/{config,engine,model,query,endpoint,consume,writer}.py`, `dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are changed again, byte-identical to #423's head. Cuisines map through the shared `vocab/cuisine.yaml` (#427). Not a divergence from intent: re-pin when #423 merges. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs stated".
+
+### food evidence -- restaurants, cuisines, what you buy (ahead of the pin; personal-world-graph food PR on #422)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`,
+`services/enrich/src/derive/{cuisine_vocab,cuisine_local_model}.py`. Changed: `derive/vocab/cuisine.yaml`
+(more spellings and menu words; the ONE shared cuisine table), `derive/{readers,dimensions}.yaml`
+(food.cuisine lexicon rows on `extra.cuisine`/`extra.cuisine_inferred`, new food.item),
+`enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
+`ingest/src/{pipeline,parsers/__init__}.py` (register the parser). Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 food evidence".
+
+### smart-prefs -- trend, say-vs-do contradiction, time-of-day context (wiring only; CM051 #3130)
+
+`derive/patterns.py` and the optional-field edits under `derive/` are on main byte-equal to
+upstream@5af9f5b5 (T0j #3160). This PR carries only the vendor-only `derive_runner.py`,
+which registers the derivers and prints their counts. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 patterns wiring".
+
+### food routing -- one `food` key, restaurant points only to OSM (CM051 #3130)
+
+`enricher.py`: `CATEGORY_CLIENTS` keeps the single `"food": "wikidata"` key; a food point with
+`extra.restaurant` and no `extra.cuisine` routes to `osm_cuisine`, any other falls through to
+wikidata as on main. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-28 food routing".
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph #432, CM019): the PR's second
+`"food"` key and its None return for a non-restaurant point lose the Wikidata enrichment.
 ### smart-prefs -- representative-first CLI wiring (personal-world-graph #431; CM051 #3120)
 
 `services/enrich/src/cli.py` gains `--representative-first/--no-representative-first`
