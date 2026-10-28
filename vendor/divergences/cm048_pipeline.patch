@@ -231,7 +231,39 @@
 +Then `## Summary`. No preamble.
 --- a/prompts/09_bundle_extract.md
 +++ b/prompts/09_bundle_extract.md
-@@ -71,7 +71,13 @@
+@@ -24,7 +24,7 @@
+   ],
+   "todos": [
+     {
+-      "text": "What needs to be done. Imperative voice.",
++      "text": "A standalone title: verb + object + person, 60 characters or fewer (for example \"Send the landlord the signed lease\"). Imperative voice. No @handles, slugs, emails, file paths or dates. If you cannot write it this specifically, leave the todo out.",
+       "owner": "user | other | both | <participant id>",
+       "deadline": "ISO 8601 date if explicitly stated or confidently inferrable. Otherwise null.",
+       "source_anchor": "Free-form pointer back to the transcript moment (line offset, timestamp, message id). Optional."
+@@ -42,13 +42,20 @@
+ - Points are prose bullets, NOT raw quotes. Quotes belong in the
+   transcript.md artefact, not summary.md.
+ - Todos are actions someone has to take. That covers BOTH
+-  commitments ("I'll send you the doc", "We need to follow up on
+-  X") AND requests or instructions addressed to someone ("please
++  commitments ("I'll send you the doc", "We need to send Alex the
++  invoice") AND requests or instructions addressed to someone ("please
+   use the new reference", "chase the supplier about it", "if she
+   calls, tell her it is on track", "message me rather than ring").
+   A conditional instruction is still a todo; keep the condition in
+   the text ("If the client calls, tell her ...").
+   General discussion is not a todo. Pure hypotheticals are not todos.
++- Every todo ``text`` is verb + object + person, at most 60
++  characters, and readable on its own with no other context. Never
++  write "Follow up on X", "Follow up with <person>" or "Follow up on
++  the conversation": name the concrete action ("Send the plumber the
++  quote"). Never put handles, slugs, emails, file paths or dates in
++  the text. If a request is too vague to name a concrete action,
++  OMIT it: return ``"todos": []`` rather than a vague todo.
+ - One action per todo. Do not merge separate requests into one,
+   and do not drop one because another is in the same sentence.
+   Name the person to deal with when the transcript names them
+@@ -71,7 +78,13 @@
    id, include it. Otherwise omit.
  - If there are no todos, return ``"todos": []`` -- empty list,
    not omitted.

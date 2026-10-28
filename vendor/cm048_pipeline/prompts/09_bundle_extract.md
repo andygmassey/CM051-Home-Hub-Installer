@@ -24,7 +24,7 @@ fences. No commentary. The object MUST have these three keys:
   ],
   "todos": [
     {
-      "text": "A standalone title: verb + object + person, 60 characters or fewer (for example \"Give Sam the venue quote\"). Imperative voice. No @handles, slugs, emails, file paths or dates. If you cannot write it this specifically, leave the todo out.",
+      "text": "A standalone title: verb + object + person, 60 characters or fewer (for example \"Send the landlord the signed lease\"). Imperative voice. No @handles, slugs, emails, file paths or dates. If you cannot write it this specifically, leave the todo out.",
       "owner": "user | other | both | <participant id>",
       "deadline": "ISO 8601 date if explicitly stated or confidently inferrable. Otherwise null.",
       "source_anchor": "Free-form pointer back to the transcript moment (line offset, timestamp, message id). Optional."
@@ -52,7 +52,7 @@ fences. No commentary. The object MUST have these three keys:
 - Every todo ``text`` is verb + object + person, at most 60
   characters, and readable on its own with no other context. Never
   write "Follow up on X", "Follow up with <person>" or "Follow up on
-  the conversation": name the concrete action ("Give Sam the venue
+  the conversation": name the concrete action ("Send the plumber the
   quote"). Never put handles, slugs, emails, file paths or dates in
   the text. If a request is too vague to name a concrete action,
   OMIT it: return ``"todos": []`` rather than a vague todo.

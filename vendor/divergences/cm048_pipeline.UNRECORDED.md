@@ -105,6 +105,9 @@ Pinned by `tests/test_cm048_reminder_title_quality_gate.py` (wired in
 `cm048-participants-as-strings.yml`). Upstream differs only in the L2 branch:
 CM048 main has no name resolver, so its L2 always returns "" (skipped).
 
-The prompt's worked example reads "Give Sam the venue quote" here (upstream:
-"Send ..."), so the name guard's capitalised-pair arm clears it against the
-approved cast. Wording only; no behaviour change.
+Prompt 09_bundle_extract.md is CM048 #106 (branch todo-title-gate, ecd03ff3)
+with its original verbs, plus the multilingual OUTPUT LANGUAGE hunk (CM051 #2677).
+Role substitution, 2 lines (27, 55): role noun replaces fictional cast name in 2
+worked examples so pii-name-guard has no PAIR; teaching verb unchanged. Recorded
+in `vendor/divergences/cm048_pipeline.patch` (the 09_bundle_extract.md hunks, pin
+f6b75bea): pin + patch sha256 == the vendored file.
