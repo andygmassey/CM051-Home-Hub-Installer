@@ -4080,11 +4080,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9506) captures the path BY
+    # _ostler_write_store_curl_config (defined :9509) captures the path BY
     # VALUE and never re-reads it:
-    #     :9507   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9552   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9561 and :17466, both of which run
+    #     :9510   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9555   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9564 and :17469, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
     # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
@@ -4102,13 +4102,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :539: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18261, where the note reads
+    # WhatsApp Web session path did it again at :18264, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18278 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18281 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4117,13 +4117,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6835 against a definition at :9506. Top-level
+    # writer's own definition: :6835 against a definition at :9509. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9561, :17466) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9564, :17469) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20458 / :20636 / :20793 / :21238 path. There the
+    # :20461 / :20639 / :20796 / :21241 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6836,6 +6836,137 @@ ${_reuse_summary}"
     fi
 fi
 
+# Email helpers. Defined at top level, NOT inside the SKIP_PHASE2 == false question
+# block below: the reuse-settings branch (SKIP_PHASE2 == true) calls them too.
+# BEGIN email-allowlist-helpers (tests/test_email_allowlist_installer.sh extracts this block)
+#
+# WHO MAY EMAIL THE ASSISTANT (v1.0.107 #10). The daemon's email channel treats
+# an EMPTY allowed_senders as "answer no one", and this file used to write the
+# literal `allowed_senders = []` for every custom-IMAP install, so the channel
+# was silently inert. The customer is now ASKED, with their own address
+# pre-filled, and at least one full address is required.
+#
+# Only full mailbox addresses are accepted here. "*", "@domain" and bare-domain
+# entries are refused on purpose: the daemon honours them, but a customer who
+# types one by accident would be handing the assistant to everyone at a domain,
+# and the installer is the wrong place to offer that.
+#
+# _email_allowlist_normalise sets two globals rather than printing, because it
+# is called without a subshell and its caller needs both lists:
+#   _EMAIL_ALLOWED_OK   comma-separated, lower-cased, de-duplicated, valid
+#   _EMAIL_ALLOWED_BAD  comma-separated entries that were refused
+_email_allowlist_normalise() {
+    local raw="${1:-}" tok
+    local _re='^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$'
+    _EMAIL_ALLOWED_OK=""
+    _EMAIL_ALLOWED_BAD=""
+    raw="${raw//;/,}"
+    raw="${raw//$'\n'/,}"
+    raw="${raw//$'\t'/,}"
+    raw="${raw// /,}"
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f  # a typed "*" must stay a literal, never expand to filenames
+    IFS=','
+    for tok in $raw; do
+        [[ -n "$tok" ]] || continue
+        tok="$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$tok" =~ $_re ]]; then
+            case ",${_EMAIL_ALLOWED_OK}," in
+                *",${tok},"*) ;;
+                *) _EMAIL_ALLOWED_OK="${_EMAIL_ALLOWED_OK:+${_EMAIL_ALLOWED_OK},}${tok}" ;;
+            esac
+        else
+            _EMAIL_ALLOWED_BAD="${_EMAIL_ALLOWED_BAD:+${_EMAIL_ALLOWED_BAD},}${tok}"
+        fi
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    [[ -n "$_EMAIL_ALLOWED_OK" ]]
+}
+
+# TOML array body for a normalised comma list: "a@b.c", "d@e.f"  (empty list
+# renders as nothing, so the caller writes `[]`, which the daemon reads as
+# deny-all rather than as everyone).
+_email_allowlist_toml_items() {
+    local list="${1:-}" tok out=""
+    local _old_ifs="$IFS" _noglob=0
+    [[ $- == *f* ]] && _noglob=1
+    set -f
+    IFS=','
+    for tok in $list; do
+        [[ -n "$tok" ]] || continue
+        out="${out:+${out}, }\"${tok}\""
+    done
+    IFS="$_old_ifs"
+    [[ "$_noglob" -eq 1 ]] || set +f
+    printf '%s' "$out"
+}
+
+# On a reuse-settings re-run the channel questions are skipped, so
+# CHANNEL_EMAIL_ENABLED stays false and the [channels.email] block, password
+# included, would be regenerated away. Lift the existing block out verbatim.
+# Must run BEFORE the truncating redirect. Prints nothing when absent.
+_ostler_existing_email_block() {
+    local cfg="${1:-}"
+    [[ -n "$cfg" && -f "$cfg" ]] || return 0
+    awk '
+        $0 == "[channels.email]" { in_s = 1; print; next }
+        in_s && /^\[/ { in_s = 0 }
+        in_s { print }
+    ' "$cfg"
+}
+
+# ── The mailbox password lives in ~/.ostler/secrets, NEVER in config.toml ──
+#
+# CM051 #1976. config.toml is the file a customer opens, edits, backs up and
+# pastes into a support thread, so it carries `password = ""` and the value
+# lives in ${SECRETS_DIR}/email_password beside every other Ostler secret
+# (service_token, wiki_password, qdrant_api_key). The daemon reads that file
+# when config.toml's password is empty (ostler-assistant
+# crates/zeroclaw-channels/src/email_channel.rs, email_password_file_path).
+#
+# $1 = value, $2 = path. Born 0600 (umask in a subshell, so it is never briefly
+# readable), written to a temp name and renamed so a crash leaves the old file.
+# The value never reaches argv: printf is a builtin and the subshell is a fork.
+# No trailing newline: the daemon strips at most one, and a password may end in
+# a space.
+_email_password_store() {
+    local _v="$1" _p="$2" _d _t
+    _d="$(dirname "$_p")"; _t="${_p}.tmp.$$"
+    mkdir -p "$_d" || return 1
+    chmod 700 "$_d" || return 1
+    if ! ( umask 0077; printf '%s' "$_v" > "$_t" ); then rm -f "$_t"; return 1; fi
+    chmod 600 "$_t" && mv -f "$_t" "$_p" || { rm -f "$_t"; return 1; }
+}
+# Upgrade migration. $1 = an existing [channels.email] block. Sets
+#   _EMAIL_PASSWORD_MIGRATED  the plaintext password it held ("" if none)
+#   _EMAIL_BLOCK_MIGRATED     the same block with that line set to `password = ""`
+# An `enc:`/`enc2:` value is left exactly where it is: the daemon decrypts it,
+# and it is not plaintext. A double-quoted value is un-escaped the one way the
+# old writer escaped it (`\"` -> `"`), so the customer gets back what they typed.
+_email_block_extract_password() {
+    local _blk="$1" _line _v _out="" _pw="" _re_dq _re_sq
+    _re_dq='^[[:space:]]*password[[:space:]]*=[[:space:]]*"(([^"\\]|\\.)*)"[[:space:]]*(#.*)?$'
+    _re_sq="^[[:space:]]*password[[:space:]]*=[[:space:]]*'([^']*)'[[:space:]]*(#.*)?\$"
+    while IFS= read -r _line || [[ -n "$_line" ]]; do
+        if [[ "$_line" =~ $_re_dq ]]; then
+            _v="${BASH_REMATCH[1]}"; _v="${_v//\\\"/\"}"
+        elif [[ "$_line" =~ $_re_sq ]]; then
+            _v="${BASH_REMATCH[1]}"
+        else
+            _out="${_out}${_line}"$'\n'; continue
+        fi
+        case "$_v" in
+            enc:*|enc2:*) _out="${_out}${_line}"$'\n' ;;
+            *) _pw="$_v"; _out="${_out}password = \"\""$'\n' ;;
+        esac
+    done <<< "$_blk"
+    _EMAIL_BLOCK_MIGRATED="${_out%$'\n'}"
+    _EMAIL_PASSWORD_MIGRATED="$_pw"
+}
+# END email-allowlist-helpers
+
 if [[ "$SKIP_PHASE2" == false ]]; then
 
 step "$MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK" "setup_questions"
@@ -8348,134 +8479,6 @@ if [[ "$CHANNEL_IMESSAGE_ENABLED" == true ]]; then
     done
 fi
 
-# BEGIN email-allowlist-helpers (tests/test_email_allowlist_installer.sh extracts this block)
-#
-# WHO MAY EMAIL THE ASSISTANT (v1.0.107 #10). The daemon's email channel treats
-# an EMPTY allowed_senders as "answer no one", and this file used to write the
-# literal `allowed_senders = []` for every custom-IMAP install, so the channel
-# was silently inert. The customer is now ASKED, with their own address
-# pre-filled, and at least one full address is required.
-#
-# Only full mailbox addresses are accepted here. "*", "@domain" and bare-domain
-# entries are refused on purpose: the daemon honours them, but a customer who
-# types one by accident would be handing the assistant to everyone at a domain,
-# and the installer is the wrong place to offer that.
-#
-# _email_allowlist_normalise sets two globals rather than printing, because it
-# is called without a subshell and its caller needs both lists:
-#   _EMAIL_ALLOWED_OK   comma-separated, lower-cased, de-duplicated, valid
-#   _EMAIL_ALLOWED_BAD  comma-separated entries that were refused
-_email_allowlist_normalise() {
-    local raw="${1:-}" tok
-    local _re='^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$'
-    _EMAIL_ALLOWED_OK=""
-    _EMAIL_ALLOWED_BAD=""
-    raw="${raw//;/,}"
-    raw="${raw//$'\n'/,}"
-    raw="${raw//$'\t'/,}"
-    raw="${raw// /,}"
-    local _old_ifs="$IFS" _noglob=0
-    [[ $- == *f* ]] && _noglob=1
-    set -f  # a typed "*" must stay a literal, never expand to filenames
-    IFS=','
-    for tok in $raw; do
-        [[ -n "$tok" ]] || continue
-        tok="$(printf '%s' "$tok" | tr '[:upper:]' '[:lower:]')"
-        if [[ "$tok" =~ $_re ]]; then
-            case ",${_EMAIL_ALLOWED_OK}," in
-                *",${tok},"*) ;;
-                *) _EMAIL_ALLOWED_OK="${_EMAIL_ALLOWED_OK:+${_EMAIL_ALLOWED_OK},}${tok}" ;;
-            esac
-        else
-            _EMAIL_ALLOWED_BAD="${_EMAIL_ALLOWED_BAD:+${_EMAIL_ALLOWED_BAD},}${tok}"
-        fi
-    done
-    IFS="$_old_ifs"
-    [[ "$_noglob" -eq 1 ]] || set +f
-    [[ -n "$_EMAIL_ALLOWED_OK" ]]
-}
-
-# TOML array body for a normalised comma list: "a@b.c", "d@e.f"  (empty list
-# renders as nothing, so the caller writes `[]`, which the daemon reads as
-# deny-all rather than as everyone).
-_email_allowlist_toml_items() {
-    local list="${1:-}" tok out=""
-    local _old_ifs="$IFS" _noglob=0
-    [[ $- == *f* ]] && _noglob=1
-    set -f
-    IFS=','
-    for tok in $list; do
-        [[ -n "$tok" ]] || continue
-        out="${out:+${out}, }\"${tok}\""
-    done
-    IFS="$_old_ifs"
-    [[ "$_noglob" -eq 1 ]] || set +f
-    printf '%s' "$out"
-}
-
-# On a reuse-settings re-run the channel questions are skipped, so
-# CHANNEL_EMAIL_ENABLED stays false and the [channels.email] block, password
-# included, would be regenerated away. Lift the existing block out verbatim.
-# Must run BEFORE the truncating redirect. Prints nothing when absent.
-_ostler_existing_email_block() {
-    local cfg="${1:-}"
-    [[ -n "$cfg" && -f "$cfg" ]] || return 0
-    awk '
-        $0 == "[channels.email]" { in_s = 1; print; next }
-        in_s && /^\[/ { in_s = 0 }
-        in_s { print }
-    ' "$cfg"
-}
-
-# ── The mailbox password lives in ~/.ostler/secrets, NEVER in config.toml ──
-#
-# CM051 #1976. config.toml is the file a customer opens, edits, backs up and
-# pastes into a support thread, so it carries `password = ""` and the value
-# lives in ${SECRETS_DIR}/email_password beside every other Ostler secret
-# (service_token, wiki_password, qdrant_api_key). The daemon reads that file
-# when config.toml's password is empty (ostler-assistant
-# crates/zeroclaw-channels/src/email_channel.rs, email_password_file_path).
-#
-# $1 = value, $2 = path. Born 0600 (umask in a subshell, so it is never briefly
-# readable), written to a temp name and renamed so a crash leaves the old file.
-# The value never reaches argv: printf is a builtin and the subshell is a fork.
-# No trailing newline: the daemon strips at most one, and a password may end in
-# a space.
-_email_password_store() {
-    local _v="$1" _p="$2" _d _t
-    _d="$(dirname "$_p")"; _t="${_p}.tmp.$$"
-    mkdir -p "$_d" || return 1
-    chmod 700 "$_d" || return 1
-    if ! ( umask 0077; printf '%s' "$_v" > "$_t" ); then rm -f "$_t"; return 1; fi
-    chmod 600 "$_t" && mv -f "$_t" "$_p" || { rm -f "$_t"; return 1; }
-}
-# Upgrade migration. $1 = an existing [channels.email] block. Sets
-#   _EMAIL_PASSWORD_MIGRATED  the plaintext password it held ("" if none)
-#   _EMAIL_BLOCK_MIGRATED     the same block with that line set to `password = ""`
-# An `enc:`/`enc2:` value is left exactly where it is: the daemon decrypts it,
-# and it is not plaintext. A double-quoted value is un-escaped the one way the
-# old writer escaped it (`\"` -> `"`), so the customer gets back what they typed.
-_email_block_extract_password() {
-    local _blk="$1" _line _v _out="" _pw="" _re_dq _re_sq
-    _re_dq='^[[:space:]]*password[[:space:]]*=[[:space:]]*"(([^"\\]|\\.)*)"[[:space:]]*(#.*)?$'
-    _re_sq="^[[:space:]]*password[[:space:]]*=[[:space:]]*'([^']*)'[[:space:]]*(#.*)?\$"
-    while IFS= read -r _line || [[ -n "$_line" ]]; do
-        if [[ "$_line" =~ $_re_dq ]]; then
-            _v="${BASH_REMATCH[1]}"; _v="${_v//\\\"/\"}"
-        elif [[ "$_line" =~ $_re_sq ]]; then
-            _v="${BASH_REMATCH[1]}"
-        else
-            _out="${_out}${_line}"$'\n'; continue
-        fi
-        case "$_v" in
-            enc:*|enc2:*) _out="${_out}${_line}"$'\n' ;;
-            *) _pw="$_v"; _out="${_out}password = \"\""$'\n' ;;
-        esac
-    done <<< "$_blk"
-    _EMAIL_BLOCK_MIGRATED="${_out%$'\n'}"
-    _EMAIL_PASSWORD_MIGRATED="$_pw"
-}
-# END email-allowlist-helpers
 
 # ── Email sources ──────────────────────────────────────────────────
 #
@@ -21924,7 +21927,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:29c97480ce9b7200d82df2ca1c32fef56ed136a5157f168864849da8b1243b15
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:8088f892f90f9dd12c4117007513341c05986d8985b149feca13818f6e7c0e78
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21968,7 +21971,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5e3b157404bee2d983f5b6057025e6b5c79279a4ed948770c1899aec81a544a3
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:1e5123ca202b1da8ba893d8aa8beace2d7e883fc7ef5fea23804a4e7f8f3e535
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
