@@ -10,6 +10,8 @@ on:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/contact_syncer/facebook_friends.py'
       - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/instagram_social.py'
+      - 'tests/test_vendored_social_writers_store_the_preserved_fields.py'
       - 'vendor/cm041/contact_syncer/qdrant_collection.py'
       - 'tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py'
       - '.github/workflows/people-writers-never-overwrite-on-failed-read.yml'
@@ -18,6 +20,8 @@ on:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/contact_syncer/facebook_friends.py'
       - 'vendor/cm041/contact_syncer/linkedin_connections.py'
+      - 'vendor/cm041/contact_syncer/instagram_social.py'
+      - 'tests/test_vendored_social_writers_store_the_preserved_fields.py'
       - 'vendor/cm041/contact_syncer/qdrant_collection.py'
       - 'tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py'
       - '.github/workflows/people-writers-never-overwrite-on-failed-read.yml'
@@ -47,3 +51,15 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_vendored_people_writers_never_overwrite_on_a_failed_read.py -v
+      - name: Every preserved field is still stored after a social-writer write (NEW-119)
+        # runs even if the row 963 step above failed, so one red cannot mask the other
+        if: success() || failure()
+        run: |
+          n="$(python -m pytest tests/test_vendored_social_writers_store_the_preserved_fields.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_social_writers_store_the_preserved_fields.py -v
