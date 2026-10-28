@@ -1,0 +1,39 @@
+# Three walk-probe decisions (harness119): a SEEDED source reading 0 is FAIL in
+# source_status_artefact_is_served; every Ostler launchd label loaded with a
+# clean last exit (ostler_launchd_jobs_loaded_and_exit_clean); the gateway not
+# reachable from the box's own LAN IP (gateway_not_exposed_on_lan). The test
+# drives the source_status probe end to end and runs one mutant per probe.
+# runs-on macos-latest on purpose: the probes ship to a macOS / bash 3.2 box.
+name: seeded-zero-launchd-lan-probes
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/probes/source_status_artefact_is_served.sh'
+      - 'scripts/box_walk_probes/probes/ostler_launchd_jobs_loaded_and_exit_clean.sh'
+      - 'scripts/box_walk_probes/probes/gateway_not_exposed_on_lan.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh'
+      - '.github/workflows/seeded-zero-launchd-lan-probes.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/box_walk_probes/probes/source_status_artefact_is_served.sh'
+      - 'scripts/box_walk_probes/probes/ostler_launchd_jobs_loaded_and_exit_clean.sh'
+      - 'scripts/box_walk_probes/probes/gateway_not_exposed_on_lan.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh'
+      - '.github/workflows/seeded-zero-launchd-lan-probes.yml'
+
+concurrency:
+  group: seeded-zero-launchd-lan-probes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe-tests:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: seeded-but-0 FAILs, launchd and LAN decisions, one mutant each
+        run: /bin/bash scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh
