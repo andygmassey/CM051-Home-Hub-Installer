@@ -2341,7 +2341,7 @@ step()  {
 # BW2-4 (2026-07-25): surface `ollama pull` progress to the GUI.
 #
 # The "Downloading AI models" step is the longest single step of the
-# install (a 7.2 GB model over a slow link is ~30-50 min). `ollama pull`
+# install (a ~4.6 GB model over a slow link is an hour or more). `ollama pull`
 # streams "NN% X.X/Y.Y GB rate ETA" to its own progress bar, but that
 # never reached the GUI, which showed only a spinner -- indistinguishable
 # from a hang. Andy hit exactly this on the .185 box-walk (thought it had
@@ -10064,12 +10064,13 @@ else
         AI_MODEL_SIZE="~6.6 GB"
     else
         AI_MODEL="gemma4:e2b"
-        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box, not
-        # the ~5 GB this said. This ladder is the STRIPPED-BUNDLE path, so it
+        # v1061-D002 (reg #623): measured 7.2 GB on the v1.0.61 walk box (an
+        # older Ollama); the pinned 0.34.0 manifest is 4.6 GB (model +
+        # projector + draft layers), see docs/model-pins. This ladder is the STRIPPED-BUNDLE path, so it
         # is a second, independently-editable copy of the same customer claim
         # -- it must not drift from lib/ostler-model-fit.sh. Gated by
         # tests/test_model_download_size_honesty.sh, which compares the two.
-        AI_MODEL_SIZE="~7.2 GB"
+        AI_MODEL_SIZE="~4.6 GB"
     fi
     ok "$(printf "$MSG_OK_AI_MODEL_SELECTED_YOUR_GB_RAM" "${AI_MODEL}" "${AI_MODEL_SIZE}" "${RAM_GB}")"
 fi
@@ -23998,6 +23999,10 @@ fi
 
 progress "Downloading AI models (this is the big one)" "ai_models"
 
+# Sizes shown in the "model N of 2" labels. Bound to the pinned manifests
+# (docs/model-pins/ollama-0.34.0) by tests/test_model_pull_labels.sh.
+EMBED_MODEL_SIZE="~0.3 GB"
+
 # OS003 #233, as amended on #2972: the pin is checked on what we PULL. A model
 # already on disk and serving is kept as it is (ostler_note_existing_model
 # records how it compares, for the walk); a model we pull now must match its
@@ -24006,7 +24011,7 @@ if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
     ostler_note_existing_model nomic-embed-text
 else
-    info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
+    info "$(printf "$MSG_INFO_PULLING_AI_MODEL_1_OF_2" "${EMBED_MODEL_SIZE}")"
     _pull_rc=0; ollama_pull_with_retry nomic-embed-text || _pull_rc=$?
     case "$_pull_rc" in
         0) ok "$MSG_OK_EMBEDDING_MODEL_READY"
@@ -24071,22 +24076,19 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         ostler_note_existing_model "${AI_MODEL}"
     else
         # Show the licence summary before the pull so the user knows
-        # what they are accepting. Default Ostler models (Qwen family)
-        # are Apache 2.0; the Gemma fallback for low-RAM Macs ships
-        # under Google's restrictive Gemma Terms of Use.
+        # what they are accepting. The Qwen family and Gemma 4 (the
+        # low-RAM fallback) are both Apache 2.0: the licence layer of the
+        # pinned gemma4:e2b manifest is the Apache text (the older Gemma
+        # terms covered Gemma 1-3 only).
         case "$AI_MODEL" in
-            qwen*)
+            qwen*|gemma4*)
                 info "$(printf "$MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT" "${AI_MODEL}" "${OSTLER_DIR}")"
-                ;;
-            gemma*)
-                warn "$(printf "$MSG_WARN_LICENCE_SHIPS_UNDER_GOOGLE_S_GEMMA" "${AI_MODEL}")"
-                warn "$MSG_WARN_READ_HTTPS_AI_GOOGLE_DEV_GEMMA"
                 ;;
             *)
                 info "$(printf "$MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL" "${AI_MODEL}")"
                 ;;
         esac
-        info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
+        info "$(printf "$MSG_INFO_PULLING_AI_MODEL_2_OF_2" "${AI_MODEL_SIZE}")"
         _pull_rc=0; ollama_pull_with_retry "$AI_MODEL" || _pull_rc=$?
         case "$_pull_rc" in
             0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"

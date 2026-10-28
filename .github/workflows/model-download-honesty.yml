@@ -65,3 +65,6 @@ jobs:
       - name: The shipped daemon warms the chat model at the chat num_ctx
         if: always()
         run: /bin/bash tests/test_daemon_warmup_loads_at_chat_num_ctx.sh
+
+      - name: Each model pull is labelled N of 2 with pinned sizes, no stale claims
+        run: /bin/bash tests/test_model_pull_labels.sh

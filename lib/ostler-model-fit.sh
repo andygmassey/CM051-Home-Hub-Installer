@@ -78,7 +78,7 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # "7.2 GB of models". Only this customer-facing label still said 5.
 # The other two labels are NOT measured -- they are still inherited from
 # weights_gb and are the remaining live half of the download-honesty class.
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~7.2 GB"     )
+OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~4.6 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
