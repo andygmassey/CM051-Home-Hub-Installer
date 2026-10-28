@@ -327,7 +327,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="Nog één handmatige stap: open Safar
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="Zoeken naar AVG-gegevensexports..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="Stel PWG_DOCTOR_REPO=<url> in en voer opnieuw uit om te installeren."
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="Stel PWG_HUB_POWER_REPO=<HR015 url> in en voer opnieuw uit om te installeren."
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Gespreksmodel overgeslagen. Haal het later op: ollama pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Colima wordt gestart (lichtgewicht Docker-runtime)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="Docker Desktop wordt gestart..."
 MSG_INFO_STARTING_OLLAMA="Ollama wordt gestart..."

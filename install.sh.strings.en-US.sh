@@ -325,7 +325,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="One manual step left: open Safari, ch
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="Scanning for GDPR data exports..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="Set PWG_DOCTOR_REPO=<url> and re-run to install."
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: ollama pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Starting Colima (lightweight Docker runtime)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="Starting Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="Starting Ollama..."

@@ -327,7 +327,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="تبقّت خطوة يدوية واح
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="جارٍ البحث عن ملفات تصدير بيانات GDPR..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="عيّن PWG_DOCTOR_REPO=<url> وأعد التشغيل للتثبيت."
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="عيّن PWG_HUB_POWER_REPO=<HR015 url> وأعد التشغيل للتثبيت."
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="تم تخطي نموذج المحادثة. نزّله لاحقًا: ollama pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="جارٍ تشغيل Colima (بيئة Docker خفيفة)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="جارٍ تشغيل Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="جارٍ تشغيل Ollama..."
