@@ -1549,3 +1549,11 @@ Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
 - `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.29 = 9c6c2b55>` re-derives the gateway rows for the re-pinned daemon (CM051 #3192; contract-is-current was RED against the new pin).
 - Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.29> --check` reports current (279 routes).
 - Retire: the next hub re-pin regenerates this file again.
+
+## 2026-10-28 119: hub_contract.yaml checked against hub-v0.5.30, no regeneration needed
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: UNCHANGED by this re-pin. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.30 = 610b0c5c> --check` reports current (279 routes): hub-v0.5.29..hub-v0.5.30 touches no gateway route (oa #642 security re-land, #643 version bump).
+- Control: the same check against a copy of that source with one route path renamed reports STALE, rc 1.
+- Retire: the next hub re-pin regenerates or re-checks this file again; the 0.5.29 entry above still describes the file's contents.
