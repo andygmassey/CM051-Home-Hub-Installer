@@ -51,7 +51,7 @@ if [ "${1:-}" = "-t" ]; then exec /usr/bin/mktemp "${TMPDIR:-/tmp}/${2:-tmp}.XXX
 exec /usr/bin/mktemp "$@"
 M
     chmod +x "$d/bin/ollama" "$d/bin/mktemp"
-    PATH="$d/bin:/usr/bin:/bin" D="$d" FNS="$W/fns.sh" bash -c '
+    PATH="$d/bin:/usr/bin:/bin" OLLAMA_APP_BIN="$d/bin/ollama" D="$d" FNS="$W/fns.sh" bash -c '
         set -Eeuo pipefail
         trap '\''echo x >> "$D/errs"'\'' ERR
         OSTLER_GUI=1
