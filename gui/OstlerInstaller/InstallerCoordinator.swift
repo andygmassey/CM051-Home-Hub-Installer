@@ -402,6 +402,67 @@ final class InstallerCoordinator: ObservableObject {
     /// ok" and "network failure, queued for deferred retry" -- the
     /// latter is the deliberate fail-open behaviour from the brief.
     @Published var registrationGate: RegistrationGate = .idle
+
+    // ── F006: hardware floor, checked before anything else ──────────
+    //
+    // Measured once, at construction, so the very first frame the
+    // window draws is already the refusal on an unsupported Mac. Not
+    // re-read later: RAM, chip and OS major do not change while the
+    // installer is open.
+    //
+    // While this is non-nil every entry point that leads to a
+    // permission prompt, the licence, device registration, the admin
+    // password or install.sh (and so the CLT download) returns at its
+    // first line. install.sh keeps its own ERR-02-PREREQ-RAM-LOW,
+    // ERR-02-PREREQ-MACOS-OLD and ERR-01-ARCH-INTEL-NOT-SUPPORTED as
+    // the backstop.
+    @Published private(set) var systemShortfall: SystemRequirements.Shortfall?
+
+    /// Where the licence is read from and written to. A property, not
+    /// the static default inline, so a test can point it at a temp dir
+    /// and never touch the real ~/.ostler.
+    var licensePath: URL = LicensePersistence.defaultLicensePath
+
+    /// The Full Disk Access probe, injectable so a test never reads the
+    /// real protected files.
+    var fullDiskAccessReport: () -> FDAProbeReport = { AuthorizationHelper.shared.fullDiskAccessReport() }
+
+    init(systemReadings: SystemReadings = SystemReadings.live()) {
+        self.systemShortfall = SystemRequirements.evaluate(systemReadings)
+    }
+
+    /// Which screen the root view shows. Lifted out of ContentView's
+    /// if-chain, unchanged in order, so the routing is assertable in a
+    /// unit test rather than trapped inside a view body.
+    enum RootScreen: Equatable {
+        case systemRequirements
+        case cancelled
+        case fullDiskAccess
+        case permissionsIntro
+        case licence
+        case install
+    }
+
+    var rootScreen: RootScreen {
+        if systemShortfall != nil { return .systemRequirements }
+        if cancelled { return .cancelled }
+        if needsFullDiskAccessUpfront { return .fullDiskAccess }
+        if !permissionsPrewarmFinished { return .permissionsIntro }
+        if licenseVerified { return .install }
+        return .licence
+    }
+
+    /// The window's onAppear entry point. On an unsupported Mac this
+    /// stops here: no move-to-Applications modal, no Full Disk Access
+    /// probe, nothing that leads on to a prompt.
+    func startFromFirstScreen(relocate: () -> Void = { SelfRelocator.checkAndRelocate() }) {
+        if let s = systemShortfall {
+            OstlerLog.lifecycle.info("system requirements: NOT met -- memoryGB=\(s.readings.memoryGB, privacy: .public) macOS=\(s.readings.macOSVersion, privacy: .public) appleSilicon=\(s.readings.isAppleSilicon, privacy: .public); holding on first screen")
+            return
+        }
+        relocate()
+        gateFullDiskAccessThenStart()
+    }
     /// Lazy so the verifier doesn't try to parse the embedded
     /// public key until we actually need it; that way the unit-
     /// test target's injected verifier short-circuits init.
@@ -428,6 +489,14 @@ final class InstallerCoordinator: ObservableObject {
     func setRegistrationClient(_ client: DeviceRegistrationClient) {
         self.registrationClient = client
     }
+
+    #if DEBUG
+    /// Test seam: a verifier built from a test key, so a test can hand
+    /// the coordinator a licence that genuinely verifies.
+    func setLicenseVerifierForTests(_ verifier: LicenseVerifier) {
+        self.licenseVerifier = verifier
+    }
+    #endif
 
     #if DEBUG
     /// Test seam. Routes a synthetic stdout line through the same
@@ -602,6 +671,7 @@ final class InstallerCoordinator: ObservableObject {
     /// can await `AuthorizationHelper` for the pre-launch sudo grant.
     /// See `bootstrapAsync()` for the actual sequencing.
     func bootstrap() {
+        guard systemShortfall == nil else { return }
         Task { @MainActor in await self.bootstrapAsync() }
     }
 
@@ -795,8 +865,9 @@ final class InstallerCoordinator: ObservableObject {
     /// Failure (including absence) is silent -- the view falls
     /// through to `LicenseEntryView`.
     func verifyExistingLicenseOnLaunch() {
+        guard systemShortfall == nil else { return }
         guard !licenseVerified else { return }
-        guard let data = LicensePersistence.readExisting() else { return }
+        guard let data = LicensePersistence.readExisting(at: licensePath) else { return }
         _ = verifyLicense(data: data, source: "on-disk")
     }
 
@@ -904,7 +975,8 @@ final class InstallerCoordinator: ObservableObject {
     /// once with FDA in place. This is what stops the mid-install
     /// quit-and-reopen that used to drop the app onto the reuse path.
     func gateFullDiskAccessThenStart() {
-        let report = AuthorizationHelper.shared.fullDiskAccessReport()
+        guard systemShortfall == nil else { return }
+        let report = fullDiskAccessReport()
         if fdaGate.launchDecision(report) == .proceed {
             needsFullDiskAccessUpfront = false
             if report.granted {
@@ -925,7 +997,7 @@ final class InstallerCoordinator: ObservableObject {
     /// ruled out), drops the gate and proceeds, otherwise holds. After two
     /// failed rechecks the gate offers "Continue anyway".
     func recheckFullDiskAccessAndProceed() {
-        let report = AuthorizationHelper.shared.fullDiskAccessReport()
+        let report = fullDiskAccessReport()
         if fdaGate.recheck(report) == .proceed {
             OstlerLog.lifecycle.info("FDA gate: re-check passed -- continuing")
             needsFullDiskAccessUpfront = false
@@ -993,6 +1065,7 @@ final class InstallerCoordinator: ObservableObject {
     /// per-permission results, then either advances to .complete (all
     /// granted) or .summary(denials:) (one or more denied).
     func beginPermissionsPrewarm() {
+        guard systemShortfall == nil else { return }
         guard permissionsIntroState == .intro else {
             OstlerLog.lifecycle.debug("beginPermissionsPrewarm: ignored -- state=\(String(describing: self.permissionsIntroState), privacy: .public)")
             return
@@ -1047,6 +1120,13 @@ final class InstallerCoordinator: ObservableObject {
     /// result so the view can render an inline error.
     @discardableResult
     func verifyLicense(data: Data, source: String) -> LicenseVerificationResult {
+        // F006: no licence is accepted, persisted or registered on a Mac
+        // below the floor. The view never offers the licence screen
+        // there; this is the same rule at the method, so a drop that
+        // arrives some other way cannot spend a device slot.
+        guard systemShortfall == nil else {
+            return .malformed(reason: "this Mac does not meet the system requirements")
+        }
         guard let verifier = licenseVerifier else {
             appendLog(level: "error", msg: "Licence verifier unavailable -- production public key not embedded")
             return .malformed(reason: "verifier not initialised (production public key missing or invalid)")
@@ -1057,8 +1137,8 @@ final class InstallerCoordinator: ObservableObject {
             appendLog(level: "info", msg: "Licence accepted (\(source), licence_id=\(claims.licenseId))")
             OstlerLog.lifecycle.info("verifyLicense: valid source=\(source, privacy: .public) license=\(claims.licenseId, privacy: .public)")
             do {
-                try LicensePersistence.write(licenseData: data)
-                appendLog(level: "info", msg: "Licence persisted to \(LicensePersistence.defaultLicensePath.path)")
+                try LicensePersistence.write(licenseData: data, to: licensePath)
+                appendLog(level: "info", msg: "Licence persisted to \(licensePath.path)")
             } catch {
                 appendLog(level: "warn", msg: "Licence verified but persistence failed: \(error.localizedDescription)")
                 OstlerLog.lifecycle.error("verifyLicense: persistence failed -- \(error.localizedDescription, privacy: .public)")

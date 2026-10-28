@@ -186,3 +186,72 @@ index 85a25bd7..55fcaddd 100644
  QDRANT_URL = os.environ.get("QDRANT_URL", "")
  QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
  OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
+diff --git a/syncer.py b/syncer.py
+index 620bb190..3d67d109 100644
+--- a/syncer.py
++++ b/syncer.py
+@@ -252,7 +252,12 @@ class MeetingSyncer:
+                         points=[point.id],
+                     )
+             except Exception as e:
+-                logger.warning("Failed to update Qdrant lastContact for %s: %s", person_uri, e)
++                # Neither the person URI nor the exception text (S8, 118). Some
++                # writers mint the URI from a hash of the display name
++                # (contact_syncer/linkedin_career.py _deterministic_id), which a
++                # known name confirms, and a hash of the URI would confirm just
++                # the same. The exception text can echo the request payload.
++                logger.warning("Failed to update Qdrant lastContact: %s", type(e).__name__)
+ 
+     # Local parts of attendee emails that indicate system/event accounts,
+     # not humans. Used to skip creating phantom "person" nodes for event
+@@ -372,9 +377,11 @@ class MeetingSyncer:
+             return None
+ 
+         if self._looks_non_human(name, email):
++            # Never the name or address (S8, 118): logs leave the box in
++            # diagnostics bundles. Which fields were present is enough.
+             logger.info(
+-                "  Skipping non-human attendee: %s <%s>",
+-                name or "(no name)", email or "(no email)",
++                "  Skipping a non-human attendee (name=%s, email=%s)",
++                "yes" if name else "no", "yes" if email else "no",
+             )
+             return None
+ 
+@@ -402,7 +409,9 @@ class MeetingSyncer:
+ 
+         # Create new person
+         person_uri = self.resolver.create_person(identity, config.USER_ID)
+-        logger.info("  Created person: %s (%s)", name or email, person_uri)
++        # No name, email or URI (S8, 118): the URI is not always opaque (see
++        # the lastContact warning above). The run summary carries the counts.
++        logger.info("  Created a person")
+         return person_uri
+ 
+     def sync(self, days=30, dry_run=False):
+@@ -448,7 +457,6 @@ class MeetingSyncer:
+                 skipped += 1
+                 continue
+ 
+-            summary = event.get("summary", "(no title)")
+             meeting_date = _parse_event_datetime(event.get("start"))
+             attendees = event.get("attendees", [])
+ 
+@@ -462,11 +470,14 @@ class MeetingSyncer:
+                 processed.add(uid)
+                 continue
+ 
+-            logger.info("  Meeting: %s (%s) — %d attendees", summary, meeting_date or "?", len(other_attendees))
++            # The meeting's hashed id, never its title: a title often carries a
++            # person's name ("Lunch with ...") (S8, 118).
++            logger.info("  Meeting %s (%s): %d attendees",
++                        _meeting_uri(uid), meeting_date or "?", len(other_attendees))
+ 
+             if dry_run:
+-                for a in other_attendees:
+-                    logger.info("    [DRY RUN] %s <%s>", a.get("name", ""), a.get("email", ""))
++                # A count, never each attendee's name or address (S8, 118).
++                logger.info("    [DRY RUN] would link %d attendees", len(other_attendees))
+                 processed.add(uid)
+                 meetings_created += 1
+                 continue

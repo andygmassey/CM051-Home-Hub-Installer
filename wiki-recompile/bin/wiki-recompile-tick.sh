@@ -80,6 +80,33 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# wiki_compile_output_summary LABEL < compile-output
+#
+# The wiki compiler logs every page it renders by the person's name and
+# slug ("Compiling page: <name> -> <slug>.md"), and its error lines can
+# carry a name too. This script's stdout is the LaunchAgent log and the
+# backfill writes wiki-recompile-summaries.log: both leave the box in a
+# diagnostics bundle. So compile output is NEVER copied into either log (S8,
+# 118). This prints ONE line of shape instead: line, warning and error
+# counts, and the class name of the last Python exception (a code
+# identifier, never a value). Names cannot be pattern-redacted, which is why
+# this summarises rather than scrubs. Exported so the detached phase-2 bash
+# below has it too.
+wiki_compile_output_summary() {
+    awk -v label="$1" '
+        { n++ }
+        /WARNING/ { w++ }
+        /ERROR|CRITICAL|Traceback/ { e++ }
+        match($0, /^[A-Za-z_][A-Za-z0-9_.]*(Error|Exception|Exit|Interrupt)(:|$)/) {
+            exc = substr($0, RSTART, RLENGTH); sub(/:$/, "", exc)
+        }
+        END {
+            printf "%s: compile output withheld from this log (it names people): %d lines, %d warning, %d error%s\n", \
+                label, n, w, e, (exc != "" ? ", last exception " exc : "")
+        }'
+}
+export -f wiki_compile_output_summary
+
 # --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
 # The wiki recompile is ESSENTIAL on first run (People + Wiki are the
 # first-impression surfaces), so it is NOT deferred by the load gate the
@@ -363,7 +390,8 @@ COMPILE_RC=0
 wait "$_compile_pid" || COMPILE_RC=$?
 kill "$_watchdog_pid" 2>/dev/null || true
 wait "$_watchdog_pid" 2>/dev/null || true
-tail -20 "$_compile_log" 2>/dev/null || true
+# A summary of shape, never the output itself (S8, 118; see the helper).
+wiki_compile_output_summary "wiki-compile baseline" < "$_compile_log" 2>/dev/null || true
 rm -f "$_compile_log"
 if [ "$COMPILE_RC" -eq 137 ] || [ "$COMPILE_RC" -eq 143 ]; then
     log "ERROR: wiki-compiler (baseline) exceeded ${WIKI_COMPILE_TIMEOUT}s and was killed by the watchdog (exit $COMPILE_RC)."
@@ -631,11 +659,17 @@ else
             done
             printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             _rc=0
+            # Compile output goes to a private temp file and only its
+            # summary reaches this log (S8, 118). `sh -c exec` keeps the
+            # watched pid the docker client itself.
+            _out="$(mktemp -t wiki-summaries.XXXXXX)"
             if [ -n "$_workers" ]; then
-                ostler_slot_run docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
+                ostler_slot_run /bin/sh -c '\''exec "$@" >"$0" 2>&1'\'' "$_out" docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
             else
-                ostler_slot_run docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
+                ostler_slot_run /bin/sh -c '\''exec "$@" >"$0" 2>&1'\'' "$_out" docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
             fi
+            wiki_compile_output_summary "wiki-summaries" < "$_out" 2>/dev/null || true
+            rm -f "$_out"
             if [ "$_rc" = "0" ]; then
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 # Floor is keyed on this, not on when the attempt STARTED
@@ -665,11 +699,14 @@ else
         # container only when the governor resolved one; otherwise let the
         # compiler use its own default (pre-governor behaviour).
         _rc=0
+        _out="$(mktemp -t wiki-summaries.XXXXXX)"
         if [ -n "$_workers" ]; then
-            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler || _rc=$?
+            docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler >"$_out" 2>&1 || _rc=$?
         else
-            docker compose --profile compile run --rm -T wiki-compiler || _rc=$?
+            docker compose --profile compile run --rm -T wiki-compiler >"$_out" 2>&1 || _rc=$?
         fi
+        wiki_compile_output_summary "wiki-summaries" < "$_out" 2>/dev/null || true
+        rm -f "$_out"
         if [ "$_rc" = "0" ]; then
             date -u +%s > "$_complete_file" 2>/dev/null || true
         fi
