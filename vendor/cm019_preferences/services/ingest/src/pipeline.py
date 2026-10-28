@@ -40,7 +40,8 @@ from .parsers import (
     NetflixParser,
     AppleTVParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    FoodEvidenceParser,
 )
 from .rml import RMLMapper
 
@@ -84,6 +85,7 @@ class IngestPipeline:
             UberParser(),
             WhoopParser(),
             FoursquareParser(),  # Before Netflix - both may match venueRatings
+            FoodEvidenceParser(),  # exact FDA extract names + *.mbox.txt only
             # AFTER AppleParser, deliberately, and the previous comment here
             # said the exact opposite. MEASURED on a real Apple Media Services
             # export: only TWO files are contested and Apple yields MORE on
