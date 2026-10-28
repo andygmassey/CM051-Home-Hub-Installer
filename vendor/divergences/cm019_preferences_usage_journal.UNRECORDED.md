@@ -389,6 +389,14 @@ Tree `cm019_preferences`. RE-PINNED 5622a763 -> 5af9f5b5 (Archie, 2026-10-24: co
 - Proof: `tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py` (wired in `derived-preferences.yml`): `python -m services.enrich.src.cli enrich --all` from this tree, then `derive_runner.run` over pyoxigraph, writes one `theme.concept` node from exactly the 3 admitted preferences; sensitive, minor, L3 and never-read topics are never sent. RED with the QID call unwired (13 of 29 fail).
 - Retire: the held hunks above when #3124 and #3120 land; verify=full once the shared-file reconciliation is done. The paraphrased comment lines stay a recorded divergence until upstream drops the names.
 
+## 2026-10-25 representative-first CLI (personal-world-graph #431, CM051 #3120)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` is byte-equal to the pin (the earlier #424 copy of `representatives.py` is dropped, main already has it). ACKS UPSTREAM andygmassey/personal-world-graph PR #431.
+
+- Changed in place: `services/enrich/src/cli.py` gains `--representative-first/--no-representative-first` (default on) and runs `run_representative_pass` before the tail inside the same `--budget-seconds` deadline (upstream's cli.py has no deadline, so the call here also passes `deadline=`).
+- Proof: `tests/test_vendored_enrich_representative_first.py` (wired in `derived-preferences.yml`).
+- Retire: when #431 is re-pinned, delete this section; the deadline pass-through stays a divergence.
+
 ## 2026-10-24: geocoders never log an address, venue or coordinates (personal-world-graph #442, UNMERGED upstream; S8, 118)
 
 Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when written; main has since re-pinned to 5af9f5b5, see the T0j section above, and upstream #442 is still unmerged there). Grafted ahead of the upstream merge for v1.0.118.

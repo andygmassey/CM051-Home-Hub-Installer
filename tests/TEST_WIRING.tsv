@@ -209,6 +209,7 @@ test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-part
 test_cm048_reminder_supersede_before_duplicate_thread.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_handle.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_reminder_title_quality_gate.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -543,6 +544,7 @@ test_minors_registry_is_inside_the_at_rest_exclusion.py	WIRED	.github/workflows/
 test_model_digest_pins.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_model_pull_uses_the_pinned_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
@@ -569,6 +571,7 @@ test_no_path_is_frozen_across_the_promote.sh	WIRED	.github/workflows/cold-box-so
 test_no_probe_lives_outside_the_walk_glob.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_no_probe_shadows_the_dispatcher.sh	WIRED	.github/workflows/every-probe-is-collected.yml
 test_no_program_dodges_the_promote.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_no_shipped_script_calls_a_bare_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_no_test_uses_a_bash4_builtin.sh	WIRED	.github/workflows/bash32-compat.yml
 test_no_unbounded_enrich_invocation.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_no_undefined_msg_refs_in_install_sh.sh	WIRED	.github/workflows/container-runtime-precondition.yml
@@ -958,6 +961,7 @@ test_vendored_derive_endpoint_mixes_categories.py	WIRED	.github/workflows/derive
 test_vendored_derive_scroll_carries_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
