@@ -4720,7 +4720,17 @@ pkg_name = os.path.basename(pkg.rstrip(os.sep))
 
 wanted = set()
 scanned = 0
-for root, _dirs, files in os.walk(pkg):
+# NEW-119: A TEST SUITE IS NOT A RUNTIME. vendor/ostler_fda/tests/ imports
+# pytest; nothing a scheduled agent runs ever imports tests/, and no customer
+# venv carries pytest. A clean macOS 27.2 install (2026-10-29) reported
+#     scanned=46 third_party=5 missing=1 / MISSING pytest
+# as "scheduled agents will die on every tick", which was false. The DMG no
+# longer ships tests/ (gui/project.yml), and this prune keeps a tree that still
+# has one (an upgrade over an older payload, a dev checkout) from crying wolf.
+# EXACT directory name, any depth: `testsupport/` or a runtime module named
+# tests_*.py is still scanned, and a missing import there still FAILS.
+for root, dirs, files in os.walk(pkg):
+    dirs[:] = [d for d in dirs if d != "tests"]
     for fn in files:
         if not fn.endswith(".py"):
             continue
