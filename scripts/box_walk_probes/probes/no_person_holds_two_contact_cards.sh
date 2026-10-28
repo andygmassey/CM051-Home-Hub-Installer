@@ -276,7 +276,8 @@ SELECT ?side ?t ?v WHERE {
 
 _fetch_join() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_JOIN_JSON:-}"; return; fi
-    _ox_curl "$(_q_join "$1")"
+    # -n: this runs inside the per-node while-read loop (see box_run).
+    BOX_RUN_NO_STDIN=1 _ox_curl "$(_q_join "$1")"
 }
 
 # explain_join <cards> <sparql-json>: one masked line naming the join key. Pure.

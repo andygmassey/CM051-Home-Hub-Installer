@@ -90,7 +90,8 @@ def sparql_answer(q):
         return [{"side": "self", "t": "email", "v": "one@example.com"},
                 {"side": "self", "t": "email", "v": "two@example.com"}]
     if "GROUP BY ?person" in q:
-        return [{"person": P + "a", "uids": 2}, {"person": P + "b", "uids": 3}]
+        return [{"person": P + "a", "uids": 2}, {"person": P + "b", "uids": 3},
+                {"person": P + "c", "uids": 2}, {"person": P + "d", "uids": 2}]
     if "COUNT(DISTINCT ?i) AS ?n" in q:
         return [{"n": 6}]
     if "FILTER(?a != ?b)" in q:
@@ -99,11 +100,16 @@ def sparql_answer(q):
         return [{"n": 0}]
     if "?src p:mergedInto ?s }" in q:
         return [{"n": 5}]
-    # people_count_agreement
+    # people_count_agreement (fixture chosen by COUNT_FIXTURE)
+    fx = COUNT_FIXTURES[COUNT_FIXTURE[0]]
     if "?unnamed" in q:
-        return [{"named": 90, "unnamed": 8, "merged": 2}]
+        return [{"named": len(fx["oxi_named"]), "unnamed": fx["stubs"], "merged": 0}]
     if "foaf" in q:
-        return [{"n": 100}]
+        return [{"n": len(fx["oxi_named"]) + fx["stubs"]}]
+    if "?gn ?fn ?t ?v" in q:
+        rows = [{"p": P + "n%d" % i, "dn": dn} for i, dn in enumerate(fx["oxi_named"])]
+        rows += [{"p": P + "s%d" % i, "t": "phone", "v": "+44 7700 9004%02d" % i} for i in range(fx["stubs"])]
+        return rows
     # people_stores_reconcile payload
     if q.strip() == "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }":
         return [{"n": 1000}]
@@ -127,6 +133,20 @@ def sparql_answer(q):
     return []
 
 
+# people_count_agreement fixtures. Names are the approved cast; a WhatsApp JID
+# is a shape the locked predicate hides on BOTH sides.
+JID = "447700900123@s.whatsapp.net"
+COUNT_FIXTURES = {
+    # 13 unnamed stubs (join anchors) beside 20 named on both sides -> PASS
+    "stubs": {"oxi_named": ["John Doe"] * 20, "stubs": 13, "qd_named": ["John Doe"] * 20},
+    # named counts genuinely differ -> FAIL
+    "short": {"oxi_named": ["John Doe"] * 20, "stubs": 13, "qd_named": ["John Doe"] * 17},
+    # two JIDs on both sides: equal only when BOTH sides apply the predicate
+    "jids": {"oxi_named": ["John Doe"] * 20 + [JID, JID], "stubs": 0, "qd_named": ["John Doe"] * 20 + [JID, JID]},
+}
+COUNT_FIXTURE = ["stubs"]
+
+
 class Store(BaseHTTPRequestHandler):
     calls = 0
 
@@ -148,7 +168,8 @@ class Store(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("query", [""])[0]
             return self._send(bindings(sparql_answer(q)))
         if u.path == "/api/v1/hydration/status":
-            return self._send({"overall_state": "done", "phases": [{"key": "contacts", "count": 90}]})
+            n = len(COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"])
+            return self._send({"overall_state": "done", "phases": [{"key": "contacts", "count": n}]})
         self._send({}, 404)
 
     def do_POST(self):
@@ -157,6 +178,9 @@ class Store(BaseHTTPRequestHandler):
         data = self.rfile.read(n).decode()
         if self.path == "/query":
             return self._send(bindings(sparql_answer(data)))
+        if self.path.endswith("/points/scroll") and "display_name" in data:
+            pts = [{"payload": {"display_name": dn}} for dn in COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"]]
+            return self._send({"result": {"points": pts, "next_page_offset": None}})
         if self.path.endswith("/points/scroll"):
             return self._send({"result": {"points": [{"payload": {"person_uri": P + "1"}}],
                                           "next_page_offset": None}})
@@ -168,7 +192,12 @@ def make_env(tmp, port):
     stub = os.path.join(tmp, "stub")
     os.makedirs(stub)
     with open(os.path.join(stub, "ssh"), "w") as fh:
-        fh.write('#!/bin/bash\nfor a; do last="$a"; done\nexec /bin/bash -c "$last"\n')
+        # LIKE REAL ssh: without -n it consumes its stdin (ssh forwards stdin
+        # to the remote command), so a box_run inside a while-read loop eats
+        # the rest of the list. That is the #3202 defect ORM measured.
+        fh.write('#!/bin/bash\nnostdin=0\nfor a; do last="$a"; [ "$a" = "-n" ] && nostdin=1; done\n'
+                 'if [ "$nostdin" = 1 ]; then exec /bin/bash -c "$last" </dev/null; fi\n'
+                 'cat >/dev/null\nexec /bin/bash -c "$last" </dev/null\n')
     with open(os.path.join(stub, "launchctl"), "w") as fh:
         fh.write('#!/bin/bash\necho "$*" >> "%s/launchctl.calls"\n'
                  'case "$1" in print) echo "Could not find service \\"${2##*/}\\" in domain for user gui: 501" >&2; exit 113 ;;\n'
@@ -201,13 +230,15 @@ def make_env(tmp, port):
         "OSTLER_PROBE_WRITER_WAIT_S": "5", "OSTLER_PROBE_WRITER_POLL_S": "1",
         "OSTLER_INGEST_TICK_LABEL": "com.example.instr119.absent",
         "OSTLER_PROBE_TICK_WAIT_S": "5",
+        "OSTLER_PEOPLE_RULES_DIR": os.path.join(REPO, "vendor", "cm041", "assistant_api"),
     })
     return env
 
 
 def run_probe(name, env):
     p = subprocess.run(["/bin/bash", os.path.join(PROBES, "probes", name + ".sh")],
-                       env=env, capture_output=True, text=True, timeout=300)
+                       env=env, capture_output=True, text=True, timeout=300,
+                       stdin=subprocess.DEVNULL)
     return p.returncode, p.stdout + p.stderr
 
 
@@ -233,16 +264,34 @@ def probes_end_to_end():
               "no_person_holds_two_contact_cards: worst node first, a node with no merged-in source lists its candidate keys")
         check("2 cards; 1 node(s) merged in; joined by phone:" in out,
               "no_person_holds_two_contact_cards: a shared phone is named as the join key (masked)")
+        n_explained = sum(1 for l in out.splitlines() if l.strip().startswith("node ") and " cards" in l)
+        check(n_explained == 4, "no_person_holds_two_contact_cards: EVERY offending node is explained (4 of 4) with an ssh that consumes stdin",
+              "%d of 4 explained" % n_explained)
         no_raw("no_person_holds_two_contact_cards", out)
 
+        COUNT_FIXTURE[0] = "stubs"
         rc, out = run_probe("people_count_agreement", env)
-        check(rc == 1, "people_count_agreement: exit 1 (FAIL) on 100 vs 90, as before", "rc=%s %s" % (rc, out[-300:]))
-        check("named, not merged (what the vector writer indexes): 90" in out
-              and "unnamed stub (no pwg:displayName, never indexed)  : 8" in out
-              and "merged (pwg:mergedInto, pruned by design)         : 2" in out,
+        check(rc == 0 and "VERDICT: PASS" in out and "stubs=13" in out,
+              "people_count_agreement: 13 stubs beside 20 named on both sides PASSES, stubs=13 printed",
+              "rc=%s %s" % (rc, out[-400:]))
+        check("named, not merged (what the vector writer indexes): 20" in out
+              and "unnamed stub (no pwg:displayName, never indexed)  : 13" in out,
               "people_count_agreement: prints the oxigraph breakdown named / unnamed stub / merged")
         check("doctor minus indexable named                       : 0" in out,
               "people_count_agreement: prints the doctor gap against the indexable population")
+        COUNT_FIXTURE[0] = "short"
+        rc, out = run_probe("people_count_agreement", env)
+        check(rc == 1 and "VERDICT: FAIL" in out, "people_count_agreement: named counts 20 vs 17 still FAIL",
+              "rc=%s %s" % (rc, out[-300:]))
+        COUNT_FIXTURE[0] = "jids"
+        rc, out = run_probe("people_count_agreement", env)
+        check(rc == 0 and "VERDICT: PASS" in out, "people_count_agreement: JIDs on both sides PASS only when both sides apply the predicate",
+              "rc=%s %s" % (rc, out[-300:]))
+        env_norules = dict(env, OSTLER_PEOPLE_RULES_DIR=os.path.join(tmp, "no-such-dir"))
+        COUNT_FIXTURE[0] = "stubs"
+        rc, out = run_probe("people_count_agreement", env_norules)
+        check(rc == 78 and "could not import _is_nameless_name" in out,
+              "people_count_agreement: no importable predicate is CANNOT-RUN, never a raw-count verdict", "rc=%s" % rc)
 
         rc, out = run_probe("people_stores_reconcile", env)
         check(rc == 1, "people_stores_reconcile: exit 1 (FAIL) on C=4, as before", "rc=%s %s" % (rc, out[-300:]))

@@ -305,6 +305,110 @@ note_breakdown() {
     return 0
 }
 
+# ── THE VERDICT COMPARES WHAT A CUSTOMER CAN SEE, ON BOTH SIDES (#3202) ──
+#
+# v1.0.118 box: oxigraph 8273 vs doctor 8260, a gap of exactly 13 unnamed stubs.
+# Stubs MAY exist: they are join anchors that a later name overwrites upward.
+# The raw oxigraph count includes them; the doctor number (Qdrant `people`
+# points) cannot, because the vector writer selects only named persons. So the
+# two raw numbers were never the same population, and that difference, not a
+# store defect, was being graded.
+#
+# Both sides now go through the ONE locked predicate, IMPORTED from the shipped
+# people_rules.py (install.sh lays it in ~/.ostler/services/shared/; Ref #664
+# locks it across surfaces) -- never copied here. Per node and per point:
+# _best_display_name (SHARED RULE B) then _is_nameless_name (SHARED RULE A,
+# has_card from the Contacts-card uid, handles from phones and emails). The
+# verdict compares the two VISIBLE counts; the stubs are printed beside them.
+# If the rules cannot be imported, nothing is compared: CANNOT-RUN, never a
+# fallback to the raw numbers.
+PEOPLE_RULES_DIR="${OSTLER_PEOPLE_RULES_DIR:-\$HOME/.ostler/services/shared}"
+QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
+QDRANT_COLLECTION="${OSTLER_QDRANT_PEOPLE_COLLECTION:-people}"
+read -r -d '' VISIBLE_PY <<'PYVISIBLE'
+import json, os, sys
+OXI, QD, COLL, CONF, RULES = sys.argv[1:6]
+try:
+    sys.path.insert(0, RULES)
+    from people_rules import _best_display_name, _is_nameless_name
+except Exception as exc:
+    print("NORULES could not import _is_nameless_name from people_rules.py in " + RULES + ": " + type(exc).__name__)
+    sys.exit(0)
+import urllib.request, urllib.error
+H = {}
+try:
+    for line in open(CONF, encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("header") and "=" in line:
+            val = line.split("=", 1)[1].strip().strip('"')
+            if ":" in val:
+                k, v = val.split(":", 1)
+                H[k.strip()] = v.strip()
+except Exception:
+    pass
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+def post(url, data, ctype):
+    h = {"Content-Type": ctype, "Accept": "application/sparql-results+json"}
+    h.update(H)
+    return json.load(urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=120))
+P = "https://schema.ostler.ai/ontology#"
+Q = ("SELECT ?p ?dn ?gn ?fn ?t ?v WHERE { ?p a <" + P + "Person> . "
+     "FILTER NOT EXISTS { ?p <" + P + "mergedInto> ?m } "
+     "OPTIONAL { ?p <" + P + "displayName> ?dn } OPTIONAL { ?p <" + P + "givenName> ?gn } "
+     "OPTIONAL { ?p <" + P + "familyName> ?fn } "
+     "OPTIONAL { ?p <" + P + "hasIdentifier> ?i . ?i <" + P + "identifierType> ?t ; <" + P + "identifierValue> ?v } }")
+def judge(dn, gn, fn, phones, emails, card):
+    name = _best_display_name(dn or "", gn or "", fn or "", list(emails))
+    return _is_nameless_name(name, has_card=bool(card), handles=list(phones) + list(emails)), not (dn or gn or fn)
+try:
+    nodes = {}
+    for b in post(OXI, Q.encode(), "application/sparql-query")["results"]["bindings"]:
+        n = nodes.setdefault(b["p"]["value"], {"dn": "", "gn": "", "fn": "", "ph": set(), "em": set(), "card": False})
+        for k in ("dn", "gn", "fn"):
+            if k in b and not n[k]:
+                n[k] = b[k]["value"]
+        t = b.get("t", {}).get("value"); v = b.get("v", {}).get("value", "")
+        if t == "phone": n["ph"].add(v)
+        elif t == "email": n["em"].add(v)
+        elif t == "icloud_contact_uid" and v.strip(): n["card"] = True
+    vo = so = ho = 0
+    for n in nodes.values():
+        hidden, stub = judge(n["dn"], n["gn"], n["fn"], n["ph"], n["em"], n["card"])
+        if not hidden: vo += 1
+        elif stub: so += 1
+        else: ho += 1
+    vq = hq = tq = 0; nxt = None
+    while True:
+        body = {"limit": 1000, "with_payload": ["display_name", "given_name", "family_name", "emails", "phones", "icloud_uid"], "with_vector": False}
+        if nxt is not None:
+            body["offset"] = nxt
+        h = {"Content-Type": "application/json"}; h.update(H)
+        r = json.load(urllib.request.urlopen(urllib.request.Request(QD + "/collections/" + COLL + "/points/scroll",
+                      data=json.dumps(body).encode(), headers=h), timeout=60))["result"]
+        for pt in r["points"]:
+            pl = pt.get("payload") or {}
+            tq += 1
+            hidden, _ = judge(pl.get("display_name"), pl.get("given_name"), pl.get("family_name"),
+                              pl.get("phones") or [], pl.get("emails") or [], (pl.get("icloud_uid") or "").strip())
+            if hidden: hq += 1
+            else: vq += 1
+        nxt = r.get("next_page_offset")
+        if nxt is None:
+            break
+    print("OK %d %d %d %d %d %d %d" % (vo, so, ho, len(nodes), vq, hq, tq))
+except urllib.error.HTTPError as exc:
+    print("CANNOTRUN HTTP %d from %s" % (exc.code, exc.geturl() if hasattr(exc, "geturl") else "a store"))
+except Exception as exc:
+    print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
+PYVISIBLE
+
+read_visible() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_VISIBLE:-CANNOTRUN self-test-unset}"; return; fi
+    box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' \"${PEOPLE_RULES_DIR}\" <<'PYVISIBLE'
+${VISIBLE_PY}
+PYVISIBLE"
+}
+
 # adjudicate <a> <b> <tolerance_pct> -> "AGREE|DISAGREE|INSUFFICIENT <detail>"
 adjudicate_counts() {
     local a="$1" b="$2" tol="$3"
@@ -623,9 +727,24 @@ run_probe() {
     fi
     probe_note "merge-consistency repair:${_MCR_SUFFIX}"
 
+    # The verdict: CUSTOMER-VISIBLE counts, both sides through the one imported
+    # predicate (see VISIBLE_PY). The raw pair above is the stability
+    # instrument and stays printed; it is no longer what is graded.
+    local vis vo so ho no vq hq tq
+    vis="$(read_visible)"
+    case "$vis" in
+        OK\ *) : ;;
+        NORULES\ *) probe_cannot_run "${vis#NORULES } -- the customer-visible counts cannot be taken without the shipped predicate, and the raw counts are not the same population (stubs), so nothing is compared" ;;
+        *) probe_cannot_run "the customer-visible count read did not complete: ${vis:-<empty answer>}" ;;
+    esac
+    set -- ${vis#OK }
+    vo="$1"; so="$2"; ho="$3"; no="$4"; vq="$5"; hq="$6"; tq="$7"
+    probe_note "customer-visible (people_rules._is_nameless_name, imported): oxigraph ${vo} of ${no} unmerged nodes, qdrant ${vq} of ${tq} points; stubs=${so} (unnamed join anchors, allowed), hidden by the predicate: oxigraph ${ho}, qdrant ${hq}"
+    [ "$tq" = "$doc" ] || probe_note "  note: qdrant points scrolled (${tq}) differ from the doctor api count (${doc})"
+
     local r token detail
-    r="$(adjudicate_counts "$oxi" "$doc" "$TOLERANCE_PCT")"
-    token="${r%% *}"; detail="${r#* }"
+    r="$(adjudicate_counts "$vo" "$vq" "$TOLERANCE_PCT")"
+    token="${r%% *}"; detail="${r#* }; customer-visible, stubs=${so}"
 
     case "$token" in
         DISAGREE)     probe_fail "people counts disagree: $detail (task #273).${_MCR_SUFFIX} A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;

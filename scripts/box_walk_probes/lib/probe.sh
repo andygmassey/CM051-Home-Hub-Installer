@@ -160,11 +160,23 @@ probe_note() {
 # call returns 255 and the probe says CANNOT-RUN in a minute, not never. A
 # chat turn that is slow still streams frames, so this does not cut a turn
 # short; only a link that answers nothing does.
+# BOX_RUN_NO_STDIN=1 (set for one call) runs `ssh -n`, so the call cannot read
+# the caller's stdin. ssh forwards stdin to the remote command, so inside a
+# `while read ... done <<< "$list"` loop a plain box_run SWALLOWS the rest of
+# the list: #3202 explained 1 of 20 nodes on a real box for exactly that reason.
 box_run() {
     if [ -n "${OSTLER_BOX_HOST:-}" ]; then
-        ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
-            -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
-            "$OSTLER_BOX_HOST" "$1" 2>/dev/null
+        if [ "${BOX_RUN_NO_STDIN:-0}" = "1" ]; then
+            ssh -n -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
+                -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
+                "$OSTLER_BOX_HOST" "$1" 2>/dev/null
+        else
+            ssh -o ConnectTimeout="${OSTLER_SSH_TIMEOUT:-8}" \
+                -o BatchMode=yes -o ServerAliveInterval="${OSTLER_SSH_ALIVE_S:-15}" -o ServerAliveCountMax="${OSTLER_SSH_ALIVE_N:-4}" \
+                "$OSTLER_BOX_HOST" "$1" 2>/dev/null
+        fi
+    elif [ "${BOX_RUN_NO_STDIN:-0}" = "1" ]; then
+        bash -lc "$1" 2>/dev/null </dev/null
     else
         bash -lc "$1" 2>/dev/null
     fi
