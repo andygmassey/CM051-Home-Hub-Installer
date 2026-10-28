@@ -1509,3 +1509,35 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "cron_run_makes_no_sends"
+
+  # NEW-119 (diag118 Mini16, macOS 27.2, 2026-10-29). Two probes for the class
+  # the diagnostic found unguarded: a scheduled job that reads Full Disk Access
+  # data outside the daemon's grant, and a second refresh after install that
+  # nothing measured. tests/test_fda_refresh_tcc_probes.sh drives both (RED,
+  # GREEN, one mutant each), wired by .github/workflows/fda-refresh-tcc-probes.yml.
+  - id: box-walk-no-python-is-tcc-responsible
+    title: "box-walk probe must PASS: no_python_is_tcc_responsible (0 TCC requests with the bundled python RESPONSIBLE since install start; control = daemon-attributed python child requests, 0 is CANNOT-RUN)"
+    incident: >-
+      diag118 Mini16 2026-10-29 (python_fda_trace.md): every FDA-reading job runs
+      under `ostler-assistant run-source <src>`; the stale python3.11=0 row in the
+      system TCC.db predates the install, so only the unified log over the
+      install window can prove absence. studio29 2026-10-15 proved the defect
+      shape (ical-server's bare python3.11 denied on chat.db). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "no_python_is_tcc_responsible"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv): BLOCKING once the fda-rerun
+  # registration fix merges. Declared here because every probe on disk must be
+  # invoked by the cut; the promote scope, not this row, decides that it never
+  # refuses a promote.
+  - id: box-walk-fda-rerun-second-tick-lands-a-new-row
+    title: "advisory: com.ostler.fda-rerun, kickstarted until runs >= 2, lands a synthetic Safari visit seeded after install"
+    incident: >-
+      diag118 Mini16 2026-10-29: com.ostler.fda-rerun was never loaded after an
+      abort and re-run (plist present, launchctl print rc=113), and a second
+      refresh after install was NOT INSTRUMENTED. ADVISORY now; BLOCKING once the
+      fda-rerun registration fix merges.
+    proof:
+      kind: box_walk_probe
+      probe: "fda_rerun_second_tick_lands_a_new_row"
