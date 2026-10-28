@@ -30,6 +30,35 @@ a string while every CM019 writer stores an int.
 Yes: HR015 `ostler_fda/pwg_ingest.py`. Retire this file when the same change
 lands there and the tree is re-pinned past it.
 
+## 2026-10-24: I22, the calendar ingest writes the calendar's all-day flag
+
+`vendor/ostler_fda/pwg_ingest.py`, `ingest_calendar`, in the Meeting-node triples right
+after `pwg:meetingDate`. When the extract row carries a bool `is_all_day` (every row
+`extract_all.py` writes does, from `CalendarEvent.is_all_day`), the node gains
+`pwg:meetingAllDay "true"|"false"^^xsd:boolean`. Nothing else changes.
+
+Why: `meetingDate` is the full start. Without the flag the Timeline could not tell a timed
+meeting from an all-day item, and the app showed every past meeting as "All day" (I22, F&F
+TestFlight walk 2026-10-24). The reader half is the cm041/assistant_api graft of the same date.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same seven lines (HR015 PR linked
+from CM051's I22 PR). Retire when it lands there and the tree is re-pinned past it.
+
+## 2026-10-24: I22b, one-time all-day backfill for Meeting nodes written before I22
+
+New file `vendor/ostler_fda/allday_backfill.py`, called once from the hourly tick in
+`install.sh` after `ingest_all`, only when that tick's calendar extract was `ok`. It adds
+`pwg:meetingAllDay` to `pwg:Meeting` nodes that have none, matched to a wide (5 year)
+re-read of the calendar by the same uuid5 `ingest_calendar` uses. Adds only: no deletes,
+no rewrite of an existing flag, no new Meeting or Person. Marker
+`~/.ostler/state/allday_backfill_v1.done`; failures write no marker and retry next tick.
+
+Why: the tick re-ingests only the extract window, so older all-day Meetings stay unflagged
+and the Timeline shows them as timed.
+
+Owed upstream: yes, HR015 `ostler_fda/allday_backfill.py`. Retire when it lands there and
+the tree is re-pinned past it.
+
 ## 2026-10-24: strip tracking params at ingest (CM051 #3043; upstream HR015 #1176, OPEN)
 
 Pin NOT moved. Grafted ahead of the upstream merge. Upstream head at graft:
