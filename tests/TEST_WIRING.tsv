@@ -722,6 +722,7 @@ test_role_addresses_are_not_listed_as_people.py	WIRED	.github/workflows/privacy-
 test_rollforward_pin_is_watched_on_prs.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_rollforward_registry_pin.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_runtime_ready_does_not_require_optional_imports.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_runtime_ready_ignores_shipped_tests.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_invariant.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_runtime_ready_status_is_read_not_fatal.sh	WIRED	.github/workflows/colima-autostart.yml
 test_safari_extension_bearer_reaches_doctor.py	WIRED	.github/workflows/safari-extension-paired-bearer.yml
