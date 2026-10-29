@@ -440,3 +440,12 @@ Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. Corrects the food graft above
 - `services/enrich/src/enricher.py`: ONE `"food": "wikidata"` key (as on main). In `enrich_preference`, `category == "food"` with `extra.restaurant` and no `extra.cuisine` re-routes to `osm_cuisine`; everything else falls through to the wikidata branch. The `osm_cuisine` branch no longer has a None return. Consent/L3/minor gating untouched (`consent_or_log`, `outbound_refusal` run first).
 - Proof: `tests/test_enrichment_reaches_the_corpus.sh` (restaurant point -> osm_cuisine; plain food, empty extra, and cuisine-known -> wikidata). Red on ee0a2e47, green here, red on the any-food-to-osm mutant.
 - Owed upstream: yes, CM019 (personal-world-graph #432, the food PR). The upstream branch carries the second key; carry this routing into it. Row: `CM019_DIVERGENCE_REGISTRY.md`, "food routing". Retire: when #432 lands with this routing and the tree is re-pinned.
+
+## 2026-10-29 NEW-119 row 2471b: genetic and biometric classes in sensitive_terms.yaml
+
+Tree `cm019_preferences`. Pin HELD at 5af9f5b5. Data only, no code change.
+
+- `services/enrich/src/derive/sensitive_terms.yaml`: two new `terms` categories, `genetic` and `biometric`, between `trade_union` and `minors`. The yaml carried six of the eight GDPR Art. 9(1) classes. These two are the missing ones. The words are the same terms as the Front Page list, `vendor/cm059_editor/compiler/sensitive_topics.py` (`genetic_data`, `biometric_data`), written as whole words because this matcher has no stems.
+- Effect: `sensitive.is_sensitive` and `surfaceable` now refuse a genetic or biometric value at every place the derive engine surfaces one (write side, derived reader, `/preferences/derived`, QueryClient).
+- Proof: `tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py` (wired in `derived-preferences.yml`). It FAILS on origin/main's yaml and passes here. It also checks that every Front Page term for the two classes classifies here, so the lists cannot drift apart.
+- Upstream owed: andygmassey/personal-world-graph `services/enrich/src/derive/sensitive_terms.yaml` needs the same two categories. Retire this section when a re-pin brings them in.

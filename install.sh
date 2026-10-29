@@ -3953,8 +3953,8 @@ _ostler_quiesce_interval_agents() {
             #
             # export-scan is re-registered unconditionally further down: its
             # plist is rewritten and bootstrapped on every single run. fda-rerun
-            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
-            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING (or, since
+            # NEW-119, on launchd not having it loaded), set at exactly ONE site -- inside the plist-rewrite block, which fires
             # only when the plist is ABSENT, carries the legacy
             # StartCalendarInterval, or lacks the homebrew PATH.
             #
@@ -4717,10 +4717,10 @@ for root, dirs, files in os.walk(pkg):
             here.add(d)
     siblings[root] = here
 pkg_name = os.path.basename(pkg.rstrip(os.sep))
-
 wanted = set()
 scanned = 0
-for root, _dirs, files in os.walk(pkg):
+for root, dirs, files in os.walk(pkg):  # NEW-119: tests/ is not a runtime (vendor/ostler_fda/tests imports pytest; no customer venv has it; the DMG no longer ships tests/, gui/project.yml)
+    dirs[:] = [d for d in dirs if d != "tests"]  # EXACT name, any depth: an upgrade/dev tree with tests/ must not report MISSING pytest; testsupport/ and tests_*.py are still scanned
     for fn in files:
         if not fn.endswith(".py"):
             continue
@@ -21929,7 +21929,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:8088f892f90f9dd12c4117007513341c05986d8985b149feca13818f6e7c0e78
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:b5e93c6708edd9226b80c37526207ab40302d1e52e3dd2329aba4d978a4aba8b
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21973,7 +21973,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:1e5123ca202b1da8ba893d8aa8beace2d7e883fc7ef5fea23804a4e7f8f3e535
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ebe774cd9c3f19e3adfd52141e7f92cb578e08dfa715adb1b8f907bd1beb73e8
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -26313,7 +26313,32 @@ chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 # launchd starts a StartInterval job immediately on load, so loading it any
 # earlier fires a tick against a binary that is not there and writes
 # "re-run the installer to repair" into the customer's own error log.
-if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+#
+# 🔴 NEW-119: THE LOAD DECISION IS "IS THE JOB LOADED?", NOT ONLY "DID THIS RUN
+# REWRITE THE PLIST?". The note at the plist write accepts that an abort
+# between the plist write and this load leaves the agent unregistered, because
+# the customer re-runs. But the re-run found the plist present AND current, so
+# none of the rewrite triggers fired, the flag was never set, and this load was
+# skipped. The quiesce only sets the flag when it boots out a LOADED job, and
+# this one was not loaded.
+#
+# MEASURED, Mini 16, macOS 27.2, 2026-10-29 (diag118 rerun A): after a re-run
+# that followed an aborted run,
+#   launchctl print gui/<uid>/com.ostler.fda-rerun -> exit 113
+#   com.ostler.fda-rerun.plist in ~/Library/LaunchAgents: present
+#   install log: neither the scheduled nor the not-scheduled line
+# That is exactly the path ERR-13's "re-run the installer" advice sends the
+# customer down, and it left the hourly re-run gone for good.
+#
+# So ask launchd as well. Present-but-not-loaded owes a load whatever this run
+# did to the file. `launchctl print` is the oracle: launchctl load exits 0 on
+# failure, so its exit code never decides anything here. An already loaded,
+# current job is left alone (no bootout, no second bootstrap). The limb lives
+# HERE rather than at the plist write so install.sh's line-number citations
+# above it do not move.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]] \
+   || { [[ -f "${FDA_RERUN_PLIST:-}" ]] \
+        && ! launchctl print "gui/$(id -u)/com.ostler.fda-rerun" >/dev/null 2>&1; }; then
     # A guard, not decoration: if the binary is somehow still absent we are
     # about to reproduce the exact defect this block exists to remove, so say
     # so instead of registering it anyway.
@@ -32964,7 +32989,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.9}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.10}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── RemoteCapture integrity pin (cross-origin) ──────────────────
 # The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
@@ -32980,7 +33005,7 @@ OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-release
 # the published asset, never type it by hand.
 _ostler_remotecapture_pinned_sha() {
     case "$1" in
-        0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
+        0.1.10) echo "6910cfb0f3acd3833cdbbc0087dfbfcc8f046c06b321721748a0bcea60b28c89" ;; 0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
         0.1.8) echo "f183b9731832293bc1a1ed3b24a6675af416804ea2a9b915d942c168f8d6dec4" ;;
         0.1.7) echo "e269af01b058204cca41d72b6c0afc8d90f1de73054ebbcf456e8b7101c599f5" ;;
         0.1.6) echo "8f7f4a2333f814181413b21397dc3a7f77395af7845346518d1339746ad24656" ;;
