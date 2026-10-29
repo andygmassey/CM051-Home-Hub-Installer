@@ -89,7 +89,17 @@ def sparql_answer(q):
                     {"side": P + "a2", "t": "name", "v": "John Doe"}]
         return [{"side": "self", "t": "email", "v": "one@example.com"},
                 {"side": "self", "t": "email", "v": "two@example.com"}]
+    cf = CARDS_FIXTURE[0]
+    if "?jfrom ?jto" in q:
+        return [] if cf == "default" else [{"jfrom": P + "x2", "jto": P + "x"}]
+    if "?jname_s ?jname" in q:
+        if cf == "default":
+            return []
+        return [{"jname_s": P + "x", "jname": "John Doe"},
+                {"jname_s": P + "x2", "jname": "Jane Doe" if cf == "namemismatch" else "John Doe"}]
     if "GROUP BY ?person" in q:
+        if cf != "default":
+            return [{"person": P + "x", "uids": 2}]
         return [{"person": P + "a", "uids": 2}, {"person": P + "b", "uids": 3},
                 {"person": P + "c", "uids": 2}, {"person": P + "d", "uids": 2}]
     if "COUNT(DISTINCT ?i) AS ?n" in q:
@@ -145,6 +155,36 @@ COUNT_FIXTURES = {
     "jids": {"oxi_named": ["John Doe"] * 20 + [JID, JID], "stubs": 0, "qd_named": ["John Doe"] * 20 + [JID, JID]},
 }
 COUNT_FIXTURE = ["stubs"]
+CARDS_FIXTURE = ["default"]
+
+# Merge-journal rows in the CM051 #3217 schema. The hash is an HMAC keyed by
+# the install's service_token, so it is only ever checked for SHAPE; this value
+# is arbitrary and is never compared with anything.
+SHAPE_HASH = "0f1e2d3c4b5a6978"
+
+
+def jrow(keys, reason="", override="exact_identifier:phone", rid="20261029T010203Z-0a0b0c0d"):
+    return {"kind": "merge", "id": rid, "ts": "2026-10-29T01:02:03Z", "keep": P + "x", "discard": P + "x2",
+            "strategy": "phone_match", "confidence": 1.0, "details": "identifier values withheld from the journal",
+            "override": override, "shared_kinds": sorted({k["kind"] for k in keys}), "matched_keys": keys,
+            "matched_keys_reason": reason, "snapshot": "merge_snapshots/x.json", "qdrant_status": "ok", "qdrant_points": 1}
+
+
+_KEYED = [{"kind": "phone", "hash": SHAPE_HASH}]
+JOURNAL_CASES = {
+    # case: (journal rows, or "ABSENT" / "DIR", expected exit, label)
+    "pass": ([jrow(_KEYED)], 0, "journalled override with a key hash and identical names PASSES"),
+    "norow": ("ABSENT", 1, "no journal row for the extra card FAILS"),
+    "nokey": ([jrow([])], 1, "an override row with no key FAILS"),
+    "oldrow": ([{k: v for k, v in jrow(_KEYED).items() if k not in ("matched_keys", "shared_kinds", "matched_keys_reason")}], 1,
+               "a row written before keys were journalled FAILS"),
+    "namemismatch": ([jrow(_KEYED)], 1, "different display names FAIL"),
+    "undone": ([jrow(_KEYED), {"kind": "undo", "merge_id": "20261029T010203Z-0a0b0c0d"}], 1,
+               "an undone merge is not proof and FAILS"),
+    "secret": ([jrow([{"kind": "phone", "hash": None}], reason="journal_secret_unavailable")], 78,
+               "hash=null with journal_secret_unavailable is CANNOT-RUN, never PASS"),
+    "unreadable": ("DIR", 78, "an unreadable journal is CANNOT-RUN, never PASS"),
+}
 
 
 class Store(BaseHTTPRequestHandler):
@@ -268,6 +308,27 @@ def probes_end_to_end():
         check(n_explained == 4, "no_person_holds_two_contact_cards: EVERY offending node is explained (4 of 4) with an ssh that consumes stdin",
               "%d of 4 explained" % n_explained)
         no_raw("no_person_holds_two_contact_cards", out)
+
+        jdir = os.path.join(env["HOME"], ".ostler/import-pipeline/backups/merge_journal")
+        jpath = os.path.join(jdir, "merge_journal.jsonl")
+        for case, (rows, want, label) in JOURNAL_CASES.items():
+            CARDS_FIXTURE[0] = case
+            shutil.rmtree(jdir, ignore_errors=True)
+            if rows == "DIR":
+                os.makedirs(jpath)
+            elif rows != "ABSENT":
+                os.makedirs(jdir)
+                with open(jpath, "w") as fh:
+                    fh.write("".join(json.dumps(r) + "\n" for r in rows))
+            rc, out = run_probe("no_person_holds_two_contact_cards", env)
+            check(rc == want, "no_person_holds_two_contact_cards journal rule: " + label,
+                  "rc=%s want %s %s" % (rc, want, out[-300:]))
+            if case == "pass":
+                check("phone_match/phone" in out, "journal rule: the node line names the journal's strategy and key kind")
+            if SHAPE_HASH in out:
+                bad("journal rule: a key hash reached the output (%s)" % case)
+        shutil.rmtree(jdir, ignore_errors=True)
+        CARDS_FIXTURE[0] = "default"
 
         COUNT_FIXTURE[0] = "stubs"
         rc, out = run_probe("people_count_agreement", env)
