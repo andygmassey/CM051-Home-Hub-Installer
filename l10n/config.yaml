@@ -1,0 +1,71 @@
+# l10n/config.yaml -- what gets translated in THIS repo, into what.
+# English is the source of truth; every catalogue here falls back to English
+# at run time, so a missing translation never blocks a PR or a cut.
+
+languages: [de, fr, es, it, nl, pt-BR, pt-PT, ja, ko, zh-Hans, zh-Hant, zh-HK, ar, en-US]
+
+# Chinese in traditional script for Taiwan (zh-Hant) is ADAPTED from the reviewed zh-HK set, not
+# translated from scratch; a missing or stale HK string is translated fresh.
+derive_from:
+  zh-Hant: zh-HK
+
+models:
+  translate: claude-sonnet-5-5
+  review: claude-opus-5-5
+
+# A run refuses to start if its estimate is above this (USD, batch pricing).
+budget_usd: 25
+
+catalogues:
+  - id: install_sh
+    type: shell
+    source: install.sh.strings.en-GB.sh
+    target: install.sh.strings.{lang}.sh
+  - id: viewcopy
+    type: json-tree
+    source: gui/OstlerInstaller/Resources/ViewCopy.json
+    target: gui/OstlerInstaller/Resources/ViewCopy.{lang}.json
+  - id: hintcopy
+    type: json-tree
+    source: gui/OstlerInstaller/Resources/HintCopy.json
+    target: gui/OstlerInstaller/Resources/HintCopy.{lang}.json
+    skip_fields: [id, illustration]
+
+# Must survive verbatim: install.sh compares typed input to them (install.sh:12495).
+verbatim_tokens: [INSTALL, CANCEL, "[Y]", "[N]", "[y]", "[n]"]
+
+# The GUI pattern-matches these lines IN ENGLISH (InstallCompleteView.swift
+# serviceChecks), so a translation would turn healthy rows amber.
+keep_english:
+  - MSG_OK_QDRANT_HEALTHY
+  - MSG_OK_OXIGRAPH_HEALTHY
+  - MSG_OK_REDIS_HEALTHY
+  - MSG_OK_OLLAMA_HEALTHY
+  - MSG_OK_VANE_HEALTHY
+  - MSG_OK_IMESSAGE_AUTOMATION_PERMISSION_GRANTED
+
+# Legal / consent keys (regex on key + developer comment, plus legal_keys).
+# A translation of one ships only with a CURRENT legal_reviews.tsv row (same
+# English hash, reviewer ROLE + date) for that key in that language, AND a
+# current row for every legal_prevails_keys unit in that language; otherwise
+# English ships and the translation waits in l10n/legal_pending/
+# (`legal-list`, `legal-approve`, `legal-pack`).
+# Owner ruling 2026-10-24: "yes, localisation with English prevails." This replaces
+# the 2026-10-22 ruling (legal_english_only: true, every legal string English).
+legal_english_only: false
+legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
+legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS]
+# The "English version prevails" line, one per catalogue the installer shows
+# legal wording from. Until EVERY one is reviewed for a language, every legal
+# key of that language stays English (the installer is one surface: install.sh
+# prompts and the GUI consent screens appear together).
+legal_prevails_keys: [install_sh::MSG_LEGAL_ENGLISH_PREVAILS, viewcopy::legal/english_prevails]
+
+# The en-GB header asks for a human translation of these.
+human_review_keys:
+  - MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK
+  - MSG_STEP_SETUP_COMPLETE_WRAP_UP
+  - MSG_STEP_INSTALLING_THIS_TAKES_A_WHILE
+  - MSG_INFO_THIS_MAY_TAKE_5_15_MINUTES
+  - MSG_OK_POWER_SOURCE_AC_GOOD_10_15
+  - MSG_WARN_PHASE_3_TAKES_10_15_MINUTES

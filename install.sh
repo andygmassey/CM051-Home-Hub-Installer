@@ -2357,7 +2357,7 @@ _gui_ollama_pull() {
     local model="$1"
     local step="${2:-ai_models}"
     if [[ "${OSTLER_GUI:-0}" != "1" ]]; then
-        ollama pull "$model"
+        "$OLLAMA_APP_BIN" pull "$model"  # NEW-119: the PINNED engine; a clean Mac has no ollama on PATH (rc 127)
         return
     fi
     local rc_file line pct last=-1 clean
@@ -2376,7 +2376,7 @@ _gui_ollama_pull() {
         # Strip ANSI escapes + non-printables so the log line is clean.
         clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
         [[ -n "$clean" ]] && gui_log info "$clean"
-    done < <( { _pull_rc=0; ollama pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
+    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
     local rc
     rc="$(cat "$rc_file" 2>/dev/null)"
     rm -f "$rc_file"
@@ -3953,8 +3953,8 @@ _ostler_quiesce_interval_agents() {
             #
             # export-scan is re-registered unconditionally further down: its
             # plist is rewritten and bootstrapped on every single run. fda-rerun
-            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
-            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING (or, since
+            # NEW-119, on launchd not having it loaded), set at exactly ONE site -- inside the plist-rewrite block, which fires
             # only when the plist is ABSENT, carries the legacy
             # StartCalendarInterval, or lacks the homebrew PATH.
             #
@@ -4080,11 +4080,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9509) captures the path BY
+    # _ostler_write_store_curl_config (defined :9539) captures the path BY
     # VALUE and never re-reads it:
-    #     :9510   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9555   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9564 and :17471, both of which run
+    #     :9540   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9585   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9594 and :17521, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
     # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
@@ -4102,13 +4102,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :539: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18266, where the note reads
+    # WhatsApp Web session path did it again at :18316, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18283 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18333 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4117,13 +4117,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6835 against a definition at :9509. Top-level
+    # writer's own definition: :6864 against a definition at :9539. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9564, :17471) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9594, :17521) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20463 / :20641 / :20798 / :21243 path. There the
+    # :20530 / :20708 / :20865 / :21310 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4717,10 +4717,10 @@ for root, dirs, files in os.walk(pkg):
             here.add(d)
     siblings[root] = here
 pkg_name = os.path.basename(pkg.rstrip(os.sep))
-
 wanted = set()
 scanned = 0
-for root, _dirs, files in os.walk(pkg):
+for root, dirs, files in os.walk(pkg):  # NEW-119: tests/ is not a runtime (vendor/ostler_fda/tests imports pytest; no customer venv has it; the DMG no longer ships tests/, gui/project.yml)
+    dirs[:] = [d for d in dirs if d != "tests"]  # EXACT name, any depth: an upgrade/dev tree with tests/ must not report MISSING pytest; testsupport/ and tests_*.py are still scanned
     for fn in files:
         if not fn.endswith(".py"):
             continue
@@ -5216,12 +5216,10 @@ fi
 # extracted tarball where the catalogue ships, not at the empty
 # stdin process of the first pipe.
 OSTLER_LANG="${OSTLER_LANG:-en-GB}"
-_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
-if [[ ! -f "$_STRINGS_FILE" ]]; then
-    # Fall back to en-GB if the requested language file is missing,
-    # so a stale OSTLER_LANG env var does not brick the installer.
-    _STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
-fi
+# English first, ALWAYS: every MSG_ key then exists even when a translation
+# lacks it (a key added to en-GB after the last translation run), so a missing
+# translation prints English -- never an empty line, never a set -u abort.
+_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.en-GB.sh"
 if [[ -f "$_STRINGS_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$_STRINGS_FILE"
@@ -5230,7 +5228,38 @@ else
     printf 'install.sh: this is a packaging bug; please report it.\n' >&2
     exit 1
 fi
+# Then the installer language (OSTLER_LANG, from the GUI) overrides the keys it
+# translates. A missing file -- a stale or unknown OSTLER_LANG -- leaves English.
+_OSTLER_EN_LEGAL_PREVAILS="${MSG_LEGAL_ENGLISH_PREVAILS:-}"
+_STRINGS_FILE="${SCRIPT_DIR}/install.sh.strings.${OSTLER_LANG}.sh"
+if [[ "$OSTLER_LANG" != "en-GB" && -f "$_STRINGS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$_STRINGS_FILE"
+fi
 unset _STRINGS_FILE
+
+# Legal wording in the installer's language, English prevailing (owner
+# ruling 2026-10-24). l10n/ostler_l10n.py writes a legal/consent translation into
+# the catalogue only once a native reviewer has passed it AND has passed the
+# "English version prevails" line for that language (legal_reviews.tsv); every
+# other legal key carries English. So the prevails line being translated is
+# the one signal that this language's legal surface is localised, and when it
+# is, that line is shown before every legal/consent prompt. The GUI draws its
+# own copy of the line (OnboardingQuestionView, ViewCopy legal.english_prevails).
+OSTLER_LEGAL_LOCALISED=0
+if [[ -n "$_OSTLER_EN_LEGAL_PREVAILS" && "${MSG_LEGAL_ENGLISH_PREVAILS:-}" != "$_OSTLER_EN_LEGAL_PREVAILS" ]]; then
+    OSTLER_LEGAL_LOCALISED=1
+fi
+unset _OSTLER_EN_LEGAL_PREVAILS
+# Terminal path only: the GUI renders the line itself under the consent body.
+legal_prevails_note() {
+    [[ "$OSTLER_LEGAL_LOCALISED" == 1 ]] || return 0
+    if declare -F gui_active >/dev/null && gui_active; then
+        return 0
+    fi
+    printf '  %s\n\n' "$MSG_LEGAL_ENGLISH_PREVAILS"
+}
+
 
 # ── GUI progress emitter (sourced) ─────────────────────────────────
 #
@@ -8258,6 +8287,7 @@ if [[ "$CHANNEL_WHATSAPP_ENABLED" == true ]]; then
     # gui_read so the GUI installer renders a sheet. A bare `read -p`
     # blocks forever in OSTLER_GUI=1 mode because stdin is /dev/null
     # (caught 2026-05-16 Mac Studio install hang).
+    legal_prevails_note
     WA_CONSENT="$(gui_read "$MSG_PROMPT_WHATSAPP_CONSENT_TITLE" yesno "n" "$MSG_PROMPT_WHATSAPP_CONSENT_HELP" "" "whatsapp_consent")"
     if [[ "${WA_CONSENT:-n}" == "y" || "${WA_CONSENT:-n}" == "Y" ]]; then
         CHANNEL_WHATSAPP_CONSENT_ACCEPTED=true
@@ -12998,6 +13028,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        legal_prevails_note
         ART9="$(gui_read "$MSG_PROMPT_CONSENT_ARTICLE_9_TITLE" yesno "" "$MSG_PROMPT_CONSENT_ARTICLE_9_HELP" "" "consent_article_9")"
         case "${ART9:-}" in
             y|Y)
@@ -13136,6 +13167,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     while true; do
         # gui_read so the GUI installer renders a sheet (bare `read -p`
         # hangs OSTLER_GUI=1 because stdin is /dev/null).
+        legal_prevails_note
         VOICE="$(gui_read "$MSG_PROMPT_CONSENT_VOICE_EU_TITLE" yesno "Y" "$MSG_PROMPT_CONSENT_VOICE_EU_HELP" "" "consent_voice_eu")"
         case "${VOICE:-y}" in
             y|Y|"")
@@ -13226,6 +13258,7 @@ while true; do
     # Default seeded as "n" so the customer must explicitly toggle to Yes
     # (the GUI's yesValue() returns true for empty strings, which would
     # otherwise pre-check the Yes toggle and amount to a pre-ticked box).
+    legal_prevails_note
     THIRD_PARTY="$(gui_read "$MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_THIRD_PARTY_HELP" "" "consent_third_party")"
     case "${THIRD_PARTY:-}" in
         y|Y)
@@ -13320,6 +13353,7 @@ echo ""
 while true; do
     # gui_read so the GUI installer renders a sheet (bare `read -p`
     # hangs OSTLER_GUI=1 because stdin is /dev/null).
+    legal_prevails_note
     SPOKEN_CAPTURE="$(gui_read "$MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE" yesno "n" "${MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP}"$'\n\n'"${_OSTLER_SPOKEN_CAPTURE_LEGAL_NOTE}" "" "consent_spoken_capture")"
     case "${SPOKEN_CAPTURE:-}" in
         y|Y)
@@ -13393,6 +13427,7 @@ _ostler_ask_personal_use_terms() {
     echo ""
     echo -e "  ${DIM}${MSG_TERMS_LANGUAGE}${NC}"
     echo ""
+    legal_prevails_note
     TERMS_PERSONAL_USE="$(gui_read "$MSG_PROMPT_TERMS_PERSONAL_USE_TITLE" acknowledge "OK" "$MSG_PROMPT_TERMS_PERSONAL_USE_HELP" "OK,CANCEL" "terms_personal_use")"
     if [[ "$TERMS_PERSONAL_USE" == "CANCEL" || "$TERMS_PERSONAL_USE" == "cancel" ]]; then
         echo ""
@@ -13499,6 +13534,7 @@ echo ""
 # a dedicated SwiftUI body is a follow-up, not a blocker, because the HELP
 # string is written to read correctly as one run.
 OSTLER_ENRICH_AGENT_ENABLED=0
+legal_prevails_note
 ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"
 case "${ENRICH_CHOICE:-}" in
     y|Y) OSTLER_ENRICH_AGENT_ENABLED=1 ;;
@@ -13571,6 +13607,7 @@ echo ""
 # the typed answers for operators driving install.sh from a
 # terminal -- the while-loop branches below cover both forms.
 while true; do
+    legal_prevails_note
     CONSENT="$(gui_read "$MSG_PROMPT_CONSENT_INSTALL_TITLE" text_with_cancel "" "$MSG_PROMPT_CONSENT_INSTALL_HELP" "INSTALL,CANCEL" "consent_install")"
     # Case-insensitive accept: the GUI normalises to upper-case
     # before posting; TTY operators might type "install" lower-case
@@ -15371,6 +15408,7 @@ _ostler_configure_reboot_autologin() {
     # so the id would churn every time this copy is edited (and a derived id is
     # redacted out of the install log by the emitter, per __OSTLER_PROMPT_ID_DERIVED).
     local _consent
+    legal_prevails_note
     _consent="$(gui_read "$MSG_PROMPT_AUTOLOGIN_CONSENT" text "N" "$_explain" "" "autologin_consent")"
     case "$_consent" in
         y|Y|yes|Yes|YES)
@@ -17213,6 +17251,18 @@ if grep -q '^USER_FIRST_NAME=' "$OSTLER_ENV_FILE" 2>/dev/null; then
     rm -f "${OSTLER_ENV_FILE}.bak"
 fi
 printf 'USER_FIRST_NAME=%s\n' "${USER_FIRST_NAME:-}" >> "$OSTLER_ENV_FILE"
+
+# l10n: the wiki speaks the installer's language. OSTLER_LANG (set by the GUI
+# from the Mac's languages, InstallerLanguage.swift) goes into this compose .env
+# for the same reason as USER_FIRST_NAME above: every compose invocation, the
+# install-time compile and the recompile LaunchAgent alike, reads it from here.
+# The wiki compiler and wiki-site fall back to English for any value they do
+# not ship. Idempotent: replace any prior line, preserve the rest.
+if grep -q '^OSTLER_LANG=' "$OSTLER_ENV_FILE" 2>/dev/null; then
+    sed -i.bak '/^OSTLER_LANG=/d' "$OSTLER_ENV_FILE"
+    rm -f "${OSTLER_ENV_FILE}.bak"
+fi
+printf 'OSTLER_LANG=%s\n' "${OSTLER_LANG:-en-GB}" >> "$OSTLER_ENV_FILE"
 
 # >>> assistant-name-compose-env
 # Assistant name to the wiki compiler (S16b). Same mechanism as
@@ -19261,6 +19311,23 @@ PY
                 "$@" 2>"$stderr_file"; then
             rm -f "$stderr_file"
             _OSTLER_CONSENT_RECORDED_TICKBOXES="${_OSTLER_CONSENT_RECORDED_TICKBOXES:-} ${tickbox}"
+            # Which wording the person SAW: the installer's language and the
+            # legal_reviews.tsv row id of every translated line on that screen
+            # (empty = all English). Added to the same consent.json record;
+            # old records without it stay readable (English was shown).
+            if ! "$OSTLER_PYTHON" "${SCRIPT_DIR}/lib/ostler_consent_display.py" \
+                    --posture "${OSTLER_DIR}/posture" --tickbox "$tickbox" \
+                    --lang "${OSTLER_LANG:-en-GB}" --resources "${SCRIPT_DIR}" 2>"$stderr_file"; then
+                local display_log="${OSTLER_DIR}/posture/consent-cli-failures.log"
+                {
+                    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] tickbox=$tickbox display-language record failed"
+                    head -c 400 "$stderr_file" 2>/dev/null
+                    echo ""
+                    echo "---"
+                } >> "$display_log" 2>/dev/null || true
+                warn "$MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED"
+            fi
+            rm -f "$stderr_file"
             return 0
         fi
         if [[ "$mode" == "blocking" ]]; then
@@ -21929,7 +21996,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:8088f892f90f9dd12c4117007513341c05986d8985b149feca13818f6e7c0e78
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:b5e93c6708edd9226b80c37526207ab40302d1e52e3dd2329aba4d978a4aba8b
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -21948,6 +22015,9 @@ services:
     # compiler.identity_label.first_name_to_pedia_label.
     environment:
       USER_FIRST_NAME: "${USER_FIRST_NAME:-}"
+      # l10n: theme chrome language (CM044 picks mkdocs Material's language
+      # and text direction from it; unknown -> English). From the compose .env.
+      OSTLER_LANG: "${OSTLER_LANG:-en-GB}"
     volumes:
       - wiki-docs:/docs/docs:ro
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
@@ -21973,7 +22043,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:1e5123ca202b1da8ba893d8aa8beace2d7e883fc7ef5fea23804a4e7f8f3e535
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ebe774cd9c3f19e3adfd52141e7f92cb578e08dfa715adb1b8f907bd1beb73e8
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -22168,6 +22238,9 @@ services:
       # Owner's IANA zone, exported by wiki-recompile-tick.sh / the install-time
       # compile. Empty -> the compiler labels its times UTC.
       - OSTLER_TZ=${OSTLER_TZ:-}
+      # l10n: CM044 loads compiler/locale.<lang>.yaml when it ships one,
+      # else its English locale.yaml. From the compose .env (see OSTLER_LANG there).
+      - OSTLER_LANG=${OSTLER_LANG:-en-GB}
       # Inside-container path the Obsidian post-processor writes to.
       # Pinned to /wiki/obsidian to match the bind-mount above.
       - WIKI_OBSIDIAN_DIR=/wiki/obsidian
@@ -24002,7 +24075,7 @@ progress "Downloading AI models (this is the big one)" "ai_models"
 # already on disk and serving is kept as it is (ostler_note_existing_model
 # records how it compares, for the walk); a model we pull now must match its
 # pin or the install stops.
-if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
+if "$OLLAMA_APP_BIN" list 2>/dev/null | grep -q "nomic-embed-text"; then  # NEW-119: pinned engine, never PATH
     ok "$MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE"
     ostler_note_existing_model nomic-embed-text
 else
@@ -24066,7 +24139,7 @@ rm -f "$EMBED_HEALTH_BODY"
 ok "$MSG_OK_EMBEDDINGS_VERIFIED"
 
 if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
-    if ollama list 2>/dev/null | grep -q "${AI_MODEL}"; then
+    if "$OLLAMA_APP_BIN" list 2>/dev/null | grep -q "${AI_MODEL}"; then  # NEW-119: pinned engine, never PATH
         ok "$(printf "$MSG_OK_ALREADY_AVAILABLE" "${AI_MODEL}")"
         ostler_note_existing_model "${AI_MODEL}"
     else
@@ -24096,7 +24169,7 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         esac
     fi
 else
-    info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${AI_MODEL}")"
+    info "$(printf "$MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA" "${OLLAMA_APP_BIN}" "${AI_MODEL}")"
 fi
 
 # ── 3.10 Import pipeline ──────────────────────────────────────────
@@ -26313,7 +26386,32 @@ chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 # launchd starts a StartInterval job immediately on load, so loading it any
 # earlier fires a tick against a binary that is not there and writes
 # "re-run the installer to repair" into the customer's own error log.
-if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+#
+# 🔴 NEW-119: THE LOAD DECISION IS "IS THE JOB LOADED?", NOT ONLY "DID THIS RUN
+# REWRITE THE PLIST?". The note at the plist write accepts that an abort
+# between the plist write and this load leaves the agent unregistered, because
+# the customer re-runs. But the re-run found the plist present AND current, so
+# none of the rewrite triggers fired, the flag was never set, and this load was
+# skipped. The quiesce only sets the flag when it boots out a LOADED job, and
+# this one was not loaded.
+#
+# MEASURED, Mini 16, macOS 27.2, 2026-10-29 (diag118 rerun A): after a re-run
+# that followed an aborted run,
+#   launchctl print gui/<uid>/com.ostler.fda-rerun -> exit 113
+#   com.ostler.fda-rerun.plist in ~/Library/LaunchAgents: present
+#   install log: neither the scheduled nor the not-scheduled line
+# That is exactly the path ERR-13's "re-run the installer" advice sends the
+# customer down, and it left the hourly re-run gone for good.
+#
+# So ask launchd as well. Present-but-not-loaded owes a load whatever this run
+# did to the file. `launchctl print` is the oracle: launchctl load exits 0 on
+# failure, so its exit code never decides anything here. An already loaded,
+# current job is left alone (no bootout, no second bootstrap). The limb lives
+# HERE rather than at the plist write so install.sh's line-number citations
+# above it do not move.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]] \
+   || { [[ -f "${FDA_RERUN_PLIST:-}" ]] \
+        && ! launchctl print "gui/$(id -u)/com.ostler.fda-rerun" >/dev/null 2>&1; }; then
     # A guard, not decoration: if the binary is somehow still absent we are
     # about to reproduce the exact defect this block exists to remove, so say
     # so instead of registering it anyway.
@@ -27931,7 +28029,7 @@ echo "      it is only deleted with --remove-colima or an explicit 'yes'"
 echo "      at the prompt near the end. --yes alone does NOT delete it."
 echo "    - Homebrew"
 echo "    - Ollama or downloaded models (may be 7.2-23 GB)"
-echo "      To remove: ollama rm <model-name>"
+echo "      To remove: ${OLLAMA_APP_BIN:-~/.ostler/runtime/ollama-<version>/ollama} rm <model-name>"
 echo "    - Your original GDPR export files"
 echo "    - Your Ostler licence (~/.ostler/license/)"
 echo "      This is what you paid for. It is kept so that reinstalling"
@@ -32964,7 +33062,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.9}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.10}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── RemoteCapture integrity pin (cross-origin) ──────────────────
 # The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
@@ -32980,7 +33078,7 @@ OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-release
 # the published asset, never type it by hand.
 _ostler_remotecapture_pinned_sha() {
     case "$1" in
-        0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
+        0.1.10) echo "6910cfb0f3acd3833cdbbc0087dfbfcc8f046c06b321721748a0bcea60b28c89" ;; 0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
         0.1.8) echo "f183b9731832293bc1a1ed3b24a6675af416804ea2a9b915d942c168f8d6dec4" ;;
         0.1.7) echo "e269af01b058204cca41d72b6c0afc8d90f1de73054ebbcf456e8b7101c599f5" ;;
         0.1.6) echo "8f7f4a2333f814181413b21397dc3a7f77395af7845346518d1339746ad24656" ;;
@@ -36749,7 +36847,12 @@ except Exception:
     if [[ "${_HYDRATE_EMAIL_RC:-0}" -ne 0 ]]; then
         _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
             "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
-    elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+    elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]] \
+         || [[ "${_HYDRATE_EMAIL_MSGS:-0}" =~ ^[0-9]+$ && "${_HYDRATE_EMAIL_MSGS:-0}" -gt 0 ]]; then
+        # NEW-119: mail that was READ is not "no data", even when it named
+        # nobody new (outcome no_correspondents_in_window). messages=N > 0
+        # makes the recorder write status=ok with the counts; no_data is kept
+        # for a run that read zero messages.
         # W012 class: outcome=imported with zero of both is reachable.
         _hydrate_sentinel_record "email" \
             "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}" \
@@ -37745,6 +37848,23 @@ except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_IMESSAGE_UNMEASURED=true; _HYDRATE_IMESSAGE_COUNT=""; }
         _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
+        # NEW-119: the VOLUME read, from the vendored ingest's
+        # conversations_read / messages_read. A run that read 84,826
+        # messages and changed no person is not "no data" (diag118 rerun A).
+        # An older ingest without the fields gives 0 0, i.e. today's verdict.
+        _HYDRATE_IMESSAGE_READ="$(
+            printf '%s' "$_HYDRATE_IMESSAGE_JSON_OUT" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("conversations_read", 0) or 0), int(d.get("messages_read", 0) or 0))
+except Exception:
+    print(0, 0)' 2>/dev/null
+        )" || _HYDRATE_IMESSAGE_READ=""
+        _HYDRATE_IMESSAGE_CONVS="${_HYDRATE_IMESSAGE_READ%% *}"
+        _HYDRATE_IMESSAGE_MSGS="${_HYDRATE_IMESSAGE_READ##* }"
+        case "${_HYDRATE_IMESSAGE_CONVS:-}" in ''|*[!0-9]*) _HYDRATE_IMESSAGE_CONVS=0 ;; esac
+        case "${_HYDRATE_IMESSAGE_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_IMESSAGE_MSGS=0 ;; esac
 
         if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_IMESSAGE_DONE" "$_HYDRATE_IMESSAGE_COUNT")"
@@ -37834,16 +37954,20 @@ except Exception:
         # byte-identical in the sentinel: `:-0` manufactures the number the
         # reason is about. Say which one happened.
         if [[ "${_HYDRATE_IMESSAGE_UNMEASURED:-false}" == true ]]; then
-            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0},conversations=${_HYDRATE_IMESSAGE_CONVS:-0},messages=${_HYDRATE_IMESSAGE_MSGS:-0}" \
                 "counter_failed_count_unmeasured"
         else
-            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            # NEW-119: messages > 0 makes the payload non-zero, so the
+            # recorder writes status=ok with the counts; only a run that read
+            # zero messages and changed zero people stays no_data.
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0},conversations=${_HYDRATE_IMESSAGE_CONVS:-0},messages=${_HYDRATE_IMESSAGE_MSGS:-0}" \
                 "ran_ok_no_new_or_enriched_people"
         fi
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP _HYDRATE_IMESSAGE_CAP
+    unset _HYDRATE_IMESSAGE_READ _HYDRATE_IMESSAGE_CONVS _HYDRATE_IMESSAGE_MSGS
     unset _HYDRATE_IMESSAGE_LOG
 elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"

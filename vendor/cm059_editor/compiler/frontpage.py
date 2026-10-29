@@ -918,16 +918,10 @@ def _apply_feed_caps(cards: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 import re as _re
 
-_SENSITIVE_STEMS = (
-    "politic", "election", "memorial", "campaign", "protest", "maga",
-    "democrat", "republican", "conservative party", "labour party", "tory",
-    "religio", "church", "mosque", "synagogue", "temple", "islam", "muslim",
-    "christian", "catholic", "jewish", "judaism", "hindu", "sikh", "atheis",
-    "diabet", "cancer", "hiv", "aids", "depress", "anxiety", "mental health",
-    "therapy", "rehab", "addiction", "ozempic", "wegovy", "pregnan", "ivf",
-    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
-    "sexual", "trade union",
-)
+# The special-category list lives in ONE place, sensitive_topics.py (board
+# row 2471: the stem list that used to sit here had no ethnicity, genetic or
+# biometric class, and matched mid-word, so "History" read as political).
+from compiler import sensitive_topics as _sensitive_topics
 
 _SITE_SUFFIX = _re.compile(
     r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
@@ -955,12 +949,22 @@ def is_cardable_interest(it: dict) -> bool:
         return False
     if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
         return False  # a bare number or address is not a thing to be into
-    low = subject.lower()
-    if any(stem in low for stem in _SENSITIVE_STEMS):
+    if _sensitive_topics.is_sensitive_topic(subject):
         return False
     if (it.get("privacy") or "").upper() == "L3":
         return False
     return True
+
+
+def sensitive_card_gate(cards: list[dict]) -> list[dict]:
+    """Last gate over the assembled feed: no interest card (ordinary, rotated
+    or hunch, or any interest-kind card a scout adds) whose title names a
+    GDPR Art. 9 special-category topic. ``_cardable_profile`` already removes
+    them at the source; this catches any path that builds an interest card
+    from something other than the filtered profile."""
+    return [c for c in cards
+            if not (c.get("kind") == "interest"
+                    and _sensitive_topics.is_sensitive_topic(c.get("title")))]
 
 
 def _cardable_profile(profile: dict) -> dict:
@@ -1095,6 +1099,7 @@ def build_frontpage(profile: dict, *, now: datetime | None = None,
     cards = apply_card_states(cards, card_states, now)
     cards = drop_resting(cards)
     cards = privacy_gate(cards)
+    cards = sensitive_card_gate(cards)
     cards = entitlement_gate(cards, entitled, now)
     # A card must never appear without a working action. The app routes only
     # open_interest_profile; the consent_grant:<key> verb a consent card

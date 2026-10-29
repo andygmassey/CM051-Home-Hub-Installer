@@ -22,6 +22,13 @@ if [ -x "$ROOT/.githooks/check-assistant-name-hardcoded.sh" ]; then
     "$ROOT/.githooks/check-assistant-name-hardcoded.sh" pre-commit || exit $?
 fi
 
+# l10n: English is the source of truth. If an English catalogue is staged,
+# fall any translation whose English changed back to English (offline, no
+# API) and stage that too, so the PR gate's stale check never needs a human.
+if [ -f "$ROOT/l10n/ostler_l10n.py" ] && git diff --cached --name-only | /usr/bin/grep -qE 'strings\.en-GB\.sh$|Resources/(ViewCopy|HintCopy)\.json$|\.xcstrings$'; then
+    ( cd "$ROOT" && python3 -I l10n/ostler_l10n.py stale >/dev/null && git add -u -- l10n/provenance.json l10n/REVIEW_FLAGS.*.tsv install.sh.strings.[!e]*.sh install.sh.strings.es.sh gui/OstlerInstaller/Resources/*Copy.*.json ) || exit $?
+fi
+
 # Bound-string guard -- install.sh runs under `set -uo pipefail`, so a MSG_*
 # it reads that the catalogue does not define is not a blank line, it is
 # `unbound variable` and a DEAD INSTALL at that step. Rule 0.9 above cannot
