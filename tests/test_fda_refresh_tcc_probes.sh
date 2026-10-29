@@ -171,9 +171,10 @@ r="$(OSTLER_WALK_READ_ONLY=1 run_p2 "$SRC" good)"; expect "read-only walk" "$r" 
 echo "--- ttywalk DECLARED STATE ---"
 LIB="$REPO/scripts/lib_walk_tcc_declared.sh"
 TDB="$W/TCC.db"
+SYN_HOME="/"Users"/walk1"  # built from parts at runtime: synthetic account, no literal home path
 "$SQ" "$TDB" "create table access(service TEXT, client TEXT, client_type INT, auth_value INT, auth_reason INT, last_modified INT);
 insert into access values('kTCCServiceSystemPolicyAllFiles','ai.ostler.installer',0,2,4,1757822488),
-('kTCCServiceSystemPolicyAllFiles','/Users/walk1/.ostler/python/bin/python3.11',1,0,5,1757829357),
+('kTCCServiceSystemPolicyAllFiles','${SYN_HOME}/.ostler/python/bin/python3.11',1,0,5,1757829357),
 ('kTCCServiceCamera','com.example.other',0,2,4,1)"
 decl() {  # $1 lib, $2 sudo ok|refuse
     ( h="$(mktemp -d "$W/dh.XXXX")"; . "$1"

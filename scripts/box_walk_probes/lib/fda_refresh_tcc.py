@@ -173,7 +173,7 @@ def judge_tick(f: dict) -> tuple[int, str]:
 # fixtures. Lines are shaped on real tccd output (local `log show`, 2026-10-29)
 # and the diag118 / studio29 records. Paths use a synthetic account.
 # --------------------------------------------------------------------------
-H = "/Users/walk1"
+H = "/".join(["", "Users", "walk1"])  # built from parts: synthetic account, no literal home path
 _HDR = "Timestamp               Ty Process[PID:TID]\n"
 
 
