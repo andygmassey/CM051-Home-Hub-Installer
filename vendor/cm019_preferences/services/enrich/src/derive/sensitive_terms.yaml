@@ -96,6 +96,15 @@ terms:
     [union member, "trade union", "trade unions", "trade unionist", "labour union", "labor union",
      "unite the union", unison, teamsters, tuc, "collective bargaining",
      gewerkschaft, syndicat, sindicato, sindacato, vakbond, 労働組合, 工会, 노동조합]
+  genetic:         # genetic data (Art. 9(1)); same terms as the Front Page list,
+                   # vendor/cm059_editor/compiler/sensitive_topics.py genetic_data
+    [genetic, genetics, genome, genomes, genomic, genomics, "dna test", "dna testing",
+     "dna kit", "ancestry dna", 23andme, "carrier status", brca, brca1, brca2,
+     "gene therapy", "gene therapies"]
+  biometric:       # biometric data (Art. 9(1)); same terms as sensitive_topics.py biometric_data
+    [biometric, biometrics, fingerprint, fingerprints, fingerprinting, "face id",
+     "facial recognition", "iris scan", "iris scanning", "retina scan", "retinal scan",
+     voiceprint, "voice print", "palm print", "palm vein"]
   minors:          # events and places that are ABOUT a child, not an adult's own interest
     ["kids party", "kid party", "childrens party", "children party", "child party",
      playdate, "play date", "school run", "school pickup", "school pick up", "school drop off",
