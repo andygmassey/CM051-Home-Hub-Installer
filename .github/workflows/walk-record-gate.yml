@@ -117,6 +117,7 @@ on:
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
       - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
       - 'tests/test_ttywalk_lang_leg.sh'
+      - 'tests/test_ttywalk_exit_cleanup_lines.sh'
       - 'tests/fixtures/lang_leg/**'
       - 'scripts/lib_walk_lang.sh'
       - 'scripts/box_walk_probes/lib/gen_walk_answers_lang.py'
@@ -914,6 +915,12 @@ jobs:
       - name: ttywalk --lang puts OSTLER_LANG on the launch line, stages the answers file, and cleans up
         if: always()
         run: /bin/bash tests/test_ttywalk_lang_leg.sh
+
+      # ttywalk.sh exit trap: the --from-dmg detach and temp-dir removal must be
+      # LOGGED (success and failure), with a -force retry; fake hdiutil, two mutants.
+      - name: ttywalk exit trap logs the DMG detach and removes the temp mount dir
+        if: always()
+        run: /bin/bash tests/test_ttywalk_exit_cleanup_lines.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had

@@ -183,8 +183,35 @@ SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
 # a second thing needing cleanup would have replaced it. Exit status is the
 # status of the exit that triggered it; this function never changes it.
 _ttywalk_on_exit() {
-    if [[ -n "$DMG_MNT" ]]; then
-        hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true
+    # Every step below is LOGGED, success or failure: a cleanup that prints
+    # nothing cannot be told from one that never ran, and stderr is never
+    # discarded. The temp dir is removed with rmdir only (it must be empty after
+    # a detach); never rm -rf a mount point.
+    if [[ -z "${DMG_MNT:-}" ]]; then
+        printf '%s\n' "ttywalk cleanup: no DMG mounted"
+    else
+        local _dm_err _dm_rc
+        if [[ "${DMG_ATTACHED:-0}" -eq 1 ]]; then
+            _dm_err="$(hdiutil detach "$DMG_MNT" -quiet 2>&1 >/dev/null)"; _dm_rc=$?
+            if [[ "$_dm_rc" -eq 0 ]]; then
+                printf '%s\n' "ttywalk cleanup: DMG detached ${DMG_MNT}"
+            else
+                printf '%s\n' "ttywalk cleanup: FAILED to detach ${DMG_MNT} rc=${_dm_rc}: ${_dm_err}"
+                _dm_err="$(hdiutil detach "$DMG_MNT" -force -quiet 2>&1 >/dev/null)"; _dm_rc=$?
+                if [[ "$_dm_rc" -eq 0 ]]; then
+                    printf '%s\n' "ttywalk cleanup: DMG detached ${DMG_MNT} (with -force retry)"
+                else
+                    printf '%s\n' "ttywalk cleanup: FAILED to detach ${DMG_MNT} with -force rc=${_dm_rc}: ${_dm_err}"
+                fi
+            fi
+        else
+            printf '%s\n' "ttywalk cleanup: DMG was never attached at ${DMG_MNT}"
+        fi
+        if _dm_err="$(rmdir "$DMG_MNT" 2>&1)"; then
+            printf '%s\n' "ttywalk cleanup: removed temp dir ${DMG_MNT}"
+        else
+            printf '%s\n' "ttywalk cleanup: FAILED to remove temp dir ${DMG_MNT}: ${_dm_err}"
+        fi
     fi
     if [[ "$LANG_STAGED" -eq 1 ]]; then
         walk_lang_cleanup "$REMOTE_DIR"
@@ -436,12 +463,14 @@ identity_check "before staging"
 STAGE_SRC="$REPO_ROOT"
 STAGE_KIND="repo"
 DMG_MNT=""
+DMG_ATTACHED=0
 if [[ -n "${FROM_DMG:-}" ]]; then
     [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
     DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
         || die "--from-dmg: could not make a mountpoint"
     hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
         || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    DMG_ATTACHED=1
     # Detach on the way out however we leave, so a later run does not meet
     # "Resource busy" -- the v1.0.51 failure, one artefact over.
     # (detached by _ttywalk_on_exit, armed once near the top)
