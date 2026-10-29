@@ -59,19 +59,22 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Front Page (source, at the daemon this cut ships)
     # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
     # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
     # welcome modal navigates to '/settings#governor' (the modern Governor
     # route location; the panel scrolls to that anchor). Updated file + regex
     # to prove the same wire-through against the current source.
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt. RE-KEYED 2026-10-29 (v1.0.120) - since oa 5011a2d6 (in hub-v0.5.30) the first-run popup offers Front Page / Ask and no longer opens the Governor; the Governor is reachable from the sidebar (web/src/components/layout/Sidebar.tsx:122) and the header status chip (web/src/components/StatusChip.tsx:33). The product owner accepted this on 2026-10-29.
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.120 (ORM 2026-10-29): pinned to the daemon this cut SHIPS (cut.env DAEMON_COMMIT 610b0c5c = tag hub-v0.5.30),
+    # never the clone's HEAD (dispatch 40903304399 read HEAD and failed). Pattern count: 0 at d9854a99, 1 at 610b0c5c.
+    source_sha: 610b0c5c5fd5c6535b4342688858bf7817c72737
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
       path: "web/src/components/GovernorWelcomeModal.tsx"
-      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
+      pattern: "navigate\\(FRONT_PAGE_ROUTE\\)"
       must_match: true
 
   # ==========================================================================
@@ -305,6 +308,8 @@ entries:
       source_repo: "ostler-ai/ostler-remote-capture"
       # (v1.0.119, 2026-10-28 ORM) RC pin 0.1.9 = tag remote-capture-v0.1.9 -> CM042 f476394 (#37 the Ostler app icon,
       # #38 version bump; 0.1.8 = #23 consent fail-closed is its ancestor). Tarball ecdf349b, notarised b982596d.
+      # (v1.0.119, 2026-10-29 ORM) RC pin 0.1.10 = CM042 4b4cab8 (#40 version bump on #39 8d12e368: jurisdiction checks
+      # device region before GPS, stricter consent regime wins, row 1001). Tarball 6910cfb0, notarised b9d9c071.
       # The RemoteCapture repo compiles the whole app from Sources/ + supporting
       # Swift/Xcode + package files; freshness matters for any of them.
       source_paths:
@@ -612,6 +617,42 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "source_status_artefact_is_served"
+
+  - id: box-walk-ostler-launchd-jobs-loaded-and-exit-clean
+    title: every Ostler LaunchAgent and LaunchDaemon on the box must be loaded, and none stopped on a non-zero last exit code
+    incident: >-
+      launchctl load exits 0 on failure, so "the installer loaded it" proves
+      nothing; only launchctl print carries whether the label is in the domain
+      and its last exit code. Before this row the suite asked that of one label
+      (com.ostler.fda-rerun, inside ingest_coverage) and every other Ostler job
+      could be unloaded or dying on every fire unseen (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "ostler_launchd_jobs_loaded_and_exit_clean"
+
+  - id: box-walk-gateway-not-exposed-on-lan
+    title: from the box's own LAN IP the gateway :8000 must be refused and :8443 frontpage/cards must be 404, with :8443/health as the control
+    incident: >-
+      fix-register row 947. The gateway host defaults to loopback in the
+      assistant config schema but install.sh writes port=8000 with no host, and
+      :8443 carries the companion route table; a listener table cannot say what
+      a LAN neighbour reaches, so the probe connects to the LAN IP itself, with
+      a positive control that makes a dead LAN path CANNOT-RUN, never PASS
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_not_exposed_on_lan"
+
+  - id: box-walk-install-log-error-lines
+    title: every level=error and Command failed line in the box install.log is printed with its count
+    incident: >-
+      the install's DONE errors= counter misses errors raised in subshells
+      (lib/progress_emitter.sh err() funnel counts in the parent shell only),
+      so "DONE errors=0" can sit beside real errors in the same log. ADVISORY
+      for its first cut via walk_promote_scope.tsv (a new row expires after one
+      cut), then blocking against the reviewed allowlist (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "install_log_error_lines"
 
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.

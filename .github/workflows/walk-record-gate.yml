@@ -116,6 +116,10 @@ on:
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
       - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
+      - 'tests/test_ttywalk_lang_leg.sh'
+      - 'tests/fixtures/lang_leg/**'
+      - 'scripts/lib_walk_lang.sh'
+      - 'scripts/box_walk_probes/lib/gen_walk_answers_lang.py'
       - 'scripts/lib_walk_cm019_bundle.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
@@ -903,6 +907,13 @@ jobs:
       - name: ttywalk --from-dmg exports the artefact's cm019 bundle for the whole run
         if: always()
         run: /bin/bash tests/test_ttywalk_exports_the_cm019_bundle.sh
+
+      # NEW-119: ttywalk.sh --lang <code>, the non-English walk leg. Env line,
+      # generated answers file, invalid-code refusal, no-flag control, cleanup
+      # on failure, and two must-fail mutants, all against a fake box.
+      - name: ttywalk --lang puts OSTLER_LANG on the launch line, stages the answers file, and cleans up
+        if: always()
+        run: /bin/bash tests/test_ttywalk_lang_leg.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had

@@ -72,10 +72,38 @@ no_status = [r.get("source", "?") for r in rows if not isinstance(r, dict) or "s
 if no_status:
     print(f"FAIL {len(no_status)} row(s) carry no status ({no_status[:5]}) -- the record is not usable per-source")
     sys.exit(0)
+# SEEDED-BUT-ZERO (harness119). A source the walk PUT DATA INTO before install
+# that comes back 0 (or no_data) was read and found nothing, which is how a
+# silently denied read looks (macOS 27 app-group containers). Unseeded, 0 stays
+# honest; seeded, it is a FAIL. item_count None is unmeasured, not 0.
+seeded = [s.strip() for s in os.environ.get("OSTLER_SEEDED_SOURCES", "").split(",") if s.strip()]
+by_src = {r.get("source"): r for r in rows}
+zero = []
+for s in seeded:
+    r = by_src.get(s)
+    if r is None:
+        zero.append(f"{s}(no row)")
+        continue
+    n = r.get("item_count")
+    if r.get("status") == "no_data" or n == 0 or r.get("status") in ("not_run", "cannot_run", "error"):
+        zero.append(f"{s}(status={r.get('status')},item_count={n})")
+if zero:
+    print(f"FAIL seeded source(s) read as empty: {', '.join(zero)} -- the walk put rows there, so 0 is a denied or missed read, not 'no data'")
+    sys.exit(0)
 landed = sum(1 for r in rows if r.get("status") == "ok" and (r.get("item_count") or 0) > 0)
 notrun = sum(1 for r in rows if r.get("status") == "not_run")
-print(f"PASS {landed} landed / {len(rows)} sources ({notrun} not_run) -- artefact served and per-source honest")
+print(f"PASS {landed} landed / {len(rows)} sources ({notrun} not_run; seeded checked: {','.join(seeded) or 'none'}) -- artefact served and per-source honest")
 PY
+}
+
+# The sources this walk put rows into before install, comma-separated: the
+# Safari seed marker (ttywalk.sh, lib_walk_safari_seed.sh) feeds `browsing`,
+# plus OSTLER_WALK_SEEDED_SOURCES for a box loaded with a synthetic life.
+walk_seeded_sources() {
+    local out="${OSTLER_WALK_SEEDED_SOURCES:-}" m
+    m="$(box_run 'head -c 200 "$HOME/.walk-safari-seed-run" 2>/dev/null' | tr -d '\r\n')"
+    case "$m" in planted*) out="${out:+${out},}browsing" ;; esac
+    printf '%s' "$out"
 }
 
 run_probe() {
@@ -85,9 +113,11 @@ run_probe() {
         probe_cannot_run "the box (${OSTLER_BOX_HOST:-local}) is not reachable, so the Doctor could not be queried"
     fi
 
-    local body verdict token detail
+    local body verdict token detail seeded
     body="$(box_run "curl -s --noproxy '*' --max-time 5 '${DOCTOR_URL}/api/v1/sources'")"
-    verdict="$(printf '%s' "$body" | classify)"
+    seeded="$(walk_seeded_sources)"
+    probe_note "sources the walk seeded (a 0 there is a FAIL): ${seeded:-none}"
+    verdict="$(printf '%s' "$body" | OSTLER_SEEDED_SOURCES="$seeded" classify)"
     token="${verdict%% *}"
     detail="${verdict#* }"
 
@@ -104,7 +134,7 @@ run_probe() {
 # correctly -- that is the healthy result the runner expects; a probe_pass (rc 0)
 # here means a control did NOT fire and the probe is blind to its defect.
 self_test() {
-    probe_examined 5 "synthetic /api/v1/sources bodies (negative control)"
+    probe_examined 8 "synthetic /api/v1/sources bodies (negative control)"
 
     # 13 honest rows, each with a status -> must PASS
     local good='{"sources": ['
@@ -146,7 +176,25 @@ self_test() {
         *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: a row with no status was not adjudicated FAIL." ;;
     esac
 
-    probe_fail "negative control behaved correctly on all 5 bodies (valid 13-row passes; 404 body, transport error, dropped-source and status-less row all refuse)"
+    # harness119: a SEEDED source that reads 0 / no_data -> FAIL; the same body
+    # unseeded -> PASS; a seeded source with a real count -> PASS.
+    local zbody='{"sources": [{"source":"apple_notes","status":"no_data","item_count":0},'
+    for i in $(seq 2 13); do zbody="${zbody}{\"source\":\"s$i\",\"status\":\"ok\",\"item_count\":4},"; done
+    zbody="${zbody%,}]}"
+    case "$(printf '%s' "$zbody" | OSTLER_SEEDED_SOURCES=apple_notes classify)" in
+        FAIL*seeded*apple_notes*) : ;;
+        *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: a seeded source reading no_data/0 was not adjudicated FAIL. A silently denied read would pass as 'no data'." ;;
+    esac
+    case "$(printf '%s' "$zbody" | OSTLER_SEEDED_SOURCES= classify)" in
+        PASS*) : ;;
+        *) probe_pass "NEGATIVE CONTROL OVER-FIRED: an UNSEEDED source at 0 was not PASS. A box without that data is not a defect." ;;
+    esac
+    case "$(printf '%s' "$zbody" | OSTLER_SEEDED_SOURCES=s2 classify)" in
+        PASS*) : ;;
+        *) probe_pass "NEGATIVE CONTROL OVER-FIRED: a seeded source with a real count was not PASS." ;;
+    esac
+
+    probe_fail "negative control behaved correctly on all 8 bodies (valid 13-row passes; 404 body, transport error, dropped-source and status-less row all refuse; seeded-but-0 FAILs, unseeded 0 and seeded-with-count PASS)"
 }
 
 probe_main "$@"
