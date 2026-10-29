@@ -974,8 +974,10 @@ test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_logs_carry_no_personal_values.py	WIRED	.github/workflows/no-pii-in-logs.yml
+test_vendored_people_writers_never_overwrite_on_a_failed_read.py	WIRED	.github/workflows/people-writers-never-overwrite-on-failed-read.yml
 test_vendored_qid_pass_reaches_the_thematic_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_vendored_social_writers_store_the_preserved_fields.py	WIRED	.github/workflows/people-writers-never-overwrite-on-failed-read.yml
 test_vendored_stated_preferences_reach_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_stated_transcripts_reach_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
