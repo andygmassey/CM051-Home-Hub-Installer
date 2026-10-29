@@ -3953,8 +3953,8 @@ _ostler_quiesce_interval_agents() {
             #
             # export-scan is re-registered unconditionally further down: its
             # plist is rewritten and bootstrapped on every single run. fda-rerun
-            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING, set
-            # at exactly ONE site -- inside the plist-rewrite block, which fires
+            # is not. Its load is gated on _OSTLER_FDA_RERUN_LOAD_PENDING (or, since
+            # NEW-119, on launchd not having it loaded), set at exactly ONE site -- inside the plist-rewrite block, which fires
             # only when the plist is ABSENT, carries the legacy
             # StartCalendarInterval, or lacks the homebrew PATH.
             #
@@ -26313,7 +26313,32 @@ chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 # launchd starts a StartInterval job immediately on load, so loading it any
 # earlier fires a tick against a binary that is not there and writes
 # "re-run the installer to repair" into the customer's own error log.
-if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]]; then
+#
+# 🔴 NEW-119: THE LOAD DECISION IS "IS THE JOB LOADED?", NOT ONLY "DID THIS RUN
+# REWRITE THE PLIST?". The note at the plist write accepts that an abort
+# between the plist write and this load leaves the agent unregistered, because
+# the customer re-runs. But the re-run found the plist present AND current, so
+# none of the rewrite triggers fired, the flag was never set, and this load was
+# skipped. The quiesce only sets the flag when it boots out a LOADED job, and
+# this one was not loaded.
+#
+# MEASURED, Mini 16, macOS 27.2, 2026-10-29 (diag118 rerun A): after a re-run
+# that followed an aborted run,
+#   launchctl print gui/<uid>/com.ostler.fda-rerun -> exit 113
+#   com.ostler.fda-rerun.plist in ~/Library/LaunchAgents: present
+#   install log: neither the scheduled nor the not-scheduled line
+# That is exactly the path ERR-13's "re-run the installer" advice sends the
+# customer down, and it left the hourly re-run gone for good.
+#
+# So ask launchd as well. Present-but-not-loaded owes a load whatever this run
+# did to the file. `launchctl print` is the oracle: launchctl load exits 0 on
+# failure, so its exit code never decides anything here. An already loaded,
+# current job is left alone (no bootout, no second bootstrap). The limb lives
+# HERE rather than at the plist write so install.sh's line-number citations
+# above it do not move.
+if [[ "${_OSTLER_FDA_RERUN_LOAD_PENDING:-0}" == "1" ]] \
+   || { [[ -f "${FDA_RERUN_PLIST:-}" ]] \
+        && ! launchctl print "gui/$(id -u)/com.ostler.fda-rerun" >/dev/null 2>&1; }; then
     # A guard, not decoration: if the binary is somehow still absent we are
     # about to reproduce the exact defect this block exists to remove, so say
     # so instead of registering it anyway.
