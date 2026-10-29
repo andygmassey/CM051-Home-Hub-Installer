@@ -99,6 +99,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib_identity_lookalike.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_identity_lookalike.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_cm019_bundle.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_lang.sh"
 REMOTE_DIR="ostler-ttywalk"
 
 PASS=0; FAIL=1; CANNOT_RUN=2
@@ -130,6 +131,9 @@ NO_RECORD=0
 # default, right after the install finishes. It is read-only, labelled, and
 # never reaches WALK_VERDICT or walks/. --no-early-pass declines it, announced.
 NO_EARLY_PASS=0
+# --lang <code>: a non-English leg. Unset = today's walk, byte for byte.
+WALK_LANG=""
+LANG_STAGED=0
 CONSOLE_WALK="${OSTLER_CONSOLE_WALK:-}"
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
@@ -148,6 +152,7 @@ while [[ $# -gt 0 ]]; do
         --stage-only)   STAGE_ONLY=1; shift ;;
         --no-record)    NO_RECORD=1; shift ;;
         --no-early-pass) NO_EARLY_PASS=1; shift ;;
+        --lang)         WALK_LANG="${2:-}"; shift 2 ;;
         --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
         -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -156,6 +161,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$HOST" ]] || die "--host is required (user@host)"
+
+# ARGUMENT-TIME, before any ssh: an unknown language is a usage error.
+if [[ -n "$WALK_LANG" ]] && ! walk_lang_valid "$WALK_LANG"; then
+    die "--lang '${WALK_LANG}' is not an installer locale (one of: ${WALK_LANGS})."
+fi
 
 # ARGUMENT-TIME, NOT SSH-TIME. Placed here deliberately: the first draft sat
 # beside the wipe block, so `--wipe-stores` without `--reset` died on the ssh
@@ -168,6 +178,21 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
 fi
 
 SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
+
+# ONE exit trap, armed once. It used to be set inside the --from-dmg block, so
+# a second thing needing cleanup would have replaced it. Exit status is the
+# status of the exit that triggered it; this function never changes it.
+_ttywalk_on_exit() {
+    if [[ -n "$DMG_MNT" ]]; then
+        hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true
+    fi
+    if [[ "$LANG_STAGED" -eq 1 ]]; then
+        walk_lang_cleanup "$REMOTE_DIR"
+    fi
+}
+trap _ttywalk_on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ── Identity, by NAME, before anything else ──────────────────────────
 #
@@ -419,7 +444,7 @@ if [[ -n "${FROM_DMG:-}" ]]; then
         || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
     # Detach on the way out however we leave, so a later run does not meet
     # "Resource busy" -- the v1.0.51 failure, one artefact over.
-    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
+    # (detached by _ttywalk_on_exit, armed once near the top)
     _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
     [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
     [[ -f "${_res}/install.sh" ]] \
@@ -1369,12 +1394,27 @@ say "   Only a console walk by a human can. Never shim it to granted-and-working
 "${SSH[@]}" 'mkdir -p ~/.ostler && printf "ttywalk %s\n" "$(date +%s)" > ~/.ostler/.install-harness' >/dev/null 2>&1 \
     || say "WARNING: could not write ~/.ostler/.install-harness; db_key_reaches_every_service will treat this install as a console install"
 
-"${SSH[@]}" "cd '${REMOTE_DIR}' && \
+if [[ -n "$WALK_LANG" ]]; then
+    rule "LANGUAGE LEG (--lang ${WALK_LANG})"
+    # walk_lang_stage sets LANG_STAGED=1 before its first change on the host.
+    walk_lang_stage "$REMOTE_DIR" "$WALK_LANG" "${REPO_ROOT}/scripts/box_walk_probes/lib/gen_walk_answers_lang.py" \
+        || die "language leg could not be staged; nothing was run."
+    say "OSTLER_LANG=${WALK_LANG} on the install launch line (the variable the GUI passes); answers staged on the host, removed on exit."
+fi
+
+# >>> launch (tests/test_ttywalk_lang_leg.sh sources this block: keep it self-contained)
+# The ONE launcher of walk_drive.py. Both legs use this line; --lang adds only
+# OSTLER_LANG. Every other variable is passed on every leg.
+LANG_ENV=""
+[[ -n "$WALK_LANG" ]] && LANG_ENV="OSTLER_LANG='${WALK_LANG}' "
+WALK_LAUNCH_CMD="cd '${REMOTE_DIR}' && \
     unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
     PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
     OSTLER_WALK_OWNER_FILE=\"\$HOME/.walk-owner.env\" \
-    OSTLER_GUI=1 nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
-    echo started" >/dev/null 2>&1
+    OSTLER_GUI=1 ${LANG_ENV}nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
+    echo started"
+# <<< launch
+"${SSH[@]}" "$WALK_LAUNCH_CMD" >/dev/null 2>&1
 
 # Poll. A poll loop with no delay is not a wait.
 # IS THE BOX DOING WORK? Echoes "<free-kb> <live-worker-count>", or nothing
