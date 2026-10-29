@@ -1,6 +1,71 @@
+diff --git a/bin/hub-power-actions.sh b/bin/hub-power-actions.sh
+index c4fab30d..4478749a 100755
 --- a/bin/hub-power-actions.sh
 +++ b/bin/hub-power-actions.sh
-@@ -383,7 +383,7 @@
+@@ -175,17 +175,37 @@ hpa_pwg_unpause() {
+ # missing (older versions), we fall back to SIGTERM on the daemon process.
+ # ---------------------------------------------------------------------------
+ 
++# NEW-119 (CM051): the Hub's Ollama is the PINNED engine under
++# ~/.ostler/runtime/ollama-<pin>/ollama, which is never on PATH. `command -v
++# ollama` is false on a clean Mac, so these functions silently skipped the
++# model unload and never restarted the engine. Resolve the binary the
++# com.ostler.ollama LaunchAgent itself runs (ProgramArguments[0]); never PATH.
++# $HPA_OLLAMA_BIN overrides for tests.
++HPA_OLLAMA_PLIST="${HPA_OLLAMA_PLIST:-$HOME/Library/LaunchAgents/com.ostler.ollama.plist}"
++
++hpa_ollama_bin() {
++    local b="${HPA_OLLAMA_BIN:-}"
++    if [ -z "$b" ] && [ -f "$HPA_OLLAMA_PLIST" ]; then
++        b="$(awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/ {sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$HPA_OLLAMA_PLIST")"
++    fi
++    [ -n "$b" ] && [ -x "$b" ] || return 1
++    printf '%s\n' "$b"
++}
++
+ hpa_ollama_stop() {
+-    if command -v ollama >/dev/null 2>&1; then
+-        # Try `ollama stop <model>` for every loaded model, then as a last
++    local ob
++    if ob="$(hpa_ollama_bin)"; then
++        # Try `<pinned> stop <model>` for every loaded model, then as a last
+         # resort `ollama serve` termination.
+         local loaded
+-        loaded="$(ollama ps 2>/dev/null | awk 'NR>1 {print $1}' || true)"
++        loaded="$("$ob" ps 2>/dev/null | awk 'NR>1 {print $1}' || true)"
+         local m
+         while IFS= read -r m; do
+             [ -z "$m" ] && continue
+-            hpa_run "ollama stop $m" ollama stop "$m" || true
++            hpa_run "ollama stop $m" "$ob" stop "$m" || true
+         done <<< "$loaded"
++    else
++        hps_log "ollama-stop: pinned engine not found (no com.ostler.ollama agent), skipping model unload"
+     fi
+     # Kill the serve process too – frees the port and GPU memory.
+     local pid
+@@ -198,8 +218,9 @@ hpa_ollama_stop() {
+ }
+ 
+ hpa_ollama_start() {
+-    if ! command -v ollama >/dev/null 2>&1; then
+-        hps_log "ollama-start: binary not found, skipping"
++    local ob
++    if ! ob="$(hpa_ollama_bin)"; then
++        hps_log "ollama-start: pinned engine not found (no com.ostler.ollama agent), skipping"
+         return 0
+     fi
+     # If already running, no-op.
+@@ -212,7 +233,7 @@ hpa_ollama_start() {
+     if [ "$(launchctl list 2>/dev/null | grep -c 'com.ostler.ollama\|ai.ollama')" -gt 0 ]; then
+         hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/ai.ollama" || true
+     else
+-        hpa_run "spawn ollama serve" nohup ollama serve >/dev/null 2>&1 &
++        hpa_run "spawn ollama serve" nohup "$ob" serve >/dev/null 2>&1 &
+         # Detach.
+         disown 2>/dev/null || true
+     fi
+@@ -383,7 +404,7 @@ hpa_zeroclaw_catchup_request() {
  # the iOS Companion polls). Start/restart helpers are here for wake paths.
  # ---------------------------------------------------------------------------
  
@@ -9,3 +74,194 @@
  
  hpa_ical_ensure_up() {
      local uid
+diff --git a/test-run.sh a/test-run.sh
+deleted file mode 100755
+index 8edf72d7..00000000
+--- a/test-run.sh
++++ /dev/null
+@@ -1,185 +0,0 @@
+-#!/usr/bin/env bash
+-#
+-# test-run.sh
+-#
+-# Integration test for the Hub power policy. Simulates each tier transition
+-# using fixture pmset output, drives the watcher, and asserts the log
+-# contains the expected actions.
+-#
+-# DRY_RUN=1 is always set so no real `docker pause` / `launchctl bootout` /
+-# `kill` is ever issued. Safe to run on any Mac.
+-#
+-# Run:
+-#   ./test-run.sh
+-#
+-# Manual smoke test on a real MacBook (destructive – actually pauses
+-# containers; run only when you know what's up):
+-#   sudo -v && POWER_POLICY=normal HPS_STUB_CMD=0 DRY_RUN=0 ./bin/hub-power-watch.sh
+-#
+-# Exit 0 on pass, 1 on any failure.
+-
+-set -euo pipefail
+-
+-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+-BIN_DIR="$SCRIPT_DIR/bin"
+-
+-# Dedicated test home so we don't touch the user's real ~/.ostler.
+-TEST_HOME="$(mktemp -d)"
+-export OSTLER_DIR="$TEST_HOME/.ostler"
+-export OSTLER_LOG="$OSTLER_DIR/hub-power.log"
+-export OSTLER_CONF="$OSTLER_DIR/power.conf"
+-export OSTLER_STATE_CACHE="$OSTLER_DIR/hub-power.state"
+-export HPS_LID_FIXTURE="open"
+-export HPS_DIR="$BIN_DIR"
+-export HOME_BACKUP="$HOME"
+-# We do NOT reassign $HOME – the actions library writes the catchup marker
+-# to $HOME/.zeroclaw, but DRY_RUN stubs that out.
+-export DRY_RUN=1
+-export HPS_STUB_CMD=1
+-mkdir -p "$OSTLER_DIR"
+-
+-PASS=0
+-FAIL=0
+-
+-assert_log_contains() {
+-    local needle="$1" label="$2"
+-    if grep -qF "$needle" "$OSTLER_LOG" 2>/dev/null; then
+-        PASS=$((PASS+1))
+-        printf '  ok    %s\n' "$label"
+-    else
+-        FAIL=$((FAIL+1))
+-        printf '  FAIL  %s (expected substring in log: %q)\n' "$label" "$needle"
+-        echo "      log tail:"
+-        tail -n 10 "$OSTLER_LOG" 2>/dev/null | sed 's/^/        /'
+-    fi
+-}
+-
+-reset_log() {
+-    : > "$OSTLER_LOG"
+-}
+-
+-make_fixture() {
+-    local src="$1" pct="$2"
+-    local tmp
+-    tmp="$(mktemp)"
+-    if [ "$src" = "ac" ]; then
+-        printf "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1234)\t%s%%; charged; 0:00 remaining present: true\n" "$pct" > "$tmp"
+-    else
+-        printf "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1234)\t%s%%; discharging; 2:00 remaining present: true\n" "$pct" > "$tmp"
+-    fi
+-    printf '%s' "$tmp"
+-}
+-
+-echo "=== Scenario 1: cold start on AC (normal policy) ==="
+-echo "POWER_POLICY=normal" > "$OSTLER_CONF"
+-rm -f "$OSTLER_STATE_CACHE"
+-reset_log
+-FIX="$(make_fixture ac 95)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition  -> ac"   "detects first-tick transition to ac"
+-assert_log_contains "ac: transitioning to AC"         "invokes AC handler"
+-assert_log_contains "pwg-unpause"                     "consults PWG unpause path"
+-assert_log_contains "ac: all services resumed"        "AC handler completes"
+-
+-echo ""
+-echo "=== Scenario 2: switch to battery, high (>30%) ==="
+-reset_log
+-FIX="$(make_fixture battery 75)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition ac -> battery_high" "detects ac -> battery_high"
+-# battery_high reuses the ac handler so we still see the AC log line.
+-assert_log_contains "ac: transitioning to AC"                    "battery_high keeps everything running"
+-
+-echo ""
+-echo "=== Scenario 3: battery drops to 28% (normal => battery_mid) ==="
+-reset_log
+-FIX="$(make_fixture battery 28)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition battery_high -> battery_mid" "detects drop to battery_mid"
+-assert_log_contains "battery-low: engaging mid-tier throttle"            "invokes battery-low script"
+-assert_log_contains "pwg-pause"                                           "consults PWG pause path"
+-assert_log_contains "ollama-stop"                                         "tries to stop Ollama"
+-assert_log_contains "battery-low: mid-tier throttle applied"             "battery-low completes"
+-
+-echo ""
+-echo "=== Scenario 4: battery drops to 12% (normal => battery_low) ==="
+-reset_log
+-FIX="$(make_fixture battery 12)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition battery_mid -> battery_low" "detects drop to battery_low"
+-assert_log_contains "battery-critical: engaging critical-tier throttle" "invokes battery-critical script"
+-assert_log_contains "zeroclaw-stop: attempting"                          "tries to stop ZeroClaw"
+-assert_log_contains "battery-critical: only ical-server left running"   "battery-critical completes"
+-
+-echo ""
+-echo "=== Scenario 5: plug back in (AC) ==="
+-reset_log
+-FIX="$(make_fixture ac 13)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition battery_low -> ac" "detects return to AC"
+-assert_log_contains "ac: transitioning to AC"                   "invokes AC handler"
+-assert_log_contains "ac: all services resumed"                  "logs resume completion"
+-
+-echo ""
+-echo "=== Scenario 6: aggressive policy, 5% battery (should NOT throttle) ==="
+-echo "POWER_POLICY=aggressive" > "$OSTLER_CONF"
+-rm -f "$OSTLER_STATE_CACHE"
+-reset_log
+-FIX="$(make_fixture battery 5)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition  -> battery_high"  "aggressive: 5% still battery_high"
+-# Should NOT see the throttle logs.
+-if grep -qF "battery-low: engaging mid-tier throttle" "$OSTLER_LOG"; then
+-    FAIL=$((FAIL+1))
+-    echo "  FAIL  aggressive policy should not throttle"
+-else
+-    PASS=$((PASS+1))
+-    echo "  ok    aggressive policy does not throttle at 5%"
+-fi
+-
+-echo ""
+-echo "=== Scenario 7: eco policy, 45% (should => battery_mid) ==="
+-echo "POWER_POLICY=eco" > "$OSTLER_CONF"
+-rm -f "$OSTLER_STATE_CACHE"
+-reset_log
+-FIX="$(make_fixture battery 45)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: tier transition  -> battery_mid"       "eco 45% triggers battery_mid"
+-assert_log_contains "battery-low: engaging mid-tier throttle"      "eco invokes throttle at 45%"
+-
+-echo ""
+-echo "=== Scenario 8: wake detection (long gap since last tick) ==="
+-echo "POWER_POLICY=normal" > "$OSTLER_CONF"
+-# Seed a stale state cache with a prev_ts way in the past.
+-cat > "$OSTLER_STATE_CACHE" <<'EOF'
+-prev_tier=ac
+-prev_ts=1
+-EOF
+-reset_log
+-FIX="$(make_fixture ac 90)"
+-HPS_PMSET_FIXTURE="$FIX" bash "$BIN_DIR/hub-power-watch.sh"
+-assert_log_contains "watch: detected long gap"        "long-gap heuristic fires"
+-assert_log_contains "wake: system woke"               "hub-wake.sh is invoked"
+-assert_log_contains "wake: restoration complete"      "wake finishes cleanly"
+-assert_log_contains "catchup marker"                  "catchup marker written"
+-
+-echo ""
+-echo "=== Scenario 9: sleep hook writes last-awake marker ==="
+-reset_log
+-rm -f "$OSTLER_DIR/last-awake"
+-DRY_RUN=0 bash "$BIN_DIR/hub-sleep.sh"
+-if [ -f "$OSTLER_DIR/last-awake" ]; then
+-    PASS=$((PASS+1)); echo "  ok    last-awake marker created"
+-else
+-    FAIL=$((FAIL+1)); echo "  FAIL  last-awake marker missing"
+-fi
+-assert_log_contains "sleep: system going to sleep" "sleep script logs correctly"
+-
+-echo ""
+-echo "=========================================================="
+-echo "Results: $PASS passed, $FAIL failed"
+-echo "Test home (for inspection): $TEST_HOME"
+-if [ "$FAIL" -gt 0 ]; then
+-    exit 1
+-fi
+-exit 0
