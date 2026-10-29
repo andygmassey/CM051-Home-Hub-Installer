@@ -272,3 +272,26 @@ WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses
 (the 15-digit literal upstream keeps in repair_lid_as_phone.py would land on
 the MINUS side). The checked-in patch is stale against the new pin; the
 content gate reads RED for this tree, as on main before this change.
+
+## 2026-10-29, NEW-119: the merge journal names each exact-identifier key as {kind, keyed hash}
+
+Tree: cm041/identity_resolver (vendor/cm041/identity_resolver). Location and shape only.
+
+| file | change |
+|---|---|
+| `exact_identifier.py` | new `card_uid_override_keys()` returns `(allowed, reason, matched usable keys)`; `card_uid_override()` is now a wrapper returning `(allowed, reason)` as before. |
+| `merge_journal.py` | new `journal_identifier_keys()`, `journal_subkey()`, `key_hash()`, `normalise_key_value()`, `install_secret_path()`. `record_merge()` takes `matched_keys` + `matched_keys_reason` (replacing `shared_kinds`) and writes `matched_keys`, `matched_keys_reason`, and `shared_kinds` derived from the matched keys only. |
+| `batch_resolver.py` | `_exact_identifier_override()` returns `(reason, matched keys)`; `execute()` hashes them through `journal_identifier_keys()` before `record_merge()`. The `shared_kinds` guess (searching `action.details` / `action.strategy` for "email", "phone", "linkedin") is deleted. |
+
+Hash: `HMAC-SHA256(subkey, "<kind>:<normalised>")`, first 16 hex; subkey =
+`HMAC-SHA256(<OSTLER_DIR>/secrets/service_token, "ostler.merge-journal.v1")`.
+Missing or empty secret: the merge proceeds, rows carry `hash: null`,
+`matched_keys_reason: "journal_secret_unavailable"`.
+
+Guarded by `tests/test_merge_journal_records_keyed_identifier_hashes.py`
+(wired in `.github/workflows/exact-identifier-merge.yml`).
+
+UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
+re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
+the same three changes. The patch is not regenerated, for the reason in the
+2026-10-22 section above.

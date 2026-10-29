@@ -2404,6 +2404,7 @@ nonperson	l10n/glossary.yaml::4928967a80b398af	PRODUCT: Ostler's own product nam
 nonperson	l10n/glossary.yaml::1fd85320979722e9	PRODUCT: Apple's macOS/iOS UI names (System Settings, Full Disk Access and similar) the glossary tells translators to localise officially
 skip	install.sh.strings.zh-Hant.sh	TRANSLATION derived from an examined en-GB catalogue (zh-Hant, Taiwan): same reasoning as the rows above; the ?? glob cannot match a 7-character code
 skip	l10n/legal_pending/*.json	TRANSLATION derived from an examined en-GB catalogue, parked until a named legal reviewer approves it (same reasoning as the rows above)
+skip	tests/bare_ollama_allowlist.l10n.tsv	verbatim copies of registry-skipped l10n catalogue lines
 nonperson	vendor/cm041/contact_syncer/qdrant_collection.py::4608035f277e70b0	PRODUCT: line 1 of the module docstring, the words 'Shared' and 'Qdrant' (the vector store product). No person is named in the file; vendored from CM041 #138 on 2026-10-22.
 nonperson	vendor/LICENSES/AGPL-3.0.txt::35885ee185b26422	STATUTE: line(s) 4, 572, 575, 637 of the verbatim GNU AGPL-3.0 licence text: a defined term or section heading of the licence, not a person. The licence text must stay byte-identical, so renaming it would corrupt the licence.
 nonperson	vendor/LICENSES/AGPL-3.0.txt::a701f1057e3756aa	STATUTE: line(s) 21 of the verbatim GNU AGPL-3.0 licence text: a defined term or section heading of the licence, not a person. The licence text must stay byte-identical, so renaming it would corrupt the licence.
