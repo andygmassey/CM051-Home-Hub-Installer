@@ -181,6 +181,7 @@ hpa_pwg_unpause() {
 # model unload and never restarted the engine. Resolve the binary the
 # com.ostler.ollama LaunchAgent itself runs (ProgramArguments[0]); never PATH.
 # $HPA_OLLAMA_BIN overrides for tests.
+HPA_OLLAMA_LABEL="${HPA_OLLAMA_LABEL:-com.ostler.ollama}"
 HPA_OLLAMA_PLIST="${HPA_OLLAMA_PLIST:-$HOME/Library/LaunchAgents/com.ostler.ollama.plist}"
 
 hpa_ollama_bin() {
@@ -228,10 +229,13 @@ hpa_ollama_start() {
         hps_log "ollama-start: already running"
         return 0
     fi
-    # Prefer launchd if the Mac-Mini plist is installed (Ollama-as-launchd
-    # pattern). Otherwise spawn in background.
-    if [ "$(launchctl list 2>/dev/null | grep -c 'com.ostler.ollama\|ai.ollama')" -gt 0 ]; then
-        hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/ai.ollama" || true
+    # Prefer launchd if the Hub's agent is loaded. Otherwise spawn in background.
+    # NEW-119 (CM051): the Hub's agent is com.ostler.ollama. This used to match
+    # EITHER label and then always kickstart ai.ollama, which the Hub never
+    # installs, so on every Hub the restart was a silent no-op (`|| true`).
+    # ai.ollama is a customer's own Ollama.app and is never ours to restart.
+    if launchctl list 2>/dev/null | awk -v l="$HPA_OLLAMA_LABEL" '$3 == l {f=1} END {exit !f}'; then
+        hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/$HPA_OLLAMA_LABEL" || true
     else
         hpa_run "spawn ollama serve" nohup "$ob" serve >/dev/null 2>&1 &
         # Detach.
