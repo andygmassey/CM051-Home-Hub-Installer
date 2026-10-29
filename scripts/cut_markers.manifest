@@ -227,7 +227,7 @@ wiki_image_grep|wiki-compiler:/app/compiler/pages/dashboard.py|^def _human_date_
 wiki_image_grep|wiki-site:/docs/overrides/javascripts/local_time.js|function dayWord\(el\)|CM044 #337 a calendar day is worded against the reader's today, not the compile day. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/locale.py|^def token_words\(|CM044 #338 display names use one acronym/brand-aware token fallback. 0 -> 1.
 wiki_image_grep|wiki-compiler:/app/compiler/compile.py|^def write_corrections_page\(|CM044 #341 the corrections page is always emitted. 0 -> 1.
-wiki_image_grep|wiki-compiler:/app/compiler/pages/commitment_pages.py|^def _shorten_urls\(|CM044 #342 a bare URL in a commitment renders as a short site link, tracking dropped. 0 -> 1.
+wiki_image_grep|wiki-compiler:/app/compiler/pages/commitment_pages.py|_shorten_urls\(text_html\)|CM044 #342 a bare URL in a commitment renders as a short site link, tracking dropped. 0 -> 1. RE-KEYED 2026-10-29 (v1.0.119 cut refused here): CM044 #411 (fbeb1859) moved the def to compiler/customer_text.py link_bare_urls, imported as _shorten_urls; the CALL site is shape-agnostic (source: 0 at a6a7107c and d6ba3a01, 1 at 443d8f51, 23356c01 and fbeb1859).
 # --- v1.0.107 #30 hub-v0.5.18 (oa 9d2c9491). Each 0 at hub-v0.5.17 (bab3dc7a), >=1 at 9d2c9491 (measured in the full clone).
 assistant_tag_grep|src/main.rs|fn fda_sentinels\(home: &std::path::Path\)|oa #531 run-source --self-test falls through to a Full Disk Access sentinel every Mac has. 0 -> 1.
 assistant_tag_grep|web/src/pages/Cost.tsx|const unattributedTokens = work\.by_purpose\.unattributed\?\.total_tokens \?\? 0;|oa #536 Bursar dashboard reports attributed vs unattributed tokens. 0 -> 1.

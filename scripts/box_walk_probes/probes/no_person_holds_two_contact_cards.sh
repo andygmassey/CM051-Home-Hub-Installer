@@ -254,6 +254,237 @@ print(len(n), sum(n), (max(n) if n else 0))
 ' 2>/dev/null
 }
 
+# ── WHICH KEY JOINED THE CARDS (instr119) ───────────────────────────────
+#
+# v1.0.118 walk 3 FAILED with 59 over-merged nodes and printed three opaque
+# digests, so WHY they merged was NOT INSTRUMENTED. For each offending node
+# (cap 20) ask the graph for the phone, email and name on the node and on every
+# node merged INTO it, and name the key they share: that is the key the
+# resolver matched on. Values never leave the box raw: each is normalised and
+# printed as <type>:<sha256 prefix>, so two nodes sharing a key show the same
+# digest and nobody's number or address is disclosed.
+JOIN_CAP="${OSTLER_PROBE_JOIN_CAP:-20}"
+_q_join() {
+    printf '%s' "PREFIX p: <${ONTO}>
+SELECT ?side ?t ?v WHERE {
+  { <${1}> p:hasIdentifier ?i . ?i p:identifierType ?t ; p:identifierValue ?v . FILTER(?t IN (\"phone\", \"email\")) BIND(\"self\" AS ?side) }
+  UNION { ?s p:mergedInto <${1}> ; p:hasIdentifier ?i . ?i p:identifierType ?t ; p:identifierValue ?v . FILTER(?t IN (\"phone\", \"email\")) BIND(STR(?s) AS ?side) }
+  UNION { <${1}> p:displayName ?v . BIND(\"name\" AS ?t) BIND(\"self\" AS ?side) }
+  UNION { ?s p:mergedInto <${1}> ; p:displayName ?v . BIND(\"name\" AS ?t) BIND(STR(?s) AS ?side) }
+}"
+}
+
+_fetch_join() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_JOIN_JSON:-}"; return; fi
+    # -n: this runs inside the per-node while-read loop (see box_run).
+    BOX_RUN_NO_STDIN=1 _ox_curl "$(_q_join "$1")"
+}
+
+# explain_join <cards> <sparql-json>: one masked line naming the join key. Pure.
+explain_join() {
+    printf '%s' "$2" | python3 -c '
+import hashlib, json, re, sys
+cards = sys.argv[1]
+def norm(t, v):
+    v = (v or "").strip().lower()
+    if t == "phone":
+        d = re.sub(r"[^0-9]", "", v)
+        return d[-9:] if len(d) >= 7 else d
+    return re.sub(r"\s+", " ", v)
+def mask(t, v):
+    return "%s:%s" % (t, hashlib.sha256(norm(t, v).encode()).hexdigest()[:8])
+try:
+    rows = json.loads(sys.stdin.read())["results"]["bindings"]
+except Exception:
+    print("%s cards; join key NOT MEASURED (the graph did not answer)" % cards); sys.exit(0)
+selfk, srck = set(), {}
+for r in rows:
+    side, t, v = r["side"]["value"], r["t"]["value"], r["v"]["value"]
+    if not norm(t, v):
+        continue
+    k = (t, norm(t, v))
+    if side == "self":
+        selfk.add(k)
+    else:
+        srck.setdefault(side, set()).add(k)
+pool = set(selfk)
+for ks in srck.values():
+    pool |= ks
+shared = set()
+for s, ks in srck.items():
+    others = set(selfk)
+    for s2, ks2 in srck.items():
+        if s2 != s:
+            others |= ks2
+    shared |= (ks & others)
+order = {"phone": 0, "email": 1, "name": 2}
+def show(ks):
+    return ",".join(sorted(("%s:%s" % (t, hashlib.sha256(v.encode()).hexdigest()[:8]) for t, v in ks),
+                           key=lambda x: (order.get(x.split(":")[0], 9), x)))
+if srck:
+    if shared:
+        print("%s cards; %d node(s) merged in; joined by %s" % (cards, len(srck), show(shared)))
+    else:
+        print("%s cards; %d node(s) merged in; NO shared phone, email or name on record (the join key is not in the graph)" % (cards, len(srck)))
+else:
+    cnt = {}
+    for t, _ in selfk:
+        cnt[t] = cnt.get(t, 0) + 1
+    tally = " ".join("%s x%d" % (t, cnt[t]) for t in sorted(cnt, key=lambda x: order.get(x, 9)))
+    print("%s cards; no node merged in (written onto one node at sync time); candidate keys on the node: %s%s" %
+          (cards, tally or "none", (" [" + show(selfk) + "]") if selfk else ""))
+' "$1" 2>/dev/null || printf '%s cards; join key NOT MEASURED (classifier failed)' "$1"
+}
+
+# ── A 2+ CARD NODE CAN BE A DELIBERATE MERGE: ASK THE JOURNAL (#3202) ────
+#
+# Archie's ruling: the over-merged nodes are probably deliberate #30
+# exact-identifier merges, and this probe was blind to that because the merge
+# writers move the phone/email OFF the merged node. So a 2+ card node PASSES
+# only when, for EVERY extra card, the merge journal (CM051 #3217) holds an
+# exact-identifier override row for it that names the KEY KIND and a KEY HASH,
+# AND the two cards' display names are identical in the graph.
+#   FAIL       no journal row, a row with no key / a null hash, different names,
+#              or a name not on record
+#   CANNOT-RUN the journal exists and cannot be read, or the only rows carry
+#              hash=null with matched_keys_reason "journal_secret_unavailable"
+# The classifier reads the journal's own strategy and key kind; it never infers
+# a name match as a merge key. Hashes are HMACs keyed by this install's
+# service_token, so they are only ever checked for SHAPE (16 lowercase hex),
+# never compared with any stored or expected value. An ABSENT journal is no
+# rows (FAIL), not an unreadable one. Output is digests and kinds only.
+MERGE_JOURNAL="${OSTLER_MERGE_JOURNAL:-\$HOME/.ostler/import-pipeline/backups/merge_journal/merge_journal.jsonl}"
+read -r -d '' JOURNAL_PY <<'PYJOURNAL'
+import hashlib, json, os, re, sys
+OXI, CONF, JPATH = sys.argv[1:4]
+import urllib.request, urllib.error
+H = {}
+try:
+    for line in open(CONF, encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("header") and "=" in line:
+            val = line.split("=", 1)[1].strip().strip('"')
+            if ":" in val:
+                k, v = val.split(":", 1)
+                H[k.strip()] = v.strip()
+except Exception:
+    pass
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+P = "https://schema.ostler.ai/ontology#"
+def sparql(q):
+    h = {"Content-Type": "application/sparql-query", "Accept": "application/sparql-results+json"}
+    h.update(H)
+    return json.load(urllib.request.urlopen(urllib.request.Request(OXI, data=q.encode(), headers=h), timeout=120))["results"]["bindings"]
+def fp(u):
+    return hashlib.sha256(u.encode("utf-8")).hexdigest()[:10]
+HEX16 = re.compile(r"^[0-9a-f]{16}$")
+KINDS = ("email", "phone", "linkedin")
+
+def row_state(r):
+    # One merge row, judged on the journal's own fields only.
+    if not str(r.get("override") or "").startswith("exact_identifier:"):
+        return "nooverride"
+    keys = r.get("matched_keys")
+    if not isinstance(keys, list) or not keys:
+        return "nokey"
+    if all(isinstance(k, dict) and k.get("hash") is None for k in keys) \
+            and r.get("matched_keys_reason") == "journal_secret_unavailable":
+        return "secret_unavailable"
+    for k in keys:
+        if not isinstance(k, dict) or k.get("kind") not in KINDS or not HEX16.match(str(k.get("hash") or "")):
+            return "nokey"
+    return "keyed"
+
+def classify(nodes, merged_into, names, rows):
+    """nodes: {uri: uids}; merged_into: {uri: uri}; names: {uri: name};
+    rows: journal merge rows not undone. Returns [(uri, verdict, uids, detail)]."""
+    def final(u, seen=None):
+        seen = seen or set()
+        while u in merged_into and u not in seen:
+            seen.add(u); u = merged_into[u]
+        return u
+    by = {}
+    for r in rows:
+        k = r.get("keep")
+        if k:
+            by.setdefault(final(k), []).append(r)
+    out = []
+    for u, uids in sorted(nodes.items(), key=lambda x: (-x[1], x[0])):
+        extra = uids - 1
+        good, cannot, why = set(), set(), []
+        for r in by.get(u, []):
+            st = row_state(r)
+            kinds = "+".join(sorted({str(k.get("kind")) for k in (r.get("matched_keys") or []) if isinstance(k, dict)})) or "none"
+            tag = "%s/%s" % (r.get("strategy") or "?", kinds)
+            d = r.get("discard") or ""
+            if st == "keyed":
+                dn, kn = (names.get(d) or "").strip(), (names.get(u) or "").strip()
+                if not dn or not kn:
+                    why.append("name-not-on-record(" + tag + ")")
+                elif dn != kn:
+                    why.append("name-mismatch(" + tag + ")")
+                else:
+                    good.add(d); why.append("ok(" + tag + ")")
+            elif st == "secret_unavailable":
+                cannot.add(d); why.append("hash-null-secret-unavailable(" + tag + ")")
+            else:
+                why.append(st + "(" + tag + ")")
+        if len(good) >= extra:
+            v = "PASS"
+        elif len(good) + len(cannot - good) >= extra:
+            v = "CANNOT"
+        else:
+            v = "FAIL"
+        out.append((u, v, uids, "%d of %d extra card(s) journalled with a key and identical names; rows: %s"
+                    % (len(good), extra, ",".join(why) or "none")))
+    return out
+
+try:
+    rows_v = sparql("PREFIX p: <" + P + "> SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE { "
+                    "?person a p:Person ; p:hasIdentifier ?i . ?i p:identifierType \"icloud_contact_uid\" ; "
+                    "p:identifierValue ?v . } GROUP BY ?person HAVING (COUNT(DISTINCT ?v) > 1)")
+    nodes = {b["person"]["value"]: int(b["uids"]["value"]) for b in rows_v}
+    merged_into = {b["jfrom"]["value"]: b["jto"]["value"] for b in
+                   sparql("SELECT ?jfrom ?jto WHERE { ?jfrom <" + P + "mergedInto> ?jto }")}
+    names = {}
+    for b in sparql("SELECT ?jname_s ?jname WHERE { ?jname_s <" + P + "displayName> ?jname }"):
+        names.setdefault(b["jname_s"]["value"], b["jname"]["value"])
+except Exception as exc:
+    print("JERR the graph could not be read for the journal check: " + type(exc).__name__); sys.exit(0)
+
+rows = []
+if os.path.exists(JPATH):
+    try:
+        merges, undone = [], set()
+        for n, line in enumerate(open(JPATH, encoding="utf-8")):
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            if r.get("kind") == "merge":
+                merges.append(r)
+            elif r.get("kind") == "undo":
+                undone.add(r.get("merge_id"))
+        rows = [r for r in merges if r.get("id") not in undone]
+    except Exception as exc:
+        print("JERR the merge journal exists and could not be read: " + type(exc).__name__); sys.exit(0)
+    print("JSRC present %d merge row(s)" % len(rows))
+else:
+    print("JSRC absent 0 merge row(s)")
+res = classify(nodes, merged_into, names, rows)
+for u, v, uids, d in res:
+    print("JNODE %s %s %d %s" % (fp(u), v, uids, d))
+print("JSUM %d %d %d" % (sum(1 for x in res if x[1] == "PASS"), sum(1 for x in res if x[1] == "FAIL"),
+                         sum(1 for x in res if x[1] == "CANNOT")))
+PYJOURNAL
+
+read_journal_verdict() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_JOURNAL_VERDICT:-JERR self-test-unset}"; return; fi
+    box_run "python3 - '${OXIGRAPH_URL}' '${STORE_CONF_PATH}' \"${MERGE_JOURNAL}\" <<'PYJOURNAL'
+${JOURNAL_PY}
+PYJOURNAL"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)}; the graph was not queried"
@@ -289,7 +520,7 @@ run_probe() {
         probe_cannot_run "violation query failed against $OXIGRAPH_URL"
     fi
 
-    local s nodes cards worst
+    local s nodes cards worst _jok=""
     s="$(summarise_violations "$rows")"
     nodes="$(printf '%s' "$s" | cut -d' ' -f1)"
     cards="$(printf '%s' "$s" | cut -d' ' -f2)"
@@ -330,7 +561,39 @@ run_probe() {
         # graph does not, and the two must not be confused.
         probe_note "first offending nodes (opaque, sha256 prefix): $(printf '%s' "$rows" | head -3 | awk '{print $2}' | while read -r u; do printf '%s ' "$(printf '%s' "$u" | shasum -a 256 | cut -c1-10)"; done)"
         probe_note "  the real URIs stay on the box; re-run this query there if you need them"
-        probe_fail "${nodes} Person node(s) each carry 2+ distinct icloud_contact_uid, collapsing ${cards} Contacts cards. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
+        # instr119: the join key per offending node, worst first, capped.
+        probe_note "join key per offending node (worst first, at most ${JOIN_CAP}; values masked as type:sha256-prefix):"
+        local _u _k _n=0
+        while read -r _k _u; do
+            [ -n "$_u" ] || continue
+            case "$_k" in ''|*[!0-9]*) continue ;; esac
+            _n=$((_n + 1)); [ "$_n" -gt "$JOIN_CAP" ] && break
+            probe_note "  node $(printf '%s' "$_u" | shasum -a 256 | cut -c1-10): $(explain_join "$_k" "$(_fetch_join "$_u")")"
+        done <<< "$(printf '%s\n' "$rows" | sort -k1,1nr)"
+        [ "$nodes" -gt "$JOIN_CAP" ] && probe_note "  ... $((nodes - JOIN_CAP)) more node(s) not explained (cap ${JOIN_CAP}, OSTLER_PROBE_JOIN_CAP)"
+        # THE JOURNAL DECIDES whether these are violations or deliberate
+        # exact-identifier merges (see JOURNAL_PY).
+        local jv jsum jp jf jc
+        jv="$(read_journal_verdict)"
+        case "$jv" in
+            JERR\ *) probe_cannot_run "${nodes} Person node(s) carry 2+ Contacts cards and ${jv#JERR } -- whether they are journalled exact-identifier merges was not measured, so no verdict" ;;
+            *JSUM\ *) : ;;
+            *) probe_cannot_run "${nodes} Person node(s) carry 2+ Contacts cards and the merge-journal check returned no summary ($(printf '%s' "$jv" | head -n1 | cut -c1-100))" ;;
+        esac
+        probe_note "merge journal: $(printf '%s\n' "$jv" | sed -n 's/^JSRC //p' | head -n1)"
+        probe_note "per node, the journal's own strategy/key kind (worst first, at most ${JOIN_CAP}):"
+        printf '%s\n' "$jv" | sed -n 's/^JNODE //p' | head -n "$JOIN_CAP" | while IFS= read -r _l; do probe_note "  node ${_l}"; done
+        jsum="$(printf '%s\n' "$jv" | sed -n 's/^JSUM //p' | head -n1)"
+        set -- $jsum; jp="${1:-0}"; jf="${2:-0}"; jc="${3:-0}"
+        probe_note "journalled with a key and identical names: ${jp} of ${nodes}; failing: ${jf}; cannot verify: ${jc}"
+        if [ "$jf" -gt 0 ]; then
+            probe_fail "${jf} Person node(s) each carry 2+ distinct icloud_contact_uid (of ${nodes} such nodes) with NO journalled exact-identifier merge (key kind + key hash) and identical names for every extra card. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
+        fi
+        if [ "$jc" -gt 0 ]; then
+            probe_cannot_run "${jc} of ${nodes} 2+ card node(s) rest on journal rows whose key hashes are null (journal_secret_unavailable), so the override cannot be verified; ${jp} verified"
+        fi
+        probe_note "all ${nodes} 2+ card node(s) are journalled exact-identifier merges with a key hash and identical names; not RULE 2 violations"
+        _jok="${nodes} 2+ card node(s) are journalled exact-identifier merges (key kind + hash, identical names); otherwise "
     fi
 
     # NAME TIERS: a merge must not lose the human name (DMG #27).
@@ -353,13 +616,13 @@ run_probe() {
     verdict="$(adjudicate_clean "$opp")"
     if [ "$verdict" = "UNMEASURED" ]; then
         probe_note "collision opportunities: NOT MEASURED (query returned '${opp}'). The zero below stands on the ${control}-identifier control alone."
-        probe_pass "no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement)"
+        probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement)"
     fi
     probe_note "collision opportunities: ${opp} Person node(s) share a phone or email with another node"
     if [ "$verdict" = "UNEXERCISED" ]; then
-        probe_pass "no Person node carries more than one icloud_contact_uid, checked against ${control} identifiers -- BUT this box presented ZERO chances to over-merge: no two Person nodes share a phone or email, so the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant holds and the GUARD IS UNEXERCISED. Do not close #1543 on this run."
+        probe_pass "${_jok}no Person node carries more than one icloud_contact_uid, checked against ${control} identifiers -- BUT this box presented ZERO chances to over-merge: no two Person nodes share a phone or email, so the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant holds and the GUARD IS UNEXERCISED. Do not close #1543 on this run."
     fi
-    probe_pass "no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement), and ${opp} node(s) shared a phone or email with another node without being merged -- so the zero was earned, not vacuous"
+    probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement), and ${opp} node(s) shared a phone or email with another node without being merged -- so the zero was earned, not vacuous"
 }
 
 # ADJUDICATE THE STRENGTH OF A CLEAN RESULT. Lifted out of run_probe so the
@@ -447,6 +710,34 @@ self_test() {
     if [ "$s" != "UNMEASURED" ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable count adjudicated '$s', expected UNMEASURED."
     fi
+
+    # 6. instr119: the join key is NAMED, masked, and never printed raw.
+    #    Synthetic values only (reserved +44 7700 900xxx, example.com).
+    local _j
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900123"}},
+      {"side":{"value":"self"},"t":{"value":"email"},"v":{"value":"one@example.com"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"phone"},"v":{"value":"07700 900123"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"email"},"v":{"value":"two@example.com"}}]}}')"
+    case "$_j" in
+        "2 cards; 1 node(s) merged in; joined by phone:"*) ;;
+        *) probe_pass "JOIN CONTROL: a shared phone was not named as the join key: ${_j}" ;;
+    esac
+    case "$_j" in *900123*|*example.com*) probe_pass "JOIN CONTROL: a raw phone or email reached the output: ${_j}" ;; esac
+    _j="$(explain_join 3 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"name"},"v":{"value":"Jane Doe"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"name"},"v":{"value":"jane  doe"}}]}}')"
+    case "$_j" in "3 cards; 1 node(s) merged in; joined by name:"*) ;; *) probe_pass "JOIN CONTROL: a shared name was not named as the join key: ${_j}" ;; esac
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"email"},"v":{"value":"a@example.com"}},
+      {"side":{"value":"urn:x:src1"},"t":{"value":"email"},"v":{"value":"b@example.com"}}]}}')"
+    case "$_j" in *"NO shared phone, email or name"*) ;; *) probe_pass "JOIN CONTROL: two nodes with nothing in common were given a join key: ${_j}" ;; esac
+    _j="$(explain_join 2 '{"results":{"bindings":[
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900124"}},
+      {"side":{"value":"self"},"t":{"value":"phone"},"v":{"value":"+44 7700 900125"}}]}}')"
+    case "$_j" in *"no node merged in"*"phone x2"*) ;; *) probe_pass "JOIN CONTROL: a node with no merged-in source did not list its candidate keys: ${_j}" ;; esac
+    _j="$(explain_join 2 'garbage')"
+    case "$_j" in *"NOT MEASURED"*) ;; *) probe_pass "JOIN CONTROL: an unreadable answer did not say NOT MEASURED: ${_j}" ;; esac
 
     probe_fail "negative control behaved correctly (counted planted over-merges, passed a clean set, survived malformed rows, and told an earned zero from an unexercised one)"
 }

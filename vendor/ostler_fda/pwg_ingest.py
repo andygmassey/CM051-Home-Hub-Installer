@@ -985,12 +985,24 @@ def ingest_imessage(fda_dir: Path) -> dict:
         "iMessage: %d people created, %d enriched, %d skipped (store unreadable)",
         people_created, people_enriched, lookup_failed,
     )
+    # NEW-119: the VOLUME this run read, beside the people it changed. A run
+    # that read 84,826 messages and met no new person is not "no data", and the
+    # installer's sentinel can only say so if the counts reach it.
+    conversations_read = len(conversations)
+    messages_read = 0
+    for convo in conversations:
+        try:
+            messages_read += int(convo.get("message_count", 0) or 0)
+        except (TypeError, ValueError):
+            pass
     return {
         "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
         "people_linked_to_contact": twins.linked,
+        "conversations_read": conversations_read,
+        "messages_read": messages_read,
     }
 
 

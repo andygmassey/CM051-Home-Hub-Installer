@@ -222,6 +222,14 @@ jobs:
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
 
+      - name: translated install.sh / GUI catalogues are drop-in for en-GB
+        if: always()
+        run: |
+          bash tests/test_install_strings_translations.sh
+          # The test must be able to fail: drop one %s from a scratch copy.
+          if TEST_INSTALL_STRINGS_MUTATE=1 bash tests/test_install_strings_translations.sh; then
+            echo "self-test: a dropped placeholder was NOT caught"; exit 1
+          fi
       - name: customer copy states the real source count
         if: always()
         run: bash tests/test_source_count_copy.sh
@@ -308,6 +316,12 @@ jobs:
       - name: no shipped script calls a bare ollama (NEW-119 guard)
         if: always()
         run: bash tests/test_no_shipped_script_calls_a_bare_ollama.sh
+
+      # NEW-119: hub power's restart action kickstarts the Hub's own agent,
+      # com.ostler.ollama, not ai.ollama (which the Hub never installs).
+      - name: hub power restarts com.ostler.ollama, not ai.ollama (NEW-119)
+        if: always()
+        run: bash tests/test_hub_power_restarts_the_hub_ollama_agent.sh
 
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED

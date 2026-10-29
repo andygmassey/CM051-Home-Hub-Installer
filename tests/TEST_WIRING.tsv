@@ -234,6 +234,7 @@ test_confirm_identity_helper.py	WIRED	.github/workflows/install-gui-contract.yml
 test_connect_whatsapp_is_on_the_first_screen.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_consent_display_record.py	WIRED	.github/workflows/consent-registry.yml
 test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
@@ -444,6 +445,7 @@ test_hub_chat_carries_the_chat_tool_set.sh	WIRED	.github/workflows/assistant-con
 test_hub_contract_generator.py	WIRED	.github/workflows/hub-contract.yml
 test_hub_interest_card_shows_a_handle_as_at_handle.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_payload_seed_refuses_a_wrong_interpreter.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_hub_power_restarts_the_hub_ollama_agent.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_hub_screens_calls_summing.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_hub_screens_people_judges_every_row.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_hub_screens_real_person_name_never_printed.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -487,6 +489,7 @@ test_install_refuses_below_the_macos_floor.sh	WIRED	.github/workflows/background
 test_install_repairs_merge_consistency_after_dedupe.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_install_sh_prefers_bundled_python.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_install_strings_translations.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_installed_pipeline_packages_can_import_themselves.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
@@ -504,6 +507,7 @@ test_junk_names_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_killed_converge_leaves_a_record.sh	WIRED	.github/workflows/killed-converge-leaves-a-record.yml
 test_kinship_label_write_guard_vendored.py	WIRED	.github/workflows/kinship-label-write-guard.yml
 test_knowledge_repo_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_l10n_legal_ships_only_when_reviewed.py	WIRED	.github/workflows/l10n-check.yml
 test_lane11_client_calls_pass_the_contract.py	WIRED	.github/workflows/hub-contract.yml
 test_laptop_hub_power_copy_fires_on_laptops_only.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchagent_bootout_settles_before_bootstrap.sh	WIRED	.github/workflows/launchagent-success-verification.yml
@@ -513,6 +517,7 @@ test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launc
 test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_legal_prevails_note_on_every_legal_prompt.py	WIRED	.github/workflows/l10n-check.yml
 test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
@@ -541,6 +546,7 @@ test_meeting_briefs_say_when_they_cannot_run.py	WIRED	.github/workflows/status-h
 test_memory_about_you.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_memory_assert_answers_inside_the_probe_timeout.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
+test_merge_journal_records_keyed_identifier_hashes.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_merge_survivor_takes_highest_name_tier.py	WIRED	.github/workflows/walk-record-gate.yml
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_merged_people_are_not_recreated.py	WIRED	.github/workflows/forget-tombstone.yml
@@ -622,6 +628,7 @@ test_owner_data_is_never_capped_at_storage.py	WIRED	.github/workflows/owner-data
 test_owner_digest_counts_only_meetings_that_happened.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_preferences_count_above_the_floor.py	WIRED	.github/workflows/walk-record-gate.yml
+test_owner_language_from_installer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_node_is_minted_and_read.py	WIRED	.github/workflows/owner-node-is-minted.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
@@ -693,6 +700,7 @@ test_qdrant_import_gate_refuses_empty_store.sh	WIRED	.github/workflows/launchd-p
 test_qdrant_membership_not_cardinality.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_qdrant_readiness_tests_the_authenticated_surface.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_quick_note_reaches_knowledge_store.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
+test_read_messages_are_not_no_data.py	WIRED	.github/workflows/hydrate-sentinel.yml
 test_reader_schema_mismatch_fails_loud.py	WIRED	.github/workflows/reader-schema-fails-loud.yml
 test_readme_states_the_floors_the_installer_enforces.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_readonly_flags_need_no_tty.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
@@ -903,7 +911,9 @@ test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/wor
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -1004,6 +1014,7 @@ test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workfl
 test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -1043,6 +1054,7 @@ gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflow
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/EnglishPrevailsNoteTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ErrorCodeBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FDAPresetSubtitleFaceRecognitionClaimTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -1050,6 +1062,7 @@ gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swi
 gui/OstlerInstallerTests/FullDiskAccessProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallFailedBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/InstallerLanguageTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryDropzoneTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryShortIdHeuristicTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicensePersistenceTests.swift	WIRED	.github/workflows/swift-tests.yml
@@ -1132,6 +1145,7 @@ scripts/tests/test_read_only_walk_never_writes.sh	WIRED	.github/workflows/walk-r
 scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor-integrity.yml
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
 scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh	WIRED	.github/workflows/seeded-zero-launchd-lan-probes.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
