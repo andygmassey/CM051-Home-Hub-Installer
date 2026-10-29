@@ -39,6 +39,7 @@ import asyncio
 import csv
 import json
 import zipfile
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -147,6 +148,18 @@ def fixture_uber(tmp: Path) -> list:
     return _all_parsed(UberParser(), [eats, trips])
 
 
+def fixture_food_evidence(tmp: Path) -> list:
+    from services.ingest.src.parsers.food_evidence import (
+        FoodEvidenceParser, FoodExtractor, make_cuisine_resolver)
+    cal = tmp / "calendar_events.json"
+    cal.write_text(json.dumps([
+        {"title": "Dinner @ Test Trattoria", "location": "",
+         "start_date": "2026-05-05T19:00:00+00:00"}]), encoding="utf-8")
+    ex = FoodExtractor(cuisine_for=make_cuisine_resolver(use_model=False),
+                       now=datetime(2026, 10, 22, tzinfo=timezone.utc))
+    return _all_parsed(FoodEvidenceParser(ex), [cal])
+
+
 # ---------------------------------------------------------------------------
 # The registry. Key = module name under services/ingest/src/parsers/.
 # ---------------------------------------------------------------------------
@@ -200,6 +213,8 @@ REGISTRY: Dict[str, Decl] = {
                gaps={"entity:product": Gap("brand set on 25% of 3,627 points (parsed from the title)", None)}),
     "email": _d(entity={}, timestamp=(), owner=Gap("UNMEASURED: whose email statement it is", None),
                 gaps={"measure": UNMEASURED}),
+    "food_evidence": _d(entity={"food": ("restaurant",)}, timestamp=("food",),
+                        fixture=fixture_food_evidence),
     "foursquare": _d(entity={"place": ("venue_id",)}, timestamp=("place",)),
     "google_takeout": _d(entity={}, timestamp=(), gaps={"measure": UNMEASURED}),
     "linkedin": _d(entity={}, timestamp=("professional",)),

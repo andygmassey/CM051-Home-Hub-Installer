@@ -56,6 +56,10 @@ on:
       - 'tests/test_e1_source_readout_emits.sh'
       - 'tests/test_ostler_home_root_is_one_class.sh'
       - 'tests/test_imessage_zero_is_declared_not_undeclared.sh'
+      - 'tests/test_read_messages_are_not_no_data.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/cm021/src/cli.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_the_source_table_items_column_is_the_number_it_claims.sh'
       - 'tests/test_the_source_table_items_column_shows_the_live_count.sh'
       - 'tests/test_doctor_rows_show_one_honest_total.sh'
@@ -336,3 +340,20 @@ jobs:
           bash -n tests/test_e1_source_readout_emits.sh
           bash -n tests/test_imessage_zero_is_declared_not_undeclared.sh
           bash -n tests/test_ostler_home_root_is_one_class.sh
+
+  # NEW-119. A source that READ messages is not "no_data": the real vendored
+  # iMessage ingest and cm021 mbox CLI, through the real install.sh recorders,
+  # read back by the real Doctor sources reader. Controls: zero read stays
+  # no_data. Two mutants (vendored counts removed, install.sh email limb removed).
+  read-messages-are-not-no-data:
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz nameparser beautifulsoup4
+      - name: A source that read messages is not no_data (iMessage and Email)
+        run: python tests/test_read_messages_are_not_no_data.py

@@ -24,10 +24,14 @@ from the snapshot in the last float bit; ids and payloads are exact.
 Files are written 0600 inside a 0700 directory: a snapshot holds the same
 identifiers the graph does.
 
-The journal records identifier KINDS, never identifier values.
+The journal records identifier KINDS, never identifier values. An exact-
+identifier override (exact_identifier.py) additionally records each matched
+key as ``{"kind", "hash"}``: a keyed hash, see ``journal_identifier_keys``.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -184,6 +188,113 @@ def read_node(url: str, client: httpx.Client, uri: str
     return subj, obj
 
 
+# -- matched identifier keys (NEW-119) ---------------------------------------
+#
+# WHY. The walk probe no_person_holds_two_contact_cards may accept a Person
+# holding 2+ Contacts cards ONLY when this journal proves an exact-identifier
+# override. "The override said so" is not proof; the journal has to name what
+# matched. It must not name the VALUE, because this file reaches support
+# bundles. So each matched key is written as {kind, hash}, where the hash is
+# keyed by a per-install secret: the same identifier hashes the same on one box
+# (rows can be compared), cannot be recomputed off the box from a guessed
+# phone number, and differs between boxes.
+#
+# THE SECRET. ~/.ostler/secrets/service_token, created once by install.sh
+# (openssl rand -hex 32, 0600 in a 0700 dir, reused on every re-install) and
+# readable by the user the resolver runs as. It is NEVER used as the hash key
+# directly: a subkey is derived as HMAC-SHA256(secret, SUBKEY_LABEL), so a hash
+# in the journal can never be used to test a guess against the service token
+# itself, and the derivation is versioned by its label.
+#
+# MISSING SECRET. The merge still happens (dedupe is never blocked by the
+# journal's privacy layer); the row keeps the kinds with ``hash: null`` and
+# ``matched_keys_reason: "journal_secret_unavailable"``.
+
+#: Domain-separation label for the journal subkey. Changing it changes every
+#: hash, so it is versioned rather than edited.
+SUBKEY_LABEL = b"ostler.merge-journal.v1"
+#: Hex characters kept from the keyed hash (64 bits).
+HASH_HEX_LEN = 16
+SECRET_UNAVAILABLE = "journal_secret_unavailable"
+
+
+def install_secret_path() -> str:
+    """Where install.sh keeps the per-install secret the subkey is derived from.
+    Same root resolution as repair_lid_as_phone: OSTLER_HOME, OSTLER_DIR, else
+    ~/.ostler."""
+    root = (os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR")
+            or os.path.join(os.path.expanduser("~"), ".ostler"))
+    return os.path.join(root, "secrets", "service_token")
+
+
+def journal_subkey(secret_path: Optional[str] = None) -> Optional[bytes]:
+    """HMAC-SHA256(per-install secret, SUBKEY_LABEL), or None when the secret
+    cannot be read or is empty. Never raises, never logs the secret."""
+    path = secret_path or install_secret_path()
+    try:
+        with open(path, "rb") as fh:
+            secret = fh.read().strip()
+    except OSError as exc:
+        logger.warning("merge journal: per-install secret unreadable (%s); "
+                       "matched keys journalled without hashes",
+                       type(exc).__name__)
+        return None
+    if not secret:
+        logger.warning("merge journal: per-install secret is empty; matched "
+                       "keys journalled without hashes")
+        return None
+    return hmac.new(secret, SUBKEY_LABEL, hashlib.sha256).digest()
+
+
+def normalise_key_value(kind: str, value: str, *, normalise_linkedin,
+                        default_country_code: Optional[int] = None) -> str:
+    """The resolver's own normalisers, so two spellings of one identifier hash
+    the same: phone -> normalise.normalise_phone (E.164), email ->
+    normalise.normalise_email (trimmed, lower-cased), linkedin ->
+    batch_resolver._normalise_linkedin_url (passed in; importing it here would
+    be circular)."""
+    from .normalise import normalise_email, normalise_phone
+    if kind == "phone":
+        return normalise_phone(value, default_country_code)
+    if kind == "email":
+        return normalise_email(value)
+    if kind == "linkedin":
+        return normalise_linkedin(value)
+    return value.strip()
+
+
+def key_hash(subkey: bytes, kind: str, normalised: str) -> str:
+    """HMAC-SHA256(subkey, "<kind>:<normalised value>"), first 16 hex chars."""
+    msg = f"{kind}:{normalised}".encode("utf-8")
+    return hmac.new(subkey, msg, hashlib.sha256).hexdigest()[:HASH_HEX_LEN]
+
+
+def journal_identifier_keys(
+    keys, *, normalise_linkedin, default_country_code: Optional[int] = None,
+    secret_path: Optional[str] = None,
+) -> Tuple[List[Dict[str, Optional[str]]], str]:
+    """(rows, reason) for the journal. ``keys`` is the matched (kind, value)
+    list from exact_identifier.card_uid_override_keys. Each row is
+    ``{"kind": k, "hash": h}``; the raw value never leaves this function.
+    reason is "" when every row is hashed, SECRET_UNAVAILABLE when the secret
+    could not be read (rows then carry ``hash: None``). No keys -> ([], "")
+    and the secret is not read at all."""
+    keys = list(keys or [])
+    if not keys:
+        return [], ""
+    subkey = journal_subkey(secret_path)
+    rows: List[Dict[str, Optional[str]]] = []
+    for kind, value in keys:
+        if subkey is None:
+            rows.append({"kind": kind, "hash": None})
+            continue
+        norm = normalise_key_value(kind, value, normalise_linkedin=normalise_linkedin,
+                                   default_country_code=default_country_code)
+        rows.append({"kind": kind, "hash": key_hash(subkey, kind, norm)})
+    rows.sort(key=lambda r: (r["kind"], r["hash"] or ""))
+    return rows, ("" if subkey is not None else SECRET_UNAVAILABLE)
+
+
 # -- snapshot + journal ------------------------------------------------------
 
 def _private_dir(path: str) -> None:
@@ -204,12 +315,18 @@ def _write_private(path: str, text: str, append: bool = False) -> None:
 def record_merge(
     url: str, client: httpx.Client, journal_dir: str, keep_uri: str,
     discard_uri: str, *, strategy: str, confidence: float, details: str,
-    override: str = "", shared_kinds: Optional[List[str]] = None,
+    override: str = "",
+    matched_keys: Optional[List[Dict[str, Optional[str]]]] = None,
+    matched_keys_reason: str = "",
     qdrant_url: str = "", qdrant_collection: str = "people",
 ) -> str:
     """Snapshot both nodes and journal the merge. MUST be called BEFORE the
     merge writes anything. Raises on failure: a merge with no backup does not
-    proceed (the caller treats the exception as a refusal)."""
+    proceed (the caller treats the exception as a refusal).
+
+    ``matched_keys`` is the output of ``journal_identifier_keys``: already
+    hashed, never raw. ``shared_kinds`` is derived from it and from nothing
+    else."""
     _private_dir(journal_dir)
     _private_dir(os.path.join(journal_dir, SNAP_DIR))
     qsnap = None
@@ -236,7 +353,10 @@ def record_merge(
         "ts": datetime.now(timezone.utc).isoformat(),
         "keep": keep_uri, "discard": discard_uri, "strategy": strategy,
         "confidence": confidence, "details": details, "override": override,
-        "shared_kinds": shared_kinds or [], "snapshot": snap_rel,
+        "shared_kinds": sorted({k["kind"] for k in (matched_keys or [])}),
+        "matched_keys": list(matched_keys or []),
+        "matched_keys_reason": matched_keys_reason,
+        "snapshot": snap_rel,
         "qdrant_status": snap.get("qdrant", {}).get("status", "not_requested"),
         "qdrant_points": len(snap.get("qdrant", {}).get("points", [])),
     }
