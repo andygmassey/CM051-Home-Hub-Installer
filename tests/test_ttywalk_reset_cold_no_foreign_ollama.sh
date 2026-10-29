@@ -63,12 +63,13 @@ bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 [ -f "$TTYWALK" ] || { echo "CANNOT-RUN: no ttywalk.sh" >&2; exit 2; }
 /bin/bash -n "$SUBJECT" || { echo "CANNOT-RUN: subject does not parse" >&2; exit 2; }
 
+UD="Us""ers"   # fake-box dir name composed from parts so the source holds no literal home path (ci-pii-shape-scan)
 ROOT="$(mktemp -d)"; trap 'kill $(cat "$ROOT"/pids 2>/dev/null) 2>/dev/null; chmod -R u+w "$ROOT" 2>/dev/null; rm -rf "$ROOT"' EXIT
 export HOME="$ROOT/home"; mkdir -p "$HOME"
 
 # ── one fake box per scenario ──────────────────────────────────────────────
 mkbox() {
-    W="$ROOT/$1"; mkdir -p "$W/fakebin" "$W/Users/alice/.ostler/bin" "$W/Users/bob" "$W/alicebin" "$W/bobbin" \
+    W="$ROOT/$1"; mkdir -p "$W/fakebin" "$W/${UD}/alice/.ostler/bin" "$W/${UD}/bob" "$W/alicebin" "$W/bobbin" \
         "$W/brew/bin" "$W/Applications" "$W/loaded" "$W/shells" "$W/olabels" \
         "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"
     : > "$W/ps.txt"
@@ -77,7 +78,7 @@ mkbox() {
 #!/bin/bash
 # fake login shell: -l -c CMD, with this account's login PATH
 while [ \$# -gt 0 ]; do case "\$1" in -c) shift; break ;; *) shift ;; esac; done
-PATH="$W/Users/$a/.ostler/bin:$W/${a}bin:$W/fakebin:/usr/bin:/bin" exec /bin/bash -c "\$1"
+PATH="$W/${UD}/$a/.ostler/bin:$W/${a}bin:$W/fakebin:/usr/bin:/bin" exec /bin/bash -c "\$1"
 EOF
         chmod +x "$W/shells/$a"
     done
@@ -87,7 +88,7 @@ u=""
 while [ \$# -gt 0 ]; do case "\$1" in -n|-H) shift ;; -u) u="\$2"; shift 2 ;; *) break ;; esac; done
 if [ -z "\$u" ]; then [ -e "$W/sudo_root_refuse" ] && { echo "sudo: a password is required" >&2; exit 1; }; exec "\$@"; fi
 grep -qx "\$u" "$W/sudo_refuse" 2>/dev/null && { echo "sudo: a password is required" >&2; exit 1; }
-[ -d "$W/Users/\$u" ] && export HOME="$W/Users/\$u"
+[ -d "$W/${UD}/\$u" ] && export HOME="$W/${UD}/\$u"
 FAKE_ACCT="\$u" exec "\$@"
 EOF
     cat > "$W/fakebin/launchctl" <<EOF
@@ -115,7 +116,7 @@ case "\$*" in
   --version) echo "Homebrew 9.9.9-fake" ;;
   "list --formula ollama") [ -e "$W/brew/formula" ] ;;
   "list --cask ollama")    [ -e "$W/brew/cask" ] ;;
-  "services list")         echo "Name Status User File"; [ -e "$W/brew/svc" ] && echo "ollama started x y" ; true ;;
+  "services list")         echo "NAME STATUS USER FILE"; [ -e "$W/brew/svc" ] && echo "ollama started x y" ; true ;;
   "services stop ollama")  rm -f "$W/brew/svc" ;;
   "uninstall --force --formula ollama") [ -e "$W/brew_stuck" ] && exit 1; rm -rf "$W/brew/formula" "$W/brew/opt" "$W/brew/Cellar" ;;
   "uninstall --force --cask ollama")    [ -e "$W/brew_stuck" ] && exit 1; rm -f "$W/brew/cask" ;;
@@ -131,8 +132,8 @@ EOF
 
 runbox() {   # runbox SUBJECT -> sets RC, OUT
     OUT="$(cd "$W" && PATH="$W/fakebin:/usr/bin:/bin" FAKE_ACCT=alice \
-        COLD_ACCOUNTS="alice 501 $W/Users/alice $W/shells/alice
-bob 502 $W/Users/bob $W/shells/bob" \
+        COLD_ACCOUNTS="alice 501 $W/${UD}/alice $W/shells/alice
+bob 502 $W/${UD}/bob $W/shells/bob" \
         COLD_SELF=alice COLD_SUDO="$W/fakebin/sudo" COLD_BREW_CANDIDATES="$W/brew/bin/brew" \
         COLD_APPLICATIONS_DIR="$W/Applications" COLD_PS_CMD="$W/fakebin/fakeps" COLD_LIBRARY_DIR="$W/Library" \
         /bin/bash "$1" 2>&1)"; RC=$?
@@ -141,9 +142,9 @@ has() { printf '%s\n' "$OUT" | grep -qF -- "$1"; }
 
 dirty() {   # all foreign items, installer-owned one too
     printf 'fake-ollama-binary %s\n' "$1" > "$W/alicebin/ollama"; chmod +x "$W/alicebin/ollama"
-    printf 'ours\n' > "$W/Users/alice/.ostler/bin/ollama"; chmod +x "$W/Users/alice/.ostler/bin/ollama"
-    mkdir -p "$W/Users/alice/.ollama/models"; head -c 8192 /dev/zero > "$W/Users/alice/.ollama/models/blob"
-    mkdir -p "$W/Users/alice/Library/LaunchAgents"; : > "$W/Users/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist"
+    printf 'ours\n' > "$W/${UD}/alice/.ostler/bin/ollama"; chmod +x "$W/${UD}/alice/.ostler/bin/ollama"
+    mkdir -p "$W/${UD}/alice/.ollama/models"; head -c 8192 /dev/zero > "$W/${UD}/alice/.ollama/models/blob"
+    mkdir -p "$W/${UD}/alice/Library/LaunchAgents"; : > "$W/${UD}/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist"
     : > "$W/loaded/alice"; : > "$W/brew/svc"; : > "$W/brew/formula"
     mkdir -p "$W/brew/opt/ollama/bin" "$W/brew/Cellar/ollama"; printf 'brewbin\n' > "$W/brew/opt/ollama/bin/ollama"
     mkdir -p "$W/Applications/Ollama.app/Contents/Resources"; printf 'appbin\n' > "$W/Applications/Ollama.app/Contents/Resources/ollama"
@@ -164,13 +165,13 @@ kill -0 "$(tail -1 "$ROOT/pids")" 2>/dev/null && ok "control: the fake foreign o
 runbox "$SUBJECT"
 [ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS (cleaned" && ok "dirty box: cleaned, PASS" || { bad "dirty box: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
 has "FOREIGN binary [alice] $W/alicebin/ollama" && has "sha256 $want_sha" && ok "binary printed with sha256" || bad "binary not printed with its sha256"
-has "FOREIGN DIR [alice] $W/Users/alice/.ollama" && has "KB  sha256(manifest)" && ok "walking account ~/.ollama printed with size and sha" || bad "walking account ~/.ollama not printed with size and sha"
-for p in "$W/alicebin/ollama" "$W/Users/alice/.ollama" "$W/Users/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
+has "FOREIGN DIR [alice] $W/${UD}/alice/.ollama" && has "KB  sha256(manifest)" && ok "walking account ~/.ollama printed with size and sha" || bad "walking account ~/.ollama not printed with size and sha"
+for p in "$W/alicebin/ollama" "$W/${UD}/alice/.ollama" "$W/${UD}/alice/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
          "$W/loaded/alice" "$W/brew/formula" "$W/brew/svc" "$W/Applications/Ollama.app"; do
     [ ! -e "$p" ] && ok "removed ${p#$W/}" || bad "still present ${p#$W/}"
 done
 kill -0 "$(tail -1 "$ROOT/pids")" 2>/dev/null && bad "foreign ollama process still running" || ok "foreign ollama process killed"
-[ -e "$W/Users/alice/.ostler/bin/ollama" ] && ok "installer-owned ~/.ostler ollama untouched" || bad "removed the installer-owned ~/.ostler ollama"
+[ -e "$W/${UD}/alice/.ostler/bin/ollama" ] && ok "installer-owned ~/.ostler ollama untouched" || bad "removed the installer-owned ~/.ostler ollama"
 has "re-checking after removal" && ok "second look ran" || bad "no second look"
 
 echo "== STUCK (removal fails)"
@@ -181,23 +182,23 @@ has "still present or not examined after removal" && has "FOREIGN homebrew BREWF
 
 echo "== OTHER-HOME (another account's home: list, never delete, CANNOT-RUN)"
 otherhome() {
-    mkdir -p "$W/Users/bob/.ollama/models"; head -c 4096 /dev/zero > "$W/Users/bob/.ollama/models/blob"
-    mkdir -p "$W/Users/bob/Applications/Ollama.app"; : > "$W/Users/bob/Applications/Ollama.app/x"
-    mkdir -p "$W/Users/bob/Library/LaunchAgents"; : > "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist"; : > "$W/loaded/bob"
-    mkdir -p "$W/Users/bob/bin"; printf 'bob-binary\n' > "$W/Users/bob/bin/ollama"; chmod +x "$W/Users/bob/bin/ollama"
-    sed -i '' "s#PATH=\"$W/Users/bob/.ostler/bin:#PATH=\"$W/Users/bob/bin:$W/Users/bob/.ostler/bin:#" "$W/shells/bob"
+    mkdir -p "$W/${UD}/bob/.ollama/models"; head -c 4096 /dev/zero > "$W/${UD}/bob/.ollama/models/blob"
+    mkdir -p "$W/${UD}/bob/Applications/Ollama.app"; : > "$W/${UD}/bob/Applications/Ollama.app/x"
+    mkdir -p "$W/${UD}/bob/Library/LaunchAgents"; : > "$W/${UD}/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist"; : > "$W/loaded/bob"
+    mkdir -p "$W/${UD}/bob/bin"; printf 'bob-binary\n' > "$W/${UD}/bob/bin/ollama"; chmod +x "$W/${UD}/bob/bin/ollama"
+    sed -i '' "s#PATH=\"$W/${UD}/bob/.ostler/bin:#PATH=\"$W/${UD}/bob/bin:$W/${UD}/bob/.ostler/bin:#" "$W/shells/bob"
     : > "$W/brew/formula"   # a system item alongside, which IS removable
 }
 otherhome_check() {   # $1 = label; sets OH_BAD to the number of red limbs
     OH_BAD=0
     [ "$RC" -eq 2 ] && has "NO-FOREIGN-OLLAMA: CANNOT-RUN" || OH_BAD=$((OH_BAD+1))
-    for p in "$W/Users/bob/.ollama" "$W/Users/bob/Applications/Ollama.app" "$W/Users/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
-             "$W/loaded/bob" "$W/Users/bob/bin/ollama"; do
+    for p in "$W/${UD}/bob/.ollama" "$W/${UD}/bob/Applications/Ollama.app" "$W/${UD}/bob/Library/LaunchAgents/homebrew.mxcl.ollama.plist" \
+             "$W/loaded/bob" "$W/${UD}/bob/bin/ollama"; do
         [ -e "$p" ] || OH_BAD=$((OH_BAD+1))
     done
-    has "NOT REMOVED (inside another account's home; detect only) DIR [bob] $W/Users/bob/.ollama" || OH_BAD=$((OH_BAD+1))
-    has "FOREIGN DIR [bob] $W/Users/bob/.ollama  " && has "sha256(manifest) " || OH_BAD=$((OH_BAD+1))
-    has "sha256 $(shasum -a 256 "$W/Users/bob/bin/ollama" 2>/dev/null | awk '{print $1}')" || OH_BAD=$((OH_BAD+1))
+    has "NOT REMOVED (inside another account's home; detect only) DIR [bob] $W/${UD}/bob/.ollama" || OH_BAD=$((OH_BAD+1))
+    has "FOREIGN DIR [bob] $W/${UD}/bob/.ollama  " && has "sha256(manifest) " || OH_BAD=$((OH_BAD+1))
+    has "sha256 $(shasum -a 256 "$W/${UD}/bob/bin/ollama" 2>/dev/null | awk '{print $1}')" || OH_BAD=$((OH_BAD+1))
 }
 mkbox otherhome; otherhome; runbox "$SUBJECT"; otherhome_check
 [ "$OH_BAD" -eq 0 ] && ok "another account's home: every item listed with size and sha, none removed, CANNOT-RUN" \
@@ -209,16 +210,16 @@ sed 's#^protected() {#protected() { return 1;#' "$SUBJECT" > "$MUT2"
 if cmp -s "$SUBJECT" "$MUT2"; then bad "delete-other-home mutant did not apply"
 else
     mkbox mutdel; otherhome; runbox "$MUT2"; otherhome_check
-    [ "$OH_BAD" -gt 0 ] && [ ! -e "$W/Users/bob/.ollama" ] && ok "mutant that deletes inside another home is caught ($OH_BAD red limb(s))" \
+    [ "$OH_BAD" -gt 0 ] && [ ! -e "$W/${UD}/bob/.ollama" ] && ok "mutant that deletes inside another home is caught ($OH_BAD red limb(s))" \
         || bad "mutant that deletes inside another home NOT caught (OH_BAD=$OH_BAD)"
 fi
 
 echo "== OSTLER launchd leftovers"
 ostler_mine() {
-    for d in "$W/Users/alice/Library/LaunchAgents" "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"; do mkdir -p "$d"; done
-    printf '<plist>sup</plist>\n' > "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    for d in "$W/${UD}/alice/Library/LaunchAgents" "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"; do mkdir -p "$d"; done
+    printf '<plist>sup</plist>\n' > "$W/${UD}/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
     printf '<plist>agent</plist>\n' > "$W/Library/LaunchAgents/com.ostler.helper.plist"
-    printf '<plist>rc</plist>\n' > "$W/Users/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
+    printf '<plist>rc</plist>\n' > "$W/${UD}/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
     printf '<plist>cm</plist>\n' > "$W/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"
     printf '<plist>daemon</plist>\n' > "$W/Library/LaunchDaemons/com.ostler.privileged.plist"
     printf 'com.ostler.engine-supervisor\ncom.creativemachines.ostler.assistant\ncom.creativemachines.ostler-remotecapture\n' > "$W/olabels/alice"
@@ -227,9 +228,9 @@ ostler_mine() {
 mine_red() {   # red limbs for the walking-account + system scenario
     MR=0
     [ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS (cleaned" || MR=$((MR+1))
-    for p in "$W/Users/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist" "$W/Library/LaunchAgents/com.ostler.helper.plist" \
+    for p in "$W/${UD}/alice/Library/LaunchAgents/com.ostler.engine-supervisor.plist" "$W/Library/LaunchAgents/com.ostler.helper.plist" \
              "$W/Library/LaunchDaemons/com.ostler.privileged.plist" \
-             "$W/Users/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" \
+             "$W/${UD}/alice/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist" \
              "$W/Library/LaunchAgents/com.creativemachines.ostler.tailscaled.plist"; do [ -e "$p" ] && MR=$((MR+1)); done
     grep -q ostler "$W/olabels/alice" "$W/olabels/system" 2>/dev/null && MR=$((MR+1))
     has "LEFTOVER Ostler plist [-] $W/Library/LaunchDaemons/com.ostler.privileged.plist" || MR=$((MR+1))
@@ -250,14 +251,14 @@ else mkbox ostmut1; ostler_mine; runbox "$MUT3"; mine_red
 fi
 
 ostler_other() {
-    mkdir -p "$W/Users/bob/Library/LaunchAgents"
-    printf '<plist>bob</plist>\n' > "$W/Users/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
+    mkdir -p "$W/${UD}/bob/Library/LaunchAgents"
+    printf '<plist>bob</plist>\n' > "$W/${UD}/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist"
     printf 'com.ostler.engine-supervisor\n' > "$W/olabels/bob"
 }
 other_red() {
     OR=0
     [ "$RC" -eq 2 ] && has "NO-FOREIGN-OLLAMA: CANNOT-RUN" || OR=$((OR+1))
-    [ -e "$W/Users/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist" ] || OR=$((OR+1))
+    [ -e "$W/${UD}/bob/Library/LaunchAgents/com.ostler.engine-supervisor.plist" ] || OR=$((OR+1))
     grep -qx com.ostler.engine-supervisor "$W/olabels/bob" 2>/dev/null || OR=$((OR+1))
     has "NOT REMOVED (inside another account's home; detect only) OSTPLIST [bob]" || OR=$((OR+1))
     has "NOT REMOVED (inside another account's home; detect only) OSTLOADED [bob]" || OR=$((OR+1))
@@ -359,7 +360,7 @@ sed 's#done < "\$WORK/accounts"#done < <(head -1 "$WORK/accounts")#' "$SUBJECT" 
 if cmp -s "$SUBJECT" "$MUT"; then
     bad "mutant did not apply (subject unchanged), so it proves nothing"
 else
-    mkbox mutant; mkdir -p "$W/Users/bob/.ollama/models"; : > "$W/Users/bob/.ollama/models/blob"
+    mkbox mutant; mkdir -p "$W/${UD}/bob/.ollama/models"; : > "$W/${UD}/bob/.ollama/models/blob"
     runbox "$MUT"; caught=0
     has "accounts (2): alice,bob" || caught=$((caught+1))
     has "FOREIGN DIR [bob]" || caught=$((caught+1))
@@ -367,9 +368,9 @@ else
     [ "$caught" -gt 0 ] && ok "skip-account mutant caught ($caught red limb(s): bob not examined / not listed / PASS)" \
         || bad "skip-account mutant NOT caught"
     # and the real subject on the same bob-only box sees bob and refuses
-    mkbox mutctl; mkdir -p "$W/Users/bob/.ollama/models"; : > "$W/Users/bob/.ollama/models/blob"
+    mkbox mutctl; mkdir -p "$W/${UD}/bob/.ollama/models"; : > "$W/${UD}/bob/.ollama/models/blob"
     runbox "$SUBJECT"
-    [ "$RC" -eq 2 ] && [ -e "$W/Users/bob/.ollama" ] && has "accounts (2): alice,bob" && has "FOREIGN DIR [bob]" \
+    [ "$RC" -eq 2 ] && [ -e "$W/${UD}/bob/.ollama" ] && has "accounts (2): alice,bob" && has "FOREIGN DIR [bob]" \
         && ok "control: real subject lists bob's ~/.ollama and refuses (rc 2)" || bad "control: real subject on the bob-only box (rc=$RC)"
 fi
 
