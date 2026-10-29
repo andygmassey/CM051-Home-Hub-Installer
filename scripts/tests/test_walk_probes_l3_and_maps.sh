@@ -64,8 +64,11 @@ PY
 
 run_l3() {  # $1 mode, $2 lib dir override (optional)
     python3 "${T}/fake.py" "$1" > "${T}/port" & FAKE_PID=$!
-    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "${T}/port" ] && break; sleep 0.3; done
+    # Wait up to 30s for the stand-in to bind: a loaded macOS runner took >3s to start python, the old 3s poll
+    # then ran the probe at an empty port and the probe (correctly) said CANNOT-RUN (rc 78) on every L3 arm.
+    for _ in $(seq 1 150); do [ -s "${T}/port" ] && break; sleep 0.2; done
     local port; port="$(cat "${T}/port")"; : > "${T}/store.conf"
+    if [ -z "${port}" ]; then N=$((N+1)); echo "  FAIL stand-in ($1) never reported a port in 30s: harness fault, not a probe verdict"; FAILS=$((FAILS+1)); fi
     local base="http://127.0.0.1:${port}"
     OUT="$(env OSTLER_PROBE_API_BASE="${base}" OSTLER_PROBE_QDRANT_BASE="${base}" OSTLER_PROBE_EMBED_BASE="${base}" \
         OSTLER_SERVICE_TOKEN=synthetic OSTLER_PROBE_STORE_CURL_CONF="${T}/store.conf" \
