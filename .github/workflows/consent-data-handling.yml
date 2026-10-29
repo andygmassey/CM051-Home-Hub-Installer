@@ -142,6 +142,14 @@ jobs:
         if: always()
         run: bash tests/test_runtime_ready_does_not_require_optional_imports.sh
 
+      # NEW-119. ...and a TEST SUITE is not a runtime. A clean 27.2 install
+      # reported "MISSING pytest" from vendor/ostler_fda/tests/. Asserts the
+      # scan ignores tests/, a real missing runtime import still fails, and
+      # the DMG build phase (project.yml AND pbxproj) ships no tests/.
+      - name: The runtime scan ignores tests, and the DMG ships none
+        if: always()
+        run: bash tests/test_runtime_ready_ignores_shipped_tests.sh
+
       # Every osascript dialog must `activate` System Events first.
       #
       # ba94a24 stripped `activate` from FOUR FDA modals, so they opened
