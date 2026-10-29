@@ -11,6 +11,7 @@ on:
     paths:
       - 'vendor/cm041/identity_resolver/**'
       - 'tests/test_exact_identifier_merge.py'
+      - 'tests/test_merge_journal_records_keyed_identifier_hashes.py'
       - 'tests/test_nameless_records_sharing_a_number_are_one_person.py'
       - '.github/workflows/exact-identifier-merge.yml'
   push:
@@ -37,6 +38,15 @@ jobs:
             -r vendor/cm041/identity_resolver/requirements.txt rdflib pytest pyyaml qdrant-client vobject
       - name: Exact shared identifier merges, with vetoes, guard, journal and undo
         run: python3 -m pytest -q tests/test_exact_identifier_merge.py
+      # NEW-119: each matched key journalled as {kind, keyed hash}, no raw value.
+      - name: Merge journal records keyed identifier hashes, never raw values
+        if: success() || failure()
+        run: |
+          out="$(python3 -m pytest -q -rs tests/test_merge_journal_records_keyed_identifier_hashes.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+          n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
+          if [ "${n:-0}" -lt 12 ]; then echo "expected at least 12 passed, got ${n:-0}" >&2; exit 1; fi
       # #2545: a skip (importorskip) is not a pass, so -rs output is checked.
       - name: Nameless records sharing a number resolve to one person
         if: always()

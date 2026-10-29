@@ -247,6 +247,117 @@ def removal_records(us):
         out.append("%s:%s" % (fp(u), v.replace(" ", "_").replace(",", "_")))
     return ",".join(out)
 
+# THE VECTOR WRITER'S OWN CLOCK AND THE INSTALL'S OWN RECORD (instr119). The
+# home they are read from is overridable so a test never reads a real one.
+HOME_DIR = os.path.expanduser(os.environ.get("OSTLER_PROBE_HOME") or "~")
+
+def _kv(path):
+    out = {}
+    for line in open(path, encoding="utf-8", errors="replace"):
+        k, sep, v = line.rstrip("\n").partition("=")
+        if sep:
+            out[k.strip()] = v.strip()
+    return out
+
+def _epoch(ts):
+    import calendar, time
+    ts = (ts or "").strip()
+    if not ts:
+        return None
+    t = ts.replace("Z", "+00:00")
+    try:
+        from datetime import datetime, timezone
+        d = datetime.fromisoformat(t)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return int(d.timestamp())
+    except Exception:
+        return None
+
+def last_index():
+    # people_index.tsv last_success_at is the writer's own completion marker
+    # (the same one _drive_writer waits on); people.done is the install-time
+    # sweep. The later of the two is the last time every selectable person was
+    # offered to the embedder.
+    best = (None, "none")
+    for src, path, key in (("people_index.tsv", os.path.join(HOME_DIR, ".ostler/state/source_activity/people_index.tsv"), "last_success_at"),
+                           ("people.done", os.path.join(HOME_DIR, ".ostler/state/hydrate/people.done"), "recorded_at")):
+        try:
+            v = _kv(path).get(key, "")
+        except Exception:
+            continue
+        e = _epoch(v)
+        if e is not None and (best[0] is None or e > best[0]):
+            best = (e, src)
+    return best
+
+def c_split(rows):
+    if not rows:
+        return "-"
+    idx, src = last_index()
+    n = {"merged": 0, "nodisplayname": 0, "afterindex": 0, "embedfailed": 0, "undated": 0, "noindex": 0}
+    for merged, has_dn, created in rows:
+        if merged:
+            n["merged"] += 1
+        elif not has_dn:
+            n["nodisplayname"] += 1
+        elif idx is None:
+            n["noindex"] += 1
+        else:
+            e = _epoch(created)
+            if e is None:
+                n["undated"] += 1
+            elif e > idx:
+                n["afterindex"] += 1
+            else:
+                n["embedfailed"] += 1
+    from datetime import datetime, timezone
+    at = datetime.fromtimestamp(idx, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if idx is not None else "none"
+    return "csplit;" + ";".join("%s:%d" % (k, n[k]) for k in ("merged", "nodisplayname", "afterindex", "embedfailed", "undated", "noindex")) \
+        + ";index_at:%s;index_src:%s" % (at, src)
+
+# The install-time people sweep, as install.sh recorded it: the people.done
+# sentinel (status, rc, counts, time) and the one install-log line it printed.
+HYDRATE_MSGS = (("Indexed ", "of", "PARTIAL"), ("Indexed ", "", "DONE"),
+                ("Your people could not be indexed", "", "FAILED"),
+                ("No people to index yet", "", "SKIPPED_NO_DATA"),
+                ("People indexer not ready yet", "", "SKIPPED_FDA_PENDING"),
+                ("Your people are still being indexed in the background", "", "BACKGROUND"),
+                ("Your people are already indexed", "", "ALREADY"))
+
+def hydrate_state():
+    parts = []
+    path = os.path.join(HOME_DIR, ".ostler/state/hydrate/people.done")
+    if not os.path.exists(path):
+        parts.append("people.done:absent")
+    else:
+        try:
+            kv = _kv(path)
+            parts.append("people.done:present")
+            for k in ("status", "rc", "item_count", "recorded_at", "detail", "payload"):
+                if k in kv:
+                    parts.append("%s:%s" % (k, kv[k].replace(" ", "_").replace(";", "_")[:60]))
+        except Exception as exc:
+            parts.append("people.done:unreadable_" + type(exc).__name__)
+    log = os.path.join(HOME_DIR, ".ostler/logs/install.log")
+    if not os.path.exists(log):
+        parts.append("install_log:absent")
+    else:
+        last = "none"
+        try:
+            for line in open(log, encoding="utf-8", errors="replace"):
+                if "people for search" not in line and "people are" not in line \
+                        and "People indexer" not in line and "No people to index" not in line:
+                    continue
+                for head, also, tag in HYDRATE_MSGS:
+                    if head in line and (not also or (" " + also + " ") in line):
+                        last = tag
+                        break
+        except Exception as exc:
+            last = "unreadable_" + type(exc).__name__
+        parts.append("install_log_line:" + last)
+    return "hydrate;" + ";".join(parts)
+
 # Bypass any operator proxy (HTTP_PROXY / http_proxy) -- the python analogue of
 # curl --noproxy '*'. Without it a local proxy answers for 127.0.0.1 with its own
 # 5xx, masking the store's real 401 and reading as the store being down.
@@ -370,6 +481,7 @@ try:
     # C: graph Person with no vector, split by whether a HUMAN NAME is known.
     c_named = 0; c_unnamed = 0
     c_named_u = []
+    c_detail = []
     for u in sorted(graph - vec):
         label = ""; email = ""
         rows = sparql("SELECT ?l WHERE { <" + u + "> <" + SKOS + "> ?l }")
@@ -381,6 +493,15 @@ try:
         if named:
             c_named += 1
             c_named_u.append(u)
+            # WHY is this named person unsearchable (instr119)? The vector
+            # writer, ostler_fda.pwg_ingest._load_people_from_oxigraph, selects
+            # only "?uri a pwg:Person ; pwg:displayName ?d" with no
+            # pwg:mergedInto, so two buckets are skipped BY THAT QUERY and never
+            # reach the embedder. The rest it did select: created after its last
+            # run, or selected and not landed (embed failed or point dropped).
+            merged = bool(sparql("SELECT ?m WHERE { <" + u + "> <" + P + "mergedInto> ?m } LIMIT 1"))
+            ca = sparql("SELECT ?c WHERE { <" + u + "> <" + P + "createdAt> ?c } LIMIT 1")
+            c_detail.append((merged, bool(dn), ca[0]["c"]["value"].strip() if ca else ""))
         else:
             c_unnamed += 1
 
@@ -390,9 +511,12 @@ try:
     # rather than as zero. The two digest sets are APPENDED the same way, tenth
     # and eleventh, and the reader treats their absence as "identity was not
     # measured" and falls back to the stricter single-reading verdict.
-    print("OK %d %d %d %d %d %d %d %d %s %s %s %s" % (
+    # Fields 14 and 15 (instr119) are APPENDED, so every reader of 1..13 is
+    # unchanged. Both are counts, states and timestamps only: no URI, no name.
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %s %s %s" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
-        b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u)))
+        b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u),
+        c_split(c_detail), hydrate_state()))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -557,6 +681,36 @@ _parse_reconcile() {
     c_set=$(printf '%s' "$out" | awk '{print $11}')
     b_shapes=$(printf '%s' "$out" | awk '{print $12}')
     b_removal=$(printf '%s' "$out" | awk '{print $13}')
+    c_split=$(printf '%s' "$out" | awk '{print $14}')
+    hydrate=$(printf '%s' "$out" | awk '{print $15}')
+}
+
+# _note_c_split <field14> <c_named>: print WHY each named person has no vector.
+# Output only; the verdict never reads it (instr119).
+_note_c_split() {
+    local f="$1" n="$2" k v
+    case "$f" in
+        csplit\;*) : ;;
+        *)
+            [ "${n:-0}" -gt 0 ] 2>/dev/null && probe_note "            why C has no vector              : NOT MEASURED -- this reading carried no cause split"
+            return 0 ;;
+    esac
+    _csv() { printf '%s' "$f" | tr ';' '\n' | awk -F: -v k="$1" '$1==k {sub(/^[^:]*:/, ""); print; exit}'; }
+    probe_note "            why C has no vector (people_index selects pwg:displayName, not merged):"
+    probe_note "              merged away (indexer skips)    : $(_csv merged)"
+    probe_note "              no pwg:displayName (unselectable): $(_csv nodisplayname)"
+    probe_note "              Person created after index     : $(_csv afterindex)"
+    probe_note "              embed failed (existed at index): $(_csv embedfailed)  (pwg:createdAt can be a historical first-seen date, so this is an UPPER bound)"
+    probe_note "              no pwg:createdAt (cannot place): $(_csv undated)"
+    probe_note "              no index run recorded at all   : $(_csv noindex)"
+    probe_note "              last index                     : $(_csv index_at) (from $(_csv index_src))"
+}
+
+_note_hydrate() {
+    case "$1" in
+        hydrate\;*) probe_note "install-time hydrate-people          : $(printf '%s' "${1#hydrate;}" | tr ';' ' ')" ;;
+        *)           probe_note "install-time hydrate-people          : NOT MEASURED -- this reading carried no hydrate field" ;;
+    esac
 }
 
 # ─── DRIVE THE PRODUCT'S OWN WRITER, THEN ASK AGAIN (v1.0.102 walk 4) ──────
@@ -605,7 +759,7 @@ def state():
     except Exception:
         return "unreadable"
     if r.returncode != 0:
-        return "notloaded"
+        return "notloaded_rc%d" % r.returncode
     for line in r.stdout.splitlines():
         if line.startswith("\tstate = "):
             return line.split("=", 1)[1].strip().replace(" ", "_")
@@ -656,7 +810,7 @@ _drive_writer() {
 ${WRITER_PY}
 PYWRITER")"
         case "$st" in
-            notloaded) WRITER_DETAIL="the ${kind} writer job is not loaded on this box"; return 1 ;;
+            notloaded*) WRITER_DETAIL="the ${kind} writer job is not loaded on this box (launchctl print exit ${st#notloaded_rc})"; return 1 ;;
             running) : ;;
             ''|unreadable) : ;;
             *) break ;;
@@ -710,7 +864,7 @@ run_probe() {
     out="$(read_result 1)"
     _guard_reconcile_output "$out"
 
-    local graph vec a b c_named c_unnamed both b_fixture b_set c_set b_shapes b_removal
+    local graph vec a b c_named c_unnamed both b_fixture b_set c_set b_shapes b_removal c_split hydrate
     _parse_reconcile "$out"
 
     # ─── READ IT AGAIN BEFORE CALLING A DIFFERENCE A DISAGREEMENT ───────────
@@ -801,6 +955,8 @@ run_probe() {
     esac
     probe_note "residual C  NAMED persons with no vector     : ${c_named}"
     probe_note "            unnamed stubs with no vector     : ${c_unnamed}  (reported, not failed -- see header)"
+    _note_c_split "$c_split" "$c_named"
+    _note_hydrate "$hydrate"
 
     # THE READINGS ARE PART OF THE EVIDENCE, NOT A DETAIL OF THE MACHINERY. A
     # reader of walks/v1.0.NN.tsv must be able to see how many times this was
@@ -1096,6 +1252,23 @@ self_test() {
         _st_tick; printf '  SELF-TEST FAIL [orphan shape absent reading says NOT MEASURED]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape absent"
     fi
     _case "C named unsearchable -> FAIL"      "OK 7200 7187 0 0 13 0 7187"  "$PROBE_EX_FAIL"
+    # instr119: WHY C has no vector, and the install-time sweep, are PRINTED
+    # (fields 14 and 15) and change no exit code. Control: a reading without
+    # them says NOT MEASURED rather than inventing a split.
+    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_PEOPLE_WRITER=NOTLOADED FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 0 - aaaaaaaaaaa1,aaaaaaaaaaa2 - - csplit;merged:2;nodisplayname:3;afterindex:4;embedfailed:3;undated:1;noindex:0;index_at:2026-10-26T06:49:47Z;index_src:people_index.tsv hydrate;people.done:present;status:error;rc:1;install_log:absent" run_probe 2>&1)"; rc=$?
+    case "$rc|$out" in
+        "$PROBE_EX_FAIL|"*"merged away (indexer skips)    : 2"*"no pwg:displayName (unselectable): 3"*"Person created after index     : 4"*"embed failed (existed at index): 3"*"last index                     : 2026-10-26T06:49:47Z (from people_index.tsv)"*"install-time hydrate-people          : people.done:present status:error rc:1"*)
+            _st_tick; printf '  ok [C cause split and hydrate status are printed; exit unchanged]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [C cause split printed]: rc=%s\n' "$rc"
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="C cause split" ;;
+    esac
+    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187" run_probe 2>&1)"; rc=$?
+    case "$rc|$out" in
+        "$PROBE_EX_FAIL|"*"why C has no vector              : NOT MEASURED"*"install-time hydrate-people          : NOT MEASURED"*)
+            _st_tick; printf '  ok [a reading without the cause fields says NOT MEASURED]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [C cause split absent says NOT MEASURED]: rc=%s\n' "$rc"
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="C cause split absent" ;;
+    esac
     # THE ONE THAT MATTERS MOST: unnamed stubs alone must NOT fail, or the probe
     # goes permanently red on a box where nothing is actually broken.
     _case "unnamed stubs only -> PASS"        "OK 7217 7187 0 0 0 30 7187"  "$PROBE_EX_PASS"
@@ -1266,6 +1439,26 @@ self_test() {
         *'not loaded on this host'*) _st_tick; printf '  ok [the note says "not loaded" verbatim, with the label]\n' ;;
         *) _st_tick; printf '  SELF-TEST FAIL [the not-loaded note]: absent from the output\n'
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="notloaded note" ;;
+    esac
+
+    # 3a-ii. instr119: the not-loaded note carries launchctl's exit code and the
+    #     install.sh ok/warn line, and the probe exit is unchanged by either.
+    _KLAST_OUT="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="notloaded rc=113 Could not find service" \
+                  FAKE_FDA_INSTALL="PLIST absent
+LINE 26323:[warn]  The background top-up helper could not be scheduled, so new messages will not be picked up." \
+                  FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=900 run_probe 2>&1)"; rc=$?
+    case "$rc|$_KLAST_OUT" in
+        "$PROBE_EX_PASS|"*"exit 113 Could not find service"*"plist in ~/Library/LaunchAgents: ABSENT"*"fda-rerun line (warn): 26323:"*)
+            _st_tick; printf '  ok [not-loaded note names the launchctl exit code, the plist and the install.sh warn line; exit unchanged]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [instr119 not-loaded detail]: rc=%s\n' "$rc"
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="instr119 notloaded detail" ;;
+    esac
+    _KLAST_OUT="$(SELF_TEST_LOCAL=1 FAKE_TICK_SEQ="notloaded rc=113 Could not find service" FAKE_FDA_INSTALL="PLIST present
+LOG_NOLINE" FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=900 run_probe 2>&1)"; rc=$?
+    case "$rc|$_KLAST_OUT" in
+        "$PROBE_EX_PASS|"*"fda-rerun line: NONE"*) _st_tick; printf '  ok [no install.sh fda-rerun line reads NONE, not ok]\n' ;;
+        *) _st_tick; printf '  SELF-TEST FAIL [instr119 no install line]: rc=%s\n' "$rc"
+           fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="instr119 no install line" ;;
     esac
 
     # 3b. A host with no /bin/launchctl has no hourly ingest to wait for, and
