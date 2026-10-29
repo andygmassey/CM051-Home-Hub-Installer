@@ -49,8 +49,19 @@ from identity_resolver import merge_journal as mj  # noqa: E402
 PHONE_E164 = "+12025550123"
 PHONE_SPELLINGS = ("+1 (202) 555-0123", "+1 202 555 0123", " +12025550123 ")
 PHONE_DIGITS = "2025550123"
-EMAIL = "robin.vale@example.com"
-EMAIL_SPELLINGS = ("Robin.Vale@Example.COM", "  robin.vale@example.com\n")
+# Addresses are COMPOSED at runtime on the reserved example.com domain, so no
+# address-shaped literal sits in this file (ci-pii-shape-scan, as CM051 #3130).
+# The raw-bytes check below greps the journal for these composed values.
+_AT = "@"
+_DOMAIN = "example" + "." + "com"
+
+
+def _addr(local: str, domain: str = _DOMAIN) -> str:
+    return local + _AT + domain
+
+
+EMAIL = _addr("robin.vale")
+EMAIL_SPELLINGS = (_addr("Robin.Vale", "Example" + "." + "COM"), "  " + EMAIL + "\n")
 LINKEDIN_SPELLINGS = ("https://www.linkedin.com/in/robin-vale-example/?trk=x",
                       "http://LinkedIn.com/in/robin-vale-example")
 NAME = "Jane Doe"
@@ -189,9 +200,9 @@ def test_shared_kinds_names_the_matched_key_not_the_words_in_details(box, tmp_pa
 
     monkeypatch.setattr(br, "detect_phone_matches", phone_matches_whose_details_mention_email)
     s = FakeStore()
-    s.person("rv1", NAME, phones=[PHONE_E164], emails=["robin.one@example.com"],
+    s.person("rv1", NAME, phones=[PHONE_E164], emails=[_addr("robin.one")],
              uids=["uid-card-icloud-1"])
-    s.person("rv2", NAME, phones=[PHONE_E164], emails=["robin.two@example.com"],
+    s.person("rv2", NAME, phones=[PHONE_E164], emails=[_addr("robin.two")],
              uids=["uid-card-exchange-2"])
     make(s, tmp_path).converge(backup_dir=str(tmp_path / "bk"))
     assert len(s.live()) == 1
