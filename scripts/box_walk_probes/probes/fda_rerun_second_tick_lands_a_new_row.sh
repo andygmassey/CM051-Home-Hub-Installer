@@ -17,12 +17,12 @@
 #
 #   PASS        runs >= 2, a run after the seed, last exit 0, and the row landed
 #   FAIL        not loaded, < 2 runs, no run after the seed, a non-zero exit,
-#               or the row never landed (ADVISORY while scoped advisory)
+#               or the row never landed
 #   CANNOT-RUN  read-only walk, no synthetic Safari plant, the seed write was
 #               refused (TCC), launchd or the store could not be read
 #
-# ADVISORY now; BLOCKING once the fda-rerun registration fix merges
-# (scripts/walk_promote_scope.tsv says the same; Archie flips it).
+# BLOCKING (scripts/walk_promote_scope.tsv). Flipped from advisory when the
+# fda-rerun registration fix (CM051 #3210) merged.
 #
 # WALK_WRITES: inserts one synthetic example.com visit into the walk's synthetic Safari History.db (removed afterwards; the store point stays), and kickstarts com.ostler.fda-rerun until it has run twice
 set -u

@@ -2,8 +2,8 @@ name: fda-refresh-tcc-probes
 
 # NEW-119 (diag118 Mini16, macOS 27.2, 2026-10-29):
 #   no_python_is_tcc_responsible           BLOCKING
-#   fda_rerun_second_tick_lands_a_new_row  ADVISORY, BLOCKING once the
-#                                          fda-rerun registration fix merges
+#   fda_rerun_second_tick_lands_a_new_row  BLOCKING (flipped when the fda-rerun
+#                                          registration fix #3210 merged)
 #   ttywalk DECLARED STATE                 lib_walk_tcc_declared.sh
 #
 # The probes run on a walk box (run_box_walk.sh globs probes/, and

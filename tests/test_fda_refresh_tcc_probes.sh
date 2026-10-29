@@ -14,13 +14,12 @@
 #     CR     log show fails / no install start                -> CANNOT-RUN 78
 #     MUTANT the control check removed: 0 daemon requests reads PASS. Caught.
 #
-#   fda_rerun_second_tick_lands_a_new_row (ADVISORY, BLOCKING once the
-#   fda-rerun registration fix merges)
+#   fda_rerun_second_tick_lands_a_new_row (BLOCKING since #3210 merged)
 #     fake launchctl (print/kickstart, a runs counter), real sqlite3 on a
 #     synthetic History.db in a temp HOME, fake curl over a fake store file
 #     GREEN  runs reach 2, the row seeded after install lands  -> PASS 0
 #     RED    the row never lands / not loaded / only one run
-#            -> FAIL 1 under a blocking scope, ADVISORY 0 under the real one
+#            -> FAIL 1 under the REAL walk_promote_scope.tsv (blocking)
 #     CR     no synthetic plant / a real History.db / read-only walk -> 78
 #     MUTANTS runs >= 1 accepted (one-run box reads PASS); landing ignored
 #             (noland box reads PASS). Both caught.
@@ -130,7 +129,6 @@ run_p2() {
     printf '%s' "$h" > "$W/lasthome"
     cat "$W/rc"
 }
-BLOCKING_SCOPE="$W/scope.tsv"; printf '%s\tblocking\tCM051\ttest\n' "$P2" > "$BLOCKING_SCOPE"
 
 expect() { [ "$2" = "$3" ] && ok "$1 -> rc $2" || { bad "$1 -> rc $2, wanted $3"; [ -n "${4:-}" ] && sed 's/^/        /' "$4" | tail -8; }; }
 
@@ -153,16 +151,17 @@ HOME="$h" OSTLER_PROBE_LOG_BIN="$F/log" FAKE_LOG_FIXTURE="$W/control_only.log" b
 expect "no recorded install start" "$?" 78 "$W/out.nostart"
 
 echo "--- $P2 ---"
-expect "runs reach 2 and the row seeded after install lands" "$(run_p2 "$SRC" good "$BLOCKING_SCOPE")" 0 "$W/out.p2.good"
+expect "runs reach 2 and the row seeded after install lands" "$(run_p2 "$SRC" good)" 0 "$W/out.p2.good"
 n="$("$SQ" "$(cat "$W/lasthome")/Library/Safari/History.db" "select count(*) from history_items where url like '%walk-second-tick%'")"
 [ "$n" = 0 ] && ok "the seeded visit is removed from the fixture afterwards" || bad "seeded visit left behind ($n)"
 grep -q 'runs now 2' "$W/out.p2.good" && ok "runs reached 2" || bad "runs did not reach 2"
-expect "the row never lands (blocking scope)" "$(run_p2 "$SRC" noland "$BLOCKING_SCOPE")" 1 "$W/out.p2.noland"
-expect "fda-rerun not loaded (blocking scope)" "$(run_p2 "$SRC" notloaded "$BLOCKING_SCOPE")" 1 "$W/out.p2.notloaded"
-expect "only one run ever happens (blocking scope)" "$(run_p2 "$SRC" once "$BLOCKING_SCOPE")" 1 "$W/out.p2.once"
-expect "non-zero last exit (blocking scope)" "$(run_p2 "$SRC" badexit "$BLOCKING_SCOPE")" 1 "$W/out.p2.badexit"
-expect "the row never lands (real scope: advisory, exit 0)" "$(run_p2 "$SRC" noland)" 0 "$W/out.p2.noland"
-grep -q '^VERDICT: ADVISORY' "$W/out.p2.noland" && ok "under the real scope a RED prints ADVISORY" || bad "no ADVISORY verdict under the real scope"
+expect "the row never lands (real scope)" "$(run_p2 "$SRC" noland)" 1 "$W/out.p2.noland"
+grep -q '^VERDICT: FAIL' "$W/out.p2.noland" && ok "row never lands prints FAIL, not ADVISORY" || bad "row never lands did not print FAIL"
+expect "fda-rerun not loaded (real scope)" "$(run_p2 "$SRC" notloaded)" 1 "$W/out.p2.notloaded"
+expect "only one run ever happens (real scope)" "$(run_p2 "$SRC" once)" 1 "$W/out.p2.once"
+grep -q '^VERDICT: FAIL' "$W/out.p2.once" && ok "only one run prints FAIL, not ADVISORY" || bad "only one run did not print FAIL"
+expect "non-zero last exit (real scope)" "$(run_p2 "$SRC" badexit)" 1 "$W/out.p2.badexit"
+grep -q "^fda_rerun_second_tick_lands_a_new_row	blocking	" "$REPO/scripts/walk_promote_scope.tsv" && ok "the real scope row is blocking" || bad "scope row is not blocking"
 expect "no synthetic plant" "$(run_p2 "$SRC" good "" none)" 78 "$W/out.p2.good"
 expect "a History.db without the synthetic marker is never written" "$(run_p2 "$SRC" good "" real)" 78 "$W/out.p2.good"
 n="$("$SQ" "$(cat "$W/lasthome")/Library/Safari/History.db" "select count(*) from history_items where url like '%walk-second-tick%'")"
@@ -207,13 +206,13 @@ python3 - "$T2/lib/fda_refresh_tcc.py" <<'PY'
 import sys; p=sys.argv[1]; s=open(p).read()
 n=s.replace('    if f["runs"] < 2:\n', '    if f["runs"] < 1:\n'); assert n!=s; open(p,'w').write(n)
 PY
-[ "$(run_p2 "$T2" once "$BLOCKING_SCOPE")" = 1 ] && bad "MUTANT runs>=1 was NOT caught" || ok "MUTANT runs>=1 (one-run box reads PASS) is caught"
+[ "$(run_p2 "$T2" once)" = 1 ] && bad "MUTANT runs>=1 was NOT caught" || ok "MUTANT runs>=1 (one-run box reads PASS) is caught"
 T3="$(mut_tree landed)"
 python3 - "$T3/lib/fda_refresh_tcc.py" <<'PY'
 import sys; p=sys.argv[1]; s=open(p).read()
 n=s.replace('    if f["landed"] < 1:\n', '    if f["landed"] < 0:\n'); assert n!=s; open(p,'w').write(n)
 PY
-[ "$(run_p2 "$T3" noland "$BLOCKING_SCOPE")" = 1 ] && bad "MUTANT landing-ignored was NOT caught" || ok "MUTANT landing-ignored (noland box reads PASS) is caught"
+[ "$(run_p2 "$T3" noland)" = 1 ] && bad "MUTANT landing-ignored was NOT caught" || ok "MUTANT landing-ignored (noland box reads PASS) is caught"
 ML="$W/mut_decl.sh"
 python3 - "$LIB" "$ML" <<'PY'
 import sys; s=open(sys.argv[1]).read()

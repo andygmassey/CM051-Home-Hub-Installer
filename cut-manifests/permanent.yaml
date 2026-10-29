@@ -1529,17 +1529,15 @@ entries:
       kind: box_walk_probe
       probe: "no_python_is_tcc_responsible"
 
-  # ADVISORY (scripts/walk_promote_scope.tsv): BLOCKING once the fda-rerun
-  # registration fix merges. Declared here because every probe on disk must be
-  # invoked by the cut; the promote scope, not this row, decides that it never
-  # refuses a promote.
+  # BLOCKING (scripts/walk_promote_scope.tsv) since the fda-rerun registration
+  # fix (CM051 #3210) merged.
   - id: box-walk-fda-rerun-second-tick-lands-a-new-row
-    title: "advisory: com.ostler.fda-rerun, kickstarted until runs >= 2, lands a synthetic Safari visit seeded after install"
+    title: "box-walk probe must PASS: fda_rerun_second_tick_lands_a_new_row (com.ostler.fda-rerun, kickstarted until runs >= 2, lands a synthetic Safari visit seeded after install)"
     incident: >-
       diag118 Mini16 2026-10-29: com.ostler.fda-rerun was never loaded after an
       abort and re-run (plist present, launchctl print rc=113), and a second
-      refresh after install was NOT INSTRUMENTED. ADVISORY now; BLOCKING once the
-      fda-rerun registration fix merges.
+      refresh after install was NOT INSTRUMENTED. Registration fixed in CM051
+      #3210 (MERGED, not PROVEN). BLOCKING.
     proof:
       kind: box_walk_probe
       probe: "fda_rerun_second_tick_lands_a_new_row"
