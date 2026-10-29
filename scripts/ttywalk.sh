@@ -1005,6 +1005,25 @@ if [[ "$DO_RESET" -eq 1 ]]; then
     fi
 fi
 
+# ── NEW-119: a cold box has no foreign ollama, on ANY account (BLOCKING) ──
+# 2026-10-29: a diagnostic install on a clean macOS 27.2 Mac failed because
+# install.sh called a bare `ollama`. Every earlier walk passed only because a
+# leftover system ollama (and ~/.ollama/models) survived --reset, so the cold
+# box was never cold. scripts/walk_cold_no_foreign_ollama.sh runs ON the box,
+# for every login account (dscl), before anything is staged: it prints each
+# foreign ollama with size and sha256, removes it, looks again, and exits 2
+# (CANNOT-RUN) when anything survives or any account could not be examined.
+# Its own block, NOT inside the reset block above: the reset test extracts
+# that block and runs it with a fake ssh, and must never reach this script.
+if [[ "$DO_RESET" -eq 1 ]]; then
+    rule "COLD PRECONDITION (NEW-119): no foreign ollama on any account"
+    _cold_ollama_script="$(dirname "${BASH_SOURCE[0]}")/walk_cold_no_foreign_ollama.sh"
+    [[ -f "$_cold_ollama_script" ]] || die "NEW-119: ${_cold_ollama_script} is missing; the cold precondition cannot run"
+    if ! "${SSH[@]}" '/bin/bash -s' < "$_cold_ollama_script" 2>&1; then
+        die "NEW-119: a foreign ollama survived the reset, or an account could not be examined (see above); the box is not cold, refusing to stage or walk"
+    fi
+fi
+
 # ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────
 #
 # 🔴 EVERY WALK THIS HARNESS HAS EVER RUN MEASURED THE REPO, NOT THE DMG, and

@@ -24,3 +24,6 @@ vendor/doctor/agent/web_ui_copy.py	QDRANT_NO_EMBED_MODEL_FIX_COMMAND = "ollama p
 vendor/hub_power/bin/hub-power-actions.sh	hpa_run "ollama stop $m" "$ob" stop "$m" || true	log label passed to hpa_run, not an invocation; the call on the same line goes through the pinned "$ob"
 vendor/hub_power/bin/hub-power-actions.sh	hpa_run "signal ollama serve (pid $pid)" kill -TERM "$pid" || true	log label passed to hpa_run, not an invocation; the call on the same line goes through the pinned "$ob"
 vendor/hub_power/bin/hub-power-actions.sh	hpa_run "spawn ollama serve" nohup "$ob" serve >/dev/null 2>&1 &	log label passed to hpa_run, not an invocation; the call on the same line goes through the pinned "$ob"
+scripts/walk_cold_no_foreign_ollama.sh	login="$(as_acct "$n" "$shell" -l -c 'printf "__login_ok\n%s\n" "$PATH"; command -v ollama 2>/dev/null; true' 2>/dev/null </dev/null)"	walk harness detects a foreign ollama; lookup only, never executes it
+scripts/walk_cold_no_foreign_ollama.sh	"$home/.ostler/"*) echo "  ${n}: command -v ollama -> ${cv} (installer-owned, under .ostler)" >> "$ex" ;;	walk harness detects a foreign ollama; lookup only, never executes it
+scripts/walk_cold_no_foreign_ollama.sh	*)  echo "NONPATH|$n|command -v ollama answered a non-path: ${cv}" >> "$out" ;;	walk harness detects a foreign ollama; lookup only, never executes it

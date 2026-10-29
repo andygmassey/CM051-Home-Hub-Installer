@@ -912,6 +912,7 @@ test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -1142,6 +1143,7 @@ scripts/tests/test_read_only_walk_never_writes.sh	WIRED	.github/workflows/walk-r
 scripts/tests/test_regenerate_divergence_patch.sh	WIRED	.github/workflows/vendor-integrity.yml
 scripts/tests/test_resolve_cut_daemon_pin.sh	WIRED	gui/Makefile
 scripts/tests/test_run_box_walk_records_phase1_verdicts.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh	WIRED	.github/workflows/seeded-zero-launchd-lan-probes.yml
 scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
