@@ -261,7 +261,7 @@ PULLFN="$W/pullfn.sh"
 awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f && /^}$/{f=0; n++} n==2{exit}' "$INSTALL_SH" > "$PULLFN"
 awk '/^ollama_pull_with_retry\(\) \{/{f=1} f{print} f && /^}$/{exit}' "$INSTALL_SH" >> "$PULLFN"
 EMBED="$W/embed_block.sh"
-awk '/^if ollama list 2>\/dev\/null \| grep -q "nomic-embed-text"; then$/{f=1} f{print} f && /^fi$/{exit}' "$INSTALL_SH" > "$EMBED"
+awk '/^if "\$OLLAMA_APP_BIN" list 2>\/dev\/null \| grep -q "nomic-embed-text"; then/{f=1} f{print} f && /^fi$/{exit}' "$INSTALL_SH" > "$EMBED"
 mkdir -p "$W/obin"
 cat > "$W/obin/ollama" <<'OL'
 #!/bin/sh
@@ -274,7 +274,7 @@ OL
 chmod +x "$W/obin/ollama"
 run_embed() {  # run_embed <outcome> ; prints "pulls|reached|code|held_log"
     local d="$W/n_$1"; rm -rf "$d"; mkdir -p "$d"; : > "$d/pulls"
-    PATH="$W/obin:$PATH" PULL_LOG="$d/pulls" OLLAMA_PIN_OUTCOME="$1" OLLAMA_PIN_VERSION=9.9.9 \
+    OLLAMA_APP_BIN="$W/obin/ollama" PULL_LOG="$d/pulls" OLLAMA_PIN_OUTCOME="$1" OLLAMA_PIN_VERSION=9.9.9 \
     INSTALL_LOG="$d/install.log" STRINGS="${REPO_ROOT}/install.sh.strings.en-GB.sh" \
     bash -c 'set -Eeuo pipefail; . "$STRINGS"; ok(){ :; }; info(){ :; }; warn(){ echo "WARN $*"; }
              fail_with_code(){ echo "CODE $1"; exit 1; }; gui_emit(){ :; }; gui_log(){ :; }; sleep(){ :; }
