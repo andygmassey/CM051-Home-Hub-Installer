@@ -27,6 +27,8 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -54,6 +56,8 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -134,6 +138,10 @@ jobs:
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
 
       # #2362: a self-test is fixtures only; it must not reach the box.
+      - name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_probes_l3_and_maps.sh
+
       - name: Probe self-tests never reach the box
         if: always()
         run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh
