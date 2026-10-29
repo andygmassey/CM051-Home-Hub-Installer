@@ -1402,7 +1402,19 @@ if [[ -n "$WALK_LANG" ]]; then
     say "OSTLER_LANG=${WALK_LANG} on the install launch line (the variable the GUI passes); answers staged on the host, removed on exit."
 fi
 
-"${SSH[@]}" "$(walk_launch_cmd "$REMOTE_DIR" "$IMESSAGE_SHIM" "$WALK_LANG")" >/dev/null 2>&1
+# >>> launch (tests/test_ttywalk_lang_leg.sh sources this block: keep it self-contained)
+# The ONE launcher of walk_drive.py. Both legs use this line; --lang adds only
+# OSTLER_LANG. Every other variable is passed on every leg.
+LANG_ENV=""
+[[ -n "$WALK_LANG" ]] && LANG_ENV="OSTLER_LANG='${WALK_LANG}' "
+WALK_LAUNCH_CMD="cd '${REMOTE_DIR}' && \
+    unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
+    PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
+    OSTLER_WALK_OWNER_FILE=\"\$HOME/.walk-owner.env\" \
+    OSTLER_GUI=1 ${LANG_ENV}nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
+    echo started"
+# <<< launch
+"${SSH[@]}" "$WALK_LAUNCH_CMD" >/dev/null 2>&1
 
 # Poll. A poll loop with no delay is not a wait.
 # IS THE BOX DOING WORK? Echoes "<free-kb> <live-worker-count>", or nothing

@@ -63,6 +63,15 @@ old_launch() { local REMOTE_DIR="$1" IMESSAGE_SHIM="$2"
     OSTLER_GUI=1 nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
     echo started"; }
 
+# The REAL launch line: sourced out of ttywalk.sh's marked block, never copied.
+launch_cmd() {  # <ttywalk.sh> <lang or empty>
+  ( REMOTE_DIR=ostler-ttywalk; IMESSAGE_SHIM=check-failed; WALK_LANG="$2"
+    eval "$(awk '/^# >>> launch/,/^# <<< launch/' "$1")" || exit 1
+    [ -n "${WALK_LAUNCH_CMD:-}" ] || exit 1
+    printf '%s' "$WALK_LAUNCH_CMD" ); }
+# the set of NAME= assignments on a launch line, one per line, sorted
+launch_env_set() { printf '%s' "$1" | grep -oE "[A-Z][A-Z0-9_]*=" | sort -u; }
+
 PASS=0; FAIL=0
 arm() { if [ "$2" -eq 0 ]; then echo "  [PASS] $1"; PASS=$((PASS+1)); else echo "  [FAIL] $1"; FAIL=$((FAIL+1)); fi; }
 
@@ -72,23 +81,33 @@ run_arms() {
 
   # A1 the launch line carries OSTLER_LANG, and the child process receives it
   new_box a1
-  ( . "$LIB"; SSH=(ssh -o X=1 box); "${SSH[@]}" "$(walk_launch_cmd ostler-ttywalk check-failed ja)" >/dev/null 2>&1 )
+  ( . "$LIB"; SSH=(ssh -o X=1 box); "${SSH[@]}" "$(launch_cmd "$WALK" ja)" >/dev/null 2>&1 )
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$BOXHOME/driver.env" ] && break; sleep 0.3; done
   grep -qx 'OSTLER_LANG=ja' "$BOXHOME/driver.env" 2>/dev/null && grep -qx 'OSTLER_GUI=1' "$BOXHOME/driver.env" 2>/dev/null
   arm "--lang ja: the driver process on the box receives OSTLER_LANG=ja beside OSTLER_GUI=1" $?
-  out="$( . "$LIB"; walk_launch_cmd ostler-ttywalk check-failed ja )"
+  out="$(launch_cmd "$WALK" ja)"
   case "$out" in *"OSTLER_GUI=1 OSTLER_LANG='ja' nohup python3 scripts/walk_drive.py"*) rc=0;; *) rc=1;; esac
   arm "--lang ja: the remote env line reads OSTLER_GUI=1 OSTLER_LANG='ja' nohup ..." $rc
 
   # A2 CONTROL: no --lang is byte-identical to today, and the child sees no OSTLER_LANG
-  out="$( . "$LIB"; walk_launch_cmd ostler-ttywalk check-failed "" )"
+  out="$(launch_cmd "$WALK" "")"
   [ "$out" = "$(old_launch ostler-ttywalk check-failed)" ]
   arm "CONTROL no --lang: launch line byte-identical to the pre---lang line" $?
   new_box a2
-  ( unset OSTLER_LANG; . "$LIB"; SSH=(ssh -o X=1 box); "${SSH[@]}" "$(walk_launch_cmd ostler-ttywalk check-failed "")" >/dev/null 2>&1 )
+  ( unset OSTLER_LANG; . "$LIB"; SSH=(ssh -o X=1 box); "${SSH[@]}" "$(launch_cmd "$WALK" "")" >/dev/null 2>&1 )
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$BOXHOME/driver.env" ] && break; sleep 0.3; done
   grep -qx 'OSTLER_LANG=<unset>' "$BOXHOME/driver.env" 2>/dev/null
   arm "CONTROL no --lang: the driver sees OSTLER_LANG unset" $?
+
+  # A2b SAFETY PARITY: the --lang line and the default line pass the SAME env
+  # variables apart from OSTLER_LANG. A launch-line rewrite once dropped the
+  # walk-owner guard and the iMessage shim on exactly this path.
+  a="$(launch_cmd "$WALK" ja)"; b="$(launch_cmd "$WALK" "")"
+  diff <(launch_env_set "$a" | grep -v '^OSTLER_LANG=$') <(launch_env_set "$b") >/dev/null
+  arm "PARITY: --lang and default launch lines carry the same env variables apart from OSTLER_LANG" $?
+  launch_env_set "$b" | grep -qx 'OSTLER_WALK_OWNER_FILE=' && launch_env_set "$b" | grep -qx 'PWG_IMESSAGE_PROBE_OUTCOME=' \
+    && launch_env_set "$a" | grep -qx 'OSTLER_WALK_OWNER_FILE=' && launch_env_set "$a" | grep -qx 'PWG_IMESSAGE_PROBE_OUTCOME='
+  arm "PARITY: both lines carry OSTLER_WALK_OWNER_FILE and PWG_IMESSAGE_PROBE_OUTCOME" $?
 
   # A3 the real ttywalk.sh refuses an invalid code BEFORE any ssh, as CANNOT-RUN (2)
   new_box a3
@@ -156,7 +175,8 @@ P0=$PASS; F0=$FAIL
 echo "== static"
 [ "$(grep -cE "^[[:space:]]*trap .* EXIT|^trap .*EXIT" "$REPO/scripts/ttywalk.sh")" -eq 1 ]
 arm "ttywalk.sh arms exactly ONE EXIT trap (a second would silently replace the cleanup)" $?
-grep -q 'walk_launch_cmd "\$REMOTE_DIR"' "$REPO/scripts/ttywalk.sh"; arm "ttywalk.sh launches through walk_launch_cmd (the tested function)" $?
+[ "$(grep -c 'nohup python3 scripts/walk_drive.py' "$REPO/scripts/ttywalk.sh")" -eq 1 ] && ! grep -q 'python3 scripts/walk_drive.py' "$REPO/scripts/lib_walk_lang.sh"
+arm "exactly ONE walk_drive.py launch line, in ttywalk.sh; lib_walk_lang.sh launches nothing" $?
 grep -q 'walk_lang_stage "\$REMOTE_DIR"' "$REPO/scripts/ttywalk.sh"; arm "ttywalk.sh calls walk_lang_stage" $?
 bad=0; for f in "$REPO"/install.sh.strings.*.sh; do c="$(basename "$f" .sh)"; c="${c#install.sh.strings.}"; ( . "$REPO/scripts/lib_walk_lang.sh"; walk_lang_valid "$c" ) || { echo "    locale '$c' has a strings file but is not in WALK_LANGS"; bad=1; }; done
 arm "every install.sh.strings.<code>.sh in the repo is an accepted --lang code" $bad
@@ -173,7 +193,10 @@ mutant() {  # name, file-to-break, sed expr
   local mf=$FAIL; PASS=$sp; FAIL=$sf
   [ "$mf" -gt 0 ]; arm "MUST-FAIL mutant '$name' is caught ($mf arm(s) red)" $?
 }
-mutant drop-ostler-lang lib_walk_lang.sh "s/LANG_ENV=\"OSTLER_LANG='\${lang}' \"/LANG_ENV=\"\"/"
+mutant drop-ostler-lang ttywalk.sh "s/LANG_ENV=\"OSTLER_LANG='\${WALK_LANG}' \"/LANG_ENV=\"\"/"
+mutant lang-line-drops-owner ttywalk.sh 's/^    OSTLER_WALK_OWNER_FILE=.*/    OSTLER_WALK_OWNER_FILE="" \\/;s/OSTLER_GUI=1 \${LANG_ENV}nohup/OSTLER_GUI=1 ${LANG_ENV}nohup/'
+mutant launch-drops-imessage-shim ttywalk.sh '/^    PWG_IMESSAGE_PROBE_OUTCOME=.*\\$/d'
+mutant lang-line-renames-shim-var ttywalk.sh 's/^    PWG_IMESSAGE_PROBE_OUTCOME=/    ${WALK_LANG:+X_}PWG_IMESSAGE_PROBE_OUTCOME=/'
 mutant skip-cleanup ttywalk.sh 's/^        walk_lang_cleanup "\$REMOTE_DIR"$/        :/'
 
 echo "$PASS passed, $FAIL failed"

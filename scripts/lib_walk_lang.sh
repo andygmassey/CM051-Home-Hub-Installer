@@ -29,18 +29,9 @@ walk_lang_valid() {
     return 1
 }
 
-# The remote launch line. $3 empty = byte-identical to the pre---lang line.
-# The language is validated before it gets here and is also quoted.
-walk_launch_cmd() {
-    local REMOTE_DIR="$1" IMESSAGE_SHIM="$2" lang="${3:-}" LANG_ENV=""
-    [[ -n "$lang" ]] && LANG_ENV="OSTLER_LANG='${lang}' "
-    printf '%s' "cd '${REMOTE_DIR}' && \
-    unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
-    PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
-    OSTLER_WALK_OWNER_FILE=\"\$HOME/.walk-owner.env\" \
-    OSTLER_GUI=1 ${LANG_ENV}nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
-    echo started"
-}
+# There is deliberately NO launcher here. scripts/ttywalk.sh holds the ONE
+# walk_drive.py launch line (the walk-record-gate refuses a second launcher) and
+# adds OSTLER_LANG to it when --lang is set.
 
 # Stage the generated answers on the box. Returns 0 staged, 2 CANNOT-RUN
 # (message on stderr). Sets nothing the caller must read; the caller arms
