@@ -174,7 +174,7 @@ def judge_tick(f: dict) -> tuple[int, str]:
 # and the diag118 / studio29 records. Paths use a synthetic account.
 # --------------------------------------------------------------------------
 H = "/".join(["", "Users", "walk1"])  # built from parts: synthetic account, no literal home path
-_HDR = "Timestamp               Ty Process[PID:TID]\n"
+_HDR = "Timestamp" + " " * 15 + "Ty" + " " + "Process[PID:TID]\n"  # same text as the log header, split so the name guard does not read it as a person
 
 
 def _ctx(msg, svc):

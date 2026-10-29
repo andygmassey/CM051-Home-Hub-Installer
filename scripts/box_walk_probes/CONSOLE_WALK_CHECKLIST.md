@@ -11,7 +11,7 @@ list, every time a console walk happens.
 
 ## FIRST STEP, before anything else: clear Ostler from Full Disk Access
 
-Remove Ostler, Ostler Installer and ostler-assistant from System Settings >
+Clear the Ostler, Ostler Installer and ostler-assistant from System Settings >
 Privacy & Security > Full Disk Access before starting (Andy does this at the
 console; no agent runs tccutil on any box).
 
