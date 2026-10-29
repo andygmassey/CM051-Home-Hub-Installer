@@ -59,19 +59,22 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Front Page (source, at the daemon this cut ships)
     # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
     # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
     # welcome modal navigates to '/settings#governor' (the modern Governor
     # route location; the panel scrolls to that anchor). Updated file + regex
     # to prove the same wire-through against the current source.
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt. RE-KEYED 2026-10-29 (v1.0.120) - since oa 5011a2d6 (in hub-v0.5.30) the first-run popup offers Front Page / Ask and no longer opens the Governor; the Governor is reachable from the sidebar (web/src/components/layout/Sidebar.tsx:122) and the header status chip (web/src/components/StatusChip.tsx:33). The product owner accepted this on 2026-10-29.
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.120 (ORM 2026-10-29): pinned to the daemon this cut SHIPS (cut.env DAEMON_COMMIT 610b0c5c = tag hub-v0.5.30),
+    # never the clone's HEAD (dispatch 40903304399 read HEAD and failed). Pattern count: 0 at d9854a99, 1 at 610b0c5c.
+    source_sha: 610b0c5c5fd5c6535b4342688858bf7817c72737
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
       path: "web/src/components/GovernorWelcomeModal.tsx"
-      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
+      pattern: "navigate\\(FRONT_PAGE_ROUTE\\)"
       must_match: true
 
   # ==========================================================================
@@ -614,6 +617,42 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "source_status_artefact_is_served"
+
+  - id: box-walk-ostler-launchd-jobs-loaded-and-exit-clean
+    title: every Ostler LaunchAgent and LaunchDaemon on the box must be loaded, and none stopped on a non-zero last exit code
+    incident: >-
+      launchctl load exits 0 on failure, so "the installer loaded it" proves
+      nothing; only launchctl print carries whether the label is in the domain
+      and its last exit code. Before this row the suite asked that of one label
+      (com.ostler.fda-rerun, inside ingest_coverage) and every other Ostler job
+      could be unloaded or dying on every fire unseen (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "ostler_launchd_jobs_loaded_and_exit_clean"
+
+  - id: box-walk-gateway-not-exposed-on-lan
+    title: from the box's own LAN IP the gateway :8000 must be refused and :8443 frontpage/cards must be 404, with :8443/health as the control
+    incident: >-
+      fix-register row 947. The gateway host defaults to loopback in the
+      assistant config schema but install.sh writes port=8000 with no host, and
+      :8443 carries the companion route table; a listener table cannot say what
+      a LAN neighbour reaches, so the probe connects to the LAN IP itself, with
+      a positive control that makes a dead LAN path CANNOT-RUN, never PASS
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_not_exposed_on_lan"
+
+  - id: box-walk-install-log-error-lines
+    title: every level=error and Command failed line in the box install.log is printed with its count
+    incident: >-
+      the install's DONE errors= counter misses errors raised in subshells
+      (lib/progress_emitter.sh err() funnel counts in the parent shell only),
+      so "DONE errors=0" can sit beside real errors in the same log. ADVISORY
+      for its first cut via walk_promote_scope.tsv (a new row expires after one
+      cut), then blocking against the reviewed allowlist (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "install_log_error_lines"
 
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.
@@ -1511,3 +1550,32 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "cron_run_makes_no_sends"
+
+  # NEW-119 (CM051 #3200). Declared here because every probe on disk must be
+  # invoked by the cut; the promote scope (scripts/walk_promote_scope.tsv) decides
+  # which of them can refuse a promote.
+  - id: box-walk-wiki-maps-links-carry-no-join-secret
+    title: "box-walk probe must PASS: wiki_maps_links_carry_no_join_secret"
+    incident: >-
+      #2528: a meeting join passcode (pwd= or passcode=) rode inside a maps
+      link in the compiled wiki, so one click sent it to a maps provider
+      (fixed by CM044 #289 maps_href). Greps the compiled wiki in
+      ostler-wiki-site; a seeded positive control must be caught or the probe
+      fails. BLOCKING (privacy).
+    proof:
+      kind: box_walk_probe
+      probe: "wiki_maps_links_carry_no_join_secret"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, l3_not_prefetched row) for ONE cut:
+  # expires after the first cut that carries it, then BLOCKING (launch directive
+  # item 5: a non-blocking row expires after one cut).
+  - id: box-walk-l3-not-prefetched
+    title: "advisory: a synthetic L3 person is not returned by people/search (the daemon prefetch surface), with an L1 control that is"
+    incident: >-
+      #2435: L3 people could reach the assistant via the daemon prefetch
+      (ostler-assistant #428). NOT BLOCKING for v1.0.103, owed to v1.0.104.
+      ADVISORY for its first cut only, then BLOCKING. NOT INSTRUMENTED: the
+      Oxigraph context leg, the chat-level reply, core_ memory (#2436).
+    proof:
+      kind: box_walk_probe
+      probe: "l3_not_prefetched"

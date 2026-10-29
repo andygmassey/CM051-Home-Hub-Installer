@@ -27,6 +27,8 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -37,6 +39,7 @@ on:
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_walk_probes_print_causes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -53,6 +56,8 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -63,6 +68,7 @@ on:
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_walk_probes_print_causes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -86,6 +92,13 @@ jobs:
       - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
+
+      # instr119: the people and screens probes print CAUSES (join key, C split,
+      # category breakdown, launchctl exit + install.sh fda-rerun line, 5xx body,
+      # Needs-you-now keys) against synthetic stores, with exit codes unchanged.
+      - name: walk probes print causes, masked, exit codes unchanged (instr119)
+        if: always()
+        run: python3 tests/test_walk_probes_print_causes.py
 
       # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
       # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts
@@ -125,6 +138,10 @@ jobs:
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
 
       # #2362: a self-test is fixtures only; it must not reach the box.
+      - name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_probes_l3_and_maps.sh
+
       - name: Probe self-tests never reach the box
         if: always()
         run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh
