@@ -1,0 +1,144 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.120.
+#
+# CARRIED VERBATIM from cuts/v1.0.119/MUST_CONTAIN.tsv (OS003 main 69a5630b) by ORM 2026-10-29 on the
+# release lead's ruling: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure (the v1.0.119 tag
+# was refused at cut.yml preflight step 22 on a wiki-image provenance marker); no new scope. The only
+# CM051 change in v1.0.120 is that marker re-key plus the version bump, neither of which is shipped
+# behaviour, so no row is added. Every row below is the v1.0.119 row as written, landed state included
+# (ancestry of cut/v1.0.120, which is the v1.0.119 tag plus those two commits).
+#
+# ---- v1.0.119 file follows ----
+# MUST_CONTAIN.tsv -- the BOM for v1.0.119.
+#
+# Opened 2026-10-24 by Aesop's builder on Archie's instruction, from OS003 main (eefeb5d).
+# No v1.0.119 artefact exists yet, so landed=no on every row is correct.
+#
+# ===========================================================================
+# WHAT THIS FILE DOES NOT YET CARRY (the cut-freeze step's job, not done here)
+# ===========================================================================
+# It does NOT carry the v1.0.116 rows (OS003 main) or the v1.0.117 rows. The
+# v1.0.117 BOM never reached OS003 main: it exists only on OPEN PR #411
+# (head 1ca2b8f, 13 rows, and the 15 manifest rows those rows name are on the
+# same unmerged branch). The v1.0.117 cut vendored it from that branch
+# (CM051 cuts/BOM_PIN on tag v1.0.117 cites 1ca2b8f). Carry-forward needs
+# re-citation to the v1.0.119 pins, so it is left to ORM at freeze.
+#
+# ===========================================================================
+# CAPABILITY GUARDS
+# ===========================================================================
+# When opened, capability_id=none on every row: no manifest row on main named
+# any of these PRs. 2026-10-24: the P13, ingest-contract, W11 and Smart Prefs
+# rows now name probes added by OS003 #414 (each pattern taken from the PR's
+# own code; 0 in the v1.0.117 tag tree and DMG). THOSE IDS DANGLE UNTIL #414
+# MERGES, so #414 merges first. The two Smart Prefs ids are required=warn
+# (PENDING: not yet vendored into CM051). Every other row stays none: no probe
+# is invented here.
+#
+# ===========================================================================
+# REFS
+# ===========================================================================
+# CM051 refs are squash merges on CM051 main. Four CM051 merges (#3133,
+# #3114, #3112, #3100) were already in v1.0.117 as cut-branch picks; their
+# rows cite the main merge and name the pick.
+# Upstream refs (CM044, CM048, ostler-assistant, personal-world-graph) are
+# merges on that repo's main. Each row says how it reaches the DMG and
+# whether that has happened: a CM044 fix needs the wiki image rebuild plus a
+# CM051 re-pin; an oa fix needs a hub re-pin; the PWG Smart Prefs rows reach
+# the DMG only through the CM051 #3116 stack (OPEN at writing).
+#
+# NOT LISTED, not merged at writing: CM051 #3149, #3151, #3116; CM044 #400;
+# PWG #439 (T0i). Each is added by bin/bom_add.sh as it lands.
+#
+# ===========================================================================
+# OFF-DMG, recorded here and deliberately NOT rows
+# ===========================================================================
+# A row must reach landed=yes in the DMG or gates/verify_must_contain.sh reds
+# the cut, and these never enter the DMG. There is no off-DMG convention in
+# bin/bom_add.sh or the gate, so they are recorded as comments.
+#
+#   iOS (CM031, ships via TestFlight):
+#     #339 c3833441  P13 hide short codes up to 8 digits, show phone-only people
+#     #343 21b1009a  re-pairing an already-paired iPhone no longer fails and wipes data
+#     #345 fae4f7f8  I14 relaunch unlock (paired app reopens its database, no paywall)
+#     #347 533b06ba  old-Hub database removed 30 days after the move; Siri phrases
+#       #339, #343, #345 and #347 are all ancestors of 533b06ba, the head of
+#       TestFlight 2026102404 (the v1.0.117 F&F send), so all four were already
+#       in that build.
+#     #349 7459643c  I18 Timeline icons, unknown types as Other, All day rows
+#     #350 7de445bf  test-only (4 failing tests on main fixed)
+#     #351 447661ab  I19 warm each tab's data after launch, unlock and pairing
+#   Site (OS001):
+#     #387 a1e7f230  buy surfaces warn when the device will not run Ostler
+#   Worker / emails (CM050):
+#     #80 f533bd53  branded invitation email
+#     #81 7267f1c8  checkout F&F free path, promotion codes, $0 sessions licensed
+#     #82 d6b54c62  licence email branded like the invite
+#     #83 606ec2eb  licence session_id 1-hour fetch window + re-send flow
+#     #84 d1350700  customer emails and /licence brand fonts, logo, copy
+#     #85 ad1758d1  POST /feedback for testers, D1 0012
+#     #86 40514e78  invite email says what the Hub runs on
+#
+what	repo	ref	landed	capability_id	verify	ticket
+cm019 vendored tree: per-item privacy gate grafted; L0/L1/L3, an unknown level and minors never go online	CM051	d6fd93f3	yes	none	TBD	CM051 #3138
+S6: no wiki pii_scan value reaches install.log or the background compile log	CM051	287192de	yes	none	TBD	CM051 #3135
+cm019 vendored tree: an explicit L0 survives ingest ('level or default' read 0 as unset)	CM051	1ffeef75	yes	none	TBD	CM051 #3139
+W4: walk --reset is a verified cold wipe (uninstaller, every job, VM + data disk, refuses on leftovers). Walk harness: ships in the repo, not the DMG	CM051	7260d828	yes	none	TBD	CM051 #3137
+five BLOCKING Smart Preferences walk probes. Walk harness: ships in the repo, not the DMG	CM051	c466c573	yes	none	TBD	CM051 #3118
+ostler_fda re-vendored to HR015 fd10f28	CM051	db359809	yes	none	TBD	CM051 #3126
+walks/v1.0.117.tsv console walk record (FAILED; 0 F&F blockers). Repo record, not in the DMG	CM051	61e24081	yes	none	TBD	CM051 #3140
+W6: a find error during the wiki page count is could-not-count, never zero pages	CM051	21b760bc	yes	none	TBD	CM051 #3134
+P13 people: a short code is up to 8 digits with no country code	CM051	9ad8624f	yes	p13_short_code_up_to_8_digits	TBD	CM051 #3143
+P13 people: a number-named person is the Contacts person who holds that number	CM051	6097d776	yes	none	TBD	CM051 #3144
+three BLOCKING send-safety walk probes for oa #626 (S4) and #627 (C1). Walk harness: ships in the repo, not the DMG	CM051	40b21c88	yes	none	TBD	CM051 #3128
+Doctor vendored tree: HR015 #975, #979 wizard residue, #978 evernote grafted	CM051	4142c16e	yes	none	TBD	CM051 #3127
+P13 reply-debt and wiki: name people, never the owner, never digits (graft of CM048 #104 and CM044 #394/#395 into the vendored trees)	CM051	d259d18e	yes	p13_reply_debt_names_counterparts	TBD	CM051 #3142
+P16 people: a shared phone joins two named people only when their names match	CM051	05a02ba1	yes	none	TBD	CM051 #3146
+P13 reply-debt: the two surviving mutants killed, CM051 side (port of CM048 #105)	CM051	55abf329	yes	none	TBD	CM051 #3145
+P16b people: kinship words on a shared phone never fold two people	CM051	eda08e81	yes	none	TBD	CM051 #3147
+vendor: cm041 re-vendored to CM041 main f2ef7891 and cm048 to f6b75bea (f6b75bea is 2 commits BEHIND CM048 #105's merge, so CM048 #104/#105 arrive via the #3142/#3145 grafts, not this re-vendor)	CM051	3f8b886d	yes	none	TBD	CM051 #3111
+CI: meeting-brief-real-hub pins pyoxigraph==0.5.12. CI only, not in the DMG. Already in v1.0.117 as cut pick 9915654c	CM051	c95aaa12	yes	none	TBD	CM051 #3133
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3208 (fa99e26b, wiki 0.1.62); not required for v1.0.119. Row kept as written: wiki images re-pinned to v0.1.59 (CM044 ced30d49). Already in v1.0.117 as cut pick a3dd9e1d; superseded at 119 by any later wiki re-pin	CM051	a9525849	yes	none	TBD	CM051 #3114
+Q32 calendar set-aside: one switch label that means yes. Already in v1.0.117 as cut pick da7e22ef	CM051	6029fffc	yes	none	TBD	CM051 #3112
+listener watchdog: bounded capture, strike gaps logged, probe budget from shipped config. Already in v1.0.117 as cut picks 0806810c/29840e06	CM051	b33e0bff	yes	none	TBD	CM051 #3100
+P13 reply-debt: name people from Contacts, never the owner, never a short code. Reaches the DMG via the CM051 #3142 graft	CM048	d74a4640	yes	cm048_pinned_aed03798	TBD	CM048 #104
+P13 reply-debt: two surviving mutants killed (test only). Reaches CM051 via #3145	CM048	1dfd71ed	yes	cm048_pinned_aed03798	TBD	CM048 #105
+P13 wiki: Recently active lists people, never the owner's number or a short code. In the DMG only after a wiki image rebuild + CM051 re-pin (the #3142 graft covers the vendored side)	CM044	54b1b5ea	yes	none	TBD	CM044 #394
+P13 wiki: a short code is up to 8 digits with no country code. Needs the wiki image rebuild + CM051 re-pin	CM044	c3c31056	yes	none	TBD	CM044 #395
+W11 wiki: Front Page phone slack in the iOS app. NOT DELIVERED until the wiki image rebuild + CM051 re-pin	CM044	1805017e	yes	w11_wiki_css_stamp	TBD	CM044 #396
+S15 pii: owner aliases come from the owner config, never from literals. Needs the wiki image rebuild + CM051 re-pin	CM044	32372b18	yes	none	TBD	CM044 #399
+fixtures: enrichment contract cast name renamed off an operator-inventory hit. Test/fixture only, nothing customer-facing	CM044	a9d7b60b	yes	none	TBD	CM044 #397
+tests: operator-inventory identifiers in the test tree replaced with approved cast. Test only, nothing customer-facing	CM044	e923b778	yes	none	TBD	CM044 #398
+P13 brief: replies owed name people, never print a number. Reaches the DMG only via a hub re-pin past this merge (not yet done)	ostler-assistant	082d8864	yes	none	TBD	oa #634
+S19 derive: fictional restaurant names in the cuisine few-shot examples. Smart Prefs: reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	be1d2f78	yes	none	TBD	PWG #441
+Smart Prefs derive: thematic rollup (port of #413 Chunk 9), hierarchy false-zero, QID-pass privacy gate. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	7cb78275	yes	smart_prefs_thematic_rollup_vendored	TBD	PWG #438
+Smart Prefs derive: sensitive terms (Art. 9, diet, minors) stored, never surfaced, plus ratchet. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	52eb6130	yes	smart_prefs_sensitive_never_read_vendored	TBD	PWG #433
+Smart Prefs ingest: extra.about_minor produced from the owner's minors registry. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	93c7f2a9	yes	none	TBD	PWG #434
+P13 wiki: install.sh passes the owner's own phone to the wiki compiler (WIKI_OPERATOR_PHONES), so the owner is never listed as someone else	CM051	d259d18e	yes	p13_wiki_gets_operator_phones	TBD	CM051 #3142
+Ingest contract: Apple Music artist and real play time (also Uber event time, honest bookmark/iMessage time, one registry harness)	CM051	e79c3e4f	yes	ingest_apple_music_real_play_time	TBD	CM051 #3123
+Ingest contract: Uber points carry the trip/order time as observed_at	CM051	e79c3e4f	yes	ingest_uber_event_time	TBD	CM051 #3123
+W11 wiki: Front Page Recently active stacks at phone width. NOT DELIVERED until the wiki image rebuild + CM051 re-pin	CM044	1805017e	yes	w11_recently_active_stacks	TBD	CM044 #396
+CM044 #406: wiki-site removes failed build dirs, prunes newest-N, byte cap, /docs quiescence (squash 23356c01 on CM044 main; hotfix-shipped in 118 as 0.1.59.1). Rides the 119 wiki rebuild from CM044 main	CM044	23356c01	yes	wiki_site_image_v0_1_60	TBD	CM044 #406
+Hub re-pin hub-v0.5.30 (oa 610b0c5c: #642 security re-land, #643 daemon reports 0.5.30): daemon 63527d1e, hub app 633fd851, signed A/B n=10 drops=0 vs 0.5.29. Stacked on CM051 #3192 (hub-v0.5.29); squash ce642fe7 on CM051 main (freeze pass 2026-10-28)	CM051	ce642fe7	yes	hub_daemon_0_5_30_pinned_runs	TBD	CM051 #3193
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3208 (fa99e26b, wiki 0.1.62); not required for v1.0.119. Row kept as written: Wiki re-pin 0.1.60 = CM044 main 23356c01 (#406 + W9/W11/W12/S15-S17)	CM051	db13a4e1	yes	wiki_images_v0_1_60	TBD	CM051 #3188
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3207 (c5db294f, RemoteCapture 0.1.10); not required for v1.0.119. Row kept as written: RemoteCapture re-pin 0.1.9 (CM042 #37 app icon), drops the 0.1.7 known-red	CM051	d2e0628b	yes	remotecapture_pinned_at_v019	TBD	CM051 #3191
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3193 (ce642fe7, hub-v0.5.30); not required for v1.0.119. Row kept as written: Hub re-pin hub-v0.5.29 (oa 9c6c2b55), A/B 80/80 vs 80/80 0 drops; superseded in the pins by 0.5.30 (#3193) but its oa fixes ride 0.5.30 by ancestry	CM051	75c8b9f2	yes	hub_daemon_0_5_30_pinned_runs	TBD	CM051 #3192
+Installer stops advertising the dead install.tar.gz URL as a working default. MERGED, squash 2ec4d600	CM051	2ec4d600	yes	install_sh_does_not_advertise_dead_tarball_url	TBD	CM051 #3170
+Vendor CM048 #106 graft: reminder title quality gate, human notes, 30-day staleness. MERGED, squash 4aba40a0	CM051	4aba40a0	yes	cm048_reminder_title_quality_gate	TBD	CM051 #3169
+Vendor CM019: trend, say-vs-do contradiction, time-of-day context (PWG #429). MERGED, squash a948a19d	CM051	a948a19d	yes	cm019_food_evidence_parser_registered	TBD	CM051 #3130
+Vendor CM019: representative-first CLI wiring (PWG #431). MERGED, squash e594448d	CM051	e594448d	yes	cm019_enrich_representative_first_cli	TBD	CM051 #3120
+l10n: legal and consent translations ship once reviewed, English prevailing; consent log records language + review ids. MERGED, squash 9be9e49d	CM051	9be9e49d	yes	install_sh_legal_prevails_note_when_localised	TBD	CM051 #3156
+Wiki re-pin 0.1.62 = CM044 main fbeb1859 (#409 row 2551 freshness downloads_exports; #410 one org count; #411 no raw URL on Knowledge/Reply Debt/Places); replaces 0.1.61, never shipped. MERGED, squash fa99e26b	CM051	fa99e26b	yes	wiki_images_v0_1_62	TBD	CM051 #3208
+RemoteCapture re-pin 0.1.10 (CM042 #39 jurisdiction checks device region before GPS, stricter regime wins, row 1001)	CM051	c5db294f	yes	remotecapture_pinned_at_v0110	TBD	CM051 #3207
+install.sh pulls models with the pinned Ollama binary, never a bare ollama on PATH (ERR-13 on a clean Mac) (MERGED, squash f5bcf241)	CM051	f5bcf241	yes	install_sh_pulls_with_pinned_ollama	TBD	CM051 #3206
+The runtime-ready scan ignores tests/ (no MISSING pytest) (MERGED, squash c7c7d8dc)	CM051	c7c7d8dc	yes	runtime_ready_scan_skips_tests	TBD	CM051 #3204
+No GDPR Art. 9 topic becomes a card, API row or derived preference (row 2471) (MERGED, squash ed28c420)	CM051	ed28c420	yes	assistant_api_filters_art9_topics	TBD	CM051 #3201
+People writers read the stored record before upsert, never overwrite with partial data (row 963) (MERGED, squash 04ea4314)	CM051	04ea4314	yes	contact_syncer_reads_existing_before_upsert	TBD	CM051 #3199
+A source that read messages is not no_data (iMessage, Email) (MERGED, squash a4295260)	CM051	a4295260	yes	imessage_hydrate_counts_messages_read	TBD	CM051 #3212
+install.sh loads fda-rerun when its plist is present but the job is not loaded (MERGED, squash 9a0e15d3)	CM051	9a0e15d3	yes	install_loads_fda_rerun_when_plist_present_unloaded	TBD	CM051 #3210
+Final verdict_119 batch; console item for row 1001 (MERGED, squash 00d8c2e0)	CM051	00d8c2e0	yes	console_walk_checklist_has_rc_jurisdiction_item	TBD	CM051 #3214
+Installer version 1.0.119 (11900); WALKS rows 112..118 (MERGED, squash 14a78104)	CM051	14a78104	yes	installer_version_is_1_0_119	TBD	CM051 #3216
+cuts/v1.0.119/cut.env (cut record; proven by the rollforward pin test and preflight, not shipped content) (MERGED, squash 106ad1f3; capability none by design)	CM051	106ad1f3	yes	none	TBD	CM051 #3215
+cut-manifests/v1.0.119.yaml (cut register; proven by check-manifest at build, not shipped content) (MERGED, squash d33e7ff9; capability none by design)	CM051	d33e7ff9	yes	none	TBD	CM051 #3197
+hub-power restarts com.ostler.ollama, not ai.ollama (MERGED, squash 7b27f91a)	CM051	7b27f91a	yes	hub_power_restarts_ostler_ollama_label	TBD	CM051 #3209
+The merge journal records each exact-identifier key as kind plus keyed hash, never a raw value (MERGED, squash 477b5e3e)	CM051	477b5e3e	yes	merge_journal_records_keyed_identifier_hashes	TBD	CM051 #3217
+install.sh writes owner_language from the installer language so the first brief is in it (MERGED, squash 4fc61eb1)	CM051	4fc61eb1	yes	install_sh_writes_owner_language	TBD	CM051 #3218

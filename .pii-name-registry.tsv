@@ -2476,3 +2476,6 @@ nonperson	vendor/cm019_preferences/services/enrich/src/clients/osm_cuisine.py::e
 nonperson	cuts/v1.0.119/MUST_CONTAIN.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named, in the vendored v1.0.119 BOM row text
 nonperson	cuts/v1.0.119/MUST_CONTAIN.tsv::4f2a0e640e257db3	PRODUCT: the Ostler feature name smart preferences in its short form, in the vendored v1.0.119 BOM row text
 nonperson	cuts/v1.0.119/MUST_CONTAIN.tsv::53d87b9a668a9fbb	PRODUCT: the wiki page name reply debt, for replies the owner owes, in the vendored v1.0.119 BOM row text
+nonperson	cuts/v1.0.120/MUST_CONTAIN.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named, in the vendored v1.0.120 BOM row text
+nonperson	cuts/v1.0.120/MUST_CONTAIN.tsv::4f2a0e640e257db3	PRODUCT: the Ostler feature name smart preferences in its short form, in the vendored v1.0.120 BOM row text
+nonperson	cuts/v1.0.120/MUST_CONTAIN.tsv::53d87b9a668a9fbb	PRODUCT: the wiki page name reply debt, for replies the owner owes, in the vendored v1.0.120 BOM row text
