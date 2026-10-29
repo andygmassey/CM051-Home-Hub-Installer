@@ -290,7 +290,10 @@ def _box_env(home, stores):
     return dict(os.environ, HOME=str(home), OSTLER_OXIGRAPH_URL=stores.oxi + "/query",
                 OSTLER_QDRANT_URL=stores.qdrant, OSTLER_DOCTOR_PEOPLE_URL=stores.doctor + "/api/v1/hydration/status",
                 OXIGRAPH_URL=stores.oxi, QDRANT_URL=stores.qdrant, OSTLER_BOX_HOST="", NO_PROXY="127.0.0.1,localhost",
-                PYTHONDONTWRITEBYTECODE="1")
+                PYTHONDONTWRITEBYTECODE="1",
+                # people_count_agreement imports the shipped people predicate
+                # (#3202); on a box it lives in ~/.ostler/services/shared.
+                OSTLER_PEOPLE_RULES_DIR=str(ROOT / "vendor" / "cm041" / "assistant_api"))
 
 
 def seed_script(home, mutate=None):

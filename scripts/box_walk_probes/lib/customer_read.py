@@ -215,6 +215,78 @@ def norm_title(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
+# A card title as a KEY that can be printed: the sha256 prefix of the compared
+# form (so the same card on both surfaces shows the same key) and its shape with
+# every capitalised word, digit, email and handle masked, so the KIND of card
+# ("X's birthday is in five days", "Two records for X?") is readable and no
+# name is (instr119).
+def title_key(t):
+    n = norm_title(t)
+    shape = re.sub(r"\S*@\S*", "<email>", (t or "").replace("\u2019", "'"))
+    shape = re.sub(r"\d+", "#", shape)
+    shape = re.sub(r"\b[^\W\d_][\w.-]*", lambda m: "X" if m.group(0)[0].isupper() else m.group(0), shape)
+    shape = re.sub(r"\s+", " ", shape).strip()[:60]
+    return "{}:{}".format(_digest(n)[:8], shape)
+
+
+def needs_now_keys(a, b):
+    sa, sb = {norm_title(x) for x in a}, {norm_title(x) for x in b}
+    def side(xs, other):
+        return "[" + ", ".join(title_key(x) + ("" if norm_title(x) in other else " (only here)") for x in xs) + "]"
+    return "app keys {}; wiki keys {}".format(side(a, sb), side(b, sa))
+
+
+# The body of a failing GET, first 300 characters, as a customer-safe string:
+# whitespace collapsed, emails, long digit runs and anything bearer-shaped
+# masked. Kept for 5xx only (instr119: a 502 from /api/v1/hydration/status was
+# printed as a bare status, so its cause was NOT INSTRUMENTED).
+def mask_body(text, limit=300):
+    t = re.sub(r"\s+", " ", text or "").strip()
+    t = re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", "<email>", t)
+    t = re.sub(r"\+?\d[\d ()-]{6,}\d", "<digits>", t)
+    t = re.sub(r"(?i)(bearer|token)[\"'=: ]+[\w.-]{12,}", r"\1 <redacted>", t)
+    return t.replace("'", "`")[:limit]
+
+
+def record_response(f, r, clean, pending):
+    """on_resp body: one row per response. A 5xx GET is also queued so its body
+    is read AFTER browsing (read_pending_bodies), never inside the event
+    handler, where a blocking read could stall the whole collector."""
+    row = {"m": r.request.method, "u": clean(r.url), "s": r.status}
+    f["requests"].append(row)
+    if r.request.method == "GET" and int(r.status or 0) >= 500 and len(pending) < 10:
+        pending.append((row, r))
+
+
+def read_pending_bodies(pending, refetch=None):
+    """The body the browser saw; when the browser has already evicted it, one
+    re-fetch of the same URL, marked as such (it is a second request)."""
+    for row, r in pending:
+        try:
+            row["b"] = mask_body(r.text())
+            continue
+        except Exception as exc:
+            why = type(exc).__name__
+        got = None
+        if refetch is not None:
+            try:
+                got = refetch(r.url)
+            except Exception:
+                got = None
+        row["b"] = ("(re-fetched) " + mask_body(got[1], 286)) if got else "<body unreadable: {}>".format(why)
+
+
+def refetch_body(url, timeout=10):
+    """(status, text) of one plain GET, the error body included."""
+    import urllib.error
+    import urllib.request
+    try:
+        with _local_urlopen(urllib.request.Request(url), timeout) as resp:
+            return resp.status, resp.read(4096).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(4096).decode("utf-8", "replace")
+
+
 def doctor_list_count(doc):
     """(tile, listed) from the Doctor health-tab text, or (tile, None) when the list
     is not there. Two shapes are read: the old 'Active' list of channel rows
@@ -533,7 +605,8 @@ def judge(f, declared=None):
     if reqs is None:
         add(DECLARED[4], None, "NOT MEASURED: no request log")
     else:
-        bad = sorted({"{} {}".format(r.get("s"), r.get("u")) for r in reqs
+        bad = sorted({"{} {}".format(r.get("s"), r.get("u")) + (" body='{}'".format(r["b"]) if r.get("b") else "")
+                      for r in reqs
                       if r.get("m") == "GET" and int(r.get("s") or 0) >= 400})
         add(DECLARED[4], not bad, "; ".join(bad[:5]))
     bu = f.get("bearer_in_url")
@@ -578,6 +651,8 @@ def judge(f, declared=None):
         if na == nb:
             add(DECLARED[8], True, detail)
         else:
+            # instr119: BOTH key lists, so a mismatch names which cards differ.
+            detail += "; " + needs_now_keys(a, b)
             # Ruling 2026-10-04: a mismatch is tolerated ONLY when the feed is
             # newer than the wiki's last compile AND under 15 minutes old (the
             # #2633 recompile window). Every other mismatch FAILS, including one
@@ -1214,9 +1289,11 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         page.route("**/*", guard)
         page.on("websocket", lambda ws: saw(ws.url))
 
+        pending5xx = []
+
         def on_resp(r):
             try:
-                f["requests"].append({"m": r.request.method, "u": clean(r.url), "s": r.status})
+                record_response(f, r, clean, pending5xx)
             except Exception:
                 pass
         page.on("response", on_resp)
@@ -1455,6 +1532,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                 f["wiki"]["crawl_failures"] = fails
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("crawl: {}".format(str(exc)[:160]))
+        read_pending_bodies(pending5xx, refetch_body)
         browser.close()
 
     # GETs the app makes, sent the way the app sends them (read-only)
