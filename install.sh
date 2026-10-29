@@ -17958,7 +17958,7 @@ TOMLPREAMBLE
     echo
     echo "# Customer identity (BRAND_SPEC_V1.1 §8 -- non-symmetric fallback)."
     echo "user_first_name = \"${_user_first_name_esc}\""
-    echo "user_assistant_name = \"${_assistant_name_esc}\""
+    echo "user_assistant_name = \"${_assistant_name_esc}\""; _owner_lang="${OSTLER_LANG:-en-GB}"; [[ "$_owner_lang" =~ ^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$ ]] || _owner_lang="en-GB"; echo "owner_language = \"${_owner_lang}\""  # NEW-119: first brief in the installer language (oa agent/language.rs owner_language_note_for_config)
 
     # ── Providers: Ollama fallback ──────────────────────────────
     #

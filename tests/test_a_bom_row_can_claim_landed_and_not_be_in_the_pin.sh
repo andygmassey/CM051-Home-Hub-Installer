@@ -223,6 +223,54 @@ else
     bad "a zero-denominator BOM gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-100)"
 fi
 
+echo "── a removal whose deleted line is a PREFIX of its replacement is in the pin ──"
+# v1.0.119, CM051 #3218: a line-neutral edit appended to an existing line, so
+# the commit's only added line is longer than 200 chars (no in-window key) and
+# its deleted line survives as the START of the replacement. A substring match
+# read the deletion as "still present" and called the row ABSENT; the deleted
+# line is present 0 times as a WHOLE line. Whole-line matching reads it right.
+OLDL='  echo "synthetic_prefix_row_name = \"${_synthetic_value_esc}\""'
+EXTRA="; _synthetic_extra=\"\${SYNTHETIC_EXTRA:-default}\"; [[ \"\$_synthetic_extra\" =~ ^[A-Za-z]{2,3}\$ ]] || _synthetic_extra=\"default\"; echo \"synthetic_extra = \\\"\${_synthetic_extra}\\\"\"  # padding to push this line past two hundred characters"
+( cd "$FIX" && git checkout -q -b prefix "$AFTER" && printf '%s\n' "$OLDL" >> install.sh && git commit -qam "the line before" \
+      && python3 -c "import sys; p='install.sh'; o=sys.argv[1]; s=open(p).read(); assert s.count(o+'\n')==1; open(p,'w').write(s.replace(o+'\n', o+sys.argv[2]+'\n'))" "$OLDL" "$EXTRA" \
+      && git commit -qam "appended to the same line" )
+PFX="$(git -C "$FIX" rev-parse prefix)"
+_newlen="$(git -C "$FIX" show "${PFX}:install.sh" | grep -F -- "$OLDL" | awk '{print length($0)}')"
+_whole="$(git -C "$FIX" show "${PFX}:install.sh" | grep -cxF -- "$OLDL")"
+if [ "${_newlen:-0}" -lt 200 ] || [ "$_whole" -ne 0 ]; then
+    echo "CANNOT-RUN: the prefix fixture is not the #3218 shape (replacement length ${_newlen:-?}, whole-line copies ${_whole})." >&2
+    exit 2
+fi
+_bom "$PFX" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+_cutenv "$PFX" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+if [ "$rc" = "0" ] && grep -q 'IN THE PIN' "${WORK}/out" && ! grep -q 'ABSENT        #9999' "${WORK}/out"; then
+    ok "a deleted line that survives only as the prefix of its replacement reads PRESENT (IN THE PIN)"
+else
+    bad "a prefix-of-replacement edit gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-160)"
+fi
+
+echo "── CONTROL: a line that really was removed, then restored, still reads ABSENT ──"
+( cd "$FIX" && git checkout -q -b removed "$AFTER" \
+      && printf '%s\n' '  _synthetic_line_that_a_fix_removes_and_is_long_enough=1' >> install.sh && git commit -qam "a line a fix will remove" \
+      && sed -i.bak '/_synthetic_line_that_a_fix_removes_and_is_long_enough=1/d' install.sh && rm -f install.sh.bak && git commit -qam "the fix removes it" )
+RMV="$(git -C "$FIX" rev-parse removed)"
+( cd "$FIX" && printf '%s\n' '  _synthetic_line_that_a_fix_removes_and_is_long_enough=1' >> install.sh && git commit -qam "a later commit puts it back" )
+RST="$(git -C "$FIX" rev-parse removed)"
+git -C "$FIX" checkout -q -
+_bom "$RMV" > "$FIX/cuts/v9.9.9/MUST_CONTAIN.tsv"
+_cutenv "$RST" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+if [ "$rc" = "1" ] && grep -q 'ABSENT        #9999' "${WORK}/out"; then
+    ok "a removal undone in the pin still reads ABSENT (whole-line matching did not blind the removal check)"
+else
+    bad "a really-removed-then-restored line gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-160)"
+fi
+_cutenv "$RMV" > "$FIX/cuts/v9.9.9/cut.env"
+rc="$(_run)"
+[ "$rc" = "0" ] && ok "CONTROL: the same removal at a pin that keeps it removed reads PRESENT" \
+                || bad "a kept removal gave rc=${rc}: $(tr '\n' ' ' < "${WORK}/out" | cut -c1-160)"
+
 echo
 echo "== ${PASS} pass / ${FAIL} fail / $((PASS+FAIL)) total =="
 [ "$FAIL" -eq 0 ] || exit 1
