@@ -187,7 +187,7 @@ struct TailscaleConnectView: View {
                 HStack(spacing: .ostlerSpace1) {
                     Image(systemName: isExpanded
                           ? "chevron.down"
-                          : "chevron.right")
+                          : "chevron.forward")  // forward, not right: mirrors in right-to-left languages
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.ostlerInkMuted)
                         .frame(width: 16)

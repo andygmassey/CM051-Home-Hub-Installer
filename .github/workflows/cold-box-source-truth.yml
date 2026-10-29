@@ -100,6 +100,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py'
       - 'tests/test_fda_rerun_agent_loads_after_its_binary.sh'
+      - 'tests/test_fda_rerun_loads_after_an_aborted_run.sh'
       - 'tests/test_unknown_consent_is_not_declined.sh'
       - 'tests/test_every_question_declares_its_persistence.sh'
       - 'tests/test_consent_decisions_survive_a_reuse_run.sh'
@@ -695,6 +696,13 @@ jobs:
       - name: a quiesced interval agent is re-registered
         if: always()
         run: bash tests/test_a_quiesced_interval_agent_is_re_registered.sh
+
+      # NEW-119. An aborted run leaves the fda-rerun plist present and the job
+      # unloaded; the re-run must load it because launchctl print says it is
+      # not loaded, not because it happened to rewrite the plist.
+      - name: an aborted run followed by a re-run leaves fda-rerun loaded
+        if: always()
+        run: bash tests/test_fda_rerun_loads_after_an_aborted_run.sh
 
 
       - name: A source recorder that DIED is not a source that never ran

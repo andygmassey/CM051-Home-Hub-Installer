@@ -32,6 +32,8 @@ on:
       - 'scripts/ttywalk.sh'
       - 'tests/test_reset_says_when_it_did_not_uninstall.sh'
       - 'tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh'
+      - 'tests/test_ttywalk_reset_cold_no_foreign_ollama.sh'
+      - 'scripts/walk_cold_no_foreign_ollama.sh'
       - 'tests/test_early_pass_timeout_kills_the_remote_probe.sh'
       - 'tests/test_early_pass_timeout_kills_the_local_runner.sh'
       - 'scripts/early_repeat_fail_pass.sh'
@@ -115,6 +117,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: The reset leaves no Ostler job loaded and every store port free
         run: /bin/bash tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh
+
+      # NEW-119 (2026-10-29): a clean macOS 27.2 install failed on a bare
+      # `ollama`; every earlier walk passed only because a foreign ollama
+      # survived the "cold" reset. --reset now refuses (CANNOT-RUN) unless no
+      # foreign ollama remains on ANY account. Fakes only: fake accounts,
+      # sudo, launchctl, brew, /Applications and process list.
+      - name: The reset leaves no foreign ollama on any account
+        if: always()
+        run: /bin/bash tests/test_ttywalk_reset_cold_no_foreign_ollama.sh
 
       # Same walk, same shape: the early pass's budget alarm killed only the
       # local runner, and an orphan data_conservation probe ran on for 81
