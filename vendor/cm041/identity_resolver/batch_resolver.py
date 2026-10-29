@@ -2139,8 +2139,9 @@ class BatchResolver:
                 action.keep_uri, action.discard_uri,
             )
             override_reason = ""
+            matched_keys: List[Tuple[str, str]] = []
             if conflict is not None:
-                override_reason = self._exact_identifier_override(action)
+                override_reason, matched_keys = self._exact_identifier_override(action)
                 if override_reason:
                     logger.info(
                         "RULE 2 overridden for %s -> %s: %s",
@@ -2200,6 +2201,17 @@ class BatchResolver:
             # BACKUP + JOURNAL BEFORE THE FIRST WRITE. A merge with no
             # restorable snapshot does not happen: if the snapshot cannot be
             # written the pair is skipped and left for the next pass.
+            # NEW-119: the journal names each key that justified an override
+            # as {kind, keyed hash}, never a value, and shared_kinds is taken
+            # from those keys ONLY. It used to be guessed by searching the
+            # free-text details and the strategy name for the words "email",
+            # "phone" and "linkedin", which named whatever the text happened
+            # to mention rather than what actually matched.
+            journal_keys, journal_keys_reason = merge_journal.journal_identifier_keys(
+                matched_keys,
+                normalise_linkedin=_normalise_linkedin_url,
+                default_country_code=self.config.get("default_country_code"),
+            )
             try:
                 action.merge_id = merge_journal.record_merge(
                     self.oxigraph_url, self._client,
@@ -2210,10 +2222,8 @@ class BatchResolver:
                     override=override_reason,
                     qdrant_url=self.qdrant_url,
                     qdrant_collection=self.qdrant_collection,
-                    shared_kinds=sorted({
-                        k for k in ("email", "phone", "linkedin")
-                        if k in action.details.lower() or k + "_" in action.strategy
-                    }),
+                    matched_keys=journal_keys,
+                    matched_keys_reason=journal_keys_reason,
                 )
             except merge_journal.SnapshotUnavailable:
                 # Not a RULE 2 refusal and not a pin: the pair is simply not
@@ -2282,28 +2292,32 @@ class BatchResolver:
                 refused_rule2, len(report.auto_merges),
             )
 
-    def _exact_identifier_override(self, action: "MergeAction") -> str:
-        """Non-empty reason when an exact shared identifier may override a
-        card-uid-only RULE 2 refusal for this planned merge, else "". See
+    def _exact_identifier_override(
+        self, action: "MergeAction",
+    ) -> Tuple[str, List[Tuple[str, str]]]:
+        """(reason, matched keys). The reason is non-empty when an exact shared
+        identifier may override a card-uid-only RULE 2 refusal for this
+        planned merge, and the keys are the usable shared (kind, normalised
+        value) pairs that justified it; ("", []) otherwise. See
         exact_identifier.py for the rule and why it is this narrow."""
         persons = getattr(self, "_persons", None)
         holders = getattr(self, "_holders", None)
         if not persons or holders is None:
-            return ""
+            return "", []
         a = persons.get(action.keep_uri)
         b = persons.get(action.discard_uri)
         if a is None or b is None:
-            return ""
+            return "", []
         if action.strategy not in (
             "email_match", "phone_match", "linkedin_url_match"
         ):
             # Name-only strategies never override a card conflict.
-            return ""
+            return "", []
         conflicts = _all_canonical_conflicts(
             self.oxigraph_url, self._client, action.keep_uri, action.discard_uri)
-        ok, reason = exact_identifier.card_uid_override(
+        ok, reason, matched = exact_identifier.card_uid_override_keys(
             a, b, conflicts, holders, _normalise_linkedin_url)
-        return reason if ok else ""
+        return (reason, list(matched)) if ok else ("", [])
 
     def undo_merge(self, merge_id: str, backup_dir: str = "./backups") -> Dict[str, Any]:
         """Undo one journalled merge: graph and Qdrant points (see merge_journal)."""

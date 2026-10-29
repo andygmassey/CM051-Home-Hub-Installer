@@ -24,6 +24,7 @@ from .netflix import NetflixParser
 from .appletv import AppleTVParser
 from .email import EmailParser
 from .foursquare import FoursquareParser
+from .food_evidence import FoodEvidenceParser
 
 __all__ = [
     "BaseParser",
@@ -50,5 +51,6 @@ __all__ = [
     "NetflixParser",
     "AppleTVParser",
     "EmailParser",
-    "FoursquareParser"
+    "FoursquareParser",
+    "FoodEvidenceParser",
 ]
