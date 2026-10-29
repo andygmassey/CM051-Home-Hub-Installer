@@ -290,7 +290,32 @@ targets:
           # warns and no older history is ever read on a .app install.
           cp "${SRCROOT}/../lib/ostler_catchup.py"               "${DEST}/lib/ostler_catchup.py"
           chmod 644 "${DEST}/lib/ostler_catchup.py"
+          # Records the language and reviewed-translation ids a consent screen
+          # was shown with (install.sh _consent_cli_record). Missing here = every
+          # .app install logs "display-language record failed" per consent.
+          cp "${SRCROOT}/../lib/ostler_consent_display.py"       "${DEST}/lib/ostler_consent_display.py"
+          chmod 644 "${DEST}/lib/ostler_consent_display.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
+          # Translated install.sh catalogues, one per language InstallerLanguage
+          # ships (en-US de fr es it nl pt-BR pt-PT ja ko zh-Hans zh-Hant zh-HK ar). OSTLER_LANG picks
+          # one at run time; a missing file falls back to en-GB. One explicit cp
+          # per file, so tests/test_bundle_phase_declares_every_copy.sh can
+          # match each against its inputFiles/outputFiles entry.
+          cp "${SRCROOT}/../install.sh.strings.de.sh" "${DEST}/install.sh.strings.de.sh"
+          cp "${SRCROOT}/../install.sh.strings.fr.sh" "${DEST}/install.sh.strings.fr.sh"
+          cp "${SRCROOT}/../install.sh.strings.es.sh" "${DEST}/install.sh.strings.es.sh"
+          cp "${SRCROOT}/../install.sh.strings.it.sh" "${DEST}/install.sh.strings.it.sh"
+          cp "${SRCROOT}/../install.sh.strings.nl.sh" "${DEST}/install.sh.strings.nl.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-BR.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.pt-PT.sh"
+          cp "${SRCROOT}/../install.sh.strings.en-US.sh" "${DEST}/install.sh.strings.en-US.sh"
+          cp "${SRCROOT}/../install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ja.sh"
+          cp "${SRCROOT}/../install.sh.strings.ko.sh" "${DEST}/install.sh.strings.ko.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-Hans.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.zh-HK.sh"
+          cp "${SRCROOT}/../install.sh.strings.ar.sh" "${DEST}/install.sh.strings.ar.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-Hant.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
+          chmod 644 "${DEST}/install.sh.strings.de.sh" "${DEST}/install.sh.strings.fr.sh" "${DEST}/install.sh.strings.es.sh" "${DEST}/install.sh.strings.it.sh" "${DEST}/install.sh.strings.nl.sh" "${DEST}/install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.en-US.sh" "${DEST}/install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ko.sh" "${DEST}/install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.ar.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Second chmod rather than a continuation of the line above, purely so
@@ -383,7 +408,22 @@ targets:
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
           - $(SRCROOT)/../lib/ostler_catchup.py
+          - $(SRCROOT)/../lib/ostler_consent_display.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
+          - $(SRCROOT)/../install.sh.strings.de.sh
+          - $(SRCROOT)/../install.sh.strings.fr.sh
+          - $(SRCROOT)/../install.sh.strings.es.sh
+          - $(SRCROOT)/../install.sh.strings.it.sh
+          - $(SRCROOT)/../install.sh.strings.nl.sh
+          - $(SRCROOT)/../install.sh.strings.pt-BR.sh
+          - $(SRCROOT)/../install.sh.strings.pt-PT.sh
+          - $(SRCROOT)/../install.sh.strings.en-US.sh
+          - $(SRCROOT)/../install.sh.strings.ja.sh
+          - $(SRCROOT)/../install.sh.strings.ko.sh
+          - $(SRCROOT)/../install.sh.strings.zh-Hans.sh
+          - $(SRCROOT)/../install.sh.strings.zh-HK.sh
+          - $(SRCROOT)/../install.sh.strings.ar.sh
+          - $(SRCROOT)/../install.sh.strings.zh-Hant.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
@@ -396,7 +436,22 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_catchup.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_consent_display.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.de.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.fr.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.es.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.it.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.nl.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-BR.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-PT.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-US.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ja.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ko.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-Hans.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-HK.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ar.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-Hant.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that
         # reads the macOS "My Card" via AddressBook (-[ABAddressBook me]) and

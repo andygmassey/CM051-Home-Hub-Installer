@@ -26,7 +26,15 @@ A hit is allowed only if it is listed, with a reason, in the allowlist
 allowlist row that no longer matches anything is ALSO a failure, so the list
 can only shrink honestly.
 
-Usage: check_no_bare_ollama.py [--root DIR] [--allowlist FILE] [--files-from FILE]
+Translated catalogue lines live in a second file,
+tests/bare_ollama_allowlist.l10n.tsv, read by default alongside the first under
+the SAME format and the SAME stale-row rule. They are split out only so the
+person-name guard can skip the verbatim copies of registry-skipped l10n
+catalogue lines (German noun capitalisation reads as a name pair) while the
+main allowlist stays scanned. --allowlist may be repeated; when given, ONLY the
+named files are read.
+
+Usage: check_no_bare_ollama.py [--root DIR] [--allowlist FILE ...] [--files-from FILE]
   --files-from: newline list of paths relative to root (default: git ls-files).
 Exit: 0 clean, 1 hits / stale allowlist rows, 2 could not run.
 """
@@ -88,11 +96,12 @@ def excluded(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ap.add_argument("--allowlist", default=None)
+    ap.add_argument("--allowlist", action="append", default=None)
     ap.add_argument("--files-from", default=None)
     a = ap.parse_args()
     root = a.root
-    allow_path = a.allowlist or os.path.join(root, "tests", "bare_ollama_allowlist.tsv")
+    allow_paths = a.allowlist or [os.path.join(root, "tests", "bare_ollama_allowlist.tsv"),
+                                  os.path.join(root, "tests", "bare_ollama_allowlist.l10n.tsv")]
 
     if a.files_from:
         with open(a.files_from) as fh:
@@ -105,14 +114,16 @@ def main():
         files = r.stdout.splitlines()
 
     allow = {}
-    if os.path.exists(allow_path):
-        with open(allow_path) as fh:
+    for allow_path in allow_paths:
+        if not os.path.exists(allow_path):
+            continue
+        with open(allow_path, encoding="utf-8") as fh:
             for raw in fh:
                 if not raw.strip() or raw.startswith("#"):
                     continue
                 parts = raw.rstrip("\n").split("\t")
                 if len(parts) != 3 or not parts[2].strip():
-                    print(f"FAIL  allowlist row without path/line/reason: {raw.rstrip()}")
+                    print(f"FAIL  allowlist row without path/line/reason ({os.path.basename(allow_path)}): {raw.rstrip()}")
                     return 1
                 allow[(parts[0], parts[1])] = parts[2]
 

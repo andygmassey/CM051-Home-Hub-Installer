@@ -13,6 +13,7 @@
 #      variable, absolute path, comment, pgrep pattern, provider-name tuple).
 #      Exactly the positive lines must be reported, by line number.
 #   S  a stale allowlist row is a failure (the list cannot rot).
+#   S2 the same holds for tests/bare_ollama_allowlist.l10n.tsv, read by default.
 #   R  the real tree: rc 0, and a NON-zero file count (a zero denominator is
 #      CANNOT-RUN, not clean).
 #   M  mutant: install.sh with its pull put back to a bare `ollama pull` must
@@ -70,6 +71,13 @@ printf '%s\n' bin/run.sh > "$W/one.list"
 out="$(python3 -I "$CHK" --root "$F" --allowlist "$W/stale.tsv" --files-from "$W/one.list" 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q 'stale allowlist row' <<<"$out"; then pass "S a stale allowlist row fails the check"
 else bad "S stale allowlist row not reported: rc=$rc $(tr '\n' ' ' <<<"$out" | cut -c1-300)"; fi
+
+# S2: the DEFAULT read takes the l10n allowlist too, under the same stale rule.
+mkdir -p "$W/s2/tests" "$W/s2/bin"; printf 'echo hi\n' > "$W/s2/bin/run.sh"
+printf 'bin/run.sh\tollama pull l10n-stale-fixture\tfixture\n' > "$W/s2/tests/bare_ollama_allowlist.l10n.tsv"
+out="$(python3 -I "$CHK" --root "$W/s2" --files-from "$W/one.list" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q 'stale allowlist row.*l10n-stale-fixture' <<<"$out"; then pass "S2 a stale row in the l10n allowlist fails the default check"
+else bad "S2 stale l10n allowlist row not reported: rc=$rc $(tr '\n' ' ' <<<"$out" | cut -c1-300)"; fi
 
 # ── R ────────────────────────────────────────────────────────────────────────
 out="$(python3 -I "$CHK" --root "$ROOT" 2>&1)"; rc=$?
