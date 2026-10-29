@@ -41,6 +41,10 @@
 #               script's OSTLER_LABEL_PREFIXES does not cover one. Mutants: a
 #               prefix dropped from the script, and a new label prefix injected
 #               into a copy of install.sh, must each turn it red.
+#   OVERRIDE-ONLY launchd overrides (disabled services block) name Ostler
+#               labels that are not loaded: PASS. Mutant reading the whole print
+#               must be caught. (v1.0.120 walk, Mini16.)
+#   NO-SESSION  bob not logged in: gui/502 absent, user/502 read instead.
 #   NO-EXAMINE  sudo refuses bob. CANNOT-RUN (rc 2), bob named as not examined.
 #   MUTANT      the script with its account loop cut to the first account. The
 #               bob-only dirty box then reads PASS (it never looked at bob);
@@ -71,7 +75,7 @@ export HOME="$ROOT/home"; mkdir -p "$HOME"
 mkbox() {
     W="$ROOT/$1"; mkdir -p "$W/fakebin" "$W/${UD}/alice/.ostler/bin" "$W/${UD}/bob" "$W/alicebin" "$W/bobbin" \
         "$W/brew/bin" "$W/Applications" "$W/loaded" "$W/shells" "$W/olabels" \
-        "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons"
+        "$W/Library/LaunchAgents" "$W/Library/LaunchDaemons" "$W/overrides"
     : > "$W/ps.txt"
     for a in alice bob; do
         cat > "$W/shells/$a" <<EOF
@@ -97,10 +101,25 @@ EOF
 # the ollama brew label = $W/loaded/<FAKE_ACCT>. Never the real launchd.
 a="\${FAKE_ACCT:-none}"
 drop() { [ -f "\$1" ] && grep -vx "\$2" "\$1" > "\$1.n"; mv -f "\$1.n" "\$1" 2>/dev/null; return 0; }
+# A domain print has the REAL shape (measured on Mini16, 2026-10-30): a
+# "services" block of loaded jobs AND a "disabled services" block of launchd
+# overrides ($W/overrides/<acct>), which are NOT loaded jobs. An account named
+# in $W/nogui has no login session: gui/<uid> answers 125 and only user/<uid>
+# prints ($W/nouser makes that fail too).
+dom() {   # dom LABELFILE OVERRIDEFILE
+    printf '%s = {\n\ttype = x\n\tservices = {\n' "\$3"
+    sed 's/^/		0	-	/' "\$1" 2>/dev/null
+    printf '\t}\n\tdisabled services = {\n'
+    sed 's/^\(.*\)\$/		"\1" => enabled/' "\$2" 2>/dev/null
+    printf '\t}\n}\n'
+}
 case "\$1 \$2" in
-  "print system")   sed 's/^/	0	-	/' "$W/olabels/system" 2>/dev/null; exit 0 ;;
+  "print system")   dom "$W/olabels/system" "$W/overrides/system" system; exit 0 ;;
   print\ gui/*/*)   [ -e "$W/loaded/\$a" ] ;;
-  print\ gui/*)     sed 's/^/	0	-	/' "$W/olabels/\$a" 2>/dev/null; exit 0 ;;
+  print\ gui/*)     grep -qx "\$a" "$W/nogui" 2>/dev/null && { echo "Could not print domain: 125: Domain does not support specified action" >&2; exit 125; }
+                    dom "$W/olabels/\$a" "$W/overrides/\$a" "\$2"; exit 0 ;;
+  print\ user/*)    grep -qx "\$a" "$W/nouser" 2>/dev/null && { echo "Could not print domain" >&2; exit 125; }
+                    dom "$W/olabels/\$a" "$W/overrides/\$a" "\$2"; exit 0 ;;
   bootout\ *)       [ -e "$W/launchctl_stuck" ] && exit 5
                     case "\$2" in
                       system/*) drop "$W/olabels/system" "\${2#system/}" ;;
@@ -349,6 +368,42 @@ GM2="$ROOT/install_with_new_prefix.sh"
 { cat "$INSTALL_SH"; printf '    <key>Label</key>\n    <string>io.ostler.brand-new</string>\n'; } > "$GM2"
 label_guard "$SUBJECT" "$GM2" | grep -q 'UNCOVERED install.sh:.*io.ostler.brand-new' && { label_guard "$SUBJECT" "$GM2" >/dev/null; [ $? -eq 1 ]; } \
     && ok "mutant: install.sh writing a new label prefix turns the guard red" || bad "new-prefix install.sh mutant not caught"
+
+echo "== OVERRIDE-ONLY (a launchd enable/disable override is not a loaded job; v1.0.120 walk)"
+ovr_box() {
+    printf 'com.ostler.fda-rerun\ncom.ostler.contact-resync\n' > "$W/overrides/alice"
+    printf 'com.ostler.privileged\n' > "$W/overrides/system"
+}
+mkbox override; ovr_box; runbox "$SUBJECT"
+[ "$RC" -eq 0 ] && has "NO-FOREIGN-OLLAMA: PASS" && ! has "LEFTOVER Ostler label loaded" \
+    && ok "overrides only (gui + system), nothing loaded: PASS, no label reported" || { bad "override-only box: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+mkbox overctl; ovr_box; printf 'com.ostler.fda-rerun\n' > "$W/olabels/alice"; runbox "$SUBJECT"
+[ "$RC" -eq 0 ] && has "LEFTOVER Ostler label loaded [alice] gui/501/com.ostler.fda-rerun" && ! has "com.ostler.contact-resync" \
+    && ok "control: the same label LOADED as well is still found and booted out; the override-only one is not" || { bad "override control: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+MUT5="$ROOT/mutant_reads_whole_print.sh"
+sed 's#^services_block() { awk.*#services_block() { cat; }#; s#| awk "/^\\tservices = \[{\]/{f=1;next} f\&\&/^\\t\[}\]/{f=0} f" ##' "$SUBJECT" > "$MUT5"
+if cmp -s "$SUBJECT" "$MUT5" || grep -q 'services = \[{\]' "$MUT5"; then bad "whole-print mutant did not apply"
+else mkbox ovrmut; ovr_box; runbox "$MUT5"
+     [ "$RC" -eq 2 ] && has "LEFTOVER Ostler label loaded [alice] gui/501/com.ostler.fda-rerun" \
+        && ok "mutant that reads the whole print (overrides included) is caught: rc 2 on an override-only box" || bad "whole-print mutant NOT caught (rc=$RC)"
+fi
+
+echo "== NO-SESSION (bob has no login session: no gui domain)"
+mkbox nosess; echo bob > "$W/nogui"; runbox "$SUBJECT"
+[ "$RC" -eq 0 ] && has "bob: no gui/502 domain (no login session" && has "accounts (2): alice,bob" \
+    && ok "logged-out account: examined via user/502, PASS, and the examined list says so" || { bad "logged-out account: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+mkbox nosessl; echo bob > "$W/nogui"; printf 'com.ostler.engine-supervisor\n' > "$W/olabels/bob"; runbox "$SUBJECT"
+[ "$RC" -eq 2 ] && has "OSTLOADED [bob] user/" && has "/com.ostler.engine-supervisor" \
+    && ok "logged-out account with an Ostler label loaded in user/502: listed, not removed, CANNOT-RUN" || { bad "logged-out loaded label: rc=$RC"; printf '%s\n' "$OUT" | sed 's/^/      /'; }
+mkbox nosessx; echo bob > "$W/nogui"; echo bob > "$W/nouser"; runbox "$SUBJECT"
+[ "$RC" -eq 2 ] && has "NOT EXAMINED [bob] launchctl print gui/502" \
+    && ok "neither gui/502 nor user/502 answers: NOT EXAMINED, CANNOT-RUN" || bad "no domain at all: rc=$RC"
+MUT6="$ROOT/mutant_no_user_fallback.sh"
+sed 's#^elif _gui="\$(launchctl print "user/\$uid" 2>/dev/null)"; then.*#elif false; then :#' "$SUBJECT" > "$MUT6"
+if cmp -s "$SUBJECT" "$MUT6"; then bad "no-user-fallback mutant did not apply"
+else mkbox nsmut; echo bob > "$W/nogui"; printf 'com.ostler.engine-supervisor\n' > "$W/olabels/bob"; runbox "$MUT6"
+     ! has "OSTLOADED [bob] user/" && ok "mutant without the user/<uid> read is caught: the loaded label in user/502 goes unseen" || bad "no-user-fallback mutant NOT caught"
+fi
 
 echo "== NO-EXAMINE (sudo refuses bob)"
 mkbox noexam; echo bob > "$W/sudo_refuse"; runbox "$SUBJECT"
