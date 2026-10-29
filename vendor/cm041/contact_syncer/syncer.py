@@ -35,6 +35,7 @@ from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 from contact_syncer.relationship_labels import is_relationship_label
 from contact_syncer.person_audit import record_person_removal
+from contact_syncer.qdrant_collection import read_existing_payload
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.forget_tombstone import MATCH_TYPE as FORGOTTEN
@@ -127,6 +128,9 @@ def _abcddb_photo_bytes(db_path: Any, row: Any, uid: str,
 
 class ContactSyncer:
     """Orchestrates the full contact sync pipeline."""
+
+    # Qdrant writes skipped because the existing point could not be read.
+    qdrant_writes_skipped_unreadable: int = 0
 
     def __init__(self, cfg: Any = None) -> None:
         self.cfg = cfg or config
@@ -349,13 +353,19 @@ class ContactSyncer:
 
             for idx, item in enumerate(qdrant_queue):
                 if idx < len(all_vectors):
-                    self._upsert_qdrant(
+                    if not self._upsert_qdrant(
                         person_id=item["person_id"],
                         person_uri=item["person_uri"],
                         parsed=item["parsed"],
                         vector=all_vectors[idx],
                         contact_type=item.get("contact_type", "person"),
-                    )
+                    ):
+                        skipped.append({
+                            "uid": item["parsed"].get("uid"),
+                            "fn": None,
+                            "stage": "qdrant_read",
+                            "error": "existing point unreadable; not overwritten",
+                        })
 
         # Step 7: Update state
         if not dry_run:
@@ -570,13 +580,19 @@ class ContactSyncer:
 
             for idx, item in enumerate(qdrant_queue):
                 if idx < len(all_vectors):
-                    self._upsert_qdrant(
+                    if not self._upsert_qdrant(
                         person_id=item["person_id"],
                         person_uri=item["person_uri"],
                         parsed=item["parsed"],
                         vector=all_vectors[idx],
                         contact_type=item.get("contact_type", "person"),
-                    )
+                    ):
+                        skipped.append({
+                            "uid": item["parsed"].get("uid"),
+                            "fn": None,
+                            "stage": "qdrant_read",
+                            "error": "existing point unreadable; not overwritten",
+                        })
 
         imported = counts["person"] + counts["business"] + counts["unclassified"]
         _log(
@@ -1035,8 +1051,11 @@ class ContactSyncer:
         parsed: Dict[str, Any],
         vector: List[float],
         contact_type: str = "person",
-    ) -> None:
-        """Upsert a single person point into Qdrant."""
+    ) -> bool:
+        """Upsert a single person point into Qdrant.
+
+        Returns False, having written nothing, when the existing point could
+        not be read (counted in qdrant_writes_skipped_unreadable)."""
         # Fresh-install self-heal: make sure the collection exists before
         # the first upsert of the run, sized from this real embedding.
         # Once per syncer run via the _collection_ensured latch (#638).
@@ -1070,20 +1089,31 @@ class ContactSyncer:
         last_contact_ts: int = 0
         last_contact: str = ""
         point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
-        try:
-            existing = self.qdrant.retrieve(
-                collection_name=self.cfg.QDRANT_COLLECTION,
-                ids=[point_uuid],
-                with_payload=True,
+        # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+        # This was one `try` around the retrieve and the preservation with
+        # `except Exception: pass  # point doesn't exist yet, fine`, followed
+        # by an UNCONDITIONAL upsert. A transient store failure took the same
+        # path as "no such point", and the upsert replaced the stored record
+        # (last_contact included) with a partial one, silently (board row
+        # 963). A missing collection is still a readable "no point" (first
+        # run). Same shape as the CM041 #172 social writers.
+        existing = read_existing_payload(
+            self.qdrant, self.cfg.QDRANT_COLLECTION, point_uuid
+        )
+        if not existing.readable:
+            self.qdrant_writes_skipped_unreadable += 1
+            logger.warning(
+                "Qdrant read failed for %s; NOT overwriting the stored record "
+                "(%d skipped this run)",
+                point_uuid, self.qdrant_writes_skipped_unreadable,
             )
-            if existing and existing[0].payload:
-                existing_ts = existing[0].payload.get("last_contact_ts") or 0
-                existing_lc = existing[0].payload.get("last_contact") or ""
-                if existing_ts:
-                    last_contact_ts = existing_ts
-                    last_contact = existing_lc
-        except Exception:
-            pass  # point doesn't exist yet, fine
+            return False
+        if existing.payload:
+            existing_ts = existing.payload.get("last_contact_ts") or 0
+            existing_lc = existing.payload.get("last_contact") or ""
+            if existing_ts:
+                last_contact_ts = existing_ts
+                last_contact = existing_lc
 
         payload = {
             "person_id": person_id,
@@ -1135,6 +1165,7 @@ class ContactSyncer:
             collection_name=self.cfg.QDRANT_COLLECTION,
             points=[point],
         )
+        return True
 
     def _resolve_and_write_person(
         self, parsed: Dict[str, Any], contact_type: str

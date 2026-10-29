@@ -333,6 +333,18 @@ Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763, which main set in #3
 - These files are not a divergence from source at the pin. They are recorded here because the pin did not move in this diff, and this is the tree's declared record.
 - Retire: nothing to retire for the engine itself. It is source at the pin.
 
+## 2026-10-23 smart-prefs stated: what the owner says in conversations (personal-world-graph #423)
+
+Tree `cm019_preferences`. Pin NOT moved. DIVERGENCE from source at the pin: it ACKS UPSTREAM andygmassey/personal-world-graph PR #423 (branch feat/smart-prefs-stated-conversations, head 01dc7e7a, rebased onto #427 570da936 which sits on #422). Stacked on this repo's #3124 (acks #427).
+
+- Changed, byte-identical to #423's head: `services/enrich/src/derive/{stated.py,stated_messages.py,stated_model.py,stated_vocab.yaml}` (new), `derive/{config,engine,model,query,endpoint,consume,writer}.py`, `derive/{dimensions,readers}.yaml`, `ontology/upper/pwg-derived.ttl` (declares `pwg:privacyLevel`).
+- What it does: owner-attributed CM048 `preference` facts (read-only SPARQL on the fact store) and the owner's own lines in the extracted iMessage/WhatsApp transcripts (`~/Documents/Ostler/Conversations/*/*/transcript.md`; never chat.db) become evidence with a dimension, a normalised value, polarity and intensity, counted once per conversation per month (at most three months). Adds `food.drink` and `food.ingredient`. Cuisines map through the SHARED hierarchical `vocab/cuisine.yaml` (lowercase keys; sichuan and cantonese are separate values under chinese; no second cuisine list). No message text reaches the derived node; its because line is the fixed "you said so in a message".
+- Privacy: same filters as the fact path (L3 out, deceased/suppressed contacts via `pwg:SuggestionSuppression`, minors by text guard and a caller set; no person-level minors flag exists). L2 is ADMITTED and every derived node inherits the HIGHEST privacy level of its evidence (`pwg:privacyLevel`, mirror payload and endpoint item `privacy_level`). Consumers must read it: that lift is outside this tree (MERGED, not PROVEN).
+- Tier-model polarity stage (`stated_model.py`): after every filter; the model decides polarity only, schema-constrained and validated; cap, timeout, user-active lease, atomic salted-hash verdict cache. DISABLED BY DECISION (precision 2/6 on the Mini16, under the 80% bar); no LaunchAgent is installed. `scripts/ostler-stated-model-tick.sh` + `tests/test_stated_model_tick_yields.sh` pin the slot / tier-defer / tier-model-only guarantees.
+- Proof on this tree: `tests/test_vendored_stated_preferences_reach_the_derive_engine.py` and `tests/test_vendored_stated_transcripts_reach_the_derive_engine.py`, both wired in `derived-preferences.yml`.
+- 2026-10-25 (CM051 #3129 shrink): the `derive/**` files and ontology above are now on main byte-equal to upstream@5af9f5b5 (T0j #3160); this PR carries only the tick script, its test and the two reach tests.
+- Retire: when #423 merges, re-pin to its merge commit and delete this section.
+
 ## 2026-10-22 smart-prefs: derive across all of life (personal-world-graph #422)
 
 Tree `cm019_preferences`. Pin NOT moved: it stays 5622a763. This is a DIVERGENCE from source at the pin, because upstream #422 is open. It ACKS UPSTREAM andygmassey/personal-world-graph PR #422 (branch feat/smart-prefs-all-of-life): the same diff, except `ingest/src/parsers/linkedin.py` (see the round-2 bullet).
@@ -389,6 +401,30 @@ Tree `cm019_preferences`. RE-PINNED 5622a763 -> 5af9f5b5 (Archie, 2026-10-24: co
 - Proof: `tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py` (wired in `derived-preferences.yml`): `python -m services.enrich.src.cli enrich --all` from this tree, then `derive_runner.run` over pyoxigraph, writes one `theme.concept` node from exactly the 3 admitted preferences; sensitive, minor, L3 and never-read topics are never sent. RED with the QID call unwired (13 of 29 fail).
 - Retire: the held hunks above when #3124 and #3120 land; verify=full once the shared-file reconciliation is done. The paraphrased comment lines stay a recorded divergence until upstream drops the names.
 
+## 2026-10-25 food evidence (personal-world-graph #432, CM051 #3124)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` is byte-equal to the pin (the food derive pieces came with T0j). ACKS the upstream food PR #432 (feat/food-prefs-evidence).
+
+- New, byte-identical to the PR head: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`.
+- Applied by patch(1), the rest of each file untouched: `enricher.py` (a food point with `extra.restaurant` and no known cuisine routes to `osm_cuisine`; every other food point stays on wikidata, see "2026-10-28 food routing"), `models/enrichment.py`, `ingest/src/pipeline.py`, `ingest/src/parsers/__init__.py`.
+- Consent: the OSM client returns before any HTTP client exists unless `public_lookup_allowed()` (exact `accepted` only). Nominatim policy: identifying User-Agent, one request per second across processes, a per-run lookup ceiling.
+- Retire: when #432 is re-pinned, delete this section.
+
+## 2026-10-25 patterns wiring (CM051 #3130 shrink)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` (including `patterns.py`) is byte-equal to the pin on main, so only the vendor-only runner is edited here.
+
+- `services/enrich/src/derive_runner.py`: builds the derivers with `default_derivers(dimensions)`, passes them to `DerivationEngine`, prints the trend, contradiction and context counts, and reports a failed deriver by name and exception type only (base nodes are kept).
+- Proof: `tests/test_vendored_derive_patterns.py` (wired in `derived-preferences.yml`).
+- Retire: when the runner change lands upstream and the tree is re-pinned past it.
+## 2026-10-25 representative-first CLI (personal-world-graph #431, CM051 #3120)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. `derive/**` is byte-equal to the pin (the earlier #424 copy of `representatives.py` is dropped, main already has it). ACKS UPSTREAM andygmassey/personal-world-graph PR #431.
+
+- Changed in place: `services/enrich/src/cli.py` gains `--representative-first/--no-representative-first` (default on) and runs `run_representative_pass` before the tail inside the same `--budget-seconds` deadline (upstream's cli.py has no deadline, so the call here also passes `deadline=`).
+- Proof: `tests/test_vendored_enrich_representative_first.py` (wired in `derived-preferences.yml`).
+- Retire: when #431 is re-pinned, delete this section; the deadline pass-through stays a divergence.
+
 ## 2026-10-24: geocoders never log an address, venue or coordinates (personal-world-graph #442, UNMERGED upstream; S8, 118)
 
 Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when written; main has since re-pinned to 5af9f5b5, see the T0j section above, and upstream #442 is still unmerged there). Grafted ahead of the upstream merge for v1.0.118.
@@ -396,3 +432,20 @@ Tree `cm019_preferences`. Pin NOT moved by this graft (it was 5622a763 when writ
 - `services/enrich/src/geo/geocoder.py` (3 sites) and `services/enrich/src/clients/geocoder.py` (7 sites): the upstream PR head's hunks applied with `git apply --directory=vendor/cm019_preferences`. Each log line now carries a status, presence flag, exception type, count or the preference id, never the address, a prefix of it, the venue name or the coordinates. The only remaining difference from the upstream PR head in each file is the existing User-Agent line (2 diff lines per file, measured).
 - Proof: `tests/test_vendored_logs_carry_no_personal_values.py` (wired in `.github/workflows/no-pii-in-logs.yml`); on origin/main's vendored files every geocoder arm FAILS.
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-10-28 food routing (CM051 #3130)
+
+Tree `cm019_preferences`. Pin NOT moved: 5af9f5b5. Corrects the food graft above, which added a SECOND `"food"` key (`osm_cuisine`) to `CATEGORY_CLIENTS` that silently overrode the first (`wikidata`) and whose branch returned None without `extra.restaurant`, so every non-restaurant food preference lost its Wikidata enrichment.
+
+- `services/enrich/src/enricher.py`: ONE `"food": "wikidata"` key (as on main). In `enrich_preference`, `category == "food"` with `extra.restaurant` and no `extra.cuisine` re-routes to `osm_cuisine`; everything else falls through to the wikidata branch. The `osm_cuisine` branch no longer has a None return. Consent/L3/minor gating untouched (`consent_or_log`, `outbound_refusal` run first).
+- Proof: `tests/test_enrichment_reaches_the_corpus.sh` (restaurant point -> osm_cuisine; plain food, empty extra, and cuisine-known -> wikidata). Red on ee0a2e47, green here, red on the any-food-to-osm mutant.
+- Owed upstream: yes, CM019 (personal-world-graph #432, the food PR). The upstream branch carries the second key; carry this routing into it. Row: `CM019_DIVERGENCE_REGISTRY.md`, "food routing". Retire: when #432 lands with this routing and the tree is re-pinned.
+
+## 2026-10-29 NEW-119 row 2471b: genetic and biometric classes in sensitive_terms.yaml
+
+Tree `cm019_preferences`. Pin HELD at 5af9f5b5. Data only, no code change.
+
+- `services/enrich/src/derive/sensitive_terms.yaml`: two new `terms` categories, `genetic` and `biometric`, between `trade_union` and `minors`. The yaml carried six of the eight GDPR Art. 9(1) classes. These two are the missing ones. The words are the same terms as the Front Page list, `vendor/cm059_editor/compiler/sensitive_topics.py` (`genetic_data`, `biometric_data`), written as whole words because this matcher has no stems.
+- Effect: `sensitive.is_sensitive` and `surfaceable` now refuse a genetic or biometric value at every place the derive engine surfaces one (write side, derived reader, `/preferences/derived`, QueryClient).
+- Proof: `tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py` (wired in `derived-preferences.yml`). It FAILS on origin/main's yaml and passes here. It also checks that every Front Page term for the two classes classifies here, so the lists cannot drift apart.
+- Upstream owed: andygmassey/personal-world-graph `services/enrich/src/derive/sensitive_terms.yaml` needs the same two categories. Retire this section when a re-pin brings them in.

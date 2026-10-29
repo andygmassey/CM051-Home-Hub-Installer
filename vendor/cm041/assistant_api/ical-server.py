@@ -12256,6 +12256,28 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     if not isinstance(interests, list):
         interests = []
 
+    # GDPR Art. 9 special-category topics are never RETURNED (board row 2471).
+    # The profile keeps them; this read-out withholds them, using the SAME
+    # list the Front Page uses (sensitive_topics.py beside this file is
+    # GENERATED from vendor/cm059_editor/compiler/sensitive_topics.py). If
+    # the list cannot load, nothing is returned: fail closed, said out loud.
+    try:
+        import sensitive_topics as _art9
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "interests": [],
+            "count": 0,
+            "degraded": True,
+            "reason": "special-category filter unavailable: " + str(exc)[:160],
+            "source_path": INTEREST_PROFILE_PATH,
+        }
+    interests = [
+        it for it in interests
+        if isinstance(it, dict) and not any(
+            _art9.is_sensitive_topic(it.get(k))
+            for k in ("subject", "name", "label", "title") if it.get(k))
+    ]
+
     if domain:
         interests = [it for it in interests if it.get("domain") == domain]
     if polarity:

@@ -85,3 +85,18 @@ the ssh probe `call_audio_never_retained`; this item is the capture it needs.
 
 **Record:** PASS only on that probe line. Any audio file left in the capture
 temp dir or the transcripts dirs is a FAIL of the owner's core privacy rule.
+
+## RemoteCapture consent screen names the jurisdiction from the Mac's region (v1.0.119, row 1001)
+
+**Why a human is needed.** The consent screen is RemoteCapture GUI, shown on
+first launch at the console. An ssh session cannot see it, and whether macOS
+raises a Location prompt is itself a GUI event.
+
+1. On a box whose macOS Region is set to Hong Kong (System Settings > General >
+   Language & Region), launch RemoteCapture 0.1.10 for the first time.
+2. **Expected:** the consent screen names the jurisdiction from the Mac's
+   region (HK) without a Location prompt.
+
+**Record:** PASS only if the screen names HK AND no Location permission dialog
+appears. A Location prompt, or a jurisdiction that does not match the region,
+is a FAIL (CM042 #39, shipped via CM051 #3207).
