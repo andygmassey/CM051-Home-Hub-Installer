@@ -678,6 +678,19 @@ case "$lic_state" in
         ;;
 esac
 
+# ── DECLARED STATE: Ostler TCC rows that exist BEFORE this walk ──────
+# The system TCC.db keeps Ostler grants across a cold reset (NEW-119, diag118
+# Mini16, macOS 27.2), so a walk's TCC results may come from an inherited
+# grant. Recorded here, read-only, before the reset and the install; never a
+# verdict, and CANNOT-READ never fails the walk. See scripts/lib_walk_tcc_declared.sh.
+# shellcheck source=scripts/lib_walk_tcc_declared.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_tcc_declared.sh"
+rule "DECLARED STATE (pre-existing Ostler TCC rows, read-only)"
+_tcc_declared="$({ declare -f walk_tcc_declared_state; printf 'walk_tcc_declared_state\n'; } | "${SSH[@]}" 'bash -s' 2>&1)" \
+    || _tcc_declared="tcc declared: CANNOT-READ (ssh to ${HOST} failed); pre-existing grants are UNKNOWN for this walk"
+[[ -n "$_tcc_declared" ]] || _tcc_declared="tcc declared: CANNOT-READ (the box returned nothing); pre-existing grants are UNKNOWN for this walk"
+printf '%s\n' "$_tcc_declared" | while IFS= read -r _l; do say "$_l"; done
+
 # ── Reset ────────────────────────────────────────────────────────────
 #
 # A TTY reset is NOT a wipe. It runs the SHIPPED uninstaller, which is itself
