@@ -985,12 +985,24 @@ def ingest_imessage(fda_dir: Path) -> dict:
         "iMessage: %d people created, %d enriched, %d skipped (store unreadable)",
         people_created, people_enriched, lookup_failed,
     )
+    # NEW-119: the VOLUME this run read, beside the people it changed. A run
+    # that read 84,826 messages and met no new person is not "no data", and the
+    # installer's sentinel can only say so if the counts reach it.
+    conversations_read = len(conversations)
+    messages_read = 0
+    for convo in conversations:
+        try:
+            messages_read += int(convo.get("message_count", 0) or 0)
+        except (TypeError, ValueError):
+            pass
     return {
         "status": _lookup_status(lookup_failed, people_created + people_enriched),
         "people_created": people_created,
         "people_enriched": people_enriched,
         "people_lookup_failed": lookup_failed,
         "people_linked_to_contact": twins.linked,
+        "conversations_read": conversations_read,
+        "messages_read": messages_read,
     }
 
 
@@ -2810,6 +2822,61 @@ def ingest_bookmarks(fda_dir: Path) -> dict:
     }
 
 
+# ── Food evidence (smart preferences: restaurants, cuisines, what you buy) ──
+#
+# Reservation mail, delivery and grocery receipts, calendar meals and restaurant
+# pages are food PREFERENCES, and the preference ingest (CM019) already owns the
+# parsers, the privacy filter, the embed and the write into `preferences`. This
+# step does not write a point itself: it hands the CM019 `food_evidence` parser
+# exactly the extracts it claims and nothing else, through the same
+# `ingest-dir` call the Apple Music refresh uses. No second writer.
+#
+# Staged by symlink in a temp dir so only the named extracts are offered (the
+# FDA folder also holds notes, reminders and messages that this must never
+# read), and the 750 MB first mail export is not copied.
+_FOOD_EXTRACTS = (
+    "calendar_events.json",
+    "apple_mail.json",
+    "safari_history.json",
+    "safari_bookmarks.json",
+)
+
+
+def ingest_food(fda_dir: Path) -> dict:
+    """Stage the food-evidence extracts and run the CM019 preference ingest.
+
+    Counts only. ``no_data`` when none of the extracts exist (those sources were
+    not enabled); ``error`` when the ingest could not run or did not exit 0.
+    """
+    import shutil
+    import tempfile
+
+    from .apple_music_refresh import run_cm019_ingest
+
+    fda_dir = Path(fda_dir)
+    stage = Path(tempfile.mkdtemp(prefix="ostler-food-"))
+    try:
+        staged = 0
+        for name in _FOOD_EXTRACTS:
+            src = fda_dir / name
+            if src.is_file():
+                (stage / name).symlink_to(src.resolve())
+                staged += 1
+        mail_dir = fda_dir.parent / "email"
+        if mail_dir.is_dir():
+            for mbox in sorted(mail_dir.glob("*.mbox.txt")):
+                (stage / mbox.name).symlink_to(mbox.resolve())
+                staged += 1
+        if not staged:
+            return {"status": "no_data", "staged": 0}
+        ostler_dir = Path(os.getenv("OSTLER_DIR") or fda_dir.parent.parent)
+        user = os.getenv("USER_ID") or os.getenv("OSTLER_USER") or "ostler"
+        ok = run_cm019_ingest(stage, ostler_dir, user)
+        return {"status": "ok" if ok else "error", "staged": staged}
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
 # ── iMessage social-graph signal (Social wiki page) ───────────────
 #
 # extract_all.py writes imessage_conversations.json (iMessage is a
@@ -3725,6 +3792,7 @@ _INGEST_DISPATCH = (
     ("apple_mail", "ingest_mail_contacts"),
     ("browser_history", "ingest_browser_history"),
     ("bookmarks", "ingest_bookmarks"),
+    ("food", "ingest_food"),
     ("social", "ingest_social"),
     ("people_index", "ingest_people_to_qdrant"),
 )

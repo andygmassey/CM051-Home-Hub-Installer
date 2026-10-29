@@ -832,7 +832,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/ostler_fda\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/ostler_fda/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/ostler_fda\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/ostler_fda/\"\n/usr/bin/xattr -cr \"${DEST}/ostler_fda\"\n";
+			shellScript = "set -euo pipefail\nVENDOR_SRC=\"${SRCROOT}/../vendor/ostler_fda\"\nif [ ! -d \"${VENDOR_SRC}\" ]; then\n    echo \"error: vendor/ostler_fda/ is missing.\" >&2\n    exit 1\nfi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"${DEST}/ostler_fda\"\ncp -R \"${VENDOR_SRC}/.\" \"${DEST}/ostler_fda/\"\n# NEW-119: test suites are not product. vendor/ostler_fda/tests/\n# imports pytest, which no customer venv has, and the install-time\n# runtime-ready scan reported it as a missing runtime dependency.\nfind \"${DEST}/ostler_fda\" -type d -name tests -prune -exec rm -rf {} +\n/usr/bin/xattr -cr \"${DEST}/ostler_fda\"\n";
 		};
 		0FDB71A02154DF6BAC5B2AED /* Strip xattrs from .app bundle (pre-CodeSign hygiene) */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1747,7 +1747,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 11200;
+				CURRENT_PROJECT_VERSION = 11900;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1762,7 +1762,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.112;
+				MARKETING_VERSION = 1.0.119;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -1832,7 +1832,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 11200;
+				CURRENT_PROJECT_VERSION = 11900;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -1853,7 +1853,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.112;
+				MARKETING_VERSION = 1.0.119;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

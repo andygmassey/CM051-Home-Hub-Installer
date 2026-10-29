@@ -26,6 +26,8 @@ on:
     paths:
       - 'install.sh'
       - 'vendor/cm019_preferences/services/enrich/src/derive/**'
+      - 'vendor/cm059_editor/compiler/sensitive_topics.py'
+      - 'tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py'
       - 'vendor/cm019_preferences/services/enrich/src/derive_runner.py'
       - 'vendor/cm019_preferences/services/common/strength.py'
       - 'vendor/cm019_preferences/ontology/**'
@@ -47,8 +49,19 @@ on:
       - 'tests/test_vendored_derived_route_privacy_level.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
+      - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
+      - 'tests/test_vendored_stated_transcripts_reach_the_derive_engine.py'
+      - 'tests/test_stated_model_tick_yields.sh'
+      - 'scripts/ostler-stated-model-tick.sh'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_vendored_food_evidence_reaches_smart_preferences.py'
+      - 'tests/test_dietary_is_never_surfaced.py'
+      - 'vendor/cm059_editor/compiler/project_preferences.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_vendored_derive_patterns.py'
       - 'tests/test_vendored_enrich_representative_first.py'
       - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
@@ -130,6 +143,49 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: Food evidence reaches smart preferences (restaurants, cuisines, what you buy)
+        # ingest_food stages only the claimed extracts, the parser output derives
+        # through the vendored registry, a diet signal stays private, and the OSM
+        # lookup makes zero requests unless the owner accepted enrichment.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
+          python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
+      - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
+        # No reader row, derive code, editor/Front Page code or brief code reads the
+        # category; the projector drops it; the scanner is proven red on a fake row.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_dietary_is_never_surfaced.py
+      - name: What the owner says in conversations reaches the derive engine
+        # CM048 preference facts -> stated evidence with polarity; coffee x3 vs x1,
+        # sichuan/cantonese as two opposite nodes under the shared cuisine keys, a
+        # friend's taste excluded, no message text, a dropped-row mutant, real SHACL.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_stated_preferences_reach_the_derive_engine.py
+      - name: The owner's own lines in extracted transcripts reach the derive engine
+        # Same privacy filters as the fact path (L3, deceased, minors; L2 admitted and
+        # inherited), owner lines only, quoted/forwarded/other people's tastes rejected,
+        # counts and polarity only, no message database opened, tier-model stage order.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_stated_transcripts_reach_the_derive_engine.py
+      - name: The stated-preference model stage yields to chat (tier defer, slot, tier model only)
+        # DISABLED BY DECISION (precision 33% on 6 graded hits); the wrapper's
+        # guarantees are pinned so enabling it later cannot skip them.
+        if: always()
+        run: bash tests/test_stated_model_tick_yields.sh
+      - name: Trend, say-vs-do contradiction and time-of-day context reach the graph
+        # Real runner, real writer and SHACL gate, pyoxigraph. Red control: the
+        # same run with the derivers unregistered writes none of the fields.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_derive_patterns.py
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a
@@ -202,3 +258,8 @@ jobs:
       - name: The runner collects and invokes the derived-preferences probe (fake Hub)
         if: always()
         run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
+      - name: The vendored sensitive gate classifies genetic and biometric data (row 2471b)
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py

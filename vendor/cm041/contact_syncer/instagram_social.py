@@ -377,12 +377,6 @@ def upsert_qdrant(
         payload["relationship_hint"] = "close_friend"
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
-    point = PointStruct(
-        id=point_uuid,
-        vector=vector,
-        payload=payload,
-    )
-
     # Check if point exists — preserve richer data if present
     #
     # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
@@ -437,6 +431,16 @@ def upsert_qdrant(
     # #629: nothing pre-creates the people collection before the social
     # writers run; ensure it (idempotently) so the first upsert cannot 404.
     ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
+    # BUILT AFTER PRESERVATION, NOT BEFORE (NEW-119). The PointStruct used to
+    # be built above the preservation block. pydantic validates `payload` into
+    # its OWN dict, so every preserved field written into `payload` afterwards
+    # never reached the store: the richer stored values were overwritten with
+    # this importer's poorer ones, silently.
+    point = PointStruct(
+        id=point_uuid,
+        vector=vector,
+        payload=payload,
+    )
     qdrant.upsert(collection_name=collection, points=[point])
 
 
