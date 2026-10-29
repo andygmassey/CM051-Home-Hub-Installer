@@ -615,6 +615,42 @@ entries:
       kind: box_walk_probe
       probe: "source_status_artefact_is_served"
 
+  - id: box-walk-ostler-launchd-jobs-loaded-and-exit-clean
+    title: every Ostler LaunchAgent and LaunchDaemon on the box must be loaded, and none stopped on a non-zero last exit code
+    incident: >-
+      launchctl load exits 0 on failure, so "the installer loaded it" proves
+      nothing; only launchctl print carries whether the label is in the domain
+      and its last exit code. Before this row the suite asked that of one label
+      (com.ostler.fda-rerun, inside ingest_coverage) and every other Ostler job
+      could be unloaded or dying on every fire unseen (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "ostler_launchd_jobs_loaded_and_exit_clean"
+
+  - id: box-walk-gateway-not-exposed-on-lan
+    title: from the box's own LAN IP the gateway :8000 must be refused and :8443 frontpage/cards must be 404, with :8443/health as the control
+    incident: >-
+      fix-register row 947. The gateway host defaults to loopback in the
+      assistant config schema but install.sh writes port=8000 with no host, and
+      :8443 carries the companion route table; a listener table cannot say what
+      a LAN neighbour reaches, so the probe connects to the LAN IP itself, with
+      a positive control that makes a dead LAN path CANNOT-RUN, never PASS
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_not_exposed_on_lan"
+
+  - id: box-walk-install-log-error-lines
+    title: every level=error and Command failed line in the box install.log is printed with its count
+    incident: >-
+      the install's DONE errors= counter misses errors raised in subshells
+      (lib/progress_emitter.sh err() funnel counts in the parent shell only),
+      so "DONE errors=0" can sit beside real errors in the same log. ADVISORY
+      for its first cut via walk_promote_scope.tsv (a new row expires after one
+      cut), then blocking against the reviewed allowlist (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "install_log_error_lines"
+
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.
   # Searched OS003 and CM051 with a positive control before building: the only
