@@ -69,6 +69,10 @@ jobs:
         if: always()
         run: bash tests/test_model_digest_pins.sh
 
+      - name: The installer language reaches config.toml as owner_language
+        if: always()
+        run: bash tests/test_owner_language_from_installer.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
         run: |
@@ -81,7 +85,6 @@ jobs:
             tests/test_meeting_brief_sender.sh \
             tests/test_model_fit.sh \
             tests/test_ostler_gui_sudo_gates.sh \
-            tests/test_owner_language_from_installer.sh \
             tests/test_placeholder_strip.sh \
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
