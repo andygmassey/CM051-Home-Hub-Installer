@@ -59,19 +59,22 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Front Page (source, at the daemon this cut ships)
     # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
     # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
     # welcome modal navigates to '/settings#governor' (the modern Governor
     # route location; the panel scrolls to that anchor). Updated file + regex
     # to prove the same wire-through against the current source.
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt. RE-KEYED 2026-10-29 (v1.0.120) - since oa 5011a2d6 (in hub-v0.5.30) the first-run popup offers Front Page / Ask and no longer opens the Governor; the Governor is reachable from the sidebar (web/src/components/layout/Sidebar.tsx:122) and the header status chip (web/src/components/StatusChip.tsx:33). The product owner accepted this on 2026-10-29.
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.120 (ORM 2026-10-29): pinned to the daemon this cut SHIPS (cut.env DAEMON_COMMIT 610b0c5c = tag hub-v0.5.30),
+    # never the clone's HEAD (dispatch 40903304399 read HEAD and failed). Pattern count: 0 at d9854a99, 1 at 610b0c5c.
+    source_sha: 610b0c5c5fd5c6535b4342688858bf7817c72737
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
       path: "web/src/components/GovernorWelcomeModal.tsx"
-      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
+      pattern: "navigate\\(FRONT_PAGE_ROUTE\\)"
       must_match: true
 
   # ==========================================================================
