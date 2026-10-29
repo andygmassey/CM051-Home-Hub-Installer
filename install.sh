@@ -36774,7 +36774,12 @@ except Exception:
     if [[ "${_HYDRATE_EMAIL_RC:-0}" -ne 0 ]]; then
         _hydrate_sentinel_record_error "email" "$_HYDRATE_EMAIL_RC" \
             "people=${_HYDRATE_EMAIL_COUNT:-unknown},messages=${_HYDRATE_EMAIL_MSGS:-unknown},outcome=${_HYDRATE_EMAIL_OUTCOME:-unknown}"
-    elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]]; then
+    elif [[ "$_HYDRATE_EMAIL_OUTCOME" == "imported" ]] \
+         || [[ "${_HYDRATE_EMAIL_MSGS:-0}" =~ ^[0-9]+$ && "${_HYDRATE_EMAIL_MSGS:-0}" -gt 0 ]]; then
+        # NEW-119: mail that was READ is not "no data", even when it named
+        # nobody new (outcome no_correspondents_in_window). messages=N > 0
+        # makes the recorder write status=ok with the counts; no_data is kept
+        # for a run that read zero messages.
         # W012 class: outcome=imported with zero of both is reachable.
         _hydrate_sentinel_record "email" \
             "people=${_HYDRATE_EMAIL_COUNT:-0},messages=${_HYDRATE_EMAIL_MSGS:-0}" \
@@ -37770,6 +37775,23 @@ except Exception:
     print(0)' 2>/dev/null
         )" || { _HYDRATE_IMESSAGE_UNMEASURED=true; _HYDRATE_IMESSAGE_COUNT=""; }
         _HYDRATE_IMESSAGE_COUNT="${_HYDRATE_IMESSAGE_COUNT:-0}"
+        # NEW-119: the VOLUME read, from the vendored ingest's
+        # conversations_read / messages_read. A run that read 84,826
+        # messages and changed no person is not "no data" (diag118 rerun A).
+        # An older ingest without the fields gives 0 0, i.e. today's verdict.
+        _HYDRATE_IMESSAGE_READ="$(
+            printf '%s' "$_HYDRATE_IMESSAGE_JSON_OUT" \
+            | python3 -c 'import json,sys
+try:
+    d=json.loads(sys.stdin.read())
+    print(int(d.get("conversations_read", 0) or 0), int(d.get("messages_read", 0) or 0))
+except Exception:
+    print(0, 0)' 2>/dev/null
+        )" || _HYDRATE_IMESSAGE_READ=""
+        _HYDRATE_IMESSAGE_CONVS="${_HYDRATE_IMESSAGE_READ%% *}"
+        _HYDRATE_IMESSAGE_MSGS="${_HYDRATE_IMESSAGE_READ##* }"
+        case "${_HYDRATE_IMESSAGE_CONVS:-}" in ''|*[!0-9]*) _HYDRATE_IMESSAGE_CONVS=0 ;; esac
+        case "${_HYDRATE_IMESSAGE_MSGS:-}"  in ''|*[!0-9]*) _HYDRATE_IMESSAGE_MSGS=0 ;; esac
 
         if [[ "$_HYDRATE_IMESSAGE_COUNT" -gt 0 ]]; then
             ok "$(printf "$MSG_HYDRATE_IMESSAGE_DONE" "$_HYDRATE_IMESSAGE_COUNT")"
@@ -37859,16 +37881,20 @@ except Exception:
         # byte-identical in the sentinel: `:-0` manufactures the number the
         # reason is about. Say which one happened.
         if [[ "${_HYDRATE_IMESSAGE_UNMEASURED:-false}" == true ]]; then
-            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0},conversations=${_HYDRATE_IMESSAGE_CONVS:-0},messages=${_HYDRATE_IMESSAGE_MSGS:-0}" \
                 "counter_failed_count_unmeasured"
         else
-            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0}" \
+            # NEW-119: messages > 0 makes the payload non-zero, so the
+            # recorder writes status=ok with the counts; only a run that read
+            # zero messages and changed zero people stays no_data.
+            _hydrate_sentinel_record "imessage" "people=${_HYDRATE_IMESSAGE_COUNT:-0},conversations=${_HYDRATE_IMESSAGE_CONVS:-0},messages=${_HYDRATE_IMESSAGE_MSGS:-0}" \
                 "ran_ok_no_new_or_enriched_people"
         fi
     fi
 
     unset _HYDRATE_IMESSAGE_TIMED_OUT _HYDRATE_IMESSAGE_JSON_OUT
     unset _HYDRATE_IMESSAGE_COUNT _HYDRATE_IMESSAGE_TIMEOUT_WRAP _HYDRATE_IMESSAGE_CAP
+    unset _HYDRATE_IMESSAGE_READ _HYDRATE_IMESSAGE_CONVS _HYDRATE_IMESSAGE_MSGS
     unset _HYDRATE_IMESSAGE_LOG
 elif [[ ! -x "$_HYDRATE_IMESSAGE_PY" ]]; then
     info "$MSG_HYDRATE_IMESSAGE_SKIPPED_FDA_PENDING"
