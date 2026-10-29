@@ -4717,10 +4717,10 @@ for root, dirs, files in os.walk(pkg):
             here.add(d)
     siblings[root] = here
 pkg_name = os.path.basename(pkg.rstrip(os.sep))
-
 wanted = set()
 scanned = 0
-for root, _dirs, files in os.walk(pkg):
+for root, dirs, files in os.walk(pkg):  # NEW-119: tests/ is not a runtime (vendor/ostler_fda/tests imports pytest; no customer venv has it; the DMG no longer ships tests/, gui/project.yml)
+    dirs[:] = [d for d in dirs if d != "tests"]  # EXACT name, any depth: an upgrade/dev tree with tests/ must not report MISSING pytest; testsupport/ and tests_*.py are still scanned
     for fn in files:
         if not fn.endswith(".py"):
             continue

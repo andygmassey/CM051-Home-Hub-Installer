@@ -526,6 +526,10 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           mkdir -p "${DEST}/ostler_fda"
           cp -R "${VENDOR_SRC}/." "${DEST}/ostler_fda/"
+          # NEW-119: test suites are not product. vendor/ostler_fda/tests/
+          # imports pytest, which no customer venv has, and the install-time
+          # runtime-ready scan reported it as a missing runtime dependency.
+          find "${DEST}/ostler_fda" -type d -name tests -prune -exec rm -rf {} +
           /usr/bin/xattr -cr "${DEST}/ostler_fda"
         inputFiles:
           - $(SRCROOT)/../vendor/ostler_fda
