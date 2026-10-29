@@ -892,6 +892,33 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  - ref: "CM051:hotfix/v1.0.117-base"
+    reason: "release base, kept. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: the v1.0.117 tag plus CM051 #3173 squash 4f56f104, the base of a released artefact."
+    until_cut: "v1.0.120"
+  - ref: "CM051:fix/q32b-calendar-classify-118"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, paused Q32b calendar-classify work (tip d6dc44ba 'Q32b paused, what is done and what is left'; content test 561 of 610 added lines absent from main; no PR). On the remote. Owner: the Q32b calendar agent; tracker row v1.0.120."
+    until_cut: "v1.0.120"
+  - ref: "CM051:fix/qr-scan-size"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, local-only in another agent's worktree ~/Developer/orm/CM051-qr (tip 9f4300ec, pairing QR scan size; 256 of 264 added lines absent from main; no PR). Worktree not touched, branch not pushed by ORM (owner pushes after a PII check, CM051 is public). Owner: the agent of that worktree; tracker row v1.0.120."
+    until_cut: "v1.0.120"
+  - ref: "CM051:mr/3092"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED residue, local-only in another agent's worktree ~/Developer/cm051-mr-wt (tip 5759425a). #3092 content landed in the l10n squash 9be9e49d; 1457 of 67194 added lines still absent from main and #3092 is still OPEN. Worktree not touched, not pushed by ORM (public repo, reviewer-name history risk). Owner: the l10n agent; tracker row v1.0.120."
+    until_cut: "v1.0.120"
+  - ref: "CM051:r3081-xfail"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 58500751 is a commit of merged PR #3081), held by another agent's worktree ~/Developer/wt-3081; tip recorded in ~/walkdriver/ORM_119_DELETED_BRANCH_TIPS.txt, removal left for session hygiene."
+    until_cut: "v1.0.120"
+  - ref: "CM051:shrink/3130"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 09acd85d is a commit of merged PR #3130), held by another agent's worktree ~/Developer/shrink_3130; tip recorded, removal left for session hygiene."
+    until_cut: "v1.0.120"
+  - ref: "CM044:feat/chats-with-ostler-label"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, WIP 'Chats with Ostler' AI-chats label (tip ea6272f0, 107 of 107 added lines absent from main, no PR, 'tests not yet run'). Owner: the CM044 wiki agent; tracker row v1.0.120."
+    until_cut: "v1.0.120"
+  - ref: "CM044:fix/v107-needs-you-now-shared-source"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue: PR #296 closed as superseded by #295, but its close note says the every-qualifying-birthday fix still has value on the SPARQL fallback path (50 of 80 added lines absent). Owner: the CM044 wiki agent; tracker row v1.0.120."
+    until_cut: "v1.0.120"
+  - ref: "CM031:feat/ios-demo-mode"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, iOS demo-mode generator + dataset from the synthetic demo life, 'data only, not yet wired' (tip 859369e4, 3448 of 3448 lines absent, no PR). Not in the DMG either way (iOS). Owner: the CM031 demo-mode agent; tracker row v1.0.120."
+    until_cut: "v1.0.120"
   - ref: "CM051:#1437"
     reason: >-
       The decline arm must not claim "nothing was written to your Mac" when a
