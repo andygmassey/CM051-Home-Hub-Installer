@@ -45,8 +45,11 @@ fails=0
 fail() { echo "  FAIL  $*" >&2; fails=$((fails+1)); }
 pass() { echo "  ok    $*"; }
 
-if ! "$PY" -c 'import httpx, phonenumbers' 2>"$W/deps.err"; then
-    echo "CANNOT-RUN: $PY lacks httpx/phonenumbers, which pwg_ingest imports:" >&2
+# Probe the REAL import, not a guessed dependency list: CI once had httpx and
+# phonenumbers and still could not import pwg_ingest (nameparser), and every
+# arm then read a broken interpreter as product behaviour.
+if ! PYTHONPATH="$VENDOR" "$PY" -c 'import ostler_fda.pwg_ingest' 2>"$W/deps.err"; then
+    echo "CANNOT-RUN: $PY cannot import the vendored ostler_fda.pwg_ingest:" >&2
     cat "$W/deps.err" >&2
     exit 2
 fi

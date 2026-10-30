@@ -158,7 +158,7 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          python3 -m pip install --quiet httpx phonenumbers
+          python3 -m pip install --quiet httpx phonenumbers nameparser
           /bin/bash tests/test_hydrate_graph_food_deferred.sh
 
       - name: All three parse under /bin/bash 3.2
