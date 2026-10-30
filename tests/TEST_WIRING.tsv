@@ -476,6 +476,7 @@ test_imessage_probe_cannot_hang.sh	WIRED	.github/workflows/imessage-probe-cannot
 test_imessage_self_handles_fallback.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_imessage_tcc_posture.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_imessage_zero_is_declared_not_undeclared.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_import_kicks_digest_after_frontpage_compile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_inferred_category_never_egresses.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_ingest_contract.py	WIRED	.github/workflows/derived-preferences.yml
 test_ingest_offpeak_throttle.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
