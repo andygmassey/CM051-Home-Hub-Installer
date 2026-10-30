@@ -40,7 +40,7 @@ run_probe() {
     box_reachable || probe_cannot_run "cannot reach the box; no commitment was ever written"
     local remote venv_py token text facts forgot out rc n
     token="ostler-walk-todo-$$-$(date +%s 2>/dev/null || echo 0)"
-    text="SYNTHETIC WALK PROBE ${token}: email Jane Doe about the Fictionville report by Friday"
+    text="WALK PROBE ${token}: email Jane Doe"
     remote="/tmp/ostler-probe-todoreminders-$$.py"
     box_run "printf %s '$(base64 < "${_HERE}/lib/todo_reminders_box.py" | tr -d '\n')' | base64 -d > ${remote}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the todo-reminders box script on the box"

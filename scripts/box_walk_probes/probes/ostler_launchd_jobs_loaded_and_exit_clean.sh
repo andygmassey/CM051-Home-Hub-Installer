@@ -35,10 +35,13 @@ set -uo pipefail
 PROBE_NAME="ostler_launchd_jobs_loaded_and_exit_clean"
 PROBE_QUESTION="is every Ostler LaunchAgent/Daemon loaded (launchctl print), with last exit code 0?"
 
-# Runs ON THE BOX. One line per plist: label TAB domain TAB state TAB lastexit TAB disabled
+# Runs ON THE BOX, under whatever login shell ssh gives (zsh on a customer Mac):
+# NO shell glob, because zsh aborts the whole loop on an unmatched one ("no matches
+# found" on an empty /Library/LaunchAgents) and the probe then checked 0 jobs.
+# One line per plist: label TAB domain TAB state TAB lastexit TAB disabled
 _LAUNCHD_READ='uid=$(id -u)
 dis=$(launchctl print-disabled "gui/$uid" 2>/dev/null; launchctl print-disabled system 2>/dev/null)
-for f in "$HOME"/Library/LaunchAgents/*.plist /Library/LaunchAgents/*.plist /Library/LaunchDaemons/*.plist; do
+find "$HOME/Library/LaunchAgents" /Library/LaunchAgents /Library/LaunchDaemons -maxdepth 1 -name "*.plist" 2>/dev/null | while IFS= read -r f; do
   [ -e "$f" ] || continue
   b=$(basename "$f" .plist)
   case "$b" in *ostler*|*Ostler*) ;; *) continue ;; esac

@@ -468,8 +468,10 @@ if [[ -n "${FROM_DMG:-}" ]]; then
     [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
     DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
         || die "--from-dmg: could not make a mountpoint"
-    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
-        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    # hdiutil's stderr is KEPT and printed: "Resource busy" and "image not
+    # recognised" were both discarded, so a failed attach said nothing about why.
+    _att_err="$(hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" 2>&1 >/dev/null)" \
+        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}: ${_att_err}"
     DMG_ATTACHED=1
     # Detach on the way out however we leave, so a later run does not meet
     # "Resource busy" -- the v1.0.51 failure, one artefact over.

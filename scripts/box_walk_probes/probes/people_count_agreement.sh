@@ -330,9 +330,9 @@ import json, os, sys
 OXI, QD, COLL, CONF, RULES = sys.argv[1:6]
 try:
     sys.path.insert(0, RULES)
-    from people_rules import _best_display_name, _is_nameless_name
+    from people_rules import is_countable_person
 except Exception as exc:
-    print("NORULES could not import _is_nameless_name from people_rules.py in " + RULES + ": " + type(exc).__name__)
+    print("NORULES could not import is_countable_person from people_rules.py in " + RULES + ": " + type(exc).__name__)
     sys.exit(0)
 import urllib.request, urllib.error
 H = {}
@@ -352,18 +352,22 @@ def post(url, data, ctype):
     h.update(H)
     return json.load(urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=120))
 P = "https://schema.ostler.ai/ontology#"
-Q = ("SELECT ?p ?dn ?gn ?fn ?t ?v WHERE { ?p a <" + P + "Person> . "
-     "FILTER NOT EXISTS { ?p <" + P + "mergedInto> ?m } "
+Q = ("SELECT ?p ?m ?dn ?gn ?fn ?t ?v WHERE { ?p a <" + P + "Person> . "
+     "OPTIONAL { ?p <" + P + "mergedInto> ?m } "
      "OPTIONAL { ?p <" + P + "displayName> ?dn } OPTIONAL { ?p <" + P + "givenName> ?gn } "
      "OPTIONAL { ?p <" + P + "familyName> ?fn } "
      "OPTIONAL { ?p <" + P + "hasIdentifier> ?i . ?i <" + P + "identifierType> ?t ; <" + P + "identifierValue> ?v } }")
-def judge(dn, gn, fn, phones, emails, card):
-    name = _best_display_name(dn or "", gn or "", fn or "", list(emails))
-    return _is_nameless_name(name, has_card=bool(card), handles=list(phones) + list(emails)), not (dn or gn or fn)
+def judge(dn, gn, fn, phones, emails, card, merged=False):
+    # people_rules.is_countable_person: the ONE definition of a person for
+    # counting, also applied by the Doctor to Qdrant (ical-server
+    # _wiki_people_count). Returns (hidden, stub).
+    ok = is_countable_person(dn, gn, fn, list(emails), list(phones), has_card=bool(card), merged=merged)
+    return (not ok), not (dn or gn or fn)
 try:
     nodes = {}
     for b in post(OXI, Q.encode(), "application/sparql-query")["results"]["bindings"]:
-        n = nodes.setdefault(b["p"]["value"], {"dn": "", "gn": "", "fn": "", "ph": set(), "em": set(), "card": False})
+        n = nodes.setdefault(b["p"]["value"], {"dn": "", "gn": "", "fn": "", "ph": set(), "em": set(), "card": False, "m": False})
+        if "m" in b: n["m"] = True
         for k in ("dn", "gn", "fn"):
             if k in b and not n[k]:
                 n[k] = b[k]["value"]
@@ -372,7 +376,10 @@ try:
         elif t == "email": n["em"].add(v)
         elif t == "icloud_contact_uid" and v.strip(): n["card"] = True
     vo = so = ho = 0
+    merged_nodes = sum(1 for n in nodes.values() if n["m"])
     for n in nodes.values():
+        if n["m"]:
+            continue
         hidden, stub = judge(n["dn"], n["gn"], n["fn"], n["ph"], n["em"], n["card"])
         if not hidden: vo += 1
         elif stub: so += 1
@@ -395,7 +402,7 @@ try:
         nxt = r.get("next_page_offset")
         if nxt is None:
             break
-    print("OK %d %d %d %d %d %d %d" % (vo, so, ho, len(nodes), vq, hq, tq))
+    print("OK %d %d %d %d %d %d %d %d" % (vo, so, ho, len(nodes) - merged_nodes, vq, hq, tq, merged_nodes))
 except urllib.error.HTTPError as exc:
     print("CANNOTRUN HTTP %d from %s" % (exc.code, exc.geturl() if hasattr(exc, "geturl") else "a store"))
 except Exception as exc:
@@ -730,7 +737,7 @@ run_probe() {
     # The verdict: CUSTOMER-VISIBLE counts, both sides through the one imported
     # predicate (see VISIBLE_PY). The raw pair above is the stability
     # instrument and stays printed; it is no longer what is graded.
-    local vis vo so ho no vq hq tq
+    local vis vo so ho no vq hq tq mo
     vis="$(read_visible)"
     case "$vis" in
         OK\ *) : ;;
@@ -738,12 +745,16 @@ run_probe() {
         *) probe_cannot_run "the customer-visible count read did not complete: ${vis:-<empty answer>}" ;;
     esac
     set -- ${vis#OK }
-    vo="$1"; so="$2"; ho="$3"; no="$4"; vq="$5"; hq="$6"; tq="$7"
-    probe_note "customer-visible (people_rules._is_nameless_name, imported): oxigraph ${vo} of ${no} unmerged nodes, qdrant ${vq} of ${tq} points; stubs=${so} (unnamed join anchors, allowed), hidden by the predicate: oxigraph ${ho}, qdrant ${hq}"
-    [ "$tq" = "$doc" ] || probe_note "  note: qdrant points scrolled (${tq}) differ from the doctor api count (${doc})"
+    vo="$1"; so="$2"; ho="$3"; no="$4"; vq="$5"; hq="$6"; tq="$7"; mo="${8:-0}"
+    probe_note "customer-visible (people_rules.is_countable_person, imported; named and not merged away): oxigraph ${vo} of ${no} unmerged nodes (${mo} merged-away Person nodes excluded), qdrant ${vq} of ${tq} points; stubs=${so} (unnamed join anchors, allowed), hidden by the predicate: oxigraph ${ho}, qdrant ${hq}"
 
+    # v1.0.121: the GRAPH side (counted here) against the DOCTOR's number,
+    # which now applies the same definition to Qdrant (ical-server
+    # _wiki_people_count). Each store is counted by its own reader; the
+    # probe's own Qdrant scroll (${vq}) is printed as a cross-check only.
+    [ "$vq" = "$doc" ] || probe_note "  note: the probe's own Qdrant count (${vq}) differs from the doctor api count (${doc})"
     local r token detail
-    r="$(adjudicate_counts "$vo" "$vq" "$TOLERANCE_PCT")"
+    r="$(adjudicate_counts "$vo" "$doc" "$TOLERANCE_PCT")"
     token="${r%% *}"; detail="${r#* }; customer-visible, stubs=${so}"
 
     case "$token" in

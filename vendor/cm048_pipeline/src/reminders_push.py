@@ -98,6 +98,10 @@ SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
 SKIP_REASON_NO_SPECIFIC_ACTION = "no_specific_action"
+# The title cannot be shortened to MAX_TITLE_CHARS at a word boundary (one
+# unbroken run of characters longer than the limit). Distinct from
+# no_specific_action so a walk can tell "too long" from "too vague".
+SKIP_REASON_TITLE_TOO_LONG = "title_too_long"
 SKIP_REASON_STALE = "stale_source"
 # An organisation or automated sender (the People list's own rules say so).
 SKIP_REASON_NON_HUMAN = "non_human_sender"
@@ -622,7 +626,31 @@ _FILLER_WORDS = frozenset(
 )
 
 
-def title_quality_reason(title: str) -> Optional[str]:
+TITLE_ELLIPSIS = "\u2026"
+
+
+def truncate_title(text: str, limit: int = MAX_TITLE_CHARS) -> Optional[str]:
+    """``text`` cut at a word boundary to ``limit`` chars or fewer.
+
+    Returned unchanged when it already fits. Otherwise the cut lands on
+    whitespace and ends in one ellipsis character, the whole being
+    ``<= limit``. None when no word boundary exists inside the limit (a
+    single unbroken run): the caller refuses with ``title_too_long``.
+    """
+    t = (text or "").strip()
+    if len(t) <= limit:
+        return t
+    head = t[: limit - 1]
+    if not t[limit - 1].isspace():
+        cut = max((i for i, c in enumerate(head) if c.isspace()), default=-1)
+        head = head[:cut] if cut > 0 else ""
+    head = head.rstrip(" \t\n,;:.-")
+    if not head:
+        return None
+    return head + TITLE_ELLIPSIS
+
+
+def title_quality_reason(title: str, *, check_length: bool = True) -> Optional[str]:
     """Return why ``title`` is not fit to show a customer, or None if it is.
 
     Deterministic, no LLM. Rejects: empty, over-long, handles, emails,
@@ -632,7 +660,7 @@ def title_quality_reason(title: str) -> Optional[str]:
     t = (title or "").strip()
     if not t or t == "(empty commitment)":
         return "empty"
-    if len(t) > MAX_TITLE_CHARS:
+    if check_length and len(t) > MAX_TITLE_CHARS:
         return "too_long"
     if _EMAIL_RE.search(t):
         return "email"
@@ -873,20 +901,41 @@ def decide_push(
         todo, level, bundle=bundle, user_id=user_id,
         name_resolver=name_resolver, participant=participant,
     )
-    if title_quality_reason(title) is not None:
+    # Every quality rule except length runs on the FULL text first, so cutting
+    # the title can never hide an email, path or date in the part that then
+    # goes to the notes.
+    if title_quality_reason(title, check_length=False) is not None:
         return PushDecision(
             eligible=False, skip_reason=SKIP_REASON_NO_SPECIFIC_ACTION,
             push_title="", push_notes="", push_deadline=None,
         )
+    full_text = ""
+    if len(title.strip()) > MAX_TITLE_CHARS:
+        # A valid commitment longer than the limit is shortened, never
+        # dropped. Only L0 / L1 titles are the raw text (L2 titles are built
+        # short), so the full text may go to the notes only there.
+        shortened = truncate_title(title)
+        if shortened is None or title_quality_reason(shortened) is not None:
+            return PushDecision(
+                eligible=False, skip_reason=SKIP_REASON_TITLE_TOO_LONG,
+                push_title="", push_notes="", push_deadline=None,
+            )
+        if level in ("L0", "L1"):
+            full_text = title.strip()
+        title = shortened
+
+    notes = _format_push_notes(
+        todo, bundle, privacy_level=level, summary_path=summary_path,
+        name_resolver=name_resolver, participant=participant,
+    )
+    if full_text:
+        notes = f"{full_text}\n\n{notes}"
 
     return PushDecision(
         eligible=True,
         skip_reason=None,
         push_title=title,
-        push_notes=_format_push_notes(
-            todo, bundle, privacy_level=level, summary_path=summary_path,
-            name_resolver=name_resolver, participant=participant,
-        ),
+        push_notes=notes,
         push_deadline=todo.deadline,
         thread_key=thread_key_for(bundle, user_id),
         flag=flag,
@@ -1405,7 +1454,7 @@ __all__ = [
     "STATUS_PERMISSION_DENIED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
-    "SKIP_REASON_SUPERSEDED",
+    "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
     "apply_push_status_to_todos",
     "decide_push",
     "default_db_path",

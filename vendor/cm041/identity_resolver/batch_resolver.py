@@ -41,7 +41,10 @@ from identity_resolver.normalise import (
     normalise_email,
     normalise_phone,
 )
-from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
+from identity_resolver.decisions import (
+    apply_user_decisions, blocks_merge, load_duplicate_decisions,
+    load_duplicate_decisions_strict,
+)
 from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 
 logger = logging.getLogger(__name__)
@@ -1600,11 +1603,17 @@ def _merge_qdrant(
             points=[keep_point_id],
         )
 
-    # Delete the discard point
-    client.delete(
-        collection_name=collection,
-        points_selector=[discard_point_id],
-    )
+    # Delete the discard point, and any other point carrying the discard's
+    # person_uri (a writer that did not key its point by uuid5(uri)). Those
+    # used to survive here and were only collapsed later if they shared a uri
+    # with a LIVE point, which a merged-away uri never does.
+    try:
+        merge_journal.delete_person_points(qdrant_url, collection, discard_uri)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Qdrant delete failed for merged-away %s: %s. The graph merge has "
+            "already happened.", discard_uri, type(exc).__name__)
+        return False
     logger.info("Qdrant merge: %s → %s (deleted %s)", discard_point_id, keep_point_id, discard_point_id)
     # CM051 CORRECTION TO UPSTREAM #129 (CM041 100a3afb), deliberately NOT a
     # verbatim graft. Upstream annotates this function `-> bool` and adds three
@@ -1725,6 +1734,16 @@ class QdrantOrphanSweepReport:
     deleted: int = 0
     applied: bool = False
     backup_path: Optional[str] = None
+    # v1.0.121: every point whose person_uri is NOT a live Person, split by
+    # what the graph says about it. Only ``orphan_point_ids`` is ever deleted.
+    candidates: int = 0
+    # Merge sources whose chain does NOT end at a live Person (a dangling or
+    # cyclic merge): reported, never deleted, because the person they were
+    # merged into cannot be shown to exist.
+    unresolved_merge_uris: List[str] = field(default_factory=list)
+    # In the graph as neither a Person nor a merge source (true orphans):
+    # reported, never deleted. Absent is not the same as retired.
+    true_orphan_uris: List[str] = field(default_factory=list)
 
     @property
     def orphans(self) -> int:
@@ -1814,7 +1833,14 @@ def sweep_qdrant_orphans_of_merged_people(
     #    Both halves matter: a subject that still has the type is still being
     #    counted as a live person, which is a different defect (see
     #    resolver.py step 5c) and must not be swept away here.
+    #
+    #    v1.0.121: AND whose merge chain ENDS at a live Person. A merged-away
+    #    point is deleted only when the person it was merged into provably
+    #    exists, so search still finds that person under the winner's uri.
+    #    A chain that dangles or loops is reported, not deleted.
     retired: Set[str] = set()
+    merge_sources: Set[str] = set()
+    live: Set[str] = set()
     # trust_env=False: these are the customer's LOCAL stores. A client that
     # reads HTTP_PROXY can have every probe answered by a local proxy, which
     # is indistinguishable from the store answering. Gated by
@@ -1826,12 +1852,35 @@ def sweep_qdrant_orphans_of_merged_people(
             f"SELECT DISTINCT ?s WHERE {{ "
             f"  ?s <{PWG}mergedInto> ?t . "
             f"  FILTER NOT EXISTS {{ ?s a <{PWG}Person> }} "
+            f"  ?s <{PWG}mergedInto>+ ?f . "
+            f"  ?f a <{PWG}Person> . "
+            f"  FILTER NOT EXISTS {{ ?f <{PWG}mergedInto> ?g }} "
             f"}}",
         )
+        merge_sources = {r["s"] for r in _sparql_query(
+            oxigraph_url, hc,
+            f"SELECT DISTINCT ?s WHERE {{ ?s <{PWG}mergedInto> ?t }}",
+        ) if r.get("s")}
+        live = {r["p"] for r in _sparql_query(
+            oxigraph_url, hc,
+            f"SELECT DISTINCT ?p WHERE {{ ?p a <{PWG}Person> }}",
+        ) if r.get("p")}
     for row in rows:
         if row.get("s"):
             retired.add(row["s"])
     report.retired_uris_in_graph = len(retired)
+
+    not_live = sorted(u for u in by_uri if u not in live)
+    report.candidates = len(not_live)
+    report.unresolved_merge_uris = [
+        u for u in not_live if u in merge_sources and u not in retired]
+    report.true_orphan_uris = [u for u in not_live if u not in merge_sources]
+    if report.unresolved_merge_uris or report.true_orphan_uris:
+        logger.warning(
+            "Qdrant orphan sweep: %d point uri(s) are a merge source whose "
+            "chain does not end at a live Person, and %d are neither a Person "
+            "nor a merge source. REPORTED, NOT deleted.",
+            len(report.unresolved_merge_uris), len(report.true_orphan_uris))
 
     orphan_points = [pt for uri, pts in by_uri.items() if uri in retired for pt in pts]
     report.orphan_point_ids = [pt.id for pt in orphan_points]
@@ -2130,7 +2179,27 @@ class BatchResolver:
         _backup_triples(self.oxigraph_url, self._client, all_uris, backup_path)
 
         refused_rule2 = 0
+        # "Different people" decisions (#2876, duplicates.yaml `distinct`),
+        # re-read at EXECUTE time. detect() already drops a distinct pair,
+        # but a converge round plans first and executes later; a decision
+        # recorded in between was ignored by the stale plan, which then
+        # re-merged the pair through the exact-identifier override below
+        # (it reads names and keys, never the decision).
+        # STRICT: a duplicates.yaml that exists but will not parse refuses
+        # every merge this round (one warning line from the loader), rather
+        # than reading as "no decisions" and re-joining separated pairs.
+        distinct_now = load_duplicate_decisions_strict(
+            self.config.get("corrections_dir", ""))
         for action in report.auto_merges:
+            if blocks_merge(action.keep_uri, action.discard_uri, distinct_now):
+                logger.info(
+                    "Not merging %s into %s: %s",
+                    action.discard_uri, action.keep_uri,
+                    "the decisions file is unreadable"
+                    if distinct_now.get("unreadable")
+                    else "recorded as different people",
+                )
+                continue
             # RULE 2 veto, per pair, BEFORE any write. See the long note above
             # _merge_oxigraph: this path reached the graph without it and grew
             # 137 over-merged nodes on a freshly wiped box.

@@ -20,6 +20,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -40,6 +41,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -49,6 +51,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -69,6 +72,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -93,12 +97,25 @@ jobs:
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
 
+      # A graph with 1 icloud_contact_uid or 0 candidate merge pairs examined
+      # nothing; the probe must say CANNOT-RUN with the denominator, and a real
+      # 2+ uid fixture with 0 violations must still PASS.
+      - name: two-cards probe is CANNOT-RUN on a vacuous graph, PASS on a real one
+        if: always()
+        run: /bin/bash scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh
+
       # instr119: the people and screens probes print CAUSES (join key, C split,
       # category breakdown, launchctl exit + install.sh fda-rerun line, 5xx body,
       # Needs-you-now keys) against synthetic stores, with exit codes unchanged.
       - name: walk probes print causes, masked, exit codes unchanged (instr119)
         if: always()
         run: python3 tests/test_walk_probes_print_causes.py
+
+      # Archie's three holes on #3231: unmeasured denominators are CANNOT-RUN (no
+      # substitute value), and journal-excused merges count as candidate pairs.
+      - name: two-cards probe verdict holes (unmeasured denominators, excused merges)
+        if: always()
+        run: python3 tests/test_two_cards_probe_verdict_holes.py
 
       # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
       # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts
