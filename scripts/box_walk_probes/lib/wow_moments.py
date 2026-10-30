@@ -33,6 +33,7 @@ HUB = os.environ.get("OSTLER_HUB_HOST", "http://127.0.0.1:8090").rstrip("/")
 GATEWAY = os.environ.get("OSTLER_PROBE_GATEWAY", "http://127.0.0.1:8000").rstrip("/")
 STORE = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query").replace("/query", "")
 GRADED_MAX = 3
+UNSAVED_WORDS = re.compile(r"not in your contacts", re.I)
 NONE_WORDS = re.compile(r"\b(nobody|no one|no-one|none|not waiting|no replies|nothing)\b", re.I)
 
 
@@ -280,6 +281,9 @@ def box_reply_debt():
     out["named"] = [_named(text, n) for n in names]
     out["l3_named"] = sum(1 for n in l3 if _named(text, n))
     out["says_none"] = bool(NONE_WORDS.search(text)) if not debts else None
+    # Every debt an unsaved number: nobody is NAMED, and the correct answer says
+    # "someone not in your contacts" (oa #3142), not "nobody".
+    out["says_unsaved"] = bool(UNSAVED_WORDS.search(text)) if debts and not names else None
     out["answered"] = bool(text.strip())
     return out
 
@@ -323,6 +327,9 @@ def judge_reply_debt(c):
     if c.get("count", 0) - c.get("unsaved", 0) > 0:
         check("the answer names the %d people the Hub says are waiting (%d of %d)"
               % (c.get("graded", 0), sum(named), len(named)), bool(named) and all(named))
+    elif c.get("count", 0) > 0:
+        check("every waiting debt is an unsaved number: the answer says 'not in your contacts' rather than naming or denying",
+              bool(c.get("says_unsaved")))
     else:
         check("with nobody waiting, the answer says so rather than inventing someone",
               bool(c.get("says_none")))
@@ -545,6 +552,14 @@ def self_test():
     ok &= rc == EX_PASS
     _, rc = judge_reply_debt(dict(cap, named=[True, False]))
     print("  %s  reply debt mutant rejected: a resolved person dropped from the answer" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    # All debts unsaved: the right answer passes, the answer that omits the line fails.
+    all_unsaved = dict(rd_good, count=1, graded=0, named=[], unsaved=1, says_none=None, says_unsaved=True)
+    _, rc = judge_reply_debt(all_unsaved)
+    print("  %s  reply debt: all debts unsaved and the answer says 'not in your contacts' passes" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(all_unsaved, says_unsaved=False))
+    print("  %s  reply debt mutant rejected: all debts unsaved and the answer omits the line" % ("ok   " if rc == EX_FAIL else "FAIL "))
     ok &= rc == EX_FAIL
     mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
                                       {"person_name": "Unknown number", "resolved": False}])
