@@ -36,6 +36,8 @@ on:
       - 'tests/test_dedupe_merge_shared_phone_needs_same_name.py'
       - 'vendor/ostler_fda/phone_twins.py'
       - 'tests/test_provisional_phone_twins_merge.py'
+      - 'tests/test_email_named_twin_folds_into_the_card_holder.py'
+      - 'vendor/cm021/src/cli.py'
       - '.github/workflows/dedupe-merge-rule-2.yml'
   push:
     branches: [main]
@@ -109,3 +111,19 @@ jobs:
             exit 1
           fi
           python3 -m pytest tests/test_provisional_phone_twins_merge.py -v
+      # v1.0.121 (v1.0.120 walk): an email-named Person written by the email
+      # ingest (bare pwg:email, no hasIdentifier) is the card holding that
+      # address. Folds into the ONE holder when its name is not human or is
+      # the same full name; a shared address or a different name joins nobody.
+      # The twin is written by the shipped cm021 _build_upsert. Real SPARQL.
+      - name: An email-named person folds into the one card holding that address
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          n="$(python3 -m pytest tests/test_email_named_twin_folds_into_the_card_holder.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_email_named_twin_folds_into_the_card_holder.py -v

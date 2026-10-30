@@ -295,3 +295,23 @@ UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
 re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
 the same three changes. The patch is not regenerated, for the reason in the
 2026-10-22 section above.
+
+## 2026-10-30 (v1.0.121): Tier 1 checks every holder of an identifier
+
+Tree `cm041/identity_resolver`, file `resolver.py`. New method
+`IdentityResolver.find_all_by_identifier` (every live holder, tombstones
+followed, stable order); `_resolve_tiers` Tier 1 now walks every holder of
+each incoming identifier through `_identifier_match_trustworthy`, instead of
+the single arbitrary `LIMIT 1` holder from `find_by_identifier`. With the
+RULE 2 trust filter (vendor-only) in Tier 1, the single holder returned was
+often the OTHER card's node, which RULE 2 rightly declines, and the holders
+that would pass were never seen; a pile of nodes for one person then never
+shrank (v1.0.120 walk, Mini16). The per-pair RULE 2 veto in the collapse
+branch is unchanged. `find_by_identifier` is unchanged for its other callers.
+
+Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py`
+(the 3-node arm goes red with this hunk reverted).
+
+UPSTREAM ROW: none owed today. CM041 main (fe3290d) Tier 1 has no RULE 2
+trust filter, so its LIMIT 1 lookup cannot hide an acceptable holder behind
+a declined one. Owed only if CM041 takes the RULE 2 Tier-1 guard.

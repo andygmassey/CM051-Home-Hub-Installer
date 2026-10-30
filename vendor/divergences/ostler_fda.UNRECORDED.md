@@ -122,3 +122,22 @@ Proof: `tests/test_read_messages_are_not_no_data.py` (hydrate-sentinel.yml).
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same return keys. Retire when it
 lands there and the tree is re-pinned past it.
+
+## 2026-10-30 (v1.0.121): dedupe_merge email-twin pass
+
+Tree `ostler_fda`, file `dedupe_merge.py`. New `merge_email_twins`, called at
+the end of `run()` (result keys `email_twins_merged`,
+`email_twins_shared_refused`, `email_twins_name_differs`,
+`email_twins_unreadable`). An address-only Person (the email ingest's shape:
+bare `pwg:email`, provisional name, no `pwg:hasIdentifier`) folds into the ONE
+live person holding that address as an `email` identifier, when its name is
+not human or is the same full name. A shared address or a different human
+name joins nobody. Measured on the v1.0.120 walk box (Mini16, counts only):
+691 live address-only nodes, 33 sharing their address with a live
+identifier-holding node; the walk's People check failed on one of them.
+
+Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` (wired in
+`.github/workflows/dedupe-merge-rule-2.yml`).
+
+Owed upstream: yes, HR015 `ostler_fda/dedupe_merge.py`, the same pass. Retire
+when it lands there and the tree is re-pinned past it.
