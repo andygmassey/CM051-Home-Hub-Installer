@@ -16845,9 +16845,9 @@ lwd_probe() {
 
 lwd_install_running() {
     if [ -n "$INSTALL_RUNNING_CMD" ]; then eval "$INSTALL_RUNNING_CMD"; return $?; fi
-    pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
-    pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
-    return 1
+    # Marker, not pgrep -f (it matched any argv holding /install.sh); uninstall writes deliberate-stop first, checked above.
+    local m="${LWD_STATE_DIR}/install-in-progress" pid; [ -f "$m" ] && [ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ] || return 1
+    pid="$(sed -n 's/^pid=//p' "$m" 2>/dev/null | head -n 1)"; case "$pid" in ''|*[!0-9]*) return 1 ;; esac; ps -p "$pid" >/dev/null 2>&1
 }
 
 prev_fails="$(cat "$FAILS" 2>/dev/null || echo 0)"
