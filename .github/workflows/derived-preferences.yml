@@ -39,6 +39,8 @@ on:
       - 'tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh'
       - 'tests/test_derive_agent_env_can_read_system_load.sh'
       - 'tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh'
+      - 'tests/test_wiki_summary_workers_pinned_at_one_for_every_tier.sh'
+      - 'lib/ostler-resource-tier.sh'
       - 'wiki-recompile/launchd/**'
       - 'wiki-recompile/bin/**'
       - 'vendor/*_source/launchd/**'
@@ -134,6 +136,9 @@ jobs:
       - name: Every job that reads the tier lib can find sysctl in its own LaunchAgent environment (discovered by grep; derive-PATH mutant is RED)
         if: always()
         run: bash tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh
+      - name: The wiki summary-worker cap is pinned at 1 for every tier (tier-map mutant is RED)
+        if: always()
+        run: bash tests/test_wiki_summary_workers_pinned_at_one_for_every_tier.sh
       - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
         # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
         # the other three are the shipped requirements the writer imports.

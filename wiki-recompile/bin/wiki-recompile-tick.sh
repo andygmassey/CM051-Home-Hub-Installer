@@ -112,7 +112,8 @@ export -f wiki_compile_output_summary
 # first-impression surfaces), so it is NOT deferred by the load gate the
 # conversation feeds use. But its Phase-2 summary backfill is the single
 # biggest Ollama producer on the box, so it MUST scale its parallel LLM
-# worker count to the hardware tier: FLOOR=1, LOW=2, HIGH=3. Left fixed at
+# worker count to the hardware tier (v1.0.121: pinned at 1 for every
+# tier, see WIKI_WORKERS_PINNED below). Left fixed at
 # the shipped 3, a 16GB floor machine runs three parallel summary workers
 # against the one shared model slot and re-creates the saturation. We read
 # the tier here and pass WIKI_LLM_WORKERS to the Phase-2 compile container
@@ -121,6 +122,7 @@ export -f wiki_compile_output_summary
 # Fail-safe: if the tier lib is absent we leave WIKI_LLM_WORKERS unset and
 # the compiler uses its own default (the pre-governor behaviour).
 # Override / disable with OSTLER_RESOURCE_GOVERNOR=0.
+WIKI_WORKERS_PINNED=1
 WIKI_TIER_WORKERS=""
 if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
     _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$HOME/.ostler/lib/ostler-resource-tier.sh}"
@@ -141,11 +143,17 @@ if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
                 log "background work paused by the operator; skipping this wiki recompile (auto-resumes when the pause ends)."
                 exit 0
             fi
-            case "${OSTLER_TIER:-}" in
-                floor) WIKI_TIER_WORKERS=1 ;;
-                low)   WIKI_TIER_WORKERS=2 ;;
-                high)  WIKI_TIER_WORKERS=3 ;;
-            esac
+            # v1.0.121: PINNED at 1 for EVERY tier, as an explicit constant.
+            # The per-tier map (floor 1 / low 2 / high 3) was a no-op until the
+            # LaunchAgent PATH gained /usr/sbin: sysctl was invisible, RAM read
+            # 0, and every Mac read "floor", so 1 is the only value any walk
+            # (v1.0.68 to v1.0.120) has ever run. Now that the tier reads
+            # correctly, restoring the map would silently give 16-31GB Macs
+            # 2 workers and 32GB+ Macs 3 against a shared model slot, with chat
+            # at no priority over background work. FIRST-UPDATE ROW: raise per
+            # tier after the walk measures compile time and chat latency at 2
+            # and 3. Until then: 1, whatever OSTLER_TIER says.
+            WIKI_TIER_WORKERS="$WIKI_WORKERS_PINNED"
             [ -n "$WIKI_TIER_WORKERS" ] && \
                 log "resource tier ${OSTLER_TIER}: capping wiki summary workers to ${WIKI_TIER_WORKERS}"
         fi

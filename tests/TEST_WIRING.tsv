@@ -1055,6 +1055,7 @@ test_wiki_password_never_reaches_install_log.sh	WIRED	.github/workflows/tests-un
 test_wiki_provenance_extracts_without_exec.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_wiki_ready_ignores_conversations_and_ai_summaries_trusts_its_own_numbers.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_wiki_recompile_after_late_hydration.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_wiki_summary_workers_pinned_at_one_for_every_tier.sh	WIRED	.github/workflows/derived-preferences.yml
 test_wiki_tailnet_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_wiring_ceiling_only_ever_decreases.sh	WIRED	.github/workflows/test-wiring.yml
 test_wow_moment_probes.sh	WIRED	.github/workflows/wow-moment-probes.yml
