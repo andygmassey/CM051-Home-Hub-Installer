@@ -88,6 +88,62 @@ def _withheld(level):
     return (level or "").strip().lower() in ("l3", "private")
 
 
+# Names of the synthetic seed cast (approved cast: .pii-name-registry.tsv). A
+# missed debt is named in the evidence ONLY when it is one of these: any other
+# name is a real person's, and the walk record lands in support bundles, so
+# only its SHAPE is recorded (never a real name in evidence).
+SEED_REPLY_DEBT_NAMES = frozenset(n.lower() for n in (
+    "Jane Smith", "Tom Jones", "Sam Doe", "John Doe", "Jane Doe", "Bob Brown",
+    "Alex Patel", "Mary Ross", "Raj Patel", "Liz Stewart"))
+
+
+def _name_shape(name):
+    """What a name LOOKS like without saying it: word count and script class."""
+    if not isinstance(name, str) or not name.strip():
+        return "no name"
+    if sum(ch.isdigit() for ch in name) * 2 >= len(name.strip()):
+        return "digits (a raw number)"
+    words = len(name.split())
+    ascii_only = all(ord(ch) < 0x250 for ch in name)
+    return "%d word%s, %s" % (words, "" if words == 1 else "s", "latin" if ascii_only else "non-latin")
+
+
+def debt_evidence(d):
+    """One missed debt as a dict of name (seed cast only, else None), shape,
+    resolved flag and age in hours. Never carries a non-seed name."""
+    nm = d.get("person_name")
+    seed = isinstance(nm, str) and nm.strip().lower() in SEED_REPLY_DEBT_NAMES
+    wh = d.get("waiting_hours")
+    return {"name": nm.strip() if seed else None,
+            "shape": _name_shape(nm),
+            "resolved": d.get("resolved"),
+            "age_hours": round(wh, 1) if isinstance(wh, (int, float)) and not isinstance(wh, bool) else None}
+
+
+def format_missed(missed):
+    """The evidence line for missed debts: 'name=Jane Smith' for a seed name,
+    'name=<not a seed name>' otherwise, then shape, resolved and age."""
+    parts = []
+    for m in missed or []:
+        parts.append("[name=%s shape=%s resolved=%s age_h=%s]" % (
+            m.get("name") if m.get("name") else "<not a seed name>", m.get("shape"), m.get("resolved"), m.get("age_hours")))
+    return " ".join(parts)
+
+
+def graded_debts(debts):
+    """The reply-debt rows that are graded by name, in order (see grade_reply_debts)."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    resolved = [d for d in rows if d.get("resolved") is not False]
+    return [d for d in resolved
+            if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+
+
+def missed_debts(debts, named_flags):
+    """Evidence for each graded debt whose name the answer/brief did NOT carry."""
+    g = graded_debts(debts)
+    return [debt_evidence(d) for d, ok in zip(g, named_flags) if not ok]
+
+
 def grade_reply_debts(debts):
     """Split reply-debt rows into (names to grade, unsaved count).
 
@@ -97,8 +153,7 @@ def grade_reply_debts(debts):
     resolved field (an older Hub) are graded, as before."""
     rows = [d for d in debts if isinstance(d, dict)]
     resolved = [d for d in rows if d.get("resolved") is not False]
-    names = [d.get("person_name") for d in resolved
-             if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+    names = [d.get("person_name") for d in graded_debts(rows)]
     return names, len(rows) - len(resolved)
 
 
@@ -279,6 +334,7 @@ def box_reply_debt():
     out["tools"] = sorted(set(tools))
     out["graded"] = len(names)
     out["named"] = [_named(text, n) for n in names]
+    out["missed"] = missed_debts(debts, out["named"])
     out["l3_named"] = sum(1 for n in l3 if _named(text, n))
     out["says_none"] = bool(NONE_WORDS.search(text)) if not debts else None
     # Every debt an unsaved number: nobody is NAMED, and the correct answer says
@@ -325,8 +381,10 @@ def judge_reply_debt(c):
         lines.append("  note   %d unsaved number(s) not graded by name (the brief says 'someone not in your contacts'; age-out window %s h read from the shipped reply_debt.py)"
                      % (c["unsaved"], c.get("unsaved_window_hours") if c.get("unsaved_window_hours") is not None else "UNREADABLE"))
     if c.get("count", 0) - c.get("unsaved", 0) > 0:
-        check("the answer names the %d people the Hub says are waiting (%d of %d)"
-              % (c.get("graded", 0), sum(named), len(named)), bool(named) and all(named))
+        check("the answer names the %d people the Hub says are waiting (%d of %d)%s"
+              % (c.get("graded", 0), sum(named), len(named),
+                 "; MISSED " + format_missed(c.get("missed")) if c.get("missed") else ""),
+              bool(named) and all(named))
     elif c.get("count", 0) > 0:
         check("every waiting debt is an unsaved number: the answer says 'not in your contacts' rather than naming or denying",
               bool(c.get("says_unsaved")))
@@ -416,7 +474,8 @@ def box_morning(wait_s=600):
             return out
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
-        reply_names, _unsaved = grade_reply_debts((rd or {}).get("debts") or [])
+        reply_debts = (rd or {}).get("debts") or []
+        reply_names, _unsaved = grade_reply_debts(reply_debts)
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -451,6 +510,7 @@ def box_morning(wait_s=600):
         out["other_promise"] = "walk-probe venue list" in text.lower()
         out["reply_graded"] = len(reply_names)
         out["reply_named"] = [_named(text, n) for n in reply_names]
+        out["reply_missed"] = missed_debts(reply_debts, out["reply_named"])
         out["reply_source"] = "ok" if rd is not None else "unavailable"
         out["meetings_graded"] = len(meetings)
         out["meetings_named"] = [all(w in text.lower() for w in re.findall(r"[\w']{3,}", m.lower())[:4])
@@ -480,7 +540,9 @@ def judge_morning(c):
     check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
     rn = c.get("reply_named") or []
     if c.get("reply_graded", 0):
-        check("the brief names who is waiting on a reply (%d of %d)" % (sum(rn), len(rn)), all(rn))
+        check("the brief names who is waiting on a reply (%d of %d)%s"
+              % (sum(rn), len(rn), "; MISSED " + format_missed(c.get("reply_missed")) if c.get("reply_missed") else ""),
+              all(rn))
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
     mn = c.get("meetings_named") or []
