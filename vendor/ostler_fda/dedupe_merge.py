@@ -489,6 +489,84 @@ def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
     return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
 
 
+# ── EMAIL TWINS: AN ADDRESS-ONLY PERSON IS THE CARD THAT HOLDS THE ADDRESS ──
+# v1.0.120 walk (Mini16, counts only): the People list showed a row named by
+# an email address while a human-named row held that same address. The
+# address-named node was written by the email ingest (vendor/cm021, its
+# _build_upsert): ``uuid5(address)``, the address as a bare ``pwg:email``
+# literal, a provisional displayName, and NO ``pwg:hasIdentifier``. Every
+# identity path keys on hasIdentifier -- find_collisions above,
+# IdentityResolver.find_by_identifier -- so this node was invisible to all of
+# them and could never merge. 33 such nodes on that box shared their address
+# with a live identifier-holding node.
+#
+# The rule is the ratified one, kept narrow: an address-only node folds into
+# the ONE live person holding that address as an identifier, when its name is
+# not a human name (the email-named case: a name-tier upgrade) or is the SAME
+# full name as that holder's. An address held by two or more people is shared
+# (a family inbox) and joins nobody; a different human name joins nobody. An
+# address-only node carries no Contacts card, so RULE 2 cannot be crossed.
+
+def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
+    """Fold each address-only Person into the one live holder of its address.
+    Raises on an unreadable store, like every read in this module; ``run``
+    reports that."""
+    twins = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?t ?m WHERE { "
+        "  ?t a pwg:Person ; pwg:email ?m . "
+        "  FILTER NOT EXISTS { ?t pwg:hasIdentifier ?x } "
+        "  FILTER NOT EXISTS { ?t pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?t a pwg:RetiredPerson } "
+        "}"
+    )
+    addrs: Dict[str, Set[str]] = {}
+    for r in twins:
+        addrs.setdefault(r["t"]["value"], set()).add(r["m"]["value"].strip().lower())
+    holders_rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?p ?v WHERE { "
+        "  ?p a pwg:Person ; pwg:hasIdentifier ?id . "
+        '  ?id pwg:identifierType "email" ; pwg:identifierValue ?v . '
+        "  FILTER NOT EXISTS { ?p pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?p a pwg:RetiredPerson } "
+        "}"
+    ) if addrs else []
+    holders: Dict[str, Set[str]] = {}
+    for r in holders_rows:
+        holders.setdefault(r["v"]["value"].strip().lower(), set()).add(r["p"]["value"])
+    merged = shared = name_differs = 0
+    plan: List[Tuple[str, str]] = []
+    for twin, mails in sorted(addrs.items()):
+        found: Set[str] = set()
+        for m in mails:
+            found |= holders.get(m, set())
+        found.discard(twin)
+        if not found:
+            continue
+        if len(found) > 1:
+            shared += 1
+            continue
+        plan.append((next(iter(found)), twin))
+    if plan:
+        names = _real_names_of({p for pair in plan for p in pair})
+        for holder, twin in plan:
+            twin_real = names.get(twin, set())
+            if twin_real and not (twin_real & names.get(holder, set())):
+                name_differs += 1
+                continue
+            if not dry_run:
+                _merge_pair(holder, twin)
+            merged += 1
+    logger.info(
+        "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
+        "%d different name(s)%s", merged, shared, name_differs,
+        " (dry-run, no writes)" if dry_run else "",
+    )
+    return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
+            "email_twins_name_differs": name_differs}
+
+
 def run(dry_run: bool = False) -> Dict[str, int]:
     """Sweep the graph and merge all exact-identifier-colliding Persons.
     Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
@@ -603,6 +681,12 @@ def run(dry_run: bool = False) -> Dict[str, int]:
     except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
         logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
         out["phone_twins_unreadable"] = True
+    # The address-only twins neither pass above can see (no hasIdentifier).
+    try:
+        out.update(merge_email_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: email-twin pass could not read the store (%s)", exc)
+        out["email_twins_unreadable"] = True
     return out
 
 
