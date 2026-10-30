@@ -37328,12 +37328,12 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
                 _HYDRATE_WHATSAPP_RC="$_wa_ingest_rc"
             fi
         fi
-        # The CLI wrote its failed-out file, so it understood --defer: the
-        # food leg is the tick's now, recorded so the Doctor can tell
-        # "deferred" from "never looked".
+        # A failed-out file proves the CLI took --defer; without it the deferral is unconfirmed.
         if [[ -f "$_wa_failed_out" ]]; then
             _hydrate_sentinel_record_no_data "food" "deferred_to_hourly_ingest"
             info "$MSG_HYDRATE_FOOD_DEFERRED"
+        else
+            _hydrate_sentinel_record_error "food" "${_wa_ingest_rc:-1}" "deferral_not_confirmed"
         fi
         unset _wa_ingest_rc _wa_failed_out _HY_FAILED_LABELS _HY_FAILED_WHATSAPP
         set -e; eval "${_wa_ingest_saved_err_trap:-}"; unset _wa_ingest_saved_err_trap

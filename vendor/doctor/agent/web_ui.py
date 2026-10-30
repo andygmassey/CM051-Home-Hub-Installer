@@ -2823,6 +2823,10 @@ _FDA_EXTRACT_KINDS = {
     # Apple Music library (CM051 walk #27): chosen in the picker like the
     # two above, so its row appears only once install.sh records it.
     "apple_music": "source",
+    # Food evidence (CM051 #3234): deferred off install to the hourly tick;
+    # install.sh records food.done (no_data deferred_to_hourly_ingest, or an
+    # error when the deferral is unconfirmed), so the row appears once written.
+    "food": "operation",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
