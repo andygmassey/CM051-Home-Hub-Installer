@@ -392,6 +392,7 @@ test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install-gui-contract.yml
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh	WIRED	.github/workflows/derived-preferences.yml
 test_every_walk_ssh_gives_up_on_a_dead_link.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_every_workflow_step_can_run.py	WIRED	.github/workflows/declared-gates-reachable.yml
 test_exact_identifier_merge.py	WIRED	.github/workflows/exact-identifier-merge.yml
