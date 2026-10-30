@@ -167,7 +167,7 @@ def _uids(w, uri):
             "PREFIX pwg: <%s> SELECT ?v WHERE { <%s> pwg:hasIdentifier ?i . "
             '?i pwg:identifierType "icloud_contact_uid" ; pwg:identifierValue ?v }'
             % (PWG, uri))
-        return sorted(r["v"].value for r in rows)
+        return sorted({r["v"].value for r in rows})
 
 
 # ── GREEN arms: the walk's shapes converge to ONE node ─────────────────────
@@ -196,7 +196,7 @@ def test_three_nodes_for_one_person_converge_to_one(world):
     _sync(world, U1)
     _sync(world, U2)
     live = _live(world)
-    assert len(live) == 1, (world.subject, "live nodes", len(live))
+    assert len(live) == 1, (world.subject, "live nodes", len(live), [(u[-12:], _uids(world, u)) for u in live])
     assert _uids(world, live[0]) == [U1, U2]
 
 
