@@ -1574,32 +1574,22 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         [[ -n "$_new_version" ]] || _upg_die 10 "payload VERSION is empty"
         _upg_log "target version: ${_new_version}"
 
-        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the
-        # current app is present AND ~/.ostler/VERSION is set: then the
-        # .old is a stale anchor from a PRIOR successful upgrade. This
-        # never touches the .old THIS run creates (it does not exist yet).
+        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the current app and
+        # ~/.ostler/VERSION exist: then .old is stale from a PRIOR upgrade, never this run's.
         if [[ -d "$_UPG_APP_OLD" && -d "$_UPG_APP" && -f "$_UPG_VERSION_FILE" ]]; then
             _upg_log "n+1 cleanup: removing stale ${_UPG_APP_OLD} from a prior successful upgrade"
             rm -rf "$_UPG_APP_OLD" 2>/dev/null || true
         fi
 
-        # (4a) Stage + verify the new daemon. No swap yet; running daemon
-        # stays up, so a verify failure leaves it entirely untouched.
+        # (4a) Stage + verify the new daemon. No swap yet; a verify failure leaves the running daemon untouched.
         _upg_stage_daemon
         local _src=$?
         if [[ $_src -ne 0 ]]; then
             exit "$_src"   # 20/21/22 already logged; old daemon untouched
         fi
-
-        # (2b) Care rules (AGENTS.md) + local helpline, written BEFORE the daemon is
-        # restarted. Region comes from the posture file the install saved; unknown = ZZ.
-        _upg_care="$(_upg_payload_dir services/care)" || _upg_care=""
-        _upg_reg="$(sed -n 's/.*"iso_country": *"\([A-Za-z][A-Za-z]\)".*/\1/p' "${_UPG_OSTLER_DIR}/posture/region.json" 2>/dev/null | head -1)"
-        if [[ -n "$_upg_care" ]] && bash "${_upg_care}/write_agents_md.sh" "$_upg_care" "${_upg_reg:-ZZ}" "${_UPG_ASSISTANT_CONFIG_DIR}/workspace" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1; then
-            _upg_log "care rules written to the workspace (region ${_upg_reg:-ZZ})"
-        else
-            _upg_log "ERROR: care rules (AGENTS.md) NOT written on upgrade; payload services/care missing or the writer failed"
-        fi
+        # (2b) Care rules (AGENTS.md) + local helpline, written BEFORE the daemon restarts; region from the posture file, unknown = ZZ.
+        _upg_care="$(_upg_payload_dir services/care)" || _upg_care=""; _upg_reg="$(sed -n 's/.*"iso_country": *"\([A-Za-z][A-Za-z]\)".*/\1/p' "${_UPG_OSTLER_DIR}/posture/region.json" 2>/dev/null | head -1)"
+        if [[ -n "$_upg_care" ]] && bash "${_upg_care}/write_agents_md.sh" "$_upg_care" "${_upg_reg:-ZZ}" "${_UPG_ASSISTANT_CONFIG_DIR}/workspace" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1; then _upg_log "care rules written to the workspace (region ${_upg_reg:-ZZ})"; else _upg_log "ERROR: care rules (AGENTS.md) NOT written on upgrade; payload services/care missing or the writer failed"; fi
 
         # (3) Bootout the running daemon BEFORE touching the live .app.
         _upg_log "booting out running daemon before swap"
@@ -4247,14 +4237,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9706) captures the path BY
+    # _ostler_write_store_curl_config (defined :9696) captures the path BY
     # VALUE and never re-reads it:
-    #     :9707   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9752   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9761 and :17688, both of which run
+    #     :9697   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9742   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9751 and :17678, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :4233 above has just deleted
-    # that tree and :4237 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :4223 above has just deleted
+    # that tree and :4227 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -4269,13 +4259,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18483, where the note reads
+    # WhatsApp Web session path did it again at :18473, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18500 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18490 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4284,13 +4274,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7031 against a definition at :9706. Top-level
+    # writer's own definition: :7021 against a definition at :9696. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9761, :17688) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9751, :17678) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20701 / :20879 / :21036 / :21481 path. There the
+    # :20687 / :20865 / :21022 / :21467 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -18962,12 +18952,8 @@ You are ${_identity_name}, the user's personal assistant.
 SOULEOF
     fi
 done
-unset _idf _idf_path _identity_name
-ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
-# Care rules + the customer's local helpline, written before the daemon starts.
-bash "${SCRIPT_DIR}/care/write_agents_md.sh" "${SCRIPT_DIR}/care" "${OSTLER_REGION_ISO:-ZZ}" "$ASSISTANT_WORKSPACE_DIR" \
-    && ok "Care rules written to the assistant workspace" \
-    || warn "Could not write the care rules (AGENTS.md); the assistant has no helpline text"
+unset _idf _idf_path _identity_name; ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
+bash "${SCRIPT_DIR}/care/write_agents_md.sh" "${SCRIPT_DIR}/care" "${OSTLER_REGION_ISO:-ZZ}" "$ASSISTANT_WORKSPACE_DIR" && ok "Care rules written to the assistant workspace" || warn "Could not write the care rules (AGENTS.md); the assistant has no helpline text"
 
 # ── 3.6 Security setup ────────────────────────────────────────────
 

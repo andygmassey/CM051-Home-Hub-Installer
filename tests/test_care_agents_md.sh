@@ -96,7 +96,6 @@ grep -q WARNCALLED "${TMP}/fresh2.out" && ! grep -q OKCALLED "${TMP}/fresh2.out"
 
 echo "== upgrade: the real install.sh block rewrites AGENTS.md from the payload =="
 up_blk="$(extract '(2b) Care rules' '_upg_log "ERROR: care rules')"
-up_blk="${up_blk}"$'\n'"        fi"
 [[ -n "$up_blk" ]] || bad "upgrade block not found in install.sh"
 PAY="${TMP}/payload"; mkdir -p "${PAY}/services"; cp -R "$CARE" "${PAY}/services/care"
 UOH="${TMP}/uhome/.ostler"; mkdir -p "${UOH}/posture" "${UOH}/assistant-config/workspace"
