@@ -81,11 +81,19 @@ case "$load" in
     *) ok "2 load reads as a number: ${load}" ;;
 esac
 
-cores="$(run_env ". '${SANDBOX}/tier.sh'; ostler_rt_cpu_cores")"
-case "$cores" in
-    ''|*[!0-9]*|0) bad "3 cores did not read > 0: '${cores}'" ;;
-    *) ok "3 cores reads > 0: ${cores}" ;;
-esac
+# Cores come from `sysctl -n hw.ncpu`, a macOS key; the Linux CI host answers
+# nothing for it whatever the PATH. So check 3 is asserted on Darwin only, and
+# on any other host check 1 (sysctl resolves) is the discriminator, RED on the
+# old PATH there too because Linux keeps sysctl in /usr/sbin as well.
+if [ "$(uname -s)" = "Darwin" ]; then
+    cores="$(run_env ". '${SANDBOX}/tier.sh'; ostler_rt_cpu_cores")"
+    case "$cores" in
+        ''|*[!0-9]*|0) bad "3 cores did not read > 0: '${cores}'" ;;
+        *) ok "3 cores reads > 0: ${cores}" ;;
+    esac
+else
+    echo "  n/a  3 cores (hw.ncpu is a macOS sysctl key; host is $(uname -s)); check 1 covers PATH here"
+fi
 
 echo "pass=${PASS} fail=${FAIL}"
 [ "$FAIL" -eq 0 ]
