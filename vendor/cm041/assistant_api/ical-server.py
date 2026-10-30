@@ -166,6 +166,7 @@ def _warn_plaintext_once(db_path: str) -> None:
         file=sys.stderr,
         flush=True,
     )
+import functools
 import threading
 import time
 import urllib.error
@@ -846,7 +847,7 @@ def _qdrant_payloads_by_uri(uris):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 pts = (json.loads(resp.read()).get("result", {}) or {}).get("points", [])
             for pt in pts:
                 pl = pt.get("payload", {}) or {}
@@ -1847,7 +1848,7 @@ def _embed_text(text, timeout=30):
         data=data,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=timeout)
+    resp = _store_urlopen(req, timeout=timeout)
     payload = json.loads(resp.read())
     _record_embed_usage(payload, EMBED_MODEL)
     return payload["embeddings"][0]
@@ -2018,7 +2019,7 @@ def _sparql_select(sparql):
             "Accept": "application/sparql-results+json",
         },
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = _store_urlopen(req, timeout=30)
     data = json.loads(resp.read())
     return [{k: v["value"] for k, v in b.items()}
             for b in data.get("results", {}).get("bindings", [])]
@@ -2037,7 +2038,7 @@ def _sparql_update(sparql):
         headers={"Content-Type": "application/sparql-update"},
         method="POST",
     )
-    urllib.request.urlopen(req, timeout=30)
+    _store_urlopen(req, timeout=30)
 
 
 # Control characters that must never reach a SPARQL literal. We reject the
@@ -2209,7 +2210,7 @@ def people_search(query, limit=10, timeout=30):
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=_left)
+    resp = _store_urlopen(req, timeout=_left)
     data = json.loads(resp.read())
 
     # Qdrant payload keys are stored in American English ("organization",
@@ -3162,7 +3163,7 @@ def _qdrant_post(path, body):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    return urllib.request.urlopen(req, timeout=30)
+    return _store_urlopen(req, timeout=30)
 
 
 def _forget_qdrant(cluster):
@@ -7022,7 +7023,7 @@ def person_enrichment(slug):
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _store_urlopen(req, timeout=10) as resp:
             qresult = json.loads(resp.read())
         points = qresult.get("result", {}).get("points", [])
         if points:
@@ -7409,7 +7410,7 @@ def _decision_facts_from_conversations(about=None, query=None):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -8209,7 +8210,7 @@ def people_list(sort=None, ceiling=10000):
                 data=data,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -8674,7 +8675,7 @@ def people_stale(months=3, limit=5):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 page_res = json.loads(resp.read()).get("result", {}) or {}
             all_points.extend(page_res.get("points", []) or [])
             next_offset = page_res.get("next_page_offset")
@@ -9751,7 +9752,7 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -10558,7 +10559,7 @@ def _safari_qdrant_ensure_collection(vector_size):
         headers={"Content-Type": "application/json"},
         method="PUT",
     )
-    urllib.request.urlopen(req, timeout=15)
+    _store_urlopen(req, timeout=15)
 
 
 def _safari_qdrant_upsert(point_id, vector, payload):
@@ -10583,7 +10584,7 @@ def _safari_qdrant_upsert(point_id, vector, payload):
         method="PUT",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _store_urlopen(req, timeout=30) as resp:
             return resp.status in (200, 202)
     except Exception:
         return False
@@ -12351,7 +12352,7 @@ def _sparql_select_unscoped(sparql):
             "Accept": "application/sparql-results+json",
         },
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = _store_urlopen(req, timeout=30)
     data = json.loads(resp.read())
     return [{k: v["value"] for k, v in b.items()}
             for b in data.get("results", {}).get("bindings", [])]
@@ -12385,9 +12386,124 @@ def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
         reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
 
 
+# ----------------------------------------------------------------------
+# Slow-request instrumentation (v1.0.121 batch-2).
+#
+# The access log is suppressed (Handler.log_message), so when the assistant's
+# pwg_people tool hit its 15s timeout on 5 of 10 chat openings there was no
+# record of WHY the server was slow. A request slower than the threshold now
+# writes ONE line to stdout (launchd points that at ical-server.log); a fast
+# request writes nothing. The line carries the route TEMPLATE and numbers
+# only: never a query string, a body, a name, a slug or any identifier.
+# ----------------------------------------------------------------------
+_SLOW_REQUEST_DEFAULT_S = 2.0
+_inflight_lock = threading.Lock()
+_inflight_count = 0
+_req_ctx = threading.local()
+
+# Dynamic route shapes -> template. Anything with an identifier in it must be
+# listed here, or the segment is masked by _route_template's fallback.
+_ROUTE_TEMPLATES = (
+    (re.compile(r"^/api/v1/people/[^/]+/(enrichment|forget)$"), r"/api/v1/people/{slug}/\1"),
+    (re.compile(r"^/api/v1/person/[^/]+/timeline$"), "/api/v1/person/{slug}/timeline"),
+    (re.compile(r"^/api/v1/topics/[^/]+/mentions$"), "/api/v1/topics/{topic}/mentions"),
+    (re.compile(r"^/api/v1/conversation/[^/]+/speakers$"), "/api/v1/conversation/{id}/speakers"),
+    (re.compile(r"^/api/v1/conversation/status/[^/]+$"), "/api/v1/conversation/status/{id}"),
+    (re.compile(r"^/api/v1/memory/assert/pending/[^/]+$"), "/api/v1/memory/assert/pending/{id}"),
+)
+_LITERAL_SEGMENT_RE = re.compile(r"^[a-z_]{1,32}$")
+
+
+def _route_template(path):
+    """Path -> route template with no identifier in it. The query string is
+    never passed in (callers hand over urlparse(...).path only)."""
+    for rx, tpl in _ROUTE_TEMPLATES:
+        m = rx.match(path)
+        if m:
+            return m.expand(tpl)
+    segs = [s for s in path.split("/") if s]
+    if len(segs) > 5:
+        return "/{deep}"
+    return "/" + "/".join(s if _LITERAL_SEGMENT_RE.match(s) or s == "v1" else "{id}" for s in segs)
+
+
+def _slow_request_threshold_s():
+    try:
+        return float(os.environ.get("OSTLER_ICAL_SLOW_REQUEST_S", _SLOW_REQUEST_DEFAULT_S))
+    except (TypeError, ValueError):
+        return _SLOW_REQUEST_DEFAULT_S
+
+
+def _store_kind_for_url(url):
+    for kind, base in (("embed", EMBED_OLLAMA_URL), ("qdrant", QDRANT_URL),
+                       ("oxigraph", OXIGRAPH_URL)):
+        if base and url.startswith(str(base).rstrip("/")):
+            return kind
+    return None
+
+
+def _store_urlopen(req, *args, **kwargs):
+    """urllib.request.urlopen, plus per-request qdrant/oxigraph/embed timing
+    (time to response headers) for the slow-request line. Same behaviour and
+    same exceptions as urlopen; the timing is only recorded."""
+    t0 = time.monotonic()
+    try:
+        return urllib.request.urlopen(req, *args, **kwargs)
+    finally:
+        try:
+            store = getattr(_req_ctx, "store", None)
+            if store is not None:
+                kind = _store_kind_for_url(str(getattr(req, "full_url", req)))
+                if kind:
+                    store[kind] += time.monotonic() - t0
+        except Exception:
+            pass
+
+
+def _instrumented(fn):
+    """Wrap a Handler.do_* method: count in-flight requests and emit the
+    slow-request line when it ran longer than the threshold."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        global _inflight_count
+        t0 = time.monotonic()
+        _req_ctx.store = {"qdrant": 0.0, "oxigraph": 0.0, "embed": 0.0}
+        self._ical_status = None
+        with _inflight_lock:
+            _inflight_count += 1
+            at_start = _inflight_count
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            with _inflight_lock:
+                at_end = _inflight_count
+                _inflight_count -= 1
+            try:
+                dur = time.monotonic() - t0
+                if dur > _slow_request_threshold_s():
+                    st = _req_ctx.store
+                    print(
+                        "[slow-request] route=%s method=%s status=%s duration_s=%.3f "
+                        "inflight_start=%d inflight_end=%d "
+                        "qdrant_s=%.3f oxigraph_s=%.3f embed_s=%.3f" % (
+                            _route_template(urlparse(self.path).path),
+                            fn.__name__[3:], self._ical_status, dur,
+                            at_start, at_end,
+                            st["qdrant"], st["oxigraph"], st["embed"]),
+                        flush=True)
+            except Exception:
+                pass
+            _req_ctx.store = None
+    return wrapper
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def send_response(self, code, message=None):
+        self._ical_status = code
+        super().send_response(code, message)
 
     # ── Security guards (v1.0.10 lockdown) ───────────────────────────────
     def _send_guard_error(self, code, message):
@@ -12500,6 +12616,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
+    @_instrumented
     def do_OPTIONS(self):
         # Preflight support for the hydration route (browsers may send it
         # if a custom header ever creeps into the fetch). Other paths get
@@ -12544,6 +12661,7 @@ class Handler(BaseHTTPRequestHandler):
     def _is_post_only_path(cls, path):
         return path in cls._POST_ONLY_PATHS or bool(cls._FORGET_PATH_RE.match(path))
 
+    @_instrumented
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path in self._VERSIONED_TO_LEGACY:
@@ -13490,6 +13608,7 @@ class Handler(BaseHTTPRequestHandler):
             "/health": "Health check (pass ?detailed=1 for dependency checks)",
         }}).encode())
 
+    @_instrumented
     def do_POST(self):
         parsed = urlparse(self.path)
 
