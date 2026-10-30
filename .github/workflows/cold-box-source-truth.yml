@@ -183,7 +183,7 @@ concurrency:
 
 jobs:
   cold-box-truth:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       # fetch-depth 0: every one of these tests pins its negative control to
