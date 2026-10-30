@@ -7925,54 +7925,54 @@ if [[ -z "$DETECTED_CODE" && -n "$DETECTED_PHONE" ]]; then
 fi
 
 # ── 1. Confirm name ───────────────────────────────────────────────
-
+# >>> owner-name-id-prompts (tests/test_owner_name_id_never_empty.sh runs this block)
+# An EMPTY name or id is RE-ASKED, on the GUI and the terminal path alike. With
+# no one to re-ask (a terminal with no TTY, or five empty answers in a row,
+# which is also how a closed GUI pipe reads) it REFUSES here, by name. Before
+# this, an empty USER_ID passed silently and the install died five steps later
+# in _consent_cli_record (ERR-99 at encrypt_db). Never an invented id.
+_owner_answer_ok() {  # $1 answer, $2 NAME|ID, $3 re-ask warning, $4 refusal
+    _OWNER_ANSWER="$1"; _OWNER_ANSWER="${_OWNER_ANSWER#"${_OWNER_ANSWER%%[![:space:]]*}"}"; _OWNER_ANSWER="${_OWNER_ANSWER%"${_OWNER_ANSWER##*[![:space:]]}"}"
+    [[ -n "$_OWNER_ANSWER" ]] && return 0
+    _owner_empty_tries=$(( ${_owner_empty_tries:-0} + 1 ))
+    if [[ "${OSTLER_GUI:-0}" != "1" && ! -t 0 ]] || (( _owner_empty_tries >= 5 )); then fail_with_code "ERR-03-OWNER-${2}-EMPTY" "$4"; fi
+    warn "$3"; return 1
+}
 echo -e "  ${BOLD}Your details${NC}"
 echo ""
-if [[ -n "$DETECTED_NAME" ]]; then
-    USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_DETECTED_TITLE" text "${DETECTED_NAME}" "" "" "user_name")"
-    USER_NAME=${USER_NAME:-$DETECTED_NAME}
-else
-    USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_FALLBACK_TITLE" text "" "" "" "user_name")"
-fi
+USER_NAME=""; _owner_err=""; _owner_empty_tries=0
+while :; do
+    if [[ -n "$DETECTED_NAME" ]]; then
+        USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_DETECTED_TITLE" text "${DETECTED_NAME}" "" "" "user_name" "$_owner_err")"
+        USER_NAME=${USER_NAME:-$DETECTED_NAME}
+    else
+        USER_NAME="$(gui_read "$MSG_PROMPT_USER_NAME_FALLBACK_TITLE" text "" "" "" "user_name" "$_owner_err")"
+    fi
+    _owner_answer_ok "$USER_NAME" NAME "$MSG_WARN_OWNER_NAME_EMPTY" "$MSG_FAIL_OWNER_NAME_EMPTY" && break; _owner_err="$MSG_WARN_OWNER_NAME_EMPTY"
+done; USER_NAME="$_OWNER_ANSWER"
 
-# CX-81 B6: derive USER_FIRST_NAME from the captured full name. The me-card
-# detected DETECTED_FIRST first when available; otherwise we split USER_NAME
-# on the first whitespace run. Used by the assistant to address the customer
-# by their preferred name + by CM044 to template the wiki nav label
-# ({first_name}pedia). Falls back to empty if both inputs are blank, in
-# which case downstream surfaces use the "Personal wiki" / "Your assistant"
-# non-symmetric fallbacks documented in BRAND_SPEC_V1.1 §8.
+# CX-81 B6: USER_FIRST_NAME from the me-card first name, else the first
+# whitespace-separated word of USER_NAME (awk: portable across bash 3.2 + 5,
+# tab- and multi-space-safe). Re-derived from USER_ID below.
 if [[ -n "${DETECTED_FIRST:-}" ]]; then
     USER_FIRST_NAME="${DETECTED_FIRST}"
 else
-    # Split USER_NAME on the first whitespace run. `awk` is portable across
-    # macOS bash 3.2 + bash 5; `cut -d' '` would mishandle tab-separated or
-    # multi-space inputs from Contacts.
     USER_FIRST_NAME=$(echo "$USER_NAME" | awk '{print $1}')
 fi
-# Strip stray surrounding whitespace.
-USER_FIRST_NAME="${USER_FIRST_NAME# }"
-USER_FIRST_NAME="${USER_FIRST_NAME% }"
-
-# CX-12 F2 (locked 2026-05-23): expose the me-card phone + email as
-# named install-context vars so later prompts (Q8 iMessage allowed,
-# WhatsApp recipient, Q4 country code detect-from-phone) can pre-fill
-# their default values instead of forcing the customer to retype data
-# we already read from Contacts. Silent skip when either field is
-# empty: the downstream prompts treat empty defaults the same as the
-# pre-CX-12 behaviour. Trim leading/trailing whitespace just in case
-# the osascript output picked up stray characters.
-USER_PHONE="${DETECTED_PHONE:-}"
-USER_PHONE="${USER_PHONE# }"
-USER_PHONE="${USER_PHONE% }"
-USER_EMAIL="${DETECTED_EMAIL:-}"
-USER_EMAIL="${USER_EMAIL# }"
-USER_EMAIL="${USER_EMAIL% }"
-
+USER_FIRST_NAME="${USER_FIRST_NAME# }"; USER_FIRST_NAME="${USER_FIRST_NAME% }"
+# CX-12 F2 (locked 2026-05-23): the me-card phone + email, trimmed, pre-fill
+# later prompts (Q8 iMessage allowed, WhatsApp recipient, Q4 country code).
+USER_PHONE="${DETECTED_PHONE:-}"; USER_PHONE="${USER_PHONE# }"; USER_PHONE="${USER_PHONE% }"
+USER_EMAIL="${DETECTED_EMAIL:-}"; USER_EMAIL="${USER_EMAIL# }"; USER_EMAIL="${USER_EMAIL% }"
 DETECTED_FIRST_LOWER=$(echo "${DETECTED_FIRST:-}" | tr '[:upper:]' '[:lower:]')
 DEFAULT_ID=${DETECTED_FIRST_LOWER:-$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]' | cut -d' ' -f1)}
-USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id")"
-USER_ID=${USER_ID:-$DEFAULT_ID}
+USER_ID=""; _owner_err=""; _owner_empty_tries=0
+while :; do
+    USER_ID="$(gui_read "$MSG_PROMPT_USER_ID_TITLE" text "${DEFAULT_ID}" "$MSG_PROMPT_USER_ID_HELP" "" "user_id" "$_owner_err")"
+    USER_ID=${USER_ID:-$DEFAULT_ID}
+    _owner_answer_ok "$USER_ID" ID "$MSG_WARN_OWNER_ID_EMPTY" "$MSG_FAIL_OWNER_ID_EMPTY" && break; _owner_err="$MSG_WARN_OWNER_ID_EMPTY"
+done; USER_ID="$_OWNER_ANSWER"; unset _owner_err _owner_empty_tries _OWNER_ANSWER
+# <<< owner-name-id-prompts
 
 # The "What should your assistant call you?" answer (USER_ID) is the
 # customer's EXPLICIT preferred form of address. It MUST win over the
