@@ -34,7 +34,14 @@ States, each distinct, none folded into another:
                      Honest zero, not a fault.
 * ``not_written``    ran and kept the previous graph (a reader or the store
                      failed, or validation refused the set).
-* ``cannot_start``   the runner could not load its dependencies.
+* ``cannot_start``   the runner could not load its dependencies, or the tick
+                     found no venv to run it with.
+* ``deferred``       the tick did not run the pass: the box was over its load
+                     ceiling (or paused). Written by the TICK wrapper, not the
+                     runner ("writer": "tick"), with the measured load, how
+                     many ticks in a row had no pass, and the last completed
+                     pass carried forward (its time and node count).
+* ``yielded``        the tick did not run the pass: the ingest slot was busy.
 * ``unreadable``     a record exists and could not be parsed. "Could not
                      check", never "nothing".
 
@@ -80,6 +87,7 @@ def read_derived_preferences_status(
         "last_run_at": None,
         "node_count": None,
         "reason": "",
+        "consecutive": None,
     }
     if out["scheduled"]:
         try:
@@ -105,13 +113,16 @@ def read_derived_preferences_status(
 
     outcome = str(rec.get("outcome") or "")
     out["status"] = outcome if outcome in {
-        "written", "empty", "not_written", "cannot_start", "failed"} else "unreadable"
+        "written", "empty", "not_written", "cannot_start", "failed",
+        "deferred", "yielded"} else "unreadable"
     if out["status"] == "failed":
         out["status"] = "not_written"
     out["last_run_at"] = rec.get("last_run_at")
     n = rec.get("graph_node_count")
     out["node_count"] = int(n) if isinstance(n, int) else None
     out["reason"] = str(rec.get("reason") or "")
+    c = rec.get("consecutive")
+    out["consecutive"] = int(c) if isinstance(c, int) and not isinstance(c, bool) else None
     if not out["scheduled"]:
         # A record from an earlier install with no agent now: nothing will
         # refresh it, so "up to date" would be a lie. Keep its count and time.
@@ -127,6 +138,8 @@ _WORDS = {
     "empty": "ran, nothing to show yet",
     "not_written": "last run did not update",
     "cannot_start": "could not start",
+    "deferred": "waiting for a quieter moment",
+    "yielded": "waiting for an import to finish",
     "unreadable": "record unreadable",
 }
 _COLOUR = {
@@ -136,6 +149,8 @@ _COLOUR = {
     "not_scheduled": "#7A1F1F",
     "not_written": "#5C4611",
     "cannot_start": "#7A1F1F",
+    "deferred": "#5C4611",
+    "yielded": "#5C4611",
     "unreadable": "#7A1F1F",
 }
 _EXPLAIN = {
@@ -172,6 +187,8 @@ def render_derived_preferences_status(status: dict | None = None) -> str:
     sched = "yes" if st.get("scheduled") else "no"
     every = _every(st.get("interval_s"))
     detail = st.get("reason") or _EXPLAIN.get(key, "")
+    if key in {"deferred", "yielded"} and isinstance(st.get("consecutive"), int):
+        detail = f"{detail} ({st['consecutive']} ticks in a row; it runs anyway after 3, or 12 hours)"
     return (
         '<div class="section"><h2>What you like</h2>'
         '<p class="muted">The tastes Ostler works out from your saved preferences, '
