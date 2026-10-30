@@ -126,9 +126,13 @@ def read_documents_access(now: Optional[float] = None) -> DocumentsAccessMarker:
 # this whole tile is CM051-only: it probes ~/Documents/Ostler, the
 # customer content layout the installer creates, which upstream HR015
 # Doctor -- running as a service -- has no equivalent of. British
-# English, light brand, no em dashes. "python3.11" is named on purpose:
-# it is the literal, otherwise unexplained string the customer meets in
-# the macOS prompt, so naming it is what makes the row actionable.
+# English, light brand, no em dashes. The remediation names "Ostler"
+# because that is what System Settings shows for the identity that writes
+# ~/Documents/Ostler: the signed daemon ai.ostler.assistant, whose
+# CFBundleDisplayName is "Ostler" (ostler-assistant
+# release/Info.plist.template; read back from the installed
+# OstlerAssistant.app/Contents/Info.plist on a v1.0.121 trial box). It
+# holds Full Disk Access, which is what covers Documents for it.
 _SECTION_TITLE = "Your Documents folder"
 
 _STATUS_LABELS = {
@@ -158,11 +162,11 @@ _DETAILS = {
 
 _REMEDIATION = {
     STATUS_DENIED: (
-        "Open System Settings, then Privacy and Security, then Files and "
-        "Folders. Find the Ostler row -- it may be listed as "
-        "\"python3.11\", the bundled helper Ostler uses to write your "
-        "files -- and switch on access to your Documents folder. Your wiki "
-        "and conversation records will be written from then on."
+        "Open System Settings, then Privacy and Security, then Full Disk "
+        "Access, and make sure Ostler is switched on. If Ostler is also "
+        "listed under Files and Folders, switch on its Documents Folder "
+        "too. Your wiki and conversation records will be written from "
+        "the next hourly check on."
     ),
     STATUS_CHECK_FAILED: (
         "Check that the disk holding your home folder is not full or "

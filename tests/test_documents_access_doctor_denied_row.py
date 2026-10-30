@@ -111,6 +111,11 @@ def test_denied_real_chmod_drives_real_writer():
     assert m["status"] == dap.STATUS_DENIED, _record(home)
     html = dap.render_documents_access_posture()
     assert "Ostler cannot write to your Documents folder" in html and "How to fix" in html
+    # The fix names what System Settings shows for the identity that writes
+    # ~/Documents/Ostler (the signed daemon, display name "Ostler"), not the
+    # python3.11 row that no longer makes the request.
+    assert "Full Disk Access" in html and "make sure Ostler is switched on" in html, html
+    assert "python3.11" not in html, html
 
 
 def test_check_failed_on_non_permission_error():
