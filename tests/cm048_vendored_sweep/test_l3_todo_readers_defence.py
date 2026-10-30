@@ -68,7 +68,7 @@ VENDOR_PIPELINE = REPO / "vendor" / "cm048_pipeline"
 CM041 = REPO / "vendor" / "cm041"
 
 L1_TODO = "Send Jane Doe the report"
-L3_TODO = "Send John Roe the secret report"
+L3_TODO = "Send Bob Doe the secret report"
 LEGACY_TODO = "Book a room for Jane Doe"
 
 # (file, exact text, replacement): the three writer guards, switched off.
