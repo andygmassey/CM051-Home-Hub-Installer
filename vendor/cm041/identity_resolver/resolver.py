@@ -30,7 +30,7 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
-from . import forget_tombstone, retirement
+from . import forget_tombstone, merge_journal, retirement
 from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
@@ -51,8 +51,23 @@ class IdentityResolver:
         default_country_code: Optional[int] = None,
         timeout: float = 30.0,
         compartment: Optional[UserCompartment] = None,
+        qdrant_url: Optional[str] = None,
+        merge_journal_dir: Optional[str] = None,
     ):
         self.oxigraph_url = oxigraph_url.rstrip("/")
+        # The vector half of an ingest-time merge (merge_persons). The same
+        # QDRANT_URL default _sync_qdrant_display_name already uses; an empty
+        # string means "this deployment has no vector store".
+        self.qdrant_url = (
+            qdrant_url if qdrant_url is not None
+            else os.environ.get("QDRANT_URL", "http://localhost:6333")
+        )
+        # Where merge_persons journals each merge so undo can restore it.
+        # Default: the converge pass's own journal (merge_journal.py).
+        self.merge_journal_dir = (
+            merge_journal_dir if merge_journal_dir is not None
+            else merge_journal.default_journal_dir()
+        )
         self.default_country_code = default_country_code
         # Multiuser groundwork: every resolver is bound to exactly one
         # user compartment. Default = the primary compartment, which maps
@@ -69,6 +84,11 @@ class IdentityResolver:
         # by the import loop, and is counted here so a degraded import can
         # never silently pass for a clean one. See log_resolution_summary().
         self.stats: dict[str, int] = {"total": 0, "degraded": 0}
+        # merge_persons: pairs NOT merged because the pre-merge snapshot could
+        # not be taken, and merges whose loser vector could not be deleted
+        # (the upgrade repair, repair_merge_consistency, sweeps those).
+        self.merge_stats: dict[str, int] = {
+            "skipped_no_snapshot": 0, "vector_unreconciled": 0}
         # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
         # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
         # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
@@ -290,8 +310,8 @@ class IdentityResolver:
                             discard_uri, keep_uri, conflict,
                         )
                         continue
-                    self.merge_persons(keep_uri, discard_uri)
-                    merged += 1
+                    if self.merge_persons(keep_uri, discard_uri):
+                        merged += 1
                 logger.info(
                     "Ingest-time merge: collapsed %d of %d nodes sharing exact "
                     "identifiers into %s (%d refused by RULE 2)",
@@ -552,7 +572,78 @@ class IdentityResolver:
             )
             self._sparql_update(sparql)
 
-    def merge_persons(self, keep_uri: str, discard_uri: str) -> None:
+    def merge_persons(self, keep_uri: str, discard_uri: str) -> bool:
+        """Fold ``discard_uri`` into ``keep_uri`` in the graph AND the vector
+        store. Returns False when the merge was not made (no snapshot, no
+        merge); True when it was.
+
+        v1.0.121: this path used to be graph-only. The loser kept its
+        ``people`` point, so a search for the merged-away name returned a
+        retired URI (86 such points on the v1.0.120 box; the batch path's 670
+        journalled merges left none). It now journals a restorable snapshot
+        of both nodes and both vectors BEFORE the first write, exactly as the
+        batch converge does (merge_journal.record_merge), and deletes the
+        loser's points after the graph merge. ``batch_resolver --undo-merge``
+        and the Hub's Split restore it from that journal.
+        """
+        merge_id = ""
+        # getattr: a few callers build the resolver without __init__.
+        jdir = getattr(self, "merge_journal_dir", None)
+        qdrant_url = getattr(self, "qdrant_url", "")
+        mstats = self.__dict__.setdefault(
+            "merge_stats", {"skipped_no_snapshot": 0, "vector_unreconciled": 0})
+        comp = getattr(self, "compartment", None)
+        journalled = bool(jdir) and (comp is None or comp.is_primary)
+        collection = comp.qdrant_collection("people") if comp else "people"
+        if journalled:
+            try:
+                merge_id = merge_journal.record_merge(
+                    self.oxigraph_url, self._client, jdir,
+                    keep_uri, discard_uri,
+                    strategy="ingest_exact_identifier", confidence=1.0,
+                    details="identifier values withheld from the journal",
+                    qdrant_url=qdrant_url, qdrant_collection=collection,
+                )
+            except merge_journal.SnapshotUnavailable:
+                mstats["skipped_no_snapshot"] += 1
+                logger.warning(
+                    "SKIPPING ingest-time merge %s -> %s: qdrant_unavailable, "
+                    "so no vector snapshot can be taken. No snapshot, no merge; "
+                    "the converge pass retries it.", discard_uri, keep_uri)
+                try:
+                    merge_journal.record_skip(
+                        jdir, keep_uri, discard_uri,
+                        "qdrant_unavailable")
+                except OSError:
+                    pass
+                return False
+            except (OSError, httpx.HTTPError) as exc:
+                mstats["skipped_no_snapshot"] += 1
+                logger.warning(
+                    "SKIPPING ingest-time merge %s -> %s: the pre-merge "
+                    "snapshot could not be written (%s). No snapshot, no merge.",
+                    discard_uri, keep_uri, type(exc).__name__)
+                return False
+        else:
+            logger.warning(
+                "Ingest-time merge %s -> %s is NOT journalled (no merge journal "
+                "directory, or a secondary compartment): it cannot be undone.",
+                discard_uri, keep_uri)
+        self._merge_graph(keep_uri, discard_uri)
+        if qdrant_url:
+            try:
+                merge_journal.delete_person_points(
+                    qdrant_url, collection, discard_uri)
+            except Exception as exc:  # noqa: BLE001
+                mstats["vector_unreconciled"] += 1
+                logger.warning(
+                    "UNRECONCILED MERGE %s -> %s (journal %s): graph merged, "
+                    "loser vector NOT deleted (%s). The upgrade repair "
+                    "(repair_merge_consistency) sweeps it.",
+                    discard_uri, keep_uri, merge_id, type(exc).__name__)
+        return True
+
+    def _merge_graph(self, keep_uri: str, discard_uri: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
 
         # 1. Move identifiers
