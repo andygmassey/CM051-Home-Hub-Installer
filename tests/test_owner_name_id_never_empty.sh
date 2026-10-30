@@ -16,7 +16,8 @@
 #   1. empty name + empty id, Contacts empty, no TTY: REFUSES at the prompt
 #      with ERR-03-OWNER-NAME-EMPTY and NEVER reaches _consent_cli_record
 #      (RED on main: it reaches it and dies on the ${USER_ID:?}).
-#   2. a whitespace-only name is empty too.
+#   2. a whitespace-only name is empty too; an empty id with no TTY refuses
+#      with ERR-03-OWNER-ID-EMPTY.
 #   3. GUI path: an empty name and a whitespace id are each RE-ASKED (the same
 #      prompt id re-emitted with an error= banner), then valid answers are
 #      accepted and consent records with that id.
@@ -120,6 +121,16 @@ if [[ $rc -ne 0 ]] && has "$out" "ERR-03-OWNER-NAME-EMPTY" && ! has "$out" "CONS
     pass "2 whitespace-only name refuses (rc=$rc)"
 else
     bad "2 whitespace-only name accepted (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/     | /'
+fi
+
+# ── 2b. an empty id with no TTY refuses with the ID code ─────────────
+# A blank me-card first name gives a blank id default; no one can re-ask.
+printf 'Sam Jones\n\n' > "$T/in.id"
+out="$(run "$H" "$T/in.id" DETECTED_FIRST=" ")"; rc=$?
+if [[ $rc -ne 0 ]] && has "$out" "ERR-03-OWNER-ID-EMPTY" && has "$out" "$(. "$REPO_ROOT/install.sh.strings.en-GB.sh" 2>/dev/null; printf '%s' "${MSG_FAIL_OWNER_ID_EMPTY:-<missing>}")" && ! has "$out" "CONSENT_CALLED"; then
+    pass "2b empty id with no TTY refuses at the prompt (rc=$rc, ERR-03-OWNER-ID-EMPTY)"
+else
+    bad "2b empty id with no TTY was not refused by name (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/     | /'
 fi
 
 # ── 3. GUI path re-asks, then accepts ───────────────────────────────

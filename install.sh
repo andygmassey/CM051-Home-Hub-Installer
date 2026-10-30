@@ -7935,7 +7935,7 @@ _owner_answer_ok() {  # $1 answer, $2 NAME|ID, $3 re-ask warning, $4 refusal
     _OWNER_ANSWER="$1"; _OWNER_ANSWER="${_OWNER_ANSWER#"${_OWNER_ANSWER%%[![:space:]]*}"}"; _OWNER_ANSWER="${_OWNER_ANSWER%"${_OWNER_ANSWER##*[![:space:]]}"}"
     [[ -n "$_OWNER_ANSWER" ]] && return 0
     _owner_empty_tries=$(( ${_owner_empty_tries:-0} + 1 ))
-    if [[ "${OSTLER_GUI:-0}" != "1" && ! -t 0 ]] || (( _owner_empty_tries >= 5 )); then fail_with_code "ERR-03-OWNER-${2}-EMPTY" "$4"; fi
+    if [[ "${OSTLER_GUI:-0}" != "1" && ! -t 0 ]] || (( _owner_empty_tries >= 5 )); then [[ "$2" == ID ]] && fail_with_code "ERR-03-OWNER-ID-EMPTY" "$4"; fail_with_code "ERR-03-OWNER-NAME-EMPTY" "$4"; fi
     warn "$3"; return 1
 }
 echo -e "  ${BOLD}Your details${NC}"
