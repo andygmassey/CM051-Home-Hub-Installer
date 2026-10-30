@@ -216,7 +216,11 @@ class Store(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("query", [""])[0]
             return self._send(bindings(sparql_answer(q)))
         if u.path == "/api/v1/hydration/status":
-            n = len(COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"])
+            # The shipped Doctor (ical-server _wiki_people_count) counts the
+            # Qdrant points that pass people_rules.is_countable_person (v1.0.121).
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vendor", "cm041", "assistant_api"))
+            from people_rules import is_countable_person
+            n = sum(1 for dn in COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"] if is_countable_person(dn))
             return self._send({"overall_state": "done", "phases": [{"key": "contacts", "count": n}]})
         self._send({}, 404)
 
@@ -359,7 +363,7 @@ def probes_end_to_end():
         env_norules = dict(env, OSTLER_PEOPLE_RULES_DIR=os.path.join(tmp, "no-such-dir"))
         COUNT_FIXTURE[0] = "stubs"
         rc, out = run_probe("people_count_agreement", env_norules)
-        check(rc == 78 and "could not import _is_nameless_name" in out,
+        check(rc == 78 and "could not import is_countable_person" in out,
               "people_count_agreement: no importable predicate is CANNOT-RUN, never a raw-count verdict", "rc=%s" % rc)
 
         rc, out = run_probe("people_stores_reconcile", env)
