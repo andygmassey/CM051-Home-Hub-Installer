@@ -151,13 +151,12 @@ def _sync(w, uid, name=NAME, emails=(EMAIL_A, EMAIL_B), phones=(MOBILE,),
     return s._resolve_and_write_person(parsed, "person")
 
 
-def _live(w, name=None):
-    """Live Person nodes (not merged away), optionally by name."""
-    flt = f'?p pwg:displayName "{name}" .' if name else ""
+def _live(w):
+    """Live person nodes, i.e. not merged away."""
     with w.store.lock:
         rows = w.store.ds.query(
-            "PREFIX pwg: <%s> SELECT DISTINCT ?p WHERE { ?p a pwg:Person . %s "
-            "FILTER NOT EXISTS { ?p pwg:mergedInto ?t } }" % (PWG, flt))
+            "PREFIX pwg: <%s> SELECT DISTINCT ?p WHERE { ?p a pwg:Person . "
+            "FILTER NOT EXISTS { ?p pwg:mergedInto ?t } }" % PWG)
         return sorted(r["p"].value for r in rows)
 
 
