@@ -94,6 +94,11 @@ def world(request, monkeypatch, tmp_path):
     store = FakeOxigraph()
     monkeypatch.setenv("OXIGRAPH_URL", store.url)
     monkeypatch.setenv("OSTLER_FORGET_TOMBSTONE_FILE", str(tmp_path / "tomb.json"))
+    # Restore whatever another test file imported, after: purging the shared
+    # packages and leaving them purged breaks that file's module-level patches.
+    saved_mods = {k: v for k, v in sys.modules.items()
+                  if k.split(".")[0] in ("contact_syncer", "identity_resolver")}
+    saved_path = list(sys.path)
     mod = _load(request.param)
     from contact_syncer import config as cfg
     monkeypatch.setattr(cfg, "OXIGRAPH_URL", store.url)
@@ -105,6 +110,8 @@ def world(request, monkeypatch, tmp_path):
     yield w
     store.close()
     _purge()
+    sys.modules.update(saved_mods)
+    sys.path[:] = saved_path
 
 
 def _node(w, short, uids, name=NAME, emails=(EMAIL_A, EMAIL_B), phones=(MOBILE,),
