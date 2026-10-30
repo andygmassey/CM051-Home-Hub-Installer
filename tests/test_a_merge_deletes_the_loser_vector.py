@@ -43,6 +43,12 @@ from identity_resolver.resolver import IdentityResolver  # noqa: E402
 
 PWG = "https://schema.ostler.ai/ontology#"
 DIM = 64
+# Another test file rebinds these module globals without restoring them;
+# capture the shipped ones at import so this file runs in any order.
+_SHIPPED = [(m, n, getattr(m, n)) for m, n in (
+    (br, "_sparql_query"), (br, "_sparql_update"),
+    (rmc, "_sparql_query"), (rmc, "_sparql_update"),
+    (rmc, "_set_qdrant_display_name"))]
 PHONE = "+44" + "7700900123"
 EMAIL = "jane.doe@example.com"
 
@@ -64,6 +70,8 @@ def pid(uri: str) -> str:
 
 @pytest.fixture()
 def world(tmp_path, monkeypatch):
+    for mod, name, fn in _SHIPPED:
+        monkeypatch.setattr(mod, name, fn)
     store = FakeOxigraph()
     mem = qdrant_client.QdrantClient(":memory:")
     mem.create_collection("people", vectors_config=models.VectorParams(
