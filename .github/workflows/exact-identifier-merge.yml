@@ -13,6 +13,7 @@ on:
       - 'tests/test_exact_identifier_merge.py'
       - 'tests/test_merge_journal_records_keyed_identifier_hashes.py'
       - 'tests/test_nameless_records_sharing_a_number_are_one_person.py'
+      - 'tests/test_different_people_decision_blocks_remerge.py'
       - '.github/workflows/exact-identifier-merge.yml'
   push:
     branches: [main]
@@ -54,3 +55,14 @@ jobs:
           out="$(python3 -m pytest -q -rs tests/test_nameless_records_sharing_a_number_are_one_person.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+      # #2876 "different people": a stale converge plan (execute) and the
+      # ingest-time collapse (resolver.resolve) both honour the decision.
+      # Two controls: without the decision, both paths merge.
+      - name: A different-people decision blocks every merge path
+        if: always()
+        run: |
+          out="$(python3 -m pytest -q -rs tests/test_different_people_decision_blocks_remerge.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if grep -q SKIPPED <<<"$out"; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+          n="$(grep -Eo '[0-9]+ passed' <<<"$out" | grep -Eo '[0-9]+')"
+          if [ "${n:-0}" -lt 4 ]; then echo "expected at least 4 passed, got ${n:-0}" >&2; exit 1; fi

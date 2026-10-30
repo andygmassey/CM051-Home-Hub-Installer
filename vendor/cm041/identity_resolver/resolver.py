@@ -31,6 +31,7 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 logger = logging.getLogger(__name__)
 
 from . import forget_tombstone, retirement
+from .decisions import is_blocked, load_duplicate_decisions
 from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
@@ -272,7 +273,23 @@ class IdentityResolver:
                 keep_uri = uris[0]
                 merged = 0
                 refused = 0
+                # "No, different people" (#2876 / the wiki's "Not the same",
+                # duplicates.yaml `distinct`): the owner has said these are
+                # two people, so the shared identifier does not join them.
+                # RULE 2 below only refuses pairs whose card uids DIFFER; a
+                # pair without differing uids reached merge_persons() with the
+                # decision unread and was silently re-joined at every sync.
+                # Same file and default the batch resolver reads.
+                decisions = load_duplicate_decisions(os.path.expanduser(
+                    os.environ.get("WIKI_CORRECTIONS_DIR", "~/.ostler/corrections")))
                 for discard_uri in uris[1:]:
+                    if is_blocked(keep_uri, discard_uri, decisions):
+                        refused += 1
+                        logger.info(
+                            "Not merging %s into %s: recorded as different people",
+                            discard_uri, keep_uri,
+                        )
+                        continue
                     # RULE 2 veto, applied per PAIR. Checked before every
                     # merge_persons() call, because the conflict can sit on a
                     # different identifier from the one that produced the match.
@@ -294,7 +311,8 @@ class IdentityResolver:
                     merged += 1
                 logger.info(
                     "Ingest-time merge: collapsed %d of %d nodes sharing exact "
-                    "identifiers into %s (%d refused by RULE 2)",
+                    "identifiers into %s (%d refused by RULE 2 or a "
+                    "different-people decision)",
                     merged, len(uris) - 1, keep_uri, refused,
                 )
                 return MatchResult(
@@ -305,7 +323,8 @@ class IdentityResolver:
                         f"Merged {merged + 1} of {len(uris)} nodes sharing "
                         f"exact identifiers into {keep_uri}"
                         + (f"; {refused} refused by RULE 2 (different "
-                           f"canonical keys)" if refused else "")
+                           f"canonical keys) or a different-people decision"
+                           if refused else "")
                     ),
                 )
             # Read-only mode: surface the conflict without mutating the graph.

@@ -295,3 +295,33 @@ UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
 re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
 the same three changes. The patch is not regenerated, for the reason in the
 2026-10-22 section above.
+
+
+## 2026-10-30: both merge paths honour a "different people" decision
+
+Tree `cm041/identity_resolver`. Pin NOT moved.
+
+Two call sites, nothing else in the tree (`exact_identifier.py` untouched).
+The decision is the #2876 / wiki "Not the same" `distinct` entry in
+`duplicates.yaml`, read with the existing `decisions.load_duplicate_decisions`
+and `decisions.is_blocked`.
+
+- `batch_resolver.py`, `BatchResolver.execute()`: loads the decisions once at
+  the start of the pass and skips a planned merge whose pair is recorded
+  `distinct`, before the RULE 2 check and the exact-identifier override. The
+  import line gains `is_blocked`. Why: `detect()` already drops such a pair,
+  but a converge round plans first and executes later, and a decision recorded
+  in between was ignored by the stale plan.
+- `resolver.py`, `IdentityResolver._resolve_tiers` RULE 1 collapse
+  (`if len(found_uris) > 1`): skips a pair recorded `distinct` before
+  `merge_persons()`, counted with the RULE 2 refusals. Reads
+  `WIKI_CORRECTIONS_DIR` (default `~/.ostler/corrections`), the same file and
+  default as the batch resolver. Why: RULE 2 refuses only pairs with DIFFERING
+  card uids; measured on origin/main 1a9aea59, a same-name pair without them
+  (one holding an email, one a landline) was collapsed from 2 nodes to 1 by a
+  single ingest despite the decision.
+- Pinned by `tests/test_different_people_decision_blocks_remerge.py`: each
+  edit reverted fails exactly its own test (1 failed, 3 passed); controls
+  without a decision merge on both paths.
+- Retire when CM041 carries both checks and a re-vendor makes the files
+  byte-identical.

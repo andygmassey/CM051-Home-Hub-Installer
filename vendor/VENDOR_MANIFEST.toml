@@ -229,7 +229,7 @@ owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-unrecorded_divergence = "vendor/divergences/cm041_identity_resolver.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm041_identity_resolver.UNRECORDED.md"  # EXTENDED 2026-10-30: execute() and the ingest collapse honour different-people decisions; see the section of that date in the file.
   # MOVED 2026-10-04 (walk #6), same shape as the cm041/assistant_api row's
   # 2026-09-19 move: this tree now carries a SECOND unrecorded divergence
   # (the IdentityResolver._sync_qdrant_display_name graft, walk #6 bug 2)
