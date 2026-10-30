@@ -284,7 +284,7 @@ jobs:
 
   owner-employer-seed:
     # The seed runs on the Hub and uses BSD stat, so it is proven on macOS.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -308,7 +308,7 @@ jobs:
   conversation-capture-seed:
     # Pure bash + a stubbed curl on PATH; no real gateway needed, but kept
     # alongside the other seed-wiring jobs on macOS for consistency.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
