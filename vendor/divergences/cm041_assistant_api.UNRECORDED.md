@@ -1603,3 +1603,12 @@ Guarded by `tests/test_people_count_one_definition.py` (wired in
 
 UPSTREAM ROW (owed to CM041): canonical CM041 has no `assistant_api/people_rules.py`
 (vendor-only extraction), so there is nothing to port it to alone.
+
+## 2026-10-30 v1.0.121 second batch: the commitments reader drops L3 todos
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `commitments_list`: in the row loop, a row whose `plevel` resolves to L3 (tagged L3, or tagged but unparseable, which fails closed) is skipped. A row with no privacyLevel (legacy) is kept at the default level, as before. The comment block above the query, which claimed ZERO todos carry a privacyLevel, is rewritten: the writer tags every todo at `vendor/cm048_pipeline/src/ingest.py` (privacyLevel line of the todo block) and skips L3 conversations at its guards.
+- Why: the brief is emailed, and L3 safety rested on the CM048 writer alone.
+- Proof: `tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py` mutates the three writer guards off in a private copy of the vendored pipeline, so an L3 todo reaches a real pyoxigraph store, and asserts `commitments_list` and the brief reader return the L1 control and the untagged legacy todo and not the L3 one. It FAILS on the base commit.
+- Upstream owed: canonical CM041 `origin/main` `commitments_list` (assistant_api/ical-server.py:6346) has the same loop and the stale comment. No canonical PR now. Retire this section when a re-pin brings the filter in.
