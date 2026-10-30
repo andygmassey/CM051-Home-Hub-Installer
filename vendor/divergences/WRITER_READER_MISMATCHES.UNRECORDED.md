@@ -1726,3 +1726,23 @@ Tree `doctor`. Pin NOT moved. Comment-only, no behaviour change.
   this entry records it so the divergence gate sees it described.
 - Retire: when HR015 carries the same re-word and a re-vendor makes the file
   byte-identical.
+
+
+## 2026-10-30: Hub "Not the same person? Split" routes (person_split)
+
+Tree `doctor`. Pin NOT moved.
+
+- `agent/web_ui.py`: two routes added directly after
+  `/api/v1/wiki/duplicates/decision`: `GET /api/v1/merges` (guarded by
+  `_hub_read_refusal`) and `POST /api/v1/merges/split` (guarded by
+  `_not_hub_local` and `_cross_site_refusal`, the same pair the other Doctor
+  writes use). Thin plumbing only; all logic is in `agent/person_split.py`.
+- `agent/person_split.py`: NEW, vendor-only (row in `vendor/VENDOR_ONLY.tsv`).
+  Lists un-undone merges from the resolver's merge journal and, on split,
+  writes a `distinct` decision through `duplicate_decision.write_decision`
+  and then runs the resolver's own `--undo-merge` in the import pipeline.
+- Pinned by `tests/test_person_split_keeps_two_people.py`
+  (`.github/workflows/exact-identifier-merge.yml`).
+- What a future sync must preserve: both routes and the new module. Retire
+  when HR015 `doctor/agent/` carries them and a re-vendor makes the files
+  byte-identical.

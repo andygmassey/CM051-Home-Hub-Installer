@@ -41,7 +41,9 @@ from identity_resolver.normalise import (
     normalise_email,
     normalise_phone,
 )
-from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
+from identity_resolver.decisions import (
+    apply_user_decisions, is_blocked, load_duplicate_decisions,
+)
 from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 
 logger = logging.getLogger(__name__)
@@ -2130,7 +2132,22 @@ class BatchResolver:
         _backup_triples(self.oxigraph_url, self._client, all_uris, backup_path)
 
         refused_rule2 = 0
+        # "Different people" decisions, re-read at EXECUTE time. detect()
+        # already drops a distinct pair from the plan, but a converge round
+        # plans first and executes later, and the Hub's "Not the same person?
+        # Split" (CM051 Doctor person_split.py) can record the decision in
+        # between. Without this re-read the stale plan re-merges the pair the
+        # customer had just separated, including through the exact-identifier
+        # override below, which reads names and keys and never the decision.
+        distinct_now = load_duplicate_decisions(
+            self.config.get("corrections_dir", ""))
         for action in report.auto_merges:
+            if is_blocked(action.keep_uri, action.discard_uri, distinct_now):
+                logger.info(
+                    "Not merging %s into %s: recorded as different people",
+                    action.discard_uri, action.keep_uri,
+                )
+                continue
             # RULE 2 veto, per pair, BEFORE any write. See the long note above
             # _merge_oxigraph: this path reached the graph without it and grew
             # 137 over-merged nodes on a freshly wiped box.

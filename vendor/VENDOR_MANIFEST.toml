@@ -229,7 +229,7 @@ owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
 source_path      = "identity_resolver"
-unrecorded_divergence = "vendor/divergences/cm041_identity_resolver.UNRECORDED.md"
+unrecorded_divergence = "vendor/divergences/cm041_identity_resolver.UNRECORDED.md"  # EXTENDED 2026-10-30: execute() re-reads distinct decisions (the hub split route); see the section of that date in the file.
   # MOVED 2026-10-04 (walk #6), same shape as the cm041/assistant_api row's
   # 2026-09-19 move: this tree now carries a SECOND unrecorded divergence
   # (the IdentityResolver._sync_qdrant_display_name graft, walk #6 bug 2)
@@ -604,7 +604,7 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 # Guard (run AFTER the re-pin): scripts/verify_doctor_governor_revendor.sh
 [[tree]]
 name             = "doctor"
-  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # EXTENDED 2026-10-23 (118): HR015 #975 diagnostic_rules, #979 first_run wizard + one dashboard literal, #978 evernote half; see the section dated 2026-10-23 in that file. CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
+  unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # EXTENDED 2026-10-30: person_split routes in web_ui.py plus vendor-only person_split.py (the hub split route). EXTENDED 2026-10-23 (118): HR015 #975 diagnostic_rules, #979 first_run wizard + one dashboard literal, #978 evernote half; see the section dated 2026-10-23 in that file. CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh doctor was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
 expires = "2026-11-14"
 owner = "archie"

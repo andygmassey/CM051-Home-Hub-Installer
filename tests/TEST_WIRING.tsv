@@ -646,6 +646,7 @@ test_people_rules_short_codes_up_to_8_digits.py	WIRED	.github/workflows/cm048-pa
 test_people_status_honesty.py	WIRED	.github/workflows/status-honesty-people.yml
 test_people_sweep_partial_landing_is_not_success.py	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_person_removal_audit.py	WIRED	.github/workflows/person-removal-audit.yml
+test_person_split_keeps_two_people.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_pgrep_no_match_does_not_fabricate_a_done.sh	WIRED	.github/workflows/bash32-compat.yml
 test_phase_2_failures_reach_the_walk_record.sh	WIRED	.github/workflows/cut-manifest.yml
 test_photo_events_carry_place_names.py	WIRED	.github/workflows/privacy-spine.yml
