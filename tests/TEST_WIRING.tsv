@@ -920,6 +920,7 @@ test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
+test_two_cards_probe_verdict_holes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_colima_and_data_choices.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -1023,6 +1024,7 @@ test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tes
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
+test_walk_triage_never_baselines_a_vacuous_pass.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
@@ -1155,6 +1157,7 @@ scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secret
 scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile
 scripts/tests/test_verify_branch_truth_gate.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_clean_tree_gate.sh	WIRED	.github/workflows/cut-manifest.yml
