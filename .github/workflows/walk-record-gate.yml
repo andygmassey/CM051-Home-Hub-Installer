@@ -118,6 +118,7 @@ on:
       - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
       - 'tests/test_ttywalk_lang_leg.sh'
       - 'tests/test_ttywalk_exit_cleanup_lines.sh'
+      - 'tests/test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh'
       - 'tests/fixtures/lang_leg/**'
       - 'scripts/lib_walk_lang.sh'
       - 'scripts/box_walk_probes/lib/gen_walk_answers_lang.py'
@@ -921,6 +922,9 @@ jobs:
       - name: ttywalk exit trap logs the DMG detach and removes the temp mount dir
         if: always()
         run: /bin/bash tests/test_ttywalk_exit_cleanup_lines.sh
+      - name: ttywalk --from-dmg prints hdiutil's stderr and leaks no ostler-dmg temp dir
+        if: always()
+        run: /bin/bash tests/test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh
 
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
