@@ -304,6 +304,7 @@ test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derive
 test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
+test_derive_tick_records_every_exit_and_has_a_ceiling.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_dietary_is_never_surfaced.py	WIRED	.github/workflows/derived-preferences.yml

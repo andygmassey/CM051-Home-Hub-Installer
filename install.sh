@@ -355,7 +355,9 @@ _ks_bounded() {
 # pause/defer check (an operator Pause, or a box over its load ceiling, skips
 # the tick); and the shared ingest slot, so a derive never reads the graph
 # while an ingest or enrich slice is half-way through writing it. It holds no
-# model, so it holds the slot for seconds.
+# model, so it holds the slot for seconds. Every tick that does not reach the
+# runner records why in the runner's own status file, and a ceiling (3 ticks in
+# a row, or 12h) runs it anyway under taskpolicy -b; see the wrapper header.
 _install_derive_preferences_agent() {
     local label="com.ostler.derive-preferences"
     local plist="${HOME}/Library/LaunchAgents/${label}.plist"
@@ -375,24 +377,141 @@ _install_derive_preferences_agent() {
 	#
 	# `set -uo pipefail`, not -e: a failed pass is recorded in the status file
 	# the runner writes and the next tick tries again.
+	#
+	# EVERY EXIT LEAVES A RECORD. The runner writes state/derived-preferences.json
+	# for every outcome it reaches. A tick that never reaches it (deferred on load,
+	# yielded to a busy ingest slot, no venv, cannot enter the tree) writes the
+	# same file itself, marked "writer": "tick", with outcome deferred, yielded or
+	# cannot_start, the reason, the time and how many ticks in a row have had no
+	# pass. It carries the last COMPLETED pass forward (last_run_at, the node
+	# count), so the Doctor keeps the count and the walk probe's "did a pass run
+	# after the kick" read (a change in last_run_at) is not fooled by a deferral.
+	# v1.0.120, cold 16GB box: eight "deferred (load)" lines over 8.5h, no status
+	# file at all, and "What you like" degraded with no reason anywhere.
+	#
+	# THE CEILING. A box that is always busy must not starve this for ever. After
+	# OSTLER_DERIVE_DEFER_CEILING (3) ticks in a row with no pass, or
+	# OSTLER_DERIVE_DEFER_CEILING_S (12h) since the last completed pass (since the
+	# streak began when none ever completed), the load deferral is overridden and
+	# the pass runs under `taskpolicy -b`. An import that just finished
+	# (state/derive-preferences.after-import, written by ostler-import) overrides
+	# it once too. NEVER overridden: an operator Pause, and the ingest slot, which
+	# is the consistency guard (a derive must not read a graph an ingest is half
+	# way through writing). The tier lib itself is unchanged.
 	set -uo pipefail
 
 	OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
 	LOGS_DIR="${OSTLER_DIR}/logs"
+	STATE_DIR="${OSTLER_DIR}/state"
 	CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
 	CM019_PY="${CM019_DIR}/.venv/bin/python3"
 	DERIVE_USER="${OSTLER_DERIVE_USER:-ostler}"
 	LOG_FILE="${LOGS_DIR}/derive-preferences.log"
+	STATUS_FILE="${STATE_DIR}/derived-preferences.json"
+	TICK_STATE="${STATE_DIR}/derive-preferences-tick.state"
+	IMPORT_MARK="${STATE_DIR}/derive-preferences.after-import"
+	CEILING_N="${OSTLER_DERIVE_DEFER_CEILING:-3}"
+	CEILING_S="${OSTLER_DERIVE_DEFER_CEILING_S:-43200}"
+	TASKPOLICY="${OSTLER_TASKPOLICY_BIN:-/usr/sbin/taskpolicy}"
 
-	mkdir -p "$LOGS_DIR"
+	mkdir -p "$LOGS_DIR" "$STATE_DIR"
 	log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+	_num() { case "${1:-}" in ''|*[!0-9]*) printf '0' ;; *) printf '%s' "$1" ;; esac; }
+	_iso() { case "${1:-}" in *[!0-9TZ:.+-]*) printf '' ;; *) printf '%s' "${1:-}" ;; esac; }
+	# key=value state, read without eval; a missing file reads as empty.
+	_kv() { [ -f "$2" ] || return 0; sed -n "s/^$1=//p" "$2" | tail -n 1; }
+	# one field of a JSON record this tick or the runner wrote (one key per line).
+	_jf() { [ -f "$STATUS_FILE" ] || return 0; sed -n "s/^ *\"$1\": \"*\([^\",]*\)\"*,*$/\1/p" "$STATUS_FILE" | head -n 1; }
+
+	NOW="$(_num "$(date +%s)")"
+	CONSEC="$(_num "$(_kv consecutive "$TICK_STATE")")"
+	STREAK0="$(_num "$(_kv streak_started_epoch "$TICK_STATE")")"
+	LAST_OK="$(_num "$(_kv last_completed_epoch "$TICK_STATE")")"
+	LAST_OK_AT="$(_iso "$(_kv last_completed_at "$TICK_STATE")")"
+	LAST_RUN_AT="$(_iso "$(_kv last_run_at "$TICK_STATE")")"
+	LAST_NODES="$(_kv graph_node_count "$TICK_STATE")"
+	case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	# Upgraded from a wrapper that kept no state: adopt the runner's own record.
+	if [[ ! -f "$TICK_STATE" && -f "$STATUS_FILE" && "$(_jf writer)" != "tick" ]]; then
+	    LAST_RUN_AT="$(_iso "$(_jf last_run_at)")"
+	    case "$(_jf outcome)" in written|empty) LAST_OK_AT="$LAST_RUN_AT" ;; esac
+	    LAST_NODES="$(_jf graph_node_count)"
+	    case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	fi
+
+	LOAD_1M=""; LOAD_CORES=""; LOAD_CEIL=""; LOAD_TIER=""; DEFER_DETAIL=""
+
+	_state_write() { # consecutive streak_started_epoch
+	    local tmp="${TICK_STATE}.tmp.$$"
+	    {
+	        printf 'consecutive=%s\n' "$1"
+	        printf 'streak_started_epoch=%s\n' "$2"
+	        printf 'last_completed_epoch=%s\n' "$LAST_OK"
+	        printf 'last_completed_at=%s\n' "$LAST_OK_AT"
+	        printf 'last_run_at=%s\n' "$LAST_RUN_AT"
+	        printf 'graph_node_count=%s\n' "$LAST_NODES"
+	    } >"$tmp" && mv -f "$tmp" "$TICK_STATE"
+	}
+	_jstr() { # a JSON string, or null when empty; strips quotes, backslashes, controls
+	    local s
+	    s="$(printf '%s' "${1:-}" | tr -d '"\\' | tr -d '\000-\037')"
+	    if [[ -z "$s" ]]; then printf 'null'; else printf '"%s"' "$s"; fi
+	}
+	_status_write() { # outcome reason consecutive -> the same file the runner writes
+	    local tmp="${STATUS_FILE}.tmp.$$" nodes="null"
+	    [[ -n "$LAST_NODES" ]] && nodes="$LAST_NODES"
+	    {
+	        printf '{\n'
+	        printf '  "consecutive": %s,\n' "$(_num "$3")"
+	        printf '  "ceiling_per_core": %s,\n' "$(_jstr "$LOAD_CEIL")"
+	        printf '  "cores": %s,\n' "$(_jstr "$LOAD_CORES")"
+	        printf '  "graph_node_count": %s,\n' "$nodes"
+	        printf '  "last_completed_at": %s,\n' "$(_jstr "$LAST_OK_AT")"
+	        printf '  "last_run_at": %s,\n' "$(_jstr "$LAST_RUN_AT")"
+	        printf '  "load_1m": %s,\n' "$(_jstr "$LOAD_1M")"
+	        printf '  "outcome": "%s",\n' "$1"
+	        printf '  "reason": %s,\n' "$(_jstr "$2")"
+	        printf '  "schema": 1,\n'
+	        printf '  "tier": %s,\n' "$(_jstr "$LOAD_TIER")"
+	        printf '  "ts": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+	        printf '  "writer": "tick"\n'
+	        printf '}\n'
+	    } >"$tmp" && mv -f "$tmp" "$STATUS_FILE"
+	}
+	_skip() { # outcome reason: record a tick with no pass, then exit 0
+	    local n=$((CONSEC + 1)) s0="$STREAK0"
+	    [[ "$s0" -gt 0 ]] || s0="$NOW"
+	    _state_write "$n" "$s0"
+	    _status_write "$1" "$2" "$n"
+	    log "${1} (${2}); ${n} tick(s) in a row with no pass; the next tick tries again"
+	    exit 0
+	}
+	_defer_detail() { # WHAT tripped the gate, measured just after it
+	    if [[ "${OSTLER_DEFER_REASON:-load}" == "paused" ]]; then
+	        DEFER_DETAIL="paused: an operator pause is in effect"
+	        return 0
+	    fi
+	    LOAD_1M="$(ostler_rt_loadavg_1m 2>/dev/null || true)"
+	    LOAD_CORES="${OSTLER_CPU_CORES:-}"
+	    LOAD_CEIL="${OSTLER_LOADAVG_CEILING:-}"
+	    LOAD_TIER="${OSTLER_TIER:-}"
+	    if [[ -z "$LOAD_1M" || "$(_num "$LOAD_CORES")" -le 0 ]]; then
+	        DEFER_DETAIL="load: unreadable (1m load '${LOAD_1M}', cores '${LOAD_CORES}'); tier ${LOAD_TIER:-?} defers by default"
+	        return 0
+	    fi
+	    local per
+	    per="$(awk -v l="$LOAD_1M" -v c="$LOAD_CORES" 'BEGIN { printf "%.2f", l / c }' 2>/dev/null || true)"
+	    DEFER_DETAIL="load: 1m load ${LOAD_1M} over ${LOAD_CORES} cores is ${per:-?} per core, above the ${LOAD_TIER:-?} tier ceiling of ${LOAD_CEIL:-?} per core"
+	}
 
 	if [[ ! -x "$CM019_PY" ]]; then
-	    log "no preferences service at ${CM019_DIR}; nothing to derive"
-	    exit 0
+	    _skip cannot_start "no preferences service at ${CM019_DIR}; nothing to derive"
 	fi
 
 	# Operator Pause and the load ceiling. Fail-safe: no tier lib, no deferral.
+	BG_RUN=""
+	FORCE=""
+	[[ -f "$IMPORT_MARK" ]] && FORCE="an import just finished"
 	_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
 	if [[ "${OSTLER_RESOURCE_GOVERNOR:-1}" == "1" && -f "$_tier_lib" ]]; then
 	    # shellcheck source=/dev/null
@@ -400,14 +519,53 @@ _install_derive_preferences_agent() {
 	    if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
 	        ostler_resource_tier_detect
 	        if ostler_resource_tier_should_defer_nonessential; then
-	            log "deferred (${OSTLER_DEFER_REASON:-load}); the next tick tries again"
-	            exit 0
+	            _defer_detail
+	            if [[ "${OSTLER_DEFER_REASON:-load}" == "paused" ]]; then
+	                _skip deferred "$DEFER_DETAIL"
+	            fi
+	            _ref="$LAST_OK"
+	            [[ "$_ref" -gt 0 ]] || _ref="$STREAK0"
+	            if [[ -z "$FORCE" && "$CONSEC" -ge "$(_num "$CEILING_N")" ]]; then
+	                FORCE="${CONSEC} ticks in a row with no pass"
+	            elif [[ -z "$FORCE" && "$_ref" -gt 0 && $((NOW - _ref)) -ge "$(_num "$CEILING_S")" ]]; then
+	                FORCE="$(( (NOW - _ref) / 3600 ))h since the last completed pass"
+	            fi
+	            if [[ -z "$FORCE" ]]; then
+	                _skip deferred "$DEFER_DETAIL"
+	            fi
+	            BG_RUN=1
+	            log "ceiling reached (${FORCE}); running anyway under taskpolicy -b despite ${DEFER_DETAIL}"
 	        fi
 	    fi
 	fi
 
-	cd "$CM019_DIR" || { log "cannot enter ${CM019_DIR}"; exit 0; }
+	cd "$CM019_DIR" || _skip cannot_start "cannot enter ${CM019_DIR}"
 	CMD=("$CM019_PY" -m services.enrich.src.derive_runner --user-id "$DERIVE_USER")
+	if [[ -n "$BG_RUN" ]]; then
+	    if [[ -x "$TASKPOLICY" ]]; then
+	        CMD=("$TASKPOLICY" -b "${CMD[@]}")
+	    else
+	        log "no taskpolicy at ${TASKPOLICY}; the forced pass runs at the agent's own Background priority"
+	    fi
+	fi
+
+	_after_pass() { # rc: adopt the runner's record, or write one if it left none
+	    rm -f "$IMPORT_MARK"
+	    if [[ ! -f "$STATUS_FILE" || "$(_jf writer)" == "tick" ]]; then
+	        _status_write not_written "the derive runner exited rc=${1} without recording a pass" 0
+	    else
+	        LAST_RUN_AT="$(_iso "$(_jf last_run_at)")"
+	        case "$(_jf outcome)" in
+	            written|empty)
+	                LAST_OK="$NOW"
+	                LAST_OK_AT="$LAST_RUN_AT"
+	                LAST_NODES="$(_jf graph_node_count)"
+	                case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	                ;;
+	        esac
+	    fi
+	    _state_write 0 0
+	}
 
 	log "tick start"
 	_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
@@ -415,19 +573,22 @@ _install_derive_preferences_agent() {
 	    # shellcheck source=/dev/null
 	    . "$_slot_lib"
 	    if ! ostler_slot_acquire "derive-preferences"; then
-	        log "ingest slot busy; yielding this tick"
-	        exit 0
+	        _skip yielded "the ingest slot is busy; an import or enrich slice holds it"
 	    fi
 	    if ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+	        _after_pass 0
 	        log "tick finished: written (see state/derived-preferences.json)"
 	    else
+	        _after_pass $?
 	        log "tick finished: NOT written (see state/derived-preferences.json for why)"
 	    fi
 	    exit 0
 	fi
 	if "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+	    _after_pass 0
 	    log "tick finished: written (see state/derived-preferences.json)"
 	else
+	    _after_pass $?
 	    log "tick finished: NOT written (see state/derived-preferences.json for why)"
 	fi
 	exit 0
@@ -25371,7 +25532,10 @@ done
 # answer. Kick it here. The derive agent is kicked too, so the "What you like"
 # graph (read straight from the graph by the wiki and the derived route, not
 # through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
-# a missing agent never fails an import.
+# a missing agent never fails an import. The marker makes that derive kick count
+# once even on a box the import itself left busy (v1.0.120: deferred on load);
+# the tick consumes it, and an operator Pause and the ingest slot still apply.
+mkdir -p "${OSTLER_DIR}/state" 2>/dev/null && : > "${OSTLER_DIR}/state/derive-preferences.after-import" 2>/dev/null || true
 _ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
 _ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc
