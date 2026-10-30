@@ -89,9 +89,9 @@ PW="${TMP}/pres"; blocks() { grep -c '^# Care rules' "$1"; }
 bash "$WRITER" "$CARE" GB "${PW}/none" >/dev/null 2>&1; N="${PW}/none/AGENTS.md"
 { [[ "$(blocks "$N")" == 1 ]] && [[ "$(head -1 "$N")" == "<!-- OSTLER-CARE-BEGIN -->" ]]; } && ok "preserve 1: no file -> one care block at the top" || bad "preserve 1: no-file case wrong"
 # 2. foreign content only
-mkdir -p "${PW}/f"; printf '# AGENTS.md -- Wizard Personal Assistant\n\nMY OWN RULE: call me Captain.\n' > "${PW}/f/AGENTS.md"
+mkdir -p "${PW}/f"; printf '# AGENTS.md -- STOCK HEADING LINE\n\nMY OWN RULE: answer in lower case.\n' > "${PW}/f/AGENTS.md"
 bash "$WRITER" "$CARE" GB "${PW}/f" >/dev/null 2>&1; FF="${PW}/f/AGENTS.md"
-{ [[ "$(blocks "$FF")" == 1 ]] && grep -q 'MY OWN RULE: call me Captain' "$FF" && grep -q 'Wizard Personal Assistant' "$FF"; } && ok "preserve 2: foreign content kept below one care block" || bad "preserve 2: foreign content lost or block count wrong"
+{ [[ "$(blocks "$FF")" == 1 ]] && grep -q 'MY OWN RULE: answer in lower case' "$FF" && grep -q 'STOCK HEADING LINE' "$FF"; } && ok "preserve 2: foreign content kept below one care block" || bad "preserve 2: foreign content lost or block count wrong"
 care_line="$(grep -n '^# Care rules' "$FF" | cut -d: -f1)"; own_line="$(grep -n 'MY OWN RULE' "$FF" | cut -d: -f1)"
 [[ "$care_line" -lt "$own_line" ]] && ok "preserve 2: care block comes first (survives the per-file truncation)" || bad "preserve 2: care block is not first"
 # 3. already contains our block: rerun is byte-identical
