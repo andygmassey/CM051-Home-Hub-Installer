@@ -1,64 +1,48 @@
-"""Documents-folder access posture probe + tile for Ostler Doctor.
+"""Documents-folder access posture tile for Ostler Doctor.
 
-Sibling of ``imessage_tcc_posture.py`` and ``reminders_posture.py``.
-Where those READ an install-time marker that install.sh wrote, this
-module runs a LIVE write probe at Doctor render time against the
-user-facing content root (``~/Documents/Ostler``).
+Sibling of ``imessage_tcc_posture.py`` and ``reminders_posture.py``: like
+them, Doctor only READS a record another component wrote.
 
-Why a live probe rather than an install-time marker
----------------------------------------------------
+v1.0.121 (NEW-121): this tile used to run a LIVE write probe from Doctor's
+own python, an ``O_EXCL`` create in ``~/Documents/Ostler`` (or in
+``~/Documents`` when that was absent) on every ``/doctor`` render. Doctor
+is a launchd job whose program is the bundled python, so TCC charged each
+probe to python3.11 as a Documents request: the shape the walk probe
+``no_python_is_tcc_responsible`` fails on, and one that can put a bare
+"python3.11 would like to access your Documents folder" prompt in front of
+a customer from a page they merely opened.
 
-Ostler's bundled interpreter writes the customer's personal wiki and
-their conversation records under ``~/Documents/Ostler``. macOS gates
-writes into the Documents folder behind the Files and Folders consent
-category (System Settings > Privacy and Security > Files and Folders).
-On install the operator meets a bare macOS prompt -- it can read as
-coming from ``python3.11``, the bundled helper -- asking to access the
-Documents folder. A careful customer who declines an unexplained
-prompt leaves Ostler unable to write their wiki or save their
-conversation records, and catch-up plus wiki writes then fail
-silently with no visible error.
+The probe now runs in the hourly fda-rerun tick
+(``ostler-assistant run-source fda-rerun`` -> sealed tick.sh ->
+``~/.ostler/bin/ostler-fda``, function ``_ostler_documents_access_record``),
+a fork+wait child of Ostler's signed Full-Disk-Access holder, and writes
+``~/.ostler/state/documents_access.tsv``. This module reads that file and
+nothing else: no write, no stat, no subprocess under ``~/Documents``.
 
-install.sh now pre-explains that prompt before it appears (the
-Documents pre-explain, section 7 of install.sh). This module is the
-other half: it surfaces the state in Doctor so a denial is never
-silent. A live probe is used because the permission can be granted at
-install and revoked later, which an install-time snapshot cannot
-catch -- the same reason the Reminders tile has a runtime half beside
-its install-time one.
-
-Four states, each distinct
----------------------------
+Four states, as the writer records them
+---------------------------------------
 
 * ``granted-and-working`` -- the content root exists and a probe write
-  into it succeeds. Ostler is saving the wiki and conversation records.
-* ``documents-denied`` -- a probe write is refused with a permission
-  error (``EPERM`` / ``EACCES``). macOS is blocking Ostler from the
-  Documents folder; the wiki and conversation records cannot be
-  written. This is the state the customer must act on.
-* ``not-yet-asked`` -- the content root does not exist yet but its
-  parent (``~/Documents``) accepts a probe write. install.sh has not
-  reached its first Documents write, so no decision has been made.
-  Deliberately NOT a denial: reporting denial here would cry wolf on a
-  fresh box.
-* ``check-failed`` -- the probe hit a non-permission error (a full
-  disk, a read-only volume, a missing parent). Reported honestly as
-  "could not check" rather than folded into pass or fail.
+  into it succeeded.
+* ``documents-denied`` -- the probe write was refused with a permission
+  error. The state the customer must act on.
+* ``not-yet-asked`` -- the root does not exist yet and its parent accepted
+  a probe write. Deliberately NOT a denial; renders nothing.
+* ``check-failed`` -- a non-permission error. Also what THIS reader
+  reports when the file is missing, unparseable, of an unknown status or
+  older than ``STATUS_MAX_AGE_SECONDS``: no current answer is "could not
+  check", never a pass.
 
-**Doctor-side only, and it never creates the content root.** When the
-root is absent the probe writes into the PARENT, so this background
-reader cannot itself trigger the very macOS prompt install.sh exists
-to pre-explain. The probe file is uniquely named, written with
-``O_EXCL``, and removed immediately.
+The writer never creates the root: when it is absent it probes the PARENT,
+exactly as the old live probe did.
 """
 from __future__ import annotations
 
-import errno
 import html
 import logging
 import os
-from pathlib import Path
-from typing import Callable, Optional, TypedDict
+import time
+from typing import Optional, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -69,107 +53,71 @@ STATUS_WORKING = "granted-and-working"
 STATUS_DENIED = "documents-denied"
 STATUS_NOT_ASKED = "not-yet-asked"
 STATUS_CHECK_FAILED = "check-failed"
+_KNOWN = (STATUS_WORKING, STATUS_DENIED, STATUS_NOT_ASKED, STATUS_CHECK_FAILED)
 
-# Probe files are hidden and PID-stamped so two concurrent Doctor polls
-# never collide on the same name.
-_PROBE_PREFIX = ".ostler-doctor-access-probe-"
+# The record the fda-rerun tick writes, resolved from HOME like the writer
+# (the ostler-fda wrapper sets OSTLER_DIR="${HOME}/.ostler" itself).
+STATUS_FILE_REL = os.path.join(".ostler", "state", "documents_access.tsv")
+# The writer runs hourly. Six missed ticks is no longer a current answer.
+STATUS_MAX_AGE_SECONDS = 6 * 3600
 
 
 class DocumentsAccessMarker(TypedDict, total=False):
-    """Result of a single live probe."""
+    """Result of reading the fda-rerun tick's record."""
 
     status: str
     docs_root: str
     probed_path: str
-    errno: Optional[int]
+    detail: str
+    # Set only when there is no current answer (missing, stale, garbled).
+    reason: str
 
 
-def _documents_root() -> Path:
-    """Return ``~/Documents/Ostler``.
+def _status_path() -> str:
+    return os.path.join(os.path.expanduser("~"), STATUS_FILE_REL)
 
-    Honours ``OSTLER_DOCUMENTS_DIR`` for tests and non-default
-    deployments, matching the override install.sh reads for the same
-    tree (``OSTLER_WIKI_DIR`` / ``OSTLER_CONVERSATIONS_DIR`` hang off
-    this root).
+
+def read_documents_access(now: Optional[float] = None) -> DocumentsAccessMarker:
+    """Read the Documents-access record. Never raises, never probes.
+
+    Missing, unreadable, unparseable, unknown-status or stale is
+    ``check-failed`` with a ``reason``: a check that has no current answer
+    is not a pass.
     """
-    override = os.environ.get("OSTLER_DOCUMENTS_DIR")
-    if override:
-        return Path(override)
-    return Path(os.path.expanduser("~/Documents/Ostler"))
-
-
-def _default_write_probe(directory: Path) -> None:
-    """Write-and-remove a tiny probe file in ``directory``.
-
-    Raises ``OSError`` (``PermissionError`` is a subclass) when the
-    write is refused -- which is exactly what a macOS TCC denial of the
-    Documents folder produces (``EPERM``), and what a ``chmod 000``
-    directory produces (``EACCES``). ``O_EXCL`` keeps the attempt a
-    genuine create so the permission check actually runs.
-    """
-    probe = Path(directory) / (_PROBE_PREFIX + str(os.getpid()))
-    fd = os.open(str(probe), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    path = _status_path()
     try:
-        os.write(fd, b"ostler documents access probe\n")
-    finally:
-        os.close(fd)
-    # Best-effort cleanup; the WRITE is what we measured, so a failed
-    # unlink does not change the verdict.
-    try:
-        os.unlink(str(probe))
-    except OSError:
-        pass
-
-
-def probe_documents_access(
-    docs_root: Optional[os.PathLike] = None,
-    *,
-    _write_probe: Optional[Callable[[Path], None]] = None,
-) -> DocumentsAccessMarker:
-    """Live-probe whether Ostler can write to the Documents content root.
-
-    Args:
-        docs_root: content root to probe. Defaults to
-            ``~/Documents/Ostler`` (or ``OSTLER_DOCUMENTS_DIR``).
-        _write_probe: injectable write function, for tests. Defaults to
-            a real create-write-remove. Never raises out of this
-            function; a broken probe is reported as ``check-failed``.
-
-    Returns:
-        A :class:`DocumentsAccessMarker`. Never raises -- Doctor must
-        keep rendering even when the probe itself is broken.
-    """
-    root = Path(docs_root) if docs_root is not None else _documents_root()
-    write_probe = _write_probe or _default_write_probe
-
-    marker: DocumentsAccessMarker = {"docs_root": str(root)}
-
-    root_exists = root.exists()
-    # When the root is absent we probe the PARENT, never create the
-    # root: creating it is install.sh's job (behind its pre-explain),
-    # and doing it from this background reader would fire the macOS
-    # prompt we are here to keep from being a surprise.
-    target = root if root_exists else root.parent
-    marker["probed_path"] = str(target)
-
-    try:
-        write_probe(target)
-    except PermissionError as exc:
-        marker["status"] = STATUS_DENIED
-        marker["errno"] = getattr(exc, "errno", None)
-        return marker
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except FileNotFoundError:
+        return {"status": STATUS_CHECK_FAILED,
+                "reason": "not checked yet: the hourly background check has not run"}
     except OSError as exc:
-        if exc.errno in (errno.EACCES, errno.EPERM):
-            marker["status"] = STATUS_DENIED
-        else:
-            # A full disk, a read-only volume or a missing parent is not
-            # a permission refusal. Say "could not check", do not claim
-            # a denial we did not measure.
-            marker["status"] = STATUS_CHECK_FAILED
-        marker["errno"] = exc.errno
-        return marker
-
-    marker["status"] = STATUS_WORKING if root_exists else STATUS_NOT_ASKED
+        return {"status": STATUS_CHECK_FAILED,
+                "reason": f"record unreadable ({type(exc).__name__})"}
+    fields: dict = {}
+    for line in lines:
+        key, _, value = line.partition("\t")
+        fields[key] = value
+    try:
+        recorded_at = int(fields.get("recorded_at", ""))
+    except ValueError:
+        return {"status": STATUS_CHECK_FAILED, "reason": "record carries no time"}
+    age = (time.time() if now is None else now) - recorded_at
+    if age > STATUS_MAX_AGE_SECONDS:
+        return {"status": STATUS_CHECK_FAILED,
+                "reason": f"last checked {int(age // 3600)} hours ago"}
+    if age < -300:
+        return {"status": STATUS_CHECK_FAILED, "reason": "record is dated in the future"}
+    status = fields.get("status", "")
+    if status not in _KNOWN:
+        return {"status": STATUS_CHECK_FAILED,
+                "reason": f"record has an unknown status ({status[:40]!r})"}
+    marker: DocumentsAccessMarker = {
+        "status": status,
+        "docs_root": fields.get("docs_root", ""),
+        "probed_path": fields.get("probed_path", ""),
+        "detail": fields.get("detail", ""),
+    }
     return marker
 
 
@@ -222,6 +170,18 @@ _REMEDIATION = {
     ),
 }
 
+# No current answer (record missing, stale or garbled). Same label as a
+# check-failure; different words, because nothing was tried and failed.
+_NO_ANSWER_DETAIL_FMT = (
+    "Ostler has no current answer about your Documents folder ({reason}), "
+    "so this was not checked. It is not a pass."
+)
+_NO_ANSWER_REMEDIATION = (
+    "Ostler re-checks this in the background every hour. Open the Doctor "
+    "dashboard again later; if this stays, run the Ostler installer again "
+    "to repair it."
+)
+
 _HOW_TO_FIX_LABEL = "How to fix"
 
 # Status-dependent colour + icon, matching the iMessage and Reminders
@@ -241,25 +201,23 @@ _ICONS = {
 }
 
 
-def render_documents_access_posture(
-    docs_root: Optional[os.PathLike] = None,
-    *,
-    _write_probe: Optional[Callable[[Path], None]] = None,
-) -> str:
+def render_documents_access_posture() -> str:
     """Render the Documents-access posture tile as static HTML.
+
+    Reads the fda-rerun tick's record (:func:`read_documents_access`);
+    never touches ``~/Documents`` itself.
 
     Returns the empty string when the state is ``not-yet-asked`` (a
     fresh box before install.sh's first Documents write), so Doctor
     falls through to no section rather than alarming the customer about
-    a permission nobody has been asked for yet. Mirrors the
-    fall-through the iMessage and Reminders tiles use for an absent
-    marker.
+    a permission nobody has been asked for yet.
 
     A working state renders a green card; a denial an amber card with a
-    How-to-fix block; a check-failure a red card. The expand-collapse
-    uses the native ``<details>`` element, so no JavaScript is needed.
+    How-to-fix block; a check-failure (or no current answer) a red card.
+    The expand-collapse uses the native ``<details>`` element, so no
+    JavaScript is needed.
     """
-    marker = probe_documents_access(docs_root, _write_probe=_write_probe)
+    marker = read_documents_access()
     status = marker.get("status")
 
     if status == STATUS_NOT_ASKED or status not in _STATUS_LABELS:
@@ -270,6 +228,9 @@ def render_documents_access_posture(
     status_label = _STATUS_LABELS[status]
     detail = _DETAILS[status]
     remediation = _REMEDIATION.get(status)
+    if marker.get("reason"):
+        detail = _NO_ANSWER_DETAIL_FMT.format(reason=marker["reason"])
+        remediation = _NO_ANSWER_REMEDIATION
 
     how_to_fix = ""
     if remediation:

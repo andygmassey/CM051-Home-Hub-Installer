@@ -84,12 +84,15 @@ sys.path.insert(0, str(AGENT))
 
 SPAWNS: list[str] = []
 STATS: list[str] = []
+OPENS: list[str] = []
 _REAL_STAT = os.stat
 
 
 def _audit(event: str, args) -> None:
     if event in ("subprocess.Popen", "os.posix_spawn", "os.system", "os.exec", "os.spawn"):
         SPAWNS.append(f"{event} {args!r}")
+    elif event == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
+        OPENS.append(os.fsdecode(args[0]))
 
 
 sys.addaudithook(_audit)
@@ -224,6 +227,38 @@ if fn:
     out, _, _ = run_rule()
     check(out == [], f"absent folder is skipped, not 'could not check' ({titles(out)})")
     (HOME / ".colima").mkdir()
+
+# ── 2b. the Documents tile: a render with ~/Documents/Ostler unreadable ───
+# Archie's condition for the Documents-access tile (same NEW-121 class): a
+# /doctor render must make 0 writes, 0 opens, 0 stats and 0 spawns under
+# ~/Documents. RED at 1a9aea59, where the tile O_EXCL-created a probe file in
+# ~/Documents/Ostler from Doctor's python on every render.
+import documents_access_posture as dap  # noqa: E402
+
+docs_root = HOME / "Documents" / "Ostler"
+for p in docs_root.glob(".ostler*"):
+    p.unlink()
+os.chmod(docs_root, 0)
+try:
+    SPAWNS.clear(); STATS.clear(); OPENS.clear()
+    os.stat = _recording_stat
+    try:
+        html = dap.render_documents_access_posture()
+    finally:
+        os.stat = _REAL_STAT
+finally:
+    os.chmod(docs_root, 0o700)
+doc_opens = [p for p in OPENS if p.startswith(DOCS)]
+doc_stats = [p for p in STATS if p.startswith(DOCS)]
+check(doc_opens == [], f"Documents tile render opens/writes nothing under ~/Documents (got {doc_opens[:3]})")
+check(doc_stats == [], f"Documents tile render stats nothing under ~/Documents (got {doc_stats[:3]})")
+check(SPAWNS == [], f"Documents tile render spawns no process (got {SPAWNS[:3]})")
+check(list(docs_root.iterdir()) == [], "no probe file was left in ~/Documents/Ostler")
+# Control: the open recorder sees an open under ~/Documents this test makes.
+OPENS.clear()
+(docs_root / "control.txt").write_text("x")
+check(any(p.startswith(DOCS) for p in OPENS), "control: the open recorder sees a write under ~/Documents")
+(docs_root / "control.txt").unlink()
 
 # ── 3. sweep ratchet: every Doctor subprocess call site, pinned ────────────
 # file -> number of spawn call sites. Each row was swept for the path it

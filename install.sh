@@ -25981,6 +25981,50 @@ _ostler_tm_status_record() {
 }
 _ostler_tm_status_record || true
 
+# ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
+#
+# Doctor's Documents tile used to probe-write into ~/Documents/Ostler from
+# its own launchd python on every /doctor render, a Documents request TCC
+# charged to python3.11. The same probe runs here instead, as a child of the
+# signed FDA holder (see the Time Machine block above), and Doctor reads
+# ~/.ostler/state/documents_access.tsv. Same four states as the old probe:
+#   granted-and-working  the root exists and a probe write succeeded
+#   documents-denied     the write was refused (EPERM / EACCES)
+#   not-yet-asked        the root is absent and its PARENT accepted the write
+#   check-failed         any other error
+# The root is NEVER created here (install.sh owns that, behind its
+# pre-explain); when it is absent the parent is probed. noclobber makes the
+# write a genuine create. Non-fatal in every branch.
+_ostler_documents_access_record() {
+    local out="${OSTLER_DIR}/state/documents_access.tsv"
+    local root="${OSTLER_DOCUMENTS_DIR:-${HOME}/Documents/Ostler}"
+    local target probe err st detail="" tmp
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || return 0
+    if [[ -d "$root" ]]; then target="$root"; else target="$(dirname "$root")"; fi
+    probe="${target}/.ostler-access-probe-$$"
+    if err="$( (export LC_ALL=C; set -o noclobber; printf 'ostler documents access probe\n' > "$probe") 2>&1 )"; then
+        rm -f "$probe" 2>/dev/null || true
+        if [[ -d "$root" ]]; then st=granted-and-working; else st=not-yet-asked; fi
+    else
+        case "$err" in
+            *"Operation not permitted"*|*"Permission denied"*) st=documents-denied ;;
+            *) st=check-failed ;;
+        esac
+        detail="${err//$'\t'/ }"; detail="${detail//$'\n'/ }"; detail="${detail:0:160}"
+    fi
+    tmp="$(mktemp "${out}.XXXXXX" 2>/dev/null)" || return 0
+    {
+        printf 'recorded_at\t%s\n' "$(date +%s)"
+        printf 'writer\tfda-rerun\n'
+        printf 'status\t%s\n' "$st"
+        printf 'docs_root\t%s\n' "$root"
+        printf 'probed_path\t%s\n' "$target"
+        printf 'detail\t%s\n' "$detail"
+    } > "$tmp" 2>/dev/null && mv -f "$tmp" "$out" 2>/dev/null || rm -f "$tmp"
+    return 0
+}
+_ostler_documents_access_record || true
+
 # v1.0.12 FIX A: invoke the resolved interpreter directly. A stray backslash
 # here previously made bash run a literal command named '$OSTLER_PYTHON' ->
 # "command not found" exit 127 on every fda-rerun, so the Photos/Reminders
