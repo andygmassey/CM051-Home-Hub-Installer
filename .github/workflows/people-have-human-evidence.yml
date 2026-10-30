@@ -19,6 +19,7 @@ on:
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'tests/test_people_count_one_definition.py'
+      - 'tests/test_people_count_waits_for_the_embed_drain.py'
       - '.github/workflows/people-have-human-evidence.yml'
   pull_request:
     paths:
@@ -33,6 +34,7 @@ on:
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'tests/test_people_count_one_definition.py'
+      - 'tests/test_people_count_waits_for_the_embed_drain.py'
       - '.github/workflows/people-have-human-evidence.yml'
 
 concurrency:
@@ -84,3 +86,15 @@ jobs:
           if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
           n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
           if [ "${n:-0}" -lt 8 ]; then echo "expected at least 8 passed, got ${n:-0}" >&2; exit 1; fi
+      # v1.0.121 trial: the 100-person gap was embed lag (a Person reached the
+      # graph at 15:35:15Z and its vector at 15:45:18Z). The probe now reads only
+      # after the embed queue has drained, on a named signal, else CANNOT-RUN.
+      # Cap 0 throughout: the tolerance and the cap are not touched.
+      - name: The people-count probe reads only after the embed queue has drained, else CANNOT-RUN
+        if: always()
+        run: |
+          out="$(python -m pytest -q -rs tests/test_people_count_waits_for_the_embed_drain.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+          n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
+          if [ "${n:-0}" -lt 9 ]; then echo "expected at least 9 passed, got ${n:-0}" >&2; exit 1; fi
