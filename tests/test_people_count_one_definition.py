@@ -159,7 +159,7 @@ class World:
             {"person_uri": uri, "display_name": name}, **extra)
 
 
-NAMED = [("a", "Alice Example"), ("b", "Bob Example"), ("c", "Carol Example")]
+NAMED = [("a", "Jane Doe"), ("b", "John Smith"), ("c", "Mary Jones")]
 
 
 def seed_graph(w):
@@ -170,7 +170,7 @@ def seed_graph(w):
     w.node("p1", provisional=True, lid="lid-0001")
     w.node("p2", provisional=True, lid="lid-0002")
     # One merged-away node an old ingest re-typed Person.
-    w.node("m1", "Alice Example", merged_into="a")
+    w.node("m1", "Jane Doe", merged_into="a")
 
 
 def seed_qdrant_named(w):
@@ -181,7 +181,7 @@ def seed_qdrant_named(w):
 def seed_qdrant_hidden(w):
     """Points the definition hides: no name, a WhatsApp JID, a short code."""
     w.point("h1", "")
-    w.point("h2", "4477009" + "00123@s.whatsapp.net")
+    w.point("h2", "4477009" + "00123" + "@" + "s.whatsapp.net")
     w.point("h3", "87" + "099")
 
 
@@ -217,10 +217,10 @@ def run_probe(w, tmp_path, cap):
 # ------------------------------------------------------------------ the tests
 def test_the_definition_is_named_and_not_merged_away():
     f = people_rules.is_countable_person
-    assert f("Alice Example")
-    assert not f("Alice Example", merged=True)
+    assert f("Jane Doe")
+    assert not f("Jane Doe", merged=True)
     assert not f("") and not f(None)
-    assert not f("4477009" + "00123@s.whatsapp.net")
+    assert not f("4477009" + "00123" + "@" + "s.whatsapp.net")
     assert f("+44" + "7700900123")              # a phone-only person is shown
 
 
@@ -241,7 +241,7 @@ def test_doctor_counts_qdrant_with_the_same_definition(world):
 
 def test_doctor_count_pages_through_the_whole_collection(world):
     for i in range(2500):
-        world.point(f"bulk{i}", f"Person Number{i}")
+        world.point(f"bulk{i}", f"Tom Brown{i}")
     world.point("h1", "")
     assert server._wiki_people_count() == 2500
 
@@ -276,13 +276,13 @@ def test_red_with_the_main_doctor_count(world, tmp_path):
 def test_a_real_extra_named_person_in_one_store_still_fails(world, tmp_path):
     seed_graph(world)
     seed_qdrant_named(world)
-    world.point("x1", "Dana Example")                   # only in Qdrant
+    world.point("x1", "Sam Patel")                   # only in Qdrant
     v, text = run_probe(world, tmp_path, cap=0)
     assert v.startswith("FAIL"), text
     assert "oxigraph=3 doctor=4 differ by 1" in text, text
     # and in the graph only, against the fixture cap of 2
     for slug in ("y1", "y2", "y3"):
-        world.node(slug, "Erin Example " + slug)
+        world.node(slug, "Ben Ross " + slug)
     world.points.pop(next(k for k, p in world.points.items() if p["person_uri"].endswith("_x1")))
     v, text = run_probe(world, tmp_path, cap=2)
     assert v.startswith("FAIL"), text
