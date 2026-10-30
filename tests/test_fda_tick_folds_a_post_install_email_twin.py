@@ -106,6 +106,10 @@ def box(tmp_path):
     jdir = tmp_path / "journal"
     env = {k: v for k, v in os.environ.items()
            if k.lower() not in ("http_proxy", "https_proxy", "all_proxy")}
+    # HOME is redirected, so a runner whose packages sit in the per-user site
+    # (pip --user, derived from HOME) must be told where that site is.
+    import site
+    env.setdefault("PYTHONUSERBASE", site.getuserbase())
     env.update(HOME=str(home), OSTLER_PYTHON=sys.executable, OXIGRAPH_URL=store.url,
                QDRANT_URL="", OSTLER_MERGE_JOURNAL_DIR=str(jdir),
                OSTLER_PIPELINE_DIR=str(ROOT / "vendor" / "cm041"),
