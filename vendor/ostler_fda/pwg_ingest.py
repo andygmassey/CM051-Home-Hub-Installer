@@ -3822,6 +3822,21 @@ _DISPATCH_EXEMPT = frozenset({
 DEFERRABLE_AT_INSTALL = frozenset({"food"})
 
 
+def _timing_line(name: str, phase: str, started: Optional[float] = None,
+                 status: Optional[str] = None) -> float:
+    """Print one ``[ingest-timing]`` line; return the monotonic clock."""
+    import time
+    now = time.monotonic()
+    parts = ["[ingest-timing]", "source=" + name, "phase=" + phase,
+             "at=" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")]
+    if started is not None:
+        parts.append("elapsed_s=%d" % round(now - started))
+    if status is not None:
+        parts.append("status=" + str(status))
+    print(" ".join(parts), flush=True)
+    return now
+
+
 def ingest_all(fda_dir: Optional[Path] = None, defer=()) -> dict:
     """Run all FDA -> PWG ingestion steps.
 
@@ -3854,12 +3869,20 @@ def ingest_all(fda_dir: Optional[Path] = None, defer=()) -> dict:
             logger.info("%s: deferred to the hourly ingest tick", name)
             results[name] = {"status": "deferred",
                              "reason": "runs_on_the_hourly_ingest_tick"}
+            _timing_line(name, "deferred")
             continue
+        # v1.0.121: a start and an end line per source on stdout (the tick's
+        # fda-rerun.log), so a walk can read how long each source took. The
+        # start line is printed first so a run killed mid-source still shows it.
+        started = _timing_line(name, "start")
         try:
             results[name] = func(fda_dir)
         except Exception as e:
             logger.warning("[warn] %s ingestion failed: %s", name, e)
             results[name] = {"status": "error", "error": str(e)}
+        res = results.get(name)
+        _timing_line(name, "end", started,
+                     res.get("status") if isinstance(res, dict) else "unknown")
 
     logger.info("")
     logger.info("FDA -> PWG ingestion complete.")

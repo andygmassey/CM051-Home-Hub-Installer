@@ -133,6 +133,9 @@ lands there and the tree is re-pinned past it.
 - `main()` gains `--defer <name>` (choices: `DEFERRABLE_AT_INSTALL`) and
   `--failed-out <path>`, which writes the failing dispatch keys one per line
   (empty file when none). Exit codes are unchanged.
+- `_timing_line`: `ingest_all` prints `[ingest-timing] source=<k> phase=start|end|deferred
+  at=<UTC> [elapsed_s=<n> status=<s>]` to stdout for every dispatch entry, so the
+  hourly tick's fda-rerun.log carries each source's duration.
 
 Why: the v1.0.120 cold walk (16 GB Mac) ran the whole dispatch inside the install's
 WhatsApp hydrate leg; `ingest_food` hit the 900 s CM019 ingest cap, the CLI exited 1,

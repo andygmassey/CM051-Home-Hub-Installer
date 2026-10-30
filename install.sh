@@ -25868,6 +25868,23 @@ cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 OSTLER_DIR="${HOME}/.ostler"
+# v1.0.121: ONE run at a time, by this lock rather than by trusting launchd
+# alone (the chain is plist -> run-source -> tick.sh -> here, and the food
+# source it now owns can run ~4000 s on a 16 GB Mac). A live holder means the
+# previous tick is still working: say so and stand down. A dead holder's lock
+# is reclaimed. Never the shared Ollama ingest slot: that one is not taken here.
+_FDA_LOCK="${OSTLER_FDA_LOCK:-${OSTLER_DIR}/state/fda-rerun.lock.d}"
+mkdir -p "$(dirname "$_FDA_LOCK")"
+if ! mkdir "$_FDA_LOCK" 2>/dev/null; then
+    _fda_held="$(cat "$_FDA_LOCK/pid" 2>/dev/null || true)"
+    if [[ -n "$_fda_held" ]] && kill -0 "$_fda_held" 2>/dev/null; then
+        echo "[fda-rerun] $(date -u +%Y-%m-%dT%H:%M:%SZ) previous run (pid ${_fda_held}) still working; this tick stands down"
+        exit 0
+    fi
+    rm -rf "$_FDA_LOCK"; mkdir "$_FDA_LOCK"
+fi
+echo "$$" > "$_FDA_LOCK/pid"
+trap 'rm -rf "$_FDA_LOCK"' EXIT
 FDA_DIR="${OSTLER_DIR}/fda-module"
 # v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
 # the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
@@ -37134,11 +37151,10 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         # any other source still fails the step, under its own name.
         if [[ "$_wa_ingest_rc" -ne 0 ]]; then
             _hydrate_ingest_failure_labels "$_wa_failed_out"
-            if [[ "$_HY_FAILED_LABELS" == "$MSG_HYDRATE_SOURCE_LABEL_WHATSAPP" ]]; then
-                warn "$(printf "$MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
-            else
-                warn "$(printf "$MSG_HYDRATE_INGEST_SOURCES_FAILED" "$_HY_FAILED_LABELS" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
-            fi
+            # The exit code is for the log, not the customer (it replaces
+            # MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED, which printed it).
+            echo "pwg_ingest exit ${_wa_ingest_rc}; failed: ${_HY_FAILED_LABELS}" >> "$_HYDRATE_WHATSAPP_LOG"
+            warn "$(printf "$MSG_HYDRATE_INGEST_SOURCES_FAILED" "$_HY_FAILED_LABELS" "$_HYDRATE_WHATSAPP_LOG")"
             if [[ "$_HY_FAILED_WHATSAPP" != "true" ]]; then
                 gui_step_record_rc "$_wa_ingest_rc"
             elif [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then

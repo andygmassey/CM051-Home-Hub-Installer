@@ -27,6 +27,12 @@
 #      warning names THAT source in customer words, says WhatsApp only for
 #      whatsapp, and the step still records rc 1.
 #   D  the helper: food, an unknown key, several keys, and an unreadable file.
+#   E  every source prints a start and an end line (elapsed_s) to the log.
+#   F  bin/ostler-fda (the hourly job) cannot overlap itself: a live lock
+#      holder makes the next tick stand down; a dead one's lock is reclaimed.
+#   G  the food path never takes the shared Ollama ingest slot, so a derive or
+#      bundle tick is not starved behind a long food run (control: derive's).
+#   And in C: no exit code in customer copy; it goes to the log instead.
 #
 # Usage: test_hydrate_graph_food_deferred.sh [install.sh] [strings.sh] [vendor-dir]
 # (the RED run points these at the v1.0.120 tree).
@@ -184,6 +190,9 @@ for k in $keys; do
     w="$(grep '^WARN:' <<<"$out" || true)"
     echo "      | $k: ${w:0:110}"
     grep -qF -- "$label" <<<"$w" || fail "C[$k]: warning does not name '$label': $w"
+    grep -qi 'exit' <<<"$w" && fail "C[$k]: an exit code reached the customer: $w"
+    grep -q '^pwg_ingest exit 1; failed: ' "$W/diag/hydrate-whatsapp.log" || fail "C[$k]: the exit code is not in the log"
+    : > "$W/diag/hydrate-whatsapp.log"
     if [[ "$k" == "whatsapp" ]]; then
         grep -q 'WhatsApp' <<<"$w" || fail "C[$k]: a WhatsApp failure does not say WhatsApp"
     else
@@ -192,6 +201,53 @@ for k in $keys; do
     [[ "$(step_rc "$out")" == 1 ]] || fail "C[$k]: the failure no longer fails the step"
 done
 [[ "$fails" -eq "$c_before" ]] && pass "C: $n keys failed one at a time, each named by itself"
+
+# ── E: per-source timing reaches the log the walk reads ──────────────────
+echo "[E] per-source start/end lines"
+out="$(run_leg "")"
+tl="$(grep '^\[ingest-timing\]' "$W/diag/hydrate-whatsapp.log" || true)"
+grep -q 'source=food phase=deferred at=' <<<"$tl" || fail "E: no deferred line for food"
+for k in $keys; do
+    [[ "$k" == "food" ]] && continue
+    grep -q "source=${k} phase=start at=" <<<"$tl" || fail "E: no start line for $k"
+    grep -Eq "source=${k} phase=end at=[0-9TZ:-]+ elapsed_s=[0-9]+ status=ok" <<<"$tl" || fail "E: no end line with elapsed for $k"
+done
+[[ "$fails" -eq 0 ]] && pass "E: every source has a start and an end line with elapsed_s"
+
+# ── F: the hourly job cannot overlap itself ──────────────────────────────
+echo "[F] ostler-fda single-run lock"
+awk '/^cat > "\$\{OSTLER_DIR\}\/bin\/ostler-fda" <<.FDAEOF.$/ {on=1; next} on && /^FDAEOF$/ {exit} on {print}' "$INSTALL" > "$W/ostler-fda"
+if ! grep -q '_FDA_LOCK' "$W/ostler-fda"; then
+    fail "F: the ostler-fda wrapper takes no lock"
+else
+    FH="$W/fhome"; mkdir -p "$FH/.ostler/state/fda-rerun.lock.d"
+    sleep 30 & live=$!
+    echo "$live" > "$FH/.ostler/state/fda-rerun.lock.d/pid"
+    fo="$(HOME="$FH" OSTLER_PYTHON=/nonexistent "$BASH_BIN" "$W/ostler-fda" 2>&1)"; frc=$?
+    if [[ "$frc" -eq 0 ]] && grep -q 'still working; this tick stands down' <<<"$fo" \
+       && [[ "$(cat "$FH/.ostler/state/fda-rerun.lock.d/pid")" == "$live" ]]; then
+        pass "F: a live holder makes the next tick stand down, lock untouched"
+    else
+        fail "F: overlapping tick did not stand down (rc=$frc): $fo"
+    fi
+    kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+    # A dead holder's lock is reclaimed, and released at exit.
+    fo="$(HOME="$FH" OSTLER_PYTHON=/nonexistent "$BASH_BIN" "$W/ostler-fda" 2>&1)"
+    if grep -q 'stands down' <<<"$fo"; then fail "F: a dead holder's lock was not reclaimed"
+    elif [[ -e "$FH/.ostler/state/fda-rerun.lock.d" ]]; then fail "F: the lock outlived the run"
+    else pass "F: a dead holder's lock is reclaimed and released at exit"; fi
+fi
+
+# ── G: the food run never holds the shared Ollama ingest slot ────────────
+echo "[G] the ingest slot"
+g_paths="$W/ostler-fda $VENDOR/ostler_fda/pwg_ingest.py $VENDOR/ostler_fda/apple_music_refresh.py"
+g_paths="$g_paths $VENDOR/cm019_preferences/services/ingest/src/parsers/food_evidence.py"
+g_paths="$g_paths $VENDOR/cm019_preferences/services/enrich/src/derive/cuisine_local_model.py"
+g_hits="$(cat $g_paths 2>/dev/null | grep -c -E 'ostler_slot_acquire|ingest-ollama\.lock' || true)"
+g_ctrl="$(grep -c 'ostler_slot_acquire "derive-preferences"' "$INSTALL" || true)"
+if [[ "$g_ctrl" -lt 1 ]]; then fail "G: CONTROL: the derive tick's slot call is not visible, so this arm is blind"
+elif [[ "$g_hits" -ne 0 ]]; then fail "G: the food path takes the ingest slot ($g_hits); a derive tick would starve behind it"
+else pass "G: food path takes the slot 0 times (control: derive takes it $g_ctrl)"; fi
 
 # ── D: the helper on its own ─────────────────────────────────────────────
 echo "[D] label helper"
