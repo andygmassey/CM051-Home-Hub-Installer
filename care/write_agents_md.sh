@@ -6,12 +6,13 @@
 # Renders <care_dir>/AGENTS_CARE.md.tmpl into <workspace_dir>/AGENTS.md with
 # the customer's local helpline, chosen OFFLINE by region from
 # <care_dir>/helplines.tsv. Called by the fresh install and by the upgrade
-# path, always before the daemon is started. The file is product-owned and
-# always overwritten.
+# path, always before the daemon is started. The care block is product-owned
+# and always rewritten, at the top of the file; any other content already in
+# AGENTS.md is preserved below it (idempotent: see the BEGIN/END markers).
 #
 # Only rows whose flag is exactly CONFIRMED ship. Any other region, or an
 # unknown one, gets the ZZ row, which names no number. An emergency number
-# that the table marks with a trailing * (not seen on a source page) is
+# that the table marks with a trailing * (not seen on an official page) is
 # never shipped either: that row's emergency text falls back to the ZZ one.
 #
 # Exit: 0 written, 2 inputs missing or unreadable (nothing written, any
@@ -56,12 +57,36 @@ body="${body//\{\{EMERGENCY_LINE\}\}/$emergency}"
 case "$body" in *'{{'*) echo "write_agents_md: unresolved placeholder after render" >&2; exit 3 ;; esac
 
 mkdir -p "$ws_dir" || exit 3
+target="${ws_dir}/AGENTS.md"
+BEGIN_MARK="<!-- OSTLER-CARE-BEGIN -->"; END_MARK="<!-- OSTLER-CARE-END -->"
+
+# Anything already in AGENTS.md that is not our care block is the customer's
+# (or the oa wizard's stock file) and is kept, below the care block. Our block
+# is the BEGIN..END marker pair, dropped wherever it sits, so a rerun replaces
+# it instead of stacking a second copy. A BEGIN with no END (damaged file)
+# loses only the BEGIN line: nothing foreign is ever dropped.
+foreign=""
+if [[ -f "$target" ]]; then
+    if grep -qF -- "$END_MARK" "$target"; then
+        foreign="$(awk -v b="$BEGIN_MARK" -v e="$END_MARK" 'index($0,b){skip=1; next} index($0,e){skip=0; next} !skip{print}' "$target")" || exit 3
+    else
+        foreign="$(awk -v b="$BEGIN_MARK" '!index($0,b){print}' "$target")" || exit 3
+    fi
+    # trim leading and trailing blank lines so reruns are byte-stable
+    foreign="$(printf '%s\n' "$foreign" | awk 'NF{f=1} f{buf[++n]=$0} END{while(n>0 && buf[n] ~ /^[ \t]*$/) n--; for(i=1;i<=n;i++) print buf[i]}')" || exit 3
+fi
+
 tmp_out="$(mktemp "${ws_dir}/.AGENTS.md.XXXXXX")" || exit 3
-if ! printf '%s\n' "$body" > "$tmp_out" || ! mv -f "$tmp_out" "${ws_dir}/AGENTS.md"; then
+if [[ -n "$foreign" ]]; then
+    out_text="${BEGIN_MARK}"$'\n'"${body}"$'\n'"${END_MARK}"$'\n\n'"${foreign}"
+else
+    out_text="${BEGIN_MARK}"$'\n'"${body}"$'\n'"${END_MARK}"
+fi
+if ! printf '%s\n' "$out_text" > "$tmp_out" || ! mv -f "$tmp_out" "$target"; then
     rm -f "$tmp_out"
-    echo "write_agents_md: could not write ${ws_dir}/AGENTS.md" >&2
+    echo "write_agents_md: could not write ${target}" >&2
     exit 3
 fi
-chmod 644 "${ws_dir}/AGENTS.md" 2>/dev/null || true
-echo "write_agents_md: wrote ${ws_dir}/AGENTS.md (region ${region}, helpline row $([[ "$helpline" == "$zz_helpline" ]] && echo ZZ || echo "$region"))"
+chmod 644 "$target" 2>/dev/null || true
+echo "write_agents_md: wrote ${target} (region ${region}, helpline row $([[ "$helpline" == "$zz_helpline" ]] && echo ZZ || echo "$region"), foreign content $([[ -n "$foreign" ]] && echo kept || echo none))"
 exit 0
