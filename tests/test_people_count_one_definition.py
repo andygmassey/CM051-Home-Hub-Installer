@@ -203,7 +203,9 @@ def run_probe(w, tmp_path, cap):
                OSTLER_PEOPLE_RULES_DIR=str(API), NO_PROXY="127.0.0.1,localhost",
                OSTLER_PEOPLE_STABILITY_STEP_S="1", OSTLER_PEOPLE_STABILITY_WAIT_S="10",
                OSTLER_PEOPLE_CONVERGE_WAIT_S="0", OSTLER_PROBE_STATE_DIR=str(tmp_path / "pstate"),
-               TOLERANCE_CAP=str(cap))
+               # The fixture's cap governs: 100% of the larger count never
+               # binds below it. The shipped cap (5) is not touched.
+               OSTLER_PEOPLE_TOLERANCE_PCT="100", OSTLER_PEOPLE_TOLERANCE_CAP=str(cap))
     for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):
         env.pop(k, None)
     r = subprocess.run(["bash", str(PROBE)], env=env, capture_output=True, text=True, timeout=300)
@@ -268,6 +270,7 @@ def test_red_with_the_main_doctor_count(world, tmp_path):
     v, text = run_probe(world, tmp_path, cap=2)
     assert v.startswith("FAIL"), text
     assert "oxigraph=3 doctor=6 differ by 3" in text, text
+    assert "cap 2) = 2" in text, text
 
 
 def test_a_real_extra_named_person_in_one_store_still_fails(world, tmp_path):
