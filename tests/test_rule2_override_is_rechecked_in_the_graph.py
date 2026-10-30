@@ -400,3 +400,59 @@ def test_the_probe_header_carries_the_amended_rule_2_and_andys_words():
     assert "ridiculously small edge case" in head
     assert "person-specific phone number" in head and "Generational suffixes" in head
     assert "MIRRORS exact_identifier's" in PROBE.read_text()
+
+
+# ---------------------------------------------------------------- the candidate-pair query, at walk scale
+def _probe_query(name):
+    import re
+    m = re.search(r'^%s="(.*?)"\n' % name, PROBE.read_text(), re.S | re.M)
+    assert m, name
+    return m.group(1).replace('\\"', '"').replace("${ONTO}", PWG)
+
+
+def test_the_candidate_pair_query_returns_a_measured_number_on_a_walk_sized_graph():
+    """v1.0.120 trial box: 59/59 excused, 0 violations, but "collision
+    opportunities NOT MEASURED (query UNAVAILABLE)", so CANNOT-RUN. The old
+    query joined Person x Person; on this Oxigraph store, shaped like that walk
+    graph (11,800 Persons, 2,900 card uids, a 240-holder switchboard), it took
+    about 50 s, past the probe's 20 s curl limit. The query must return the
+    right number, inside the limit, on the SAME engine the box runs."""
+    import random
+    import time
+    ox = pytest.importorskip("pyoxigraph")
+    A = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+    HAS, TYP, VAL = (ox.NamedNode(PWG + p) for p in ("hasIdentifier", "identifierType", "identifierValue"))
+    rnd = random.Random(121)
+    quads, holders = [], {}
+    for i in range(11800):
+        pu = ox.NamedNode(f"{PWG}person_{i}")
+        quads += [ox.Quad(pu, A, ox.NamedNode(PWG + "Person"), ox.DefaultGraph()),
+                  ox.Quad(pu, ox.NamedNode(PWG + "displayName"), ox.Literal(f"Cast Name {i % 3000}"), ox.DefaultGraph())]
+        ids = []
+        if i < 2900:
+            ids.append(("icloud_contact_uid", f"UID-{i}"))
+        if rnd.random() < 0.6:
+            ids.append(("phone", "+4474%08d" % rnd.randint(0, 40000)))
+        if rnd.random() < 0.5:
+            ids.append(("email", f"p{rnd.randint(0, 30000)}@example.com"))
+        if i % 50 == 0:
+            ids.append(("phone", LANDLINE))
+        for n, (k, v) in enumerate(ids):
+            iu = ox.NamedNode(f"{PWG}id_{i}_{n}")
+            quads += [ox.Quad(pu, HAS, iu, ox.DefaultGraph()), ox.Quad(iu, TYP, ox.Literal(k), ox.DefaultGraph()),
+                      ox.Quad(iu, VAL, ox.Literal(v), ox.DefaultGraph())]
+            if k in ("phone", "email"):
+                holders.setdefault((k, v), set()).add(i)
+    st = ox.Store()
+    st.extend(quads)
+    # The answer, computed without SPARQL: Persons holding a phone or email
+    # that another Person also holds.
+    want = len({p for hs in holders.values() if len(hs) > 1 for p in hs})
+    assert want > 1000
+    t0 = time.time()
+    rows = list(st.query(_probe_query("_Q_OPPORTUNITY")))
+    took = time.time() - t0
+    got = int(rows[0]["n"].value)
+    print("candidate-pair query: %d (want %d) in %.2fs" % (got, want, took))
+    assert got == want
+    assert took < 10, "%.1fs: the probe's curl gives the store 20 s" % took

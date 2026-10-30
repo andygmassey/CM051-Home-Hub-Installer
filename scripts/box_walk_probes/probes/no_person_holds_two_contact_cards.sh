@@ -155,14 +155,24 @@ SELECT (COUNT(DISTINCT ?v) AS ?uidn) WHERE { ?i p:identifierType \"icloud_contac
 # Advisory, never a new failure. A box with zero opportunities is a real and
 # correct state, not a fault -- but the walk record must say so, or a weak zero
 # and a strong zero print identically.
+#
+# SHAPE (v1.0.121): group the shared (type, value) keys FIRST, then count the
+# Person nodes that hold one. The old shape joined Person x Person and filtered
+# ?a != ?b, which is quadratic: on a synthetic store shaped like the v1.0.120
+# walk graph (11,800 Persons, 2,900 card uids, a 240-holder switchboard) Oxigraph
+# took 50.7 s for it, past this probe's 20 s curl limit, so the walk read
+# "NOT MEASURED (query UNAVAILABLE)". This shape returns the same count (2329 on
+# that store) in 0.07 s. tests/test_rule2_override_is_rechecked_in_the_graph.py
+# pins both the count and the time on that store.
 _Q_OPPORTUNITY="PREFIX p: <${ONTO}>
 SELECT (COUNT(DISTINCT ?a) AS ?n) WHERE {
-  ?a a p:Person ; p:hasIdentifier ?ia .
-  ?b a p:Person ; p:hasIdentifier ?ib .
+  { SELECT ?t ?v WHERE {
+      ?h a p:Person ; p:hasIdentifier ?hi .
+      ?hi p:identifierType ?t ; p:identifierValue ?v .
+      FILTER(?t IN (\"phone\", \"email\"))
+    } GROUP BY ?t ?v HAVING (COUNT(DISTINCT ?h) > 1) }
   ?ia p:identifierType ?t ; p:identifierValue ?v .
-  ?ib p:identifierType ?t ; p:identifierValue ?v .
-  FILTER(?a != ?b)
-  FILTER(?t IN (\"phone\", \"email\"))
+  ?a p:hasIdentifier ?ia ; a p:Person .
 }"
 
 # NAME TIERS (DMG #27): a merge must not lose the human name. Count live Persons
@@ -846,11 +856,15 @@ run_probe() {
     # broken query must never score better than an honest zero. (The old
     # "must not redden a healthy box" carve-out is deleted; CANNOT-RUN is not red.)
     local opp verdict
+    local opp_code
     opp="$(_sparql_scalar "$_Q_OPPORTUNITY")"
+    opp_code="$(cat "$_OX_CODE_FILE" 2>/dev/null | tr -d '\r\n ')"
     verdict="$(adjudicate_clean "$opp")"
     if [ "$verdict" = "UNMEASURED" ]; then
-        probe_note "collision opportunities: NOT MEASURED (query returned '${opp}')"
-        probe_cannot_run "${_jok}the candidate merge pair count was not measured (query returned '${opp}'), so a zero violation count cannot be told from a vacuous one. CANNOT-RUN, not a pass."
+        # Name the cause: 000 is no response inside curl's 20 s (a timeout or a
+        # transport failure), 4xx/5xx is the store rejecting or failing the query.
+        probe_note "collision opportunities: NOT MEASURED (query returned '${opp}', HTTP ${opp_code:-none}$([ "${opp_code}" = "000" ] && printf '%s' ': no response within 20 s, a timeout or transport failure'))"
+        probe_cannot_run "${_jok}the candidate merge pair count was not measured (query returned '${opp}', HTTP ${opp_code:-none}), so a zero violation count cannot be told from a vacuous one. CANNOT-RUN, not a pass."
     fi
     probe_note "collision opportunities: ${opp} Person node(s) share a phone or email with another node"
     probe_note "denominator: ${uids} distinct icloud_contact_uid; candidate merge pairs = ${excused} excused merges + ${opp} unmerged shared-key nodes"

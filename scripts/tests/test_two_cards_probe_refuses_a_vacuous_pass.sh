@@ -38,7 +38,7 @@ class H(http.server.BaseHTTPRequestHandler):
             out = {"head": {"vars": ["person", "uids"]}, "results": {"bindings": []}}
         elif "AS ?uidn" in q:
             out = body("uidn", UIDS)
-        elif "FILTER(?a != ?b)" in q:
+        elif "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
             out = body("n", OPP)
         elif "COUNT(DISTINCT ?i)" in q:
             out = body("n", CONTROL)

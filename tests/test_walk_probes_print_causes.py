@@ -118,7 +118,7 @@ def sparql_answer(q):
         return [{"n": 6}]
     if "AS ?uidn" in q:
         return [{"uidn": UIDS[0]}]
-    if "FILTER(?a != ?b)" in q:
+    if "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
         return [{"n": OPP[0]}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
         return [{"n": 0}]

@@ -146,7 +146,7 @@ jobs:
         if: always()
         run: |
           python3 -m venv "${RUNNER_TEMP}/rule2-venv"
-          "${RUNNER_TEMP}/rule2-venv/bin/python" -m pip install --quiet pytest rdflib qdrant-client \
+          "${RUNNER_TEMP}/rule2-venv/bin/python" -m pip install --quiet pytest rdflib qdrant-client pyoxigraph \
             -r vendor/cm041/identity_resolver/requirements.txt
           out="$("${RUNNER_TEMP}/rule2-venv/bin/python" -m pytest tests/test_rule2_override_is_rechecked_in_the_graph.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
