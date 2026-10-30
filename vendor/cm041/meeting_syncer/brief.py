@@ -385,11 +385,17 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
     Returns a list of dicts shaped for direct inclusion in the brief
     payload. Status filter is ``open`` so closed-out todos do not
     clutter the brief once v1.0.1 wires the closure pass.
+
+    L3 (most private) todos are excluded. CM048's writer already skips
+    L3 conversations; this filter is belt and braces, because the brief
+    is emailed. A todo with NO ``privacyLevel`` (legacy, written before
+    CM048 tagged todos) is KEPT and behaves as it did before. The filter
+    is in the query so ``LIMIT`` applies to the rows that survive it.
     """
     sparql = """
     PREFIX pwg: <urn:ostler:>
     SELECT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority
-           ?status ?sourceDate ?createdAt WHERE {{
+           ?status ?sourceDate ?createdAt ?plevel WHERE {{
       ?todo a <urn:ostler:OutstandingTodo> ;
             <urn:ostler:aboutPerson> <{person}> ;
             <urn:ostler:todoText> ?text ;
@@ -400,7 +406,9 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
       OPTIONAL {{ ?todo <urn:ostler:priority> ?priority }}
       OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
       OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
+      OPTIONAL {{ ?todo <urn:ostler:privacyLevel> ?plevel }}
       FILTER (?status = "open")
+      FILTER (!BOUND(?plevel) || UCASE(STR(?plevel)) != "L3")
     }}
     ORDER BY DESC(?createdAt)
     LIMIT {limit}
