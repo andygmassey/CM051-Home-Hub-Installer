@@ -174,6 +174,19 @@ REQUEST_TIMEOUT_SECS = 8
 MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 8
+# Derived preferences ("What you like", the CM019 derive engine's affinities
+# served at GET /api/v1/preferences/derived). Rendered as two labelled lines
+# (likes, dislikes) above the interest-profile lines, so they never displace
+# them. Asked of the route in tier=all, the same tier the walk probe reads.
+MAX_DERIVED_PREFERENCES = 8
+DERIVED_PREFERENCES_PATH = (
+    f"/api/v1/preferences/derived?limit={MAX_DERIVED_PREFERENCES}&tier=all")
+# The levels a derived item may carry and still be shown. The route already
+# serves only L0 to L2 (vendor/cm041/assistant_api/derived_preferences.py
+# SERVED_PRIVACY_LEVELS); restated here so a level the route did not filter,
+# or one this file cannot parse, fails CLOSED rather than reaching the digest.
+# An item with no level is shown, as the route serves it.
+DERIVED_SHOWN_PRIVACY_LEVELS = {"l0", "l1", "l2"}
 MAX_ORGS = 6
 # Calendar events (flights, trips, appointments) surfaced grouped by whose
 # calendar they came from, so the brief never merges one person's trip into
@@ -259,6 +272,11 @@ _SECTION_STATUS: list[tuple[str, int, list[str]]] = []
 # /api/v1/preferences is read by two sections (Tastes, Preferences); one read
 # per build, so the ledger counts one read and one failure, not two.
 _PREFS_CACHE: dict = {}
+# Per-section reason appended to that section's "nothing stored" gap line, for
+# a source that answered 200 but said it could not check (a degraded route).
+# Not a failed read, so it does not move the exit code, but it is not "empty"
+# either, and the model is told which.
+_SECTION_NOTES: dict[str, str] = {}
 
 
 def _reset_measurements() -> None:
@@ -269,6 +287,7 @@ def _reset_measurements() -> None:
     _SECTION_COUNTS.clear()
     _SECTION_STATUS.clear()
     _PREFS_CACHE.clear()
+    _SECTION_NOTES.clear()
 
 
 def _note_read(line: str) -> None:
@@ -1239,7 +1258,83 @@ def _calendar_by_owner_section() -> list[str]:
     return lines
 
 
+PREFERENCES_HEADING = "Preferences and things to keep in mind"
+
+
+def _derived_preferences() -> tuple[list[str], list[str], str | None]:
+    """(likes, dislikes, could_not_check) from GET /api/v1/preferences/derived.
+
+    The route ALWAYS answers 200 and says ``degraded`` with a
+    ``cannot_check`` reason when the derived graph is absent, empty or down
+    (ical-server.py api_preferences_derived). That is returned as the third
+    element so the caller can say so, never rendered as an empty "no likes".
+    A refused or unreachable read is recorded by ``_get_json`` as a failure
+    and comes back here as (``[]``, ``[]``, None): the gap block already
+    declares it COULD NOT BE READ with the status observed.
+
+    Item shape (derived_preferences.py ``_item``): ``label``, ``strength``
+    (negative = a dislike), ``dimension``, optional ``privacy_level``.
+    """
+    data = _get_json(DERIVED_PREFERENCES_PATH)
+    if data is None:
+        return [], [], None
+    if data.get("degraded"):
+        reason = " ".join(str(data.get("cannot_check") or "the route said degraded").split())
+        return [], [], reason[:160]
+    items = data.get("items")
+    if not isinstance(items, list):
+        return [], [], "the route answered without an items list"
+    likes: list[str] = []
+    dislikes: list[str] = []
+    seen: set[str] = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        level = str(it.get("privacy_level") or it.get("privacy") or "").strip().lower()
+        if level and level not in DERIVED_SHOWN_PRIVACY_LEVELS:
+            continue  # L3, "private", or a level this file cannot read: withheld
+        label = " ".join(str(it.get("label") or "").split())[:60]
+        if not label or label.lower() in seen:
+            continue
+        try:
+            strength = float(it.get("strength"))
+        except (TypeError, ValueError):
+            continue
+        if strength == 0:
+            continue
+        seen.add(label.lower())
+        (likes if strength > 0 else dislikes).append(label)
+    # Every served item withheld or unlabelled: nothing to show, and the
+    # section's own count says so ("nothing stored"); it is not a failed check.
+    return likes, dislikes, None
+
+
 def _preferences_section() -> list[str]:
+    """Derived preferences ("What you like"), then the interest profile and
+    the coaching surface.
+
+    The derived lines are labelled as derived so the model can tell them from
+    the interest-profile lines below, which are kept as they were. A degraded
+    derived route is said out loud: inline when the section has other content,
+    otherwise on this section's gap line, never as an empty list.
+    """
+    likes, dislikes, could_not_check = _derived_preferences()
+    derived: list[str] = []
+    if likes:
+        derived.append("- What you like (derived from your history): " + "; ".join(likes))
+    if dislikes:
+        derived.append("- Not keen on (derived from your history): " + "; ".join(dislikes))
+    rest = _profile_preferences_lines()
+    if could_not_check:
+        if rest:
+            derived.append(f"- Derived preferences: could not check ({could_not_check})")
+        else:
+            _SECTION_NOTES[PREFERENCES_HEADING] = (
+                f"Derived preferences could not be checked ({could_not_check}).")
+    return derived + rest
+
+
+def _profile_preferences_lines() -> list[str]:
     """Top preferences from the coaching / observation surface.
 
     Best-effort: the endpoint may be absent on some Hubs. Each observation is
@@ -1744,7 +1839,8 @@ def _unreadable_and_empty_block() -> list[str]:
             observed = "; ".join(failed)
             gaps.append(f"- {heading}: COULD NOT BE READ ({observed})")
         elif count == 0:
-            gaps.append(f"- {heading}: nothing stored.")
+            note = _SECTION_NOTES.get(heading)
+            gaps.append(f"- {heading}: nothing stored." + (f" {note}" if note else ""))
     if not gaps:
         return []
 
@@ -1801,8 +1897,7 @@ def build_digest() -> str | None:
     recent = _run_section("Recent meetings (last 7 days)", _meetings_section)
     calendar_by_owner = _run_section(
         "Calendar events by owner", _calendar_by_owner_section)
-    preferences = _run_section(
-        "Preferences and things to keep in mind", _preferences_section)
+    preferences = _run_section(PREFERENCES_HEADING, _preferences_section)
     orgs = _run_section("Key organisations", _orgs_section)
 
     _SECTION_COUNTS.extend([

@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `a4e8b0909eb26569e40bf5a43f00b025fb6a584f93ff0bfe604acae57133677e` (post-graft, this repo, after item 11 and the owner brief, item 12) |
+| Current SHA-256 | `5fbc2c14117448033fd07f004cd93d0a6e82e5cc64c14c852ade2e49c2e9fed9` (post-graft, this repo, after item 13, derived preferences) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-18 (people ranked from per-channel last-contact dates, walk #31, item 11); merged with the owner brief (Lane 7, 2026-10-07, item 12). NOT upstream. |
+| Last divergence | 2026-10-31 (derived preferences in the Preferences section, v1.0.121 trial, item 13). Earlier: item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -218,6 +218,25 @@ the kind of blanket claim that goes stale one item at a time:
    `?level` (it filtered on a variable the query never returned, so an L3
    asserted fact reached the digest). Guarded by
    `tests/test_owner_brief.py`. A re-vendor from upstream drops all of it.
+
+13. **Derived preferences ("What you like") reach the digest** (2026-10-31,
+   v1.0.121 trial box). NOT upstream. The derive job writes the derived named
+   graph and `GET /api/v1/preferences/derived` serves it, but the Preferences
+   section read only `GET /api/v1/preferences` (the CM059 interest profile),
+   so the walk probe `derived_preferences_reach_digest_and_tool` failed its
+   digest arm. `_preferences_section` now also reads the derived route
+   (`tier=all`, the tier the probe reads) and renders two labelled lines,
+   "What you like (derived from your history)" and "Not keen on (derived from
+   your history)" (negative strength), ABOVE the interest-profile lines, which
+   are kept unchanged (`_profile_preferences_lines`). Privacy: L3, "private"
+   and any level outside L0 to L2 are withheld (fail closed) even though the
+   route already filters. A degraded 200 (`degraded` + `cannot_check`) is said
+   inline when the section has other content, else on the section's gap line
+   (`_SECTION_NOTES`), and does not move the exit code; a refused read is
+   recorded by `_get_json` and reads COULD NOT BE READ. Guarded by
+   `context-refresh/tests/test_digest_reads_derived_preferences.py` (payload
+   built by the vendored producer, RED pinned to the trial-tree SHA). A
+   re-vendor from upstream drops it.
 
 ## Why vendored rather than shipped in the assistant release
 
