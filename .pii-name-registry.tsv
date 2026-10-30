@@ -2473,3 +2473,19 @@ nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py:
 nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::f16233369a59e7d0	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [142]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
 nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::2fec0853c0a15340	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [143]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
 nonperson	vendor/cm019_preferences/services/enrich/src/clients/osm_cuisine.py::ec2a75c05e7d6fb0	PRODUCT: Nominatim, the OpenStreetMap geocoding service this client calls, named in its module docstring (osm_cuisine.py line 3), vendored byte-identical from CM019
+
+# NONPERSON, care/helplines.tsv. 11 rows, all PRODUCT, all bound to that one path.
+# The file is the offline table of national crisis-line services the care rules quote to the customer.
+# Each flagged pair is the published name of an operator service (a charity or a government line), copied from
+# that operator's own page. The name IS the fact; a synthetic substitute would give a customer a wrong helpline.
+nonperson	care/helplines.tsv::ebfc9e1d3347666b	PRODUCT: line 8 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::a614374e608fe952	PRODUCT: line 9 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::ec8e1cbde1567617	PRODUCT: line 14 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::e3b3e5c7e65e1664	PRODUCT: line 14 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::67efda2a50e6594b	PRODUCT: line 16 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::74ae57d1460622c0	PRODUCT: line 18 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::3398a50ab1afe7a0	PRODUCT: line 19 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::602f780df1ee43b3	PRODUCT: line 23 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::d4f5125465011bab	PRODUCT: line 26 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::c063fb13a29a9b74	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::baae82d31cac5af2	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
