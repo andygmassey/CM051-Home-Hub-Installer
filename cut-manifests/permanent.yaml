@@ -59,19 +59,22 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Front Page (source, at the daemon this cut ships)
     # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
     # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
     # welcome modal navigates to '/settings#governor' (the modern Governor
     # route location; the panel scrolls to that anchor). Updated file + regex
     # to prove the same wire-through against the current source.
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt. RE-KEYED 2026-10-29 (v1.0.120) - since oa 5011a2d6 (in hub-v0.5.30) the first-run popup offers Front Page / Ask and no longer opens the Governor; the Governor is reachable from the sidebar (web/src/components/layout/Sidebar.tsx:122) and the header status chip (web/src/components/StatusChip.tsx:33). The product owner accepted this on 2026-10-29.
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.120 (ORM 2026-10-29): pinned to the daemon this cut SHIPS (cut.env DAEMON_COMMIT 610b0c5c = tag hub-v0.5.30),
+    # never the clone's HEAD (dispatch 40903304399 read HEAD and failed). Pattern count: 0 at d9854a99, 1 at 610b0c5c.
+    source_sha: 610b0c5c5fd5c6535b4342688858bf7817c72737
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
       path: "web/src/components/GovernorWelcomeModal.tsx"
-      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
+      pattern: "navigate\\(FRONT_PAGE_ROUTE\\)"
       must_match: true
 
   # ==========================================================================
@@ -1547,3 +1550,61 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "cron_run_makes_no_sends"
+
+  # NEW-119 (diag118 Mini16, macOS 27.2, 2026-10-29). Two probes for the class
+  # the diagnostic found unguarded: a scheduled job that reads Full Disk Access
+  # data outside the daemon's grant, and a second refresh after install that
+  # nothing measured. tests/test_fda_refresh_tcc_probes.sh drives both (RED,
+  # GREEN, one mutant each), wired by .github/workflows/fda-refresh-tcc-probes.yml.
+  - id: box-walk-no-python-is-tcc-responsible
+    title: "box-walk probe must PASS: no_python_is_tcc_responsible (0 TCC requests with the bundled python RESPONSIBLE since install start; control = daemon-attributed python child requests, 0 is CANNOT-RUN)"
+    incident: >-
+      diag118 Mini16 2026-10-29 (python_fda_trace.md): every FDA-reading job runs
+      under `ostler-assistant run-source <src>`; the stale python3.11=0 row in the
+      system TCC.db predates the install, so only the unified log over the
+      install window can prove absence. studio29 2026-10-15 proved the defect
+      shape (ical-server's bare python3.11 denied on chat.db). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "no_python_is_tcc_responsible"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv) since the fda-rerun registration
+  # fix (CM051 #3210) merged.
+  - id: box-walk-fda-rerun-second-tick-lands-a-new-row
+    title: "box-walk probe must PASS: fda_rerun_second_tick_lands_a_new_row (com.ostler.fda-rerun, kickstarted until runs >= 2, lands a synthetic Safari visit seeded after install)"
+    incident: >-
+      diag118 Mini16 2026-10-29: com.ostler.fda-rerun was never loaded after an
+      abort and re-run (plist present, launchctl print rc=113), and a second
+      refresh after install was NOT INSTRUMENTED. Registration fixed in CM051
+      #3210 (MERGED, not PROVEN). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "fda_rerun_second_tick_lands_a_new_row"
+  # NEW-119 (CM051 #3200). Declared here because every probe on disk must be
+  # invoked by the cut; the promote scope (scripts/walk_promote_scope.tsv) decides
+  # which of them can refuse a promote.
+  - id: box-walk-wiki-maps-links-carry-no-join-secret
+    title: "box-walk probe must PASS: wiki_maps_links_carry_no_join_secret"
+    incident: >-
+      #2528: a meeting join passcode (pwd= or passcode=) rode inside a maps
+      link in the compiled wiki, so one click sent it to a maps provider
+      (fixed by CM044 #289 maps_href). Greps the compiled wiki in
+      ostler-wiki-site; a seeded positive control must be caught or the probe
+      fails. BLOCKING (privacy).
+    proof:
+      kind: box_walk_probe
+      probe: "wiki_maps_links_carry_no_join_secret"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, l3_not_prefetched row) for ONE cut:
+  # expires after the first cut that carries it, then BLOCKING (launch directive
+  # item 5: a non-blocking row expires after one cut).
+  - id: box-walk-l3-not-prefetched
+    title: "advisory: a synthetic L3 person is not returned by people/search (the daemon prefetch surface), with an L1 control that is"
+    incident: >-
+      #2435: L3 people could reach the assistant via the daemon prefetch
+      (ostler-assistant #428). NOT BLOCKING for v1.0.103, owed to v1.0.104.
+      ADVISORY for its first cut only, then BLOCKING. NOT INSTRUMENTED: the
+      Oxigraph context leg, the chat-level reply, core_ memory (#2436).
+    proof:
+      kind: box_walk_probe
+      probe: "l3_not_prefetched"

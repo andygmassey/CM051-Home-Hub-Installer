@@ -1,0 +1,51 @@
+name: fda-refresh-tcc-probes
+
+# NEW-119 (diag118 Mini16, macOS 27.2, 2026-10-29):
+#   no_python_is_tcc_responsible           BLOCKING
+#   fda_rerun_second_tick_lands_a_new_row  BLOCKING (flipped when the fda-rerun
+#                                          registration fix #3210 merged)
+#   ttywalk DECLARED STATE                 lib_walk_tcc_declared.sh
+#
+# The probes run on a walk box (run_box_walk.sh globs probes/, and
+# cut-manifests/permanent.yaml re-drives each at the cut). This workflow runs
+# the apparatus: the real probe scripts and header lib against a fake unified
+# log, a fake launchctl, a fake store and a synthetic TCC.db, RED and GREEN
+# each, plus one mutant per instrument that must be caught.
+#
+# runs-on macos-latest: the probes shell out through box_run to BSD date -r,
+# /usr/bin/grep and /usr/bin/sqlite3, as they do on the box.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/probes/no_python_is_tcc_responsible.sh'
+      - 'scripts/box_walk_probes/probes/fda_rerun_second_tick_lands_a_new_row.sh'
+      - 'scripts/box_walk_probes/lib/fda_refresh_tcc.py'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/box_walk_probes/lib/safari_history_fixture.py'
+      - 'scripts/lib_walk_tcc_declared.sh'
+      - 'scripts/ttywalk.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'tests/test_fda_refresh_tcc_probes.sh'
+      - '.github/workflows/fda-refresh-tcc-probes.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  fda-refresh-tcc-probes:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: The judge's own fixtures (both directions)
+        run: python3 scripts/box_walk_probes/lib/fda_refresh_tcc.py --self-test
+      - name: RED, GREEN and one mutant per instrument
+        if: always()
+        run: bash tests/test_fda_refresh_tcc_probes.sh

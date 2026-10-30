@@ -406,6 +406,7 @@ test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
 test_fda_modal_names_a_path_a_human_can_reach.sh	WIRED	.github/workflows/fda-dialog-truth.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
 test_fda_prewarm_no_early_messages_popup.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_fda_refresh_tcc_probes.sh	WIRED	.github/workflows/fda-refresh-tcc-probes.yml
 test_fda_refusal_is_not_fresh.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_refusal_surfaces.py	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -909,6 +910,7 @@ test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/h
 test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_ttywalk_exit_cleanup_lines.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -1013,6 +1015,7 @@ test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workfl
 test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -1156,6 +1159,7 @@ scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.y
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_walk_probes_l3_and_maps.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
