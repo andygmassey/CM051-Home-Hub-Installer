@@ -143,7 +143,11 @@ twin's people vector deleted (`merge_journal.delete_person_points`, CM051
 #3235). `tick_email_twins()` runs the pass from the hourly fda-rerun tick
 (the python block install.sh writes into `~/.ostler/bin/ostler-fda`), so
 twins minted after install are folded within the hour, not at the next
-upgrade.
+upgrade. The tick is capped (`TICK_MAX_EMAIL_TWIN_FOLDS` = 25, override
+`OSTLER_EMAIL_TWIN_MAX_FOLDS`): at most 25 folds a tick, the rest deferred
+and counted on the tick's line. Names compare by `_name_key` (casefold plus
+whitespace collapse), so a case- or whitespace-only difference is the same
+name and a suffix ("Jr") is a different one.
 
 Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` and
 `tests/test_fda_tick_folds_a_post_install_email_twin.py` (both wired in

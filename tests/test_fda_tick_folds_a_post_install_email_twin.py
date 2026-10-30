@@ -179,3 +179,30 @@ def test_an_unreadable_store_is_a_cannot_run_line_and_the_tick_goes_on(box):
     box.env["OXIGRAPH_URL"] = "http://127.0.0.1:9"
     p, lines = _tick(box)
     assert lines and "CANNOT-RUN" in lines[-1], (lines, p.stderr[-800:])
+
+
+def test_the_tick_is_capped_and_says_what_it_deferred(box):
+    """Unattended, so capped: OSTLER_EMAIL_TWIN_MAX_FOLDS folds per tick, the
+    rest next tick, counted on the tick's own line."""
+    for i in range(3):
+        uri = PWG + "person_card_%d" % i
+        mail = "jane.stewart%d@example.com" % i
+        _card(box, uri, "Jane Stewart", "SYNTHETIC-CARD-UID-%04d" % (10 + i), mail)
+        _email_tick(box, mail)
+    box.env["OSTLER_EMAIL_TWIN_MAX_FOLDS"] = "2"
+    _, lines = _tick(box)
+    s1 = json.loads(lines[-1][len("[email-twins] "):])
+    assert (s1["email_twins_merged"], s1["email_twins_deferred"], s1["email_twins_max_folds"]) == (2, 1, 2), s1
+    assert len(_live(box)) == 4
+    _, lines = _tick(box)
+    s2 = json.loads(lines[-1][len("[email-twins] "):])
+    assert (s2["email_twins_merged"], s2["email_twins_deferred"]) == (1, 0), s2
+    assert len(_live(box)) == 3
+
+
+def test_the_default_tick_cap_is_set(box):
+    _card(box, JANE, "Jane Stewart", "SYNTHETIC-CARD-UID-0001", JANE_MAIL)
+    _email_tick(box, JANE_MAIL)
+    _, lines = _tick(box)
+    s = json.loads(lines[-1][len("[email-twins] "):])
+    assert s["email_twins_max_folds"] == 25, s

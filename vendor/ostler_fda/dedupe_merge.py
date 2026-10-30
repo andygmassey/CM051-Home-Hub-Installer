@@ -507,7 +507,7 @@ def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
 # (a family inbox) and joins nobody; a different human name joins nobody. An
 # address-only node carries no Contacts card, so RULE 2 cannot be crossed.
 
-def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
+def merge_email_twins(dry_run: bool = False, max_folds: Optional[int] = None) -> Dict[str, int]:
     """Fold each address-only Person into the one live holder of its address.
     Raises on an unreadable store, like every read in this module; ``run``
     reports that."""
@@ -548,7 +548,7 @@ def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
             shared += 1
             continue
         plan.append((next(iter(found)), twin))
-    unjournalled = vector_unreconciled = 0
+    unjournalled = vector_unreconciled = deferred = 0
     if plan:
         names = _real_names_of({p for pair in plan for p in pair})
         mj = jdir = None
@@ -560,6 +560,12 @@ def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
             twin_real = names.get(twin, set())
             if twin_real and not (twin_real & names.get(holder, set())):
                 name_differs += 1
+                continue
+            # UNATTENDED, SO CAPPED. The hourly tick folds with nobody watching:
+            # at most ``max_folds`` per call, the rest wait for the next tick and
+            # are counted. None (the install sweep, run()) means no cap.
+            if max_folds is not None and merged >= max_folds:
+                deferred += 1
                 continue
             if dry_run:
                 merged += 1
@@ -597,13 +603,23 @@ def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
                                    "NOT deleted (%s)", type(exc).__name__)
     logger.info(
         "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
-        "%d different name(s), %d not journalled%s", merged, shared, name_differs,
-        unjournalled, " (dry-run, no writes)" if dry_run else "",
+        "%d different name(s), %d not journalled, %d deferred by the cap%s",
+        merged, shared, name_differs, unjournalled, deferred,
+        " (dry-run, no writes)" if dry_run else "",
     )
     return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
             "email_twins_name_differs": name_differs,
             "email_twins_unjournalled": unjournalled,
-            "email_twins_vector_unreconciled": vector_unreconciled}
+            "email_twins_vector_unreconciled": vector_unreconciled,
+            "email_twins_deferred": deferred,
+            "email_twins_max_folds": max_folds}
+
+
+#: Folds one hourly tick may make with nobody watching. Measured read-only on
+#: the v1.0.120 walk box (Mini16, 2026-10-30): 672 live address-only persons,
+#: 24 with exactly one holder, 5 of those foldable. 25 clears that with room
+#: and bounds a pathological graph to 25 journalled, undoable folds an hour.
+TICK_MAX_EMAIL_TWIN_FOLDS = 25
 
 
 def tick_email_twins() -> str:
@@ -615,7 +631,11 @@ def tick_email_twins() -> str:
     tick it rides on; an unreadable store is a CANNOT-RUN line, not a count."""
     import json
     try:
-        return "[email-twins] " + json.dumps(merge_email_twins(), default=str)
+        try:
+            cap = int(os.environ.get("OSTLER_EMAIL_TWIN_MAX_FOLDS", TICK_MAX_EMAIL_TWIN_FOLDS))
+        except ValueError:
+            cap = TICK_MAX_EMAIL_TWIN_FOLDS
+        return "[email-twins] " + json.dumps(merge_email_twins(max_folds=max(cap, 0)), default=str)
     except Exception as exc:  # noqa: BLE001 -- reported on the line, never swallowed
         return "[email-twins] CANNOT-RUN: %s: %s" % (type(exc).__name__, str(exc)[:200])
 

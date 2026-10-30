@@ -111,6 +111,7 @@ test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-statu
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_an_advisory_probe_is_not_a_walk_fail.sh	WIRED	.github/workflows/owner-score-instrument.yml
+test_an_email_twin_fold_moves_both_people_counts.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_an_enrichment_miss_is_not_an_import_error.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_an_identifier_is_not_a_taste.py	WIRED	.github/workflows/vendor-integrity.yml
 test_an_import_reaches_the_digest_straight_away.sh	WIRED	.github/workflows/vendor-integrity.yml

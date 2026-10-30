@@ -272,3 +272,41 @@ def test_a_vector_the_fold_could_not_delete_is_swept_by_the_repair(world, monkey
                     backup_dir=str(world.tmp / "rbk"))
     assert rc == rmc.EXIT_OK, capsys.readouterr().out
     assert _vectors(world) == [JANE]
+
+
+# ── NAME VARIANTS (Archie, #3240): same full name AND same email only ──────
+# The comparison is dedupe_merge._name_key (casefold + whitespace collapse),
+# applied through _real_names_of to human-tier names only.
+
+@pytest.mark.parametrize("header_name, folds", [
+    ("Jane Stewart Jr", False),   # a different full name: never folded
+    ("jane stewart", True),       # case only: the same name
+    ("Jane  Stewart", True),      # inner whitespace only: the same name
+    (" Jane Stewart ", True),     # outer whitespace only: the same name
+])
+def test_name_variants_on_one_shared_address(world, header_name, folds):
+    _card(world, JANE, "Jane Stewart", "SYNTHETIC-CARD-UID-0001", JANE_MAIL)
+    _email_ingest(world, JANE_MAIL, header_name)
+    assert len(_live(world)) == 2
+    stats = world.dm.run()
+    if folds:
+        assert _live(world) == [JANE], (header_name, stats)
+        assert stats.get("email_twins_merged") == 1, stats
+        assert _names(world, JANE) == ["Jane Stewart"]
+    else:
+        assert len(_live(world)) == 2, (header_name, stats)
+        assert stats.get("email_twins_merged") == 0 and stats.get("email_twins_name_differs") == 1, stats
+
+
+def test_the_cap_folds_at_most_n_and_the_rest_wait(world):
+    cards = [(PWG + "person_card_%d" % i, "jane.stewart%d@example.com" % i) for i in range(3)]
+    for i, (uri, mail) in enumerate(cards):
+        _card(world, uri, "Jane Stewart", "SYNTHETIC-CARD-UID-%04d" % (10 + i), mail)
+        _email_ingest(world, mail)
+    assert len(_live(world)) == 6
+    s1 = world.dm.merge_email_twins(max_folds=2)
+    assert s1["email_twins_merged"] == 2 and s1["email_twins_deferred"] == 1, s1
+    assert len(_live(world)) == 4
+    s2 = world.dm.merge_email_twins(max_folds=2)
+    assert s2["email_twins_merged"] == 1 and s2["email_twins_deferred"] == 0, s2
+    assert len(_live(world)) == 3
