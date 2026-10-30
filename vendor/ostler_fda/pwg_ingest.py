@@ -3813,12 +3813,24 @@ _DISPATCH_EXEMPT = frozenset({
 })
 
 
-def ingest_all(fda_dir: Optional[Path] = None) -> dict:
+# Dispatch entries the install-time call may hand to the hourly ingest tick
+# (com.ostler.fda-rerun, which calls ingest_all with nothing deferred). Only
+# work that is optional for a usable first run belongs here. v1.0.120 cold walk
+# on a 16 GB Mac: `food` hit its 900 s preference-ingest cap inside the
+# install's WhatsApp hydrate leg and failed hydrate_graph, while the hourly
+# tick finished the same work on later runs.
+DEFERRABLE_AT_INSTALL = frozenset({"food"})
+
+
+def ingest_all(fda_dir: Optional[Path] = None, defer=()) -> dict:
     """Run all FDA -> PWG ingestion steps.
 
     Reads the JSON output from extract_all.py and feeds it into
-    Qdrant and Oxigraph.
+    Qdrant and Oxigraph. ``defer`` names dispatch entries not to run now:
+    each is recorded as ``{"status": "deferred"}``, never as ok and never as
+    an error, so the hourly tick is the one that measures it.
     """
+    defer = frozenset(defer or ())
     fda_dir = fda_dir or (Path.home() / ".ostler" / "imports" / "fda")
 
     if not fda_dir.exists():
@@ -3838,6 +3850,11 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         # Resolve by name at call time so mock.patch on the module attr is
         # honoured (and so the dispatch can't drift from the real function).
         func = getattr(this_module, func_name)
+        if name in defer:
+            logger.info("%s: deferred to the hourly ingest tick", name)
+            results[name] = {"status": "deferred",
+                             "reason": "runs_on_the_hourly_ingest_tick"}
+            continue
         try:
             results[name] = func(fda_dir)
         except Exception as e:
@@ -3854,18 +3871,32 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Ingest FDA data into PWG")
     parser.add_argument("--fda-dir", type=str, default=None)
+    parser.add_argument("--defer", action="append", default=[],
+                        choices=sorted(DEFERRABLE_AT_INSTALL),
+                        help="leave this source to the hourly ingest tick")
+    parser.add_argument("--failed-out", type=str, default=None,
+                        help="write the failing source keys here, one per line")
     args = parser.parse_args()
 
     fda_dir = Path(args.fda_dir) if args.fda_dir else None
-    results = ingest_all(fda_dir)
+    results = ingest_all(fda_dir, defer=args.defer)
     print(json.dumps(results, indent=2))
     # Exit non-zero when anything failed, so a caller that captures rc (install
     # hydrate) cannot record a failed graph write as ok. ingest_all itself
     # never raises; before this the CLI exited 0 whatever the results said.
-    if results.get("status") == "error" or any(
-        isinstance(v, dict) and v.get("status") == "error"
-        for v in results.values()
-    ):
+    if results.get("status") == "error":
+        failed = ["ingest_all"]
+    else:
+        failed = [k for k, v in results.items()
+                  if isinstance(v, dict) and v.get("status") == "error"]
+    # Which sources failed, by dispatch key, so the caller names THOSE in the
+    # customer's warning rather than the step that happened to run them (the
+    # v1.0.120 walk blamed WhatsApp for a food timeout). Written on every run,
+    # empty when nothing failed: a missing file means "could not tell".
+    if args.failed_out:
+        Path(args.failed_out).write_text(
+            "".join(k + "\n" for k in failed), encoding="utf-8")
+    if failed:
         sys.exit(1)
 
 

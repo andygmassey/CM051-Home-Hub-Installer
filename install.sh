@@ -36982,6 +36982,38 @@ unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 # process boundary. The classifier writes whatsapp_conversations.json
 # under ~/.ostler/imports/fda/ with participant lists (those are
 # customer-local artefacts, never logged off-machine).
+#
+# v1.0.121: the graph write below runs EVERY pwg_ingest source, so its failure
+# is named by the sources that failed, never by this leg. Reads the keys that
+# `pwg_ingest --failed-out` wrote. Sets _HY_FAILED_LABELS (customer words,
+# comma-joined) and _HY_FAILED_WHATSAPP (true when WhatsApp itself failed, or
+# when the failure could not be attributed, so it still counts against the leg).
+_hydrate_ingest_failure_labels() {
+    local file="$1" key var label
+    _HY_FAILED_LABELS=""
+    _HY_FAILED_WHATSAPP=false
+    if [[ ! -s "$file" ]]; then
+        _HY_FAILED_LABELS="$MSG_HYDRATE_SOURCE_LABEL_UNMEASURED"
+        _HY_FAILED_WHATSAPP=true
+        return 0
+    fi
+    while IFS= read -r key || [[ -n "$key" ]]; do
+        if [[ -z "$key" ]]; then continue; fi
+        if [[ "$key" == "whatsapp" || "$key" == "ingest_all" ]]; then _HY_FAILED_WHATSAPP=true; fi
+        label=""
+        case "$key" in
+            *[!a-z_]*) : ;;
+            *) var="MSG_HYDRATE_SOURCE_LABEL_$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')"
+               label="${!var:-}" ;;
+        esac
+        if [[ -z "$label" ]]; then
+            # A key with no label is counted under its own name, never dropped.
+            label="$(printf "$MSG_HYDRATE_SOURCE_LABEL_UNKNOWN" "$key")"
+        fi
+        _HY_FAILED_LABELS="${_HY_FAILED_LABELS:+${_HY_FAILED_LABELS}, }${label}"
+    done < "$file"
+    return 0
+}
 _HYDRATE_WHATSAPP_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
@@ -37076,28 +37108,51 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         info "$MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES"
     else
         # Step 2: ingest the JSON into Oxigraph. pwg_ingest.main() runs
-        # every ingest_* for which a JSON file exists; since only
-        # whatsapp_conversations.json was just written, only
-        # ingest_whatsapp will do work. Other ingests return their
-        # "no data" skip status without touching Oxigraph.
+        # every ingest_* for which a JSON file exists, which by now is
+        # most FDA sources, not only whatsapp_conversations.json (the
+        # v1.0.120 walk ran all ten). So a failure here is named
+        # by source below, never assumed to be WhatsApp's.
         # pwg_ingest now exits 1 on any source error. A bare `set +e` leaves
         # the ERR trap armed (bash 3.2), which would abort the install here,
         # so save and disarm it exactly as the extract step above does.
         _wa_ingest_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
         _wa_ingest_rc=0
+        # v1.0.121: food evidence is DEFERRED to the hourly ingest tick
+        # (com.ostler.fda-rerun runs ingest_all with nothing deferred and
+        # records state/source_activity/food.tsv). On the v1.0.120 cold walk
+        # (16 GB Mac) it hit its 900 s cap here and failed hydrate_graph.
+        _wa_failed_out="${OSTLER_DIAG_DIR}/hydrate-ingest-failed.txt"
+        rm -f "$_wa_failed_out"
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
             --fda-dir "${OSTLER_DIR}/imports/fda" \
+            --defer food --failed-out "$_wa_failed_out" \
             >>"$_HYDRATE_WHATSAPP_LOG" 2>&1 || _wa_ingest_rc=$?
         # Status-honesty E2: this write used to end in `|| true`, so a failed
         # graph write was recorded as ok. Keep the extract's rc if it already
-        # failed; otherwise the ingest's rc becomes the recorded one.
+        # failed; otherwise the ingest's rc becomes the recorded one. The rc
+        # goes to WhatsApp only when WhatsApp failed (or nothing says which);
+        # any other source still fails the step, under its own name.
         if [[ "$_wa_ingest_rc" -ne 0 ]]; then
-            warn "$(printf "$MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
-            if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then
+            _hydrate_ingest_failure_labels "$_wa_failed_out"
+            if [[ "$_HY_FAILED_LABELS" == "$MSG_HYDRATE_SOURCE_LABEL_WHATSAPP" ]]; then
+                warn "$(printf "$MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
+            else
+                warn "$(printf "$MSG_HYDRATE_INGEST_SOURCES_FAILED" "$_HY_FAILED_LABELS" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
+            fi
+            if [[ "$_HY_FAILED_WHATSAPP" != "true" ]]; then
+                gui_step_record_rc "$_wa_ingest_rc"
+            elif [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then
                 _HYDRATE_WHATSAPP_RC="$_wa_ingest_rc"
             fi
         fi
-        unset _wa_ingest_rc
+        # The CLI wrote its failed-out file, so it understood --defer: the
+        # food leg is the tick's now, recorded so the Doctor can tell
+        # "deferred" from "never looked".
+        if [[ -f "$_wa_failed_out" ]]; then
+            _hydrate_sentinel_record_no_data "food" "deferred_to_hourly_ingest"
+            info "$MSG_HYDRATE_FOOD_DEFERRED"
+        fi
+        unset _wa_ingest_rc _wa_failed_out _HY_FAILED_LABELS _HY_FAILED_WHATSAPP
         set -e; eval "${_wa_ingest_saved_err_trap:-}"; unset _wa_ingest_saved_err_trap
 
         # Parse people_added for the customer-facing message. The CLI

@@ -49,6 +49,10 @@ on:
       - 'tests/test_pgrep_no_match_does_not_fabricate_a_done.sh'
       - 'tests/test_upgrade_path_can_wire_store_auth.sh'
       - 'tests/test_whatsapp_ingest_err_trap.sh'
+      - 'tests/test_hydrate_graph_food_deferred.sh'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/apple_music_refresh.py'
+      - 'install.sh.strings.en-GB.sh'
       - '.github/workflows/bash32-compat.yml'
       # The class guard scans every tests/*.sh and scripts/*.sh, so any new
       # or edited test can introduce the defect it looks for. Watching only
@@ -141,6 +145,22 @@ jobs:
         if: always()
         run: /bin/bash tests/test_whatsapp_ingest_err_trap.sh
 
+      # v1.0.121: the food-evidence ingest is deferred off hydrate_graph and a
+      # failed source is named by itself, not as WhatsApp. Runs the real Step 2
+      # block, label helper and strings under 3.2, and the real vendored
+      # pwg_ingest main() + ingest_food (a genuine subprocess timeout), so it
+      # needs pwg_ingest's two imports on the shipped Python minor.
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: '3.11'
+      - name: hydrate_graph defers food and names each failing source (3.2)
+        if: always()
+        run: |
+          set -uo pipefail
+          python3 -m pip install --quiet httpx phonenumbers
+          /bin/bash tests/test_hydrate_graph_food_deferred.sh
+
       - name: All three parse under /bin/bash 3.2
         if: always()
         run: |
@@ -148,4 +168,5 @@ jobs:
           /bin/bash -n tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
           /bin/bash -n tests/test_upgrade_path_can_wire_store_auth.sh
           /bin/bash -n tests/test_whatsapp_ingest_err_trap.sh
+          /bin/bash -n tests/test_hydrate_graph_food_deferred.sh
           echo "OK: parses under the shell the cut actually uses"

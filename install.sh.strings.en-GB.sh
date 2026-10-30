@@ -1578,6 +1578,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="Reading your WhatsApp history – your messages st
 MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp chats were read but not written to your people graph (exit %s). Ostler will retry. Details: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s (exit %s). Ostler will retry. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."

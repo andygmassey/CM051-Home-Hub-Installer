@@ -39,6 +39,14 @@ _HYDRATE_WHATSAPP_LOG=/dev/null
 _HYDRATE_WHATSAPP_RC=0
 warn() { echo "WARN: \$*"; }
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="graph write failed (exit %s) %s"
+# v1.0.121: the step names failing sources and defers food; give it what the
+# real install has by then (a diag dir, the strings, the label helper).
+OSTLER_DIAG_DIR="\${TMPDIR:-/tmp}"
+info() { :; }
+gui_step_record_rc() { :; }
+_hydrate_sentinel_record_no_data() { :; }
+source "$REPO_ROOT/install.sh.strings.en-GB.sh"
+$(awk '/^_hydrate_ingest_failure_labels\(\) \{/ {on=1} on {print} on && /^\}/ {exit}' "$INSTALL")
 _stub() { return 1; }
 _HYDRATE_WHATSAPP_PY=_stub_py
 _stub_py() { return 1; }

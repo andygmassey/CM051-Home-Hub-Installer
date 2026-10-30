@@ -122,3 +122,23 @@ Proof: `tests/test_read_messages_are_not_no_data.py` (hydrate-sentinel.yml).
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same return keys. Retire when it
 lands there and the tree is re-pinned past it.
+
+## 2026-10-30: v1.0.121, the install-time call can defer food and names what failed
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- `DEFERRABLE_AT_INSTALL = frozenset({"food"})`, and `ingest_all(fda_dir, defer=())`:
+  a deferred dispatch entry is not called and is recorded as
+  `{"status": "deferred", "reason": "runs_on_the_hourly_ingest_tick"}`.
+- `main()` gains `--defer <name>` (choices: `DEFERRABLE_AT_INSTALL`) and
+  `--failed-out <path>`, which writes the failing dispatch keys one per line
+  (empty file when none). Exit codes are unchanged.
+
+Why: the v1.0.120 cold walk (16 GB Mac) ran the whole dispatch inside the install's
+WhatsApp hydrate leg; `ingest_food` hit the 900 s CM019 ingest cap, the CLI exited 1,
+hydrate_graph closed rc 1 and the warning blamed WhatsApp. install.sh now passes
+`--defer food` and names failures from `--failed-out`. The hourly tick
+(com.ostler.fda-rerun) still calls `ingest_all(fda_dir)` with nothing deferred.
+Proof: tests/test_hydrate_graph_food_deferred.sh (bash32-compat.yml).
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`.

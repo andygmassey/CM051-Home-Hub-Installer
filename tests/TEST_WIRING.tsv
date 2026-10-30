@@ -455,6 +455,7 @@ test_hydrate_apple_notes_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok
 test_hydrate_browsing_skip_is_corroborated_at_the_store.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_counters_survive_a_failed_producer.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_email_preferences_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
+test_hydrate_graph_food_deferred.sh	WIRED	.github/workflows/bash32-compat.yml
 test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
