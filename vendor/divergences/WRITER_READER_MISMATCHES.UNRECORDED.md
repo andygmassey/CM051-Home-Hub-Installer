@@ -1375,6 +1375,22 @@ passed to any Doctor subprocess or stat. Restoring the HR015 file without this
 rule drops the check; restoring the pre-121 rule brings the python3.11 prompt
 back.
 
+### 2026-10-30, v1.0.121 (NEW-121, Archie (b)): the Documents tile reads, never probes
+
+`vendor/doctor/agent/documents_access_posture.py` (VENDOR_ONLY) no longer
+probe-writes into `~/Documents/Ostler` from Doctor's python on every render.
+`probe_documents_access` and `_default_write_probe` are DELETED;
+`read_documents_access()` reads `~/.ostler/state/documents_access.tsv`
+(`STATUS_FILE_REL`, `STATUS_MAX_AGE_SECONDS` = 6 h) and
+`render_documents_access_posture()` takes no arguments. Missing, stale,
+garbled or unknown-status is `check-failed` with a reason and new copy
+(`_NO_ANSWER_DETAIL_FMT`, `_NO_ANSWER_REMEDIATION`). The writer is
+`_ostler_documents_access_record` in the install.sh ostler-fda wrapper (same
+four states, parent probed when the root is absent, root never created).
+Guarded by `tests/test_documents_access_doctor_denied_row.py` (rewritten:
+real writer into real reader, real chmod-000 denial) and section 2b of
+`tests/test_doctor_spawns_no_protected_path_subprocess.py` (RED at 1a9aea59).
+
 ---
 
 ## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
