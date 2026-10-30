@@ -295,3 +295,30 @@ UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
 re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
 the same three changes. The patch is not regenerated, for the reason in the
 2026-10-22 section above.
+
+## 2026-10-30, v1.0.121: a merge deletes the loser's vector, undo restores it, the repair deletes only provable losers
+
+Tree: cm041/identity_resolver (vendor/cm041/identity_resolver). Location and shape only.
+
+| file | change |
+|---|---|
+| `resolver.py` | `IdentityResolver.__init__` takes `qdrant_url` (default env `QDRANT_URL`, else `http://localhost:6333`) and `merge_journal_dir` (default `merge_journal.default_journal_dir()`); new `merge_stats`. `merge_persons()` now returns bool: it calls `merge_journal.record_merge()` (both nodes, both vectors) BEFORE the first write, skips the pair on `SnapshotUnavailable` (journalled `skip`, reason `qdrant_unavailable`), runs the old body (now `_merge_graph()`), then deletes the loser's points via `merge_journal.delete_person_points()`. `resolve()` counts a merge only when it was made. |
+| `merge_journal.py` | new `delete_person_points()` (the uuid5 point plus any point whose payload `person_uri` is the loser) and `default_journal_dir()` (`OSTLER_MERGE_JOURNAL_DIR`, else `<OSTLER_PIPELINE_DIR or ~/.ostler/import-pipeline>/backups/merge_journal`, the converge pass's own journal). |
+| `batch_resolver.py` | `_merge_qdrant()` deletes through `delete_person_points()`, so a loser point keyed by another id goes too. `sweep_qdrant_orphans_of_merged_people()` deletes a point only when its uri is a `mergedInto` source whose chain ENDS at a live Person; a dangling or cyclic chain and a uri that is neither a Person nor a merge source are REPORTED (`unresolved_merge_uris`, `true_orphan_uris`, `candidates`), never deleted. |
+| `repair_merge_consistency.py` | prints the new report lines. |
+
+Why: measured read-only on the v1.0.120 box, 86 `people` points belonged to
+`mergedInto` sources, none of them in the batch converge's journal (670
+journalled merges left 0 points): every one came from the ingest-time
+`merge_persons`, which was graph-only. A search for a merged-away name returned
+a retired uri.
+
+Guarded by `tests/test_a_merge_deletes_the_loser_vector.py` (6 tests, all red
+on main, wired in `.github/workflows/exact-identifier-merge.yml`).
+
+UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
+re-pinned): CM041 `identity_resolver/{resolver,merge_journal,batch_resolver,repair_merge_consistency}.py`.
+Upstream has no `merge_journal.py` (vendor-only, see the v1.0.107 #30 section),
+so the journalled half cannot be ported alone; the graph-only `merge_persons`
+upstream has the same defect. The patch is not regenerated, for the reason in
+the 2026-10-22 section above.
