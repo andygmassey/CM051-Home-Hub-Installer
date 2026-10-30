@@ -13,6 +13,11 @@
 #   3b marker naming a dead pid                 -> no deferral, restarts
 #   3c marker with no pid                       -> no deferral, restarts
 #   4 seam still wins over the marker
+#   5 Sparkle upgrade (OSTLER_UPGRADE_MODE=1, real install.sh upgrade block): a watchdog
+#     tick fired from inside the upgrade's launchctl bootout, listener down -> holds off
+#   6 the upgrade block clears its marker on EVERY exit: success, early exit 10,
+#     codesign exit 21, rollback success, rollback exit 50
+#   7 an upgrade killed -9 (trap cannot run) leaves a marker with a dead pid -> no deferral
 # Usage: [REPO_ROOT]. rc 0 all pass, 1 a case failed, 2 CANNOT-RUN.
 set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -126,6 +131,79 @@ H="$(fresh 4)"; three "$H" true
 [ "$(field "$H" state)" = install_running ] && [ "$(kicks)" = 0 ] \
     && ok "4 OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD seam still wins" || bad "4 seam ignored: state=$(field "$H" state)"
 
+echo "== upgrade block (OSTLER_UPGRADE_MODE) install marker"
+UPG_SH="${UPG_INSTALL_SH:-$ROOT/install.sh}"
+mkdir -p "$WORK/ubin" "$WORK/pay/assistant-agent/OstlerAssistant.app/Contents/MacOS"
+echo 1.0.1 > "$WORK/pay/VERSION"
+echo x > "$WORK/pay/assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant"
+cat > "$WORK/pay/assistant-agent/INSTALL_SNIPPET.sh" <<'SNIPEND'
+mkdir -p "$HOME/Library/LaunchAgents"
+printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>x</string><key>EnvironmentVariables</key><dict/></dict></plist>\n' > "$HOME/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist"
+SNIPEND
+# The upgrade's own launchctl: at the first bootout (step 3, listener going down) it snapshots the
+# marker and, when asked, fires three watchdog ticks from inside the upgrade, or kill -9s the upgrade.
+cat > "$WORK/tick.sh" <<TICKEND
+#!/usr/bin/env bash
+mkdir -p "\$HOME/.ostler/logs" "\$HOME/.ostler/state"
+for i in 1 2 3; do
+    PATH="$WORK/bin:\$PATH" OSTLER_LISTENER_WD_OSTLER_DIR="\$HOME/.ostler" \\
+    OSTLER_LISTENER_WD_URL="http://127.0.0.1:${PORT}/api/sessions" \\
+    OSTLER_LISTENER_WD_LAUNCHCTL="$WORK/bin/launchctl" \\
+    OSTLER_LISTENER_WD_CONNECT_S=1 OSTLER_LISTENER_WD_MAX_S=1 \\
+    OSTLER_LISTENER_WD_VERIFY_S=6 OSTLER_LISTENER_WD_VERIFY_POLL_S=1 OSTLER_LISTENER_WD_SAMPLE_S=1 \\
+    /bin/bash "$SCRIPT" >> "\$HOME/.ostler/run.log" 2>&1
+done
+TICKEND
+cat > "$WORK/ubin/launchctl" <<UBEND
+#!/usr/bin/env bash
+if [ "\$1" = bootout ] && [ ! -e "\$HOME/.snap-done" ]; then
+    : > "\$HOME/.snap-done"
+    cat "\$HOME/.ostler/state/install-in-progress" > "\$HOME/.snap" 2>/dev/null
+    [ -z "\${UPG_TICK:-}" ] || /bin/bash "$WORK/tick.sh"
+    [ -z "\${UPG_KILL9:-}" ] || kill -9 "\$PPID"
+fi
+exit 0
+UBEND
+printf '#!/usr/bin/env bash\nexit "${UPG_CODESIGN_RC:-0}"\n' > "$WORK/ubin/codesign"
+chmod +x "$WORK/ubin/launchctl" "$WORK/ubin/codesign"
+upg() { # upg <home> [VAR=val ...]: one real upgrade-block run; rc on stdout line "rc=N"
+    local h="$1"; shift
+    mkdir -p "$h/.ostler/OstlerAssistant.app" "$h/Library/LaunchAgents"
+    env PATH="$WORK/ubin:$PATH" HOME="$h" OSTLER_UPGRADE_PAYLOAD_DIR="$WORK/pay" "$@" \
+        /bin/bash "$UPG_SH" > "$h/upg.out" 2>&1
+    echo "rc=$?"
+}
+marker_gone() { [ ! -e "$1/.ostler/state/install-in-progress" ]; }
+
+H="$(fresh 5)"; R="$(upg "$H" OSTLER_UPGRADE_MODE=1 UPG_TICK=1)"
+SNAP="$(cat "$H/.snap" 2>/dev/null)"
+[ "$R" = rc=0 ] && [[ "$SNAP" =~ ^pid=[0-9]+$ ]] && [ "$(field "$H/.ostler" state)" = install_running ] && [ "$(kicks)" = 0 ] \
+    && ok "5 upgrade mode, listener down, marker present at bootout (${SNAP}): watchdog holds off, 0 restarts" \
+    || bad "5 watchdog did not hold off during the upgrade: $R snap='${SNAP}' state=$(field "$H/.ostler" state) kicks=$(kicks)"
+
+arm() { # arm <label> <expected rc> <vars...>: run an upgrade arm, rc must match AND the marker must be gone
+    local lbl="$1" want="$2" ph="$WORK/hb-$1"; shift 2
+    rm -rf "$ph"; mkdir -p "$ph/.ostler"
+    [ "$lbl" != rollback ] || { mkdir -p "$ph/.ostler/OstlerAssistant.app.old"; }
+    local r; r="$(upg "$ph" "$@")"
+    if [ "$r" = "rc=$want" ] && marker_gone "$ph"; then ok "6 ${lbl}: $r, marker gone"
+    else bad "6 ${lbl}: $r (want rc=$want), marker $(marker_gone "$ph" && echo gone || echo LEFT BEHIND)"; fi
+}
+arm success 0 OSTLER_UPGRADE_MODE=1
+arm early-exit-10 10 OSTLER_UPGRADE_MODE=1 OSTLER_UPGRADE_PAYLOAD_DIR=/nonexistent-payload-dir
+arm codesign-21 21 OSTLER_UPGRADE_MODE=1 UPG_CODESIGN_RC=1
+arm rollback 0 OSTLER_UPGRADE_ROLLBACK=1
+arm rollback-50 50 OSTLER_UPGRADE_ROLLBACK=1
+
+H="$(fresh 7)"; R="$(upg "$H" OSTLER_UPGRADE_MODE=1 UPG_KILL9=1)"
+LEFT="$(cat "$H/.ostler/state/install-in-progress" 2>/dev/null)"; LPID="${LEFT#pid=}"
+ps -p "$LPID" >/dev/null 2>&1 && LIVE=1 || LIVE=0
+[[ "$LEFT" =~ ^pid=[0-9]+$ ]] && [ "$LIVE" = 0 ] || bad "7 precondition: kill -9 should leave a marker with a dead pid (left='${LEFT}' alive=${LIVE})"
+three "$H/.ostler"
+[ "$(field "$H/.ostler" state)" != install_running ] && [ "$(kicks)" = 1 ] \
+    && ok "7 upgrade killed -9, stale marker (${LEFT}, pid gone): no deferral, restarted" \
+    || bad "7 stale marker from a killed upgrade deferred: state=$(field "$H/.ostler" state) kicks=$(kicks)"
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 [ -n "${LWD_NO_MUTANTS:-}" ] && exit 0
@@ -150,5 +228,29 @@ else
         && ok "mutant killed: pgrep restored ($(grep -c '^  FAIL' "$WORK/mut.out") case(s) red, case 1 among them)" \
         || bad "mutant went red but not on case 1"
 fi
+echo "== mutants: the upgrade block's marker write / trap removed must turn cases 5 / 6 red"
+for M in write trap; do
+    mkdir -p "$WORK/mroot-$M"
+    python3 - "$ROOT/install.sh" "$WORK/mroot-$M/install.sh" "$M" <<'PYEND' || { bad "mutant ${M} did not apply (anchor moved)"; continue; }
+import sys
+L = open(sys.argv[1]).read().split("\n")
+i = next(n for n, l in enumerate(L) if l.startswith("    _UPG_MARKER="))
+j = i + 1
+assert "trap '" in L[j], "upgrade-block marker line moved"
+if sys.argv[3] == "write":   # no marker is ever written
+    L[j] = L[j].replace("printf 'pid=%s\\n' \"$$\" > \"$_UPG_MARKER\"", ": > /dev/null")
+    L[j] = L[j].replace("&& rm -f", "&& :")
+    assert ": > /dev/null" in L[j]
+else:                        # written, never cleared
+    L[j] = L[j].replace("rm -f \"$_UPG_MARKER\"", ":")
+    assert "&& :" in L[j]
+open(sys.argv[2], "w").write("\n".join(L))
+PYEND
+    UPG_INSTALL_SH="$WORK/mroot-$M/install.sh" LWD_NO_MUTANTS=1 bash "$SELF" "$ROOT" > "$WORK/mut-$M.out" 2>&1 && rc=0 || rc=$?
+    want='^  FAIL 5 '; [ "$M" = trap ] && want='^  FAIL 6 '
+    if [ "$rc" = 0 ]; then bad "mutant ${M} survived"
+    elif grep -q "$want" "$WORK/mut-$M.out"; then ok "mutant ${M} killed ($(grep -c '^  FAIL' "$WORK/mut-$M.out") case(s) red)"
+    else bad "mutant ${M} went red but not on the expected case"; fi
+done
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

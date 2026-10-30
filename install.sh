@@ -860,11 +860,12 @@ _ostler_lock_home_dir() {
 }
 
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
-
     # Own the error handling from here: manage exit codes explicitly so
     # a transient non-zero can never abort mid-swap under `set -e`.
     set +e
-
+    # Install marker for the whole upgrade (every exit clears it via the trap): lwd_install_running holds the listener watchdog off while it names a live pid.
+    _UPG_MARKER="${HOME}/.ostler/state/install-in-progress"
+    if [[ -d "${HOME}/.ostler" ]] && ( umask 077; mkdir -p "${_UPG_MARKER%/*}" && printf 'pid=%s\n' "$$" > "$_UPG_MARKER" ) 2>/dev/null; then trap '[[ "$(cat "$_UPG_MARKER" 2>/dev/null)" == "pid=$$" ]] && rm -f "$_UPG_MARKER"' EXIT; fi
     _UPG_HOME="${HOME}"
     _UPG_OSTLER_DIR="${_UPG_HOME}/.ostler"
     _UPG_APP="${_UPG_OSTLER_DIR}/OstlerAssistant.app"
@@ -886,7 +887,6 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
     # (_verify_daemon_signature, ~L12937): a foreign-but-notarised
     # bundle is rejected here too, not just any notarised app.
     _UPG_CODESIGN_REQ='=anchor apple generic and certificate leaf[subject.OU] = "V95N2B8X7A"'
-
     _UPG_PAYLOAD="${OSTLER_UPGRADE_PAYLOAD_DIR:-}"
     _UPG_PAYLOAD_AGENT="${_UPG_PAYLOAD}/assistant-agent"
     _UPG_PAYLOAD_APP="${_UPG_PAYLOAD_AGENT}/OstlerAssistant.app"
