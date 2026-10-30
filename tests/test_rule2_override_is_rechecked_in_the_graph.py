@@ -54,7 +54,12 @@ PWG = br.PWG
 PROBE = Path(os.environ.get("RULE2_PROBE_FILE") or
              ROOT / "scripts" / "box_walk_probes" / "probes" / "no_person_holds_two_contact_cards.sh")
 MOBILE = "+44" + "7400123456"        # validates as MOBILE (phonenumbers)
+VOIP = "+44" + "5612345678"          # VOIP
+PERSONAL = "+44" + "7012345678"      # PERSONAL_NUMBER
+AMBIGUOUS = "+1" + "2015550123"      # FIXED_LINE_OR_MOBILE (NANP 555-01xx fictional)
 LANDLINE = "+44" + "2079460123"      # Ofcom drama range, FIXED_LINE
+TOLL_FREE = "+44" + "8001234567"     # TOLL_FREE
+UNVALIDATED = "+44" + "7700900123"   # Ofcom drama mobile range: phonenumbers says not valid
 EMAIL = "pat.sample@example.com"
 
 
@@ -225,6 +230,19 @@ def test_a_genuine_mobile_override_is_allowed(box):
     assert MOBILE[-6:] not in out
 
 
+@pytest.mark.parametrize("phone", [VOIP, PERSONAL, AMBIGUOUS], ids=["voip", "personal", "fixed_line_or_mobile"])
+def test_a_person_specific_phone_override_is_allowed_as_the_resolver_allows_it(box, phone):
+    """The resolver (exact_identifier.is_usable_phone_key) merges on these, so
+    the probe must accept them: VOIP, PERSONAL_NUMBER, and the ambiguous
+    FIXED_LINE_OR_MOBILE, which the resolver counts as a mobile."""
+    import phonenumbers as pn
+    t = pn.number_type(pn.parse(phone, None))
+    assert t in ei._PERSONAL_TYPES, t
+    override_pair(box, emails=(), phones=(phone,))
+    v, out = probe(box)
+    assert v == "PASS", out[-1500:]
+
+
 def test_names_differing_only_by_case_are_the_resolvers_same_name_and_pass(box):
     """The resolver's name_key folds case and whitespace, so the probe must too,
     or a merge the ruleset allows reads as a violation (the #3202 probe compared
@@ -284,14 +302,43 @@ def test_c_reason_recorded_but_the_key_is_held_by_three_names_fails(box):
     assert "guarded:email" in out
 
 
-def test_c_reason_recorded_but_the_shared_phone_is_a_landline_fails(box):
+@pytest.mark.parametrize("phone", [LANDLINE, TOLL_FREE, UNVALIDATED], ids=["landline", "toll_free", "unvalidated"])
+def test_c_reason_recorded_but_the_shared_phone_is_not_person_specific_fails(box, phone):
+    """The resolver never merges on these (it refuses, the pair goes to
+    review), so a journalled merge whose graph shows one is a FAIL."""
+    import phonenumbers as pn
+    n = pn.parse(phone, None)
+    assert not (pn.is_valid_number(n) and pn.number_type(n) in ei._PERSONAL_TYPES)
+    assert not ei.is_usable_phone_key(phone)
     _, _, row = override_pair(box, emails=(), phones=(MOBILE,))
     slug_k = row["keep"].rsplit("person_", 1)[1]
-    box["g"].set_value(discard_id(row), LANDLINE)
-    box["g"].set_value(f"{PWG}id_{slug_k}_0", LANDLINE)
+    box["g"].set_value(discard_id(row), phone)
+    box["g"].set_value(f"{PWG}id_{slug_k}_0", phone)
     v, out = probe(box)
     assert v == "FAIL", out[-1500:]
-    assert "phone-not-a-mobile" in out
+    assert "phone-not-person-specific" in out
+
+
+# ---------------------------------------------------------------- phone-type parity
+def _probe_phone_types(text):
+    import re
+    m = re.search(r'^PERSON_SPECIFIC_PHONE_TYPES = \(([^)]*)\)', text, re.M)
+    assert m, "PERSON_SPECIFIC_PHONE_TYPES not found in the probe"
+    return set(re.findall(r'"([A-Z_]+)"', m.group(1)))
+
+
+def test_probe_phone_types_are_exactly_the_resolvers():
+    """PARITY: the probe's person-specific phone set is the resolver's
+    _PERSONAL_TYPES, by name, both ways. Drift on either side is RED."""
+    probe_set = _probe_phone_types(PROBE.read_text())
+    import phonenumbers as pn
+    # PhoneNumberType members are plain ints; name them through the class.
+    names = {n: getattr(pn.PhoneNumberType, n) for n in dir(pn.PhoneNumberType) if n.isupper()}
+    resolver_set = {n for n, v in names.items() if v in ei._PERSONAL_TYPES}
+    assert len(resolver_set) == len(ei._PERSONAL_TYPES), "a resolver type has no unique name"
+    for n in probe_set:
+        assert n in names, n
+    assert probe_set == resolver_set, ("probe only", probe_set - resolver_set, "resolver only", resolver_set - probe_set)
 
 
 @pytest.mark.parametrize("other", [
@@ -351,4 +398,5 @@ def test_the_probe_header_carries_the_amended_rule_2_and_andys_words():
     assert "THAT TEXT IS SUPERSEDED (Andy, 2026-10-30)" in head
     assert "Two people with SAME NAME and SAME EMAIL address clearly are te same" in head
     assert "ridiculously small edge case" in head
-    assert "a validated mobile" in head and "Generational suffixes" in head
+    assert "person-specific phone number" in head and "Generational suffixes" in head
+    assert "MIRRORS exact_identifier's" in PROBE.read_text()

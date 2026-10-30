@@ -122,3 +122,26 @@ Proof: `tests/test_read_messages_are_not_no_data.py` (hydrate-sentinel.yml).
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same return keys. Retire when it
 lands there and the tree is re-pinned past it.
+
+## 2026-10-30: repair_overmerged_contact_cards.py DELETED (RULE 2 exception ratified)
+
+`vendor/ostler_fda/repair_overmerged_contact_cards.py` is deleted, with its test
+`tests/test_repair_overmerged_contact_cards.py` and its only workflow
+`.github/workflows/contact-card-repair.yml`. Last commit that touched the file:
+`d1b0367d3f6b5d0a93fbdd8cc9c055ccc1f3e298` (recover it with
+`git show d1b0367d3f6b5d0a93fbdd8cc9c055ccc1f3e298:vendor/ostler_fda/repair_overmerged_contact_cards.py`).
+
+Why: on 2026-10-30 Andy ratified the exact-identifier exception to RULE 2 (two
+Contacts cards with the same full name sharing an email, a person-specific phone
+or a LinkedIn URL are one person and merge). This module un-merged EVERY Person
+node carrying 2+ distinct icloud_contact_uid, so wired to anything it would undo
+ratified merges. It was dormant (no caller; DORMANT row in
+scripts/fda_unwired_modules.tsv), and dormant code that undoes a ratified rule is
+a landmine (Archie, 2026-10-30).
+
+Also removed: its VENDOR_ONLY.tsv row, its fda_unwired_modules.tsv row (the
+dormant count in tests/test_fda_module_reachable.sh drops 5 -> 4), and its
+new-file hunk in `ostler_fda.patch`, so a sync cannot restore it.
+
+Upstream: none. The file was vendor-only and exists in no HR015 commit, so
+nothing is owed upstream.

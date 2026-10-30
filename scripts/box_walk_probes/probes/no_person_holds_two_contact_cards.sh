@@ -17,12 +17,18 @@
 #
 #     MUST NOT MERGE: different canonical keys, even if identical display name,
 #     EXCEPT that two Contacts cards (different icloud_contact_uid) whose FULL
-#     NAMES ARE THE SAME and which share an email address, a validated mobile
-#     number or a LinkedIn URL ARE one person and MERGE. Generational suffixes
+#     NAMES ARE THE SAME and which share an email address, a validated
+#     person-specific phone number or a LinkedIn URL ARE one person and MERGE. Generational suffixes
 #     are part of the name: "John Smith" and "John Smith Jr" (Sr, Jnr, II, III,
 #     IV, with or without a comma) are different names and do not merge. A key
 #     held by 3+ distinct names is never a merge key. A conflict on any other
 #     canonical key (linkedin_url, whatsapp_lid) is never overridden.
+#
+#     "Validated person-specific phone" is the ratified rule as the code holds
+#     it (Archie 2026-10-30: "mobile" was a paraphrase): a number that
+#     phonenumbers validates as MOBILE, FIXED_LINE_OR_MOBILE, PERSONAL_NUMBER or
+#     VOIP. A FIXED_LINE (household or office), toll-free, shared-cost, premium,
+#     UAN, pager or unvalidated number is never a key.
 #
 # Andy's decision, verbatim, 2026-10-30:
 #
@@ -383,7 +389,7 @@ else:
 #              graph re-check fails
 #   CANNOT-RUN the journal exists and cannot be read, the only rows carry
 #              hash=null with matched_keys_reason "journal_secret_unavailable",
-#              a merge snapshot cannot be read, or a phone key needs mobile
+#              a merge snapshot cannot be read, or a phone key needs type
 #              validation and no interpreter with `phonenumbers` exists
 #
 # THE JOURNAL IS WRITTEN BY THE CODE UNDER TEST (Archie, 2026-10-30), so a
@@ -399,8 +405,12 @@ else:
 #      nodes belonged to which card is read from the merge snapshot; the VALUES
 #      and the fact that both identifier nodes now sit on the survivor are read
 #      from the graph. A claimed kind with no shared value is a FAIL. A shared
-#      phone must validate as a MOBILE (phonenumbers); a fixed line, VoIP or
-#      unparseable number is not the key the exception names.
+#      phone must validate as PERSON-SPECIFIC. This MIRRORS exact_identifier's
+#      phone-type set (_PERSONAL_TYPES: MOBILE, FIXED_LINE_OR_MOBILE,
+#      PERSONAL_NUMBER, VOIP), and tests/test_rule2_override_is_rechecked_in_the_graph.py
+#      fails if the two sets drift. Note the resolver ALLOWS the ambiguous
+#      FIXED_LINE_OR_MOBILE (US/CA numbers), so this probe does too; FIXED_LINE
+#      and every other type, or an unvalidated number, is REFUSED.
 #   3. GUARD: no shared key is held by 3+ distinct normalised names among the
 #      live Person nodes (a switchboard, family inbox or shared handset).
 # The journal hashes are HMACs keyed by this install's service_token and are
@@ -447,6 +457,9 @@ KINDS = ("email", "phone", "linkedin")
 # graph identifierType -> journal key kind
 GTYPE = {"email": "email", "phone": "phone", "linkedin_url": "linkedin"}
 GUARD_MIN_DISTINCT_NAMES = 3
+# MIRRORS vendor/cm041/identity_resolver/exact_identifier.py _PERSONAL_TYPES
+# (is_usable_phone_key). A parity test fails if these drift.
+PERSON_SPECIFIC_PHONE_TYPES = ("MOBILE", "FIXED_LINE_OR_MOBILE", "PERSONAL_NUMBER", "VOIP")
 
 def name_norm(n):
     # NFC, case-folded, whitespace collapsed. Punctuation and suffixes KEPT.
@@ -472,7 +485,7 @@ def value_norm(kind, v):
         return s.rstrip("/")
     return v
 
-def phone_is_mobile(e164):
+def phone_is_person_specific(e164):
     """True / False, or None when it cannot be judged (no phonenumbers)."""
     if not PHONE_OK:
         return None
@@ -484,8 +497,8 @@ def phone_is_mobile(e164):
         return False
     if not phonenumbers.is_valid_number(n):
         return False
-    return phonenumbers.number_type(n) in (phonenumbers.PhoneNumberType.MOBILE,
-                                           phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
+    return phonenumbers.number_type(n) in {getattr(phonenumbers.PhoneNumberType, t)
+                                           for t in PERSON_SPECIFIC_PHONE_TYPES}
 
 def row_state(r):
     # One merge row, judged on the journal's own fields only.
@@ -531,11 +544,11 @@ def recheck(r, u, names, ids, holds, snaps, holders):
                 why.append("guarded:" + kind)
                 continue
             if kind == "phone":
-                m = phone_is_mobile(v)
+                m = phone_is_person_specific(v)
                 if m is None:
-                    return "cannot", "phone-mobile-validation-unavailable"
+                    return "cannot", "phone-type-validation-unavailable"
                 if not m:
-                    why.append("phone-not-a-mobile")
+                    why.append("phone-not-person-specific")
                     continue
             usable += 1
     if not usable:
@@ -670,7 +683,7 @@ if __name__ == "__main__":
                                 sum(1 for x in res if x[1] == "CANNOT"), sum(1 for x in res if x[4])))
 PYJOURNAL
 
-# The journal check needs `phonenumbers` to validate a phone key as a mobile.
+# The journal check needs `phonenumbers` to validate a phone key's type.
 # The box's bare python3 does not carry it; the install's venv does (install.sh
 # pip-installs phonenumbers into OSTLER_VENV for the resolver). So prefer the
 # venv interpreter and fall back to python3, where a phone key is CANNOT-RUN.
@@ -800,10 +813,10 @@ run_probe() {
         probe_note "interpreter for the re-check: $(printf '%s\n' "$jv" | sed -n 's/^JPY //p' | head -n1)"
         probe_note "allowed by the exact-identifier override (journalled AND re-checked in the graph): ${jp} of ${nodes}; violations: ${jf} (reason unrecorded: ${ju}; reason recorded but the graph re-check failed: $((jf - ju))); cannot verify: ${jc}"
         if [ "$jf" -gt 0 ]; then
-            probe_fail "${jf} Person node(s) each carry 2+ distinct icloud_contact_uid (of ${nodes} such nodes) that the RULE 2 exception does not cover: ${ju} with no journalled override reason, $((jf - ju)) whose journalled reason the graph does not bear out (same full name with suffixes kept, a shared email / mobile / LinkedIn on both cards, fewer than 3 names on the key). RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge, except under the 2026-10-30 exact-identifier exception -- is violated in the live graph."
+            probe_fail "${jf} Person node(s) each carry 2+ distinct icloud_contact_uid (of ${nodes} such nodes) that the RULE 2 exception does not cover: ${ju} with no journalled override reason, $((jf - ju)) whose journalled reason the graph does not bear out (same full name with suffixes kept, a shared email / person-specific phone / LinkedIn on both cards, fewer than 3 names on the key). RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge, except under the 2026-10-30 exact-identifier exception -- is violated in the live graph."
         fi
         if [ "$jc" -gt 0 ]; then
-            probe_cannot_run "${jc} of ${nodes} 2+ card node(s) could not be re-checked (null key hashes from journal_secret_unavailable, an unreadable merge snapshot, or a phone key with no phonenumbers to validate it as a mobile); ${jp} verified"
+            probe_cannot_run "${jc} of ${nodes} 2+ card node(s) could not be re-checked (null key hashes from journal_secret_unavailable, an unreadable merge snapshot, or a phone key with no phonenumbers to validate its type); ${jp} verified"
         fi
         probe_note "all ${nodes} 2+ card node(s) are journalled exact-identifier merges that the graph re-check bears out; not RULE 2 violations"
         # Every one of these nodes is a merge the resolver DID make and the
