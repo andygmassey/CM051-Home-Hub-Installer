@@ -2,7 +2,7 @@
 
 v1.0.115 (walk34) graded the BLOCKING probe CANNOT-RUN on a cold account (no Contacts).
 #3072 r1 wrote six cards straight into the graph: no syncer, no resolver, no vector,
-every number unique. The probe then hit its own "GUARD IS UNEXERCISED" pass, and the
+every number unique. The probe then hit its own "GUARD IS UNEXERCISED" pass (now CANNOT-RUN), and the
 six Persons had no Qdrant point (people_stores_reconcile red, people_count_agreement
 over its cap). This is the redesign: the walk seeds through the SHIPPED paths.
 
@@ -375,16 +375,16 @@ def test_seeded_run_exercises_the_guard_and_passes(stores, home):
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
     assert v.startswith("PASS"), text
-    assert "GUARD IS UNEXERCISED" not in text, text
+    assert "ZERO candidate merge pairs" not in text, text
     assert "so the zero was earned, not vacuous" in text, text
     m = re.search(r"collision opportunities: (\d+) Person node", text)
     assert m and int(m.group(1)) >= 1, text
     assert "EXAMINED: %d icloud_contact_uid" % len(fx.CARDS) in text, text
 
 
-def test_the_r1_direct_insert_was_a_vacuous_pass(stores, home):
+def test_the_r1_direct_insert_is_cannot_run_not_a_vacuous_pass(stores, home):
     """The control for the finding: six cards written straight into the graph, unique
-    numbers. The probe passes, and says the guard was never asked."""
+    numbers. The probe is CANNOT-RUN (it used to PASS), and says the guard was never asked."""
     t = []
     for n in range(1, 7):
         p = "<%sperson_direct%d>" % (PWG, n)
@@ -396,7 +396,8 @@ def test_the_r1_direct_insert_was_a_vacuous_pass(stores, home):
               '%s pwg:identifierValue "+4477009002%02d"' % (j, n)]
     stores.g.update("PREFIX pwg: <%s> INSERT DATA { %s }" % (PWG, " . ".join(t)))
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
-    assert v.startswith("PASS") and "GUARD IS UNEXERCISED" in text, text
+    assert v.startswith("CANNOT-RUN"), text
+    assert "ZERO candidate merge pairs" in text and "6 distinct icloud_contact_uid" in text, text
     assert len(stores.points) == 0, "and not one of those Persons has a vector"
 
 

@@ -17,6 +17,7 @@ on:
       - 'scripts/box_walk_probes/install_log_error_allowlist.tsv'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh'
+      - 'tests/test_launchd_probe_read_survives_an_empty_launchagents_dir_under_zsh.sh'
       - '.github/workflows/seeded-zero-launchd-lan-probes.yml'
   push:
     branches: [main]
@@ -28,6 +29,7 @@ on:
       - 'scripts/box_walk_probes/install_log_error_allowlist.tsv'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh'
+      - 'tests/test_launchd_probe_read_survives_an_empty_launchagents_dir_under_zsh.sh'
       - '.github/workflows/seeded-zero-launchd-lan-probes.yml'
 
 concurrency:
@@ -42,3 +44,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: seeded-but-0 FAILs, launchd and LAN decisions, one mutant each
         run: /bin/bash scripts/tests/test_seeded_zero_launchd_and_lan_probes.sh
+      - name: the launchd read counts real jobs under zsh with an empty system dir
+        if: always()
+        run: /bin/bash tests/test_launchd_probe_read_survives_an_empty_launchagents_dir_under_zsh.sh

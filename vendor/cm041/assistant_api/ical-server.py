@@ -417,6 +417,7 @@ _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.append(_HERE_DIR)
 from people_rules import (  # noqa: E402
+    is_countable_person,
     _NAMELESS_BARE_ID_CHARS,
     _ROLE_ADDRESS_LOCAL_RE,
     _is_role_address_name,
@@ -11933,18 +11934,52 @@ def api_health_detailed():
 # ── Wiki hydration status endpoint (CM044 #624 Part B) ───────────────
 
 
-def _wiki_people_count():
-    """Qdrant people-collection point count, or None if unreachable.
+_WIKI_PEOPLE_PAYLOAD = ["display_name", "given_name", "family_name",
+                        "emails", "phones", "icloud_uid"]
 
-    None (unreachable) is reported as 'pending', never 'done': we must
-    not claim contacts are loaded when we cannot actually see them.
+
+def _wiki_people_count():
+    """Customer-visible people in the Qdrant ``people`` collection, or None if
+    unreachable.
+
+    v1.0.121: counts the points that pass ``people_rules.is_countable_person``
+    (the ONE definition of a person for counting, see people_rules.py), not
+    the raw ``points_count``. The raw number also counted points for unnamed
+    or nameless records, a designed difference from the graph that the walk's
+    people_count_agreement then graded as a disagreement. This reads QDRANT
+    ONLY, on purpose: the probe counts the graph with the same definition, and
+    the two stores must agree independently. A point carries no merge state,
+    so ``merged=False``; why that is sound is written beside the definition.
+
+    None (unreachable or a broken page) is reported as 'pending', never
+    'done': we must not claim contacts are loaded when we cannot see them.
     """
+    base = QDRANT_URL.rstrip("/") + "/collections/people/points/scroll"
+    n = 0
+    offset = None
     try:
-        with urllib.request.urlopen(
-            QDRANT_URL.rstrip("/") + "/collections/people", timeout=3
-        ) as resp:
-            data = json.loads(resp.read())
-        return int(data.get("result", {}).get("points_count", 0) or 0)
+        for _ in range(10000):
+            body = {"limit": 1000, "with_payload": _WIKI_PEOPLE_PAYLOAD,
+                    "with_vector": False}
+            if offset is not None:
+                body["offset"] = offset
+            req = urllib.request.Request(
+                base, data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read())["result"]
+            for pt in result.get("points", []):
+                p = pt.get("payload") or {}
+                if is_countable_person(
+                        p.get("display_name"), p.get("given_name"),
+                        p.get("family_name"), p.get("emails") or [],
+                        p.get("phones") or [],
+                        has_card=bool((p.get("icloud_uid") or "").strip())):
+                    n += 1
+            offset = result.get("next_page_offset")
+            if offset is None:
+                return n
+        return None
     except Exception:
         return None
 

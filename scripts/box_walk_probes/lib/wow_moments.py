@@ -16,6 +16,7 @@ defect; it must report every mutant red.
 Python 3.9 compatible (the box's /usr/bin/python3); tomllib used when present.
 """
 import base64
+import glob
 import json
 import os
 import re
@@ -32,6 +33,7 @@ HUB = os.environ.get("OSTLER_HUB_HOST", "http://127.0.0.1:8090").rstrip("/")
 GATEWAY = os.environ.get("OSTLER_PROBE_GATEWAY", "http://127.0.0.1:8000").rstrip("/")
 STORE = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query").replace("/query", "")
 GRADED_MAX = 3
+UNSAVED_WORDS = re.compile(r"not in your contacts", re.I)
 NONE_WORDS = re.compile(r"\b(nobody|no one|no-one|none|not waiting|no replies|nothing)\b", re.I)
 
 
@@ -84,6 +86,46 @@ def _store_update(sparql):
 
 def _withheld(level):
     return (level or "").strip().lower() in ("l3", "private")
+
+
+def grade_reply_debts(debts):
+    """Split reply-debt rows into (names to grade, unsaved count).
+
+    Only RESOLVED debts (resolved is not False) are graded by name. An unsaved
+    number prints in the brief as "someone not in your contacts" by design
+    (oa #3142), so grading it by name would fail a correct brief. Rows with no
+    resolved field (an older Hub) are graded, as before."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    resolved = [d for d in rows if d.get("resolved") is not False]
+    names = [d.get("person_name") for d in resolved
+             if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+    return names, len(rows) - len(resolved)
+
+
+_WINDOW_RE = re.compile(r"^UNSAVED_MAX_WAITING_HOURS\s*=\s*(\d+)(?:\s*\*\s*(\d+))?(?:\s*\*\s*(\d+))?\s*(?:#.*)?$", re.M)
+
+
+def unsaved_window_hours():
+    """The unsaved-number age-out window, READ from the shipped reply_debt.py
+    (UNSAVED_MAX_WAITING_HOURS), never hard-coded. None when no copy is
+    readable: the caller reports that, it does not substitute a number."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.environ.get("OSTLER_REPLY_DEBT_PY", ""),
+             os.path.join(here, "..", "..", "..", "vendor", "cm048_pipeline", "src", "reply_debt.py")]
+    for pat in ("services/*/src/reply_debt.py", "services/*/*/src/reply_debt.py", "services/*/reply_debt.py"):
+        cands += sorted(glob.glob(os.path.join(OSTLER, pat)))
+    for c in cands:
+        if not c:
+            continue
+        src = _read(c)
+        m = _WINDOW_RE.search(src or "")
+        if m:
+            n = 1
+            for g in m.groups():
+                if g:
+                    n *= int(g)
+            return n
+    return None
 
 
 def ws_chat(question, deadline_s=420):
@@ -222,8 +264,9 @@ def box_reply_debt():
     if out["degraded"] and out["reason"] == "imessage_not_connected":
         out["imessage_grant"] = imessage_grant_state()
     debts = [d for d in (body.get("debts") or []) if isinstance(d, dict)]
-    names = [d.get("person_name") for d in debts
-             if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+    names, unsaved = grade_reply_debts(debts)
+    out["unsaved"] = unsaved
+    out["unsaved_window_hours"] = unsaved_window_hours() if unsaved else None
     l3 = [d.get("person_name") for d in debts if d.get("person_name") and _withheld(d.get("privacy_level"))]
     out["count"] = len(debts)
     out["fields_ok"] = all("person_name" in d and "waiting_hours" in d for d in debts)
@@ -238,6 +281,9 @@ def box_reply_debt():
     out["named"] = [_named(text, n) for n in names]
     out["l3_named"] = sum(1 for n in l3 if _named(text, n))
     out["says_none"] = bool(NONE_WORDS.search(text)) if not debts else None
+    # Every debt an unsaved number: nobody is NAMED, and the correct answer says
+    # "someone not in your contacts" (oa #3142), not "nobody".
+    out["says_unsaved"] = bool(UNSAVED_WORDS.search(text)) if debts and not names else None
     out["answered"] = bool(text.strip())
     return out
 
@@ -275,9 +321,15 @@ def judge_reply_debt(c):
     check("chat called pwg_reply_debt (tools: %s)" % (",".join(c.get("tools") or []) or "none"),
           "pwg_reply_debt" in (c.get("tools") or []))
     named = c.get("named") or []
-    if c.get("count", 0) > 0:
+    if c.get("unsaved"):
+        lines.append("  note   %d unsaved number(s) not graded by name (the brief says 'someone not in your contacts'; age-out window %s h read from the shipped reply_debt.py)"
+                     % (c["unsaved"], c.get("unsaved_window_hours") if c.get("unsaved_window_hours") is not None else "UNREADABLE"))
+    if c.get("count", 0) - c.get("unsaved", 0) > 0:
         check("the answer names the %d people the Hub says are waiting (%d of %d)"
               % (c.get("graded", 0), sum(named), len(named)), bool(named) and all(named))
+    elif c.get("count", 0) > 0:
+        check("every waiting debt is an unsaved number: the answer says 'not in your contacts' rather than naming or denying",
+              bool(c.get("says_unsaved")))
     else:
         check("with nobody waiting, the answer says so rather than inventing someone",
               bool(c.get("says_none")))
@@ -416,8 +468,7 @@ def box_morning(wait_s=600):
             return out
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
-        reply_names = [d.get("person_name") for d in (rd or {}).get("debts") or []
-                       if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+        reply_names, _unsaved = grade_reply_debts((rd or {}).get("debts") or [])
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -565,6 +616,36 @@ def self_test():
     shp = brief_shape("Pat flies at 1:25pm; the venue pack was due on the 16th and is overdue.")
     print("  %s  brief_shape passes a clean brief" % ("ok   " if shp == {"iso_date_leak": False, "chat_echo": False} else "FAIL "))
     ok &= shp == {"iso_date_leak": False, "chat_echo": False}
+    # Grading split: 2 resolved + 1 unresolved grades exactly the 2 resolved.
+    names, uns = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
+                                    {"person_name": "John Doe", "resolved": True},
+                                    {"person_name": "Unknown number", "resolved": False}])
+    split_ok = names == ["Jane Doe", "John Doe"] and uns == 1
+    print("  %s  2 resolved + 1 unresolved: graded %d of 2, unsaved %d not graded" % ("ok   " if split_ok else "FAIL ", len(names), uns))
+    ok &= split_ok
+    cap = dict(rd_good, count=3, graded=len(names), named=[True] * len(names), unsaved=uns)
+    _, rc = judge_reply_debt(cap)
+    print("  %s  reply debt: 2 resolved named + 1 unsaved passes 2/2" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(cap, named=[True, False]))
+    print("  %s  reply debt mutant rejected: a resolved person dropped from the answer" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    # All debts unsaved: the right answer passes, the answer that omits the line fails.
+    all_unsaved = dict(rd_good, count=1, graded=0, named=[], unsaved=1, says_none=None, says_unsaved=True)
+    _, rc = judge_reply_debt(all_unsaved)
+    print("  %s  reply debt: all debts unsaved and the answer says 'not in your contacts' passes" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(all_unsaved, says_unsaved=False))
+    print("  %s  reply debt mutant rejected: all debts unsaved and the answer omits the line" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
+                                      {"person_name": "Unknown number", "resolved": False}])
+    mut_ok = "Unknown number" not in mut_names
+    print("  %s  an unresolved number is never graded by name" % ("ok   " if mut_ok else "FAIL "))
+    ok &= mut_ok
+    win = unsaved_window_hours()
+    print("  %s  the age-out window is read from the shipped reply_debt.py (%s h)" % ("ok   " if win else "FAIL ", win))
+    ok &= bool(win)
     for name, judge, good, muts in (("reply debt", judge_reply_debt, rd_good, rd_mut),
                                     ("morning brief", judge_morning, mb_good, mb_mut)):
         _, rc = judge(good)
