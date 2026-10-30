@@ -11,9 +11,37 @@
 #
 #     MUST NOT MERGE: different canonical keys, even if identical display name.
 #
+# THAT TEXT IS SUPERSEDED (Andy, 2026-10-30). The original RULE 2 wording
+# above, as ratified on 2026-06-09 and enforced since #659, no longer stands
+# alone. RULE 2 NOW READS:
+#
+#     MUST NOT MERGE: different canonical keys, even if identical display name,
+#     EXCEPT that two Contacts cards (different icloud_contact_uid) whose FULL
+#     NAMES ARE THE SAME and which share an email address, a validated mobile
+#     number or a LinkedIn URL ARE one person and MERGE. Generational suffixes
+#     are part of the name: "John Smith" and "John Smith Jr" (Sr, Jnr, II, III,
+#     IV, with or without a comma) are different names and do not merge. A key
+#     held by 3+ distinct names is never a merge key. A conflict on any other
+#     canonical key (linkedin_url, whatsapp_lid) is never overridden.
+#
+# Andy's decision, verbatim, 2026-10-30:
+#
+#     "Two people with SAME NAME and SAME EMAIL address clearly are te same
+#     person. Why would you NOT merge these??"
+#
+#     ""John Smith" and "John Smith Jr" should be treated as two different
+#     names, surely? ... This is a ridiculously small edge case that if someone
+#     with that exact same case had the merge happen they should surely expect
+#     it"
+#
+# The exception is implemented in vendor/cm041/identity_resolver/
+# exact_identifier.py (CM051 f1160daf, ratified by the decision above).
+#
 # So a Person node carrying two DIFFERENT icloud_contact_uid values is an
-# over-merge BY DEFINITION. No judgement, no name comparison, no fuzzy call --
-# two canonical keys on one node is the ruleset's own stated violation.
+# over-merge UNLESS that exception covers it. The probe does not take the
+# merge's word for it: see "ASK THE JOURNAL" below, where every journalled
+# override is re-checked in the graph. Two canonical keys on one node with no
+# such cover is the ruleset's own stated violation.
 #
 # MEASURED on the v1.0.38 fresh box, 2026-08-21, and it is not one bad node:
 #
@@ -350,21 +378,51 @@ else:
 # writers move the phone/email OFF the merged node. So a 2+ card node PASSES
 # only when, for EVERY extra card, the merge journal (CM051 #3217) holds an
 # exact-identifier override row for it that names the KEY KIND and a KEY HASH,
-# AND the two cards' display names are identical in the graph.
-#   FAIL       no journal row, a row with no key / a null hash, different names,
-#              or a name not on record
-#   CANNOT-RUN the journal exists and cannot be read, or the only rows carry
-#              hash=null with matched_keys_reason "journal_secret_unavailable"
-# The classifier reads the journal's own strategy and key kind; it never infers
-# a name match as a merge key. Hashes are HMACs keyed by this install's
-# service_token, so they are only ever checked for SHAPE (16 lowercase hex),
-# never compared with any stored or expected value. An ABSENT journal is no
-# rows (FAIL), not an unreadable one. Output is digests and kinds only.
+# AND THE GRAPH ITSELF CONFIRMS THE OVERRIDE (v1.0.121, below).
+#   FAIL       no journal row, a row with no key / a null hash, or a row whose
+#              graph re-check fails
+#   CANNOT-RUN the journal exists and cannot be read, the only rows carry
+#              hash=null with matched_keys_reason "journal_secret_unavailable",
+#              a merge snapshot cannot be read, or a phone key needs mobile
+#              validation and no interpreter with `phonenumbers` exists
+#
+# THE JOURNAL IS WRITTEN BY THE CODE UNDER TEST (Archie, 2026-10-30), so a
+# journalled reason alone never turns a FAIL into a PASS. For every row the
+# journal offers as an excuse, this probe re-checks, independently and IN THE
+# GRAPH, the three conditions of the RULE 2 exception (see the header):
+#   1. NAMES: the keep and discard nodes' displayName are the same full name
+#      (2+ tokens) after normalisation. The normalisation is: Unicode NFC,
+#      case-folded, whitespace runs collapsed. NOTHING ELSE: punctuation and
+#      generational suffixes are KEPT, so "John Smith" != "John Smith Jr" !=
+#      "John Smith, Jr" != "John Smith Jnr", and "J. Smith" != "John Smith".
+#   2. KEY: the two cards really share the claimed key kind. Which identifier
+#      nodes belonged to which card is read from the merge snapshot; the VALUES
+#      and the fact that both identifier nodes now sit on the survivor are read
+#      from the graph. A claimed kind with no shared value is a FAIL. A shared
+#      phone must validate as a MOBILE (phonenumbers); a fixed line, VoIP or
+#      unparseable number is not the key the exception names.
+#   3. GUARD: no shared key is held by 3+ distinct normalised names among the
+#      live Person nodes (a switchboard, family inbox or shared handset).
+# The journal hashes are HMACs keyed by this install's service_token and are
+# only ever checked for SHAPE (16 lowercase hex), never compared or printed.
+# An ABSENT journal is no rows (FAIL), not an unreadable one. A node whose rows
+# carry no reason at all is reported separately as "reason unrecorded" (still a
+# FAIL). Output is digests and kinds only, never a name or a value.
+#
+# A SPLIT PAIR (a recorded "different people" decision) is two Person nodes,
+# one card each, so it never reaches this check: the violation query only
+# selects ONE node holding 2+ cards.
 MERGE_JOURNAL="${OSTLER_MERGE_JOURNAL:-\$HOME/.ostler/import-pipeline/backups/merge_journal/merge_journal.jsonl}"
 read -r -d '' JOURNAL_PY <<'PYJOURNAL'
-import hashlib, json, os, re, sys
+import hashlib, json, os, re, sys, unicodedata
 OXI, CONF, JPATH = sys.argv[1:4]
 import urllib.request, urllib.error
+try:
+    import phonenumbers
+    PHONE_OK = True
+except Exception:
+    phonenumbers = None
+    PHONE_OK = False
 H = {}
 try:
     for line in open(CONF, encoding="utf-8"):
@@ -386,6 +444,48 @@ def fp(u):
     return hashlib.sha256(u.encode("utf-8")).hexdigest()[:10]
 HEX16 = re.compile(r"^[0-9a-f]{16}$")
 KINDS = ("email", "phone", "linkedin")
+# graph identifierType -> journal key kind
+GTYPE = {"email": "email", "phone": "phone", "linkedin_url": "linkedin"}
+GUARD_MIN_DISTINCT_NAMES = 3
+
+def name_norm(n):
+    # NFC, case-folded, whitespace collapsed. Punctuation and suffixes KEPT.
+    return " ".join(unicodedata.normalize("NFC", n or "").casefold().split())
+
+def value_norm(kind, v):
+    v = (v or "").strip()
+    if kind == "email":
+        return v.lower()
+    if kind == "phone":
+        return v.replace(" ", "")
+    if kind == "linkedin":
+        s = re.split(r"[?#]", v, 1)[0]
+        low = s.lower()
+        for pre in ("https://", "http://"):
+            if low.startswith(pre):
+                s, low = s[len(pre):], low[len(pre):]
+                break
+        if low.startswith("www."):
+            s = s[4:]
+        i = s.find("/")
+        s = (s[:i].lower() + s[i:]) if i >= 0 else s.lower()
+        return s.rstrip("/")
+    return v
+
+def phone_is_mobile(e164):
+    """True / False, or None when it cannot be judged (no phonenumbers)."""
+    if not PHONE_OK:
+        return None
+    if not e164.startswith("+"):
+        return False
+    try:
+        n = phonenumbers.parse(e164, None)
+    except Exception:
+        return False
+    if not phonenumbers.is_valid_number(n):
+        return False
+    return phonenumbers.number_type(n) in (phonenumbers.PhoneNumberType.MOBILE,
+                                           phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
 
 def row_state(r):
     # One merge row, judged on the journal's own fields only.
@@ -402,9 +502,54 @@ def row_state(r):
             return "nokey"
     return "keyed"
 
-def classify(nodes, merged_into, names, rows):
+def recheck(r, u, names, ids, holds, snaps, holders):
+    """Re-check one keyed override row in the GRAPH. ('ok'|'fail'|'cannot', why)."""
+    d, k = r.get("discard") or "", r.get("keep") or ""
+    dn, kn = name_norm(names.get(d)), name_norm(names.get(k))
+    if not dn or not kn:
+        return "fail", "name-not-on-record"
+    if dn != kn:
+        return "fail", "name-mismatch"
+    if len(kn.split()) < 2:
+        return "fail", "name-not-a-full-name"
+    snap = snaps.get(r.get("id"))
+    if snap is None:
+        return "fail", "snapshot-absent"
+    if snap == "unreadable":
+        return "cannot", "snapshot-unreadable"
+    on_u = holds.get(u, set())
+    def vals(side, kind):
+        return {ids[i][1] for i in snap[side] if i in on_u and i in ids and ids[i][0] == kind and ids[i][1]}
+    claimed = sorted({str(x.get("kind")) for x in r.get("matched_keys") or [] if isinstance(x, dict)})
+    usable, why = 0, []
+    for kind in claimed:
+        shared = vals("keep", kind) & vals("discard", kind)
+        if not shared:
+            return "fail", "key-not-shared-in-graph:" + kind
+        for v in sorted(shared):
+            if len(holders.get((kind, v), ())) >= GUARD_MIN_DISTINCT_NAMES:
+                why.append("guarded:" + kind)
+                continue
+            if kind == "phone":
+                m = phone_is_mobile(v)
+                if m is None:
+                    return "cannot", "phone-mobile-validation-unavailable"
+                if not m:
+                    why.append("phone-not-a-mobile")
+                    continue
+            usable += 1
+    if not usable:
+        return "fail", ",".join(sorted(set(why))) or "no-usable-shared-key"
+    return "ok", "rechecked:" + "+".join(claimed)
+
+def classify(nodes, merged_into, names, rows, ids=None, holds=None, snaps=None, holders=None):
     """nodes: {uri: uids}; merged_into: {uri: uri}; names: {uri: name};
-    rows: journal merge rows not undone. Returns [(uri, verdict, uids, detail)]."""
+    rows: journal merge rows not undone; ids: {identifier uri: (kind, value)};
+    holds: {person uri: {identifier uri}} (graph now); snaps: {merge id:
+    {"keep": set, "discard": set} | None | "unreadable"}; holders: {(kind,
+    value): {normalised names}} over live Persons.
+    Returns [(uri, verdict, uids, detail, unrecorded)]."""
+    ids, holds, snaps, holders = ids or {}, holds or {}, snaps or {}, holders or {}
     def final(u, seen=None):
         seen = seen or set()
         while u in merged_into and u not in seen:
@@ -419,20 +564,22 @@ def classify(nodes, merged_into, names, rows):
     for u, uids in sorted(nodes.items(), key=lambda x: (-x[1], x[0])):
         extra = uids - 1
         good, cannot, why = set(), set(), []
+        recorded = False
         for r in by.get(u, []):
             st = row_state(r)
             kinds = "+".join(sorted({str(k.get("kind")) for k in (r.get("matched_keys") or []) if isinstance(k, dict)})) or "none"
             tag = "%s/%s" % (r.get("strategy") or "?", kinds)
             d = r.get("discard") or ""
             if st == "keyed":
-                dn, kn = (names.get(d) or "").strip(), (names.get(u) or "").strip()
-                if not dn or not kn:
-                    why.append("name-not-on-record(" + tag + ")")
-                elif dn != kn:
-                    why.append("name-mismatch(" + tag + ")")
-                else:
-                    good.add(d); why.append("ok(" + tag + ")")
+                recorded = True
+                res, w = recheck(r, u, names, ids, holds, snaps, holders)
+                if res == "ok":
+                    good.add(d)
+                elif res == "cannot":
+                    cannot.add(d)
+                why.append("%s(%s)" % ("ok" if res == "ok" else w, tag))
             elif st == "secret_unavailable":
+                recorded = True
                 cannot.add(d); why.append("hash-null-secret-unavailable(" + tag + ")")
             else:
                 why.append(st + "(" + tag + ")")
@@ -442,52 +589,94 @@ def classify(nodes, merged_into, names, rows):
             v = "CANNOT"
         else:
             v = "FAIL"
-        out.append((u, v, uids, "%d of %d extra card(s) journalled with a key and identical names; rows: %s"
-                    % (len(good), extra, ",".join(why) or "none")))
+        out.append((u, v, uids, "%d of %d extra card(s) journalled AND re-checked in the graph (same full name, shared key, guard); rows: %s"
+                    % (len(good), extra, ",".join(why) or "none"), (v == "FAIL" and not recorded)))
     return out
 
-try:
-    rows_v = sparql("PREFIX p: <" + P + "> SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE { "
-                    "?person a p:Person ; p:hasIdentifier ?i . ?i p:identifierType \"icloud_contact_uid\" ; "
-                    "p:identifierValue ?v . } GROUP BY ?person HAVING (COUNT(DISTINCT ?v) > 1)")
-    nodes = {b["person"]["value"]: int(b["uids"]["value"]) for b in rows_v}
-    merged_into = {b["jfrom"]["value"]: b["jto"]["value"] for b in
-                   sparql("SELECT ?jfrom ?jto WHERE { ?jfrom <" + P + "mergedInto> ?jto }")}
-    names = {}
-    for b in sparql("SELECT ?jname_s ?jname WHERE { ?jname_s <" + P + "displayName> ?jname }"):
-        names.setdefault(b["jname_s"]["value"], b["jname"]["value"])
-except Exception as exc:
-    print("JERR the graph could not be read for the journal check: " + type(exc).__name__); sys.exit(0)
-
-rows = []
-if os.path.exists(JPATH):
+if __name__ == "__main__":
     try:
-        merges, undone = [], set()
-        for n, line in enumerate(open(JPATH, encoding="utf-8")):
-            line = line.strip()
-            if not line:
-                continue
-            r = json.loads(line)
-            if r.get("kind") == "merge":
-                merges.append(r)
-            elif r.get("kind") == "undo":
-                undone.add(r.get("merge_id"))
-        rows = [r for r in merges if r.get("id") not in undone]
+        rows_v = sparql("PREFIX p: <" + P + "> SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE { "
+                        "?person a p:Person ; p:hasIdentifier ?i . ?i p:identifierType \"icloud_contact_uid\" ; "
+                        "p:identifierValue ?v . } GROUP BY ?person HAVING (COUNT(DISTINCT ?v) > 1)")
+        nodes = {b["person"]["value"]: int(b["uids"]["value"]) for b in rows_v}
+        merged_into = {b["jfrom"]["value"]: b["jto"]["value"] for b in
+                       sparql("SELECT ?jfrom ?jto WHERE { ?jfrom <" + P + "mergedInto> ?jto }")}
+        names = {}
+        for b in sparql("SELECT ?jname_s ?jname WHERE { ?jname_s <" + P + "displayName> ?jname }"):
+            names.setdefault(b["jname_s"]["value"], b["jname"]["value"])
+        ids = {}
+        for b in sparql("SELECT ?jid ?jt ?jv WHERE { ?jid <" + P + "identifierType> ?jt ; <" + P + "identifierValue> ?jv . "
+                        "FILTER(?jt IN (\"email\", \"phone\", \"linkedin_url\")) }"):
+            kind = GTYPE.get(b["jt"]["value"])
+            if kind:
+                ids[b["jid"]["value"]] = (kind, value_norm(kind, b["jv"]["value"]))
+        holds = {}
+        for b in sparql("SELECT ?jh ?jhid WHERE { ?jh <" + P + "hasIdentifier> ?jhid }"):
+            holds.setdefault(b["jh"]["value"], set()).add(b["jhid"]["value"])
+        live = {b["jlive"]["value"] for b in sparql("SELECT ?jlive WHERE { ?jlive a <" + P + "Person> }")}
     except Exception as exc:
-        print("JERR the merge journal exists and could not be read: " + type(exc).__name__); sys.exit(0)
-    print("JSRC present %d merge row(s)" % len(rows))
-else:
-    print("JSRC absent 0 merge row(s)")
-res = classify(nodes, merged_into, names, rows)
-for u, v, uids, d in res:
-    print("JNODE %s %s %d %s" % (fp(u), v, uids, d))
-print("JSUM %d %d %d" % (sum(1 for x in res if x[1] == "PASS"), sum(1 for x in res if x[1] == "FAIL"),
-                         sum(1 for x in res if x[1] == "CANNOT")))
+        print("JERR the graph could not be read for the journal check: " + type(exc).__name__); sys.exit(0)
+    holders = {}
+    for pu in live:
+        nn = name_norm(names.get(pu))
+        for i in holds.get(pu, ()):
+            if i in ids and nn:
+                holders.setdefault(ids[i], set()).add(nn)
+
+    rows, snaps = [], {}
+    jdir = os.path.dirname(JPATH)
+    if os.path.exists(JPATH):
+        try:
+            merges, undone = [], set()
+            for n, line in enumerate(open(JPATH, encoding="utf-8")):
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                if r.get("kind") == "merge":
+                    merges.append(r)
+                elif r.get("kind") == "undo":
+                    undone.add(r.get("merge_id"))
+            rows = [r for r in merges if r.get("id") not in undone]
+        except Exception as exc:
+            print("JERR the merge journal exists and could not be read: " + type(exc).__name__); sys.exit(0)
+        print("JSRC present %d merge row(s)" % len(rows))
+    else:
+        print("JSRC absent 0 merge row(s)")
+    HID = P + "hasIdentifier"
+    for r in rows:
+        rel = str(r.get("snapshot") or "")
+        if not rel or rel.startswith("/") or ".." in rel.split("/"):
+            snaps[r.get("id")] = None
+            continue
+        sp = os.path.join(jdir, rel)
+        if not os.path.exists(sp):
+            snaps[r.get("id")] = None
+            continue
+        try:
+            s = json.load(open(sp, encoding="utf-8"))
+            side = {}
+            for nm, uri in (("keep", r.get("keep")), ("discard", r.get("discard"))):
+                subj = s["nodes"][uri]["subj"]
+                side[nm] = {o[1] for p, o in subj if p == HID and isinstance(o, list) and len(o) > 1}
+            snaps[r.get("id")] = side
+        except Exception:
+            snaps[r.get("id")] = "unreadable"
+    print("JPY phonenumbers=%s" % ("yes" if PHONE_OK else "no"))
+    res = classify(nodes, merged_into, names, rows, ids, holds, snaps, holders)
+    for u, v, uids, d, _unrec in res:
+        print("JNODE %s %s %d %s" % (fp(u), v, uids, d))
+    print("JSUM %d %d %d %d" % (sum(1 for x in res if x[1] == "PASS"), sum(1 for x in res if x[1] == "FAIL"),
+                                sum(1 for x in res if x[1] == "CANNOT"), sum(1 for x in res if x[4])))
 PYJOURNAL
 
+# The journal check needs `phonenumbers` to validate a phone key as a mobile.
+# The box's bare python3 does not carry it; the install's venv does (install.sh
+# pip-installs phonenumbers into OSTLER_VENV for the resolver). So prefer the
+# venv interpreter and fall back to python3, where a phone key is CANNOT-RUN.
 read_journal_verdict() {
     if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_JOURNAL_VERDICT:-JERR self-test-unset}"; return; fi
-    box_run "python3 - '${OXIGRAPH_URL}' '${STORE_CONF_PATH}' \"${MERGE_JOURNAL}\" <<'PYJOURNAL'
+    box_run "VP=\"\${OSTLER_DIR:-\$HOME/.ostler}/.venv/bin/python3\"; [ -x \"\$VP\" ] || VP=python3; \"\$VP\" - '${OXIGRAPH_URL}' '${STORE_CONF_PATH}' \"${MERGE_JOURNAL}\" <<'PYJOURNAL'
 ${JOURNAL_PY}
 PYJOURNAL"
 }
@@ -607,20 +796,22 @@ run_probe() {
         probe_note "per node, the journal's own strategy/key kind (worst first, at most ${JOIN_CAP}):"
         printf '%s\n' "$jv" | sed -n 's/^JNODE //p' | head -n "$JOIN_CAP" | while IFS= read -r _l; do probe_note "  node ${_l}"; done
         jsum="$(printf '%s\n' "$jv" | sed -n 's/^JSUM //p' | head -n1)"
-        set -- $jsum; jp="${1:-0}"; jf="${2:-0}"; jc="${3:-0}"
-        probe_note "journalled with a key and identical names: ${jp} of ${nodes}; failing: ${jf}; cannot verify: ${jc}"
+        set -- $jsum; jp="${1:-0}"; jf="${2:-0}"; jc="${3:-0}"; ju="${4:-0}"
+        probe_note "interpreter for the re-check: $(printf '%s\n' "$jv" | sed -n 's/^JPY //p' | head -n1)"
+        probe_note "allowed by the exact-identifier override (journalled AND re-checked in the graph): ${jp} of ${nodes}; violations: ${jf} (reason unrecorded: ${ju}; reason recorded but the graph re-check failed: $((jf - ju))); cannot verify: ${jc}"
         if [ "$jf" -gt 0 ]; then
-            probe_fail "${jf} Person node(s) each carry 2+ distinct icloud_contact_uid (of ${nodes} such nodes) with NO journalled exact-identifier merge (key kind + key hash) and identical names for every extra card. That is RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge -- violated in the live graph (#659)."
+            probe_fail "${jf} Person node(s) each carry 2+ distinct icloud_contact_uid (of ${nodes} such nodes) that the RULE 2 exception does not cover: ${ju} with no journalled override reason, $((jf - ju)) whose journalled reason the graph does not bear out (same full name with suffixes kept, a shared email / mobile / LinkedIn on both cards, fewer than 3 names on the key). RULE 2 of the ratified dedupe ruleset -- different canonical keys MUST NOT merge, except under the 2026-10-30 exact-identifier exception -- is violated in the live graph."
         fi
         if [ "$jc" -gt 0 ]; then
-            probe_cannot_run "${jc} of ${nodes} 2+ card node(s) rest on journal rows whose key hashes are null (journal_secret_unavailable), so the override cannot be verified; ${jp} verified"
+            probe_cannot_run "${jc} of ${nodes} 2+ card node(s) could not be re-checked (null key hashes from journal_secret_unavailable, an unreadable merge snapshot, or a phone key with no phonenumbers to validate it as a mobile); ${jp} verified"
         fi
-        probe_note "all ${nodes} 2+ card node(s) are journalled exact-identifier merges with a key hash and identical names; not RULE 2 violations"
+        probe_note "all ${nodes} 2+ card node(s) are journalled exact-identifier merges that the graph re-check bears out; not RULE 2 violations"
         # Every one of these nodes is a merge the resolver DID make and the
-        # journal excuses: the merge path was exercised, so they count as
-        # candidate pairs below even when no unmerged shared-key node is left.
+        # journal excuses AND the graph re-check bears out: the merge path was
+        # exercised, so they count as candidate pairs below even when no
+        # unmerged shared-key node is left.
         excused="$jp"
-        _jok="${nodes} 2+ card node(s) are journalled exact-identifier merges (key kind + hash, identical names); otherwise "
+        _jok="${nodes} 2+ card node(s) are exact-identifier merges, journalled and re-checked in the graph; otherwise "
     fi
 
     # NAME TIERS: a merge must not lose the human name (DMG #27).
