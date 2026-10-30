@@ -33,6 +33,722 @@
 
 pr_exemptions:
   # -------------------------------------------------------------------------
+  # v1.0.120 PR-AGE EXEMPTIONS, ORM 2026-10-29 on Archie's ruling (option a). 237 PRs, one row each,
+  # placed FIRST because verify_pr_age.sh takes the first matching row (28 of these refs also have older,
+  # expired rows further down, kept as written).
+  # -------------------------------------------------------------------------
+  - ref: "CM031-PWG-Companion#170"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#232"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#247"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#262"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#263"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#265"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#266"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#267"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#268"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#269"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#270"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#271"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#272"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#273"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#274"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#275"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#276"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#280"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#281"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#284"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#288"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#289"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#292"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#293"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#294"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#300"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#301"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#305"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#307"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#309"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#310"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#311"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#312"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#313"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#315"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#317"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#324"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#325"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#327"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#335"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM031-PWG-Companion#336"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#119"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#171"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#176"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#177"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#199"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#211"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#212"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#213"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#214"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#218"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#222"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#223"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#224"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#226"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#227"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#228"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#229"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#230"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#236"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM041-People-Graph#238"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#311"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#367"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#374"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#378"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#380"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#381"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#382"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#383"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#386"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#392"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#407"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM044-PWG-Personal-Wiki#408"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2659"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2674"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2741"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2753"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2756"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2757"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2758"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2779"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2781"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2939"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2956"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2957"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2958"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2959"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2962"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2963"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2973"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2980"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2988"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2989"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2990"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2993"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#2996"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3001"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3017"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3022"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3025"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3027"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3028"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3029"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3030"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3031"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3054"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3057"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3058"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3059"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3064"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3067"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3068"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3077"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3082"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3083"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3084"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3086"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3092"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3093"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3094"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3096"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3099"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3101"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3103"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3104"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3106"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3107"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3109"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3110"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3136"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3141"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3148"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3149"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3152"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3163"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3171"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3172"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3176"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM051-Home-Hub-Installer#3177"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM059-Ostler-Editor#24"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM059-Ostler-Editor#31"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM059-Ostler-Editor#37"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "CM059-Ostler-Editor#38"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1002"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1014"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1017"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1082"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1114"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1126"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1127"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1134"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1148"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1149"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1157"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1163"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1165"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1166"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1167"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1168"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1170"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1172"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1173"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1174"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1175"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1176"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1177"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1178"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1179"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1184"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1185"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1186"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1217"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1227"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1231"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1232"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1234"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1235"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1237"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1241"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1246"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1247"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1248"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1249"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1250"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1253"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1254"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1255"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1256"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#1257"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#353"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#846"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#868"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#913"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#914"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#926"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#927"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#953"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#954"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#955"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#957"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#962"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#963"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#970"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#971"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#972"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#976"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#985"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#994"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "HR015-Gaming-PC#996"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#351"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#368"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#433"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#464"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#465"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#467"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#473"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#477"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#482"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#485"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#496"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#504"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#550"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#558"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#576"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#581"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#589"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#590"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#600"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#603"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#604"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#613"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#619"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#621"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#628"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#629"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#637"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  - ref: "ostler-assistant#639"
+    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-10-31
+  # -------------------------------------------------------------------------
   # v1.0.108 PR-AGE EXEMPTIONS, added 2026-10-17 by Archie. Cut run
   # 39041651077 named 16 CM051 PRs open >48h. 15 are below, each with its own
   # reason; #1818's existing row is re-dated in place.
@@ -892,6 +1608,51 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  - ref: "CM051:archive/people-exact-identifier-merge"
+    reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:fix/brief-reads-local-stores"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, brief birthdays dedupe by person URI (7 lines in vendor/cm041/assistant_api/ical-server.py not on main; tip 1c7900c6, a commit of merged #2927). Pushed from local-only. Owner: CM051 brief; tracker row v1.0.121. The v1.0.119 walk's brief probe is the check: duplicate birthdays on the walk make this a v1.0.119 fix. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM031:fix/quick-note-copy-local-only"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS copy only ('Saved on this iPhone'), no DMG impact (tip 590d7468, 17 of 1191 lines not on main). Owner: CM031; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM031:fix/ios-transcribe-free-aggressively"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS OOM fix (sequential model load, distil-large-v3 on 8 GB), tied to open drafts CM031 #293 #294 #301; iOS ships separately, no DMG impact. Owner: CM031 capture; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM041:fix/people-correctness-v1.0.107-cm041"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, repair_phone_identifiers tool not on main (tip 6ea5b9cd; absent from CM041 main and the CM051 vendored cm041). Owner: CM041; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:feat/vendor-stated-preferences-r2"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue (tip 2cf6d8f7, 72 lines not on main). MEASURED not a blocker at 4fc61eb1: the shipped fact path (vendored stated.py) skips minor mentions (stated.py:532) and the node inherits L2 (stated.py:529,566); scratch test 7/7 green, mutants (minor skip removed; L2 forced to L1) red. Owner: CM051 smart-prefs; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:hotfix/v1.0.117-base"
+    reason: "release base, kept. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: the v1.0.117 tag plus CM051 #3173 squash 4f56f104, the base of a released artefact. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:fix/q32b-calendar-classify-118"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, paused Q32b calendar-classify work (tip d6dc44ba 'Q32b paused, what is done and what is left'; content test 561 of 610 added lines absent from main; no PR). On the remote. Owner: the Q32b calendar agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:fix/qr-scan-size"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, local-only in another agent's worktree ~/Developer/orm/CM051-qr (tip 9f4300ec, pairing QR scan size; 256 of 264 added lines absent from main; no PR). Worktree not touched, branch not pushed by ORM (owner pushes after a PII check, CM051 is public). Owner: the agent of that worktree; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:mr/3092"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED residue, local-only in another agent's worktree ~/Developer/cm051-mr-wt (tip 5759425a). #3092 content landed in the l10n squash 9be9e49d; 1457 of 67194 added lines still absent from main and #3092 is still OPEN. Worktree not touched, not pushed by ORM (public repo, reviewer-name history risk). Owner: the l10n agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:r3081-xfail"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 58500751 is a commit of merged PR #3081), held by another agent's worktree ~/Developer/wt-3081; tip recorded in ~/walkdriver/ORM_119_DELETED_BRANCH_TIPS.txt, removal left for session hygiene. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM051:shrink/3130"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 09acd85d is a commit of merged PR #3130), held by another agent's worktree ~/Developer/shrink_3130; tip recorded, removal left for session hygiene. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM044:feat/chats-with-ostler-label"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, WIP 'Chats with Ostler' AI-chats label (tip ea6272f0, 107 of 107 added lines absent from main, no PR, 'tests not yet run'). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM044:fix/v107-needs-you-now-shared-source"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue: PR #296 closed as superseded by #295, but its close note says the every-qualifying-birthday fix still has value on the SPARQL fallback path (50 of 80 added lines absent). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
+  - ref: "CM031:feat/ios-demo-mode"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, iOS demo-mode generator + dataset from the synthetic demo life, 'data only, not yet wired' (tip 859369e4, 3448 of 3448 lines absent, no PR). Not in the DMG either way (iOS). Owner: the CM031 demo-mode agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
+    until_cut: "v1.0.121"
   - ref: "CM051:#1437"
     reason: >-
       The decline arm must not claim "nothing was written to your Mac" when a
