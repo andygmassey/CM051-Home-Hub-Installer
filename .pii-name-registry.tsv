@@ -2489,3 +2489,6 @@ nonperson	care/helplines.tsv::602f780df1ee43b3	PRODUCT: line 23 of the crisis-li
 nonperson	care/helplines.tsv::d4f5125465011bab	PRODUCT: line 26 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
 nonperson	care/helplines.tsv::c063fb13a29a9b74	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
 nonperson	care/helplines.tsv::baae82d31cac5af2	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	cuts/v1.0.121/MUST_CONTAIN.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named, in the vendored v1.0.121 BOM row text
+nonperson	cuts/v1.0.121/MUST_CONTAIN.tsv::4f2a0e640e257db3	PRODUCT: the Ostler feature name smart preferences in its short form, in the vendored v1.0.121 BOM row text
+nonperson	cuts/v1.0.121/MUST_CONTAIN.tsv::53d87b9a668a9fbb	PRODUCT: the wiki page name reply debt, for replies the owner owes, in the vendored v1.0.121 BOM row text
