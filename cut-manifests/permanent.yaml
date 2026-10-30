@@ -494,6 +494,20 @@ entries:
       probe: "ostler_unlock_reachable_by_name"
 
   # ==========================================================================
+  - id: box-walk-care-rules-present-in-workspace-agents-md
+    title: the assistant workspace AGENTS.md carries the care rules with a rendered helpline sentence
+    incident: >-
+      install.sh renders care/AGENTS_CARE.md.tmpl into the assistant
+      workspace AGENTS.md, and the daemon reads that file. Nothing measured
+      the rendered result on a box, so a missing or half-rendered file would
+      have meant a customer in crisis got no helpline text. BLOCKING: care
+      rules are a 121 requirement. An unreadable file or a failed transport
+      is CANNOT-RUN, never PASS.
+    proof:
+      kind: box_walk_probe
+      probe: "care_rules_present_in_workspace_agents_md"
+
+  # ==========================================================================
   - id: box-walk-people-seed-and-retrieval
     title: a synthetic person must seed and be retrievable via people/context + people/search
     incident: >-

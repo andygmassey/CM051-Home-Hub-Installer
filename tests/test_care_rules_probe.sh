@@ -15,7 +15,7 @@ mkhome() { # $1 = name; prints the workspace dir
     local ws="$TMP/$1/.ostler/assistant-config/workspace"; mkdir -p "$ws"; echo "$ws"
 }
 # Pin the scope so the FAIL cases are FAIL whatever the shipped row says; the
-# shipped row (advisory) is asserted separately below.
+# shipped row (blocking) is asserted separately below.
 printf 'care_rules_present_in_workspace_agents_md\tblocking\tfixture\tfixture\n' > "$TMP/scope_blocking.tsv"
 export OSTLER_PROMOTE_SCOPE_FILE="$TMP/scope_blocking.tsv"
 GOOD_BODY='# Care rules
@@ -63,11 +63,23 @@ out="$(PATH="$TMP/bin:$PATH" OSTLER_BOX_HOST=box.invalid HOME="$TMP/present" bas
 [ "$rc" -eq 78 ] && printf '%s' "$out" | grep -q 'VERDICT: CANNOT-RUN' \
     && ok "ssh failure -> CANNOT-RUN (rc 78)" || bad "ssh failure gave rc $rc"
 
-# The shipped scope row downgrades a red to ADVISORY (exit 0) but never a CANNOT-RUN.
+# The shipped scope row is BLOCKING: a missing file is a FAIL (rc 1), never ADVISORY,
+# and CANNOT-RUN stays CANNOT-RUN (rc 78) under it, for unreadable and for ssh failure.
 OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/missing"
-[ "$VERDICT" = "ADVISORY" ] && [ "$RC" -eq 0 ] && ok "shipped scope row is advisory: a missing file reports ADVISORY" || bad "shipped scope: got ${VERDICT:-none}/$RC"
-OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/unreadable"
-[ "$VERDICT" = "CANNOT-RUN" ] && ok "advisory scope never turns CANNOT-RUN into anything else" || bad "advisory scope changed CANNOT-RUN to ${VERDICT:-none}"
+[ "$VERDICT" = "FAIL" ] && [ "$RC" -eq 1 ] && ok "shipped scope row is blocking: a missing file reports FAIL (rc 1)" || bad "shipped scope: got ${VERDICT:-none}/$RC"
+OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/noheading"
+[ "$VERDICT" = "FAIL" ] && [ "$RC" -eq 1 ] && ok "shipped scope row is blocking: a missing heading reports FAIL (rc 1)" || bad "shipped scope noheading: got ${VERDICT:-none}/$RC"
+OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/present"
+[ "$VERDICT" = "PASS" ] && [ "$RC" -eq 0 ] && ok "shipped scope row: a good file still PASSES" || bad "shipped scope present: got ${VERDICT:-none}/$RC"
+if [ ! -r "$TMP/unreadable/.ostler/assistant-config/workspace/AGENTS.md" ]; then
+    OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/unreadable"
+    [ "$VERDICT" = "CANNOT-RUN" ] && [ "$RC" -eq 78 ] && ok "blocking scope keeps unreadable as CANNOT-RUN (rc 78)" || bad "blocking scope changed unreadable to ${VERDICT:-none}/$RC"
+fi
+out="$(OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" PATH="$TMP/bin:$PATH" OSTLER_BOX_HOST=box.invalid HOME="$TMP/present" bash "$PROBE" 2>&1)"; rc=$?
+[ "$rc" -eq 78 ] && printf '%s' "$out" | grep -q 'VERDICT: CANNOT-RUN' \
+    && ok "blocking scope keeps ssh failure as CANNOT-RUN (rc 78)" || bad "blocking scope ssh failure gave rc $rc"
+grep -q '^care_rules_present_in_workspace_agents_md	blocking	' scripts/walk_promote_scope.tsv \
+    && ok "scope row text says blocking" || bad "scope row is not blocking"
 
 bash "$PROBE" --self-test >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && ok "--self-test returns FAIL (1), its negative control went red" || bad "--self-test returned $rc"

@@ -17,7 +17,7 @@
 #   FAIL        file missing, heading missing, or helpline sentence missing
 #   CANNOT-RUN  transport failed, or the file exists and cannot be read
 #
-# Advisory/blocking scope is set in scripts/walk_promote_scope.tsv (no row =
+# Scope is set in scripts/walk_promote_scope.tsv (shipped row: BLOCKING; no row =
 # blocking). The DMG capability row is owned elsewhere.
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
