@@ -1258,6 +1258,28 @@ targets:
           - $(SRCROOT)/../context-refresh/INSTALL_SNIPPET.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/context-refresh/INSTALL_SNIPPET.sh
+      - name: Bundle care rules (AGENTS.md template + offline helplines)
+        script: |
+          set -euo pipefail
+          # install.sh runs ${SCRIPT_DIR}/care/write_agents_md.sh to write the
+          # care rules and the customer's local helpline into the daemon
+          # workspace before the daemon starts. Source-of-truth: CM051 repo
+          # root /care/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../care"
+          if [ ! -f "${SRC}/write_agents_md.sh" ] || [ ! -f "${SRC}/AGENTS_CARE.md.tmpl" ] || [ ! -f "${SRC}/helplines.tsv" ]; then
+            echo "ERROR: care/ incomplete at ${SRC} (need write_agents_md.sh, AGENTS_CARE.md.tmpl, helplines.tsv)" >&2
+            exit 1
+          fi
+          echo "Bundling care rules from ${SRC} into Resources/care/"
+          mkdir -p "${DEST}/care"
+          cp -R "${SRC}/"* "${DEST}/care/"
+          /usr/bin/xattr -cr "${DEST}/care" || true
+          chmod 755 "${DEST}/care/write_agents_md.sh"
+        inputFiles:
+          - $(SRCROOT)/../care/write_agents_md.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/care/write_agents_md.sh
       - name: Bundle legal Python package (consent-string constants)
         script: |
           set -euo pipefail

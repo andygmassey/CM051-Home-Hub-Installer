@@ -83,6 +83,7 @@ jobs:
             test_bootstrap_prelude.sh \
             test_brew_install_fail_loud.sh \
             test_calendar_hydrate_venv.sh \
+            test_care_agents_md.sh \
             test_cm048_prompts_packaged.sh \
             test_cm048_settings_models_wired.sh \
             test_composite_cleanup.sh \

@@ -94,6 +94,7 @@ CM051_SOURCES=(
     "scripts"
     "assistant-agent"
     "wiki-recompile"
+    "care"
 )
 
 # Files / dirs sourced from HR015. Format: src_relpath
