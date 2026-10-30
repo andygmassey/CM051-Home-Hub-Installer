@@ -42,6 +42,7 @@ on:
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
       - 'tests/test_two_cards_probe_verdict_holes.py'
+      - 'tests/test_rule2_override_is_rechecked_in_the_graph.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -73,6 +74,7 @@ on:
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
       - 'tests/test_two_cards_probe_verdict_holes.py'
+      - 'tests/test_rule2_override_is_rechecked_in_the_graph.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -133,6 +135,20 @@ jobs:
             -r vendor/cm041/contact_syncer/requirements.txt \
             -r vendor/cm041/identity_resolver/requirements.txt
           out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py tests/test_install_repairs_merge_consistency_after_dedupe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+
+      # v1.0.121, RULE 2 exception (Andy 2026-10-30): the REAL BatchResolver
+      # writes the graph, journal and snapshots; the REAL probe re-checks every
+      # journalled override in the graph (same full name with suffixes kept,
+      # shared key, 3+ names guard). A skip (importorskip) is NOT a pass.
+      - name: RULE 2 override is re-checked in the graph, never taken on the journal's word
+        if: always()
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/rule2-venv"
+          "${RUNNER_TEMP}/rule2-venv/bin/python" -m pip install --quiet pytest rdflib qdrant-client \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          out="$("${RUNNER_TEMP}/rule2-venv/bin/python" -m pytest tests/test_rule2_override_is_rechecked_in_the_graph.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
 

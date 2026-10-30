@@ -10,6 +10,12 @@ THE DEFECT THESE GUARD, measured on the v1.0.38 fresh box, 2026-08-21:
 `icloud_contact_uid` is a canonical key -- exactly one macOS Contacts card, for
 ever. The ratified dedupe ruleset (Andy + TNM, 2026-06-09) RULE 2 says verbatim
 "MUST NOT MERGE: different canonical keys, even if identical display name."
+That wording is SUPERSEDED (Andy, 2026-10-30): two Contacts cards with the SAME
+full name that share an email, a validated mobile or a LinkedIn URL merge;
+generational suffixes keep names apart. The amended RULE 2 and Andy's words are
+in scripts/box_walk_probes/probes/no_person_holds_two_contact_cards.sh; the
+exception is exact_identifier.py and runs on the BatchResolver converge path,
+not on the IdentityResolver.resolve() path these tests drive.
 Until the fix these tests cover, RULE 2 had NO implementation in the resolver.
 Only the BW-1 display-name heuristic existed, and a name heuristic cannot
 express "these are provably two different Contacts cards".
