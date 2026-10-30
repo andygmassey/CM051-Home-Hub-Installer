@@ -19,6 +19,7 @@ on:
       - 'tests/test_hub_screens_timeline_kinds_compares_the_box.py'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_walk_probes_bypass_a_local_proxy.sh'
+      - 'tests/test_customer_read_assertion_count_is_one_integer.sh'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/doctor/agent/editor_feedback.py'
@@ -136,6 +137,9 @@ jobs:
       - name: Walk probes reach loopback through a dead HTTP_PROXY
         if: always()
         run: bash tests/test_walk_probes_bypass_a_local_proxy.sh
+      - name: The customer-read assertion count is one integer (two zeros is a malformed test)
+        if: always()
+        run: bash tests/test_customer_read_assertion_count_is_one_integer.sh
       - name: The customer-read probe's own self-test
         if: always()
         run: |
