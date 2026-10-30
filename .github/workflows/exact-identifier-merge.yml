@@ -65,4 +65,4 @@ jobs:
           printf '%s\n' "$out"
           if grep -q SKIPPED <<<"$out"; then echo "SKIPPED is not a pass" >&2; exit 1; fi
           n="$(grep -Eo '[0-9]+ passed' <<<"$out" | grep -Eo '[0-9]+')"
-          if [ "${n:-0}" -lt 4 ]; then echo "expected at least 4 passed, got ${n:-0}" >&2; exit 1; fi
+          if [ "${n:-0}" -lt 8 ]; then echo "expected at least 8 passed, got ${n:-0}" >&2; exit 1; fi

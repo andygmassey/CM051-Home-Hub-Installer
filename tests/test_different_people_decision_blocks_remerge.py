@@ -106,3 +106,70 @@ def test_control_ingest_without_a_decision_collapses_the_pair(store, monkeypatch
     _split_pair(store)
     _ingest(store, monkeypatch, tmp_path / "corr")
     assert len(_live(store)) == 1
+
+
+# -- 3. fail closed: a decisions file that exists but will not parse ----------
+
+CORRUPT = "decisions:\n- distinct: [cc33, dd44\n  : : not yaml\n"
+
+
+def _corrupt(corr):
+    corr.mkdir(parents=True, exist_ok=True)
+    (corr / "duplicates.yaml").write_text(CORRUPT, encoding="utf-8")
+
+
+def test_corrupt_decisions_file_refuses_the_converge_merge(tmp_path, caplog):
+    s = FakeStore()
+    s.person("cc33", "Jane Doe", phones=[MOBILE_A], uids=["uid-c"])
+    s.person("dd44", "Jane Doe", phones=[MOBILE_A], uids=["uid-d"])
+    _corrupt(tmp_path / "corr")
+    with caplog.at_level("WARNING"):
+        make(s, tmp_path).converge(backup_dir=str(tmp_path / "bk"))
+    assert len(s.live()) == 2, "an unreadable decisions file must not read as 'no decisions'"
+    assert sum("present but unreadable" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_corrupt_decisions_file_refuses_the_ingest_merge(store, monkeypatch, tmp_path):
+    _split_pair(store)
+    _corrupt(tmp_path / "corr")
+    _ingest(store, monkeypatch, tmp_path / "corr")
+    assert len(_live(store)) == 2
+
+
+# -- 4. cost: parsed once per file state, re-read when the file changes ------
+
+def test_strict_loader_is_cached_and_invalidates_on_mtime(tmp_path, monkeypatch):
+    import yaml
+    from identity_resolver import decisions as D
+    corr = tmp_path / "corr"
+    _distinct(corr, "aa11", "bb22")
+    calls = {"n": 0}
+    real = yaml.safe_load
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    monkeypatch.setattr(yaml, "safe_load", counting)
+
+    first = D.load_duplicate_decisions_strict(str(corr))
+    n_after_first = calls["n"]
+    for _ in range(50):
+        assert D.load_duplicate_decisions_strict(str(corr)) is first
+    assert calls["n"] == n_after_first, "a cache hit must not parse the file again"
+    assert frozenset(("aa11", "bb22")) in first["distinct_pairs"]
+
+    path = corr / "duplicates.yaml"
+    st = os.stat(path)
+    path.write_text("decisions:\n- distinct: [aa11, cc33]\n", encoding="utf-8")
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    second = D.load_duplicate_decisions_strict(str(corr))
+    assert calls["n"] > n_after_first, "a changed mtime must re-read the file"
+    assert frozenset(("aa11", "cc33")) in second["distinct_pairs"]
+    assert frozenset(("aa11", "bb22")) not in second["distinct_pairs"]
+
+
+def test_best_effort_loader_is_unchanged_for_apply_user_decisions(tmp_path):
+    from identity_resolver import decisions as D
+    _corrupt(tmp_path / "corr")
+    loaded = D.load_duplicate_decisions(str(tmp_path / "corr"))
+    assert loaded == {"merge_groups": [], "distinct_pairs": set()}

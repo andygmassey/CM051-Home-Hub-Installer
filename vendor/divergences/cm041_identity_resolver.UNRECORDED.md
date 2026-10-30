@@ -323,5 +323,22 @@ and `decisions.is_blocked`.
 - Pinned by `tests/test_different_people_decision_blocks_remerge.py`: each
   edit reverted fails exactly its own test (1 failed, 3 passed); controls
   without a decision merge on both paths.
+- `decisions.py`: NEW `load_duplicate_decisions_strict` and `blocks_merge`,
+  used by the two merge paths above instead of the best-effort loader.
+  STRICT: a duplicates.yaml that exists but will not parse (or whose top
+  level is not a mapping with a `decisions` list) refuses every merge this
+  round, with one warning line, instead of reading as "no decisions".
+  CACHED by (path, mtime_ns, size), one live entry, so ingest parses the file
+  once per change rather than once per matched identity. The best-effort
+  `load_duplicate_decisions` and `apply_user_decisions` are unchanged.
+  Measured, 100 ingests through the collapse path with a 2000-entry file:
+  origin/main 79 ms per ingest, uncached re-read 242 to 284 ms, cached
+  69 to 73 ms; with the pairs recorded distinct, cached 16 ms (no merge
+  write) against 177 to 182 ms uncached.
+- Writer, same file: the Doctor's duplicate_decision.py (POST
+  /api/v1/wiki/duplicates/decision, called by the CM044 duplicates page)
+  writes `${WIKI_CORRECTIONS_DIR:-~/.ostler/corrections}/duplicates.yaml`;
+  the com.ostler.doctor LaunchAgent sets no WIKI_CORRECTIONS_DIR (install.sh
+  at v1.0.120), so writer and both readers resolve the same path.
 - Retire when CM041 carries both checks and a re-vendor makes the files
   byte-identical.

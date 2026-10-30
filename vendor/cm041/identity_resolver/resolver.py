@@ -31,7 +31,7 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 logger = logging.getLogger(__name__)
 
 from . import forget_tombstone, retirement
-from .decisions import is_blocked, load_duplicate_decisions
+from .decisions import blocks_merge, load_duplicate_decisions_strict
 from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
@@ -279,15 +279,21 @@ class IdentityResolver:
                 # RULE 2 below only refuses pairs whose card uids DIFFER; a
                 # pair without differing uids reached merge_persons() with the
                 # decision unread and was silently re-joined at every sync.
-                # Same file and default the batch resolver reads.
-                decisions = load_duplicate_decisions(os.path.expanduser(
+                # Same file and default the batch resolver reads. STRICT and
+                # cached by (path, mtime): an unparseable file refuses the
+                # merge (fail closed), and the file is parsed once per change,
+                # not once per ingested identity.
+                decisions = load_duplicate_decisions_strict(os.path.expanduser(
                     os.environ.get("WIKI_CORRECTIONS_DIR", "~/.ostler/corrections")))
                 for discard_uri in uris[1:]:
-                    if is_blocked(keep_uri, discard_uri, decisions):
+                    if blocks_merge(keep_uri, discard_uri, decisions):
                         refused += 1
                         logger.info(
-                            "Not merging %s into %s: recorded as different people",
+                            "Not merging %s into %s: %s",
                             discard_uri, keep_uri,
+                            "the decisions file is unreadable"
+                            if decisions.get("unreadable")
+                            else "recorded as different people",
                         )
                         continue
                     # RULE 2 veto, applied per PAIR. Checked before every
