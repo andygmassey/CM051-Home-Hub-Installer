@@ -14,6 +14,10 @@ TMP="$(mktemp -d)"; trap 'chmod -R u+rwx "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 mkhome() { # $1 = name; prints the workspace dir
     local ws="$TMP/$1/.ostler/assistant-config/workspace"; mkdir -p "$ws"; echo "$ws"
 }
+# Pin the scope so the FAIL cases are FAIL whatever the shipped row says; the
+# shipped row (advisory) is asserted separately below.
+printf 'care_rules_present_in_workspace_agents_md\tblocking\tfixture\tfixture\n' > "$TMP/scope_blocking.tsv"
+export OSTLER_PROMOTE_SCOPE_FILE="$TMP/scope_blocking.tsv"
 GOOD_BODY='# Care rules
 
 ## 1. If the person might hurt themselves
@@ -58,6 +62,12 @@ mkdir -p "$TMP/bin"; printf '#!/bin/sh\nexit 255\n' > "$TMP/bin/ssh"; chmod +x "
 out="$(PATH="$TMP/bin:$PATH" OSTLER_BOX_HOST=box.invalid HOME="$TMP/present" bash "$PROBE" 2>&1)"; rc=$?
 [ "$rc" -eq 78 ] && printf '%s' "$out" | grep -q 'VERDICT: CANNOT-RUN' \
     && ok "ssh failure -> CANNOT-RUN (rc 78)" || bad "ssh failure gave rc $rc"
+
+# The shipped scope row downgrades a red to ADVISORY (exit 0) but never a CANNOT-RUN.
+OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/missing"
+[ "$VERDICT" = "ADVISORY" ] && [ "$RC" -eq 0 ] && ok "shipped scope row is advisory: a missing file reports ADVISORY" || bad "shipped scope: got ${VERDICT:-none}/$RC"
+OSTLER_PROMOTE_SCOPE_FILE="scripts/walk_promote_scope.tsv" run "$PROBE" "$TMP/unreadable"
+[ "$VERDICT" = "CANNOT-RUN" ] && ok "advisory scope never turns CANNOT-RUN into anything else" || bad "advisory scope changed CANNOT-RUN to ${VERDICT:-none}"
 
 bash "$PROBE" --self-test >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && ok "--self-test returns FAIL (1), its negative control went red" || bad "--self-test returned $rc"
