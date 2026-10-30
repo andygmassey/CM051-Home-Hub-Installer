@@ -12401,30 +12401,76 @@ _inflight_lock = threading.Lock()
 _inflight_count = 0
 _req_ctx = threading.local()
 
-# Dynamic route shapes -> template. Anything with an identifier in it must be
-# listed here, or the segment is masked by _route_template's fallback.
+# Dynamic route shapes -> template. Anything with an identifier in it MUST be
+# listed here: _route_template fails closed, so an unlisted dynamic route logs
+# as /api/v1/<resource>/{masked}, never with the identifier.
 _ROUTE_TEMPLATES = (
-    (re.compile(r"^/api/v1/people/[^/]+/(enrichment|forget)$"), r"/api/v1/people/{slug}/\1"),
+    (re.compile(r"^/api/v1/people/[^/]+/(enrichment|forget|minor|suppress-suggestions)$"),
+     r"/api/v1/people/{slug}/\1"),
+    (re.compile(r"^/api/v1/people/[^/]+/minor-suggestion/dismiss$"),
+     "/api/v1/people/{slug}/minor-suggestion/dismiss"),
     (re.compile(r"^/api/v1/person/[^/]+/timeline$"), "/api/v1/person/{slug}/timeline"),
     (re.compile(r"^/api/v1/topics/[^/]+/mentions$"), "/api/v1/topics/{topic}/mentions"),
     (re.compile(r"^/api/v1/conversation/[^/]+/speakers$"), "/api/v1/conversation/{id}/speakers"),
     (re.compile(r"^/api/v1/conversation/status/[^/]+$"), "/api/v1/conversation/status/{id}"),
     (re.compile(r"^/api/v1/memory/assert/pending/[^/]+$"), "/api/v1/memory/assert/pending/{id}"),
+    (re.compile(r"^/api/v1/memory/correct/[^/]+$"), "/api/v1/memory/correct/{id}"),
 )
-_LITERAL_SEGMENT_RE = re.compile(r"^[a-z_]{1,32}$")
+
+# Every STATIC route the Handler serves (no identifier in any of them). A path
+# is printed verbatim ONLY if the whole path is in this set. Adding a static
+# route to the Handler without listing it here only loses detail in the log
+# (it is masked); it can never leak.
+_STATIC_ROUTES = frozenset({
+    "/", "/health", "/email", "/calendar", "/calendar/today",
+    "/people", "/people/search", "/people/context", "/people/stale",
+    "/people/recent", "/people/birthdays",
+    "/api/v1/people", "/api/v1/people/search", "/api/v1/people/context",
+    "/api/v1/people/stale", "/api/v1/people/recent", "/api/v1/people/birthdays",
+    "/api/v1/calendar", "/api/v1/calendar/today",
+    "/api/v1/browsing/search", "/api/v1/email/recent", "/api/v1/minors",
+    "/api/v1/minors/suggestions", "/api/v1/suggestions", "/api/v1/meeting/upcoming",
+    "/api/v1/timeline", "/api/v1/health/day", "/api/v1/contacts/diff",
+    "/api/v1/coach/recent", "/api/v1/memory", "/api/v1/employer",
+    "/api/v1/hub/health", "/api/v1/hydration/status", "/api/v1/decisions",
+    "/api/v1/topics", "/api/v1/commitments", "/api/v1/reply-debt",
+    "/api/v1/recording/active", "/api/v1/preferences",
+    "/api/v1/preferences/derived", "/api/v1/conversation/process",
+    "/api/v1/conversation/upload-part", "/api/v1/conversation/retry-failed",
+    "/api/v1/speakers/identify", "/api/v1/speakers/correct",
+    "/api/v1/ingest/ios", "/api/v1/subscription/receipt",
+    "/api/safari/ingest", "/api/safari/save", "/api/v1/memory/assert",
+})
+_KNOWN_RESOURCES = frozenset(
+    (p.split("/")[3] if p.startswith("/api/v1/") and len(p.split("/")) > 3
+     else p.split("/")[1])
+    for p in _STATIC_ROUTES) - {""}
 
 
 def _route_template(path):
-    """Path -> route template with no identifier in it. The query string is
-    never passed in (callers hand over urlparse(...).path only)."""
+    """Path -> route template with no identifier in it, failing CLOSED.
+
+    1. a known dynamic shape -> its template;
+    2. the WHOLE path is a known static route -> printed as is;
+    3. anything else -> /api/v1/<first resource segment>/{masked} (or
+       /{masked} when even that segment is not a known resource).
+    No per-segment guessing: a single-word slug is indistinguishable from a
+    resource name, so nothing outside the two lists above is ever printed.
+    The query string is never passed in (callers hand over the path only)."""
     for rx, tpl in _ROUTE_TEMPLATES:
         m = rx.match(path)
         if m:
             return m.expand(tpl)
-    segs = [s for s in path.split("/") if s]
-    if len(segs) > 5:
-        return "/{deep}"
-    return "/" + "/".join(s if _LITERAL_SEGMENT_RE.match(s) or s == "v1" else "{id}" for s in segs)
+    if path in _STATIC_ROUTES:
+        return path
+    segs = [x for x in path.split("/") if x]
+    if segs[:2] == ["api", "v1"]:
+        res, prefix = (segs[2] if len(segs) > 2 else ""), "/api/v1/"
+    else:
+        res, prefix = (segs[0] if segs else ""), "/"
+    if res in _KNOWN_RESOURCES:
+        return prefix + res + "/{masked}"
+    return prefix + "{masked}"
 
 
 def _slow_request_threshold_s():

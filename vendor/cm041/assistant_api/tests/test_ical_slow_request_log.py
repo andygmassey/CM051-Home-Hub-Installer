@@ -85,6 +85,62 @@ _ROUTE = "/api/v1/people/search"
 _NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+_SLUG = "zzslugmarker"  # single-word lowercase: the shape a real slug can take
+
+# (path with a slug in it, expected template) for every routed dynamic shape.
+_DYNAMIC_EXPECTED = (
+    ("/api/v1/people/%s/enrichment", "/api/v1/people/{slug}/enrichment"),
+    ("/api/v1/people/%s/forget", "/api/v1/people/{slug}/forget"),
+    ("/api/v1/people/%s/minor", "/api/v1/people/{slug}/minor"),
+    ("/api/v1/people/%s/minor-suggestion/dismiss",
+     "/api/v1/people/{slug}/minor-suggestion/dismiss"),
+    ("/api/v1/people/%s/suppress-suggestions",
+     "/api/v1/people/{slug}/suppress-suggestions"),
+    ("/api/v1/person/%s/timeline", "/api/v1/person/{slug}/timeline"),
+    ("/api/v1/topics/%s/mentions", "/api/v1/topics/{topic}/mentions"),
+    ("/api/v1/conversation/%s/speakers", "/api/v1/conversation/{id}/speakers"),
+    ("/api/v1/conversation/status/%s", "/api/v1/conversation/status/{id}"),
+    ("/api/v1/memory/assert/pending/%s", "/api/v1/memory/assert/pending/{id}"),
+    ("/api/v1/memory/correct/%s", "/api/v1/memory/correct/{id}"),
+)
+
+
+def _template_problems(templates):
+    """Resolve each dynamic example through ``templates`` only."""
+    problems = []
+    for tpl_path, want in _DYNAMIC_EXPECTED:
+        path = tpl_path % _SLUG
+        got = None
+        for rx, tpl in templates:
+            m = rx.match(path)
+            if m:
+                got = m.expand(tpl)
+                break
+        if got != want:
+            problems.append((path, got, want))
+    return problems
+
+
+def _paths_from_source():
+    """Every path shape the Handler serves, read from ical-server.py itself:
+    each "/..." literal, each startswith prefix with a slug appended, and each
+    prefix x endswith suffix combination around a slug."""
+    src = SERVER_FILE.read_text(encoding="utf-8")
+    body = src[src.index("class Handler("):]
+    lits = set(re.findall(r'"(/(?:api/|health|email|calendar|people)[A-Za-z0-9_/\-]*)"', body))
+    starts = set(re.findall(r'startswith\("(/[^"]*)"\)', body))
+    ends = set(re.findall(r'endswith\("(/[^"]*)"\)', body))
+    paths = set(lits)
+    for p in lits | starts:
+        paths.add(p + _SLUG)
+        paths.add(p.rstrip("/") + "/" + _SLUG)
+        paths.add(p.rstrip("/") + "/" + _SLUG + "/x")
+    for p in starts:
+        for e in ends:
+            paths.add(p.rstrip("/") + "/" + _SLUG + e)
+    return sorted(paths)
+
+
 class _Resp:
     def __init__(self, payload):
         self._b = json.dumps(payload).encode()
@@ -214,8 +270,35 @@ class SlowRequestLog(unittest.TestCase):
                          "/api/v1/people/{slug}/enrichment")
         self.assertEqual(server._route_template("/api/v1/people/%s/forget" % slug),
                          "/api/v1/people/{slug}/forget")
-        self.assertNotIn(slug, server._route_template("/api/v1/unknown/%s" % slug))
         self.assertNotIn("42", server._route_template("/api/v1/thing/42"))
+
+    def test_every_slug_bearing_route_has_its_template(self):
+        self.assertEqual(_template_problems(server._ROUTE_TEMPLATES), [])
+
+    def test_no_route_the_handler_serves_can_log_a_single_word_slug(self):
+        """Enumerated FROM THE SOURCE, not from a list kept in this test."""
+        paths = _paths_from_source()
+        self.assertGreater(len(paths), 100, "enumeration looks broken: %d" % len(paths))
+        leaks = [p for p in paths if _SLUG in server._route_template(p)]
+        self.assertEqual(leaks, [])
+        # control: the enumeration does reach the minors routes
+        self.assertIn("/api/v1/people/%s/minor" % _SLUG, paths)
+        self.assertIn("/api/v1/people/%s/suppress-suggestions" % _SLUG, paths)
+        self.assertIn("/api/v1/people/%s/minor-suggestion/dismiss" % _SLUG, paths)
+
+    def test_mutant_dropping_one_template_is_caught(self):
+        for i, (rx, tpl) in enumerate(server._ROUTE_TEMPLATES):
+            mutated = server._ROUTE_TEMPLATES[:i] + server._ROUTE_TEMPLATES[i + 1:]
+            self.assertNotEqual(_template_problems(mutated), [],
+                                "dropping template %d (%s) went unnoticed" % (i, tpl))
+
+    def test_mutant_per_segment_fallback_is_caught(self):
+        """The pre-fix fallback printed any lowercase word. It must leak here."""
+        def old(path):
+            segs = [x for x in path.split("/") if x]
+            return "/" + "/".join(
+                x if re.match(r"^[a-z_]{1,32}$", x) or x == "v1" else "{id}" for x in segs)
+        self.assertIn(_SLUG, old("/api/v1/people/%s/minor" % _SLUG))
 
     def test_concurrent_requests_show_inflight_above_one(self):
         out = self._run(_fake_urlopen(qdrant_s=0.6),
