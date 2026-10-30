@@ -23,7 +23,14 @@
 #   4. a tick that cannot be stopped (both kills refused, simulated by
 #      substituting them in a sandbox copy) is REPORTED by pid, and the closing
 #      line does not claim "Ostler has been removed";
-#   5. MUTATION: with the call removed, case 1 goes RED.
+#   5. MUTATION: with the one-line call removed, case 1 goes RED;
+#   6. the stopper (uninstall/stop_orphan_ticks.sh, installed by install.sh as
+#      ~/.ostler/bin/ostler-stop-background) is on every carrier list: the
+#      stage-payload copy + completeness check, the GUI bundle phase (project.yml
+#      and the tracked pbxproj), the release.sh tarball sources, and the
+#      install.sh line that installs it; a stripped copy of each goes RED;
+#   7. a missing stopper is never reported as a clean removal.
+#   Controls also include a user's own mytick.sh in another directory.
 #
 # launchctl, security, docker, colima, sudo and friends are stubs first on
 # PATH; real launchd is NOT INSTRUMENTED here (the thin walk's half). Every
@@ -50,6 +57,8 @@ bad()    { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 cannot() { echo "CANNOT-RUN: $*" >&2; exit 2; }
 
 [[ -f "$INSTALL_SH" ]] || cannot "no install.sh at ${INSTALL_SH}"
+STOPPER="${UNINSTALL_TICK_TEST_STOPPER:-${REPO}/uninstall/stop_orphan_ticks.sh}"
+[[ -f "$STOPPER" ]] || cannot "no stopper script at ${STOPPER}"
 
 # ── 1. The tick scripts the installer lays down, from the source ───────────
 # Prints "<relative path under ~/.ostler>" per tick.
@@ -98,6 +107,8 @@ make_sandbox() {
     mkdir -p "$s" "${H}/Library/LaunchAgents" "${H}/.ostler/bin" "${F}/Applications" \
              "${F}/usr/local/bin" "${F}/etc" "${F}/opt/homebrew/bin" "${sb}/state"
     : > "${sb}/state/calls"
+    # What install.sh does: install the stopper as ~/.ostler/bin/ostler-stop-background.
+    install -m 755 "$STOPPER" "${H}/.ostler/bin/ostler-stop-background"
     for c in launchctl security docker colima limactl brew pmset osascript defaults killall open tailscale ollama; do
         printf '#!/bin/bash\necho "%s $*" >> "${SB}/state/calls"\nexit 0\n' "$c" > "${s}/${c}"
     done
@@ -147,6 +158,8 @@ populate() {
     [[ "$ppid" == 1 ]] || cannot "stub tick is not orphaned (PPID ${ppid}, wanted 1); the fixture does not model the defect"
     # Control A: same name, NOT under ~/.ostler.
     start_detached "${H}/not-ostler/bin/wiki-recompile-tick.sh" "${sb}/state/ctlA"
+    # Control C: a user's own script with a tick-ish name in another directory.
+    start_detached "${H}/projects/mytick.sh" "${sb}/state/ctlC"
     # Control B: an argument that merely starts with an Ostler tick path.
     ( nohup /usr/bin/python3 -c 'import os,sys,time
 open(sys.argv[2],"w").write(str(os.getpid())); time.sleep(300)' \
@@ -177,7 +190,8 @@ count_left() {
 controls_alive() {
     local sb="$1"
     alive "$(cat "${sb}/state/ctlA.pid")" && alive "$(cat "${sb}/state/ctlA.child")" \
-        && alive "$(cat "${sb}/state/ctlB.pid")"
+        && alive "$(cat "${sb}/state/ctlB.pid")" \
+        && alive "$(cat "${sb}/state/ctlC.pid")" && alive "$(cat "${sb}/state/ctlC.child")"
 }
 
 # ── Case 1: every tick stopped, controls untouched ─────────────────────────
@@ -200,7 +214,7 @@ fi
     && ok "1 clean run still closes with 'Done. Ostler has been removed.'" \
     || bad "1 the clean closing line is missing"
 if controls_alive "$SB"; then
-    ok "2 controls untouched: same-named tick outside ~/.ostler (and its child), and a '...tick.sh.orig' argument"
+    ok "2 controls untouched: same-named tick outside ~/.ostler, a user's own mytick.sh elsewhere (each with its child), and a '...tick.sh.orig' argument"
 else
     bad "2 a non-Ostler control process was killed"
 fi
@@ -222,13 +236,14 @@ fi
 
 # ── Case 4: an unkillable tick is reported, not claimed clean ──────────────
 echo "Case 4: both kills refused"
-if /usr/bin/grep -q 'kill -TERM \$_tick_pids' "${WORK}/body.sh"; then
-    sed -e 's/kill -TERM \$_tick_pids 2>\/dev\/null || true/true/' \
-        -e 's/kill -KILL \$_alive 2>\/dev\/null || true/true/' "${WORK}/body.sh" > "${WORK}/body.nokill.sh"
-    n_sub="$(diff "${WORK}/body.sh" "${WORK}/body.nokill.sh" | /usr/bin/grep -c '^<' || true)"
+if /usr/bin/grep -q 'kill -TERM \$pids' "$STOPPER"; then
+    sed -e 's/kill -TERM \$pids 2>\/dev\/null || true/true/' \
+        -e 's/kill -KILL \$live 2>\/dev\/null || true/true/' "$STOPPER" > "${WORK}/stopper.nokill.sh"
+    n_sub="$(diff "$STOPPER" "${WORK}/stopper.nokill.sh" | /usr/bin/grep -c '^<' || true)"
     [[ "$n_sub" == 2 ]] || cannot "the no-kill substitution changed ${n_sub} lines, wanted 2"
     SB4="$(make_sandbox)"; populate "$SB4"
-    run_uninstall "${WORK}/body.nokill.sh" "$SB4"
+    install -m 755 "${WORK}/stopper.nokill.sh" "${SB4}/home/.ostler/bin/ostler-stop-background"
+    run_uninstall "${WORK}/body.sh" "$SB4"
     first_pid="$(cat "${SB4}/state/tick1.pid")"
     if /usr/bin/grep -q 'could not be stopped' "${SB4}/out" && /usr/bin/grep -q "pid ${first_pid}:" "${SB4}/out" \
        && ! /usr/bin/grep -qx '  Done. Ostler has been removed.' "${SB4}/out" \
@@ -239,13 +254,15 @@ if /usr/bin/grep -q 'kill -TERM \$_tick_pids' "${WORK}/body.sh"; then
         tail -20 "${SB4}/out" | sed 's/^/        | /'
     fi
 else
-    bad "4 the uninstaller has no tick kill to refuse (no 'kill -TERM \$_tick_pids'); it does not stop ticks at all"
+    bad "4 the stopper has no tick kill to refuse (no 'kill -TERM \$pids'); it does not stop ticks at all"
 fi
 
-# ── Case 5: mutation, the call removed ─────────────────────────────────────
+# ── Case 5: mutation, the one-line call removed ────────────────────────────
 echo "Case 5: mutation"
-if /usr/bin/grep -qx '_u_stop_ostler_ticks' "${WORK}/body.sh"; then
-    /usr/bin/grep -vx '_u_stop_ostler_ticks' "${WORK}/body.sh" > "${WORK}/body.mut.sh"
+CALL='bash "${HOME}/.ostler/bin/ostler-stop-background"'
+if [[ "$(/usr/bin/grep -cF -- "$CALL" "${WORK}/body.sh")" == 1 ]]; then
+    sed "s#${CALL}#true#" "${WORK}/body.sh" > "${WORK}/body.mut.sh"
+    [[ "$(diff "${WORK}/body.sh" "${WORK}/body.mut.sh" | /usr/bin/grep -c '^<')" == 1 ]] || cannot "mutation changed other than the one call line"
     SB5="$(make_sandbox)"; populate "$SB5"
     run_uninstall "${WORK}/body.mut.sh" "$SB5"
     read -r t5 c5 <<< "$(count_left "$SB5")"
@@ -255,7 +272,47 @@ if /usr/bin/grep -qx '_u_stop_ostler_ticks' "${WORK}/body.sh"; then
         bad "5 mutant with the call removed still stopped every tick; case 1 proves nothing"
     fi
 else
-    bad "5 no top-level '_u_stop_ostler_ticks' call in the uninstaller"
+    bad "5 the uninstaller does not contain exactly one call to ostler-stop-background"
+fi
+
+# ── Case 6: the stopper is on every carrier list ───────────────────────────
+echo "Case 6: payload / bundle / tarball lists"
+carriers() {   # <makefile> <project.yml> <release.sh> <install.sh> <pbxproj>; echoes misses
+    local mk="$1" py="$2" rl="$3" ins="$4" px="$5"
+    /usr/bin/grep -q 'cp -R "\$\$UNINSTALL_SRC" "\$\$PAYLOAD/services/uninstall"' "$mk" || echo "Makefile payload copy"
+    /usr/bin/grep -q '\[ -f "\$\$UNINSTALL_SRC/stop_orphan_ticks.sh" \]' "$mk" || echo "Makefile MISSING check"
+    /usr/bin/grep -q 'services/uninstall/stop_orphan_ticks.sh; do' "$mk" || echo "Makefile completeness list"
+    /usr/bin/grep -q '/uninstall/stop_orphan_ticks.sh$' "$py" || echo "project.yml bundle phase"
+    /usr/bin/grep -qE '^    "uninstall"$' "$rl" || echo "release.sh tarball sources"
+    /usr/bin/grep -q 'SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh.*ostler-stop-background' "$ins" || echo "install.sh install line"
+    /usr/bin/grep -q 'uninstall/stop_orphan_ticks.sh' "$px" || echo "pbxproj"
+}
+PBX="${REPO}/gui/OstlerInstaller.xcodeproj/project.pbxproj"
+miss="$(carriers "${REPO}/gui/Makefile" "${REPO}/gui/project.yml" "${REPO}/release.sh" "$INSTALL_SH" "$PBX")"
+if [[ -z "$miss" ]]; then ok "6 present on all 7 carrier lists"; else bad "6 missing from: $(echo "$miss" | tr '\n' ';')"; fi
+for f in gui/Makefile gui/project.yml release.sh gui/OstlerInstaller.xcodeproj/project.pbxproj; do
+    strip="${WORK}/strip.$(basename "$f")"
+    /usr/bin/grep -v -e 'UNINSTALL_SRC' -e 'stop_orphan_ticks' -e '^    "uninstall"$' "${REPO}/${f}" > "$strip" || true
+    case "$f" in
+        gui/Makefile)  m="$(carriers "$strip" "${REPO}/gui/project.yml" "${REPO}/release.sh" "$INSTALL_SH" "$PBX")" ;;
+        gui/project.yml) m="$(carriers "${REPO}/gui/Makefile" "$strip" "${REPO}/release.sh" "$INSTALL_SH" "$PBX")" ;;
+        release.sh)    m="$(carriers "${REPO}/gui/Makefile" "${REPO}/gui/project.yml" "$strip" "$INSTALL_SH" "$PBX")" ;;
+        *)             m="$(carriers "${REPO}/gui/Makefile" "${REPO}/gui/project.yml" "${REPO}/release.sh" "$INSTALL_SH" "$strip")" ;;
+    esac
+    [[ -n "$m" ]] && ok "6 mutant ${f} stripped goes RED (${m%%$'\n'*})" || bad "6 stripping ${f} was not detected"
+done
+grep -v 'stop_orphan_ticks' "$INSTALL_SH" > "${WORK}/install.strip.sh" || true
+[[ -n "$(carriers "${REPO}/gui/Makefile" "${REPO}/gui/project.yml" "${REPO}/release.sh" "${WORK}/install.strip.sh" "$PBX")" ]] \
+    && ok "6 mutant install.sh without the install line goes RED" || bad "6 stripping the install.sh line was not detected"
+
+# ── Case 7: a missing stopper is not a clean removal ───────────────────────
+echo "Case 7: stopper absent"
+SB7="$(make_sandbox)"; rm -f "${SB7}/home/.ostler/bin/ostler-stop-background"
+run_uninstall "${WORK}/body.sh" "$SB7"
+if /usr/bin/grep -q 'APART FROM the running tasks' "${SB7}/out" && ! /usr/bin/grep -qx '  Done. Ostler has been removed.' "${SB7}/out"; then
+    ok "7 no stopper installed: the closing line does not claim a clean removal"
+else
+    bad "7 the stopper was missing and the uninstaller still closed clean"
 fi
 
 echo ""

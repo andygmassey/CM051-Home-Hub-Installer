@@ -676,6 +676,7 @@
 				E008D97F120BE0719AE4315E /* Bundle assistant-agent LaunchAgent snippet + plists into Resources */,
 				F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */,
 				2CDDFF80388B996EC772CBB7 /* Bundle context-refresh (#608 personal-context digest LaunchAgent) */,
+				BFB98132799C02DF9416EA41 /* Bundle uninstaller helpers (stop orphaned background ticks) */,
 				76832E6CF8371198DB115450 /* Bundle legal Python package (consent-string constants) */,
 				2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */,
 				BE798CA5C879050E43B4A9DA /* Bundle scripts/deferred-register-device.sh into Resources/scripts */,
@@ -1214,6 +1215,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# install.sh:4963 probes ${SCRIPT_DIR}/scripts/deferred-register-device.sh\n# to install the LaunchAgent that retries device registration\n# against appcast.ostler.ai when the install-time POST fails\n# (Wi-Fi blip, Worker briefly down). Without this bundle,\n# the LaunchAgent loads but exits immediately on missing-file.\n# Belt-and-braces fallback; primary registration is during\n# install via the GUI's task #340 path.\n#\n# Source-of-truth: CM051 repo /scripts/deferred-register-device.sh.\n# See CM051_INSTALLER_DEEP_DIVE_FINDINGS_2026-05-22.md F9.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../scripts/deferred-register-device.sh\"\nif [ ! -f \"${SRC}\" ]; then\n  echo \"ERROR: scripts/deferred-register-device.sh not found at ${SRC}\" >&2\n  exit 1\nfi\necho \"Bundling scripts/deferred-register-device.sh into Resources/scripts/\"\nmkdir -p \"${DEST}/scripts\"\ncp \"${SRC}\" \"${DEST}/scripts/deferred-register-device.sh\"\nchmod 755 \"${DEST}/scripts/deferred-register-device.sh\"\n#\n# #1539: THE NAMESPACE MIGRATOR IS CALLED AND WAS NEVER BUNDLED.\n#\n# install.sh:24910 builds the path itself:\n#     _ns_migrate_script=\"${OSTLER_DIR:-$PWD}/scripts/migrate_graph_namespace.py\"\n# and install.sh:24942 warns \"Namespace migrator not found ...; skipping\".\n# This phase copied exactly ONE file into scripts/, so that warning has\n# fired on every install ever made. MEASURED on archie2, 2026-09-05, on a\n# run that ended DONE status=ok failed_steps=0 errors=0:\n#\n#   WARN step=tailscale_connect\n#        msg=Namespace migrator not found at\n#            ~/.ostler/scripts/migrate_graph_namespace.py; skipping\n#\n#   find /Applications/OstlerInstaller.app -name migrate_graph_namespace.py  -> 0\n#     control, same command, -name install.sh                                -> 2\n#\n# The file's own history is the reason to be careful here: install.sh:24873\n# records that it \"existed and NOTHING CALLED IT\". Adding the caller without\n# adding this line MOVED the defect rather than closing it -- before, it\n# shipped and nothing ran it; after, something ran it and it did not ship.\n# Both leave every customer in the pre-migration namespace, and the second\n# is quieter because the install warns and stays green.\n#\n# Not chmod 755: install.sh runs it through the Python it resolved, never\n# as an executable.\nSRC_NS=\"${SRCROOT}/../scripts/migrate_graph_namespace.py\"\nif [ ! -f \"${SRC_NS}\" ]; then\n  echo \"ERROR: scripts/migrate_graph_namespace.py not found at ${SRC_NS}\" >&2\n  exit 1\nfi\necho \"Bundling scripts/migrate_graph_namespace.py into Resources/scripts/\"\ncp \"${SRC_NS}\" \"${DEST}/scripts/migrate_graph_namespace.py\"\nchmod 644 \"${DEST}/scripts/migrate_graph_namespace.py\"\n#\n# Walk #6 candidate #10: the Netflix thumbs-value polarity repair.\n# install.sh's one-time upgrade step (immediately after the WhatsApp\n# LID-as-phone repair) probes\n# ${SCRIPT_DIR}/scripts/repair_netflix_rating_polarity.py directly --\n# same class of gap as the namespace migrator above (a script the\n# installer calls, that this phase never bundled). Archie's review\n# of the PR that wired the install.sh step caught it before it\n# shipped: cold-box-truth (check_install_sh_script_dir_coverage.py)\n# failed with no postBuildScript and no EXCEPTIONS entry for this\n# path. Bundling it here, the same way migrate_graph_namespace.py\n# was added above, is the fix -- not an EXCEPTIONS entry, which\n# would describe an absence as a decision rather than close it.\n#\n# Not chmod 755, same reasoning as migrate_graph_namespace.py:\n# install.sh resolves a python3 interpreter and runs this file as\n# its argument, it is never executed directly.\nSRC_NETFLIX=\"${SRCROOT}/../scripts/repair_netflix_rating_polarity.py\"\nif [ ! -f \"${SRC_NETFLIX}\" ]; then\n  echo \"ERROR: scripts/repair_netflix_rating_polarity.py not found at ${SRC_NETFLIX}\" >&2\n  exit 1\nfi\necho \"Bundling scripts/repair_netflix_rating_polarity.py into Resources/scripts/\"\ncp \"${SRC_NETFLIX}\" \"${DEST}/scripts/repair_netflix_rating_polarity.py\"\nchmod 644 \"${DEST}/scripts/repair_netflix_rating_polarity.py\"\n/usr/bin/xattr -cr \"${DEST}/scripts\" || true\n";
+		};
+		BFB98132799C02DF9416EA41 /* Bundle uninstaller helpers (stop orphaned background ticks) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../uninstall/stop_orphan_ticks.sh",
+			);
+			name = "Bundle uninstaller helpers (stop orphaned background ticks)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/uninstall/stop_orphan_ticks.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh copies ${SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh to\n# ~/.ostler/bin/ostler-stop-background; the generated ostler-uninstall\n# calls it to stop tick scripts that no launchctl bootout can reach.\n# Source-of-truth: CM051 repo root /uninstall/.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../uninstall\"\nif [ ! -f \"${SRC}/stop_orphan_ticks.sh\" ]; then\n  echo \"ERROR: uninstall/stop_orphan_ticks.sh not found at ${SRC}\" >&2\n  exit 1\nfi\necho \"Bundling uninstaller helpers from ${SRC} into Resources/uninstall/\"\nmkdir -p \"${DEST}/uninstall\"\ncp -R \"${SRC}/\"* \"${DEST}/uninstall/\"\n/usr/bin/xattr -cr \"${DEST}/uninstall\" || true\nchmod 755 \"${DEST}/uninstall/stop_orphan_ticks.sh\"\n";
 		};
 		C385DEDE2C9C61AC3FC0B48F /* Bundle hub_power scripts into Resources */ = {
 			isa = PBXShellScriptBuildPhase;

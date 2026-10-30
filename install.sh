@@ -28653,95 +28653,15 @@ if [ "${_u_left:-0}" -gt 0 ]; then
     ls "${HOME}/Library/LaunchAgents" 2>/dev/null \
         | grep -E '^com\.(ostler|creativemachines\.ostler)' | sed 's/^/      /'
 fi
-unset _label _plist _found _known _dupe _u_left
-unset _u_agent_labels
+unset _label _plist _found _known _dupe _u_left _u_agent_labels
 
-# ── Stop the Ostler tick scripts that outlived their agents ───────
-#
-# MEASURED on a v1.0.121 trial box: after this uninstaller and its bootouts,
-# an orphaned wiki-recompile-tick.sh (PPID 1) kept running and blocked the
-# next install's reset. install.sh starts that tick with `nohup ... &`, not
-# through launchd, so no bootout above can reach it.
-#
-# MATCHED NARROWLY, NEVER BY PATTERN. The candidates are the *tick*.sh FILES
-# under ~/.ostler, enumerated here rather than listed by hand, so a tick added
-# later is covered the day it ships. A process is stopped only when BOTH hold:
-#   (a) it runs as this user's uid, and
-#   (b) its command line carries one of those exact paths as a whole argument.
-# A same-named script anywhere else, or another user's process, is never
-# touched; there is no `pkill -f`. Children of a matched tick go with it (a
-# tick's python would otherwise be the next orphan). Our own pid and parent
-# are excluded by pid.
-#
-# THEN IT VERIFIES. Anything still running is named in the output and the
-# closing line says so, rather than "Ostler has been removed".
-# Fail-safe: every branch returns 0, like _u_quit_bundle_processes below.
-_U_TICK_SURVIVORS=""
-# Alive = signalable AND not a zombie (a zombie is dead, awaiting its reaper).
-_u_tick_alive() {
-    kill -0 "$1" 2>/dev/null || return 1
-    case "$(ps -o stat= -p "$1" 2>/dev/null || true)" in Z*) return 1 ;; esac
-    return 0
-}
-_u_stop_ostler_ticks() {
-    local _root="${HOME}/.ostler" _uid _ticks _ps _line _pid _puid _pppid _args _t
-    local _tick_pids=" " _grew=1 _waited=0 _alive _n
-    [[ -d "$_root" ]] || return 0
-    _uid="$(id -u)"
-    _ticks="$(find "$_root" -type f -name '*tick*.sh' 2>/dev/null || true)"
-    [[ -n "$_ticks" ]] || return 0
-    _ps="$(ps -axww -o pid= -o uid= -o args= 2>/dev/null || true)"
-    while IFS= read -r _line; do
-        read -r _pid _puid _args <<< "$_line" || true
-        [[ -n "$_pid" && "$_puid" == "$_uid" ]] || continue
-        [[ "$_pid" != "$$" && "$_pid" != "${PPID:-0}" ]] || continue
-        while IFS= read -r _t; do
-            case " ${_args} " in *" ${_t} "*) _tick_pids="${_tick_pids}${_pid} "; break ;; esac
-        done <<< "$_ticks"
-    done <<< "$_ps"
-    [[ "$_tick_pids" != " " ]] || return 0
-    # Children (same uid), to any depth.
-    while [[ "$_grew" -eq 1 ]]; do
-        _grew=0
-        while read -r _pid _pppid _puid; do
-            [[ -n "$_pid" && "$_puid" == "$_uid" ]] || continue
-            case "$_tick_pids" in *" ${_pppid} "*) ;; *) continue ;; esac
-            case "$_tick_pids" in *" ${_pid} "*) continue ;; esac
-            [[ "$_pid" != "$$" ]] || continue
-            _tick_pids="${_tick_pids}${_pid} "; _grew=1
-        done <<< "$(ps -axo pid= -o ppid= -o uid= 2>/dev/null || true)"
-    done
-    _n="$(echo $_tick_pids | wc -w | tr -d ' ')"
-    echo "  Stopping ${_n} Ostler background task(s) still running after their agents were unloaded..."
-    kill -TERM $_tick_pids 2>/dev/null || true
-    while [[ "$_waited" -lt 20 ]]; do
-        _alive=""
-        for _pid in $_tick_pids; do _u_tick_alive "$_pid" && _alive="${_alive} ${_pid}"; done
-        [[ -n "$_alive" ]] || return 0
-        sleep 0.25; _waited=$((_waited + 1))
-    done
-    kill -KILL $_alive 2>/dev/null || true
-    sleep 0.25
-    for _pid in $_alive; do
-        _u_tick_alive "$_pid" || continue
-        _U_TICK_SURVIVORS="${_U_TICK_SURVIVORS}      pid ${_pid}: $(ps -ww -o args= -p "$_pid" 2>/dev/null || true)
-"
-    done
-    if [[ -n "$_U_TICK_SURVIVORS" ]]; then
-        echo "  (warning: these Ostler background tasks could not be stopped:)"
-        printf '%s' "$_U_TICK_SURVIVORS"
-    fi
-    return 0
-}
-_u_stop_ostler_ticks
+_u_tick_rc=0; bash "${HOME}/.ostler/bin/ostler-stop-background" || _u_tick_rc=$?  # nohup'd ticks: uninstall/stop_orphan_ticks.sh
 
 # Ostler's pinned Ollama engine (OLLAMA_PIN_DIR in install.sh) lives under
-# ~/.ostler/runtime. Sequenced after the loop so com.ostler.ollama is already
-# unloaded and nothing is holding the binary open.
+# ~/.ostler/runtime, sequenced after the loop (com.ostler.ollama already unloaded).
 #
 # The Ollama.app cask is NO LONGER removed (2026-10-18): Ostler stopped
-# installing it, so an Ollama.app on this Mac is the customer's own, or a
-# leftover from a cask-era Ostler that we cannot tell apart from theirs.
+# installing it, so an Ollama.app here is the customer's own or a cask-era leftover.
 # Deleting a customer's app on uninstall is worse than leaving ours.
 rm -rf "${HOME}/.ostler/runtime"/ollama-* 2>/dev/null || true
 
@@ -29278,18 +29198,8 @@ fi
 
 echo ""
 _u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
-if [[ -n "${_U_TICK_SURVIVORS:-}" ]]; then
-    echo "  WARNING: SOME OSTLER BACKGROUND TASKS ARE STILL RUNNING:"
-    printf '%s' "$_U_TICK_SURVIVORS"
-    echo "    They could not be stopped. Restart this Mac to end them."
-    echo ""
-fi
 if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
-    if [[ -z "${_U_TICK_SURVIVORS:-}" ]]; then
-        echo "  Done. Ostler has been removed."
-    else
-        echo "  Done. Ostler has been removed APART FROM the running tasks named above."
-    fi
+    echo "  Done. Ostler has been removed$([[ "$_u_tick_rc" -eq 0 ]] || echo " APART FROM the running tasks named above")."
 else
     echo "  WARNING: YOUR DATA STORES WERE NOT REMOVED."
     echo "    ${OSTLER_STORES_WHY}"
@@ -29311,6 +29221,7 @@ echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-uninstall"
+install -m 755 "${SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh" "${OSTLER_DIR}/bin/ostler-stop-background" || warn "Could not install the uninstaller's background-task stopper; ostler-uninstall will report it"
 
 ok "$MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL"
 
