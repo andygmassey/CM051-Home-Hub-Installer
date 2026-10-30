@@ -62,14 +62,29 @@ for iso in $(awk -F'\t' '$1 !~ /^#/ && $1 != "" && $1 != "ZZ" && $7 == "CONFIRME
     em="$(row_col "$iso" 4)"; g="${TMP}/w_${iso}/AGENTS.md"
     case "$em" in
         *'*') em_star=$((em_star+1)); grep -qF -- "${em%\*}" "$g" && { bad "${iso}: unsourced (*) emergency line shipped"; em_bad=1; } ;;
-        *) if [[ -n "$(row_col "$iso" 9)" && -n "$(row_col "$iso" 10)" ]]; then
-               em_sourced=$((em_sourced+1)); grep -qF -- "${em}." "$g" || { bad "${iso}: sourced emergency line missing"; em_bad=1; }
-           fi ;;
+        *) em_sourced=$((em_sourced+1))
+           if [[ "$(row_col "$iso" 9)" != https://* || -z "$(row_col "$iso" 10)" ]]; then
+               bad "${iso}: shipped emergency number '${em}' has no official source URL and date"; em_bad=1
+           fi
+           grep -qF -- "${em}." "$g" || { bad "${iso}: sourced emergency line missing"; em_bad=1; } ;;
     esac
 done
+# every row, shipped or not: an unstarred emergency number must carry source URL + date
+src_bad=0
+while IFS=$'\t' read -r iso em src dt; do
+    case "$em" in *'*') continue ;; esac
+    if [[ "$src" != https://* || -z "$dt" ]]; then bad "${iso}: unstarred emergency number '${em}' has empty/non-URL source or date"; src_bad=1; fi
+done < <(awk -F'\t' '$1 !~ /^#/ && $1 != "" && $1 != "ZZ" { print $1 "\t" $4 "\t" $9 "\t" $10 }' "${CARE}/helplines.tsv")
+[[ $src_bad -eq 0 ]] && ok "no emergency number without an official source URL and date (all rows)"
 [[ $em_bad -eq 0 && $em_sourced -ge 5 && $em_star -ge 1 ]] && ok "emergency lines: ${em_sourced} sourced rows ship, ${em_star} unsourced (*) rows do not" || bad "emergency lines wrong (sourced ${em_sourced}, star ${em_star})"
 for iso in AU CH BE KR; do
     { [[ "$(row_col $iso 7)" == "CONFIRMED" ]] && [[ -n "$(row_col $iso 8)" ]]; } && ok "${iso}: flag is exactly CONFIRMED, caveat in note column" || bad "${iso}: flag/note wrong"
+done
+[[ "$(row_col SA 7)" == "CONFIRMED" && -n "$(row_col SA 8)" ]] && ok "SA: flag exactly CONFIRMED, hours in note column" || bad "SA: flag/note wrong"
+bash "$WRITER" "$CARE" SA "${TMP}/sa" >/dev/null 2>&1
+{ grep -qF -- "$(row_col SA 2)" "${TMP}/sa/AGENTS.md" && ! grep -qF -- "911" "${TMP}/sa/AGENTS.md"; } && ok "SA: helpline ships, unsourced 911 does not" || bad "SA: helpline missing or unsourced number shipped"
+for iso in AU; do
+    [[ "$(row_col $iso 4)" == *'*' ]] && ok "${iso}: unsourced emergency number is starred" || bad "${iso}: unsourced number not starred"
 done
 for iso in MX PT CN AE EG; do
     [[ "$(row_col $iso 7)" != "CONFIRMED" ]] && ok "${iso}: stays generic (flag $(row_col $iso 7))" || bad "${iso}: unexpectedly CONFIRMED"
@@ -77,7 +92,7 @@ done
 
 echo "== writer: unknown / unconfirmed regions fall back to the number-free line =="
 zz="$(row_col ZZ 2)"
-for r in ZZ XX "" SA MX PT CN AE EG 99; do
+for r in ZZ XX "" MX PT CN AE EG 99; do
     bash "$WRITER" "$CARE" "$r" "${TMP}/fb_${r:-empty}" >/dev/null 2>&1
     g="${TMP}/fb_${r:-empty}/AGENTS.md"
     if grep -qF -- "$zz" "$g" && ! grep -Eq 'Samaritans|988|13 11 14|800 911' "$g"; then ok "region '${r:-empty}' -> generic fallback"; else bad "region '${r:-empty}' did not fall back"; fi
