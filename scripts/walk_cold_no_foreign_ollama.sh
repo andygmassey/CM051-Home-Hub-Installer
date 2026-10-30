@@ -107,6 +107,23 @@ as_acct() {
     if [[ "$a" == "$SELF" ]]; then "$@"; else "$SUDO" -n -H -u "$a" "$@"; fi
 }
 
+# LOADED MEANS THE services BLOCK, NOTHING ELSE (v1.0.120 walk, 2026-10-30).
+# `launchctl print gui/<uid>` (and `print system`) also carries a
+# "disabled services" block: launchd's persistent enable/disable OVERRIDES,
+# which name labels that are not loaded and may not even exist. Grepping the
+# whole print read an "enabled" override as a loaded label; bootout cannot
+# remove an override, so the walk box refused as not cold forever (measured on
+# Mini16: gui/501/com.ostler.fda-rerun "Could not find service", yet listed).
+#
+# AN ACCOUNT WITH NO LOGIN SESSION HAS NO gui/<uid> DOMAIN. `launchctl print
+# gui/502` answers "125: Domain does not support specified action" for an
+# account nobody is logged in as, so a second account on the walk box made the
+# precondition NOT EXAMINED, CANNOT-RUN, on every walk. No session means no gui
+# agent is loaded; the account's user/<uid> domain (which does exist) is read
+# instead, its services block only, and the examined list says so. Neither
+# domain answering is still NOT EXAMINED.
+services_block() { awk '/^\tservices = [{]/{f=1;next} f&&/^\t[}]/{f=0} f'; }
+
 kb_of() { du -sk "$1" 2>/dev/null | awk '{print $1}'; }
 sha_of() { shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'; }
 
@@ -128,8 +145,11 @@ unset IFS
 [ -e "$home/Library/LaunchAgents/$label.plist" ] && echo "AGENT|$home/Library/LaunchAgents/$label.plist"
 if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then echo "LOADED|gui/$uid/$label"; fi
 for pfx in $5; do for f in "$home"/Library/LaunchAgents/"$pfx"*.plist; do [ -e "$f" ] && echo "OSTPLIST|$f"; done; done
-_gui="$(launchctl print "gui/$uid" 2>/dev/null)" && echo "__gui_ok"
-printf "%s\n" "$_gui" | grep -oE "$4" | sort -u | while read -r l; do echo "OSTLOADED|gui/$uid/$l"; done
+_dom="gui/$uid"
+if _gui="$(launchctl print "gui/$uid" 2>/dev/null)"; then echo "__gui_ok"
+elif _gui="$(launchctl print "user/$uid" 2>/dev/null)"; then echo "__gui_ok"; echo "__user_dom"; _dom="user/$uid"
+fi
+printf "%s\n" "$_gui" | awk "/^\tservices = [{]/{f=1;next} f&&/^\t[}]/{f=0} f" | grep -oE "$4" | sort -u | while read -r l; do echo "OSTLOADED|$_dom/$l"; done
 echo "__probe_ok"
 '
 
@@ -171,7 +191,10 @@ examine() {
         if ! printf '%s\n' "$rec" | grep -qx '__gui_ok'; then
             echo "NOEXAMINE|$n|launchctl print gui/${uid} did not answer as ${n}; its loaded labels are unknown" >> "$out"
         fi
-        printf '%s\n' "$rec" | grep -v -e '^__probe_ok$' -e '^__gui_ok$' -e '^OURS|' | sed "s#|#|$n|#" >> "$out"
+        if printf '%s\n' "$rec" | grep -qx '__user_dom'; then
+            echo "  ${n}: no gui/${uid} domain (no login session, so no agent is loaded there); loaded labels read from user/${uid}" >> "$ex"
+        fi
+        printf '%s\n' "$rec" | grep -v -e '^__probe_ok$' -e '^__gui_ok$' -e '^__user_dom$' -e '^OURS|' | sed "s#|#|$n|#" >> "$out"
         echo "  ${n} (uid ${uid}, ${home}): login shell ${shell}, PATH dirs $(printf '%s' "$lpath" | awk -F: '{print NF}'), ~/.ollama, ~/Applications/Ollama.app, ${LABEL} plist + launchctl gui/${uid}, Ostler (${OSTLER_LABEL_PREFIXES}) plists + labels in gui/${uid}" >> "$ex"
     done < "$WORK/accounts"
     echo "  accounts (${nacct}): ${acct_list}" >> "$ex"
@@ -198,7 +221,7 @@ examine() {
     done
     echo "  ${LIB}/LaunchAgents and ${LIB}/LaunchDaemons: plists for ${OSTLER_LABEL_PREFIXES}" >> "$ex"
     if _sys="$(launchctl print system 2>/dev/null)"; then
-        printf '%s\n' "$_sys" | grep -oE "$OSTLER_RE" | sort -u | while read -r l; do echo "SYSLOADED|-|system/$l"; done >> "$out"
+        printf '%s\n' "$_sys" | services_block | grep -oE "$OSTLER_RE" | sort -u | while read -r l; do echo "SYSLOADED|-|system/$l"; done >> "$out"
         echo "  launchctl print system: labels for ${OSTLER_LABEL_PREFIXES}" >> "$ex"
     else
         echo "NOEXAMINE|-|launchctl print system did not answer; system labels are unknown" >> "$out"

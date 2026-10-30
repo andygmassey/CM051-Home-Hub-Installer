@@ -17,6 +17,8 @@ on:
       - 'tests/test_people_have_human_evidence.py'
       - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'tests/test_people_count_one_definition.py'
       - '.github/workflows/people-have-human-evidence.yml'
   pull_request:
     paths:
@@ -29,6 +31,8 @@ on:
       - 'tests/test_people_have_human_evidence.py'
       - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
+      - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'tests/test_people_count_one_definition.py'
       - '.github/workflows/people-have-human-evidence.yml'
 
 concurrency:
@@ -45,7 +49,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject
+        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph cryptography
       - name: Junk senders and sender ids are not people, real people stay, a card always wins
         run: |
           n="$(python -m pytest tests/test_people_have_human_evidence.py \
@@ -69,3 +73,14 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_organisation_senders_are_not_people.py -v -rs
+      # v1.0.121: ONE definition of a person for counting (people_rules
+      # is_countable_person: named, not merged away). The probe counts the
+      # graph with it, the Doctor counts Qdrant with it; the cap is unchanged.
+      - name: People counts share one definition, each store counted by its own reader
+        if: always()
+        run: |
+          out="$(python -m pytest -q -rs tests/test_people_count_one_definition.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+          n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
+          if [ "${n:-0}" -lt 8 ]; then echo "expected at least 8 passed, got ${n:-0}" >&2; exit 1; fi

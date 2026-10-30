@@ -74,6 +74,10 @@ def main() -> int:
         "not_written": dict(record={"outcome": "not_written", "graph_node_count": 7,
                                     "reason": "a reader failed; the previous derived graph was kept"}),
         "cannot_start": dict(record={"outcome": "cannot_start", "reason": "missing dependency"}),
+        "deferred": dict(record={"outcome": "deferred", "writer": "tick", "consecutive": 2,
+                                 "reason": "load: 1m load 40.00 over 10 cores", "graph_node_count": 7}),
+        "yielded": dict(record={"outcome": "yielded", "writer": "tick", "consecutive": 1,
+                                "reason": "the ingest slot is busy"}),
         "unreadable": dict(raw="{not json"),
     }
     for want, kw in cases.items():
@@ -103,6 +107,24 @@ def main() -> int:
         with tempfile.TemporaryDirectory() as t:
             st = state(Path(t), record={"outcome": o, "graph_node_count": 1})
             check(st["status"] != "unreadable", f"runner outcome {o!r} -> Doctor state {st['status']!r}")
+
+    print("2b: every outcome the GENERATED tick wrapper writes is one the Doctor knows")
+    inst = (REPO / "install.sh").read_text()
+    s0 = inst.index("_install_derive_preferences_agent() {")
+    wrapper = inst[s0:inst.index("DERIVETICKEOF", inst.index("DERIVETICKEOF", s0) + 1)]
+    tick_outcomes = set(re.findall(r"_(?:skip|status_write) ([a-z_]+) ", wrapper))
+    check({"deferred", "yielded", "cannot_start", "not_written"} <= tick_outcomes,
+          f"control: found the wrapper's outcome literals: {sorted(tick_outcomes)}")
+    for o in sorted(tick_outcomes):
+        with tempfile.TemporaryDirectory() as t:
+            st = state(Path(t), record={"outcome": o, "writer": "tick", "consecutive": 3, "reason": "r"})
+            check(st["status"] not in {"unreadable", "not_run"}, f"wrapper outcome {o!r} -> Doctor state {st['status']!r}")
+    with tempfile.TemporaryDirectory() as t:
+        h = dps.render_derived_preferences_status(state(Path(t), record={
+            "outcome": "deferred", "writer": "tick", "consecutive": 4, "graph_node_count": 7,
+            "last_run_at": "2026-10-17T06:00:00Z", "reason": "load: synthetic"}))
+        check("4 ticks in a row" in h and '<td style="text-align:right">7</td>' in h and "2026-10-17T06:00:00Z" in h,
+              "a deferral shows the in-a-row count, the carried node count and the last pass time")
 
     print("3: the count is the runner's graph count, and zero is a measurement")
     with tempfile.TemporaryDirectory() as t:

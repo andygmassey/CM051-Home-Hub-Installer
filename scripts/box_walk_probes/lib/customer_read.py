@@ -1244,6 +1244,79 @@ def wait_for_fresh_diff(fetch, seed_ts, bound_s=DIFF_WAIT_S, poll_s=DIFF_POLL_S,
         sleep(poll_s)
 
 
+# ---------------------------------------------------------------------------
+# Click diagnostics. A 30 s click timeout used to surface as
+# str(exc)[:200]: the head of Playwright's call log, which ends before the line
+# that names the cause ("element is not visible", "<div> intercepts pointer
+# events"). The cause is in the TAIL, so keep the tail, and say for ourselves
+# whether the target was visible, enabled or covered, and by what.
+# ---------------------------------------------------------------------------
+
+EXC_TAIL_LINES = 14
+EXC_TAIL_CHARS = 1800
+
+_TARGET_STATE_JS = """(sel) => {
+  const d = (e) => e ? (e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')
+      + (e.classList && e.classList.length ? '.' + Array.from(e.classList).slice(0, 3).join('.') : '')) : null;
+  const el = document.querySelector(sel);
+  if (!el) return {present: false};
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  const visible = r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+  const enabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+  let covered_by = null, in_viewport = false;
+  if (visible) {
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    in_viewport = cx >= 0 && cy >= 0 && cx <= innerWidth && cy <= innerHeight;
+    const top = in_viewport ? document.elementFromPoint(cx, cy) : null;
+    if (top && top !== el && !el.contains(top)) covered_by = d(top);
+  }
+  return {present: true, target: d(el), visible: visible, enabled: enabled,
+          in_viewport: in_viewport, covered_by: covered_by};
+}"""
+
+
+def exc_tail(exc, lines=EXC_TAIL_LINES, chars=EXC_TAIL_CHARS):
+    """The LAST lines of an exception's text (Playwright puts the cause there)."""
+    text = str(exc).strip()
+    tail = "\n".join(text.splitlines()[-lines:])
+    return tail[-chars:]
+
+
+def describe_click_target(page, selector):
+    """One line: was the element there, visible, enabled, covered, and by which selector."""
+    try:
+        st = page.evaluate(_TARGET_STATE_JS, selector)
+    except Exception as exc:
+        return "target %s: state could not be read (%s)" % (selector, str(exc)[:80])
+    if not st.get("present"):
+        return "target %s: NOT PRESENT in the page" % selector
+    return "target %s (%s): visible=%s enabled=%s in_viewport=%s covered_by=%s" % (
+        selector, st["target"], st["visible"], st["enabled"], st["in_viewport"], st["covered_by"] or "nothing")
+
+
+def click_target(page, selector, out_dir, label, console_errors=None, timeout_ms=30000):
+    """Click the first match of a CSS selector. On failure save a screenshot and the
+    page's console errors into out_dir (evidence stays where the walk runs, never
+    in git) and raise RuntimeError carrying the full exception tail plus the
+    visible/enabled/covered line."""
+    try:
+        page.locator(selector).first.click(timeout=timeout_ms)
+        return
+    except Exception as exc:
+        parts = ["click %s failed" % label, exc_tail(exc), describe_click_target(page, selector)]
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+            shot = os.path.join(out_dir, "cr-click-timeout-%s.png" % label)
+            page.screenshot(path=shot)
+            cpath = os.path.join(out_dir, "cr-click-timeout-%s-console.txt" % label)
+            with open(cpath, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(console_errors or []) + "\n")
+            parts.append("evidence saved: %s, %s (%d console error(s))" % (shot, cpath, len(console_errors or [])))
+        except Exception as e2:
+            parts.append("evidence NOT saved: %s" % str(e2)[:80])
+        raise RuntimeError("\n".join(parts)) from None
+
+
 def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None, seed_ts=None, seed_problem=None):
     import urllib.request
     from playwright.sync_api import sync_playwright
@@ -1275,6 +1348,9 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
         ctx.add_init_script("try { localStorage.setItem('zeroclaw_token', %s); } catch (e) {}" % json.dumps(token))
         page = ctx.new_page()
+        console_errs = []
+        page.on("console", lambda m: console_errs.append("%s: %s" % (m.type, m.text[:300])) if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: console_errs.append("pageerror: %s" % str(e)[:300]))
 
         def guard(route, request):
             saw(request.url)
@@ -1311,7 +1387,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         def go(path):
             link = page.locator('a[href="%s"]' % path)
             if link.count():
-                link.first.click()
+                click_target(page, 'a[href="%s"]' % path, out_dir, "go" + re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-"), console_errs)
             else:
                 page.evaluate("p => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }", path)
             time.sleep(3)
@@ -2375,7 +2451,7 @@ def main(argv):
             print("CANNOT-RUN: no Playwright on this driver ({})".format(exc))
             return EX_CANNOT
         except Exception as exc:
-            print("CANNOT-RUN: the browser did not complete the read ({})".format(str(exc)[:200]))
+            print("CANNOT-RUN: the browser did not complete the read ({}: {})".format(type(exc).__name__, exc_tail(exc)))
             return EX_CANNOT
         if a.get("--box-facts"):
             try:
