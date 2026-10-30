@@ -114,6 +114,7 @@ test_an_advisory_probe_is_not_a_walk_fail.sh	WIRED	.github/workflows/owner-score
 test_an_enrichment_miss_is_not_an_import_error.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_an_identifier_is_not_a_taste.py	WIRED	.github/workflows/vendor-integrity.yml
 test_an_import_reaches_the_digest_straight_away.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_an_installed_box_with_a_two_card_pile_heals.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unconfirmed_calendar_is_not_buried_forever.py	WIRED	.github/workflows/privacy-spine.yml
 test_an_undescribed_vendor_divergence_is_red.sh	WIRED	.github/workflows/vendor-divergence-described.yml
@@ -414,6 +415,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_loads_after_an_aborted_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
+test_fda_tick_folds_a_post_install_email_twin.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml

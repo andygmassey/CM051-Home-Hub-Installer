@@ -136,7 +136,17 @@ name joins nobody. Measured on the v1.0.120 walk box (Mini16, counts only):
 691 live address-only nodes, 33 sharing their address with a live
 identifier-holding node; the walk's People check failed on one of them.
 
-Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` (wired in
+Every fold is a merge like the others: journalled BEFORE the first write
+through `identity_resolver.merge_journal.record_merge` (found in the import
+pipeline; no journal, no fold), then the `mergedInto` tombstone, then the
+twin's people vector deleted (`merge_journal.delete_person_points`, CM051
+#3235). `tick_email_twins()` runs the pass from the hourly fda-rerun tick
+(the python block install.sh writes into `~/.ostler/bin/ostler-fda`), so
+twins minted after install are folded within the hour, not at the next
+upgrade.
+
+Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` and
+`tests/test_fda_tick_folds_a_post_install_email_twin.py` (both wired in
 `.github/workflows/dedupe-merge-rule-2.yml`).
 
 Owed upstream: yes, HR015 `ostler_fda/dedupe_merge.py`, the same pass. Retire

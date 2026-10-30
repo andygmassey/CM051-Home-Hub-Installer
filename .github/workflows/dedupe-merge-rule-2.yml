@@ -37,6 +37,9 @@ on:
       - 'vendor/ostler_fda/phone_twins.py'
       - 'tests/test_provisional_phone_twins_merge.py'
       - 'tests/test_email_named_twin_folds_into_the_card_holder.py'
+      - 'tests/test_fda_tick_folds_a_post_install_email_twin.py'
+      - 'vendor/cm041/identity_resolver/merge_journal.py'
+      - 'install.sh'
       - 'vendor/cm021/src/cli.py'
       - '.github/workflows/dedupe-merge-rule-2.yml'
   push:
@@ -119,11 +122,26 @@ jobs:
       - name: An email-named person folds into the one card holding that address
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser qdrant-client
           n="$(python3 -m pytest tests/test_email_named_twin_folds_into_the_card_holder.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 5 ]; then
-            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 8 ]; then
+            echo "REFUSING: expected at least 8 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python3 -m pytest tests/test_email_named_twin_folds_into_the_card_holder.py -v
+      # v1.0.121 (Archie, #3240): the email ingest re-grows address-only twins
+      # hourly after install, so the hourly fda-rerun tick folds them. Runs the
+      # ~/.ostler/bin/ostler-fda wrapper install.sh writes, verbatim, with only
+      # the macOS extract and ingest_all stood in.
+      - name: The hourly fda-rerun tick folds a post-install email twin
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          n="$(python3 -m pytest tests/test_fda_tick_folds_a_post_install_email_twin.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_fda_tick_folds_a_post_install_email_twin.py -v

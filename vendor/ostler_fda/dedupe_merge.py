@@ -548,23 +548,100 @@ def merge_email_twins(dry_run: bool = False) -> Dict[str, int]:
             shared += 1
             continue
         plan.append((next(iter(found)), twin))
+    unjournalled = vector_unreconciled = 0
     if plan:
         names = _real_names_of({p for pair in plan for p in pair})
+        mj = jdir = None
+        if not dry_run:
+            mj = _merge_journal_module()
+            jdir = mj.default_journal_dir() if mj is not None else None
+        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
         for holder, twin in plan:
             twin_real = names.get(twin, set())
             if twin_real and not (twin_real & names.get(holder, set())):
                 name_differs += 1
                 continue
-            if not dry_run:
-                _merge_pair(holder, twin)
+            if dry_run:
+                merged += 1
+                continue
+            # LIKE EVERY OTHER MERGE: journalled BEFORE the first write, so the
+            # Hub's Split and ``batch_resolver --undo-merge`` can restore it,
+            # then a mergedInto tombstone (``_merge_pair``), then the loser's
+            # people vector deleted (CM051 #3235's ``delete_person_points``).
+            # No journal, no merge: an un-undoable fold is worse than a twin
+            # that waits for the next tick.
+            if mj is None or not jdir:
+                unjournalled += 1
+                continue
+            try:
+                transport = httpx.HTTPTransport(proxy=None)
+                with httpx.Client(timeout=60.0, transport=transport) as client:
+                    mj.record_merge(
+                        OXIGRAPH_URL, client, jdir, holder, twin,
+                        strategy="email_twin", confidence=1.0,
+                        details="identifier values withheld from the journal",
+                        qdrant_url=qdrant_url, qdrant_collection="people")
+            except Exception as exc:  # noqa: BLE001 -- counted, never a blind merge
+                unjournalled += 1
+                logger.warning("dedupe_merge: email twin NOT folded, no pre-merge "
+                               "snapshot (%s); the next tick retries", type(exc).__name__)
+                continue
+            _merge_pair(holder, twin)
             merged += 1
+            if qdrant_url:
+                try:
+                    mj.delete_person_points(qdrant_url, "people", twin)
+                except Exception as exc:  # noqa: BLE001 -- counted; the repair sweeps it
+                    vector_unreconciled += 1
+                    logger.warning("dedupe_merge: email twin folded, its people vector "
+                                   "NOT deleted (%s)", type(exc).__name__)
     logger.info(
         "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
-        "%d different name(s)%s", merged, shared, name_differs,
-        " (dry-run, no writes)" if dry_run else "",
+        "%d different name(s), %d not journalled%s", merged, shared, name_differs,
+        unjournalled, " (dry-run, no writes)" if dry_run else "",
     )
     return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
-            "email_twins_name_differs": name_differs}
+            "email_twins_name_differs": name_differs,
+            "email_twins_unjournalled": unjournalled,
+            "email_twins_vector_unreconciled": vector_unreconciled}
+
+
+def tick_email_twins() -> str:
+    """One log line for the hourly fda-rerun tick (install.sh writes
+    ~/.ostler/bin/ostler-fda, whose python block calls this right after
+    ingest_all). The email ingest mints an address-only person for every new
+    correspondent and the install-time sweep never sees one made later, so
+    the fold runs on every tick. NEVER raises: bookkeeping must not fail the
+    tick it rides on; an unreadable store is a CANNOT-RUN line, not a count."""
+    import json
+    try:
+        return "[email-twins] " + json.dumps(merge_email_twins(), default=str)
+    except Exception as exc:  # noqa: BLE001 -- reported on the line, never swallowed
+        return "[email-twins] CANNOT-RUN: %s: %s" % (type(exc).__name__, str(exc)[:200])
+
+
+def _merge_journal_module():
+    """``identity_resolver.merge_journal``, the one merge journal every merge
+    path writes. It ships in the import pipeline, not in this package, so it
+    is found there when it is not already importable. None when it cannot be
+    found: the caller then makes no merge."""
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        pass
+    pipeline = os.environ.get("OSTLER_PIPELINE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "import-pipeline")
+    if not os.path.isdir(os.path.join(pipeline, "identity_resolver")):
+        return None
+    import sys
+    if pipeline not in sys.path:
+        sys.path.append(pipeline)
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        return None
 
 
 def run(dry_run: bool = False) -> Dict[str, int]:

@@ -26054,9 +26054,9 @@ if isinstance(results, dict) and results.get('status') != 'error':
         }
 print('[ingest] ' + json.dumps(results, default=str))
 
-# I22b: one-time all-day flag backfill for Meeting nodes older than the extract
-# window. Runs only when this tick read the calendar fine, here because this
-# process holds the Calendar grant. Counts only; never fails the tick.
+print(__import__('ostler_fda.dedupe_merge', fromlist=['x']).tick_email_twins() if __import__('importlib.util').util.find_spec('ostler_fda.dedupe_merge') else '[email-twins] CANNOT-RUN: no ostler_fda.dedupe_merge')  # v1.0.121: fold address-only twins every tick
+# I22b: one-time all-day flag backfill for Meeting nodes older than the extract window. Runs only when
+# this tick read the calendar fine, here because this process holds the Calendar grant. Never fails the tick.
 try:
     if _xstatus('calendar') == 'ok':
         from ostler_fda.allday_backfill import run_once as _allday_run_once

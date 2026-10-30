@@ -74,15 +74,51 @@ def _load_cm021():
 CLI = _load_cm021()
 
 
+QDRANT = "http://qdrant.invalid:6333"   # never dialled: the client is in-memory
+DIM = 4
+
+
+def _pid(uri):
+    import uuid
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
+
+
 @pytest.fixture()
 def world(tmp_path, monkeypatch):
+    qdrant_client = pytest.importorskip("qdrant_client")
+    from qdrant_client import models
     store = FakeOxigraph()
+    mem = qdrant_client.QdrantClient(":memory:")
+    mem.create_collection("people", vectors_config=models.VectorParams(
+        size=DIM, distance=models.Distance.COSINE))
+    monkeypatch.setattr(qdrant_client, "QdrantClient", lambda *a, **k: mem)
     monkeypatch.setenv("OSTLER_FORGET_TOMBSTONE_FILE", str(tmp_path / "forgotten.json"))
+    monkeypatch.setenv("OSTLER_PERSON_DELETION_LOG", str(tmp_path / "del.jsonl"))
     monkeypatch.setenv("DEFAULT_COUNTRY_CODE", "44")
+    jdir = tmp_path / "bk" / "merge_journal"
+    monkeypatch.setenv("OSTLER_MERGE_JOURNAL_DIR", str(jdir))
+    monkeypatch.setenv("QDRANT_URL", QDRANT)
     from ostler_fda import dedupe_merge
     monkeypatch.setattr(dedupe_merge, "OXIGRAPH_URL", store.url)
-    yield types.SimpleNamespace(store=store, dm=dedupe_merge)
+    yield types.SimpleNamespace(store=store, dm=dedupe_merge, mem=mem, jdir=jdir, tmp=tmp_path)
     store.close()
+
+
+def _vector(w, uri):
+    from qdrant_client import models
+    w.mem.upsert("people", points=[models.PointStruct(
+        id=_pid(uri), vector=[1.0, 0.0, 0.0, 0.0], payload={"person_uri": uri})])
+
+
+def _vectors(w):
+    pts, _ = w.mem.scroll("people", limit=100, with_payload=True)
+    return sorted(p.payload["person_uri"] for p in pts)
+
+
+def _journal(w):
+    import json
+    p = w.jdir / "merge_journal.jsonl"
+    return [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
 
 
 def _rows(w, q):
@@ -170,3 +206,69 @@ def test_two_different_people_who_share_nothing_stay_two(world):
     stats = world.dm.run()
     assert len(_live(world)) == 2
     assert stats.get("email_twins_merged") == 0, stats
+
+
+# ── CONDITION 2: the fold is a merge like every other ──────────────────────
+
+def test_the_fold_is_journalled_tombstoned_drops_the_vector_and_undo_restores_it(world):
+    """A mergedInto tombstone, a journal row with a snapshot, the loser's people
+    vector deleted, and the journal's undo puts the twin and its vector back."""
+    import httpx
+    from identity_resolver import merge_journal
+    _card(world, JANE, "Jane Stewart", "SYNTHETIC-CARD-UID-0001", JANE_MAIL)
+    twin = _email_ingest(world, JANE_MAIL)
+    _vector(world, JANE)
+    _vector(world, twin)
+    assert _vectors(world) == sorted([JANE, twin])
+
+    stats = world.dm.run()
+    assert stats.get("email_twins_merged") == 1, stats
+    assert world.store.ask(f"ASK {{ <{twin}> pwg:mergedInto <{JANE}> }}"), "no mergedInto tombstone"
+    rows = [e for e in _journal(world) if e.get("kind") == "merge"]
+    assert len(rows) == 1, rows
+    assert rows[0]["keep"] == JANE and rows[0]["discard"] == twin
+    assert rows[0]["strategy"] == "email_twin"
+    assert (world.jdir / rows[0]["snapshot"]).exists()
+    assert JANE_MAIL not in (world.jdir / "merge_journal.jsonl").read_text()
+    assert _vectors(world) == [JANE], "the folded twin kept a searchable vector"
+
+    with httpx.Client(trust_env=False) as client:
+        res = merge_journal.undo_merge(world.store.url, client, str(world.jdir),
+                                       rows[0]["id"], qdrant_url=QDRANT)
+    assert res.get("qdrant_restored") is True, res
+    assert sorted(_live(world)) == sorted([JANE, twin])
+    assert _names(world, twin) == [JANE_MAIL]
+    assert _names(world, JANE) == ["Jane Stewart"]
+    assert _vectors(world) == sorted([JANE, twin])
+
+
+def test_no_journal_no_fold(world, monkeypatch):
+    """Fail closed: with no merge journal there is no fold at all."""
+    monkeypatch.setenv("OSTLER_MERGE_JOURNAL_DIR", "")
+    _card(world, JANE, "Jane Stewart", "SYNTHETIC-CARD-UID-0001", JANE_MAIL)
+    _email_ingest(world, JANE_MAIL)
+    stats = world.dm.run()
+    assert stats.get("email_twins_merged") == 0 and stats.get("email_twins_unjournalled") == 1, stats
+    assert len(_live(world)) == 2
+
+
+def test_a_vector_the_fold_could_not_delete_is_swept_by_the_repair(world, monkeypatch, capsys):
+    """If the vector delete fails, the tombstone is what #3235's upgrade repair
+    keys on: repair_merge_consistency removes the folded twin's vector."""
+    from identity_resolver import merge_journal
+    from identity_resolver import repair_merge_consistency as rmc
+    _card(world, JANE, "Jane Stewart", "SYNTHETIC-CARD-UID-0001", JANE_MAIL)
+    twin = _email_ingest(world, JANE_MAIL)
+    _vector(world, JANE)
+    _vector(world, twin)
+
+    def _boom(*a, **k):
+        raise RuntimeError("qdrant went away")
+    monkeypatch.setattr(merge_journal, "delete_person_points", _boom)
+    stats = world.dm.run()
+    assert stats.get("email_twins_merged") == 1 and stats.get("email_twins_vector_unreconciled") == 1, stats
+    assert twin in _vectors(world)
+    rc = rmc.repair(world.store.url, QDRANT, "people", apply=True,
+                    backup_dir=str(world.tmp / "rbk"))
+    assert rc == rmc.EXIT_OK, capsys.readouterr().out
+    assert _vectors(world) == [JANE]
