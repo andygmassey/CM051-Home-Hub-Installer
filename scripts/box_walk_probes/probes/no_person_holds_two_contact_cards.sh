@@ -92,6 +92,13 @@ SELECT ?person (COUNT(DISTINCT ?v) AS ?uids) WHERE {
 _Q_CONTROL="PREFIX p: <${ONTO}>
 SELECT (COUNT(DISTINCT ?i) AS ?n) WHERE { ?i p:identifierType \"icloud_contact_uid\" }"
 
+# DISTINCT CARDS. The control above counts identifier NODES; two nodes can carry
+# one uid value. Fewer than two DISTINCT uids means no Person could possibly hold
+# two cards, so a clean violation count examined nothing (v1.0.111 and v1.0.112
+# graded PASS on exactly that: 1 uid, 0 merge chances).
+_Q_DISTINCT_UIDS="PREFIX p: <${ONTO}>
+SELECT (COUNT(DISTINCT ?v) AS ?uidn) WHERE { ?i p:identifierType \"icloud_contact_uid\" ; p:identifierValue ?v }"
+
 # THE SECOND ANTI-VACUITY MEASURE: DID THIS BOX EVER OFFER A CHANCE TO MERGE?
 #
 # The control above proves the predicate can SEE icloud_contact_uid identifiers.
@@ -512,6 +519,18 @@ run_probe() {
         probe_cannot_run "ZERO icloud_contact_uid identifiers in the graph. Either contacts have not been imported yet, or the predicate/namespace is wrong. Either way a clean violation count proves nothing -- this is CANNOT-RUN, not a pass."
     fi
 
+    # DENOMINATOR 1: distinct cards. An unreadable answer falls back to the
+    # identifier-node count, which is an upper bound, so it can only under-refuse.
+    local uids
+    uids="$(_sparql_scalar "$_Q_DISTINCT_UIDS")"
+    case "$uids" in
+        ''|*[!0-9]*) probe_note "distinct icloud_contact_uid: NOT MEASURED (query returned '${uids}'); using the identifier count ${control} as an upper bound"; uids="$control" ;;
+    esac
+    if [ "$uids" -lt 2 ]; then
+        probe_examined "$uids" "distinct icloud_contact_uid (${control} identifier node(s)); 0 candidate merge pairs examined"
+        probe_cannot_run "only ${uids} distinct icloud_contact_uid in the graph (${control} identifier node(s)). With fewer than 2 cards no Person can hold two, so there were 0 merge chances and a clean count would be vacuous. This is CANNOT-RUN, not a pass."
+    fi
+
     local rows
     rows="$(_fetch_violations)"
     _ox_adjudicate "violation query"
@@ -620,7 +639,8 @@ run_probe() {
     fi
     probe_note "collision opportunities: ${opp} Person node(s) share a phone or email with another node"
     if [ "$verdict" = "UNEXERCISED" ]; then
-        probe_pass "${_jok}no Person node carries more than one icloud_contact_uid, checked against ${control} identifiers -- BUT this box presented ZERO chances to over-merge: no two Person nodes share a phone or email, so the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant holds and the GUARD IS UNEXERCISED. Do not close #1543 on this run."
+        probe_note "denominator: ${uids} distinct icloud_contact_uid, ${opp} Person node(s) in candidate merge pairs (shared phone or email)"
+        probe_cannot_run "${_jok}no Person node carries more than one icloud_contact_uid, but this box presented ZERO candidate merge pairs (${uids} distinct icloud_contact_uid examined, 0 Person nodes sharing a phone or email): the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant is UNTESTED, not held. CANNOT-RUN, not a pass; do not close #1543 on this run."
     fi
     probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement), and ${opp} node(s) shared a phone or email with another node without being merged -- so the zero was earned, not vacuous"
 }

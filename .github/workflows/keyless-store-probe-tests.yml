@@ -20,6 +20,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -49,6 +50,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -92,6 +94,13 @@ jobs:
       - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
+
+      # A graph with 1 icloud_contact_uid or 0 candidate merge pairs examined
+      # nothing; the probe must say CANNOT-RUN with the denominator, and a real
+      # 2+ uid fixture with 0 violations must still PASS.
+      - name: two-cards probe is CANNOT-RUN on a vacuous graph, PASS on a real one
+        if: always()
+        run: /bin/bash scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh
 
       # instr119: the people and screens probes print CAUSES (join key, C split,
       # category breakdown, launchctl exit + install.sh fda-rerun line, 5xx body,

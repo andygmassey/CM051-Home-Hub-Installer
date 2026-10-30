@@ -185,6 +185,8 @@ on:
       # record would not run the gate that rejects it.
       - 'walks/**'
       - 'scripts/walk_regression_triage.sh'
+      - 'scripts/walk_vacuous_baselines.tsv'
+      - 'tests/test_walk_triage_never_baselines_a_vacuous_pass.sh'
       - 'scripts/payload_delta.sh'
       - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
@@ -309,6 +311,13 @@ jobs:
       - name: The regression triage can tell a regression from a never-passed
         if: always()
         run: bash scripts/walk_regression_triage.sh --self-test
+
+      # A walk record stores no denominator, so a pass that examined nothing
+      # reads as PASSED. The triage must skip listed vacuous passes and
+      # CANNOT-RUNs when it picks regression_of.
+      - name: The regression triage never uses a vacuous pass as a baseline
+        if: always()
+        run: bash tests/test_walk_triage_never_baselines_a_vacuous_pass.sh
 
       # "Which commits touch install.sh" is a PROXY for "what reaches the
       # customer", and on 2026-09-07 it missed vendor/VENDOR_MANIFEST.toml,

@@ -104,6 +104,8 @@ def sparql_answer(q):
                 {"person": P + "c", "uids": 2}, {"person": P + "d", "uids": 2}]
     if "COUNT(DISTINCT ?i) AS ?n" in q:
         return [{"n": 6}]
+    if "AS ?uidn" in q:
+        return [{"uidn": 6}]
     if "FILTER(?a != ?b)" in q:
         return [{"n": 3}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
