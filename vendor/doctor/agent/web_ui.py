@@ -4124,6 +4124,59 @@ async def api_wiki_duplicates_decision(request: Request):
     return result
 
 
+@app.get("/api/v1/merges", response_class=JSONResponse)
+def api_people_merges(request: Request, person: str = ""):
+    """Automatic contact merges that can still be split (person_split.py).
+
+    A READ the Hub app makes, so it takes the same guard as the other Hub
+    reads. An unreadable journal is a 503 with a reason, never an empty list.
+    """
+    refusal = _hub_read_refusal(request)
+    if refusal is not None:
+        return refusal
+    from person_split import SplitError as _SplitError, list_merges as _list
+
+    if person and not re.match(r"^[A-Za-z0-9_:/#.\-]{1,200}$", person):
+        return JSONResponse({"error": "bad person id"}, status_code=400)
+    try:
+        return _list(person)
+    except _SplitError as exc:
+        return JSONResponse(
+            {"status": "cannot_run", "error": exc.detail, "reason": exc.reason},
+            status_code=exc.status)
+
+
+@app.post("/api/v1/merges/split", response_class=JSONResponse)
+async def api_people_merges_split(request: Request):
+    """"Not the same person? Split": undo one journalled merge by id.
+
+    A WRITE, so it takes the same guard as the other Doctor writes (Hub-local
+    Host and no cross-site origin); the Hub app reaches it through its native
+    doctor_post bridge, the browser dashboard through the gateway, which
+    checks the paired bearer first. All logic is in person_split.split, which
+    records the "different people" decision and then runs the resolver's own
+    --undo-merge.
+    """
+    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    from person_split import SplitError as _SplitError, split as _split
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    try:
+        return await run_in_threadpool(_split, body.get("merge_id"))
+    except _SplitError as exc:
+        return JSONResponse(
+            {"status": "error", "error": exc.detail, "reason": exc.reason},
+            status_code=exc.status)
+
+
 @app.post("/api/v1/editor/feedback", response_class=JSONResponse)
 async def api_editor_feedback(request: Request):
     """Record one Front Page card tap ("Spot on" / "Not me" / "Don't show").

@@ -295,3 +295,24 @@ UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
 re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
 the same three changes. The patch is not regenerated, for the reason in the
 2026-10-22 section above.
+
+
+## 2026-10-30: execute() re-reads "different people" decisions (the hub split route)
+
+`vendor/cm041/identity_resolver/batch_resolver.py`, one call site, nothing
+else in the tree (exact_identifier.py untouched):
+
+- `BatchResolver.execute()` loads `duplicates.yaml` once at the start of the
+  pass and skips any planned merge whose pair is recorded `distinct`
+  (`decisions.is_blocked`), BEFORE the RULE 2 check and the exact-identifier
+  override. The import line gains `is_blocked`.
+- Why: `detect()` already drops a distinct pair, but a converge round plans
+  first and executes later. The Hub's "Not the same person? Split" (Doctor
+  `person_split.py`) can record the decision in between, and the stale plan
+  then re-merged the pair through the exact-identifier override, which reads
+  names and keys and never the decision.
+- Pinned by `tests/test_person_split_keeps_two_people.py::
+  test_a_split_between_plan_and_execute_is_not_remerged`: 1 fail with this
+  edit reverted, pass with it.
+- Retire when CM041 carries the same check and a re-vendor makes the file
+  byte-identical.
