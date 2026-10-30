@@ -34737,7 +34737,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences food imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
