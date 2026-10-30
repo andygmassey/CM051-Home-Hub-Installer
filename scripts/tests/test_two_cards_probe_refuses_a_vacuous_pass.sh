@@ -34,12 +34,12 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("query", [""])[0]
-        if "HAVING" in q:
+        if "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
+            out = body("n", OPP)
+        elif "HAVING" in q:
             out = {"head": {"vars": ["person", "uids"]}, "results": {"bindings": []}}
         elif "AS ?uidn" in q:
             out = body("uidn", UIDS)
-        elif "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
-            out = body("n", OPP)
         elif "COUNT(DISTINCT ?i)" in q:
             out = body("n", CONTROL)
         else:
