@@ -657,7 +657,7 @@ _await_converge() {
 # were never comparable. The tolerance and the cap are NOT touched; this
 # changes WHEN the stores are read, never what counts as agreement.
 #
-# Nameless Persons never get a vector by design. They are outside the
+# People with no name never get a vector by design. They are outside the
 # awaiting-embed set (the predicate hides them) and outside both counts: the
 # graph side counts with people_rules.is_countable_person, and the Doctor
 # counts Qdrant points with the same function (ical-server _wiki_people_count,

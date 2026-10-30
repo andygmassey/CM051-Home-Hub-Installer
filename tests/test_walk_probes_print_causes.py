@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -231,7 +232,10 @@ class Store(BaseHTTPRequestHandler):
         if self.path == "/query":
             return self._send(bindings(sparql_answer(data)))
         if self.path.endswith("/points/scroll") and "display_name" in data:
-            pts = [{"payload": {"display_name": dn}} for dn in COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"]]
+            # person_uri on every point, as every real writer stamps it (syncer,
+            # pwg_ingest, social importers): the probe joins graph to vector on it.
+            pts = [{"payload": {"display_name": dn, "person_uri": P + "n%d" % i}}
+                   for i, dn in enumerate(COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"])]
             return self._send({"result": {"points": pts, "next_page_offset": None}})
         if self.path.endswith("/points/scroll"):
             return self._send({"result": {"points": [{"payload": {"person_uri": P + "1"}}],
@@ -353,8 +357,31 @@ def probes_end_to_end():
         check("doctor minus indexable named                       : 0" in out,
               "people_count_agreement: prints the doctor gap against the indexable population")
         COUNT_FIXTURE[0] = "short"
-        rc, out = run_probe("people_count_agreement", env)
-        check(rc == 1 and "VERDICT: FAIL" in out, "people_count_agreement: named counts 20 vs 17 still FAIL",
+        # Three named graph people have no vector: the embed queue. With no
+        # completed people_index run after they were seen there is no drain
+        # signal, so the probe says CANNOT-RUN, never a count verdict (v1.0.121).
+        env_short = dict(env, OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="4")
+        rc, out = run_probe("people_count_agreement", env_short)
+        check(rc == 78 and "NO DRAIN SIGNAL ARRIVED" in out and "3 customer-visible graph people still had no vector" in out,
+              "people_count_agreement: named counts 20 vs 17 with no drain signal is CANNOT-RUN",
+              "rc=%s %s" % (rc, out[-300:]))
+        # The writer completes a run after they were seen and they are STILL
+        # missing: a drop. Graded: FAIL, as before.
+        idx = os.path.join(env["HOME"], ".ostler/state/source_activity/people_index.tsv")
+        before = open(idx).read()
+
+        def _writer_ran():
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            with open(idx, "w") as fh:
+                fh.write("source=people_index\nlast_status=ok\nlast_success_at=%s\n" % now)
+        tm = threading.Timer(4, _writer_ran)
+        tm.daemon = True
+        tm.start()
+        rc, out = run_probe("people_count_agreement", dict(env_short, OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="40"))
+        tm.cancel()
+        with open(idx, "w") as fh:
+            fh.write(before)
+        check(rc == 1 and "VERDICT: FAIL" in out, "people_count_agreement: named counts 20 vs 17 after people_index ran still FAIL",
               "rc=%s %s" % (rc, out[-300:]))
         COUNT_FIXTURE[0] = "jids"
         rc, out = run_probe("people_count_agreement", env)
