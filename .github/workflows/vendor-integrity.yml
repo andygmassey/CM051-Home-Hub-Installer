@@ -66,6 +66,7 @@ on:
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
       - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
+      - 'tests/test_import_kicks_digest_after_frontpage_compile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -485,6 +486,12 @@ jobs:
       - name: an import reaches the digest and pwg_preferences straight away
         if: always()
         run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
+
+      # The import kicks the owner digest only AFTER the compile it kicked has
+      # rewritten the interest profile (bounded), in its own process group.
+      - name: the import kicks the digest after the front-page compile finishes
+        if: always()
+        run: bash tests/test_import_kicks_digest_after_frontpage_compile.sh
 
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
