@@ -1603,3 +1603,24 @@ Guarded by `tests/test_people_count_one_definition.py` (wired in
 
 UPSTREAM ROW (owed to CM041): canonical CM041 has no `assistant_api/people_rules.py`
 (vendor-only extraction), so there is nothing to port it to alone.
+
+## 2026-10-31, v1.0.121 batch-2: slow-request log line (instrumentation only)
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `ical-server.py` | new helpers above `class Handler` (`_instrumented`, `_store_urlopen`, `_route_template`, an in-flight counter); `do_GET`, `do_POST`, `do_OPTIONS` carry `@_instrumented`; `Handler.send_response` records the status; 14 Qdrant/Oxigraph/embed `urllib.request.urlopen(` call sites became `_store_urlopen(` (identical behaviour, plus per-request timing). |
+
+Why: pwg_people hit its 15s timeout to ical-server on 5 of 10 chat openings on
+the trial walk and the access log is suppressed, so the cause was not
+instrumented. A request over `OSTLER_ICAL_SLOW_REQUEST_S` (default 2.0) writes one
+line to stdout (launchd: ical-server.log): route template, duration, in-flight
+count at start and end, qdrant/oxigraph/embed seconds. Fast requests write
+nothing. No query string, body or identifier is logged.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
+(wired in `.github/workflows/ical-slow-request-log.yml`).
+
+UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
+`assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
