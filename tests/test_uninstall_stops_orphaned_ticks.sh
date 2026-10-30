@@ -128,7 +128,7 @@ wait
 EOF
     chmod +x "$p"
     ( nohup "$p" >/dev/null 2>&1 & )
-    while [[ ( ! -s "${pf}.pid" || ! -s "${pf}.child" ) && $i -lt 50 ]]; do sleep 0.1; i=$((i + 1)); done
+    while [[ ( ! -s "${pf}.pid" || ! -s "${pf}.child" ) && $i -lt 300 ]]; do sleep 0.1; i=$((i + 1)); done
     [[ -s "${pf}.pid" && -s "${pf}.child" ]] || cannot "stub tick ${p} did not start"
     cat "${pf}.pid" "${pf}.child" >> "${WORK}/all_pids"
 }
@@ -151,7 +151,7 @@ populate() {
     ( nohup /usr/bin/python3 -c 'import os,sys,time
 open(sys.argv[2],"w").write(str(os.getpid())); time.sleep(300)' \
         "${H}/.ostler/bin/wiki-recompile-tick.sh.orig" "${sb}/state/ctlB.pid" >/dev/null 2>&1 & )
-    i=0; while [[ ! -s "${sb}/state/ctlB.pid" && $i -lt 50 ]]; do sleep 0.1; i=$((i + 1)); done
+    i=0; while [[ ! -s "${sb}/state/ctlB.pid" && $i -lt 300 ]]; do sleep 0.1; i=$((i + 1)); done
     [[ -s "${sb}/state/ctlB.pid" ]] || cannot "control B did not start"
     cat "${sb}/state/ctlB.pid" >> "${WORK}/all_pids"; echo >> "${WORK}/all_pids"
 }

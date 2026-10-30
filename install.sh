@@ -29278,16 +29278,18 @@ fi
 
 echo ""
 _u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
-if [[ -n "$_U_TICK_SURVIVORS" ]]; then
+if [[ -n "${_U_TICK_SURVIVORS:-}" ]]; then
     echo "  WARNING: SOME OSTLER BACKGROUND TASKS ARE STILL RUNNING:"
     printf '%s' "$_U_TICK_SURVIVORS"
     echo "    They could not be stopped. Restart this Mac to end them."
     echo ""
 fi
-if [[ "$OSTLER_STORES_REMOVED" -eq 1 && -z "$_U_TICK_SURVIVORS" ]]; then
-    echo "  Done. Ostler has been removed."
-elif [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
-    echo "  Done. Ostler has been removed APART FROM the running tasks named above."
+if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
+    if [[ -z "${_U_TICK_SURVIVORS:-}" ]]; then
+        echo "  Done. Ostler has been removed."
+    else
+        echo "  Done. Ostler has been removed APART FROM the running tasks named above."
+    fi
 else
     echo "  WARNING: YOUR DATA STORES WERE NOT REMOVED."
     echo "    ${OSTLER_STORES_WHY}"
