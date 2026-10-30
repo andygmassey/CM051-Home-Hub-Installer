@@ -117,6 +117,8 @@ on:
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
       - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
       - 'tests/test_ttywalk_lang_leg.sh'
+      - 'tests/test_walk_lang_answers_cover_computed_prompts.py'
+      - 'install.sh.strings.*.sh'
       - 'tests/test_ttywalk_exit_cleanup_lines.sh'
       - 'tests/test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh'
       - 'tests/fixtures/lang_leg/**'
@@ -925,6 +927,14 @@ jobs:
       - name: ttywalk --lang puts OSTLER_LANG on the launch line, stages the answers file, and cleans up
         if: always()
         run: /bin/bash tests/test_ttywalk_lang_leg.sh
+
+      # v1.0.121 batch 2: every prompt the English driver answers with a COMPUTED
+      # value (@owner_name, @owner_allowed, @passphrase, country code, timezone)
+      # must have an answer row in the file generated for every shipped locale.
+      # The JA leg aborted on the typed-name fallback prompt, which had none.
+      - name: every computed driver answer is mapped in the generated answers file of every locale
+        if: always()
+        run: python3 tests/test_walk_lang_answers_cover_computed_prompts.py
 
       # ttywalk.sh exit trap: the --from-dmg detach and temp-dir removal must be
       # LOGGED (success and failure), with a -force retry; fake hdiutil, two mutants.

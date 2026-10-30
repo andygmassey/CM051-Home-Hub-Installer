@@ -66,6 +66,7 @@ computed = computed_answers(drv)
 rows, report = [], []
 for sub, ans in pairs:
     ans = ans.strip().strip('"')
+    is_computed = ans.startswith("@") or ans in ("cc", "tz")
     if ans in ("cc", "tz") and ans in computed:
         ans = computed[ans]
     elif not ans or ans in ("cc", "tz"):
@@ -75,19 +76,32 @@ for sub, ans in pairs:
     if not keys:
         report.append(("UNMAPPED", sub, "no MSG_ key holds it; prompt stays English"))
         continue
+    # A COMPUTED answer (@owner_name, @owner_allowed, @passphrase, cc, tz) is
+    # mapped for EVERY key that carries the substring, not only the first. One
+    # English title can be shown by several catalogue keys (the contacts-detected
+    # and the typed-fallback "Full name" prompts), and install.sh picks between
+    # them at run time; mapping only the first left the other answered with
+    # Enter, which the installer re-asks for ever. Literal answers keep the
+    # first-hit behaviour (their prompts are single-key).
+    all_keys = is_computed
     done = False
     for k in keys:
         t = xx.get(k, "")
         if sub in t:
             report.append(("ENGLISH", sub, k + " untranslated; built-in still matches"))
             done = True
+            if all_keys:
+                continue
             break
         runs = [r.strip() for r in re.split(r"%[sd]|\\n|\n", t) if r.strip()]
         if runs:
             best = max(runs, key=len)
-            rows.append((best, ans))
+            if (best, ans) not in rows:
+                rows.append((best, ans))
             report.append(("MAPPED", sub, k + " -> " + best[:60]))
             done = True
+            if all_keys:
+                continue
             break
     if not done:
         report.append(("UNMAPPED", sub, "keys %s have no %s value" % (",".join(keys), "translated")))
