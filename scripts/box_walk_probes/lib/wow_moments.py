@@ -533,10 +533,10 @@ def self_test():
     print("  %s  brief_shape passes a clean brief" % ("ok   " if shp == {"iso_date_leak": False, "chat_echo": False} else "FAIL "))
     ok &= shp == {"iso_date_leak": False, "chat_echo": False}
     # Grading split: 2 resolved + 1 unresolved grades exactly the 2 resolved.
-    names, uns = grade_reply_debts([{"person_name": "Pat Example", "resolved": True},
-                                    {"person_name": "Sam Example", "resolved": True},
+    names, uns = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
+                                    {"person_name": "John Doe", "resolved": True},
                                     {"person_name": "Unknown number", "resolved": False}])
-    split_ok = names == ["Pat Example", "Sam Example"] and uns == 1
+    split_ok = names == ["Jane Doe", "John Doe"] and uns == 1
     print("  %s  2 resolved + 1 unresolved: graded %d of 2, unsaved %d not graded" % ("ok   " if split_ok else "FAIL ", len(names), uns))
     ok &= split_ok
     cap = dict(rd_good, count=3, graded=len(names), named=[True] * len(names), unsaved=uns)
@@ -546,7 +546,7 @@ def self_test():
     _, rc = judge_reply_debt(dict(cap, named=[True, False]))
     print("  %s  reply debt mutant rejected: a resolved person dropped from the answer" % ("ok   " if rc == EX_FAIL else "FAIL "))
     ok &= rc == EX_FAIL
-    mut_names, _ = grade_reply_debts([{"person_name": "Pat Example", "resolved": True},
+    mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
                                       {"person_name": "Unknown number", "resolved": False}])
     mut_ok = "Unknown number" not in mut_names
     print("  %s  an unresolved number is never graded by name" % ("ok   " if mut_ok else "FAIL "))
