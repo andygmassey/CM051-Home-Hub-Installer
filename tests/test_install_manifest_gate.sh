@@ -368,6 +368,30 @@ else
     bad "the box-walk probe --self-test returned $rc, not 1. The runner would mark it BROKEN (rc 0) or mis-handle it."
 fi
 
+# ── I. Every launch agent install.sh defines by a function-local label is DECLARED. ─
+# v1.0.120 walk: com.ostler.derive-preferences (added by #2955) was present on
+# the install and in no manifest row, so install_manifest_complete FAILED.
+# Reads the REAL install.sh and the REAL manifest; the control is that the
+# enrich agent (declared long ago) is among the labels found, so an empty
+# extraction cannot pass.
+labels_found="$(/usr/bin/grep -oE 'local label="com\.[a-z.-]+"' "$REPO/install.sh" | sed -E 's/^local label="//; s/"$//' | sort -u)"
+if [ -z "$labels_found" ] || ! grep -qx 'com.ostler.enrich' <<< "$labels_found"; then
+    bad "install.sh label extraction found nothing or missed the control label com.ostler.enrich"
+else
+    undeclared=""
+    while IFS= read -r lbl; do
+        [ -n "$lbl" ] || continue
+        if ! /usr/bin/grep -qE "^launch_agent	[^	]*	[a-z]+	${lbl//./\\.}	" "$MANIFEST"; then
+            undeclared="$undeclared $lbl"
+        fi
+    done <<< "$labels_found"
+    if [ -z "$undeclared" ]; then
+        pass "every function-local launch agent label in install.sh is declared in install_manifest.tsv ($(wc -l <<< "$labels_found" | tr -d ' ') checked)"
+    else
+        bad "install.sh defines launch agents the manifest does not declare:$undeclared"
+    fi
+fi
+
 # ── ANTI-VACUITY: a verifier that ignored the manifest would pass B..E. ─
 # Prove the harness can see the defect: the COMPLETE install passed (A) and each
 # single removal flipped it to a NAMED failure (B..E). If the gate ignored the

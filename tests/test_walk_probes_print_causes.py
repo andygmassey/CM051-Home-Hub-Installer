@@ -98,14 +98,18 @@ def sparql_answer(q):
         return [{"jname_s": P + "x", "jname": "John Doe"},
                 {"jname_s": P + "x2", "jname": "Jane Doe" if cf == "namemismatch" else "John Doe"}]
     if "GROUP BY ?person" in q:
+        if cf == "clean":
+            return []
         if cf != "default":
             return [{"person": P + "x", "uids": 2}]
         return [{"person": P + "a", "uids": 2}, {"person": P + "b", "uids": 3},
                 {"person": P + "c", "uids": 2}, {"person": P + "d", "uids": 2}]
     if "COUNT(DISTINCT ?i) AS ?n" in q:
         return [{"n": 6}]
+    if "AS ?uidn" in q:
+        return [{"uidn": UIDS[0]}]
     if "FILTER(?a != ?b)" in q:
-        return [{"n": 3}]
+        return [{"n": OPP[0]}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
         return [{"n": 0}]
     if "?src p:mergedInto ?s }" in q:
@@ -156,6 +160,10 @@ COUNT_FIXTURES = {
 }
 COUNT_FIXTURE = ["stubs"]
 CARDS_FIXTURE = ["default"]
+# What the fake Oxigraph answers to the probe's distinct-uid and collision-opportunity
+# queries. A non-number is how a broken query looks to _sparql_scalar.
+UIDS = [6]
+OPP = [3]
 
 # Merge-journal rows in the CM051 #3217 schema. The hash is an HMAC keyed by
 # the install's service_token, so it is only ever checked for SHAPE; this value
@@ -208,7 +216,11 @@ class Store(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query).get("query", [""])[0]
             return self._send(bindings(sparql_answer(q)))
         if u.path == "/api/v1/hydration/status":
-            n = len(COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"])
+            # The shipped Doctor (ical-server _wiki_people_count) counts the
+            # Qdrant points that pass people_rules.is_countable_person (v1.0.121).
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vendor", "cm041", "assistant_api"))
+            from people_rules import is_countable_person
+            n = sum(1 for dn in COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"] if is_countable_person(dn))
             return self._send({"overall_state": "done", "phases": [{"key": "contacts", "count": n}]})
         self._send({}, 404)
 
@@ -351,7 +363,7 @@ def probes_end_to_end():
         env_norules = dict(env, OSTLER_PEOPLE_RULES_DIR=os.path.join(tmp, "no-such-dir"))
         COUNT_FIXTURE[0] = "stubs"
         rc, out = run_probe("people_count_agreement", env_norules)
-        check(rc == 78 and "could not import _is_nameless_name" in out,
+        check(rc == 78 and "could not import is_countable_person" in out,
               "people_count_agreement: no importable predicate is CANNOT-RUN, never a raw-count verdict", "rc=%s" % rc)
 
         rc, out = run_probe("people_stores_reconcile", env)

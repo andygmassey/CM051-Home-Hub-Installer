@@ -111,3 +111,14 @@ Role substitution, 2 lines (27, 55): role noun replaces fictional cast name in 2
 worked examples so pii-name-guard has no PAIR; teaching verb unchanged. Recorded
 in `vendor/divergences/cm048_pipeline.patch` (the 09_bundle_extract.md hunks, pin
 f6b75bea): pin + patch sha256 == the vendored file.
+
+## Stack: reminder title gate (CM048 #106) and its length fix (CM048 #108), v1.0.121
+
+Tree `cm048_pipeline`. The title quality gate, human notes and staleness cutoff
+(`src/reminders_push.py`) are NOT on CM048 main: they live on CM048 PR #106
+(branch `todo-title-gate`), grafted here by CM051 #3169. The length fix (a valid
+todo over 80 chars is cut at a word boundary, full text in the L0/L1 notes, a
+length refusal is `title_too_long`) is CM048 PR #108, stacked on #106, and is
+carried here by CM051 #3232. Both ride in `vendor/divergences/cm048_pipeline.patch`.
+RETIRE this entry when #106 (with #108) merges canonically and the pin is moved
+past it; until then do not let a re-pin overwrite `src/reminders_push.py`.

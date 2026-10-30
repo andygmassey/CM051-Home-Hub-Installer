@@ -91,7 +91,7 @@ NO_EXTENSIONS=false
 #
 # A closed loop with no exit for a week, in which the product repeatedly
 # instructs the customer to pull a lever that is not connected to anything.
-# Three more sites treat the flag as real in prose: install.sh:17976,
+# Three more sites treat the flag as real in prose: install.sh:33714,
 # vendor/doctor/agent/imessage_tcc_posture.py:23, and
 # vendor/doctor/agent/reminders_posture.py:28 ("refreshed on each --repair
 # run"). It refreshed nothing.
@@ -290,7 +290,7 @@ _ostler_persist_diagnostics() {
 #
 # 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
 # always. Do NOT route a site whose exit code chooses a customer-visible
-# branch through this -- install.sh:20532 picks ok/warn from the exit status of
+# branch through this -- install.sh:34270 picks ok/warn from the exit status of
 # its kickstart, and backgrounding it would report "started" for a daemon that
 # never started. Lying to the customer is worse than stalling them. That site
 # needs a three-state bounded variant and is deliberately NOT converted here.
@@ -355,7 +355,9 @@ _ks_bounded() {
 # pause/defer check (an operator Pause, or a box over its load ceiling, skips
 # the tick); and the shared ingest slot, so a derive never reads the graph
 # while an ingest or enrich slice is half-way through writing it. It holds no
-# model, so it holds the slot for seconds.
+# model, so it holds the slot for seconds. Every tick that does not reach the
+# runner records why in the runner's own status file, and a ceiling (3 ticks in
+# a row, or 12h) runs it anyway under taskpolicy -b; see the wrapper header.
 _install_derive_preferences_agent() {
     local label="com.ostler.derive-preferences"
     local plist="${HOME}/Library/LaunchAgents/${label}.plist"
@@ -375,24 +377,141 @@ _install_derive_preferences_agent() {
 	#
 	# `set -uo pipefail`, not -e: a failed pass is recorded in the status file
 	# the runner writes and the next tick tries again.
+	#
+	# EVERY EXIT LEAVES A RECORD. The runner writes state/derived-preferences.json
+	# for every outcome it reaches. A tick that never reaches it (deferred on load,
+	# yielded to a busy ingest slot, no venv, cannot enter the tree) writes the
+	# same file itself, marked "writer": "tick", with outcome deferred, yielded or
+	# cannot_start, the reason, the time and how many ticks in a row have had no
+	# pass. It carries the last COMPLETED pass forward (last_run_at, the node
+	# count), so the Doctor keeps the count and the walk probe's "did a pass run
+	# after the kick" read (a change in last_run_at) is not fooled by a deferral.
+	# v1.0.120, cold 16GB box: eight "deferred (load)" lines over 8.5h, no status
+	# file at all, and "What you like" degraded with no reason anywhere.
+	#
+	# THE CEILING. A box that is always busy must not starve this for ever. After
+	# OSTLER_DERIVE_DEFER_CEILING (3) ticks in a row with no pass, or
+	# OSTLER_DERIVE_DEFER_CEILING_S (12h) since the last completed pass (since the
+	# streak began when none ever completed), the load deferral is overridden and
+	# the pass runs under `taskpolicy -b`. An import that just finished
+	# (state/derive-preferences.after-import, written by ostler-import) overrides
+	# it once too. NEVER overridden: an operator Pause, and the ingest slot, which
+	# is the consistency guard (a derive must not read a graph an ingest is half
+	# way through writing). The tier lib itself is unchanged.
 	set -uo pipefail
 
 	OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
 	LOGS_DIR="${OSTLER_DIR}/logs"
+	STATE_DIR="${OSTLER_DIR}/state"
 	CM019_DIR="${OSTLER_CM019_DIR:-${OSTLER_DIR}/services/cm019}"
 	CM019_PY="${CM019_DIR}/.venv/bin/python3"
 	DERIVE_USER="${OSTLER_DERIVE_USER:-ostler}"
 	LOG_FILE="${LOGS_DIR}/derive-preferences.log"
+	STATUS_FILE="${STATE_DIR}/derived-preferences.json"
+	TICK_STATE="${STATE_DIR}/derive-preferences-tick.state"
+	IMPORT_MARK="${STATE_DIR}/derive-preferences.after-import"
+	CEILING_N="${OSTLER_DERIVE_DEFER_CEILING:-3}"
+	CEILING_S="${OSTLER_DERIVE_DEFER_CEILING_S:-43200}"
+	TASKPOLICY="${OSTLER_TASKPOLICY_BIN:-/usr/sbin/taskpolicy}"
 
-	mkdir -p "$LOGS_DIR"
+	mkdir -p "$LOGS_DIR" "$STATE_DIR"
 	log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
+	_num() { case "${1:-}" in ''|*[!0-9]*) printf '0' ;; *) printf '%s' "$1" ;; esac; }
+	_iso() { case "${1:-}" in *[!0-9TZ:.+-]*) printf '' ;; *) printf '%s' "${1:-}" ;; esac; }
+	# key=value state, read without eval; a missing file reads as empty.
+	_kv() { [ -f "$2" ] || return 0; sed -n "s/^$1=//p" "$2" | tail -n 1; }
+	# one field of a JSON record this tick or the runner wrote (one key per line).
+	_jf() { [ -f "$STATUS_FILE" ] || return 0; sed -n "s/^ *\"$1\": \"*\([^\",]*\)\"*,*$/\1/p" "$STATUS_FILE" | head -n 1; }
+
+	NOW="$(_num "$(date +%s)")"
+	CONSEC="$(_num "$(_kv consecutive "$TICK_STATE")")"
+	STREAK0="$(_num "$(_kv streak_started_epoch "$TICK_STATE")")"
+	LAST_OK="$(_num "$(_kv last_completed_epoch "$TICK_STATE")")"
+	LAST_OK_AT="$(_iso "$(_kv last_completed_at "$TICK_STATE")")"
+	LAST_RUN_AT="$(_iso "$(_kv last_run_at "$TICK_STATE")")"
+	LAST_NODES="$(_kv graph_node_count "$TICK_STATE")"
+	case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	# Upgraded from a wrapper that kept no state: adopt the runner's own record.
+	if [[ ! -f "$TICK_STATE" && -f "$STATUS_FILE" && "$(_jf writer)" != "tick" ]]; then
+	    LAST_RUN_AT="$(_iso "$(_jf last_run_at)")"
+	    case "$(_jf outcome)" in written|empty) LAST_OK_AT="$LAST_RUN_AT" ;; esac
+	    LAST_NODES="$(_jf graph_node_count)"
+	    case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	fi
+
+	LOAD_1M=""; LOAD_CORES=""; LOAD_CEIL=""; LOAD_TIER=""; DEFER_DETAIL=""
+
+	_state_write() { # consecutive streak_started_epoch
+	    local tmp="${TICK_STATE}.tmp.$$"
+	    {
+	        printf 'consecutive=%s\n' "$1"
+	        printf 'streak_started_epoch=%s\n' "$2"
+	        printf 'last_completed_epoch=%s\n' "$LAST_OK"
+	        printf 'last_completed_at=%s\n' "$LAST_OK_AT"
+	        printf 'last_run_at=%s\n' "$LAST_RUN_AT"
+	        printf 'graph_node_count=%s\n' "$LAST_NODES"
+	    } >"$tmp" && mv -f "$tmp" "$TICK_STATE"
+	}
+	_jstr() { # a JSON string, or null when empty; strips quotes, backslashes, controls
+	    local s
+	    s="$(printf '%s' "${1:-}" | tr -d '"\\' | tr -d '\000-\037')"
+	    if [[ -z "$s" ]]; then printf 'null'; else printf '"%s"' "$s"; fi
+	}
+	_status_write() { # outcome reason consecutive -> the same file the runner writes
+	    local tmp="${STATUS_FILE}.tmp.$$" nodes="null"
+	    [[ -n "$LAST_NODES" ]] && nodes="$LAST_NODES"
+	    {
+	        printf '{\n'
+	        printf '  "consecutive": %s,\n' "$(_num "$3")"
+	        printf '  "ceiling_per_core": %s,\n' "$(_jstr "$LOAD_CEIL")"
+	        printf '  "cores": %s,\n' "$(_jstr "$LOAD_CORES")"
+	        printf '  "graph_node_count": %s,\n' "$nodes"
+	        printf '  "last_completed_at": %s,\n' "$(_jstr "$LAST_OK_AT")"
+	        printf '  "last_run_at": %s,\n' "$(_jstr "$LAST_RUN_AT")"
+	        printf '  "load_1m": %s,\n' "$(_jstr "$LOAD_1M")"
+	        printf '  "outcome": "%s",\n' "$1"
+	        printf '  "reason": %s,\n' "$(_jstr "$2")"
+	        printf '  "schema": 1,\n'
+	        printf '  "tier": %s,\n' "$(_jstr "$LOAD_TIER")"
+	        printf '  "ts": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+	        printf '  "writer": "tick"\n'
+	        printf '}\n'
+	    } >"$tmp" && mv -f "$tmp" "$STATUS_FILE"
+	}
+	_skip() { # outcome reason: record a tick with no pass, then exit 0
+	    local n=$((CONSEC + 1)) s0="$STREAK0"
+	    [[ "$s0" -gt 0 ]] || s0="$NOW"
+	    _state_write "$n" "$s0"
+	    _status_write "$1" "$2" "$n"
+	    log "${1} (${2}); ${n} tick(s) in a row with no pass; the next tick tries again"
+	    exit 0
+	}
+	_defer_detail() { # WHAT tripped the gate, measured just after it
+	    if [[ "${OSTLER_DEFER_REASON:-load}" == "paused" ]]; then
+	        DEFER_DETAIL="paused: an operator pause is in effect"
+	        return 0
+	    fi
+	    LOAD_1M="$(ostler_rt_loadavg_1m 2>/dev/null || true)"
+	    LOAD_CORES="${OSTLER_CPU_CORES:-}"
+	    LOAD_CEIL="${OSTLER_LOADAVG_CEILING:-}"
+	    LOAD_TIER="${OSTLER_TIER:-}"
+	    if [[ -z "$LOAD_1M" || "$(_num "$LOAD_CORES")" -le 0 ]]; then
+	        DEFER_DETAIL="load: unreadable (1m load '${LOAD_1M}', cores '${LOAD_CORES}'); tier ${LOAD_TIER:-?} defers by default"
+	        return 0
+	    fi
+	    local per
+	    per="$(awk -v l="$LOAD_1M" -v c="$LOAD_CORES" 'BEGIN { printf "%.2f", l / c }' 2>/dev/null || true)"
+	    DEFER_DETAIL="load: 1m load ${LOAD_1M} over ${LOAD_CORES} cores is ${per:-?} per core, above the ${LOAD_TIER:-?} tier ceiling of ${LOAD_CEIL:-?} per core"
+	}
 
 	if [[ ! -x "$CM019_PY" ]]; then
-	    log "no preferences service at ${CM019_DIR}; nothing to derive"
-	    exit 0
+	    _skip cannot_start "no preferences service at ${CM019_DIR}; nothing to derive"
 	fi
 
 	# Operator Pause and the load ceiling. Fail-safe: no tier lib, no deferral.
+	BG_RUN=""
+	FORCE=""
+	[[ -f "$IMPORT_MARK" ]] && FORCE="an import just finished"
 	_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
 	if [[ "${OSTLER_RESOURCE_GOVERNOR:-1}" == "1" && -f "$_tier_lib" ]]; then
 	    # shellcheck source=/dev/null
@@ -400,14 +519,53 @@ _install_derive_preferences_agent() {
 	    if command -v ostler_resource_tier_detect >/dev/null 2>&1; then
 	        ostler_resource_tier_detect
 	        if ostler_resource_tier_should_defer_nonessential; then
-	            log "deferred (${OSTLER_DEFER_REASON:-load}); the next tick tries again"
-	            exit 0
+	            _defer_detail
+	            if [[ "${OSTLER_DEFER_REASON:-load}" == "paused" ]]; then
+	                _skip deferred "$DEFER_DETAIL"
+	            fi
+	            _ref="$LAST_OK"
+	            [[ "$_ref" -gt 0 ]] || _ref="$STREAK0"
+	            if [[ -z "$FORCE" && "$CONSEC" -ge "$(_num "$CEILING_N")" ]]; then
+	                FORCE="${CONSEC} ticks in a row with no pass"
+	            elif [[ -z "$FORCE" && "$_ref" -gt 0 && $((NOW - _ref)) -ge "$(_num "$CEILING_S")" ]]; then
+	                FORCE="$(( (NOW - _ref) / 3600 ))h since the last completed pass"
+	            fi
+	            if [[ -z "$FORCE" ]]; then
+	                _skip deferred "$DEFER_DETAIL"
+	            fi
+	            BG_RUN=1
+	            log "ceiling reached (${FORCE}); running anyway under taskpolicy -b despite ${DEFER_DETAIL}"
 	        fi
 	    fi
 	fi
 
-	cd "$CM019_DIR" || { log "cannot enter ${CM019_DIR}"; exit 0; }
+	cd "$CM019_DIR" || _skip cannot_start "cannot enter ${CM019_DIR}"
 	CMD=("$CM019_PY" -m services.enrich.src.derive_runner --user-id "$DERIVE_USER")
+	if [[ -n "$BG_RUN" ]]; then
+	    if [[ -x "$TASKPOLICY" ]]; then
+	        CMD=("$TASKPOLICY" -b "${CMD[@]}")
+	    else
+	        log "no taskpolicy at ${TASKPOLICY}; the forced pass runs at the agent's own Background priority"
+	    fi
+	fi
+
+	_after_pass() { # rc: adopt the runner's record, or write one if it left none
+	    rm -f "$IMPORT_MARK"
+	    if [[ ! -f "$STATUS_FILE" || "$(_jf writer)" == "tick" ]]; then
+	        _status_write not_written "the derive runner exited rc=${1} without recording a pass" 0
+	    else
+	        LAST_RUN_AT="$(_iso "$(_jf last_run_at)")"
+	        case "$(_jf outcome)" in
+	            written|empty)
+	                LAST_OK="$NOW"
+	                LAST_OK_AT="$LAST_RUN_AT"
+	                LAST_NODES="$(_jf graph_node_count)"
+	                case "$LAST_NODES" in ''|*[!0-9]*) LAST_NODES="" ;; esac
+	                ;;
+	        esac
+	    fi
+	    _state_write 0 0
+	}
 
 	log "tick start"
 	_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
@@ -415,17 +573,16 @@ _install_derive_preferences_agent() {
 	    # shellcheck source=/dev/null
 	    . "$_slot_lib"
 	    if ! ostler_slot_acquire "derive-preferences"; then
-	        log "ingest slot busy; yielding this tick"
-	        exit 0
+	        _skip yielded "the ingest slot is busy; an import or enrich slice holds it"
 	    fi
-	    if ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
-	        log "tick finished: written (see state/derived-preferences.json)"
-	    else
-	        log "tick finished: NOT written (see state/derived-preferences.json for why)"
-	    fi
-	    exit 0
+	    _rc=0
+	    ostler_slot_run "${CMD[@]}" >>"$LOG_FILE" 2>&1 || _rc=$?
+	else
+	    _rc=0
+	    "${CMD[@]}" >>"$LOG_FILE" 2>&1 || _rc=$?
 	fi
-	if "${CMD[@]}" >>"$LOG_FILE" 2>&1; then
+	_after_pass "$_rc"
+	if [[ "$_rc" -eq 0 ]]; then
 	    log "tick finished: written (see state/derived-preferences.json)"
 	else
 	    log "tick finished: NOT written (see state/derived-preferences.json for why)"
@@ -542,7 +699,7 @@ _ostler_wire_store_auth_pth() {
     # still live. A value captured during staging and never rebound to the
     # tree it will actually run from.
     #
-    # OSTLER_FINAL_DIR is assigned unconditionally at install.sh:2001, before
+    # OSTLER_FINAL_DIR is assigned unconditionally at install.sh:3543, before
     # every call site that relies on this default (the earliest is ~2749). The
     # three upgrade-path callers pass their own root explicitly and are
     # unaffected either way.
@@ -632,7 +789,7 @@ _ostler_wire_store_auth_pth() {
 #
 # WHY IT SURVIVED THIS LONG, since a dead install is not subtle: the
 # failure is silent at the exit code. `trap composite_cleanup EXIT` is
-# registered at :9792, and this file's own backstop comment near :9730
+# registered at :14123, and this file's own backstop comment near :13982
 # records that a `set -u` abort can mask the status to 0 on bash 3.2 --
 # which is precisely why that backstop exists. Reported by @Archie from a
 # real run on a real Mac (2026-08-29), his measurement not mine: ~89% on
@@ -881,12 +1038,12 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         # read it, and the function would return 0 WITHOUT writing the service
         # token -- a silent skip of the upgrade, not a crash.
         #
-        # The :590 precondition ([[ -f "$_plist" ]]) makes the poisoning input
+        # The :1023 precondition ([[ -f "$_plist" ]]) makes the poisoning input
         # unreachable today, so this is currently safe BY DEPENDENCY. That is
         # the fragile kind: delete the -f and this site becomes the #1497 bug
         # with no diff here to explain why. PlistBuddy does exit non-zero, so
         # taking the rc costs one clause and removes the dependency entirely --
-        # which is how :571 and :11645 already do it.
+        # which is how :1004 and :15399 already do it.
         _cur="$("$_UPG_PB" -c "Print :EnvironmentVariables:PWG_SERVICE_TOKEN" "$_plist" 2>/dev/null)" || _cur=""
         if [[ -n "$_cur" ]]; then return 0; fi
         "$_UPG_PB" -c "Print :EnvironmentVariables" "$_plist" >/dev/null 2>&1 \
@@ -1497,7 +1654,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         # `x="$(cmd)"` carries cmd's exit status, so under `set -e` a
         # non-zero return aborts here -- and 1 and 2 are exactly the answers
         # the case below exists to tell apart. Same class as the preflight
-        # above and as #1756's :12399 / :13022.
+        # above and as #1756's :16290 / :17653.
         _upg_rr_out=""; _upg_rr_rc=0
         _upg_rr_out="$(_ostler_verify_runtime_ready \
             "${HOME}/.ostler/.venv/bin/python3" \
@@ -4080,14 +4237,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9539) captures the path BY
+    # _ostler_write_store_curl_config (defined :9696) captures the path BY
     # VALUE and never re-reads it:
-    #     :9540   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9585   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9594 and :17521, both of which run
+    #     :9697   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9742   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9751 and :17678, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :4066 above has just deleted
-    # that tree and :4070 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :4223 above has just deleted
+    # that tree and :4227 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -4099,16 +4256,16 @@ _ostler_promote_prelaunch_tree() {
     #
     # THE FILE MOVES, THE VALUE DOES NOT. This is NOT a new class and this
     # comment should not pretend to have found one. install.sh already carries
-    # it four times over, all catalogued at :539: #177 baked a staging path
+    # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18316, where the note reads
+    # WhatsApp Web session path did it again at :18473, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18333 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18490 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4117,13 +4274,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :6864 against a definition at :9539. Top-level
+    # writer's own definition: :7021 against a definition at :9696. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9594, :17521) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9751, :17678) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20530 / :20708 / :20865 / :21310 path. There the
+    # :20687 / :20865 / :21022 / :21467 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -4215,7 +4372,7 @@ _ostler_promote_prelaunch_tree() {
     # THAT KILLS THE RECOVERY KEY ────────────────────────────────────────────
     #
     # A SYMLINK STORES ITS TARGET AS TEXT. ${OSTLER_DIR}/bin/ostler-unlock is
-    # created at install.sh:8168 as
+    # created at install.sh:9807 as
     #     ln -sfn "${OSTLER_VENV}/bin/ostler-unlock" ...
     # and when that runs before this promote, OSTLER_VENV is still
     # ${OSTLER_PRELAUNCH_DIR}/.venv. The mv relocates the LINK FILE and cannot
@@ -9255,10 +9412,10 @@ fi
 # comment claimed FOUR venv sites lived above it. @A2 measured SIX, and the
 # two I missed are MAIN PATH:
 #
-#     :473 :496 :530   upgrade leg   (I had these)
-#     :2529            fn-local      (I had this)
-#     :6495            $OSTLER_VENV  ⬅ MISSED, ordinary top-level main path
-#     :6638            $FDA_VENV     ⬅ MISSED, ordinary top-level main path
+#     :1193 :1218 :1254   upgrade leg   (I had these)
+#     :4646            fn-local      (I had this)
+#     :9759            $OSTLER_VENV  ⬅ MISSED, ordinary top-level main path
+#     :9922            $FDA_VENV     ⬅ MISSED, ordinary top-level main path
 #
 # He proved the consequence by executing the shape rather than reasoning about
 # it: the seeder does not EXIST as a function until its definition is reached,
@@ -9268,9 +9425,9 @@ fi
 # the missing FILE is what aborts.
 #
 # So it is defined and called HERE, above the first main-path venv site
-# (:6495, the ostler_security block immediately below). Both dependencies are
-# already bound: SCRIPT_DIR at :2982/:2985, OSTLER_DIR via _ostler_set_paths
-# at :1872 and rebound at :2274, with no further rebind after that point.
+# (:9759, the ostler_security block immediately below). Both dependencies are
+# already bound: SCRIPT_DIR at :5191/:5194, OSTLER_DIR via _ostler_set_paths
+# at :3685 and rebound at :4227, with no further rebind after that point.
 #
 # It stays a FUNCTION rather than a bare cp because the upgrade leg has its
 # own root: any caller may invoke it for its own context before it needs the
@@ -9462,7 +9619,7 @@ fi
 # with `import` at interpreter startup, before user code. That is what makes
 # this work for CM041 / CM024 / CM052 / doctor WITHOUT four separate client PRs
 # -- which is exactly the prerequisite `OSTLER_STORE_AUTH_ENFORCE` names in its
-# own warn text at :11427 as the reason it cannot be flipped on.
+# own warn text at :17798 as the reason it cannot be flipped on.
 #
 # FAILURE MODE, MEASURED NOT ASSUMED (2026-08-28, python3.14 venv):
 #   shim present  -> module loads, interpreter runs
@@ -9697,7 +9854,7 @@ fi
 # module not bundled. Skipping instant data extraction" later in
 # Phase 3.7, leaving the customer with zero extracted data and no
 # clear error. The hard-fail below mirrors the ostler_security probe
-# pattern (install.sh:1820-1846) so a build regression surfaces
+# pattern (install.sh:9813-9839) so a build regression surfaces
 # immediately rather than 30 minutes into the install.
 FDA_DIR="${OSTLER_DIR}/fda-module"
 HAS_FDA_MODULE=false
@@ -10243,7 +10400,7 @@ fi
 #
 # 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
 # /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
-# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# (:4149) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
 # for EVERY top-level entry, one of which is lib/. So a lib written straight to
 # ~/.ostler/lib is deleted by the promote that follows it, and the install that
 # wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
@@ -10607,7 +10764,7 @@ chmod +x "${OSTLER_DIR}/lib/ostler-detect-exports.sh" 2>/dev/null || true
 #
 # 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
 # /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
-# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# (:4149) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
 # for EVERY top-level entry, one of which is lib/. So a lib written straight to
 # ~/.ostler/lib is deleted by the promote that follows it, and the install that
 # wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
@@ -11059,7 +11216,7 @@ chmod +x "${OSTLER_DIR}/lib/ostler-resource-tier.sh" 2>/dev/null || true
 #
 # 🔴 ${OSTLER_DIR}, NEVER A LITERAL ${HOME}/.ostler. Phase 2 writes into the
 # /tmp/ostler-prelaunch-<pid> staging tree, and _ostler_promote_prelaunch_tree
-# (:3257) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
+# (:4149) promotes it by doing `rm -rf "${OSTLER_FINAL_DIR}/${name}"` then `mv`
 # for EVERY top-level entry, one of which is lib/. So a lib written straight to
 # ~/.ostler/lib is deleted by the promote that follows it, and the install that
 # wrote it reports status=ok. Measured on the walk box 2026-09-23: all three
@@ -14219,7 +14376,7 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # exists as the thing that holds when nobody updates this by hand.
     #
     # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
-    # decrements at :20703-:21229 and :26238 subtract from whatever this sets,
+    # decrements at :30784-:31408 and :39023 subtract from whatever this sets,
     # so a fallback seed still ends up below the number of steps that actually
     # run. That is why progress() now CLAMPS (see the note there): the clamp is
     # the thing that holds when this constant next drifts, and it will.
@@ -14254,14 +14411,14 @@ progress() {
     local PCT=$((CURRENT_STEP * 100 / TOTAL_STEPS))
 
     # CLAMP. This file already computes a percentage in one other place
-    # (the Ollama pull parser, :1517) and clamps it there with exactly this
+    # (the Ollama pull parser, :2529) and clamps it there with exactly this
     # line. progress() -- the bar the CUSTOMER watches for the whole install
     # -- had no clamp at all.
     #
     # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
     # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
-    # sites (:10158 + six mid-run at :20703-:21229 + :26238). If the seed
-    # overshoots -- which the fallback at :10168 does by construction, since
+    # sites (:14358 + six mid-run at :30784-:31408 + :39023). If the seed
+    # overshoots -- which the fallback at :14391 does by construction, since
     # it hardcodes 38 and the mid-run decrements then subtract from THAT --
     # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
     #
@@ -14275,7 +14432,7 @@ progress() {
     # the 105-106% arithmetically; this line makes the derivation unnecessary.
     #
     # A CLAMP RATHER THAN A CORRECTED CONSTANT, DELIBERATELY. The constant has
-    # drifted before and will again -- the comment at :10166 still says
+    # drifted before and will again -- the comment at :14366 still says
     # "currently 39 calls" against a measured 41. A bound cannot drift; a
     # count can. Fix the count too (below), but do not rely on it.
     (( PCT > 100 )) && PCT=100
@@ -16103,9 +16260,9 @@ OLLAMAPLIST
     # said errexit and that was wrong; correcting it because the wrong version
     # invites the wrong fix.
     #
-    # ERREXIT IS OFF AT THIS LINE. The governing flag word is :8140
-    # `set -uo pipefail` (no -e); -e does not come back until :12462. What
-    # aborts is the trap installed at :10793, and MEASURED, an ERR trap fires
+    # ERREXIT IS OFF AT THIS LINE. The governing flag word (line not re-pointed: the only `set -uo pipefail` above is inside the detect-exports heredoc; re-measure) is
+    # `set -uo pipefail` (no -e); -e does not come back until a later `set -e` (line not re-pointed: not verified). What
+    # aborts is the trap installed at :14295, and MEASURED, an ERR trap fires
     # whether or not `set -e` is on:
     #
     #     set -Eeuo pipefail + trap, f returns 1  ->  trap fires
@@ -17287,7 +17444,7 @@ printf 'ASSISTANT_NAME=%s\n' "${ASSISTANT_NAME:-}" >> "$OSTLER_ENV_FILE"
 # <=23GB Macs (the RAM picker gives them gemma4:e2b) -> CM044's compiler hits
 # Ollama with a model that was never pulled -> ~2000x 404 in one compile ->
 # Person/Org/Year pages render empty. Write the installer's RAM-tier pick
-# (AI_MODEL, set ~install.sh:4685) so BOTH the install-time compile AND the
+# (AI_MODEL, set ~install.sh:10223) so BOTH the install-time compile AND the
 # recompile LaunchAgent (both `docker compose` from $OSTLER_DIR, reading this
 # .env) resolve the real model. Idempotent: replace any prior line.
 if grep -q '^AI_MODEL=' "$OSTLER_ENV_FILE" 2>/dev/null; then
@@ -17488,7 +17645,7 @@ _seed_wiki_password() {
         # The loud length check DIRECTLY BELOW is the intended failure path for
         # a credential we could not generate, and it was unreachable: the
         # assignment aborted the script before it could run. Same shape as the
-        # Ollama poll at :12403.
+        # Ollama poll at :16296.
         #
         # `head -c` on a FILE argument has no upstream process to signal, and
         # `tr` then reads to EOF and exits 0. The slice is pure shell, so
@@ -18495,7 +18652,7 @@ TOMLPREAMBLE
     # is done -- encoding it here would silently break if the alphabet ever
     # changed, and a wrong password fails CLOSED as a 401 rather than quietly.
     #
-    # Safe to put here: this file is chmod 600 (install.sh:14048), the write is
+    # Safe to put here: this file is chmod 600 (install.sh:18876), the write is
     # inside `umask 0077`, and it ALREADY carries the email channel password.
     # A second local account cannot read it, which is the whole reason
     # auth_basic works as an access control on a shared loopback.
@@ -19629,7 +19786,7 @@ OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.31}"
 # whether the artefact is there. The retry re-points the URLs via
 # _ostler_assistant_set_urls but nothing re-points
 # ASSISTANT_TARBALL_SHA256, so the fallback tarball is checked at
-# :11691 against the PRIMARY's digest, mismatches, and the install
+# :20387 against the PRIMARY's digest, mismatches, and the install
 # aborts telling the customer their download failed an integrity
 # pin. Tracked as HR015 #583 with the fix shape (a second baked
 # pin, re-pointed in the same commit as the first). Recorded here
@@ -21297,7 +21454,7 @@ FDARPEOF
     fi
 else
     # Reachable only when --allow-plaintext was passed AND the FDA
-    # module is missing (the upstream probe at install.sh:1854 hard-
+    # module is missing (the upstream probe at install.sh:9980 hard-
     # fails in non-plaintext mode). Surface that we are skipping the
     # instant data extraction so the operator is not surprised by an
     # empty ~/.ostler/imports/fda/.
@@ -21713,7 +21870,7 @@ for _pf_port in ${OSTLER_PREFLIGHT_PORTS}; do
     # measure, its own contract stated at its definition. A BARE call under
     # `set -e` therefore aborts the installer on 1 and 2, which are the two
     # answers this loop exists to collect, and the `case` below never runs.
-    # Same class as #1756's :12399 and :13022.
+    # Same class as #1756's :16290 and :17653.
     #
     # The failure direction is the cruel one: a FREE port returns 0 and the
     # preflight passes, so this breaks ONLY when it finds what it is looking
@@ -21742,7 +21899,7 @@ if [[ "$PORT_CONFLICT" == true ]]; then
     # CX-17: the code, not just the sentence. A customer whose install stops on a
     # port collision has to be able to quote something stable to support, and the
     # failure banner + auto-copied log carry the code, not the localised message.
-    # ERR-06 is the family this step already uses (graph_db_start, :15927).
+    # ERR-06 is the family this step already uses (graph_db_start; line not re-pointed: no ERR-06 call found in that step).
     fail_with_code "ERR-06-PORTS-HELD" "$MSG_ERR_STOP_CONFLICTING_SERVICES_OR_USE_ONE_ACCOUNT"
 fi
 
@@ -22364,11 +22521,11 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - OLLAMA_URL=http://host.docker.internal:11434
       # #259: pin the compiler's Ollama model to the SAME model the installer
-      # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:4685). Without
+      # pulled for this box's RAM tier (AI_MODEL, set ~install.sh:10223). Without
       # this the compiler falls back to compiler/config.py's default qwen3.5:9b,
       # which is NOT pulled on <=23GB Macs (they get gemma4:e2b) -> every wiki
       # narrative LLM call 404s and Person/Org/Year pages render empty. Mirrors
-      # the daemon-config expression at :7779.
+      # the daemon-config expression at :18148.
       - OLLAMA_MODEL=${AI_MODEL:-qwen3.5:9b}
       # CM051 #2537 / CM044 #295. The path INSIDE the container, matching the
       # ${HOME}/.ostler/editor:/editor:ro mount above. compiler/pages/
@@ -23145,9 +23302,9 @@ STATE_DIR="${OSTLER_DIR}/state"
 # 🔴 THE DEFECT THIS REPLACES. Three sites wrote customer-derived
 # artefacts to a FIXED, world-readable /tmp path:
 #
-#   install.sh:22143  --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:23805  --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:25650  mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#   install.sh:35842  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:38411  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:42336  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
 #
 # /private/tmp is drwxrwxrwt. The sticky bit stops another account
 # DELETING the file; it does nothing about READING it. At the default
@@ -23172,11 +23329,11 @@ STATE_DIR="${OSTLER_DIR}/state"
 # somewhere unsafe instead.
 #
 # ⚠️ DELIBERATELY NOT REUSING THE EXISTING 0700 DIRECTORIES:
-#   OSTLER_PRELAUNCH_DIR  is `rm -rf`'d at :2270 and :9409, so it is
+#   OSTLER_PRELAUNCH_DIR  is `rm -rf`'d at :4223 and :14067, so it is
 #                         GONE by the time these sites run. Writing
 #                         there would ship a fix that silently does
 #                         nothing.
-#   OSTLER_FINAL_DIR      is chmod 700 at :2242 -- but with
+#   OSTLER_FINAL_DIR      is chmod 700 at :3585 -- but with
 #                         `2>/dev/null || true`, so a failed chmod is
 #                         indistinguishable from a successful one. A
 #                         PII fix must not rest on a mode nobody
@@ -23195,7 +23352,7 @@ _ostler_private_artefact() {
     mkdir -p "${_d}" 2>/dev/null || return 1
     chmod 700 "${_d}" 2>/dev/null || return 1
     # VERIFY, do not assume. `chmod` can exit 0 on some filesystems
-    # without the mode sticking, and :2242's `|| true` is exactly the
+    # without the mode sticking, and :3585's `|| true` is exactly the
     # habit that hides it.
     _mode="$(/usr/bin/stat -f '%Lp' "${_d}" 2>/dev/null)" || return 1
     [ "${_mode}" = "700" ] || return 1
@@ -23508,7 +23665,7 @@ _OSTLER_QDRANT_MISSING_COLLECTIONS=""
 # call. A mention in a comment ABOVE the call site becomes the first match and
 # takes the arm red -- measured, on the first draft of this block: it reported
 # the comment's own line number as the match, against a gate 1,500 lines below.
-# install.sh:17497 already states the identical hazard for a different sentinel.
+# Another comment in this file already states the identical hazard for a different sentinel.
 # Name the code in a commit message, never in a comment that precedes its call
 # site.
 #
@@ -25371,7 +25528,10 @@ done
 # answer. Kick it here. The derive agent is kicked too, so the "What you like"
 # graph (read straight from the graph by the wiki and the derived route, not
 # through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
-# a missing agent never fails an import.
+# a missing agent never fails an import. The marker makes that derive kick count
+# once even on a box the import itself left busy (v1.0.120: deferred on load);
+# the tick consumes it, and an operator Pause and the ingest slot still apply.
+mkdir -p "${OSTLER_DIR}/state" 2>/dev/null && : > "${OSTLER_DIR}/state/derive-preferences.after-import" 2>/dev/null || true
 _ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
 _ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
 exit $rc
@@ -28340,9 +28500,9 @@ _u_emit UNINSTALL_PHASE "name=launchagents"
 #   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
 #               torn down at all. Found loaded on the .208 box-walk.
 #   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
-#   2026-08-15  tailscaled: written at install.sh:16544, absent from both
+#   2026-08-15  tailscaled: written at install.sh:34230, absent from both
 #               walls. Its only bootout is the install-time restart at
-#               install.sh:16575, which is not a teardown.
+#               install.sh:34270, which is not a teardown.
 #
 # THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
 # the current login session and does not touch the disk. launchd rescans
@@ -28435,7 +28595,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
 # ANDY, 2026-09-24: "The Uninstaller should wipe all this shit." The list
 # above is hand-maintained and it is STRUCTURALLY BLIND to one whole class:
 # an agent installed by VENDORED code rather than by install.sh writing the
-# plist itself. install.sh:34593 copies context-refresh/ and runs its
+# plist itself. install.sh:41292 copies context-refresh/ and runs its
 # INSTALL_SNIPPET.sh, and that snippet writes
 # com.creativemachines.ostler.context-refresh. A list derived from reading
 # install.sh can never contain it.
@@ -28823,7 +28983,7 @@ fi
 
 # ── Ostler Safari Extension.app ────────────────────────────────
 _u_emit UNINSTALL_PHASE "name=safari_extension"
-# install.sh:30702 moves SafariHistoryExt.app to this name, so it is OUR
+# install.sh:41965 moves SafariHistoryExt.app to this name, so it is OUR
 # bundle and the customer never chose it. It was in NEITHER half of the
 # contract printed above -- not in "This will remove", not in "This will
 # NOT remove" -- so an uninstall left a branded app in /Applications and
@@ -31284,7 +31444,7 @@ remove_self() {
     # job down before control returns, so every statement after the bootout in
     # this function was unreachable -- `rm -f` included.
     #
-    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # THE FILE IS THE HALF THAT MATTERS (:28507 says so for the uninstaller).
     # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
     # login, so a "self-removing" agent came back on every reboot, forever, and
     # the surviving tries file carried its old count back with it. Found on the
@@ -32565,11 +32725,11 @@ else
                 #
                 # WHY IT WAS WORSE THAN A WRONG LOG LINE. One invented boolean drove
                 # THREE customer-facing branches, all of them the wrong way:
-                #   :21305  suppressed `open -R` -- no Finder window, so the drag-in
+                #   :32837  suppressed `open -R` -- no Finder window, so the drag-in
                 #           route was never offered
-                #   :21312  printed "already listed" at a customer looking at a list
+                #   :32853  printed "already listed" at a customer looking at a list
                 #           that did not contain it
-                #   :21342  dropped LINE3, the drag instruction, from the modal
+                #   :32883  dropped LINE3, the drag instruction, from the modal
                 # The one route that might have worked was withheld BECAUSE the code
                 # had convinced itself the customer did not need it.
                 #
@@ -34745,7 +34905,7 @@ OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calen
 # real vendored reader with a real sentinel on disk.
 #
 # A customer is asked, at install, to tick Reminders. It is ON by default and
-# it is in the Recommended preset (RECOMMENDED= at install.sh:10391, and the
+# it is in the Recommended preset (RECOMMENDED= at install.sh:12926, and the
 # preset copy names it). The extractor then runs and writes
 # imports/fda/reminders.json plus a per-source verdict into
 # imports/fda/extraction_summary.json. The Doctor panel headed "Where your
@@ -34875,7 +35035,7 @@ _hydrate_sentinel_record_error() {
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # Same rc set gui_step_record_rc treats as a timeout. Kept as a literal
     # pair rather than a call into the emitter: the emitter is stubbed out
-    # (install.sh:776) when the GUI is not driving, so asking it would make
+    # (install.sh:1981) when the GUI is not driving, so asking it would make
     # this classification silently depend on how the installer was launched.
     if [[ "$rc" == "124" || "$rc" == "137" ]]; then
         status="timeout"
@@ -35534,7 +35694,7 @@ _hydrate_collection_has_rows() {
 # name before reporting a reason.
 #
 # 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
-# (~:31084) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
+# (~:36332) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
 # to 0, so a refused connection and a graph holding nothing are byte-identical
 # to it. Harmless there -- it only suppresses a warning -- and fatal here.
 #
@@ -35690,7 +35850,7 @@ remove_self() {
     # job down before control returns, so every statement after the bootout in
     # this function was unreachable -- `rm -f` included.
     #
-    # THE FILE IS THE HALF THAT MATTERS (:20129 says so for the uninstaller).
+    # THE FILE IS THE HALF THAT MATTERS (:28507 says so for the uninstaller).
     # A plist left behind in ~/Library/LaunchAgents is loaded again at the next
     # login, so a "self-removing" agent came back on every reboot, forever, and
     # the surviving tries file carried its old count back with it. Found on the
@@ -38108,9 +38268,9 @@ _ostler_dedupe_person_count() {
     #
     # On a stock Mac with no Command Line Tools, /usr/bin/python3 is an Apple
     # STUB: it fires the CLT dialog and returns non-zero. This file already says
-    # so at :1983 and picks a bundled interpreter for the licence verifier for
+    # so at :2867 and picks a bundled interpreter for the licence verifier for
     # exactly that reason. Under `set -Eeuo pipefail` (:29) and the ERR trap
-    # (:10937) the consequence here was an ABORTED INSTALL, not a missing count:
+    # (:14295) the consequence here was an ABORTED INSTALL, not a missing count:
     # the stub exits non-zero, pipefail fails the pipeline, that is the
     # function's last command so the function returns non-zero, the bare
     # assignment `_DEDUPE_PERSONS="$(...)"` carries that status, and the trap
@@ -40628,7 +40788,7 @@ if [ "$WIKI_BASELINE_RC" -eq 0 ]; then
         #
         # So this now uses the shipped library, the same one every tick
         # wrapper uses, which is on the box by this point (written and
-        # chmod'd at §3.x, ~install.sh:9372 and :10193).
+        # chmod'd at §3.x, ~install.sh:11229 and :12097).
         #
         # DELIBERATELY NOT ostler_slot_run. That wraps the payload in the
         # max-hold watchdog, and a first-run summary compile legitimately
@@ -42298,7 +42458,7 @@ except Exception:
             #
             # MEASURED on the Mini 16 during the v1.0.63 walk, 2026-09-04.
             # USER_EMAIL is read from exactly ONE place -- DETECTED_EMAIL at
-            # :5763, which comes from the macOS me-card via osascript at :5653.
+            # :7968, which comes from the macOS me-card via osascript at :7713.
             # On a Mac where Contacts.app has never been launched that call
             # returns:
             #
@@ -43670,7 +43830,7 @@ fi
 # session with 43+ real errors." I went to fix that line and found the filing
 # is PARTLY A MISREADING, so the fix is not what the row asked for.
 #
-# The string at :31351 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
+# The string at :41681 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
 # It was "ostler-assistant doctor: no errors detected". It is SCOPED, TRUE,
 # and it is about the assistant doctor's own output -- it counts the
 # doctor's own error markers, nothing else. Rewriting a truthful line
@@ -43700,12 +43860,12 @@ fi
 #
 # PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
 # @TNM measured the boundary: `gui_done ok` is unconditional, and everything
-# below :32631 is documented post-success cosmetics. A verdict printed after
+# below :43949 is documented post-success cosmetics. A verdict printed after
 # the GUI has flipped to success can describe a problem but cannot stop the
 # customer being told it worked.
 #
 # BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
-# correctness property here rather than a style note: :32201 documents that
+# correctness property here rather than a style note: :43356 documents that
 # everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
 # (CX-123/#643), so an unset variable in this block will NOT abort -- it will
 # expand to nothing and silently produce a wrong sentence. Which would be this

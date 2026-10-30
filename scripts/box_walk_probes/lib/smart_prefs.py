@@ -464,7 +464,9 @@ def box_runs_main():
     f["scheduled"] = os.path.isfile(PLIST)
     s = _status()
     f["status"] = {"present": bool(s), "outcome": s.get("outcome"), "last_run_at": s.get("last_run_at"),
-                   "reason": (s.get("reason") or "")[:200], "graph_node_count": s.get("graph_node_count")}
+                   "reason": (s.get("reason") or "")[:200], "graph_node_count": s.get("graph_node_count"),
+                   "writer": s.get("writer"), "consecutive": s.get("consecutive"),
+                   "last_completed_at": s.get("last_completed_at")}
     log = _read(LOG).splitlines()
     f["log"] = {"present": bool(log),
                 "completed_ticks": sum(1 for l in log if "tick finished: written" in l),
@@ -713,6 +715,19 @@ def judge_runs(f):
         why = "no state/derived-preferences.json: the tick has never recorded a pass"
         broken = any(r[1] == "FAIL" for r in rows)
         rows.append(("a derive pass completed", "FAIL" if broken else "CANNOT", why))
+    elif s.get("outcome") in ("deferred", "yielded") and s.get("last_completed_at"):
+        # The tick wrapper's record: this tick skipped, but it carries a pass
+        # that DID complete. The pass is the question here, so ok, with why.
+        rows.append(("a derive pass completed", "ok",
+                     "last completed %s graph_nodes=%s; the latest tick %s %s tick(s) in a row: %s"
+                     % (s.get("last_completed_at"), s.get("graph_node_count"), s["outcome"],
+                        s.get("consecutive"), s.get("reason"))))
+    elif s.get("outcome") in ("deferred", "yielded"):
+        # Measured, not unmeasured: the tick ran N times and never reached the
+        # runner. That is the v1.0.120 starvation, a FAIL with its cause.
+        rows.append(("a derive pass completed", "FAIL",
+                     "%s %s tick(s) in a row and no pass has completed; reason: %s"
+                     % (s["outcome"], s.get("consecutive"), s.get("reason"))))
     elif s.get("outcome") in ("written", "empty"):
         rows.append(("a derive pass completed", "ok",
                      "outcome=%s last_run_at=%s graph_nodes=%s log_ticks_written=%s"
@@ -1001,6 +1016,14 @@ def self_test():
            _mut(R, lambda d: d["status"].update(present=False, outcome=None)), EX_CANNOT)
     expect("runs: never ran AND imports broken is FAIL", judge_runs,
            _mut(R, lambda d: (d["status"].update(present=False, outcome=None), d.update(yaml={"rc": 1, "err": "x"}))), EX_FAIL)
+    expect("runs: deferred 3 times, never passed (the v1.0.120 box) is FAIL, not CANNOT", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="deferred", consecutive=3, writer="tick", last_completed_at=None,
+                                                reason="load: 1m load 40.00 over 10 cores")), EX_FAIL)
+    expect("runs: yielded, never passed is FAIL", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="yielded", consecutive=1, writer="tick", last_completed_at=None)), EX_FAIL)
+    expect("runs: deferred after a completed pass is ok", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="deferred", consecutive=1, writer="tick",
+                                                last_completed_at="2026-10-22T00:00:00Z")), EX_PASS)
     expect("runs: no interpreter", judge_runs, _mut(R, lambda d: d.update(python_exists=False, yaml={"rc": 127, "err": "x"})), EX_FAIL)
 
     # the vocabulary this file's judges depend on must still map

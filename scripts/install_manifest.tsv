@@ -69,6 +69,7 @@ launch_agent	com.creativemachines.ostler.email-bundle	conditional	com.creativema
 launch_agent	com.creativemachines.ostler.spoken-bundle	conditional	com.creativemachines.ostler.spoken-bundle	baseline	only if CM042 Transcripts present (20406)
 launch_agent	com.creativemachines.ostler.imessage-bundle	conditional	com.creativemachines.ostler.imessage-bundle	baseline	only if chat.db present + third-party consent accepted (20457)
 launch_agent	com.creativemachines.ostler.hub-power	conditional	com.creativemachines.ostler.hub-power	baseline	only if HAS_BATTERY (MacBook); skipped on AC-only desktop (19780)
+launch_agent	com.ostler.derive-preferences	conditional	com.ostler.derive-preferences	v1.0.120	_install_derive_preferences_agent (install.sh:359), called only if the cm019 venv exists (cm019 bundle + requirements present and pip succeeded); upgrade path also installs it. Added by #2955 without a row; v1.0.120 walk reported it UNDECLARED.
 launch_agent	com.ostler.contact-resync	conditional	com.ostler.contact-resync	baseline	only if initial contact hydrate incomplete (FDA denied / sync pending)
 launch_agent	com.creativemachines.ostler.wiki-recompile-catchup	conditional	com.creativemachines.ostler.wiki-recompile-catchup	baseline	only if install-time wiki converge did not finish in budget
 launch_agent	com.creativemachines.ostler.dedupe-catchup	conditional	com.creativemachines.ostler.dedupe-catchup	baseline	only if dedupe converge did not complete in budget (23828)
