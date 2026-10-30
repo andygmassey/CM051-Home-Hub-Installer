@@ -186,3 +186,21 @@ def test_end_to_end_through_the_push_pipeline_and_mapping_db(tmp_path):
     assert len(title) <= 80 and title.endswith("…") and notes.startswith(LONG)
     assert rows["b"][0] == "skipped" and rows["b"][1] == "no_specific_action"
     assert rows["c"][0] == "skipped" and rows["c"][1] == "title_too_long"
+
+
+LONG_SYNTHETIC_NAME = "Doe" + "-Synthetic" * 6
+
+
+def test_l2_built_title_over_80_never_puts_todo_text_in_the_notes():
+    """The notes gate is a PRIVACY-LEVEL gate. An L2 title is built as
+    "<Name>: <short text>"; with a long resolved name it exceeds 80 chars, so
+    this is the only way to reach the over-length branch at L2. The full title
+    (which carries the redacted-level text) must not be copied into notes."""
+    d = _decide("send the venue quote", level="L2",
+                resolver=lambda h: LONG_SYNTHETIC_NAME if h == "Sam" else None)
+    assert d.eligible, d.skip_reason
+    assert len(d.push_title) <= 80 and d.push_title.endswith("…")
+    assert d.push_title.startswith(LONG_SYNTHETIC_NAME[:20])
+    assert "venue" not in d.push_notes
+    assert LONG_SYNTHETIC_NAME not in d.push_notes
+    assert not d.push_notes.startswith(d.push_title[:-1])
