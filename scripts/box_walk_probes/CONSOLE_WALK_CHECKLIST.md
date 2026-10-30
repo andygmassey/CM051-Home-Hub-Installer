@@ -9,6 +9,21 @@ walk record. A reboot cannot be driven that way at all, so it has no probe
 file and is not scored by `run_box_walk.sh`. It is checked by hand, on this
 list, every time a console walk happens.
 
+## FIRST STEP, before anything else: clear Ostler from Full Disk Access
+
+Clear the Ostler, Ostler Installer and ostler-assistant from System Settings >
+Privacy & Security > Full Disk Access before starting (Andy does this at the
+console; no agent runs tccutil on any box).
+
+**Why.** The system TCC.db keeps Ostler grants across a "cold" reset (NEW-119,
+diag118 Mini16 on macOS 27.2, 2026-10-29: grants written six weeks earlier were
+still present after the VM, data disk and uninstaller had all run). A console
+walk that starts with those grants in place cannot tell whether the install's
+own Full Disk Access prompt works, because macOS never shows it. The thin walk
+records the rows it found in its header as DECLARED STATE
+(`scripts/lib_walk_tcc_declared.sh`), read-only; only a human at the console
+removes them.
+
 ## FileVault reboot recovery
 
 **Why this cannot be an ssh probe.** install.sh offers FileVault enablement
