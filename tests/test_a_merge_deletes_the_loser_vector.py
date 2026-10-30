@@ -242,15 +242,15 @@ def seed_box(store, mem):
         upsert(mem, chain[0], f"Winner {i}")   # the first loser kept its point
         losers.append(chain[0])
     orphan = f"{PWG}person_orphan"
-    upsert(mem, orphan, "Nobody Anywhere", source="fda_people_index")
+    upsert(mem, orphan, "orphan-point", source="fda_people_index")
     dangling = f"{PWG}person_dangling"
     store.update(f"INSERT DATA {{ <{dangling}> a pwg:RetiredPerson ; "
                  f"pwg:mergedInto <{PWG}person_never_existed> }}")
-    upsert(mem, dangling, "Dangling Chain")
+    upsert(mem, dangling, "dangling-point")
     loop_a, loop_b = f"{PWG}person_loop_a", f"{PWG}person_loop_b"
     store.update(f"INSERT DATA {{ <{loop_a}> a pwg:RetiredPerson ; pwg:mergedInto <{loop_b}> . "
                  f"<{loop_b}> a pwg:RetiredPerson ; pwg:mergedInto <{loop_a}> }}")
-    upsert(mem, loop_a, "Loop Chain")
+    upsert(mem, loop_a, "loop-point")
     return losers, orphan, dangling, loop_a
 
 
