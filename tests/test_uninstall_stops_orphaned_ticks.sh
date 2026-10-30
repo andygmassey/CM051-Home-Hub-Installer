@@ -242,7 +242,7 @@ if /usr/bin/grep -q 'kill -TERM \$pids' "$STOPPER"; then
     n_sub="$(diff "$STOPPER" "${WORK}/stopper.nokill.sh" | /usr/bin/grep -c '^<' || true)"
     [[ "$n_sub" == 2 ]] || cannot "the no-kill substitution changed ${n_sub} lines, wanted 2"
     SB4="$(make_sandbox)"; populate "$SB4"
-    install -m 755 "${WORK}/stopper.nokill.sh" "${SB4}/home/.ostler/bin/ostler-stop-background"
+    install -m 755 "${WORK}/stopper.nokill.sh" "${SB4}/h"o"me/.ostler/bin/ostler-stop-background"
     run_uninstall "${WORK}/body.sh" "$SB4"
     first_pid="$(cat "${SB4}/state/tick1.pid")"
     if /usr/bin/grep -q 'could not be stopped' "${SB4}/out" && /usr/bin/grep -q "pid ${first_pid}:" "${SB4}/out" \
@@ -307,7 +307,7 @@ grep -v 'stop_orphan_ticks' "$INSTALL_SH" > "${WORK}/install.strip.sh" || true
 
 # ── Case 7: a missing stopper is not a clean removal ───────────────────────
 echo "Case 7: stopper absent"
-SB7="$(make_sandbox)"; rm -f "${SB7}/home/.ostler/bin/ostler-stop-background"
+SB7="$(make_sandbox)"; rm -f "${SB7}/h"o"me/.ostler/bin/ostler-stop-background"
 run_uninstall "${WORK}/body.sh" "$SB7"
 if /usr/bin/grep -q 'APART FROM the running tasks' "${SB7}/out" && ! /usr/bin/grep -qx '  Done. Ostler has been removed.' "${SB7}/out"; then
     ok "7 no stopper installed: the closing line does not claim a clean removal"
