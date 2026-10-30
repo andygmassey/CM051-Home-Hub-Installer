@@ -62,8 +62,13 @@ BAD = [
     ("Follow up with Sam", "generic_follow_up"),
     ("Send the quote -- 2026-05-12", "iso_date"),
     ("(empty commitment)", "empty"),
-    ("Send " + "very long " * 12 + "note", "too_long"),
 ]
+
+# Over-long is not a BAD case any more: the push shortens the title and keeps
+# the full text in the notes (tests/test_cm048_reminder_long_title_not_dropped.py).
+# The helper itself still reports the length.
+def test_title_quality_reason_still_reports_length():
+    assert reminders_push.title_quality_reason("Send " + "very long " * 12 + "note") == "too_long"
 
 
 @pytest.mark.parametrize("title", GOOD)

@@ -205,6 +205,7 @@ test_cm048_multilingual_vendored.py	WIRED	.github/workflows/cm048-multilingual-o
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_participants_line_display_names_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_reminder_long_title_not_dropped.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_people_rules_installed_layout.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_person_parity.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
