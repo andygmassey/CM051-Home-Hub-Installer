@@ -14,18 +14,18 @@ command -v zsh >/dev/null 2>&1 || { echo "CANNOT RUN: no zsh on this host" >&2; 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 sed -n "/^_LAUNCHD_READ='/,/^done'\$/p" "$PROBE" | sed "1s/^_LAUNCHD_READ='//; \$s/'\$//" > "$W/read.sh"
 [ -s "$W/read.sh" ] || { echo "CANNOT RUN: could not extract the box read" >&2; exit 2; }
-mkdir -p "$W/home/Library/LaunchAgents" "$W/bin" "$W/sysLA" "$W/sysLD"
+mkdir -p "$W/hh/Library/LaunchAgents" "$W/bin" "$W/sysLA" "$W/sysLD"
 # The system dirs are redirected to EMPTY temp dirs so the failing condition
 # (an empty /Library/LaunchAgents) holds on any host, not only a bare one.
 sed -i.bak -e "s# /Library/LaunchAgents# $W/sysLA#g" -e "s# /Library/LaunchDaemons# $W/sysLD#g" "$W/read.sh"
 grep -q "$W/sysLA" "$W/read.sh" || { echo "CANNOT RUN: system dir redirect did not apply" >&2; exit 2; }
-: > "$W/home/Library/LaunchAgents/com.ostler.synthetic.plist"
+: > "$W/hh/Library/LaunchAgents/com.ostler.synthetic.plist"
 printf '#!/bin/bash\ncase "$1" in print-disabled) ;; print) printf "\\tstate = not running\\n\\tlast exit code = 0\\n";; esac\nexit 0\n' > "$W/bin/launchctl"; chmod +x "$W/bin/launchctl"
 # the condition under test: no Ostler plist in the system dirs on this host
 sysn="$( (ls /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null) | /usr/bin/grep -ci ostler )"
 fail=0
 for sh in zsh bash; do
-  out="$(HOME="$W/home" PATH="$W/bin:$PATH" "$sh" -c "$(cat "$W/read.sh")" 2>"$W/err.$sh")"
+  out="$(HOME="$W/hh" PATH="$W/bin:$PATH" "$sh" -c "$(cat "$W/read.sh")" 2>"$W/err.$sh")"
   n="$(printf '%s\n' "$out" | awk -F'\t' 'NF>=5{n++} END{print n+0}')"
   if [ "$n" -ge 1 ] && [ "$sysn" -eq 0 ]; then echo "  ok    $sh: read $n job(s) with no Ostler plist in the system dirs (real count, not an abort)"
   elif [ "$n" -ge 1 ]; then echo "  ok    $sh: read $n job(s) (system dirs hold $sysn Ostler plist(s); the empty-dir condition is not reproduced here)"
