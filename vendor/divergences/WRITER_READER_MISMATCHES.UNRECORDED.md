@@ -1348,6 +1348,33 @@ half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
 regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 `tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
 
+### 2026-10-30, v1.0.121 (NEW-121): Doctor no longer runs tmutil
+
+MEASURED on the v1.0.120 box: the rule above ran `tmutil isexcluded` from
+Doctor's launchd python, so TCC charged the reads to python3.11, and the
+`~/Documents/Ostler` argv (plus the `os.path.isdir()` gating it) made a
+NON-preflight SystemPolicyDocumentsFolder request, the prompt-capable shape.
+
+`_tm_isexcluded()` is DELETED. `check_time_machine_exclusion()` now reads
+`~/.ostler/state/time_machine_exclusion.tsv` (`_tm_read_status()`,
+`TM_STATUS_FILE_REL`, `TM_STATUS_MAX_AGE_SECONDS` = 6 h) and spawns nothing,
+stats nothing under `~/Documents`. The writer is `_ostler_tm_status_record` in
+install.sh's ostler-fda wrapper, run by `ostler-assistant run-source fda-rerun`
+(a child of the signed FDA holder, no oa change). Missing, unparseable or stale
+file, or a folder row missing or "cannot", is the existing "could not check"
+warning; "absent" is skipped. `TM_CANNOT_CHECK_DETAIL_FMT` copy reworded.
+Guarded by `tests/test_doctor_spawns_no_protected_path_subprocess.py` (RED at
+1a9aea59) and the Doctor half of `tests/test_time_machine_exclusion_is_measured.sh`,
+both in vendor-integrity.yml. The HR015 doctor has no Time Machine rule at all,
+so there is no upstream twin to change; the twin stays OWED as above.
+
+#### What a future sync must preserve
+
+No subprocess in `check_time_machine_exclusion`, and no `~/Documents` path
+passed to any Doctor subprocess or stat. Restoring the HR015 file without this
+rule drops the check; restoring the pre-121 rule brings the python3.11 prompt
+back.
+
 ---
 
 ## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
