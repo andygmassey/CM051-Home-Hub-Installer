@@ -386,10 +386,14 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
     payload. Status filter is ``open`` so closed-out todos do not
     clutter the brief once v1.0.1 wires the closure pass.
 
-    L3 (most private) todos are excluded. CM048's writer already skips
-    L3 conversations; this filter is belt and braces, because the brief
-    is emailed. A todo with NO ``privacyLevel`` (legacy, written before
-    CM048 tagged todos) is KEPT and behaves as it did before. The filter
+    L3 (most private) todos are excluded, and so is any todo whose
+    ``privacyLevel`` is not exactly L0, L1 or L2 (trim and case
+    insensitive): an unparseable or unexpected value fails closed, the
+    same as the commitments API. CM048's writer already skips L3
+    conversations and writes a plain "L0".."L3" literal; this filter is
+    belt and braces, because the brief is emailed. A todo with NO
+    ``privacyLevel`` (legacy, written before CM048 tagged todos) is KEPT
+    and behaves as it did before. The filter
     is in the query so ``LIMIT`` applies to the rows that survive it.
     """
     sparql = """
@@ -408,7 +412,7 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
       OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
       OPTIONAL {{ ?todo <urn:ostler:privacyLevel> ?plevel }}
       FILTER (?status = "open")
-      FILTER (!BOUND(?plevel) || UCASE(STR(?plevel)) != "L3")
+      FILTER (!BOUND(?plevel) || REGEX(STR(?plevel), "^[ \\t]*[Ll][0-2][ \\t]*$"))
     }}
     ORDER BY DESC(?createdAt)
     LIMIT {limit}

@@ -70,6 +70,15 @@ CM041 = REPO / "vendor" / "cm041"
 L1_TODO = "send Jane Doe the report"
 L3_TODO = "send Bob Doe the secret report"
 LEGACY_TODO = "Book a room for Jane Doe"
+# Tagged with a level the writer never emits. Both readers must withhold them
+# (fail closed), the emailed brief as strictly as the API.
+ODD_LEVELS = {
+    "odd one": '"l3 "',
+    "odd two": '"3"',
+    "odd three": '"garbage"',
+    "odd four": '<http://example.com/ns#L1>',
+    "odd five": '"L4"',
+}
 
 # (file, exact text, replacement): the three writer guards, switched off.
 GUARDS = [
@@ -191,6 +200,14 @@ def _store_with_l3_leaked(fakes, tmp_path, monkeypatch):
         '<urn:ostler:status> "open" ; '
         '<urn:ostler:aboutPerson> <urn:ostler:person/jane> . }' % LEGACY_TODO
     )
+    for text, lit in ODD_LEVELS.items():
+        fakes.store.update(
+            'INSERT DATA { <urn:ostler:todo/%s> a <urn:ostler:OutstandingTodo> ; '
+            '<urn:ostler:todoText> "%s" ; <urn:ostler:owner> "user" ; '
+            '<urn:ostler:status> "open" ; <urn:ostler:privacyLevel> %s ; '
+            '<urn:ostler:aboutPerson> <urn:ostler:person/jane> . }'
+            % (text.replace(" ", "-"), text, lit)
+        )
     return _todo_texts_in_store(fakes.store)
 
 
@@ -261,6 +278,7 @@ def test_brief_todo_reader_drops_l3_and_keeps_l1_and_legacy(fakes, tmp_path, mon
     assert L3_TODO not in texts, texts
     assert L1_TODO in texts, texts
     assert LEGACY_TODO in texts, texts
+    assert not set(ODD_LEVELS) & set(texts), texts
 
 
 def test_commitments_api_drops_l3_and_keeps_l1_and_legacy(fakes, tmp_path, monkeypatch):
@@ -270,6 +288,7 @@ def test_commitments_api_drops_l3_and_keeps_l1_and_legacy(fakes, tmp_path, monke
     assert L3_TODO not in texts, texts
     assert L1_TODO in texts, texts
     assert LEGACY_TODO in texts, texts
+    assert not set(ODD_LEVELS) & set(texts), texts
 
 
 def test_with_guards_on_the_l3_todo_never_reaches_the_store(fakes, tmp_path, monkeypatch):
