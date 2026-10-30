@@ -134,9 +134,17 @@ done
 # ── Doctor: the live rule ─────────────────────────────────────────────────
 PY="${PYTHON:-python3}"
 dh="$WORK/doctor-home"; mkdir -p "$dh/.ostler" "$dh/Documents/Ostler"
+# NEW-121: Doctor no longer runs tmutil. The fda-rerun tick (a child of the
+# signed FDA holder) measures the folders with _ostler_tm_status_record, from
+# the ostler-fda wrapper in install.sh, and Doctor reads what it wrote. So the
+# Doctor half runs the REAL writer against the fake tmutil, then the rule.
+awk '/^_ostler_tm_status_record\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" > "$WORK/tm_writer.sh"
+grep -q '^_ostler_tm_status_record() {' "$WORK/tm_writer.sh" || cannot "could not extract _ostler_tm_status_record from the ostler-fda wrapper"
 doctor() {  # doctor <FAKE_TM mode> <pre-exclude 0|1>
     rm -f "$dh"/.ostler.fake-tm-excluded "$dh"/Documents/Ostler.fake-tm-excluded
     if [[ "$2" == 1 ]]; then : > "$dh/.ostler.fake-tm-excluded"; : > "$dh/Documents/Ostler.fake-tm-excluded"; fi
+    HOME="$dh" OSTLER_DIR="$dh/.ostler" PATH="$WORK/bin:$PATH" FAKE_TM="$1" \
+        /bin/bash -c 'set -Eeuo pipefail; source "$1"; _ostler_tm_status_record || true' _ "$WORK/tm_writer.sh"
     HOME="$dh" PATH="$WORK/bin:$PATH" FAKE_TM="$1" "$PY" - "$REPO/vendor/doctor/agent" <<'PYEOF'
 import json, sys
 sys.path.insert(0, sys.argv[1])

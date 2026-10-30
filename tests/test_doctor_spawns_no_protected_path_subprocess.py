@@ -109,11 +109,16 @@ STATUS = HOME / ".ostler" / "state" / "time_machine_exclusion.tsv"
 def run_rule() -> tuple[list[dict], list[str], list[str]]:
     SPAWNS.clear()
     STATS.clear()
+    # The rule ships on macOS only; CI runs this on ubuntu, so it is judged as
+    # on a Mac (off a Mac with no status file it is "not applicable").
+    real_platform = sys.platform
+    sys.platform = "darwin"
     os.stat = _recording_stat
     try:
         out = rules.check_time_machine_exclusion(None)
     finally:
         os.stat = _REAL_STAT
+        sys.platform = real_platform
     return out, list(SPAWNS), list(STATS)
 
 
