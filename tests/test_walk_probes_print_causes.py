@@ -98,6 +98,8 @@ def sparql_answer(q):
         return [{"jname_s": P + "x", "jname": "John Doe"},
                 {"jname_s": P + "x2", "jname": "Jane Doe" if cf == "namemismatch" else "John Doe"}]
     if "GROUP BY ?person" in q:
+        if cf == "clean":
+            return []
         if cf != "default":
             return [{"person": P + "x", "uids": 2}]
         return [{"person": P + "a", "uids": 2}, {"person": P + "b", "uids": 3},
@@ -105,9 +107,9 @@ def sparql_answer(q):
     if "COUNT(DISTINCT ?i) AS ?n" in q:
         return [{"n": 6}]
     if "AS ?uidn" in q:
-        return [{"uidn": 6}]
+        return [{"uidn": UIDS[0]}]
     if "FILTER(?a != ?b)" in q:
-        return [{"n": 3}]
+        return [{"n": OPP[0]}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
         return [{"n": 0}]
     if "?src p:mergedInto ?s }" in q:
@@ -158,6 +160,10 @@ COUNT_FIXTURES = {
 }
 COUNT_FIXTURE = ["stubs"]
 CARDS_FIXTURE = ["default"]
+# What the fake Oxigraph answers to the probe's distinct-uid and collision-opportunity
+# queries. A non-number is how a broken query looks to _sparql_scalar.
+UIDS = [6]
+OPP = [3]
 
 # Merge-journal rows in the CM051 #3217 schema. The hash is an HMAC keyed by
 # the install's service_token, so it is only ever checked for SHAPE; this value

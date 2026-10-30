@@ -41,6 +41,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -71,6 +72,7 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
       - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -108,6 +110,12 @@ jobs:
       - name: walk probes print causes, masked, exit codes unchanged (instr119)
         if: always()
         run: python3 tests/test_walk_probes_print_causes.py
+
+      # Archie's three holes on #3231: unmeasured denominators are CANNOT-RUN (no
+      # substitute value), and journal-excused merges count as candidate pairs.
+      - name: two-cards probe verdict holes (unmeasured denominators, excused merges)
+        if: always()
+        run: python3 tests/test_two_cards_probe_verdict_holes.py
 
       # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
       # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts

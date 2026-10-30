@@ -519,12 +519,16 @@ run_probe() {
         probe_cannot_run "ZERO icloud_contact_uid identifiers in the graph. Either contacts have not been imported yet, or the predicate/namespace is wrong. Either way a clean violation count proves nothing -- this is CANNOT-RUN, not a pass."
     fi
 
-    # DENOMINATOR 1: distinct cards. An unreadable answer falls back to the
-    # identifier-node count, which is an upper bound, so it can only under-refuse.
+    # DENOMINATOR 1: distinct cards. An unmeasured denominator is CANNOT-RUN. It
+    # is never replaced by another number: the identifier-node count is an upper
+    # bound, and an upper bound lets a 1-uid box through, which is the vacuous
+    # PASS this probe exists to refuse.
     local uids
     uids="$(_sparql_scalar "$_Q_DISTINCT_UIDS")"
     case "$uids" in
-        ''|*[!0-9]*) probe_note "distinct icloud_contact_uid: NOT MEASURED (query returned '${uids}'); using the identifier count ${control} as an upper bound"; uids="$control" ;;
+        ''|*[!0-9]*)
+            probe_examined 0 "distinct icloud_contact_uid (NOT MEASURED, query returned '${uids}')"
+            probe_cannot_run "the distinct icloud_contact_uid count was not measured (query returned '${uids}'). Without that denominator a clean violation count cannot be told from a vacuous one, and no substitute value is used." ;;
     esac
     if [ "$uids" -lt 2 ]; then
         probe_examined "$uids" "distinct icloud_contact_uid (${control} identifier node(s)); 0 candidate merge pairs examined"
@@ -539,7 +543,7 @@ run_probe() {
         probe_cannot_run "violation query failed against $OXIGRAPH_URL"
     fi
 
-    local s nodes cards worst _jok=""
+    local s nodes cards worst _jok="" excused=0
     s="$(summarise_violations "$rows")"
     nodes="$(printf '%s' "$s" | cut -d' ' -f1)"
     cards="$(printf '%s' "$s" | cut -d' ' -f2)"
@@ -612,6 +616,10 @@ run_probe() {
             probe_cannot_run "${jc} of ${nodes} 2+ card node(s) rest on journal rows whose key hashes are null (journal_secret_unavailable), so the override cannot be verified; ${jp} verified"
         fi
         probe_note "all ${nodes} 2+ card node(s) are journalled exact-identifier merges with a key hash and identical names; not RULE 2 violations"
+        # Every one of these nodes is a merge the resolver DID make and the
+        # journal excuses: the merge path was exercised, so they count as
+        # candidate pairs below even when no unmerged shared-key node is left.
+        excused="$jp"
         _jok="${nodes} 2+ card node(s) are journalled exact-identifier merges (key kind + hash, identical names); otherwise "
     fi
 
@@ -628,21 +636,24 @@ run_probe() {
     esac
 
     # THE ZERO IS REAL. IS IT LOAD-BEARING? Ask whether anything could have
-    # merged. A failure here is a NOTE, never a verdict: this query is newer
-    # than the probe and must not be able to redden a healthy box.
+    # merged. DENOMINATOR 2: candidate merge pairs = journal-excused merges
+    # (the path ran and the ratified rule produced them) + unmerged nodes that
+    # still share a phone or email. Unmeasured and zero are BOTH CANNOT-RUN: a
+    # broken query must never score better than an honest zero. (The old
+    # "must not redden a healthy box" carve-out is deleted; CANNOT-RUN is not red.)
     local opp verdict
     opp="$(_sparql_scalar "$_Q_OPPORTUNITY")"
     verdict="$(adjudicate_clean "$opp")"
     if [ "$verdict" = "UNMEASURED" ]; then
-        probe_note "collision opportunities: NOT MEASURED (query returned '${opp}'). The zero below stands on the ${control}-identifier control alone."
-        probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement)"
+        probe_note "collision opportunities: NOT MEASURED (query returned '${opp}')"
+        probe_cannot_run "${_jok}the candidate merge pair count was not measured (query returned '${opp}'), so a zero violation count cannot be told from a vacuous one. CANNOT-RUN, not a pass."
     fi
     probe_note "collision opportunities: ${opp} Person node(s) share a phone or email with another node"
-    if [ "$verdict" = "UNEXERCISED" ]; then
-        probe_note "denominator: ${uids} distinct icloud_contact_uid, ${opp} Person node(s) in candidate merge pairs (shared phone or email)"
-        probe_cannot_run "${_jok}no Person node carries more than one icloud_contact_uid, but this box presented ZERO candidate merge pairs (${uids} distinct icloud_contact_uid examined, 0 Person nodes sharing a phone or email): the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant is UNTESTED, not held. CANNOT-RUN, not a pass; do not close #1543 on this run."
+    probe_note "denominator: ${uids} distinct icloud_contact_uid; candidate merge pairs = ${excused} excused merges + ${opp} unmerged shared-key nodes"
+    if [ "$verdict" = "UNEXERCISED" ] && [ "${excused:-0}" -eq 0 ]; then
+        probe_cannot_run "no Person node carries more than one icloud_contact_uid, but this box presented ZERO candidate merge pairs (${uids} distinct icloud_contact_uid examined, 0 excused merges, 0 Person nodes sharing a phone or email): the resolver had nothing to match on and the RULE 2 write guard was never asked to refuse. The invariant is UNTESTED, not held. CANNOT-RUN, not a pass; do not close #1543 on this run."
     fi
-    probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (checked against ${control} identifiers, so this zero is a measurement), and ${opp} node(s) shared a phone or email with another node without being merged -- so the zero was earned, not vacuous"
+    probe_pass "${_jok}no Person node carries more than one icloud_contact_uid (${uids} distinct examined), over ${excused} excused merges + ${opp} unmerged shared-key nodes as candidate merge pairs, so the zero was earned, not vacuous"
 }
 
 # ADJUDICATE THE STRENGTH OF A CLEAN RESULT. Lifted out of run_probe so the
