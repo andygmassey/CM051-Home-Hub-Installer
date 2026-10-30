@@ -25929,6 +25929,58 @@ echo ""
 if [[ -f "${HOME}/.ostler/config/.env" ]]; then
     set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
+# ── TIME MACHINE EXCLUSION STATUS: measured HERE, read by Doctor (NEW-121) ──
+#
+# Doctor used to run `tmutil isexcluded` itself, from its own launchd python,
+# on ~/.ostler, ~/Documents/Ostler and ~/.colima. TCC charged those reads to
+# python3.11, and the ~/Documents/Ostler one was a NON-preflight Documents
+# request (measured on the v1.0.120 box): the shape that shows a customer a
+# "python3 would like to access your Documents folder" prompt.
+#
+# This wrapper runs as `ostler-assistant run-source fda-rerun` -> sealed
+# tick.sh -> here, a fork+wait child of the signed Full-Disk-Access holder, so
+# the same tmutil reads are charged to ai.ostler.assistant. They are taken
+# FIRST, before the long extract, so the first tick after install records an
+# answer within seconds. Doctor reads the file and spawns nothing.
+#
+# Format (tab-separated, one answer per folder):
+#   recorded_at <epoch>     writer fda-rerun
+#   folder <excluded|included|cannot|absent> <path> <tmutil text>
+# Only "[Excluded]" is excluded; an error or [UNKNOWN] is "cannot", never a
+# pass. Non-fatal in every branch: a missing answer is Doctor's "could not
+# check", and must never stop the ingest below.
+_ostler_tm_status_record() {
+    local out="${OSTLER_DIR}/state/time_machine_exclusion.tsv"
+    local tmp d ans rc st
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || return 0
+    tmp="$(mktemp "${out}.XXXXXX" 2>/dev/null)" || return 0
+    {
+        printf 'recorded_at\t%s\n' "$(date +%s)"
+        printf 'writer\tfda-rerun\n'
+        for d in "${OSTLER_DIR}" "${HOME}/Documents/Ostler" "${HOME}/.colima"; do
+            if [[ ! -d "$d" ]]; then
+                printf 'folder\tabsent\t%s\t\n' "$d"
+                continue
+            fi
+            if ! command -v tmutil >/dev/null 2>&1; then
+                printf 'folder\tcannot\t%s\ttmutil not found\n' "$d"
+                continue
+            fi
+            rc=0
+            ans="$(tmutil isexcluded "$d" 2>&1)" || rc=$?
+            case "$rc:$ans" in
+                "0:[Excluded]"*) st=excluded ;;
+                "0:[Included]"*) st=included ;;
+                *) st=cannot; [[ -n "$ans" ]] || ans="exit ${rc}" ;;
+            esac
+            ans="${ans//$'\t'/ }"; ans="${ans//$'\n'/ }"
+            printf 'folder\t%s\t%s\t%s\n' "$st" "$d" "${ans:0:120}"
+        done
+    } > "$tmp" 2>/dev/null && mv -f "$tmp" "$out" 2>/dev/null || rm -f "$tmp"
+    return 0
+}
+_ostler_tm_status_record || true
+
 # v1.0.12 FIX A: invoke the resolved interpreter directly. A stray backslash
 # here previously made bash run a literal command named '$OSTLER_PYTHON' ->
 # "command not found" exit 127 on every fda-rerun, so the Photos/Reminders

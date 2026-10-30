@@ -1050,8 +1050,8 @@ TM_NOT_EXCLUDED_FIX = (
 TM_NOT_EXCLUDED_FIX_COMMAND_FMT = "tmutil addexclusion {folder}"
 TM_CANNOT_CHECK_TITLE = "Could not check whether Ostler's folders are kept out of Time Machine"
 TM_CANNOT_CHECK_DETAIL_FMT = (
-    "The Time Machine tool did not answer ({reason}), so this check did not "
-    "run. It is not a pass."
+    "Ostler has no current answer from Time Machine ({reason}), so this "
+    "check did not run. It is not a pass."
 )
 TM_CANNOT_CHECK_FIX = "Run the command below in Terminal and look for [Excluded]."
 TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
