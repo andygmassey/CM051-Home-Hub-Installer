@@ -48,7 +48,7 @@ jobs:
     # macOS because the module probes Docker Desktop as an app bundle and is
     # written for the bash 3.2 that ships there. Running it on ubuntu would
     # exercise a shell the customer never has.
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
