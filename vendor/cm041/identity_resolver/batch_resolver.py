@@ -41,7 +41,10 @@ from identity_resolver.normalise import (
     normalise_email,
     normalise_phone,
 )
-from identity_resolver.decisions import apply_user_decisions, load_duplicate_decisions
+from identity_resolver.decisions import (
+    apply_user_decisions, blocks_merge, load_duplicate_decisions,
+    load_duplicate_decisions_strict,
+)
 from identity_resolver.canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
 
 logger = logging.getLogger(__name__)
@@ -2130,7 +2133,27 @@ class BatchResolver:
         _backup_triples(self.oxigraph_url, self._client, all_uris, backup_path)
 
         refused_rule2 = 0
+        # "Different people" decisions (#2876, duplicates.yaml `distinct`),
+        # re-read at EXECUTE time. detect() already drops a distinct pair,
+        # but a converge round plans first and executes later; a decision
+        # recorded in between was ignored by the stale plan, which then
+        # re-merged the pair through the exact-identifier override below
+        # (it reads names and keys, never the decision).
+        # STRICT: a duplicates.yaml that exists but will not parse refuses
+        # every merge this round (one warning line from the loader), rather
+        # than reading as "no decisions" and re-joining separated pairs.
+        distinct_now = load_duplicate_decisions_strict(
+            self.config.get("corrections_dir", ""))
         for action in report.auto_merges:
+            if blocks_merge(action.keep_uri, action.discard_uri, distinct_now):
+                logger.info(
+                    "Not merging %s into %s: %s",
+                    action.discard_uri, action.keep_uri,
+                    "the decisions file is unreadable"
+                    if distinct_now.get("unreadable")
+                    else "recorded as different people",
+                )
+                continue
             # RULE 2 veto, per pair, BEFORE any write. See the long note above
             # _merge_oxigraph: this path reached the graph without it and grew
             # 137 over-merged nodes on a freshly wiped box.
