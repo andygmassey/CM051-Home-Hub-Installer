@@ -3822,6 +3822,51 @@ _DISPATCH_EXEMPT = frozenset({
 DEFERRABLE_AT_INSTALL = frozenset({"food"})
 
 
+# v1.0.121 (Archie): food is ~4000 s of local-model work on a 16 GB Mac, so it
+# runs at most once a day and never in the customer's first six hours. The
+# hourly tick asks food_due() and leaves food out of its dispatch when not due,
+# which writes no food row, so the last COMPLETED run's stamp survives.
+FOOD_MIN_INTERVAL_S = 24 * 3600
+FOOD_FIRST_AFTER_INSTALL_S = 6 * 3600
+_FOOD_COMPLETED = ("ok", "error", "no_data")
+
+
+def food_due(ostler_dir: Path, now: Optional[float] = None) -> tuple:
+    """(due, reason). Reads state/install_completed_at (epoch seconds, written
+    once at the end of install) and the last_run_at / last_status that the
+    tick's activity writer records in state/source_activity/food.tsv. Never
+    a file mtime."""
+    import calendar
+    import time
+    now = time.time() if now is None else float(now)
+    state = Path(ostler_dir) / "state"
+    try:
+        installed = int((state / "install_completed_at").read_text().strip())
+    except (OSError, ValueError):
+        return False, "install_not_complete"
+    if now - installed < FOOD_FIRST_AFTER_INSTALL_S:
+        return False, "within_6h_of_install"
+    fields = {}
+    try:
+        for line in (state / "source_activity" / "food.tsv").read_text(
+                encoding="utf-8", errors="replace").splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                fields[k] = v.strip()
+    except OSError:
+        return True, "never_completed"
+    if fields.get("last_status") not in _FOOD_COMPLETED:
+        return True, "never_completed"
+    try:
+        last = calendar.timegm(time.strptime(fields.get("last_run_at", ""),
+                                             "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return True, "completion_stamp_unreadable"
+    if now - last < FOOD_MIN_INTERVAL_S:
+        return False, "completed_within_24h"
+    return True, "due"
+
+
 def _timing_line(name: str, phase: str, started: Optional[float] = None,
                  status: Optional[str] = None) -> float:
     """Print one ``[ingest-timing]`` line; return the monotonic clock."""

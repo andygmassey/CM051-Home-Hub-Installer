@@ -32,6 +32,9 @@
 #      holder makes the next tick stand down; a dead one's lock is reclaimed.
 #   G  the food path never takes the shared Ollama ingest slot, so a derive or
 #      bundle tick is not starved behind a long food run (control: derive's).
+#   H  food runs at most once per 24 h (last COMPLETED run's own stamp, not an
+#      mtime) and never within 6 h of install_completed_at; the tick's gate
+#      really drops food when not due and keeps it when due.
 #   And in C: no exit code in customer copy; it goes to the log instead.
 #
 # Usage: test_hydrate_graph_food_deferred.sh [install.sh] [strings.sh] [vendor-dir]
@@ -248,6 +251,65 @@ g_ctrl="$(grep -c 'ostler_slot_acquire "derive-preferences"' "$INSTALL" || true)
 if [[ "$g_ctrl" -lt 1 ]]; then fail "G: CONTROL: the derive tick's slot call is not visible, so this arm is blind"
 elif [[ "$g_hits" -ne 0 ]]; then fail "G: the food path takes the ingest slot ($g_hits); a derive tick would starve behind it"
 else pass "G: food path takes the slot 0 times (control: derive takes it $g_ctrl)"; fi
+
+# ── H: food at most once a day, never in the first 6 h after install ─────
+echo "[H] food cadence (pwg_ingest.food_due, and the tick's gate)"
+H_OUT="$(T_VENDOR="$VENDOR" PYTHONPATH="$VENDOR" "$PY" - "$W/cad" <<'PYEOF' 2>&1
+import os, sys, time, calendar
+root = sys.argv[1]
+import ostler_fda.pwg_ingest as p
+if not hasattr(p, "food_due"):
+    print("ABSENT food_due"); sys.exit(0)
+now = 2_000_000_000.0
+def box(name, installed_ago=None, last_ago=None, status="ok"):
+    d = os.path.join(root, name); st = os.path.join(d, "state")
+    os.makedirs(os.path.join(st, "source_activity"), exist_ok=True)
+    if installed_ago is not None:
+        open(os.path.join(st, "install_completed_at"), "w").write("%d\n" % (now - installed_ago))
+    if last_ago is not None:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - last_ago))
+        f = os.path.join(st, "source_activity", "food.tsv")
+        open(f, "w").write("source=food\nlast_run_at=%s\nlast_status=%s\n" % (stamp, status))
+        os.utime(f, (now, now))  # an mtime of NOW must not be read as the completion
+    return d
+H = 3600
+cases = [
+    ("no_install_stamp", box("a"), False),
+    ("installed_5h59m_ago", box("b", 6*H - 60), False),
+    ("installed_6h_ago_never_ran", box("c", 6*H), True),
+    ("completed_23h59m_ago", box("d", 48*H, 24*H - 60), False),
+    ("completed_24h_ago", box("e", 48*H, 24*H), True),
+    ("errored_2h_ago_counts_as_completed", box("f", 48*H, 2*H, "error"), False),
+]
+for label, d, want in cases:
+    got, why = p.food_due(d, now=now)
+    print("%s %s want=%s got=%s (%s)" % ("OK" if got == want else "BAD", label, want, got, why))
+PYEOF
+)"
+echo "$H_OUT" | sed 's/^/      | /'
+if grep -q '^ABSENT' <<<"$H_OUT"; then fail "H: pwg_ingest has no food_due"
+elif grep -q '^BAD' <<<"$H_OUT" || [[ "$(grep -c '^OK' <<<"$H_OUT")" -ne 6 ]]; then fail "H: food cadence"
+else pass "H: 6 of 6 cadence cases (24 h, 6 h after install, stamp not mtime)"; fi
+# The tick really applies it: run the gate lines from the installed wrapper
+# against a stand-in pwg_ingest, once not due and once due.
+gate="$(awk '/# food-gate-begin/ {on=1} on {print} /# food-gate-end/ {exit}' "$W/ostler-fda")"
+if [[ -z "$gate" ]]; then
+    fail "H: the fda-rerun tick has no food gate"
+else
+    for due in False True; do
+        g="$(printf '%s\n' "$gate" | sed "s|\${OSTLER_DIR}|/x|g")"
+        r="$("$PY" -c "
+from pathlib import Path
+class P: pass
+_pwg = P(); _pwg._INGEST_DISPATCH = (('whatsapp','a'), ('food','b'), ('social','c'))
+_pwg.food_due = lambda d: ($due, 'test')
+$g
+print(','.join(n for n, _ in _pwg._INGEST_DISPATCH))" 2>&1)"
+        if [[ "$due" == False && "$r" == *"not due this tick: test"*"whatsapp,social" ]]; then pass "H: not due -> the tick drops food and keeps the rest"
+        elif [[ "$due" == True && "$r" == "whatsapp,food,social" ]]; then pass "H: due -> the tick runs food"
+        else fail "H: gate with due=$due gave: $r"; fi
+    done
+fi
 
 # ── D: the helper on its own ─────────────────────────────────────────────
 echo "[D] label helper"

@@ -26056,6 +26056,13 @@ if _skip:
                          'so refused sources could not be held back; nothing was loaded' + chr(10))
         sys.exit(1)
     _pwg._INGEST_DISPATCH = tuple(e for e in _dispatch if e[0] not in _skip)
+# food-gate-begin: at most once a day, never in the first 6 h (pwg_ingest.food_due)
+_food_due = getattr(_pwg, 'food_due', None)
+_food_ok, _food_why = _food_due(Path('${OSTLER_DIR}')) if _food_due else (True, 'no_gate')
+if not _food_ok:
+    print('[food] not due this tick: ' + _food_why, flush=True)
+    _pwg._INGEST_DISPATCH = tuple(e for e in _pwg._INGEST_DISPATCH if e[0] != 'food')
+# food-gate-end
 results = ingest_all(fda_dir) or {}
 if isinstance(results, dict) and results.get('status') != 'error':
     for _name in sorted(_refused):

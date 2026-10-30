@@ -145,3 +145,12 @@ hydrate_graph closed rc 1 and the warning blamed WhatsApp. install.sh now passes
 Proof: tests/test_hydrate_graph_food_deferred.sh (bash32-compat.yml).
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`.
+
+### v1.0.121 addendum: food cadence
+
+`food_due(ostler_dir, now=None)` with `FOOD_MIN_INTERVAL_S` (24 h) and
+`FOOD_FIRST_AFTER_INSTALL_S` (6 h): reads `state/install_completed_at` (epoch,
+written once at the end of install) and `last_run_at`/`last_status` from
+`state/source_activity/food.tsv`, never an mtime. The fda-rerun tick (install.sh,
+between `# food-gate-begin` and `# food-gate-end`) drops food from its dispatch when
+not due, so no food row is written and the last completed stamp survives.
