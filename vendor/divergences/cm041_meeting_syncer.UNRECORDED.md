@@ -10,10 +10,12 @@ patch does not contain.
 
 `vendor/cm041/meeting_syncer/brief.py`, function `_get_outstanding_todos`
 (and its docstring): the SPARQL gains `OPTIONAL { ?todo urn:ostler:privacyLevel ?plevel }`
-and `FILTER (!BOUND(?plevel) || UCASE(STR(?plevel)) != "L3")`, so an L3 (most
-private) todo is never returned to the emailed brief. A todo with NO
-privacyLevel (legacy) is kept and behaves as before. The filter is in the
-query so `LIMIT` counts only surviving rows.
+and `FILTER (!BOUND(?plevel) || REGEX(STR(?plevel), "^[ \\t]*[Ll][0-2][ \\t]*$"))`, so a todo is
+returned to the emailed brief only if it has NO privacyLevel (legacy, kept as
+before) or its level is exactly L0, L1 or L2 (trim, case insensitive). L3 and
+anything unparseable or unexpected (an IRI, "3", garbage) is withheld, the same
+fail-closed rule as the commitments API. The filter is in the query so `LIMIT`
+counts only surviving rows.
 
 Why: CM048's writer already refuses to store L3 todos, but the reader did not
 check, so L3 safety rested on one writer. This is the second line of defence.
