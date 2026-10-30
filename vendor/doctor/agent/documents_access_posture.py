@@ -164,7 +164,7 @@ _REMEDIATION = {
     STATUS_DENIED: (
         "Open System Settings, then Privacy and Security, then Full Disk "
         "Access, and make sure Ostler is switched on. If Ostler is also "
-        "listed under Files and Folders, switch on its Documents Folder "
+        "listed under Files and Folders, switch on its Documents folder "
         "too. Your wiki and conversation records will be written from "
         "the next hourly check on."
     ),
