@@ -1294,12 +1294,50 @@ def describe_click_target(page, selector):
         selector, st["target"], st["visible"], st["enabled"], st["in_viewport"], st["covered_by"] or "nothing")
 
 
+# ---------------------------------------------------------------------------
+# First-run welcome modal. The Hub's GovernorWelcomeModal (ostler-assistant
+# web/src/components/GovernorWelcomeModal.tsx) is <div role="dialog"
+# aria-labelledby="governor-welcome-title"> and covers the whole page, so the
+# first nav click times out on "intercepts pointer events" (v1.0.121 trial).
+# A customer dismisses it with its own button: "Not now" (visible label) or the
+# corner X, whose accessible name is "Close welcome". Found by ROLE and NAME,
+# clicked like a customer, then ASSERTED closed. No JS removal, no CSS hiding,
+# no force click. Absent modal: nothing to do.
+# ---------------------------------------------------------------------------
+
+WELCOME_DIALOG_SELECTOR = '[role="dialog"][aria-labelledby="governor-welcome-title"]'
+WELCOME_CLOSE_NAMES = ("Not now", "Close welcome")
+
+
+def dismiss_welcome_modal(page, timeout_ms=5000):
+    """Dismiss the first-run welcome the way a customer does. Returns "absent",
+    or "dismissed:<button name>". Raises RuntimeError when the modal is there
+    and cannot be closed (no known button, or still open after the click)."""
+    dialog = page.locator(WELCOME_DIALOG_SELECTOR)
+    if dialog.count() == 0:
+        return "absent"
+    for name in WELCOME_CLOSE_NAMES:
+        btn = dialog.first.get_by_role("button", name=name, exact=True)
+        if btn.count() == 0:
+            continue
+        btn.first.click(timeout=timeout_ms)
+        try:
+            dialog.first.wait_for(state="detached", timeout=timeout_ms)
+        except Exception:
+            pass
+        if page.locator(WELCOME_DIALOG_SELECTOR).count() != 0:
+            raise RuntimeError("welcome modal still open after clicking button %r" % name)
+        return "dismissed:" + name
+    raise RuntimeError("welcome modal is open and has no button named any of %s" % (list(WELCOME_CLOSE_NAMES),))
+
+
 def click_target(page, selector, out_dir, label, console_errors=None, timeout_ms=30000):
     """Click the first match of a CSS selector. On failure save a screenshot and the
     page's console errors into out_dir (evidence stays where the walk runs, never
     in git) and raise RuntimeError carrying the full exception tail plus the
     visible/enabled/covered line."""
     try:
+        dismiss_welcome_modal(page)
         page.locator(selector).first.click(timeout=timeout_ms)
         return
     except Exception as exc:
@@ -1484,6 +1522,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         # read each route's header, where the status pill lives.
         for path, name in HUB_ROUTES:
             try:
+                dismiss_welcome_modal(wpage)
                 lk = wpage.locator('a[href="%s"]' % path)
                 if lk.count():
                     lk.first.click()
@@ -1500,6 +1539,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     if (cmd === 'get_front_page') return {available: true, feed: feed};
                     if (cmd.startsWith('get_')) return null;
                     throw new Error('read-only probe refuses ' + cmd); }, transformCallback: () => 0 }; }""", feed_json)
+                dismiss_welcome_modal(wpage)
                 wpage.locator('a[href="/people"]').first.click()
                 wpage.wait_for_timeout(3000)
                 wpage.locator('a[href="/"]').first.click()
@@ -1507,6 +1547,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                 f["needs_now_app_settled"] = wpage.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("settled home: {}".format(str(exc)[:120]))
+        dismiss_welcome_modal(wpage)
         wpage.locator('a[href="/wiki"]').first.click()
         fr, t0 = None, time.time()
         try:
