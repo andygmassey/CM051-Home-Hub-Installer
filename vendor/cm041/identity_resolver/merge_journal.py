@@ -179,6 +179,58 @@ def _restore_qdrant(qdrant_url: str, snap: Dict[str, Any]) -> int:
     return len(want)
 
 
+def delete_person_points(qdrant_url: str, collection: str, uri: str) -> int:
+    """Delete every ``people`` point that belongs to ``uri``: the
+    uuid5(person_uri) point and any other point whose payload ``person_uri``
+    is ``uri`` (a writer that keyed its point some other way). Returns the
+    number of points that existed before the delete. Raises on any failure:
+    the caller decides whether a vector-side failure stops it.
+
+    This is the vector half of a merge. Without it a merged-away person keeps
+    a searchable point, so a people search for their name returns a URI the
+    graph has retired (v1.0.120 box: 86 such points, every one a
+    ``mergedInto`` source, every one from the ingest-time merge path).
+    ``record_merge`` snapshots these points first, so ``undo_merge`` puts
+    them back.
+    """
+    from qdrant_client import QdrantClient, models
+    client = QdrantClient(url=qdrant_url, timeout=30)
+    if not client.collection_exists(collection):
+        return 0
+    ids = {str(uuid.uuid5(uuid.NAMESPACE_URL, uri))}
+    ids &= {str(r.id) for r in client.retrieve(collection_name=collection,
+                                               ids=sorted(ids))}
+    pts, _ = client.scroll(
+        collection_name=collection, with_payload=False, with_vectors=False,
+        limit=1000,
+        scroll_filter=models.Filter(must=[models.FieldCondition(
+            key="person_uri", match=models.MatchValue(value=uri))]))
+    ids |= {str(r.id) for r in pts}
+    if ids:
+        client.delete(collection_name=collection, wait=True,
+                      points_selector=sorted(ids))
+    return len(ids)
+
+
+def default_journal_dir() -> Optional[str]:
+    """Where a merge made outside the batch converge journals itself.
+
+    The SAME directory the converge pass uses (it runs from the pipeline dir
+    with ``--backup-dir ./backups``) and that ``--undo-merge`` and the Hub's
+    Split read, so every merge, whichever path made it, is listed and undone
+    in one place. ``OSTLER_MERGE_JOURNAL_DIR`` overrides it (empty disables
+    it). None when there is no pipeline directory, i.e. not an installed Hub.
+    """
+    env = os.environ.get("OSTLER_MERGE_JOURNAL_DIR")
+    if env is not None:
+        return env or None
+    pipeline = os.environ.get("OSTLER_PIPELINE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "import-pipeline")
+    if not os.path.isdir(pipeline):
+        return None
+    return os.path.join(pipeline, "backups", "merge_journal")
+
+
 def read_node(url: str, client: httpx.Client, uri: str
               ) -> Tuple[Set[SubjTriple], Set[ObjTriple]]:
     subj = {(b["p"]["value"], _term(b["o"])) for b in _query(

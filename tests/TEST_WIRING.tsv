@@ -54,6 +54,7 @@ test_a_launchagent_names_an_absolute_interpreter.py	WIRED	.github/workflows/cold
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_a_matched_grep_cannot_epipe_its_own_producer.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
+test_a_merge_deletes_the_loser_vector.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_a_missing_tarball_is_not_a_network_problem.sh	WIRED	.github/workflows/download-urls-resolve.yml
 test_a_name_grep_cannot_see_a_dead_definition.py	WIRED	.github/workflows/cut-manifest.yml
 test_a_named_log_must_outlive_the_message.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
@@ -205,6 +206,7 @@ test_cm048_multilingual_vendored.py	WIRED	.github/workflows/cm048-multilingual-o
 test_cm048_participants_as_strings.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_participants_line_display_names_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_prompts_packaged.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_cm048_reminder_long_title_not_dropped.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_people_rules_installed_layout.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_person_parity.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminder_push_thread_and_sender.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -261,6 +263,8 @@ test_customer_copy_keeps_two_locked_rules.sh	WIRED	.github/workflows/rule-09-str
 test_customer_copy_says_ios_app_not_companion.py	WIRED	.github/workflows/consent-registry.yml
 test_customer_download_path_gate.sh	WIRED	.github/workflows/customer-download-path.yml
 test_customer_leak_shapes.py	WIRED	.github/workflows/customer-leak-shapes.yml
+test_customer_read_assertion_count_is_one_integer.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_customer_read_click_timeout_names_its_cause.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_contacts_not_masked_by_people.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_exempts_marked_customer_text.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_waits_for_a_fresh_contacts_diff.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -304,9 +308,11 @@ test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derive
 test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
+test_derive_tick_records_every_exit_and_has_a_ceiling.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_dietary_is_never_surfaced.py	WIRED	.github/workflows/derived-preferences.yml
+test_different_people_decision_blocks_remerge.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_digest_refreshes_when_the_interest_profile_lands.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
@@ -518,6 +524,7 @@ test_launchagent_refusal_reaches_the_transcript.sh	WIRED	.github/workflows/launc
 test_launchagent_refusal_reason_is_recorded.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
+test_launchd_probe_read_survives_an_empty_launchagents_dir_under_zsh.sh	WIRED	.github/workflows/seeded-zero-launchd-lan-probes.yml
 test_legal_prevails_note_on_every_legal_prompt.py	WIRED	.github/workflows/l10n-check.yml
 test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
@@ -639,6 +646,7 @@ test_pause_expiry_reenables_cron.py	WIRED	.github/workflows/status-honesty-pause
 test_payload_app_icons_gate.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_carded_names_show_and_tiers_hold_in_every_path.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_people_count_one_definition.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
@@ -909,14 +917,17 @@ test_timeline_dates_are_event_dates_with_offset.py	WIRED	.github/workflows/timel
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
 test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_todos_probe_text_fits_the_product_title_limit.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_ttywalk_exit_cleanup_lines.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
+test_two_cards_probe_verdict_holes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_colima_and_data_choices.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
@@ -1020,6 +1031,7 @@ test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tes
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
+test_walk_triage_never_baselines_a_vacuous_pass.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
@@ -1152,6 +1164,7 @@ scripts/tests/test_store_curl_conf_permissions.sh	WIRED	.github/workflows/secret
 scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_the_keyword_and_the_prose_agree.py	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_the_walk_record_says_whether_the_box_was_seeded.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_verify_app_provenance.sh	WIRED	gui/Makefile
 scripts/tests/test_verify_branch_truth_gate.sh	WIRED	.github/workflows/cut-manifest.yml
 scripts/tests/test_verify_clean_tree_gate.sh	WIRED	.github/workflows/cut-manifest.yml
