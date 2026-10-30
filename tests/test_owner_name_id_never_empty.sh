@@ -123,17 +123,17 @@ else
 fi
 
 # ── 3. GUI path re-asks, then accepts ───────────────────────────────
-# Answers in order: name "" (re-ask), name "Sam Example", id "   " (re-ask), id "Sammy".
-printf '\nSam Example\n   \nSammy\n' > "$T/gui.answers"
+# Answers in order: name "" (re-ask), name "Sam Jones", id "   " (re-ask), id "Samuel".
+printf '\nSam Jones\n   \nSamuel\n' > "$T/gui.answers"
 : > "$T/markers"; : > "$T/py.log"
 out="$(run "$H" /dev/null OSTLER_GUI=1 OSTLER_GUI_FD=3 OSTLER_MARKER_FD=4 3<"$T/gui.answers" 4>"$T/markers")"; rc=$?
 n_name="$(/usr/bin/grep -c 'id=user_name' "$T/markers" || true)"
 n_id="$(/usr/bin/grep -c 'id=user_id' "$T/markers" || true)"
 n_err="$(/usr/bin/grep -c 'error=' "$T/markers" || true)"
 if [[ $rc -eq 0 && "$n_name" == 2 && "$n_id" == 2 && "$n_err" == 2 ]] \
-   && has "$out" "CONSENT_CALLED user_id=[Sammy] user_name=[Sam Example]" \
-   && has "$out" "CONSENT_RECORDED" && has "$(cat "$T/py.log")" "--user-id Sammy"; then
-    pass "3 GUI: empty name and whitespace id each re-asked with an error banner (user_name x$n_name, user_id x$n_id), then accepted; consent recorded --user-id Sammy"
+   && has "$out" "CONSENT_CALLED user_id=[Samuel] user_name=[Sam Jones]" \
+   && has "$out" "CONSENT_RECORDED" && has "$(cat "$T/py.log")" "--user-id Samuel"; then
+    pass "3 GUI: empty name and whitespace id each re-asked with an error banner (user_name x$n_name, user_id x$n_id), then accepted; consent recorded --user-id Samuel"
 else
     bad "3 GUI re-ask (rc=$rc name=$n_name id=$n_id err=$n_err)"; printf '%s\n' "$out" | sed 's/^/     | /'; sed 's/^/     m /' "$T/markers"
 fi
@@ -169,9 +169,9 @@ sys.stdout.write("\nPTY_RC=%d\n" % (os.WEXITSTATUS(status) if os.WIFEXITED(statu
 . "$REPO_ROOT/install.sh.strings.en-GB.sh"
 # 4a: empty name is warned and re-asked; the id prompt then offers "sam".
 : > "$T/py.log"
-out="$(pty_run "" $'\nSam Example\n\n')"
+out="$(pty_run "" $'\nSam Jones\n\n')"
 if has "$out" "PTY_RC=0" && has "$out" "$MSG_WARN_OWNER_NAME_EMPTY" \
-   && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Example]" \
+   && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Jones]" \
    && has "$(cat "$T/py.log")" "--user-id sam"; then
     pass "4a terminal (pty): empty name warned and re-asked, then accepted; consent recorded --user-id sam"
 else
@@ -180,11 +180,11 @@ fi
 # 4b: a blank me-card first name gives a blank id default; an empty id is
 # warned and re-asked rather than taking the blank.
 : > "$T/py.log"
-out="$(pty_run " " $'Sam Example\n\nSammy\n')"
+out="$(pty_run " " $'Sam Jones\n\nSamuel\n')"
 if has "$out" "PTY_RC=0" && has "$out" "$MSG_WARN_OWNER_ID_EMPTY" \
-   && has "$out" "CONSENT_CALLED user_id=[Sammy] user_name=[Sam Example]" \
-   && has "$(cat "$T/py.log")" "--user-id Sammy"; then
-    pass "4b terminal (pty): blank id warned and re-asked, then accepted; consent recorded --user-id Sammy"
+   && has "$out" "CONSENT_CALLED user_id=[Samuel] user_name=[Sam Jones]" \
+   && has "$(cat "$T/py.log")" "--user-id Samuel"; then
+    pass "4b terminal (pty): blank id warned and re-asked, then accepted; consent recorded --user-id Samuel"
 else
     bad "4b terminal id re-ask"; printf '%s\n' "$out" | sed 's/^/     | /'
 fi
@@ -201,15 +201,15 @@ fi
 
 # ── 6. controls: the harness CAN reach consent ───────────────────────
 : > "$T/py.log"
-out="$(run "$H" /dev/null DETECTED_NAME="Sam Example" DETECTED_FIRST="Sam")"; rc=$?
-if [[ $rc -eq 0 ]] && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Example]" && has "$out" "CONSENT_RECORDED"; then
+out="$(run "$H" /dev/null DETECTED_NAME="Sam Jones" DETECTED_FIRST="Sam")"; rc=$?
+if [[ $rc -eq 0 ]] && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Jones]" && has "$out" "CONSENT_RECORDED"; then
     pass "6a control: unattended WITH a me-card still reaches consent, user_id=sam derived from Contacts"
 else
     bad "6a control unattended with Contacts (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/     | /'
 fi
-printf 'Sam Example\n\n' > "$T/in.typed"
+printf 'Sam Jones\n\n' > "$T/in.typed"
 out="$(run "$H" "$T/in.typed")"; rc=$?
-if [[ $rc -eq 0 ]] && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Example]"; then
+if [[ $rc -eq 0 ]] && has "$out" "CONSENT_CALLED user_id=[sam] user_name=[Sam Jones]"; then
     pass "6b control: typed name + empty id (default offered) reaches consent, user_id=sam"
 else
     bad "6b control typed name (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/     | /'
