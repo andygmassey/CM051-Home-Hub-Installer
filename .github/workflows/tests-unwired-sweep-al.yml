@@ -139,6 +139,12 @@ jobs:
         if: always()
         run: bash tests/test_homebrew_bootstrap_is_pinned.sh
 
+      # INDIVIDUAL STEP for the same reason as the one above: the care rules
+      # (AGENTS.md + local helpline) are written into the daemon workspace.
+      - name: The care rules and the local helpline are written into the assistant workspace
+        if: always()
+        run: bash tests/test_care_agents_md.sh
+
       # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
       # history survived a box_pristine reset AND a reinstall because it
       # lives in WebKit localStorage, which neither the reset tool nor the

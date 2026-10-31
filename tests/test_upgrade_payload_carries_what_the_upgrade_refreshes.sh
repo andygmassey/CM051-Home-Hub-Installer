@@ -38,6 +38,7 @@ declare_src() {
         pwg_privacy.py) echo vendor/cm041/pwg_privacy.py ;;
         ostler_hygiene) echo vendor/cm041/ostler_hygiene ;;
         context-refresh) echo context-refresh ;;
+        care) echo care ;;
         *) echo "" ;;
     esac
 }

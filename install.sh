@@ -1574,22 +1574,22 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         [[ -n "$_new_version" ]] || _upg_die 10 "payload VERSION is empty"
         _upg_log "target version: ${_new_version}"
 
-        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the
-        # current app is present AND ~/.ostler/VERSION is set: then the
-        # .old is a stale anchor from a PRIOR successful upgrade. This
-        # never touches the .old THIS run creates (it does not exist yet).
+        # (2) Deferred .old cleanup FIRST (the n+1 sweep). Only when the current app and
+        # ~/.ostler/VERSION exist: then .old is stale from a PRIOR upgrade, never this run's.
         if [[ -d "$_UPG_APP_OLD" && -d "$_UPG_APP" && -f "$_UPG_VERSION_FILE" ]]; then
             _upg_log "n+1 cleanup: removing stale ${_UPG_APP_OLD} from a prior successful upgrade"
             rm -rf "$_UPG_APP_OLD" 2>/dev/null || true
         fi
 
-        # (4a) Stage + verify the new daemon. No swap yet; running daemon
-        # stays up, so a verify failure leaves it entirely untouched.
+        # (4a) Stage + verify the new daemon. No swap yet; a verify failure leaves the running daemon untouched.
         _upg_stage_daemon
         local _src=$?
         if [[ $_src -ne 0 ]]; then
             exit "$_src"   # 20/21/22 already logged; old daemon untouched
         fi
+        # (2b) Care rules (AGENTS.md) + local helpline, written BEFORE the daemon restarts; region from the posture file, unknown = ZZ.
+        _upg_care="$(_upg_payload_dir services/care)" || _upg_care=""; _upg_reg="$(sed -n 's/.*"iso_country": *"\([A-Za-z][A-Za-z]\)".*/\1/p' "${_UPG_OSTLER_DIR}/posture/region.json" 2>/dev/null | head -1)"
+        if [[ -n "$_upg_care" ]] && bash "${_upg_care}/write_agents_md.sh" "$_upg_care" "${_upg_reg:-ZZ}" "${_UPG_ASSISTANT_CONFIG_DIR}/workspace" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1; then _upg_log "care rules written to the workspace (region ${_upg_reg:-ZZ})"; else _upg_log "ERROR: care rules (AGENTS.md) NOT written on upgrade; payload services/care missing or the writer failed"; fi
 
         # (3) Bootout the running daemon BEFORE touching the live .app.
         _upg_log "booting out running daemon before swap"
@@ -18952,8 +18952,8 @@ You are ${_identity_name}, the user's personal assistant.
 SOULEOF
     fi
 done
-unset _idf _idf_path _identity_name
-ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
+unset _idf _idf_path _identity_name; ok "$(printf "%s" "Assistant identity seeded for ${ASSISTANT_NAME:-your assistant}")"
+bash "${SCRIPT_DIR}/care/write_agents_md.sh" "${SCRIPT_DIR}/care" "${OSTLER_REGION_ISO:-ZZ}" "$ASSISTANT_WORKSPACE_DIR" && ok "Care rules written to the assistant workspace" || warn "Could not write the care rules (AGENTS.md); the assistant has no helpline text"
 
 # ── 3.6 Security setup ────────────────────────────────────────────
 

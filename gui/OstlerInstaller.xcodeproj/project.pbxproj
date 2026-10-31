@@ -677,6 +677,7 @@
 				F91168F12AE17E931B5752D1 /* Bundle wiki-recompile (daily wiki rebuild LaunchAgent) */,
 				2CDDFF80388B996EC772CBB7 /* Bundle context-refresh (#608 personal-context digest LaunchAgent) */,
 				BFB98132799C02DF9416EA41 /* Bundle uninstaller helpers (stop orphaned background ticks) */,
+				16F3DD1CEACC47BEBDD730B6 /* Bundle care rules (AGENTS.md template + offline helplines) */,
 				76832E6CF8371198DB115450 /* Bundle legal Python package (consent-string constants) */,
 				2662C5C53104DBE527D98B0F /* Bundle LICENSES + THIRD_PARTY_NOTICES.md into Resources */,
 				BE798CA5C879050E43B4A9DA /* Bundle scripts/deferred-register-device.sh into Resources/scripts */,
@@ -852,6 +853,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Belt-and-braces: even if a previous build phase or a `cp -p`\n# somewhere else left FinderInfo / provenance / macl xattrs on\n# the staged bundle, strip them recursively before the final\n# CodeSign step runs. codesign rejects bundles with any xattrs\n# (\"resource fork, Finder information, or similar detritus not\n# allowed\") and this is the canonical fix.\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nif [ -d \"${APP_BUNDLE}\" ]; then\n  /usr/bin/xattr -cr \"${APP_BUNDLE}\"\nfi\n";
+		};
+		16F3DD1CEACC47BEBDD730B6 /* Bundle care rules (AGENTS.md template + offline helplines) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../care/write_agents_md.sh",
+			);
+			name = "Bundle care rules (AGENTS.md template + offline helplines)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/care/write_agents_md.sh",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n# install.sh runs ${SCRIPT_DIR}/care/write_agents_md.sh to write the\n# care rules and the customer's local helpline into the daemon\n# workspace before the daemon starts. Source-of-truth: CM051 repo\n# root /care/.\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nSRC=\"${SRCROOT}/../care\"\nif [ ! -f \"${SRC}/write_agents_md.sh\" ] || [ ! -f \"${SRC}/AGENTS_CARE.md.tmpl\" ] || [ ! -f \"${SRC}/helplines.tsv\" ]; then\n  echo \"ERROR: care/ incomplete at ${SRC} (need write_agents_md.sh, AGENTS_CARE.md.tmpl, helplines.tsv)\" >&2\n  exit 1\nfi\necho \"Bundling care rules from ${SRC} into Resources/care/\"\nmkdir -p \"${DEST}/care\"\ncp -R \"${SRC}/\"* \"${DEST}/care/\"\n/usr/bin/xattr -cr \"${DEST}/care\" || true\nchmod 755 \"${DEST}/care/write_agents_md.sh\"\n";
 		};
 		1F163102D8C7D318C87083D0 /* Bundle email_source conversation feed into Resources */ = {
 			isa = PBXShellScriptBuildPhase;
