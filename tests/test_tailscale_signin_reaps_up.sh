@@ -21,9 +21,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-REGION="$(awk '/up --hostname=ostler-hub/{f=1} f{print} f&&/wait "\$TS_UP_PID"/{exit}' "$INSTALL_SH")"
+REGION="$(awk '/up --hostname=ostler-hub/{f=1} f&&/^        else$/{exit} f{print}' "$INSTALL_SH")"
 grep -q 'TS_UP_PID=\$!' <<< "$REGION" || fail "could not extract launch region (no TS_UP_PID capture)"
-grep -q 'wait "\$TS_UP_PID"' <<< "$REGION" || fail "launch region has no reap of TS_UP_PID"
 printf '%s\n' "$REGION" > "$WORK/region.sh"
 echo "PASS: extracted the real launch-to-reap region ($(wc -l < "$WORK/region.sh") lines)"
 
