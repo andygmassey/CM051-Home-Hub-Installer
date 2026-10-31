@@ -112,9 +112,11 @@ test_an_abort_inside_a_step_is_counted.sh	WIRED	.github/workflows/step-end-statu
 test_an_abort_speaks_on_a_terminal_install.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_an_absent_launchd_domain_is_not_a_service_that_is_down.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_an_advisory_probe_is_not_a_walk_fail.sh	WIRED	.github/workflows/owner-score-instrument.yml
+test_an_email_twin_fold_moves_both_people_counts.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_an_enrichment_miss_is_not_an_import_error.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_an_identifier_is_not_a_taste.py	WIRED	.github/workflows/vendor-integrity.yml
 test_an_import_reaches_the_digest_straight_away.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_an_installed_box_with_a_two_card_pile_heals.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_an_old_format_sentinel_does_not_abort_the_install.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_an_unconfirmed_calendar_is_not_buried_forever.py	WIRED	.github/workflows/privacy-spine.yml
 test_an_undescribed_vendor_divergence_is_red.sh	WIRED	.github/workflows/vendor-divergence-described.yml
@@ -357,6 +359,7 @@ test_email_folder_prompt.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_bootstrap_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_loud_guard.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_email_ingest_venv_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_email_named_twin_folds_into_the_card_holder.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_email_only_people_get_a_provisional_name.py	WIRED	.github/workflows/privacy-spine.yml
 test_email_password_never_in_config.sh	WIRED	.github/workflows/email-channel.yml
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
@@ -419,6 +422,7 @@ test_fda_rerun_agent_loads_after_its_binary.sh	WIRED	.github/workflows/cold-box-
 test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_loads_after_an_aborted_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
+test_fda_tick_folds_a_post_install_email_twin.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
@@ -926,6 +930,7 @@ test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
+test_two_card_person_is_not_reminted_every_sync.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
 test_two_cards_probe_verdict_holes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml

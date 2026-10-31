@@ -385,3 +385,22 @@ top-level `contact_syncer/` (not under vendor/) carries the bare pass at
 at `facebook_friends.py:319`, `linkedin_connections.py:553`,
 `instagram_social.py:375`. It is owed the same two changes, or its removal if
 nothing stages it.
+
+## 2026-10-30 (v1.0.121): a two-card survivor is its own cards' node
+
+Tree `cm041/contact_syncer`, file `syncer.py`, `_node_holds_a_different_canonical_key`.
+The ASK now also requires that the node does NOT hold the incoming card's
+`icloud_contact_uid`. Before, a node holding BOTH of one person's cards (made
+by the converge path's ratified exception, `identity_resolver/exact_identifier.py`)
+was refused for each of its own cards on every contact-resync, and a fresh
+node was minted per card per tick. Measured on the v1.0.120 walk box (Mini16,
+shapes only): one person, 8 live Person nodes, 2 uids between them, creation
+stamps spread across resync ticks. A node holding only a different card still
+refuses. The same change is applied to the non-vendored top-level
+`contact_syncer/syncer.py` twin.
+
+Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py` (wired in
+`.github/workflows/rule-2-holds-on-the-write.yml`).
+
+UPSTREAM ROW: none owed. CM041 main (fe3290d) has no write-side RULE 2 guard
+in `contact_syncer/syncer.py` at all; it lives only in this tree.

@@ -236,15 +236,25 @@ class IdentityResolver:
         # later batch pass might catch. We honour RULE 1 here: a shared exact
         # identifier (E.164 phone / normalised email / iCloud UID / etc.) always
         # merges, ignoring names and source. No fuzzy logic in this tier.
+        #
+        # EVERY live holder of each identifier, not the first one. The lookup
+        # used to be LIMIT 1 with no ORDER BY, so when one human had several
+        # nodes on the same email (v1.0.120 walk, Mini16: 8 live nodes, one
+        # person, two Contacts cards) the single binding returned was often
+        # a node the RULE 2 check below rightly declines -- the other card's
+        # node -- and the holders that WOULD have passed were never looked at.
+        # The pile then never shrank. Each holder still goes through
+        # _identifier_match_trustworthy on its own, so nothing that check
+        # refuses can enter found_uris, and the collapse below still vetoes
+        # per pair on canonical keys.
         found_uris: dict[str, tuple[str, str]] = {}
         for id_type, id_value in self._iter_identifiers(identity):
-            uri = self.find_by_identifier(id_type, id_value)
-            if (
-                uri
-                and uri not in found_uris
-                and self._identifier_match_trustworthy(id_type, uri, identity)
-            ):
-                found_uris[uri] = (id_type, id_value)
+            for uri in self.find_all_by_identifier(id_type, id_value):
+                if (
+                    uri not in found_uris
+                    and self._identifier_match_trustworthy(id_type, uri, identity)
+                ):
+                    found_uris[uri] = (id_type, id_value)
 
         if len(found_uris) == 1:
             uri = next(iter(found_uris))
@@ -968,6 +978,31 @@ class IdentityResolver:
         if not bindings:
             return None
         return self.follow_merge_chain(bindings[0]["person"]["value"])
+
+    def find_all_by_identifier(self, id_type: str, id_value: str) -> List[str]:
+        """Every LIVE person holding this identifier, each followed through its
+        merge tombstones, de-duplicated, in a stable order.
+
+        ``find_by_identifier`` answers "one holder" (LIMIT 1, arbitrary when
+        several hold it). Tier 1 of ``_resolve_tiers`` needs all of them: a
+        holder its RULE 2 check declines must not hide a holder it would
+        accept. Same query shape, same tombstone follow, no LIMIT.
+        """
+        sparql = (
+            f"SELECT DISTINCT ?person WHERE {{ "
+            f"  ?person <{PWG}hasIdentifier> ?id . "
+            f'  ?id <{PWG}identifierType> "{id_type}" ; '
+            f'      <{PWG}identifierValue> "{_escape(id_value)}" . '
+            f"}} ORDER BY ?person"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        out: List[str] = []
+        for b in bindings:
+            live = self.follow_merge_chain(b["person"]["value"])
+            if live not in out:
+                out.append(live)
+        return out
 
     def follow_merge_chain(self, person_uri: str, max_hops: int = 16) -> str:
         """Follow pwg:mergedInto to the surviving node. Returns the terminus.

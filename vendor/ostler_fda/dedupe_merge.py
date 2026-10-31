@@ -489,6 +489,181 @@ def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
     return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
 
 
+# ── EMAIL TWINS: AN ADDRESS-ONLY PERSON IS THE CARD THAT HOLDS THE ADDRESS ──
+# v1.0.120 walk (Mini16, counts only): the People list showed a row named by
+# an email address while a human-named row held that same address. The
+# address-named node was written by the email ingest (vendor/cm021, its
+# _build_upsert): ``uuid5(address)``, the address as a bare ``pwg:email``
+# literal, a provisional displayName, and NO ``pwg:hasIdentifier``. Every
+# identity path keys on hasIdentifier -- find_collisions above,
+# IdentityResolver.find_by_identifier -- so this node was invisible to all of
+# them and could never merge. 33 such nodes on that box shared their address
+# with a live identifier-holding node.
+#
+# The rule is the ratified one, kept narrow: an address-only node folds into
+# the ONE live person holding that address as an identifier, when its name is
+# not a human name (the email-named case: a name-tier upgrade) or is the SAME
+# full name as that holder's. An address held by two or more people is shared
+# (a family inbox) and joins nobody; a different human name joins nobody. An
+# address-only node carries no Contacts card, so RULE 2 cannot be crossed.
+
+def merge_email_twins(dry_run: bool = False, max_folds: Optional[int] = None) -> Dict[str, int]:
+    """Fold each address-only Person into the one live holder of its address.
+    Raises on an unreadable store, like every read in this module; ``run``
+    reports that."""
+    twins = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?t ?m WHERE { "
+        "  ?t a pwg:Person ; pwg:email ?m . "
+        "  FILTER NOT EXISTS { ?t pwg:hasIdentifier ?x } "
+        "  FILTER NOT EXISTS { ?t pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?t a pwg:RetiredPerson } "
+        "}"
+    )
+    addrs: Dict[str, Set[str]] = {}
+    for r in twins:
+        addrs.setdefault(r["t"]["value"], set()).add(r["m"]["value"].strip().lower())
+    holders_rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?p ?v WHERE { "
+        "  ?p a pwg:Person ; pwg:hasIdentifier ?id . "
+        '  ?id pwg:identifierType "email" ; pwg:identifierValue ?v . '
+        "  FILTER NOT EXISTS { ?p pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?p a pwg:RetiredPerson } "
+        "}"
+    ) if addrs else []
+    holders: Dict[str, Set[str]] = {}
+    for r in holders_rows:
+        holders.setdefault(r["v"]["value"].strip().lower(), set()).add(r["p"]["value"])
+    merged = shared = name_differs = 0
+    plan: List[Tuple[str, str]] = []
+    for twin, mails in sorted(addrs.items()):
+        found: Set[str] = set()
+        for m in mails:
+            found |= holders.get(m, set())
+        found.discard(twin)
+        if not found:
+            continue
+        if len(found) > 1:
+            shared += 1
+            continue
+        plan.append((next(iter(found)), twin))
+    unjournalled = vector_unreconciled = deferred = 0
+    if plan:
+        names = _real_names_of({p for pair in plan for p in pair})
+        mj = jdir = None
+        if not dry_run:
+            mj = _merge_journal_module()
+            jdir = mj.default_journal_dir() if mj is not None else None
+        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
+        for holder, twin in plan:
+            twin_real = names.get(twin, set())
+            if twin_real and not (twin_real & names.get(holder, set())):
+                name_differs += 1
+                continue
+            # UNATTENDED, SO CAPPED. The hourly tick folds with nobody watching:
+            # at most ``max_folds`` per call, the rest wait for the next tick and
+            # are counted. None (the install sweep, run()) means no cap.
+            if max_folds is not None and merged >= max_folds:
+                deferred += 1
+                continue
+            if dry_run:
+                merged += 1
+                continue
+            # LIKE EVERY OTHER MERGE: journalled BEFORE the first write, so the
+            # Hub's Split and ``batch_resolver --undo-merge`` can restore it,
+            # then a mergedInto tombstone (``_merge_pair``), then the loser's
+            # people vector deleted (CM051 #3235's ``delete_person_points``).
+            # No journal, no merge: an un-undoable fold is worse than a twin
+            # that waits for the next tick.
+            if mj is None or not jdir:
+                unjournalled += 1
+                continue
+            try:
+                transport = httpx.HTTPTransport(proxy=None)
+                with httpx.Client(timeout=60.0, transport=transport) as client:
+                    mj.record_merge(
+                        OXIGRAPH_URL, client, jdir, holder, twin,
+                        strategy="email_twin", confidence=1.0,
+                        details="identifier values withheld from the journal",
+                        qdrant_url=qdrant_url, qdrant_collection="people")
+            except Exception as exc:  # noqa: BLE001 -- counted, never a blind merge
+                unjournalled += 1
+                logger.warning("dedupe_merge: email twin NOT folded, no pre-merge "
+                               "snapshot (%s); the next tick retries", type(exc).__name__)
+                continue
+            _merge_pair(holder, twin)
+            merged += 1
+            if qdrant_url:
+                try:
+                    mj.delete_person_points(qdrant_url, "people", twin)
+                except Exception as exc:  # noqa: BLE001 -- counted; the repair sweeps it
+                    vector_unreconciled += 1
+                    logger.warning("dedupe_merge: email twin folded, its people vector "
+                                   "NOT deleted (%s)", type(exc).__name__)
+    logger.info(
+        "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
+        "%d different name(s), %d not journalled, %d deferred by the cap%s",
+        merged, shared, name_differs, unjournalled, deferred,
+        " (dry-run, no writes)" if dry_run else "",
+    )
+    return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
+            "email_twins_name_differs": name_differs,
+            "email_twins_unjournalled": unjournalled,
+            "email_twins_vector_unreconciled": vector_unreconciled,
+            "email_twins_deferred": deferred,
+            "email_twins_max_folds": max_folds}
+
+
+#: Folds one hourly tick may make with nobody watching. Measured read-only on
+#: the v1.0.120 walk box (Mini16, 2026-10-30): 672 live address-only persons,
+#: 24 with exactly one holder, 5 of those foldable. 25 clears that with room
+#: and bounds a pathological graph to 25 journalled, undoable folds an hour.
+TICK_MAX_EMAIL_TWIN_FOLDS = 25
+
+
+def tick_email_twins() -> str:
+    """One log line for the hourly fda-rerun tick (install.sh writes
+    ~/.ostler/bin/ostler-fda, whose python block calls this right after
+    ingest_all). The email ingest mints an address-only person for every new
+    correspondent and the install-time sweep never sees one made later, so
+    the fold runs on every tick. NEVER raises: bookkeeping must not fail the
+    tick it rides on; an unreadable store is a CANNOT-RUN line, not a count."""
+    import json
+    try:
+        try:
+            cap = int(os.environ.get("OSTLER_EMAIL_TWIN_MAX_FOLDS", TICK_MAX_EMAIL_TWIN_FOLDS))
+        except ValueError:
+            cap = TICK_MAX_EMAIL_TWIN_FOLDS
+        return "[email-twins] " + json.dumps(merge_email_twins(max_folds=max(cap, 0)), default=str)
+    except Exception as exc:  # noqa: BLE001 -- reported on the line, never swallowed
+        return "[email-twins] CANNOT-RUN: %s: %s" % (type(exc).__name__, str(exc)[:200])
+
+
+def _merge_journal_module():
+    """``identity_resolver.merge_journal``, the one merge journal every merge
+    path writes. It ships in the import pipeline, not in this package, so it
+    is found there when it is not already importable. None when it cannot be
+    found: the caller then makes no merge."""
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        pass
+    pipeline = os.environ.get("OSTLER_PIPELINE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "import-pipeline")
+    if not os.path.isdir(os.path.join(pipeline, "identity_resolver")):
+        return None
+    import sys
+    if pipeline not in sys.path:
+        sys.path.append(pipeline)
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        return None
+
+
 def run(dry_run: bool = False) -> Dict[str, int]:
     """Sweep the graph and merge all exact-identifier-colliding Persons.
     Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
@@ -603,6 +778,12 @@ def run(dry_run: bool = False) -> Dict[str, int]:
     except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
         logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
         out["phone_twins_unreadable"] = True
+    # The address-only twins neither pass above can see (no hasIdentifier).
+    try:
+        out.update(merge_email_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: email-twin pass could not read the store (%s)", exc)
+        out["email_twins_unreadable"] = True
     return out
 
 

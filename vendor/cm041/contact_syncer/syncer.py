@@ -1542,7 +1542,19 @@ class ContactSyncer:
         self, person_uri: str, incoming_uid: str
     ) -> Optional[bool]:
         """True if *person_uri* already carries an icloud_contact_uid that is not
-        *incoming_uid*.
+        *incoming_uid*, AND does not also carry *incoming_uid* itself.
+
+        A node that already holds the incoming card's uid IS that card's node,
+        whatever else it holds. The converge path's ratified exception
+        (identity_resolver/exact_identifier.py: same full name plus a shared
+        email, mobile or LinkedIn) folds one person's two Contacts cards into
+        one node holding both uids. Asking only "any OTHER uid here?" refused
+        that survivor for BOTH of its own cards on every sync, so each
+        contact-resync tick minted a fresh node per card (v1.0.120 walk,
+        Mini16: one person, 8 live Person nodes, 2 uids between them). This is
+        the resolver's own rule (two PRESENT and DISJOINT value sets refuse):
+        a node holding only a different card still refuses, so RULE 2 is not
+        loosened.
 
         Returns None when the graph could not be read. "Could not look" and "no
         conflict" must not come back as the same value: a read failure that
@@ -1561,6 +1573,12 @@ class ContactSyncer:
             '  ?id pwg:identifierType "icloud_contact_uid" ;\n'
             "      pwg:identifierValue ?v .\n"
             f'  FILTER(str(?v) != "{safe_val}")\n'
+            "  FILTER NOT EXISTS {\n"
+            f"    <{person_uri}> pwg:hasIdentifier ?own .\n"
+            '    ?own pwg:identifierType "icloud_contact_uid" ;\n'
+            "         pwg:identifierValue ?ov .\n"
+            f'    FILTER(str(?ov) = "{safe_val}")\n'
+            "  }\n"
             "}"
         )
         try:
