@@ -263,7 +263,7 @@ ostler_resource_tier_detect() {
             # threshold table. Measured on origin/main:
             #
             #     model              min_fit   min_slow
-            #     qwen3.6:35b-a3b       48        36
+            #     (35b-a3b withheld, v1.0.121)
             #     qwen3.5:9b            24        18
             #     gemma4:e2b            16        12
             #

@@ -10244,8 +10244,8 @@ else
     # Fallback: helper not on disk (stripped bundle). Legacy RAM ladder --
     # same thresholds the fit table encodes for the comfortable ("fits") tier.
     if [[ $RAM_GB -ge 48 ]]; then
-        AI_MODEL="qwen3.6:35b-a3b"
-        AI_MODEL_SIZE="~23 GB"
+        AI_MODEL="qwen3.5:9b"
+        AI_MODEL_SIZE="~6.6 GB"
     elif [[ $RAM_GB -ge 24 ]]; then
         AI_MODEL="qwen3.5:9b"
         AI_MODEL_SIZE="~6.6 GB"
@@ -11040,7 +11040,7 @@ ostler_resource_tier_detect() {
             # threshold table. Measured on origin/main:
             #
             #     model              min_fit   min_slow
-            #     qwen3.6:35b-a3b       48        36
+            #     (35b-a3b withheld, v1.0.121)
             #     qwen3.5:9b            24        18
             #     gemma4:e2b            16        12
             #
