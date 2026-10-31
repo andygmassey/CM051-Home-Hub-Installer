@@ -41,7 +41,7 @@ DEBTS = [
     {"person_name": DIGITS, "resolved": True, "waiting_hours": 3.2, "privacy_level": "L1"},
 ]
 COMMON_DEBTS = [
-    {"person_name": COMMON, "person_uri": "urn:pwg:person:abc", "resolved": True, "waiting_hours": 7, "privacy_level": "L1"},
+    {"person_name": COMMON, "person_uri": "urn:example:person:abc", "resolved": True, "waiting_hours": 7, "privacy_level": "L1"},
     {"person_name": COMMON, "resolved": True, "waiting_hours": 8, "privacy_level": "L1"},
 ]
 fail = 0
