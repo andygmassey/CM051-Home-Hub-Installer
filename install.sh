@@ -605,7 +605,7 @@ _install_derive_preferences_agent() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>PYTHONPYCACHEPREFIX</key>
         <string>${OSTLER_DIR}/cache/pycache</string>
         <key>OSTLER_DIR</key>

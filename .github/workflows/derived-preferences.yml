@@ -37,6 +37,7 @@ on:
       - 'tests/test_derive_preferences_is_scheduled.sh'
       - 'tests/test_derive_is_kicked_once_after_install_and_upgrade.sh'
       - 'tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh'
+      - 'tests/test_derive_agent_env_can_read_system_load.sh'
       - 'tests/test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh'
       - 'tests/test_upgrade_refreshes_assistant_api_and_context_refresh.sh'
       - 'tests/test_upgrade_payload_carries_what_the_upgrade_refreshes.sh'
@@ -122,6 +123,9 @@ jobs:
       - name: The derive tick records every exit (deferred, yielded, cannot start) and a ceiling runs it anyway under taskpolicy -b
         if: always()
         run: bash tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh
+      - name: The derive LaunchAgent's own environment can read system load and cores (sysctl is on its PATH)
+        if: always()
+        run: bash tests/test_derive_agent_env_can_read_system_load.sh
       - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
         # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
         # the other three are the shipped requirements the writer imports.
