@@ -287,6 +287,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "extensions/OstlerSafariExtension.app.zip": [
         "vendor/extensions/OstlerSafariExtension.app.zip"
     ],
+    # Care rules: install.sh runs ${SCRIPT_DIR}/care/write_agents_md.sh. The
+    # "Bundle care rules" postBuildScript declares the source path (this needle)
+    # and copies the tree into Resources/care/ (the CP_ONLY needle below).
+    "care": ["../care"],
 }
 
 
@@ -332,6 +336,9 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     "scripts/repair_netflix_rating_polarity.py": [
         'cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"'
     ],
+    # SRC is assigned above the cp, so the source path survives deleting the
+    # copy; only the cp line is unique to the copy actually happening.
+    "care": ['cp -R "${SRC}/"* "${DEST}/care/"'],
 }
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')
 
