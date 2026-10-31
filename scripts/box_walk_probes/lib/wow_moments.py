@@ -89,9 +89,13 @@ def _withheld(level):
 
 
 # Names of the synthetic seed cast (approved cast: .pii-name-registry.tsv). A
-# missed debt is named in the evidence ONLY when it is one of these: any other
-# name is a real person's, and the walk record lands in support bundles, so
-# only its SHAPE is recorded (never a real name in evidence).
+# missed debt is named in the evidence ONLY when it is one of these AND the debt
+# carries the seed's provenance: a common real name (a real Tom Jones) matches
+# by string alone, and the walk record lands in support bundles. Provenance is
+# the walk-fixture URN namespace every harness seeder writes under (SEED_NS,
+# smart_prefs GRAPH, meeting_brief_seed), read from the debt's person_uri.
+# Anything else records only its SHAPE (never a real name in evidence).
+SEED_PROVENANCE_PREFIX = "urn:ostler-walk-fixture:"
 SEED_REPLY_DEBT_NAMES = frozenset(n.lower() for n in (
     "Jane Smith", "Tom Jones", "Sam Doe", "John Doe", "Jane Doe", "Bob Brown",
     "Alex Patel", "Mary Ross", "Raj Patel", "Liz Stewart"))
@@ -109,10 +113,12 @@ def _name_shape(name):
 
 
 def debt_evidence(d):
-    """One missed debt as a dict of name (seed cast only, else None), shape,
+    """One missed debt as a dict of name (seed cast name AND seed provenance, else None), shape,
     resolved flag and age in hours. Never carries a non-seed name."""
     nm = d.get("person_name")
-    seed = isinstance(nm, str) and nm.strip().lower() in SEED_REPLY_DEBT_NAMES
+    uri = d.get("person_uri")
+    seed = (isinstance(nm, str) and nm.strip().lower() in SEED_REPLY_DEBT_NAMES
+            and isinstance(uri, str) and uri.startswith(SEED_PROVENANCE_PREFIX))
     wh = d.get("waiting_hours")
     return {"name": nm.strip() if seed else None,
             "shape": _name_shape(nm),

@@ -6,8 +6,11 @@ v1.0.121 trial: the probe said "names the 2 people the Hub says are waiting (1 o
 2)" and nothing about who. This drives the real box_reply_debt() and box_morning()
 (Hub, chat, cron and store calls replaced by stand-ins at the module boundary) and
 the real judges, with synthetic debts:
-  - a SEED cast name (Jane Smith) missed: the evidence line carries the name,
+  - a SEED cast name (Jane Smith) WITH seed provenance (person_uri under the
+    walk-fixture URN namespace) missed: the evidence line carries the name,
     its shape, resolved=True and the age
+  - a cast-name string (Tom Jones) WITHOUT seed provenance: could be a real
+    person, so "<not a seed name>" and shape only, never the name
   - a non-seed name (Ana Brown, cast tokens but not a seed fixture name) missed:
     the evidence carries the SHAPE and never the name
   - a raw number missed: shape "digits", the digits never printed
@@ -31,10 +34,15 @@ spec.loader.exec_module(w)
 SEED = "Jane Smith"
 NONSEED = "Ana Brown"
 DIGITS = "+44 7700 900123"
+COMMON = "Tom Jones"
 DEBTS = [
-    {"person_name": SEED, "resolved": True, "waiting_hours": 26.54, "privacy_level": "L1"},
+    {"person_name": SEED, "person_uri": "urn:ostler-walk-fixture:wow7/jane", "resolved": True, "waiting_hours": 26.54, "privacy_level": "L1"},
     {"person_name": NONSEED, "resolved": True, "waiting_hours": 5, "privacy_level": "L1"},
     {"person_name": DIGITS, "resolved": True, "waiting_hours": 3.2, "privacy_level": "L1"},
+]
+COMMON_DEBTS = [
+    {"person_name": COMMON, "person_uri": "urn:pwg:person:abc", "resolved": True, "waiting_hours": 7, "privacy_level": "L1"},
+    {"person_name": COMMON, "resolved": True, "waiting_hours": 8, "privacy_level": "L1"},
 ]
 fail = 0
 
@@ -68,6 +76,13 @@ check("reply debt: the seed debt's shape is in the evidence", "shape=2 words, la
 check("reply debt: a NON-seed name is never printed", NONSEED not in out and "Brown" not in out, out)
 check("reply debt: a non-seed debt is reported by shape", "name=<not a seed name>" in out, out)
 check("reply debt: a raw number is never printed, its shape is", "7700" not in out and "digits" in out, out)
+
+out, rc = run_reply_debt("You owe a reply to nobody I know.", COMMON_DEBTS)
+check("reply debt: a cast-name string WITHOUT seed provenance is not printed", COMMON not in out and "Jones" not in out, out)
+check("reply debt: it is reported as <not a seed name> with its shape", out.count("name=<not a seed name>") == 2 and "shape=2 words, latin" in out, out)
+seeded_common = [dict(COMMON_DEBTS[0], person_uri="urn:ostler-walk-fixture:wow7/tom")]
+out, rc = run_reply_debt("You owe a reply to nobody I know.", seeded_common)
+check("reply debt: the same name WITH seed provenance is printed", ("name=" + COMMON) in out, out)
 
 out, rc = run_reply_debt("Waiting on you: %s, %s and %s." % (SEED, NONSEED, DIGITS), DEBTS)
 check("control, reply debt: every debt named passes", rc == w.EX_PASS, out)
@@ -105,6 +120,8 @@ def run_morning(brief, debts):
     return judge_text(lines), rc
 
 
+out, rc = run_morning("Good morning. Nobody is waiting.", COMMON_DEBTS)
+check("morning: a cast-name string WITHOUT seed provenance is not printed", COMMON not in out and "Jones" not in out and out.count("name=<not a seed name>") == 2, out)
 out, rc = run_morning("Good morning. Jane Smith is waiting on you.", DEBTS)
 check("morning: a missed waiting person is a FAIL", rc == w.EX_FAIL, rc)
 check("morning: the missed SEED debt is not listed as missed", ("name=" + SEED) not in out, out)
