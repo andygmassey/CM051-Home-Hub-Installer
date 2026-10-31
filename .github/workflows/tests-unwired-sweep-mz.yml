@@ -63,6 +63,13 @@ jobs:
         if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
+      # INDIVIDUAL STEP, macOS: real processes at PPID 1 and BSD ps. The
+      # uninstaller stops every Ostler tick by exact path + uid after the
+      # bootouts, leaves look-alikes alone, and reports any survivor.
+      - name: The uninstaller stops orphaned Ostler ticks by exact path and reports survivors
+        if: always()
+        run: bash tests/test_uninstall_stops_orphaned_ticks.sh
+
       # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
       # config digest and verified after the pull; a moved tag stops the install.
       - name: Every pulled AI model has a pinned digest and a mismatch stops the install

@@ -28773,16 +28773,15 @@ if [ "${_u_left:-0}" -gt 0 ]; then
     ls "${HOME}/Library/LaunchAgents" 2>/dev/null \
         | grep -E '^com\.(ostler|creativemachines\.ostler)' | sed 's/^/      /'
 fi
-unset _label _plist _found _known _dupe _u_left
-unset _u_agent_labels
+unset _label _plist _found _known _dupe _u_left _u_agent_labels
+
+_u_tick_rc=0; bash "${HOME}/.ostler/bin/ostler-stop-background" || _u_tick_rc=$?  # nohup'd ticks: uninstall/stop_orphan_ticks.sh
 
 # Ostler's pinned Ollama engine (OLLAMA_PIN_DIR in install.sh) lives under
-# ~/.ostler/runtime. Sequenced after the loop so com.ostler.ollama is already
-# unloaded and nothing is holding the binary open.
+# ~/.ostler/runtime, sequenced after the loop (com.ostler.ollama already unloaded).
 #
 # The Ollama.app cask is NO LONGER removed (2026-10-18): Ostler stopped
-# installing it, so an Ollama.app on this Mac is the customer's own, or a
-# leftover from a cask-era Ostler that we cannot tell apart from theirs.
+# installing it, so an Ollama.app here is the customer's own or a cask-era leftover.
 # Deleting a customer's app on uninstall is worse than leaving ours.
 rm -rf "${HOME}/.ostler/runtime"/ollama-* 2>/dev/null || true
 
@@ -29320,7 +29319,7 @@ fi
 echo ""
 _u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
 if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
-    echo "  Done. Ostler has been removed."
+    echo "  Done. Ostler has been removed$([[ "$_u_tick_rc" -eq 0 ]] || echo " APART FROM the running tasks named above")."
 else
     echo "  WARNING: YOUR DATA STORES WERE NOT REMOVED."
     echo "    ${OSTLER_STORES_WHY}"
@@ -29342,6 +29341,7 @@ echo "  (You may want to remove the PATH line from your shell config.)"
 echo ""
 UNINSTALLEOF
 chmod +x "${OSTLER_DIR}/bin/ostler-uninstall"
+install -m 755 "${SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh" "${OSTLER_DIR}/bin/ostler-stop-background" || warn "Could not install the uninstaller's background-task stopper; ostler-uninstall will report it"
 
 ok "$MSG_OK_OSTLER_IMPORT_OSTLER_FDA_OSTLER_UNINSTALL"
 

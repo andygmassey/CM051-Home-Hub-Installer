@@ -125,6 +125,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "assistant-agent": ["../assistant-agent"],
     "wiki-recompile": ["../wiki-recompile"],
     "context-refresh": ["../context-refresh"],
+    "uninstall": ["../uninstall"],
     "cm021": ["vendor/cm021"],
     "imessage-bridge": ["vendor/imessage_bridge"],
     "identity_resolver": ["vendor/cm041"],

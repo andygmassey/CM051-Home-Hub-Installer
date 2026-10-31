@@ -1258,6 +1258,28 @@ targets:
           - $(SRCROOT)/../context-refresh/INSTALL_SNIPPET.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/context-refresh/INSTALL_SNIPPET.sh
+      - name: Bundle uninstaller helpers (stop orphaned background ticks)
+        script: |
+          set -euo pipefail
+          # install.sh copies ${SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh to
+          # ~/.ostler/bin/ostler-stop-background; the generated ostler-uninstall
+          # calls it to stop tick scripts that no launchctl bootout can reach.
+          # Source-of-truth: CM051 repo root /uninstall/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../uninstall"
+          if [ ! -f "${SRC}/stop_orphan_ticks.sh" ]; then
+            echo "ERROR: uninstall/stop_orphan_ticks.sh not found at ${SRC}" >&2
+            exit 1
+          fi
+          echo "Bundling uninstaller helpers from ${SRC} into Resources/uninstall/"
+          mkdir -p "${DEST}/uninstall"
+          cp -R "${SRC}/"* "${DEST}/uninstall/"
+          /usr/bin/xattr -cr "${DEST}/uninstall" || true
+          chmod 755 "${DEST}/uninstall/stop_orphan_ticks.sh"
+        inputFiles:
+          - $(SRCROOT)/../uninstall/stop_orphan_ticks.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/uninstall/stop_orphan_ticks.sh
       - name: Bundle legal Python package (consent-string constants)
         script: |
           set -euo pipefail
