@@ -79,7 +79,14 @@ jobs:
   # asserts with plutil, so it needs macOS rather than ubuntu.
   behaviour:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
+    # shell: bash makes Actions run `bash --noprofile --norc -eo pipefail {0}`. The default (no
+    # shell:) is `bash -e {0}` with NO pipefail, so `bounded_step.sh ... | tee file` took tee's
+    # exit code (always 0) and a RED test, a wrapper timeout or a surviving mutant all showed
+    # GREEN. Do not remove this. upload-artifact keeps `if: always()`, so it still runs after a RED.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -91,47 +98,47 @@ jobs:
       # The watchdog marker test is ~3x slower on the macos runner than on a laptop (14 cases ~330 s,
       # and each of the 3 recursive mutant runs another ~330 s: ~1300 s, past the old 15 min job
       # timeout, which is what lost the log twice: jobs 124442706438, 124456994095). So each phase is
-      # its own step under its own bounded wrapper. Timeouts nest: wrapper 480 s < step 10 min <
-      # job 60 min. Job budget: 4 x 10 (these) + 4 (wrapper self-test) + 2 (upload) + 10 (checkout,
-      # invariants, fda venv, which are unbounded and took a few minutes) = 56, plus margin.
+      # its own step under its own bounded wrapper. Timeouts nest: wrapper 600 s < step 12 min <
+      # job 75 min. Job budget: 4 x 12 (these) + 4 (wrapper self-test) + 2 (upload) + 10 (checkout,
+      # invariants, fda venv, which are unbounded and took a few minutes) = 64, plus 11 margin.
       # On expiry the wrapper dumps ps + sample + the progress file, kills the group, exits 1.
       # macOS only: the REAL install.sh upgrade block calls BSD /usr/bin/stat -f, which exits 24 on
       # ubuntu (found when this ran in vendor-integrity, 2026-10-31).
       - name: The listener watchdog defers to the installer's marker, not to a stray /install.sh argv (14 cases)
         if: always()
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           LWD_PHASE: cases
         run: |
           mkdir -p "${RUNNER_TEMP}/lwd"
-          /bin/bash scripts/bounded_step.sh 480 "${RUNNER_TEMP}/lwd/cases.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/cases.out"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/cases.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/cases.out"
 
       - name: Listener watchdog marker test, mutant - pgrep restored must go red on case 1
         if: always()
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           LWD_PHASE: mutant-pgrep
         run: |
           mkdir -p "${RUNNER_TEMP}/lwd"
-          /bin/bash scripts/bounded_step.sh 480 "${RUNNER_TEMP}/lwd/mutant-pgrep.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-pgrep.out"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-pgrep.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-pgrep.out"
 
       - name: Listener watchdog marker test, mutant - upgrade marker write removed must go red on case 5
         if: always()
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           LWD_PHASE: mutant-write
         run: |
           mkdir -p "${RUNNER_TEMP}/lwd"
-          /bin/bash scripts/bounded_step.sh 480 "${RUNNER_TEMP}/lwd/mutant-write.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-write.out"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-write.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-write.out"
 
       - name: Listener watchdog marker test, mutant - upgrade marker trap removed must go red on case 6
         if: always()
-        timeout-minutes: 10
+        timeout-minutes: 12
         env:
           LWD_PHASE: mutant-trap
         run: |
           mkdir -p "${RUNNER_TEMP}/lwd"
-          /bin/bash scripts/bounded_step.sh 480 "${RUNNER_TEMP}/lwd/mutant-trap.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-trap.out"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-trap.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-trap.out"
 
       # The bounded wrapper itself: a planted hang (before case 1) must dump and exit 1 within the
       # bound, and the wrapper with its kill removed must outlive it.
