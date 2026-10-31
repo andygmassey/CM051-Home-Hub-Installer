@@ -83,7 +83,6 @@ jobs:
             test_bootstrap_prelude.sh \
             test_brew_install_fail_loud.sh \
             test_calendar_hydrate_venv.sh \
-            test_care_agents_md.sh \
             test_cm048_prompts_packaged.sh \
             test_cm048_settings_models_wired.sh \
             test_composite_cleanup.sh \
@@ -136,6 +135,12 @@ jobs:
       - name: The Homebrew bootstrap is pinned and sha256-verified (red team DMG #27 F3-1)
         if: always()
         run: bash tests/test_homebrew_bootstrap_is_pinned.sh
+
+      # INDIVIDUAL STEP for the same reason as the one above: the care rules
+      # (AGENTS.md + local helpline) are written into the daemon workspace.
+      - name: The care rules and the local helpline are written into the assistant workspace
+        if: always()
+        run: bash tests/test_care_agents_md.sh
 
       # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
       # history survived a box_pristine reset AND a reinstall because it
