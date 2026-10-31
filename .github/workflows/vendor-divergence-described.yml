@@ -172,7 +172,7 @@ jobs:
   # sync_vendor.sh on.
   # ==========================================================================
   described-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - name: Checkout
