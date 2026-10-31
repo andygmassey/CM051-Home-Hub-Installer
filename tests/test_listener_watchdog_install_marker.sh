@@ -19,6 +19,9 @@
 #     codesign exit 21, rollback success, rollback exit 50
 #   7 an upgrade killed -9 (trap cannot run) leaves a marker with a dead pid -> no deferral
 # Usage: [REPO_ROOT]. rc 0 all pass, 1 a case failed, 2 CANNOT-RUN.
+# Progress: one "@HH:MM:SS start|end <case>" line per case, on stdout AND appended to
+# $STEP_PROGRESS_FILE when set (scripts/bounded_step.sh cats it when the step hangs).
+# LWD_SELFTEST_HANG=1 plants a case that never returns (used only by tests/test_bounded_step.sh).
 set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SELF="${ROOT}/tests/$(basename "${BASH_SOURCE[0]}")"
@@ -29,16 +32,22 @@ command -v pgrep >/dev/null 2>&1 || { echo "CANNOT-RUN: pgrep not on PATH" >&2; 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ostler-lwdm.XXXXXX")" || { echo "CANNOT-RUN: mktemp" >&2; exit 2; }
 [ -n "$WORK" ] && [ -d "$WORK" ] || { echo "CANNOT-RUN: mktemp gave no directory" >&2; exit 2; }
 PASS=0; FAIL=0
-ok()  { PASS=$((PASS + 1)); echo "  ok   $*"; }
-bad() { FAIL=$((FAIL + 1)); echo "  FAIL $*"; }
+PROGRESS="${STEP_PROGRESS_FILE:-}"
+prog()  { local l; l="@$(date -u +%H:%M:%S) $*"; echo "$l"; [ -z "$PROGRESS" ] || echo "$l" >> "$PROGRESS"; }
+begin() { prog "start $*"; }
+ok()  { PASS=$((PASS + 1)); echo "  ok   $*"; prog "end   ok ${1%% *}"; }
+bad() { FAIL=$((FAIL + 1)); echo "  FAIL $*"; prog "end   FAIL ${1%% *}"; }
 cleanup() {
     local p
     for p in $(cat "$WORK"/pids 2>/dev/null); do kill -CONT "$p" 2>/dev/null; kill "$p" 2>/dev/null; done
+    # the stub leads its own process group: kill the group too, or its `sleep 600` leaks for 10 min
+    for p in $(cat "$WORK"/pgids 2>/dev/null); do kill -- "-$p" 2>/dev/null; done
     rm -rf "$WORK"
 }
 trap cleanup EXIT
 trap 'exit 143' INT TERM HUP
 
+begin setup
 SCRIPT="${LWD_SCRIPT:-$WORK/ostler-listener-watchdog}"
 [ -n "${LWD_SCRIPT:-}" ] || awk '/<<'"'"'LISTENERWDEOF'"'"'$/{f=1;next} /^LISTENERWDEOF$/{f=0} f' "$ROOT/install.sh" > "$SCRIPT"
 [ -s "$SCRIPT" ] || { echo "CANNOT-RUN: no LISTENERWDEOF heredoc in install.sh" >&2; exit 2; }
@@ -98,41 +107,50 @@ kill_daemons() { local p; for p in $(cat "$WORK/daemons" 2>/dev/null); do kill -
 fresh() { kill_daemons; : > "$WORK/lc.calls"; rm -rf "${WORK:?}/h$1"; start_daemon; kill -STOP "$(cat "$WORK/daemon.pid")"; printf '%s' "$WORK/h$1"; }
 three() { run "$1" "${2:-}"; run "$1" "${2:-}"; run "$1" "${2:-}"; }
 # A stub whose argv carries /install.sh, as a leftover installer child does.
-stub() { bash -c 'sleep 600; :' "$WORK/fake/install.sh" >/dev/null 2>&1 & STUB=$!; echo "$STUB" >> "$WORK/pids"; }
+stub() { set -m; bash -c 'sleep 600; :' "$WORK/fake/install.sh" >/dev/null 2>&1 & STUB=$!; set +m; echo "$STUB" >> "$WORK/pids"; echo "$STUB" >> "$WORK/pgids"; }
 marker() { mkdir -p "$1/state"; printf 'pid=%s\n' "$2" > "$1/state/install-in-progress"; }
 
 echo "== watchdog install detection (port ${PORT})"
+begin 0
 stub
 sleep 0.3
 pgrep -f '/install\.sh' | grep -qx "$STUB" && ok "0 control: the stub's argv matches pgrep -f /install.sh (pid ${STUB})" || bad "0 control: pgrep does not see the stub"
 
+begin 1
 H="$(fresh 1)"; three "$H"
 [ "$(field "$H" state)" != install_running ] && [ "$(kicks)" = 1 ] \
     && ok "1 /install.sh in a stray argv, no marker: not install_running, wedged listener restarted" \
     || bad "1 stray argv deferred the watchdog: state=$(field "$H" state) kicks=$(kicks)"
 
+[ -z "${LWD_SELFTEST_HANG:-}" ] || { begin hang-planted; bash -c 'sleep 86400; :'; }
+begin 2
 H="$(fresh 2)"; marker "$H" "$STUB"; three "$H"
 [ "$(field "$H" state)" = install_running ] && [ "$(kicks)" = 0 ] \
     && ok "2 live marker, live pid: install_running, 0 restarts" || bad "2 live marker did not defer: state=$(field "$H" state) kicks=$(kicks)"
 
+begin 3a
 H="$(fresh 3a)"; marker "$H" "$STUB"; touch -t 202001010000 "$H/state/install-in-progress"; three "$H"
 [ "$(field "$H" state)" != install_running ] && [ "$(kicks)" = 1 ] \
     && ok "3a marker over 6 h old: no deferral, restarted" || bad "3a stale marker deferred: state=$(field "$H" state) kicks=$(kicks)"
 
+begin 3b
 ( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null
 H="$(fresh 3b)"; marker "$H" "$DEAD"; three "$H"
 [ "$(field "$H" state)" != install_running ] && [ "$(kicks)" = 1 ] \
     && ok "3b marker names a dead pid: no deferral, restarted" || bad "3b dead pid deferred: state=$(field "$H" state) kicks=$(kicks)"
 
+begin 3c
 H="$(fresh 3c)"; mkdir -p "$H/state"; : > "$H/state/install-in-progress"; three "$H"
 [ "$(field "$H" state)" != install_running ] && [ "$(kicks)" = 1 ] \
     && ok "3c marker with no pid: no deferral, restarted" || bad "3c pidless marker deferred: state=$(field "$H" state) kicks=$(kicks)"
 
+begin 4
 H="$(fresh 4)"; three "$H" true
 [ "$(field "$H" state)" = install_running ] && [ "$(kicks)" = 0 ] \
     && ok "4 OSTLER_LISTENER_WD_INSTALL_RUNNING_CMD seam still wins" || bad "4 seam ignored: state=$(field "$H" state)"
 
 echo "== upgrade block (OSTLER_UPGRADE_MODE) install marker"
+begin upgrade-setup
 UPG_SH="${UPG_INSTALL_SH:-$ROOT/install.sh}"
 mkdir -p "$WORK/ubin" "$WORK/pay/assistant-agent/OstlerAssistant.app/Contents/MacOS"
 echo 1.0.1 > "$WORK/pay/VERSION"
@@ -176,6 +194,7 @@ upg() { # upg <home> [VAR=val ...]: one real upgrade-block run; rc on stdout lin
 }
 marker_gone() { [ ! -e "$1/.ostler/state/install-in-progress" ]; }
 
+begin 5
 H="$(fresh 5)"; R="$(upg "$H" OSTLER_UPGRADE_MODE=1 UPG_TICK=1)"
 SNAP="$(cat "$H/.snap" 2>/dev/null)"
 [ "$R" = rc=0 ] && [[ "$SNAP" =~ ^pid=[0-9]+$ ]] && [ "$(field "$H/.ostler" state)" = install_running ] && [ "$(kicks)" = 0 ] \
@@ -184,6 +203,7 @@ SNAP="$(cat "$H/.snap" 2>/dev/null)"
 
 arm() { # arm <label> <expected rc> <vars...>: run an upgrade arm, rc must match AND the marker must be gone
     local lbl="$1" want="$2" ph="$WORK/hb-$1"; shift 2
+    begin "6-$lbl"
     rm -rf "$ph"; mkdir -p "$ph/.ostler"
     [ "$lbl" != rollback ] || { mkdir -p "$ph/.ostler/OstlerAssistant.app.old"; }
     local r; r="$(upg "$ph" "$@")"
@@ -196,6 +216,7 @@ arm codesign-21 21 OSTLER_UPGRADE_MODE=1 UPG_CODESIGN_RC=1
 arm rollback 0 OSTLER_UPGRADE_ROLLBACK=1
 arm rollback-50 50 OSTLER_UPGRADE_ROLLBACK=1
 
+begin 7
 H="$(fresh 7)"; R="$(upg "$H" OSTLER_UPGRADE_MODE=1 UPG_KILL9=1)"
 LEFT="$(cat "$H/.ostler/state/install-in-progress" 2>/dev/null)"; LPID="${LEFT#pid=}"
 ps -p "$LPID" >/dev/null 2>&1 && LIVE=1 || LIVE=0
@@ -209,6 +230,7 @@ echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 [ -n "${LWD_NO_MUTANTS:-}" ] && exit 0
 
+begin mutant-pgrep
 echo "== mutant: pgrep restored in lwd_install_running must turn this suite red"
 python3 - "$SCRIPT" "$WORK/mut" <<'PYEND' || { bad "mutant did not apply (anchor moved)"; echo "$PASS passed, $FAIL failed"; exit 1; }
 import sys
@@ -222,7 +244,7 @@ new = ("lwd_install_running() {\n"
        "    return 1")
 open(sys.argv[2], "w").write(s[:i] + new + s[j:])
 PYEND
-if LWD_SCRIPT="$WORK/mut" LWD_NO_MUTANTS=1 bash "$SELF" "$ROOT" > "$WORK/mut.out" 2>&1; then
+if STEP_PROGRESS_FILE= LWD_SCRIPT="$WORK/mut" LWD_NO_MUTANTS=1 bash "$SELF" "$ROOT" > "$WORK/mut.out" 2>&1; then
     bad "mutant survived: pgrep restored"
 else
     grep -q '^  FAIL 1 ' "$WORK/mut.out" \
@@ -231,6 +253,7 @@ else
 fi
 echo "== mutants: the upgrade block's marker write / trap removed must turn cases 5 / 6 red"
 for M in write trap; do
+    begin "mutant-$M"
     mkdir -p "$WORK/mroot-$M"
     python3 - "$ROOT/install.sh" "$WORK/mroot-$M/install.sh" "$M" <<'PYEND' || { bad "mutant ${M} did not apply (anchor moved)"; continue; }
 import sys
@@ -247,7 +270,7 @@ else:                        # written, never cleared
     assert "&& :" in L[j]
 open(sys.argv[2], "w").write("\n".join(L))
 PYEND
-    UPG_INSTALL_SH="$WORK/mroot-$M/install.sh" LWD_NO_MUTANTS=1 bash "$SELF" "$ROOT" > "$WORK/mut-$M.out" 2>&1 && rc=0 || rc=$?
+    STEP_PROGRESS_FILE= UPG_INSTALL_SH="$WORK/mroot-$M/install.sh" LWD_NO_MUTANTS=1 bash "$SELF" "$ROOT" > "$WORK/mut-$M.out" 2>&1 && rc=0 || rc=$?
     want='^  FAIL 5 '; [ "$M" = trap ] && want='^  FAIL 6 '
     if [ "$rc" = 0 ]; then bad "mutant ${M} survived"
     elif grep -q "$want" "$WORK/mut-$M.out"; then ok "mutant ${M} killed ($(grep -c '^  FAIL' "$WORK/mut-$M.out") case(s) red)"

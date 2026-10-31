@@ -90,7 +90,18 @@ jobs:
       # ubuntu (found when this ran in vendor-integrity, 2026-10-31).
       - name: The listener watchdog defers to the installer's marker, not to a stray /install.sh argv
         if: always()
-        run: /bin/bash tests/test_listener_watchdog_install_marker.sh
+        # Hung twice on the macos runner to the 15 min job timeout with the log lost (jobs
+        # 124442706438, 124456994095). Bounded at 300 s: on expiry the wrapper dumps ps + sample +
+        # the test's progress file, kills the group, and exits 1. timeout-minutes is the backstop.
+        timeout-minutes: 6
+        run: /bin/bash scripts/bounded_step.sh 300 "${RUNNER_TEMP}/lwd-install-marker.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh
+
+      # The bounded wrapper itself: a planted hang must dump and exit 1 within the bound, and the
+      # wrapper with its kill removed must outlive it.
+      - name: The bounded-step wrapper turns a planted hang into a red with a dump
+        if: always()
+        timeout-minutes: 6
+        run: /bin/bash tests/test_bounded_step.sh
 
       # The upgrade path must REPAIR the fda venv, not just swap the daemon.
       #
