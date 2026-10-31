@@ -56,6 +56,7 @@ trap 'exit 143' INT TERM HUP
 PHASE="${LWD_PHASE:-all}"
 case "$PHASE" in all|cases|mutant-pgrep|mutant-write|mutant-trap) ;; *) echo "CANNOT-RUN: unknown LWD_PHASE '${PHASE}'" >&2; exit 2 ;; esac
 [ "$PHASE" != cases ] || LWD_NO_MUTANTS=1
+[ "$PHASE" != cases ] || [ -z "${STEP_PROGRESS_FILE:-}" ] || bad "DO-NOT-MERGE planted failure (pipe3265 pipefail proof)"
 want_mutant() { [ "$PHASE" = all ] || [ "$PHASE" = "mutant-$1" ]; }
 run_cases() { [ "$PHASE" = all ] || [ "$PHASE" = cases ]; }
 
