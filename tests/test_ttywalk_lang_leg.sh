@@ -122,7 +122,7 @@ run_arms() {
   new_box a4
   ( . "$LIB"; SSH=(ssh -o X=1 box); walk_lang_stage ostler-ttywalk ja "$GEN" >"$T/stage.out" 2>&1 ); rc=$?
   [ "$rc" -eq 0 ] && [ -s "$(ANS)" ]; arm "stage: answers file written on the box" $?
-  n=$(grep -c . "$(ANS)"); [ "$n" -eq 19 ]; arm "stage: 19 rows (16 mapped + 3 computed); got $n" $?
+  n=$(grep -c . "$(ANS)"); [ "$n" -eq 20 ]; arm "stage: 20 rows (17 mapped + 3 computed); got $n" $?
   grep -qx $'続けますか?\ty' "$(ANS)" && grep -qx $'パスフレーズを選択\t@passphrase' "$(ANS)" && grep -qx $'氏名(連絡先に表示されているとおり)\t@owner_name' "$(ANS)"
   arm "stage: ja prompt substrings map to the built-in answers (y / @passphrase / @owner_name)" $?
   TAB=$'\t'; grep -qE "${TAB}UTC\$" "$(ANS)" && [ "$(grep -cE "${TAB}44\$" "$(ANS)")" -eq 2 ]
