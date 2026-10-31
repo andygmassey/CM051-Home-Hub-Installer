@@ -63,7 +63,7 @@ def write_marker(home, status="ok", ts=None):
                  % (stamp(), status, stamp(ts)))
 
 
-def run_probe(w, tmp_path, probe=None, drain_wait=40):
+def run_probe(w, tmp_path, probe=None, drain_wait=40, interval=3600):
     home = tmp_path / "acct"
     (home / ".ostler" / "secrets").mkdir(parents=True, exist_ok=True)
     (home / ".ostler" / "secrets" / "store-curl.conf").write_text('header = "Authorization: Bearer t"\n')
@@ -74,6 +74,7 @@ def run_probe(w, tmp_path, probe=None, drain_wait=40):
                OSTLER_PEOPLE_STABILITY_STEP_S="1", OSTLER_PEOPLE_STABILITY_WAIT_S="20",
                OSTLER_PEOPLE_CONVERGE_WAIT_S="0", OSTLER_PROBE_STATE_DIR=str(tmp_path / "pstate"),
                OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S=str(drain_wait),
+               OSTLER_PEOPLE_FDA_INTERVAL_S=str(interval),
                # cap 0: ANY gap fails. The shipped cap (5) and percentage are not touched.
                OSTLER_PEOPLE_TOLERANCE_PCT="100", OSTLER_PEOPLE_TOLERANCE_CAP="0")
     for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):
@@ -123,7 +124,9 @@ def test_embed_lag_is_not_graded_as_a_disagreement(world, tmp_path):
 
 def test_cannot_run_when_the_drain_signal_never_arrives(world, tmp_path):
     home = lagging_world(world, tmp_path)
-    write_marker(home, "ok", ts=time.time() - 7200)         # a marker from two hours ago is no signal
+    # A marker from 50 minutes ago is no drain signal (it predates the sighting) but is
+    # inside cadence (one interval = 60 min): the writer is alive, so CANNOT-RUN, never FAIL.
+    write_marker(home, "ok", ts=time.time() - 3000)
     v, text, _ = run_probe(world, tmp_path, drain_wait=6)
     assert v.startswith("CANNOT-RUN"), text
     assert "NO DRAIN SIGNAL ARRIVED" in text, text
@@ -204,3 +207,76 @@ def test_mutant_counting_nameless_in_the_queue_is_caught(world, tmp_path):
     finally:
         mutant.unlink()
     assert v.startswith("CANNOT-RUN"), text
+
+
+def test_a_dead_indexer_at_expiry_is_a_fail_not_a_cannot_run(world, tmp_path):
+    """The bound expires with people still waiting and people_index last succeeded MORE
+    than 2 intervals ago: the vector indexer is dead, a product defect. FAIL, never PASS,
+    never CANNOT-RUN. RED on the previous head, which graded this CANNOT-RUN."""
+    home = lagging_world(world, tmp_path)
+    write_marker(home, "ok", ts=time.time() - 3 * 3600)     # 3 intervals ago
+    v, text, took = run_probe(world, tmp_path, drain_wait=5)
+    assert v.startswith("FAIL"), text
+    assert "vector indexer is not running" in text, text
+    assert "more than 2 fda-rerun intervals" in text, text
+    assert took < 60, "it waited for real instead of the injected bound (%.1fs)" % took
+
+
+def test_a_live_indexer_at_expiry_is_a_cannot_run(world, tmp_path):
+    """Same expiry, the indexer last succeeded within cadence (10 minutes ago): it is alive
+    and had not got to these people. CANNOT-RUN, never FAIL, never PASS."""
+    home = lagging_world(world, tmp_path)
+    write_marker(home, "ok", ts=time.time() - 600)
+    v, text, _ = run_probe(world, tmp_path, drain_wait=5)
+    assert v.startswith("CANNOT-RUN"), text
+    assert "NO DRAIN SIGNAL ARRIVED" in text, text
+    assert "vector indexer is not running" not in text, text
+
+
+def test_the_staleness_boundary_is_two_intervals(world, tmp_path):
+    """The same marker age flips on the interval, not on a hardcoded number: 90 s old is
+    FAIL when an interval is 30 s (3 intervals) and CANNOT-RUN when it is 3600 s."""
+    home = lagging_world(world, tmp_path)
+    write_marker(home, "ok", ts=time.time() - 90)
+    v, text, _ = run_probe(world, tmp_path, drain_wait=4, interval=30)
+    assert v.startswith("FAIL"), text
+    v, text, _ = run_probe(world, tmp_path, drain_wait=4, interval=3600)
+    assert v.startswith("CANNOT-RUN"), text
+
+
+def test_the_default_bound_is_one_interval_plus_margin_and_at_least_70_minutes(world, tmp_path):
+    """No injected bound: read the budget the shipped default announces, then stop the
+    probe (it would otherwise wait ~70 real minutes). Own process group, killed by PID."""
+    import signal
+    lagging_world(world, tmp_path)
+    home = tmp_path / "acct"
+    (home / ".ostler" / "secrets").mkdir(parents=True, exist_ok=True)
+    (home / ".ostler" / "secrets" / "store-curl.conf").write_text('header = "Authorization: Bearer t"\n')
+    env = dict(os.environ, HOME=str(home), OSTLER_BOX_HOST="",
+               OSTLER_OXIGRAPH_URL=world.oxi + "/query", OSTLER_QDRANT_URL=world.qdrant,
+               OSTLER_DOCTOR_PEOPLE_URL=world.doctor + "/api/v1/hydration/status",
+               OSTLER_PEOPLE_RULES_DIR=str(API), NO_PROXY="127.0.0.1,localhost",
+               OSTLER_PEOPLE_STABILITY_STEP_S="1", OSTLER_PEOPLE_STABILITY_WAIT_S="20",
+               OSTLER_PEOPLE_CONVERGE_WAIT_S="0", OSTLER_PROBE_STATE_DIR=str(tmp_path / "pstate"),
+               OSTLER_PEOPLE_TOLERANCE_PCT="100", OSTLER_PEOPLE_TOLERANCE_CAP="0")
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY",
+              "OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S", "OSTLER_PEOPLE_FDA_INTERVAL_S",
+              "OSTLER_PEOPLE_EMBED_DRAIN_MARGIN_S"):
+        env.pop(k, None)
+    proc = subprocess.Popen(["bash", str(PROBE)], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
+    budget = None
+    try:
+        deadline = time.time() + 120
+        for line in proc.stdout:
+            if "(budget " in line:
+                budget = int(line.split("(budget ")[1].split("s)")[0])
+                break
+            if time.time() > deadline:
+                break
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    assert budget is not None, "the probe never announced its wait budget"
+    assert budget >= 70 * 60, budget
+    assert budget == 3600 + 600, budget

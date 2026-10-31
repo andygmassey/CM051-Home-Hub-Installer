@@ -440,7 +440,7 @@ def test_people_count_agreement_passes_with_the_seed_and_the_cap_is_a_probe_tole
     # control: without vectors the Doctor count is 0 and the same probe is not a pass.
     # Every seeded person is now waiting for a vector (the embed queue, v1.0.121), and
     # no people_index run completes after they are seen, so there is no drain signal:
-    # CANNOT-RUN after a short bound (the shipped bound is 45 minutes), never a PASS.
+    # CANNOT-RUN after a short bound (the shipped bound is 70 minutes), never a PASS.
     stores.points.clear()
     v2, text2 = probe("people_count_agreement", home, stores,
                       dict(knobs, OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="4"))

@@ -97,4 +97,4 @@ jobs:
           printf '%s\n' "$out"
           if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
           n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
-          if [ "${n:-0}" -lt 9 ]; then echo "expected at least 9 passed, got ${n:-0}" >&2; exit 1; fi
+          if [ "${n:-0}" -lt 13 ]; then echo "expected at least 13 passed, got ${n:-0}" >&2; exit 1; fi

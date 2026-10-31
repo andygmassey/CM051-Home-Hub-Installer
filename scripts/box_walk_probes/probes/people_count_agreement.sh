@@ -536,6 +536,15 @@ STABILITY_STEP_S="${OSTLER_PEOPLE_STABILITY_STEP_S:-20}"
 STABILITY_RUNS="${OSTLER_PEOPLE_STABILITY_RUNS:-3}"
 CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
 
+# _indexer_staleness <index_success_epoch> <box_now_epoch>
+# echoes STALE (older than 2 intervals) | FRESH | UNKNOWN (either side unreadable).
+_indexer_staleness() {
+    case "$1$2" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    case "$1" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    case "$2" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    if [ $(( $2 - $1 )) -gt $(( 2 * FDA_RERUN_INTERVAL_S )) ]; then printf 'STALE'; else printf 'FRESH'; fi
+}
+
 # THE CLASSIFIER IS A PURE FUNCTION so the self-test can drive the REAL
 # decision instead of a fixture that just echoes the answer it wants. It takes
 # the two markers' MTIMES in epoch seconds, 0 meaning absent, and echoes
@@ -653,8 +662,17 @@ _await_converge() {
 #                            That is not lag. It is a drop, and it is graded.
 #
 # Anything else is WAIT, bounded by OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S (default
-# 2700 s, 45 minutes). No signal inside the bound is CANNOT-RUN: the counts
-# were never comparable. The tolerance and the cap are NOT touched; this
+# ONE fda-rerun interval plus a margin: 3600 + 600 = 4200 s, 70 minutes. The
+# old 2700 s was SHORTER than the hourly tick, so a bound could expire before
+# the writer had one chance to run). At expiry:
+#   people_index's last success OLDER than 2 intervals (or the box clock and
+#   marker both readable and that far apart)  -> FAIL: the indexer is dead,
+#                                                a product defect, not lag;
+#   last success within cadence               -> CANNOT-RUN: the writer is
+#                                                alive, it just had not got
+#                                                to these people;
+#   marker or box clock unreadable            -> CANNOT-RUN (could not look).
+# Never PASS. The tolerance and the cap are NOT touched; this
 # changes WHEN the stores are read, never what counts as agreement.
 #
 # People with no name never get a vector by design. They are outside the
@@ -662,7 +680,10 @@ _await_converge() {
 # graph side counts with people_rules.is_countable_person, and the Doctor
 # counts Qdrant points with the same function (ical-server _wiki_people_count,
 # #3245), so the two sides exclude the same people and neither can lag on one.
-EMBED_DRAIN_WAIT_S="${OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S:-2700}"
+# The hourly com.ostler.fda-rerun StartInterval (install.sh writes 3600).
+FDA_RERUN_INTERVAL_S="${OSTLER_PEOPLE_FDA_INTERVAL_S:-3600}"
+EMBED_DRAIN_MARGIN_S="${OSTLER_PEOPLE_EMBED_DRAIN_MARGIN_S:-600}"
+EMBED_DRAIN_WAIT_S="${OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S:-$((FDA_RERUN_INTERVAL_S + EMBED_DRAIN_MARGIN_S))}"
 EMBED_DRAIN_STEP_S="${OSTLER_PEOPLE_EMBED_DRAIN_STEP_S:-30}"
 
 # THE CLASSIFIER IS A PURE FUNCTION so the self-test drives the real decision.
@@ -680,7 +701,7 @@ _embed_drain_classify() {
 
 # Sets _DRAIN_RESULT to one of
 #   DRAINED_EMPTY <waited> | DRAINED_BY_RUN <waited> <awaiting> <index_epoch>
-#   EXPIRED <waited> <awaiting> <status> <index_epoch> <first_seen>
+#   EXPIRED <waited> <awaiting> <status> <index_epoch> <first_seen> tick=<state> <box_now_epoch>
 #   UNREADABLE <detail>
 # It does not echo (see _await_converge: probe_note writes to stdout).
 _await_embed_drain() {
@@ -719,7 +740,7 @@ _await_embed_drain() {
             esac
         fi
         if [ "$waited" -ge "$EMBED_DRAIN_WAIT_S" ]; then
-            _DRAIN_RESULT="EXPIRED ${waited} ${aw:--} ${ist:--} ${iep:--} ${t0:--} tick=${tick%% *}"
+            _DRAIN_RESULT="EXPIRED ${waited} ${aw:--} ${ist:--} ${iep:--} ${t0:--} tick=${tick%% *} ${nowe:--}"
             return
         fi
         [ "$waited" -eq 0 ] && probe_note "embed queue: ${aw:-?} customer-visible graph people have no vector yet (hourly tick: ${tick%% *}); holding the reads until people_index has run or the queue is empty (budget ${EMBED_DRAIN_WAIT_S}s)"
@@ -847,6 +868,11 @@ run_probe() {
         DRAINED_BY_RUN) set -- ${_dr#* }
                         probe_note "embed queue: ${2} customer-visible graph people STILL have no vector although people_index completed a run (last_success_at epoch ${3}) that began after they were first seen. That is not embed lag; it is read and graded as measured." ;;
         EXPIRED)        set -- ${_dr#* }
+                        case "$(_indexer_staleness "$4" "${7:-}")" in
+                            STALE)
+                                probe_examined "$2" "customer-visible graph people with no vector after a ${1}s wait"
+                                probe_fail "the vector indexer is not running: ${2} customer-visible graph people still had no vector after ${1}s, and people_index.tsv last succeeded at epoch ${4} against a box clock of ${7}, more than 2 fda-rerun intervals (2 x ${FDA_RERUN_INTERVAL_S}s) ago. That is a dead indexer, a product defect, not embed lag. last_status=${3}, first seen waiting at epoch ${5}, hourly tick ${6#tick=}." ;;
+                        esac
                         probe_examined 0 "people-count surfaces"
                         probe_cannot_run "the embed queue never drained within ${1}s: ${2} customer-visible graph people still had no vector, people_index.tsv said last_status=${3} last_success_at(epoch)=${4}, first seen waiting at epoch ${5}, hourly tick ${6#tick=}. NO DRAIN SIGNAL ARRIVED, so the graph and the vector store were never comparable. Embed lag (a Person reached the graph ten minutes before its vector on the v1.0.121 trial) is not a disagreement and must not be recorded as one. The tolerance and the cap were not touched." ;;
         *)              probe_examined 0 "people-count surfaces"
