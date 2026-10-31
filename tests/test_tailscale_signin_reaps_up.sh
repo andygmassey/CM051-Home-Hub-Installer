@@ -17,7 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SH="${SCRIPT_DIR}/../install.sh"
 WORK="$(mktemp -d)"
 TAG="fakets-$$-${RANDOM}"
-trap 'rm -rf "$WORK"' EXIT
+# On exit clear any fake THIS run started (unique tag), so a red run (an
+# unreaped `up`) cannot leave the very orphan it is reporting.
+trap 'pkill -f -- "$TAG" 2>/dev/null; rm -rf "$WORK"' EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -62,7 +64,7 @@ run_case() {
         # shellcheck disable=SC1091
         source "$WORK/region.sh"
         echo "$OSTLER_TAILSCALE_IP" > "$WORK/ip-$name"
-    ) || fail "$name: region exited non-zero"
+    ) >"$WORK/out-$name" 2>&1 || fail "$name: region exited non-zero: $(tail -3 "$WORK/out-$name")"
 }
 
 run_case timeout 0 ""
