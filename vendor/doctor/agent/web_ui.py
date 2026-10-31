@@ -1589,8 +1589,11 @@ def render_dashboard(
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
 
-    # Documents-folder access posture (launch-blocker install UX fix):
-    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # Documents-folder access posture (launch-blocker install UX fix).
+    # NEW-121: Doctor READS ~/.ostler/state/documents_access.tsv, which the
+    # hourly fda-rerun tick writes by probing ~/Documents/Ostler as a child
+    # of the signed FDA holder; Doctor itself never touches Documents (a
+    # probe from here was a python3.11 Documents request). Ostler's bundled
     # interpreter writes the customer's wiki and conversation records
     # there, behind the macOS Files-and-Folders consent prompt (which
     # reads as coming from "python3.11"). A customer who declines it
@@ -1598,7 +1601,7 @@ def render_dashboard(
     # is refused; empty string on a fresh box where install.sh has not
     # reached its first Documents write (not-yet-asked), so Doctor does
     # not cry wolf. Catches a revoke-after-install the same way the
-    # Reminders runtime tile does, because the probe is live.
+    # Reminders runtime tile does, because the probe re-runs hourly.
     documents_access_section = render_documents_access_posture()
 
     # Reminders runtime push outcome (task #279, runtime half): reads

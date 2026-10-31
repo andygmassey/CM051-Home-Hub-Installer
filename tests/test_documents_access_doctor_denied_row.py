@@ -1,200 +1,161 @@
 #!/usr/bin/env python3
 """Tests for the Documents-access posture tile in the Doctor dashboard.
 
-The launch-blocker this guards: Ostler's bundled interpreter writes the
-customer's wiki + conversation records under ~/Documents/Ostler, behind
-the macOS Files-and-Folders consent prompt. A customer who declines it
-leaves those writes failing SILENTLY. The Doctor tile must surface a
-DENIED state, and must tell it apart from a fresh box that has not been
-asked yet (not-yet-asked) and from a working box.
+The launch-blocker this guards: Ostler writes the customer's wiki and
+conversation records under ~/Documents/Ostler, behind the macOS
+Files-and-Folders consent. A denial must be visible in Doctor, and told
+apart from a fresh box that has not been asked yet (not-yet-asked) and
+from a working box.
 
-Proves ``probe_documents_access`` classifies all four states, and
-``render_documents_access_posture`` renders a denied row ONLY when the
-state is denied -- never on a working or not-yet-asked box.
+v1.0.121 (NEW-121): the probe no longer runs in Doctor. The hourly
+fda-rerun tick runs ``_ostler_documents_access_record`` (in the ostler-fda
+wrapper install.sh writes) as a child of the signed FDA holder and writes
+~/.ostler/state/documents_access.tsv; Doctor only reads it. So these tests
+drive the REAL writer (extracted from install.sh, run under /bin/bash with
+set -Eeuo pipefail) into the REAL reader and renderer:
 
-Everything is synthetic (PRODUCTISATION_CHECKLIST Rule 0): real tmp dirs
-stand in for ~/Documents/Ostler, no real Hub, no real home folder. The
-denied state is exercised two ways -- a REAL chmod-000 directory driving
-the REAL probe to a real EACCES (the boundary the defect lives on, not a
-mock of it), and an injected writer for the EPERM/ENOSPC distinction a
-chmod cannot force deterministically.
+  * working, not-yet-asked, denied by a REAL chmod-000 directory (the
+    boundary the defect lives on), and check-failed (a missing parent);
+  * no record, a stale record and a garbled record are all "could not
+    check", never a pass and never silent.
 
-Run: ``python3 tests/test_documents_access_doctor_denied_row.py`` (bare,
-no deps) or under pytest.
+Everything is synthetic: a temp HOME, no real Hub, no real home folder.
+Run: ``python3 tests/test_documents_access_doctor_denied_row.py``.
 """
 
-import errno
 import os
+import re
 import stat
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-# The module is vendor-only and lives inside the Doctor agent package.
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "vendor" / "doctor" / "agent"))
 
 import documents_access_posture as dap  # noqa: E402
 
+_WRAPPER = re.search(r"<<'FDAEOF'\n(.*?)\nFDAEOF\n", (_REPO / "install.sh").read_text(), re.S)
+_FN = re.search(r"^_ostler_documents_access_record\(\) \{\n.*?^\}\n",
+                _WRAPPER.group(1) if _WRAPPER else "", re.S | re.M)
 
-# ── probe classifier ───────────────────────────────────────────────
+
+def _home():
+    tmp = tempfile.mkdtemp(prefix="docs-access-")
+    home = Path(tmp) / "home"
+    (home / ".ostler").mkdir(parents=True)
+    (home / "Documents").mkdir()
+    os.environ["HOME"] = str(home)
+    os.environ.pop("OSTLER_DOCUMENTS_DIR", None)
+    return home
+
+
+def _run_writer(home: Path, docs_dir: str = "") -> None:
+    assert _FN is not None, "_ostler_documents_access_record not found in the ostler-fda wrapper"
+    script = Path(home.parent) / "writer.sh"
+    script.write_text("set -Eeuo pipefail\ntrap 'echo ABORTED >&2' ERR\n"
+                      f'OSTLER_DIR="{home}/.ostler"\n' + _FN.group(0)
+                      + "_ostler_documents_access_record || true\necho REACHED\n")
+    env = dict(os.environ, HOME=str(home))
+    if docs_dir:
+        env["OSTLER_DOCUMENTS_DIR"] = docs_dir
+    p = subprocess.run(["/bin/bash", str(script)], env=env, capture_output=True, text=True)
+    assert p.stdout.strip().endswith("REACHED") and "ABORTED" not in p.stderr, (p.stdout, p.stderr)
+
+
+def _record(home: Path) -> str:
+    return (home / ".ostler" / "state" / "documents_access.tsv").read_text()
+
+
+def test_wrapper_calls_the_writer():
+    assert _WRAPPER is not None
+    body = _WRAPPER.group(1)
+    assert "\n_ostler_documents_access_record || true\n" in body
+    assert body.find("_ostler_documents_access_record || true") < body.find("_fda_rc=0")
+
 
 def test_working_when_root_exists_and_writable():
-    """Real root dir + real probe write -> granted-and-working."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-        marker = dap.probe_documents_access(root)
-        assert marker["status"] == dap.STATUS_WORKING, marker
-        # The probe must leave no litter behind.
-        leftovers = [p for p in root.iterdir() if p.name.startswith(dap._PROBE_PREFIX)]
-        assert leftovers == [], "probe file not cleaned up: %r" % leftovers
+    home = _home()
+    root = home / "Documents" / "Ostler"
+    root.mkdir()
+    _run_writer(home)
+    assert dap.read_documents_access()["status"] == dap.STATUS_WORKING, _record(home)
+    assert [p for p in root.iterdir() if p.name.startswith(".ostler-access-probe-")] == [], \
+        "probe file not cleaned up"
+    assert "Working" in dap.render_documents_access_posture()
 
 
-def test_not_yet_asked_when_root_absent_but_parent_writable():
-    """Root absent, parent (Documents) writable -> not-yet-asked.
-
-    This is the fresh-box state. It must NOT read as denied: install.sh
-    simply has not reached its first Documents write. And the probe must
-    NOT create the root (that would fire the very macOS prompt the
-    installer pre-explains).
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        parent = Path(tmp)  # stands in for ~/Documents
-        root = parent / "Ostler"  # absent
-        marker = dap.probe_documents_access(root)
-        assert marker["status"] == dap.STATUS_NOT_ASKED, marker
-        assert not root.exists(), "probe must not create the content root"
+def test_not_yet_asked_when_root_absent_and_root_not_created():
+    home = _home()
+    _run_writer(home)
+    assert dap.read_documents_access()["status"] == dap.STATUS_NOT_ASKED, _record(home)
+    assert not (home / "Documents" / "Ostler").exists(), "the writer created the root"
+    assert dap.render_documents_access_posture() == ""
 
 
-def test_denied_simulated_eperm_when_root_exists():
-    """Injected EPERM on an existing root -> documents-denied."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-
-        def refuse(_directory):
-            raise PermissionError(errno.EPERM, "Operation not permitted")
-
-        marker = dap.probe_documents_access(root, _write_probe=refuse)
-        assert marker["status"] == dap.STATUS_DENIED, marker
-        assert marker["errno"] == errno.EPERM, marker
-
-
-def test_denied_at_install_simulated_when_root_absent():
-    """Root absent AND the parent write is refused -> documents-denied.
-
-    This is denial at install time: the mkdir of ~/Documents/Ostler was
-    itself refused, so the root was never created. It must NOT be
-    misread as not-yet-asked.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"  # absent
-
-        def refuse(_directory):
-            raise PermissionError(errno.EPERM, "Operation not permitted")
-
-        marker = dap.probe_documents_access(root, _write_probe=refuse)
-        assert marker["status"] == dap.STATUS_DENIED, marker
-
-
-def test_denied_real_chmod_drives_real_probe():
-    """A REAL chmod-000 directory drives the REAL probe to a real EACCES.
-
-    Exercises the shipped _default_write_probe against a genuinely
-    refused write, so the test is not green by mocking the boundary the
-    defect lives on. Skipped where chmod cannot deny (root, or a volume
-    that ignores mode bits).
-    """
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        print("SKIP: running as root; chmod cannot deny a write")
+def test_denied_real_chmod_drives_real_writer():
+    if os.geteuid() == 0:
+        print("CANNOT-RUN: root ignores chmod 000; denied-by-chmod not exercised")
         return
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-        os.chmod(root, 0)
-        try:
-            # Confirm chmod actually denies on this FS before trusting it.
-            try:
-                probe = root / (dap._PROBE_PREFIX + "control")
-                fd = os.open(str(probe), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                os.close(fd)
-                os.unlink(str(probe))
-                print("SKIP: this filesystem ignores chmod 000; cannot force a real denial")
-                return
-            except PermissionError:
-                pass
-            marker = dap.probe_documents_access(root)
-            assert marker["status"] == dap.STATUS_DENIED, marker
-            assert marker.get("errno") in (errno.EACCES, errno.EPERM), marker
-        finally:
-            os.chmod(root, stat.S_IRWXU)
+    home = _home()
+    root = home / "Documents" / "Ostler"
+    root.mkdir()
+    root.chmod(0)
+    try:
+        _run_writer(home)
+    finally:
+        root.chmod(stat.S_IRWXU)
+    m = dap.read_documents_access()
+    assert m["status"] == dap.STATUS_DENIED, _record(home)
+    html = dap.render_documents_access_posture()
+    assert "Ostler cannot write to your Documents folder" in html and "How to fix" in html
+    # The fix names what System Settings shows for the identity that writes
+    # ~/Documents/Ostler (the signed daemon, display name "Ostler"), not the
+    # python3.11 row that no longer makes the request.
+    assert "Full Disk Access" in html and "make sure Ostler is switched on" in html, html
+    assert "python3.11" not in html, html
 
 
 def test_check_failed_on_non_permission_error():
-    """A non-permission OSError (e.g. ENOSPC) -> check-failed, not denied.
-
-    The denied/check-failed split is the control that proves the denied
-    verdict comes from the permission errno, not from any failed write.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-
-        def no_space(_directory):
-            raise OSError(errno.ENOSPC, "No space left on device")
-
-        marker = dap.probe_documents_access(root, _write_probe=no_space)
-        assert marker["status"] == dap.STATUS_CHECK_FAILED, marker
+    home = _home()
+    missing = home / "nowhere" / "deeper" / "Ostler"
+    _run_writer(home, docs_dir=str(missing))
+    assert dap.read_documents_access()["status"] == dap.STATUS_CHECK_FAILED, _record(home)
 
 
-# ── render ──────────────────────────────────────────────────────────
-
-_DENIED_TITLE = dap._STATUS_LABELS[dap.STATUS_DENIED]
-_WORKING_TITLE = dap._STATUS_LABELS[dap.STATUS_WORKING]
-
-
-def _refuse(_directory):
-    raise PermissionError(errno.EPERM, "Operation not permitted")
+def test_no_record_is_could_not_check():
+    _home()
+    m = dap.read_documents_access()
+    assert m["status"] == dap.STATUS_CHECK_FAILED and "not checked yet" in m["reason"], m
+    html = dap.render_documents_access_posture()
+    assert "Could not check Documents access" in html and "It is not a pass" in html, html
 
 
-def test_render_denied_row_present():
-    """Denied state -> a denied row with the remediation path."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-        html = dap.render_documents_access_posture(root, _write_probe=_refuse)
-        assert _DENIED_TITLE in html, html
-        assert "Files and Folders" in html, "remediation path missing: %r" % html
-        assert "documentsAccessPostureSection" in html, html
+def test_stale_record_is_could_not_check():
+    home = _home()
+    (home / "Documents" / "Ostler").mkdir()
+    _run_writer(home)
+    p = home / ".ostler" / "state" / "documents_access.tsv"
+    old = int(time.time()) - dap.STATUS_MAX_AGE_SECONDS - 60
+    p.write_text(re.sub(r"^recorded_at\t\d+", f"recorded_at\t{old}", p.read_text(), flags=re.M))
+    m = dap.read_documents_access()
+    assert m["status"] == dap.STATUS_CHECK_FAILED and "hours ago" in m["reason"], m
 
 
-def test_render_working_has_no_denied_row():
-    """Working state -> a working row, and NOT the denied row."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"
-        root.mkdir()
-        html = dap.render_documents_access_posture(root)  # real writer, succeeds
-        assert _WORKING_TITLE in html, html
-        assert _DENIED_TITLE not in html, "working box must not show the denied row"
-
-
-def test_render_not_yet_asked_is_empty():
-    """Not-yet-asked -> empty string, so Doctor falls through to no row.
-
-    Distinct from both working and denied: no section at all, matching
-    the iMessage/Reminders tiles' absent-marker fall-through.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "Ostler"  # absent, parent writable
-        html = dap.render_documents_access_posture(root)
-        assert html == "", "fresh box should render no Documents row, got %r" % html
+def test_garbled_record_is_could_not_check():
+    home = _home()
+    (home / ".ostler" / "state").mkdir(parents=True)
+    (home / ".ostler" / "state" / "documents_access.tsv").write_text(
+        f"recorded_at\t{int(time.time())}\nstatus\tgreat\n")
+    m = dap.read_documents_access()
+    assert m["status"] == dap.STATUS_CHECK_FAILED and "unknown status" in m["reason"], m
 
 
 def main():
     failures = []
-    g = dict(globals())
-    for name, fn in sorted(g.items()):
+    for name, fn in sorted(dict(globals()).items()):
         if name.startswith("test_") and callable(fn):
             try:
                 fn()

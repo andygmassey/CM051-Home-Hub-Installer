@@ -26089,6 +26089,102 @@ echo ""
 if [[ -f "${HOME}/.ostler/config/.env" ]]; then
     set -a; source "${HOME}/.ostler/config/.env"; set +a
 fi
+# ── TIME MACHINE EXCLUSION STATUS: measured HERE, read by Doctor (NEW-121) ──
+#
+# Doctor used to run `tmutil isexcluded` itself, from its own launchd python,
+# on ~/.ostler, ~/Documents/Ostler and ~/.colima. TCC charged those reads to
+# python3.11, and the ~/Documents/Ostler one was a NON-preflight Documents
+# request (measured on the v1.0.120 box): the shape that shows a customer a
+# "python3 would like to access your Documents folder" prompt.
+#
+# This wrapper runs as `ostler-assistant run-source fda-rerun` -> sealed
+# tick.sh -> here, a fork+wait child of the signed Full-Disk-Access holder, so
+# the same tmutil reads are charged to ai.ostler.assistant. They are taken
+# FIRST, before the long extract, so the first tick after install records an
+# answer within seconds. Doctor reads the file and spawns nothing.
+#
+# Format (tab-separated, one answer per folder):
+#   recorded_at <epoch>     writer fda-rerun
+#   folder <excluded|included|cannot|absent> <path> <tmutil text>
+# Only "[Excluded]" is excluded; an error or [UNKNOWN] is "cannot", never a
+# pass. Non-fatal in every branch: a missing answer is Doctor's "could not
+# check", and must never stop the ingest below.
+_ostler_tm_status_record() {
+    local out="${OSTLER_DIR}/state/time_machine_exclusion.tsv"
+    local tmp d ans rc st
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || return 0
+    tmp="$(mktemp "${out}.XXXXXX" 2>/dev/null)" || return 0
+    {
+        printf 'recorded_at\t%s\n' "$(date +%s)"
+        printf 'writer\tfda-rerun\n'
+        for d in "${OSTLER_DIR}" "${HOME}/Documents/Ostler" "${HOME}/.colima"; do
+            if [[ ! -d "$d" ]]; then
+                printf 'folder\tabsent\t%s\t\n' "$d"
+                continue
+            fi
+            if ! command -v tmutil >/dev/null 2>&1; then
+                printf 'folder\tcannot\t%s\ttmutil not found\n' "$d"
+                continue
+            fi
+            rc=0
+            ans="$(tmutil isexcluded "$d" 2>&1)" || rc=$?
+            case "$rc:$ans" in
+                "0:[Excluded]"*) st=excluded ;;
+                "0:[Included]"*) st=included ;;
+                *) st=cannot; [[ -n "$ans" ]] || ans="exit ${rc}" ;;
+            esac
+            ans="${ans//$'\t'/ }"; ans="${ans//$'\n'/ }"
+            printf 'folder\t%s\t%s\t%s\n' "$st" "$d" "${ans:0:120}"
+        done
+    } > "$tmp" 2>/dev/null && mv -f "$tmp" "$out" 2>/dev/null || rm -f "$tmp"
+    return 0
+}
+_ostler_tm_status_record || true
+
+# ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
+#
+# Doctor's Documents tile used to probe-write into ~/Documents/Ostler from
+# its own launchd python on every /doctor render, a Documents request TCC
+# charged to python3.11. The same probe runs here instead, as a child of the
+# signed FDA holder (see the Time Machine block above), and Doctor reads
+# ~/.ostler/state/documents_access.tsv. Same four states as the old probe:
+#   granted-and-working  the root exists and a probe write succeeded
+#   documents-denied     the write was refused (EPERM / EACCES)
+#   not-yet-asked        the root is absent and its PARENT accepted the write
+#   check-failed         any other error
+# The root is NEVER created here (install.sh owns that, behind its
+# pre-explain); when it is absent the parent is probed. noclobber makes the
+# write a genuine create. Non-fatal in every branch.
+_ostler_documents_access_record() {
+    local out="${OSTLER_DIR}/state/documents_access.tsv"
+    local root="${OSTLER_DOCUMENTS_DIR:-${HOME}/Documents/Ostler}"
+    local target probe err st detail="" tmp
+    mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || return 0
+    if [[ -d "$root" ]]; then target="$root"; else target="$(dirname "$root")"; fi
+    probe="${target}/.ostler-access-probe-$$"
+    if err="$( (export LC_ALL=C; set -o noclobber; printf 'ostler documents access probe\n' > "$probe") 2>&1 )"; then
+        rm -f "$probe" 2>/dev/null || true
+        if [[ -d "$root" ]]; then st=granted-and-working; else st=not-yet-asked; fi
+    else
+        case "$err" in
+            *"Operation not permitted"*|*"Permission denied"*) st=documents-denied ;;
+            *) st=check-failed ;;
+        esac
+        detail="${err//$'\t'/ }"; detail="${detail//$'\n'/ }"; detail="${detail:0:160}"
+    fi
+    tmp="$(mktemp "${out}.XXXXXX" 2>/dev/null)" || return 0
+    {
+        printf 'recorded_at\t%s\n' "$(date +%s)"
+        printf 'writer\tfda-rerun\n'
+        printf 'status\t%s\n' "$st"
+        printf 'docs_root\t%s\n' "$root"
+        printf 'probed_path\t%s\n' "$target"
+        printf 'detail\t%s\n' "$detail"
+    } > "$tmp" 2>/dev/null && mv -f "$tmp" "$out" 2>/dev/null || rm -f "$tmp"
+    return 0
+}
+_ostler_documents_access_record || true
+
 # v1.0.12 FIX A: invoke the resolved interpreter directly. A stray backslash
 # here previously made bash run a literal command named '$OSTLER_PYTHON' ->
 # "command not found" exit 127 on every fda-rerun, so the Photos/Reminders
