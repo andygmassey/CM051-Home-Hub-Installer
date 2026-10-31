@@ -1366,7 +1366,7 @@ stage-payload: download-python
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/uninstall/stop_orphan_ticks.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv services/uninstall/stop_orphan_ticks.sh; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \
