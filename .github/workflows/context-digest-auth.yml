@@ -131,6 +131,15 @@ jobs:
         if: always()
         run: python -m pytest context-refresh/tests/test_owner_brief.py -v
 
+      # v1.0.121: the Preferences section shows DERIVED preferences ("What you
+      # like") from /api/v1/preferences/derived, payload built by the vendored
+      # producer. RED: the trial-tree generator (pinned SHA, needs the full
+      # history above) shows none. GREEN: likes and dislikes labelled as
+      # derived, interests kept, L3 withheld, degraded and refused routes said.
+      - name: The digest shows derived preferences (What you like)
+        if: always()
+        run: python -m pytest context-refresh/tests/test_digest_reads_derived_preferences.py -v
+
       # The end-to-end chain guard. Also previously dark (TEST_WIRING.tsv:53
       # UNWIRED), and it had encoded the defect as a REQUIREMENT: its final
       # assertion was that a run producing no digest exits 0, described as
