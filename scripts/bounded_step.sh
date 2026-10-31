@@ -6,7 +6,8 @@
 # command's own progress file), kills the group and every descendant, and exits 1.
 # A hang becomes a readable RED. Never a skip, never exit 0.
 #
-# The command learns the progress file path as $STEP_PROGRESS_FILE.
+# The command learns the progress file path as $STEP_PROGRESS_FILE. The dump is also written to
+# <progress_file>.dump so CI can upload it when the step log is lost.
 # Otherwise the exit code is the command's. bash 3.2 and BSD tools only.
 set -uo pipefail
 
@@ -79,7 +80,7 @@ echo "bounded_step: pid/pgid ${PID}, bound ${BOUND}s, progress ${PROG}"
 
 trap 'kill_group "$PID"; exit 143' INT TERM HUP
 
-( sleep "$BOUND"; : > "$EXPIRED"; echo "RED: BOUNDED-STEP EXPIRED after ${BOUND}s: $*"; dump "$PID"; kill_group "$PID" ) &
+( sleep "$BOUND"; : > "$EXPIRED"; echo "RED: BOUNDED-STEP EXPIRED after ${BOUND}s: $*"; dump "$PID" | tee "${PROG}.dump"; kill_group "$PID" ) &
 TIMER=$!
 
 wait "$PID"; RC=$?

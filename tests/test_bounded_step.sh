@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/bounded_step.sh turns a hung CI step into a readable RED. Proven four ways:
-#   A planted hang in the REAL watchdog test (LWD_SELFTEST_HANG=1): the wrapper dumps ps +
+#   A planted hang in the REAL watchdog test (LWD_SELFTEST_HANG=1, hangs before case 1, so it is
+#     reached in under 1 s on any host): the wrapper dumps ps +
 #     sample + the progress file, kills the group, exits 1, all within the bound
 #   B a clean command: its rc passes through (0 and 3), nothing is dumped
 #   C mutant: the wrapper's kill_group neutered -> the wrapper outlives the bound (caught)
@@ -27,7 +28,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' INT TERM HUP
 
-BOUND=45
+BOUND=20
 echo "== A: planted hang in the real watchdog test, bound ${BOUND}s"
 T0="$(date +%s)"
 LWD_SELFTEST_HANG=1 LWD_NO_MUTANTS=1 /bin/bash "$WRAP" "$BOUND" "$WORK/a.progress" -- /bin/bash "$ROOT/tests/test_listener_watchdog_install_marker.sh" "$ROOT" > "$WORK/a.out" 2>&1
@@ -39,6 +40,7 @@ grep -q 'BOUNDED-STEP EXPIRED' "$WORK/a.out" && ok "A3 expiry line printed" || b
 grep -q 'sleep 86400' "$WORK/a.out" && grep -q ' PGID ' "$WORK/a.out" && ok "A4 ps dump names the stuck 'sleep 86400' child" || bad "A4 ps dump lacks the stuck child"
 grep -q '^--- sample ' "$WORK/a.out" && ok "A5 sample of the deepest child attempted" || bad "A5 no sample section"
 grep -q '^@[0-9:]* start hang-planted' "$WORK/a.out" && [ "$(grep -c '^@[0-9:]* start hang-planted' "$WORK/a.out")" -ge 2 ] && ok "A6 progress file catted: last case 'hang-planted' shown" || bad "A6 progress file not in the dump"
+[ -s "$WORK/a.progress.dump" ] && grep -q 'BOUNDED-STEP DIAGNOSTIC' "$WORK/a.progress.dump" && ok "A8 dump also written to the .dump file (the artifact CI uploads)" || bad "A8 no .dump file"
 PG="$(cat "$WORK/a.progress.pgid" 2>/dev/null)"
 if [ -n "$PG" ] && ! kill -0 -- "-$PG" 2>/dev/null && [ -z "$(pgrep -P "$PG")" ]; then ok "A7 group ${PG} gone after the kill"; else bad "A7 group ${PG:-?} still alive"; fi
 
