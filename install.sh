@@ -860,11 +860,12 @@ _ostler_lock_home_dir() {
 }
 
 if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "1" ]]; then
-
     # Own the error handling from here: manage exit codes explicitly so
     # a transient non-zero can never abort mid-swap under `set -e`.
     set +e
-
+    # Install marker for the whole upgrade (every exit clears it via the trap): lwd_install_running holds the listener watchdog off while it names a live pid.
+    _UPG_MARKER="${HOME}/.ostler/state/install-in-progress"
+    if [[ -d "${HOME}/.ostler" ]] && ( umask 077; mkdir -p "${_UPG_MARKER%/*}" && printf 'pid=%s\n' "$$" > "$_UPG_MARKER" ) 2>/dev/null; then trap '[[ "$(cat "$_UPG_MARKER" 2>/dev/null)" == "pid=$$" ]] && rm -f "$_UPG_MARKER"' EXIT; fi
     _UPG_HOME="${HOME}"
     _UPG_OSTLER_DIR="${_UPG_HOME}/.ostler"
     _UPG_APP="${_UPG_OSTLER_DIR}/OstlerAssistant.app"
@@ -886,7 +887,6 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
     # (_verify_daemon_signature, ~L12937): a foreign-but-notarised
     # bundle is rejected here too, not just any notarised app.
     _UPG_CODESIGN_REQ='=anchor apple generic and certificate leaf[subject.OU] = "V95N2B8X7A"'
-
     _UPG_PAYLOAD="${OSTLER_UPGRADE_PAYLOAD_DIR:-}"
     _UPG_PAYLOAD_AGENT="${_UPG_PAYLOAD}/assistant-agent"
     _UPG_PAYLOAD_APP="${_UPG_PAYLOAD_AGENT}/OstlerAssistant.app"
@@ -16845,9 +16845,9 @@ lwd_probe() {
 
 lwd_install_running() {
     if [ -n "$INSTALL_RUNNING_CMD" ]; then eval "$INSTALL_RUNNING_CMD"; return $?; fi
-    pgrep -f '/install\.sh' >/dev/null 2>&1 && return 0
-    pgrep -f 'ostler-uninstall' >/dev/null 2>&1 && return 0
-    return 1
+    # Marker, not pgrep -f (it matched any argv holding /install.sh); uninstall writes deliberate-stop first, checked above.
+    local m="${LWD_STATE_DIR}/install-in-progress" pid; [ -f "$m" ] && [ -n "$(find "$m" -mmin -360 -print 2>/dev/null)" ] || return 1
+    pid="$(sed -n 's/^pid=//p' "$m" 2>/dev/null | head -n 1)"; case "$pid" in ''|*[!0-9]*) return 1 ;; esac; ps -p "$pid" >/dev/null 2>&1
 }
 
 prev_fails="$(cat "$FAILS" 2>/dev/null || echo 0)"
