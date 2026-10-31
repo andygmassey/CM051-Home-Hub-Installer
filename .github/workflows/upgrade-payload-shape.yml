@@ -86,6 +86,12 @@ jobs:
       - name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
         run: /bin/bash tests/test_upgrade_mode_invariants.sh
 
+      # macOS only: the REAL install.sh upgrade block calls BSD /usr/bin/stat -f, which exits 24 on
+      # ubuntu (found when this ran in vendor-integrity, 2026-10-31).
+      - name: The listener watchdog defers to the installer's marker, not to a stray /install.sh argv
+        if: always()
+        run: /bin/bash tests/test_listener_watchdog_install_marker.sh
+
       # The upgrade path must REPAIR the fda venv, not just swap the daemon.
       #
       # CM051 #939 fixed a missing ostler_fda in the PROMOTED venv. The upgrade

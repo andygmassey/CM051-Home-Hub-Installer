@@ -25,6 +25,7 @@ SELF="${ROOT}/tests/$(basename "${BASH_SOURCE[0]}")"
 command -v python3 >/dev/null 2>&1 || { echo "CANNOT-RUN: python3 not on PATH" >&2; exit 2; }
 command -v curl >/dev/null 2>&1 || { echo "CANNOT-RUN: curl not on PATH" >&2; exit 2; }
 command -v pgrep >/dev/null 2>&1 || { echo "CANNOT-RUN: pgrep not on PATH" >&2; exit 2; }
+[ "$(uname -s)" = Darwin ] || { echo "CANNOT-RUN: the real install.sh upgrade block uses BSD stat; run on macOS" >&2; exit 2; }
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ostler-lwdm.XXXXXX")" || { echo "CANNOT-RUN: mktemp" >&2; exit 2; }
 [ -n "$WORK" ] && [ -d "$WORK" ] || { echo "CANNOT-RUN: mktemp gave no directory" >&2; exit 2; }
 PASS=0; FAIL=0

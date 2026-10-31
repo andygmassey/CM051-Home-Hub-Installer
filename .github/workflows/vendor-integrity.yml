@@ -155,7 +155,6 @@ on:
       # tests are RUN below, so both are watched here.
       - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
       - 'tests/test_listener_watchdog_walk_probe.sh'
-      - 'tests/test_listener_watchdog_install_marker.sh'
       - 'tests/test_listener_watchdog_budget.sh'
       - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
@@ -736,10 +735,6 @@ jobs:
       - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
         if: always()
         run: bash tests/test_listener_watchdog_walk_probe.sh
-
-      - name: The listener watchdog defers to the installer's marker, not to a stray /install.sh argv
-        if: always()
-        run: bash tests/test_listener_watchdog_install_marker.sh
 
       - name: The listener watchdog probe budget is derived, and the capture cannot hold the restart
         if: always()
