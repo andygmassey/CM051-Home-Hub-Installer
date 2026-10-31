@@ -124,7 +124,7 @@ concurrency:
 
 jobs:
   autostart-mechanism:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       # fetch-depth 0: the #1498 support-code test pins its negative control
