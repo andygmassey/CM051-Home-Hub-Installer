@@ -1769,3 +1769,11 @@ Tree `doctor`. Pin NOT moved. Comment-only, no behaviour change.
   this entry records it so the divergence gate sees it described.
 - Retire: when HR015 carries the same re-word and a re-vendor makes the file
   byte-identical.
+
+## 2026-10-31: doctor serves the food sentinel (CM051 #3234)
+
+`vendor/doctor/agent/web_ui.py` `_FDA_EXTRACT_KINDS` gains `"food": "operation"`. install.sh now
+writes `state/hydrate/food.done` (no_data `deferred_to_hourly_ingest`, or error
+`deferral_not_confirmed`), and the hydrate-sentinel G3 gate requires every written
+sentinel source to be served by the doctor. The row appears only once the file exists,
+like the other FDA extract kinds. Owed upstream: none (the panel exists only in CM051).

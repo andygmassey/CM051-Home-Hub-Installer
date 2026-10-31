@@ -155,3 +155,35 @@ Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` and
 
 Owed upstream: yes, HR015 `ostler_fda/dedupe_merge.py`, the same pass. Retire
 when it lands there and the tree is re-pinned past it.
+
+## 2026-10-30: v1.0.121, the install-time call can defer food and names what failed
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- `DEFERRABLE_AT_INSTALL = frozenset({"food"})`, and `ingest_all(fda_dir, defer=())`:
+  a deferred dispatch entry is not called and is recorded as
+  `{"status": "deferred", "reason": "runs_on_the_hourly_ingest_tick"}`.
+- `main()` gains `--defer <name>` (choices: `DEFERRABLE_AT_INSTALL`) and
+  `--failed-out <path>`, which writes the failing dispatch keys one per line
+  (empty file when none). Exit codes are unchanged.
+- `_timing_line`: `ingest_all` prints `[ingest-timing] source=<k> phase=start|end|deferred
+  at=<UTC> [elapsed_s=<n> status=<s>]` to stdout for every dispatch entry, so the
+  hourly tick's fda-rerun.log carries each source's duration.
+
+Why: the v1.0.120 cold walk (16 GB Mac) ran the whole dispatch inside the install's
+WhatsApp hydrate leg; `ingest_food` hit the 900 s CM019 ingest cap, the CLI exited 1,
+hydrate_graph closed rc 1 and the warning blamed WhatsApp. install.sh now passes
+`--defer food` and names failures from `--failed-out`. The hourly tick
+(com.ostler.fda-rerun) still calls `ingest_all(fda_dir)` with nothing deferred.
+Proof: tests/test_hydrate_graph_food_deferred.sh (bash32-compat.yml).
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`.
+
+### v1.0.121 addendum: food cadence
+
+`food_due(ostler_dir, now=None)` with `FOOD_MIN_INTERVAL_S` (24 h) and
+`FOOD_FIRST_AFTER_INSTALL_S` (6 h): reads `state/install_completed_at` (epoch,
+written once at the end of install) and `last_run_at`/`last_status` from
+`state/source_activity/food.tsv`, never an mtime. The fda-rerun tick (install.sh,
+between `# food-gate-begin` and `# food-gate-end`) drops food from its dispatch when
+not due, so no food row is written and the last completed stamp survives.

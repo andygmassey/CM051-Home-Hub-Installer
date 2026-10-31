@@ -3813,12 +3813,84 @@ _DISPATCH_EXEMPT = frozenset({
 })
 
 
-def ingest_all(fda_dir: Optional[Path] = None) -> dict:
+# Dispatch entries the install-time call may hand to the hourly ingest tick
+# (com.ostler.fda-rerun, which calls ingest_all with nothing deferred). Only
+# work that is optional for a usable first run belongs here. v1.0.120 cold walk
+# on a 16 GB Mac: `food` hit its 900 s preference-ingest cap inside the
+# install's WhatsApp hydrate leg and failed hydrate_graph, while the hourly
+# tick finished the same work on later runs.
+DEFERRABLE_AT_INSTALL = frozenset({"food"})
+
+
+# v1.0.121 (Archie): food is ~4000 s of local-model work on a 16 GB Mac, so it
+# runs at most once a day and never in the customer's first six hours. The
+# hourly tick asks food_due() and leaves food out of its dispatch when not due,
+# which writes no food row, so the last COMPLETED run's stamp survives.
+FOOD_MIN_INTERVAL_S = 24 * 3600
+FOOD_FIRST_AFTER_INSTALL_S = 6 * 3600
+_FOOD_COMPLETED = ("ok", "error", "no_data")
+
+
+def food_due(ostler_dir: Path, now: Optional[float] = None) -> tuple:
+    """(due, reason). Reads state/install_completed_at (epoch seconds, written
+    once at the end of install) and the last_run_at / last_status that the
+    tick's activity writer records in state/source_activity/food.tsv. Never
+    a file mtime."""
+    import calendar
+    import time
+    now = time.time() if now is None else float(now)
+    state = Path(ostler_dir) / "state"
+    try:
+        installed = int((state / "install_completed_at").read_text().strip())
+    except (OSError, ValueError):
+        return False, "install_not_complete"
+    if now - installed < FOOD_FIRST_AFTER_INSTALL_S:
+        return False, "within_6h_of_install"
+    fields = {}
+    try:
+        for line in (state / "source_activity" / "food.tsv").read_text(
+                encoding="utf-8", errors="replace").splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                fields[k] = v.strip()
+    except OSError:
+        return True, "never_completed"
+    if fields.get("last_status") not in _FOOD_COMPLETED:
+        return True, "never_completed"
+    try:
+        last = calendar.timegm(time.strptime(fields.get("last_run_at", ""),
+                                             "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return True, "completion_stamp_unreadable"
+    if now - last < FOOD_MIN_INTERVAL_S:
+        return False, "completed_within_24h"
+    return True, "due"
+
+
+def _timing_line(name: str, phase: str, started: Optional[float] = None,
+                 status: Optional[str] = None) -> float:
+    """Print one ``[ingest-timing]`` line; return the monotonic clock."""
+    import time
+    now = time.monotonic()
+    parts = ["[ingest-timing]", "source=" + name, "phase=" + phase,
+             "at=" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")]
+    if started is not None:
+        parts.append("elapsed_s=%d" % round(now - started))
+    if status is not None:
+        parts.append("status=" + str(status))
+    print(" ".join(parts), flush=True)
+    return now
+
+
+def ingest_all(fda_dir: Optional[Path] = None, defer=()) -> dict:
     """Run all FDA -> PWG ingestion steps.
 
     Reads the JSON output from extract_all.py and feeds it into
-    Qdrant and Oxigraph.
+    Qdrant and Oxigraph. ``defer`` names dispatch entries not to run now:
+    each is recorded as ``{"status": "deferred"}``, never as ok and never as
+    an error, so the hourly tick is the one that measures it.
     """
+    defer = frozenset(defer or ())
     fda_dir = fda_dir or (Path.home() / ".ostler" / "imports" / "fda")
 
     if not fda_dir.exists():
@@ -3838,11 +3910,24 @@ def ingest_all(fda_dir: Optional[Path] = None) -> dict:
         # Resolve by name at call time so mock.patch on the module attr is
         # honoured (and so the dispatch can't drift from the real function).
         func = getattr(this_module, func_name)
+        if name in defer:
+            logger.info("%s: deferred to the hourly ingest tick", name)
+            results[name] = {"status": "deferred",
+                             "reason": "runs_on_the_hourly_ingest_tick"}
+            _timing_line(name, "deferred")
+            continue
+        # v1.0.121: a start and an end line per source on stdout (the tick's
+        # fda-rerun.log), so a walk can read how long each source took. The
+        # start line is printed first so a run killed mid-source still shows it.
+        started = _timing_line(name, "start")
         try:
             results[name] = func(fda_dir)
         except Exception as e:
             logger.warning("[warn] %s ingestion failed: %s", name, e)
             results[name] = {"status": "error", "error": str(e)}
+        res = results.get(name)
+        _timing_line(name, "end", started,
+                     res.get("status") if isinstance(res, dict) else "unknown")
 
     logger.info("")
     logger.info("FDA -> PWG ingestion complete.")
@@ -3854,18 +3939,32 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Ingest FDA data into PWG")
     parser.add_argument("--fda-dir", type=str, default=None)
+    parser.add_argument("--defer", action="append", default=[],
+                        choices=sorted(DEFERRABLE_AT_INSTALL),
+                        help="leave this source to the hourly ingest tick")
+    parser.add_argument("--failed-out", type=str, default=None,
+                        help="write the failing source keys here, one per line")
     args = parser.parse_args()
 
     fda_dir = Path(args.fda_dir) if args.fda_dir else None
-    results = ingest_all(fda_dir)
+    results = ingest_all(fda_dir, defer=args.defer)
     print(json.dumps(results, indent=2))
     # Exit non-zero when anything failed, so a caller that captures rc (install
     # hydrate) cannot record a failed graph write as ok. ingest_all itself
     # never raises; before this the CLI exited 0 whatever the results said.
-    if results.get("status") == "error" or any(
-        isinstance(v, dict) and v.get("status") == "error"
-        for v in results.values()
-    ):
+    if results.get("status") == "error":
+        failed = ["ingest_all"]
+    else:
+        failed = [k for k, v in results.items()
+                  if isinstance(v, dict) and v.get("status") == "error"]
+    # Which sources failed, by dispatch key, so the caller names THOSE in the
+    # customer's warning rather than the step that happened to run them (the
+    # v1.0.120 walk blamed WhatsApp for a food timeout). Written on every run,
+    # empty when nothing failed: a missing file means "could not tell".
+    if args.failed_out:
+        Path(args.failed_out).write_text(
+            "".join(k + "\n" for k in failed), encoding="utf-8")
+    if failed:
         sys.exit(1)
 
 

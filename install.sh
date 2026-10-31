@@ -91,7 +91,7 @@ NO_EXTENSIONS=false
 #
 # A closed loop with no exit for a week, in which the product repeatedly
 # instructs the customer to pull a lever that is not connected to anything.
-# Three more sites treat the flag as real in prose: install.sh:33714,
+# Three more sites treat the flag as real in prose: install.sh:33738,
 # vendor/doctor/agent/imessage_tcc_posture.py:23, and
 # vendor/doctor/agent/reminders_posture.py:28 ("refreshed on each --repair
 # run"). It refreshed nothing.
@@ -290,7 +290,7 @@ _ostler_persist_diagnostics() {
 #
 # 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
 # always. Do NOT route a site whose exit code chooses a customer-visible
-# branch through this -- install.sh:34270 picks ok/warn from the exit status of
+# branch through this -- install.sh:34294 picks ok/warn from the exit status of
 # its kickstart, and backgrounding it would report "started" for a daemon that
 # never started. Lying to the customer is worse than stalling them. That site
 # needs a three-state bounded variant and is deliberately NOT converted here.
@@ -23302,9 +23302,9 @@ STATE_DIR="${OSTLER_DIR}/state"
 # 🔴 THE DEFECT THIS REPLACES. Three sites wrote customer-derived
 # artefacts to a FIXED, world-readable /tmp path:
 #
-#   install.sh:35842  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:38411  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:42336  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#   install.sh:35866  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:38489  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:42414  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
 #
 # /private/tmp is drwxrwxrwt. The sticky bit stops another account
 # DELETING the file; it does nothing about READING it. At the default
@@ -26028,6 +26028,23 @@ cat > "${OSTLER_DIR}/bin/ostler-fda" <<'FDAEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 OSTLER_DIR="${HOME}/.ostler"
+# v1.0.121: ONE run at a time, by this lock rather than by trusting launchd
+# alone (the chain is plist -> run-source -> tick.sh -> here, and the food
+# source it now owns can run ~4000 s on a 16 GB Mac). A live holder means the
+# previous tick is still working: say so and stand down. A dead holder's lock
+# is reclaimed. Never the shared Ollama ingest slot: that one is not taken here.
+_FDA_LOCK="${OSTLER_FDA_LOCK:-${OSTLER_DIR}/state/fda-rerun.lock.d}"
+mkdir -p "$(dirname "$_FDA_LOCK")"
+if ! mkdir "$_FDA_LOCK" 2>/dev/null; then
+    _fda_held="$(cat "$_FDA_LOCK/pid" 2>/dev/null || true)"
+    if [[ -n "$_fda_held" ]] && kill -0 "$_fda_held" 2>/dev/null; then
+        echo "[fda-rerun] $(date -u +%Y-%m-%dT%H:%M:%SZ) previous run (pid ${_fda_held}) still working; this tick stands down"
+        exit 0
+    fi
+    rm -rf "$_FDA_LOCK"; mkdir "$_FDA_LOCK"
+fi
+echo "$$" > "$_FDA_LOCK/pid"
+trap 'rm -rf "$_FDA_LOCK"' EXIT
 FDA_DIR="${OSTLER_DIR}/fda-module"
 # v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
 # the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
@@ -26295,6 +26312,13 @@ if _skip:
                          'so refused sources could not be held back; nothing was loaded' + chr(10))
         sys.exit(1)
     _pwg._INGEST_DISPATCH = tuple(e for e in _dispatch if e[0] not in _skip)
+# food-gate-begin: at most once a day, never in the first 6 h (pwg_ingest.food_due)
+_food_due = getattr(_pwg, 'food_due', None)
+_food_ok, _food_why = _food_due(Path('${OSTLER_DIR}')) if _food_due else (True, 'no_gate')
+if not _food_ok:
+    print('[food] not due this tick: ' + _food_why, flush=True)
+    _pwg._INGEST_DISPATCH = tuple(e for e in _pwg._INGEST_DISPATCH if e[0] != 'food')
+# food-gate-end
 results = ingest_all(fda_dir) or {}
 if isinstance(results, dict) and results.get('status') != 'error':
     for _name in sorted(_refused):
@@ -28596,9 +28620,9 @@ _u_emit UNINSTALL_PHASE "name=launchagents"
 #   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
 #               torn down at all. Found loaded on the .208 box-walk.
 #   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
-#   2026-08-15  tailscaled: written at install.sh:34230, absent from both
+#   2026-08-15  tailscaled: written at install.sh:34254, absent from both
 #               walls. Its only bootout is the install-time restart at
-#               install.sh:34270, which is not a teardown.
+#               install.sh:34294, which is not a teardown.
 #
 # THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
 # the current login session and does not touch the disk. launchd rescans
@@ -28691,7 +28715,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
 # ANDY, 2026-09-24: "The Uninstaller should wipe all this shit." The list
 # above is hand-maintained and it is STRUCTURALLY BLIND to one whole class:
 # an agent installed by VENDORED code rather than by install.sh writing the
-# plist itself. install.sh:41292 copies context-refresh/ and runs its
+# plist itself. install.sh:41370 copies context-refresh/ and runs its
 # INSTALL_SNIPPET.sh, and that snippet writes
 # com.creativemachines.ostler.context-refresh. A list derived from reading
 # install.sh can never contain it.
@@ -29079,7 +29103,7 @@ fi
 
 # ── Ostler Safari Extension.app ────────────────────────────────
 _u_emit UNINSTALL_PHASE "name=safari_extension"
-# install.sh:41965 moves SafariHistoryExt.app to this name, so it is OUR
+# install.sh:42043 moves SafariHistoryExt.app to this name, so it is OUR
 # bundle and the customer never chose it. It was in NEITHER half of the
 # contract printed above -- not in "This will remove", not in "This will
 # NOT remove" -- so an uninstall left a branded app in /Applications and
@@ -34993,7 +35017,7 @@ _hydrate_payload_is_all_zero() {
 #
 # A reader (CM044) should cover THIS list rather than one somebody transcribed.
 OSTLER_SENTINEL_STATUSES="ok error timeout no_data cannot_run"
-OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
+OSTLER_SENTINEL_SOURCES="ai_conversations apple_music apple_notes browsing calendar contacts dedupe email email_preferences food imessage people photos places privacy_backfill reminders reminders_knowledge whatsapp"
 
 # ── WHICH FDA EXTRACTOR SOURCE FEEDS WHICH DOCTOR ROW (#1587) ────────────
 #
@@ -37238,6 +37262,38 @@ unset _HYDRATE_EMAIL_MBOX_DIR _HYDRATE_OXIGRAPH_EMAIL
 # process boundary. The classifier writes whatsapp_conversations.json
 # under ~/.ostler/imports/fda/ with participant lists (those are
 # customer-local artefacts, never logged off-machine).
+#
+# v1.0.121: the graph write below runs EVERY pwg_ingest source, so its failure
+# is named by the sources that failed, never by this leg. Reads the keys that
+# `pwg_ingest --failed-out` wrote. Sets _HY_FAILED_LABELS (customer words,
+# comma-joined) and _HY_FAILED_WHATSAPP (true when WhatsApp itself failed, or
+# when the failure could not be attributed, so it still counts against the leg).
+_hydrate_ingest_failure_labels() {
+    local file="$1" key var label
+    _HY_FAILED_LABELS=""
+    _HY_FAILED_WHATSAPP=false
+    if [[ ! -s "$file" ]]; then
+        _HY_FAILED_LABELS="$MSG_HYDRATE_SOURCE_LABEL_UNMEASURED"
+        _HY_FAILED_WHATSAPP=true
+        return 0
+    fi
+    while IFS= read -r key || [[ -n "$key" ]]; do
+        if [[ -z "$key" ]]; then continue; fi
+        if [[ "$key" == "whatsapp" || "$key" == "ingest_all" ]]; then _HY_FAILED_WHATSAPP=true; fi
+        label=""
+        case "$key" in
+            *[!a-z_]*) : ;;
+            *) var="MSG_HYDRATE_SOURCE_LABEL_$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')"
+               label="${!var:-}" ;;
+        esac
+        if [[ -z "$label" ]]; then
+            # A key with no label is counted under its own name, never dropped.
+            label="$(printf "$MSG_HYDRATE_SOURCE_LABEL_UNKNOWN" "$key")"
+        fi
+        _HY_FAILED_LABELS="${_HY_FAILED_LABELS:+${_HY_FAILED_LABELS}, }${label}"
+    done < "$file"
+    return 0
+}
 _HYDRATE_WHATSAPP_VENV="${OSTLER_DIR}/services/email-ingest/.venv"
 _HYDRATE_WHATSAPP_PY="${_HYDRATE_WHATSAPP_VENV}/bin/python"
 _HYDRATE_WHATSAPP_DB="${HOME}/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
@@ -37332,28 +37388,50 @@ elif [[ -x "$_HYDRATE_WHATSAPP_PY" ]] && [[ -f "$_HYDRATE_WHATSAPP_DB" ]]; then
         info "$MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES"
     else
         # Step 2: ingest the JSON into Oxigraph. pwg_ingest.main() runs
-        # every ingest_* for which a JSON file exists; since only
-        # whatsapp_conversations.json was just written, only
-        # ingest_whatsapp will do work. Other ingests return their
-        # "no data" skip status without touching Oxigraph.
+        # every ingest_* for which a JSON file exists, which by now is
+        # most FDA sources, not only whatsapp_conversations.json (the
+        # v1.0.120 walk ran all ten). So a failure here is named
+        # by source below, never assumed to be WhatsApp's.
         # pwg_ingest now exits 1 on any source error. A bare `set +e` leaves
         # the ERR trap armed (bash 3.2), which would abort the install here,
         # so save and disarm it exactly as the extract step above does.
         _wa_ingest_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e
         _wa_ingest_rc=0
+        # v1.0.121: food evidence is DEFERRED to the hourly ingest tick
+        # (com.ostler.fda-rerun runs ingest_all with nothing deferred and
+        # records state/source_activity/food.tsv). On the v1.0.120 cold walk
+        # (16 GB Mac) it hit its 900 s cap here and failed hydrate_graph.
+        _wa_failed_out="${OSTLER_DIAG_DIR}/hydrate-ingest-failed.txt"
+        rm -f "$_wa_failed_out"
         "$_HYDRATE_WHATSAPP_PY" -m ostler_fda.pwg_ingest \
             --fda-dir "${OSTLER_DIR}/imports/fda" \
+            --defer food --failed-out "$_wa_failed_out" \
             >>"$_HYDRATE_WHATSAPP_LOG" 2>&1 || _wa_ingest_rc=$?
         # Status-honesty E2: this write used to end in `|| true`, so a failed
         # graph write was recorded as ok. Keep the extract's rc if it already
-        # failed; otherwise the ingest's rc becomes the recorded one.
+        # failed; otherwise the ingest's rc becomes the recorded one. The rc
+        # goes to WhatsApp only when WhatsApp failed (or nothing says which);
+        # any other source still fails the step, under its own name.
         if [[ "$_wa_ingest_rc" -ne 0 ]]; then
-            warn "$(printf "$MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" "$_wa_ingest_rc" "$_HYDRATE_WHATSAPP_LOG")"
-            if [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then
+            _hydrate_ingest_failure_labels "$_wa_failed_out"
+            # The exit code is for the log, not the customer (it replaces
+            # MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED, which printed it).
+            echo "pwg_ingest exit ${_wa_ingest_rc}; failed: ${_HY_FAILED_LABELS}" >> "$_HYDRATE_WHATSAPP_LOG"
+            warn "$(printf "$MSG_HYDRATE_INGEST_SOURCES_FAILED" "$_HY_FAILED_LABELS" "$_HYDRATE_WHATSAPP_LOG")"
+            if [[ "$_HY_FAILED_WHATSAPP" != "true" ]]; then
+                gui_step_record_rc "$_wa_ingest_rc"
+            elif [[ "${_HYDRATE_WHATSAPP_RC:-0}" -eq 0 ]]; then
                 _HYDRATE_WHATSAPP_RC="$_wa_ingest_rc"
             fi
         fi
-        unset _wa_ingest_rc
+        # A failed-out file proves the CLI took --defer; without it the deferral is unconfirmed.
+        if [[ -f "$_wa_failed_out" ]]; then
+            _hydrate_sentinel_record_no_data "food" "deferred_to_hourly_ingest"
+            info "$MSG_HYDRATE_FOOD_DEFERRED"
+        else
+            _hydrate_sentinel_record_error "food" "${_wa_ingest_rc:-1}" "deferral_not_confirmed"
+        fi
+        unset _wa_ingest_rc _wa_failed_out _HY_FAILED_LABELS _HY_FAILED_WHATSAPP
         set -e; eval "${_wa_ingest_saved_err_trap:-}"; unset _wa_ingest_saved_err_trap
 
         # Parse people_added for the customer-facing message. The CLI
