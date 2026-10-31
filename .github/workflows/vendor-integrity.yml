@@ -18,6 +18,8 @@ on:
       # The Time Machine exclusion test runs install.sh's helper AND the
       # Doctor's live rule, so it is watched from both sides.
       - 'tests/test_time_machine_exclusion_is_measured.sh'
+      # NEW-121: Doctor spawns no subprocess on a TCC-protected path.
+      - 'tests/test_doctor_spawns_no_protected_path_subprocess.py'
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'vendor/cm059_editor/compiler/interest_profile.py'
@@ -66,6 +68,7 @@ on:
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
       - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
+      - 'tests/test_import_kicks_digest_after_frontpage_compile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -486,6 +489,12 @@ jobs:
         if: always()
         run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
 
+      # The import kicks the owner digest only AFTER the compile it kicked has
+      # rewritten the interest profile (bounded), in its own process group.
+      - name: the import kicks the digest after the front-page compile finishes
+        if: always()
+        run: bash tests/test_import_kicks_digest_after_frontpage_compile.sh
+
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
       # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
@@ -611,6 +620,14 @@ jobs:
       - name: A Time Machine exclusion is read back, never assumed
         if: always()
         run: bash tests/test_time_machine_exclusion_is_measured.sh
+      # NEW-121 (v1.0.120 box): Doctor's own python ran `tmutil isexcluded`
+      # on ~/Documents/Ostler, so TCC charged a NON-preflight Documents request
+      # to python3.11. CALLS the Doctor rule under an audit hook (no spawn, no
+      # stat under ~/Documents), runs the real fda-rerun writer into the real
+      # reader, and pins every Doctor subprocess call site to the swept table.
+      - name: Doctor spawns no subprocess on a protected path (NEW-121)
+        if: always()
+        run: python3 tests/test_doctor_spawns_no_protected_path_subprocess.py
       # Runs after the requirements install above: it imports the shipped app.
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()

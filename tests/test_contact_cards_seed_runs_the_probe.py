@@ -437,10 +437,15 @@ def test_people_count_agreement_passes_with_the_seed_and_the_cap_is_a_probe_tole
     assert v.startswith("PASS"), text
     assert "oxigraph SPARQL count : %d" % len(fx.CARDS) in text, text
     assert "doctor api count      : %d" % len(fx.CARDS) in text, text
-    # control: without vectors the Doctor count is 0 and the same probe is not a pass
+    # control: without vectors the Doctor count is 0 and the same probe is not a pass.
+    # Every seeded person is now waiting for a vector (the embed queue, v1.0.121), and
+    # no people_index run completes after they are seen, so there is no drain signal:
+    # CANNOT-RUN after a short bound (the shipped bound is 70 minutes), never a PASS.
     stores.points.clear()
-    v2, text2 = probe("people_count_agreement", home, stores, knobs)
+    v2, text2 = probe("people_count_agreement", home, stores,
+                      dict(knobs, OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="4"))
     assert not v2.startswith("PASS"), text2
+    assert v2.startswith("CANNOT-RUN") and "NO DRAIN SIGNAL ARRIVED" in text2, text2
 
 
 def test_seed_skips_when_the_box_has_real_contacts_and_writes_nothing(stores, home):

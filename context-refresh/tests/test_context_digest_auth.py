@@ -149,6 +149,11 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             self._send(200, _EMPLOYER)
         elif path == "/api/v1/preferences":
             self._send(200, _PREFERENCES)
+        elif path == "/api/v1/preferences/derived":
+            # The real route on a box whose derive pass has not run yet: 200
+            # with degraded and a reason (ical-server.py api_preferences_derived).
+            self._send(200, {"items": [], "degraded": True,
+                             "cannot_check": "no derived preferences materialized yet"})
         elif path == "/api/v1/commitments":
             self._send(200, {"commitments": [], "count": 0})
         elif path == "/api/v1/memory":

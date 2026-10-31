@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -76,7 +77,15 @@ def bindings(rows):
 # Synthetic stores. Every request is counted: a stub nobody called proves nothing.
 # --------------------------------------------------------------------------
 P = "https://example.invalid/person_"
-IDX_AT = "2026-10-26T06:00:00Z"
+# people_index's last success, taken at run time from time.time(): the SAME clock
+# the probe reads for its box-now (people_count_agreement.sh, int(_t2.time())).
+# A literal date would age past the probe's 2-interval stale-indexer FAIL arm.
+# Fresh = 5 minutes ago, well inside one 3600 s fda-rerun interval.
+def _stamp(age_s):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_s))
+
+
+IDX_AT = _stamp(300)
 
 
 def sparql_answer(q):
@@ -90,6 +99,16 @@ def sparql_answer(q):
         return [{"side": "self", "t": "email", "v": "one@example.com"},
                 {"side": "self", "t": "email", "v": "two@example.com"}]
     cf = CARDS_FIXTURE[0]
+    # v1.0.121: the probe re-checks a journalled override IN THE GRAPH. These
+    # answer its identifier, holder and live-Person reads: both cards' email
+    # identifiers (same value) now sit on the survivor x, the only live node.
+    if "?jid ?jt ?jv" in q:
+        return [] if cf == "default" else [{"jid": P + "idx_e", "jt": "email", "jv": "one@example.com"},
+                                           {"jid": P + "idx2_e", "jt": "email", "jv": "one@example.com"}]
+    if "?jh ?jhid" in q:
+        return [] if cf == "default" else [{"jh": P + "x", "jhid": P + "idx_e"}, {"jh": P + "x", "jhid": P + "idx2_e"}]
+    if "?jlive WHERE" in q:
+        return [] if cf == "default" else [{"jlive": P + "x"}]
     if "?jfrom ?jto" in q:
         return [] if cf == "default" else [{"jfrom": P + "x2", "jto": P + "x"}]
     if "?jname_s ?jname" in q:
@@ -108,7 +127,7 @@ def sparql_answer(q):
         return [{"n": 6}]
     if "AS ?uidn" in q:
         return [{"uidn": UIDS[0]}]
-    if "FILTER(?a != ?b)" in q:
+    if "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
         return [{"n": OPP[0]}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
         return [{"n": 0}]
@@ -142,7 +161,8 @@ def sparql_answer(q):
         if "mergedInto" in q:
             return [{"m": P + "1"}] if i == 5 else []
         if "createdAt" in q:
-            return {2: [{"c": "2026-10-27T01:00:00Z"}], 3: [{"c": "2026-01-01T00:00:00Z"}]}.get(i, [])
+            # node 2 is created AFTER the index run (60 s ago, index is 300 s ago); node 3 long before it.
+            return {2: [{"c": _stamp(60)}], 3: [{"c": _stamp(30 * 86400)}]}.get(i, [])
         return []
     return []
 
@@ -171,14 +191,18 @@ OPP = [3]
 SHAPE_HASH = "0f1e2d3c4b5a6978"
 
 
-def jrow(keys, reason="", override="exact_identifier:phone", rid="20261029T010203Z-0a0b0c0d"):
+def jrow(keys, reason="", override="exact_identifier:email", rid="20261029T010203Z-0a0b0c0d"):
     return {"kind": "merge", "id": rid, "ts": "2026-10-29T01:02:03Z", "keep": P + "x", "discard": P + "x2",
-            "strategy": "phone_match", "confidence": 1.0, "details": "identifier values withheld from the journal",
+            "strategy": "email_match", "confidence": 1.0, "details": "identifier values withheld from the journal",
             "override": override, "shared_kinds": sorted({k["kind"] for k in keys}), "matched_keys": keys,
             "matched_keys_reason": reason, "snapshot": "merge_snapshots/x.json", "qdrant_status": "ok", "qdrant_points": 1}
 
 
-_KEYED = [{"kind": "phone", "hash": SHAPE_HASH}]
+_KEYED = [{"kind": "email", "hash": SHAPE_HASH}]
+# The merge snapshot record_merge writes: which identifier node each card held.
+SNAPSHOT = {"keep": P + "x", "discard": P + "x2", "nodes": {
+    P + "x": {"subj": [[ONT + "hasIdentifier", ["uri", P + "idx_e", ""]]], "obj": []},
+    P + "x2": {"subj": [[ONT + "hasIdentifier", ["uri", P + "idx2_e", ""]]], "obj": []}}}
 JOURNAL_CASES = {
     # case: (journal rows, or "ABSENT" / "DIR", expected exit, label)
     "pass": ([jrow(_KEYED)], 0, "journalled override with a key hash and identical names PASSES"),
@@ -189,7 +213,7 @@ JOURNAL_CASES = {
     "namemismatch": ([jrow(_KEYED)], 1, "different display names FAIL"),
     "undone": ([jrow(_KEYED), {"kind": "undo", "merge_id": "20261029T010203Z-0a0b0c0d"}], 1,
                "an undone merge is not proof and FAILS"),
-    "secret": ([jrow([{"kind": "phone", "hash": None}], reason="journal_secret_unavailable")], 78,
+    "secret": ([jrow([{"kind": "email", "hash": None}], reason="journal_secret_unavailable")], 78,
                "hash=null with journal_secret_unavailable is CANNOT-RUN, never PASS"),
     "unreadable": ("DIR", 78, "an unreadable journal is CANNOT-RUN, never PASS"),
 }
@@ -231,7 +255,10 @@ class Store(BaseHTTPRequestHandler):
         if self.path == "/query":
             return self._send(bindings(sparql_answer(data)))
         if self.path.endswith("/points/scroll") and "display_name" in data:
-            pts = [{"payload": {"display_name": dn}} for dn in COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"]]
+            # person_uri on every point, as every real writer stamps it (syncer,
+            # pwg_ingest, social importers): the probe joins graph to vector on it.
+            pts = [{"payload": {"display_name": dn, "person_uri": P + "n%d" % i}}
+                   for i, dn in enumerate(COUNT_FIXTURES[COUNT_FIXTURE[0]]["qd_named"])]
             return self._send({"result": {"points": pts, "next_page_offset": None}})
         if self.path.endswith("/points/scroll"):
             return self._send({"result": {"points": [{"payload": {"person_uri": P + "1"}}],
@@ -329,14 +356,16 @@ def probes_end_to_end():
             if rows == "DIR":
                 os.makedirs(jpath)
             elif rows != "ABSENT":
-                os.makedirs(jdir)
+                os.makedirs(os.path.join(jdir, "merge_snapshots"))
                 with open(jpath, "w") as fh:
                     fh.write("".join(json.dumps(r) + "\n" for r in rows))
+                with open(os.path.join(jdir, "merge_snapshots", "x.json"), "w") as fh:
+                    json.dump(SNAPSHOT, fh)
             rc, out = run_probe("no_person_holds_two_contact_cards", env)
             check(rc == want, "no_person_holds_two_contact_cards journal rule: " + label,
                   "rc=%s want %s %s" % (rc, want, out[-300:]))
             if case == "pass":
-                check("phone_match/phone" in out, "journal rule: the node line names the journal's strategy and key kind")
+                check("email_match/email" in out, "journal rule: the node line names the journal's strategy and key kind")
             if SHAPE_HASH in out:
                 bad("journal rule: a key hash reached the output (%s)" % case)
         shutil.rmtree(jdir, ignore_errors=True)
@@ -353,8 +382,44 @@ def probes_end_to_end():
         check("doctor minus indexable named                       : 0" in out,
               "people_count_agreement: prints the doctor gap against the indexable population")
         COUNT_FIXTURE[0] = "short"
-        rc, out = run_probe("people_count_agreement", env)
-        check(rc == 1 and "VERDICT: FAIL" in out, "people_count_agreement: named counts 20 vs 17 still FAIL",
+        # Three named graph people have no vector: the embed queue. With no
+        # completed people_index run after they were seen there is no drain
+        # signal, so the probe says CANNOT-RUN, never a count verdict (v1.0.121).
+        env_short = dict(env, OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="4")
+        rc, out = run_probe("people_count_agreement", env_short)
+        check(rc == 78 and "NO DRAIN SIGNAL ARRIVED" in out and "3 customer-visible graph people still had no vector" in out,
+              "people_count_agreement: named counts 20 vs 17 with no drain signal is CANNOT-RUN",
+              "rc=%s %s" % (rc, out[-300:]))
+        # Same counts, same missing vectors, but the indexer's last success is 3
+        # intervals old (3 x 3600 s, from the same clock the probe reads): a dead
+        # indexer, graded FAIL, not CANNOT-RUN.
+        idx0 = os.path.join(env["HOME"], ".ostler/state/source_activity/people_index.tsv")
+        fresh_body = open(idx0).read()
+        with open(idx0, "w") as fh:
+            fh.write("last_success_at=%s\n" % _stamp(3 * 3600))
+        rc, out = run_probe("people_count_agreement", env_short)
+        with open(idx0, "w") as fh:
+            fh.write(fresh_body)
+        check(rc == 1 and "the vector indexer is not running" in out,
+              "people_count_agreement: named counts 20 vs 17 with no drain signal and a STALE indexer (3 intervals) is FAIL",
+              "rc=%s %s" % (rc, out[-300:]))
+        # The writer completes a run after they were seen and they are STILL
+        # missing: a drop. Graded: FAIL, as before.
+        idx = os.path.join(env["HOME"], ".ostler/state/source_activity/people_index.tsv")
+        before = open(idx).read()
+
+        def _writer_ran():
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            with open(idx, "w") as fh:
+                fh.write("source=people_index\nlast_status=ok\nlast_success_at=%s\n" % now)
+        tm = threading.Timer(4, _writer_ran)
+        tm.daemon = True
+        tm.start()
+        rc, out = run_probe("people_count_agreement", dict(env_short, OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="40"))
+        tm.cancel()
+        with open(idx, "w") as fh:
+            fh.write(before)
+        check(rc == 1 and "VERDICT: FAIL" in out, "people_count_agreement: named counts 20 vs 17 after people_index ran still FAIL",
               "rc=%s %s" % (rc, out[-300:]))
         COUNT_FIXTURE[0] = "jids"
         rc, out = run_probe("people_count_agreement", env)

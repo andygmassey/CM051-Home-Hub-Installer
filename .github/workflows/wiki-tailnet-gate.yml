@@ -71,6 +71,15 @@ jobs:
         if: always()
         run: bash tests/test_tailscale_daemon_gate.sh
 
+      # An unreaped backgrounded `tailscale up` outlived the installer for
+      # the life of the box when sign-in timed out or was skipped. This runs
+      # the real launch-to-reap region against a fake that blocks forever and
+      # asserts 0 survivors, with a control proving the survivor check can
+      # see one.
+      - name: Skipped or timed-out sign-in leaves no tailscale up behind
+        if: always()
+        run: bash tests/test_tailscale_signin_reaps_up.sh
+
       # #16 console walk: the sign-in opened TWO Safari tabs every time,
       # because an unconditional backgrounded re-issue followed a successful
       # first open. This extracts the real sign-in URL block and _ts_open_url

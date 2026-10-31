@@ -1348,6 +1348,49 @@ half is in install.sh `_ostler_harden_at_rest`. `doctor.patch` is NOT
 regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 `tests/test_time_machine_exclusion_is_measured.sh` (vendor-integrity.yml).
 
+### 2026-10-30, v1.0.121 (NEW-121): Doctor no longer runs tmutil
+
+MEASURED on the v1.0.120 box: the rule above ran `tmutil isexcluded` from
+Doctor's launchd python, so TCC charged the reads to python3.11, and the
+`~/Documents/Ostler` argv (plus the `os.path.isdir()` gating it) made a
+NON-preflight SystemPolicyDocumentsFolder request, the prompt-capable shape.
+
+`_tm_isexcluded()` is DELETED. `check_time_machine_exclusion()` now reads
+`~/.ostler/state/time_machine_exclusion.tsv` (`_tm_read_status()`,
+`TM_STATUS_FILE_REL`, `TM_STATUS_MAX_AGE_SECONDS` = 6 h) and spawns nothing,
+stats nothing under `~/Documents`. The writer is `_ostler_tm_status_record` in
+install.sh's ostler-fda wrapper, run by `ostler-assistant run-source fda-rerun`
+(a child of the signed FDA holder, no oa change). Missing, unparseable or stale
+file, or a folder row missing or "cannot", is the existing "could not check"
+warning; "absent" is skipped. `TM_CANNOT_CHECK_DETAIL_FMT` copy reworded.
+Guarded by `tests/test_doctor_spawns_no_protected_path_subprocess.py` (RED at
+1a9aea59) and the Doctor half of `tests/test_time_machine_exclusion_is_measured.sh`,
+both in vendor-integrity.yml. The HR015 doctor has no Time Machine rule at all,
+so there is no upstream twin to change; the twin stays OWED as above.
+
+#### What a future sync must preserve
+
+No subprocess in `check_time_machine_exclusion`, and no `~/Documents` path
+passed to any Doctor subprocess or stat. Restoring the HR015 file without this
+rule drops the check; restoring the pre-121 rule brings the python3.11 prompt
+back.
+
+### 2026-10-30, v1.0.121 (NEW-121, Archie (b)): the Documents tile reads, never probes
+
+`vendor/doctor/agent/documents_access_posture.py` (VENDOR_ONLY) no longer
+probe-writes into `~/Documents/Ostler` from Doctor's python on every render.
+`probe_documents_access` and `_default_write_probe` are DELETED;
+`read_documents_access()` reads `~/.ostler/state/documents_access.tsv`
+(`STATUS_FILE_REL`, `STATUS_MAX_AGE_SECONDS` = 6 h) and
+`render_documents_access_posture()` takes no arguments. Missing, stale,
+garbled or unknown-status is `check-failed` with a reason and new copy
+(`_NO_ANSWER_DETAIL_FMT`, `_NO_ANSWER_REMEDIATION`). The writer is
+`_ostler_documents_access_record` in the install.sh ostler-fda wrapper (same
+four states, parent probed when the root is absent, root never created).
+Guarded by `tests/test_documents_access_doctor_denied_row.py` (rewritten:
+real writer into real reader, real chmod-000 denial) and section 2b of
+`tests/test_doctor_spawns_no_protected_path_subprocess.py` (RED at 1a9aea59).
+
 ---
 
 ## doctor: an expired timed Pause re-enables the daemon cron (status-honesty sweep D1)
@@ -1726,3 +1769,11 @@ Tree `doctor`. Pin NOT moved. Comment-only, no behaviour change.
   this entry records it so the divergence gate sees it described.
 - Retire: when HR015 carries the same re-word and a re-vendor makes the file
   byte-identical.
+
+## 2026-10-31: doctor serves the food sentinel (CM051 #3234)
+
+`vendor/doctor/agent/web_ui.py` `_FDA_EXTRACT_KINDS` gains `"food": "operation"`. install.sh now
+writes `state/hydrate/food.done` (no_data `deferred_to_hourly_ingest`, or error
+`deferral_not_confirmed`), and the hydrate-sentinel G3 gate requires every written
+sentinel source to be served by the doctor. The row appears only once the file exists,
+like the other FDA extract kinds. Owed upstream: none (the panel exists only in CM051).

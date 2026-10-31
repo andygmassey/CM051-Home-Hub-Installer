@@ -155,3 +155,5 @@ qdrant_collection	safari_history	conditional	safari_history	baseline	ingest-crea
 # with no Apple Notes legitimately has no such collection, and reding that Hub
 # would be inventing a failure. Declared so its absence is a DECIDED fact.
 qdrant_collection	apple_notes_knowledge	conditional	apple_notes_knowledge	#1598	embed-created by the Apple Notes hydrate leg; present when Apple Notes were ingested
+# derived_preferences is the collection the cm019 derive runner writes (writer.py DERIVED_COLLECTION), not an install.sh creation-loop collection. It exists only once com.ostler.derive-preferences has run, and that agent is itself conditional on the cm019 venv, so this row is conditional for the same reason. Declared so its presence is a DECIDED fact: the v1.0.121 trial walk failed install_manifest_complete on it as UNDECLARED.
+qdrant_collection	derived_preferences	conditional	derived_preferences	v1.0.121	derive-runner-created (cm019 derive writer); present once the derive-preferences agent has run. Added by #2955's agent without a row; v1.0.121 trial walk reported it UNDECLARED.

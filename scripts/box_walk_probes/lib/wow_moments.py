@@ -88,6 +88,68 @@ def _withheld(level):
     return (level or "").strip().lower() in ("l3", "private")
 
 
+# Names of the synthetic seed cast (approved cast: .pii-name-registry.tsv). A
+# missed debt is named in the evidence ONLY when it is one of these AND the debt
+# carries the seed's provenance: a common real name (a real Tom Jones) matches
+# by string alone, and the walk record lands in support bundles. Provenance is
+# the walk-fixture URN namespace every harness seeder writes under (SEED_NS,
+# smart_prefs GRAPH, meeting_brief_seed), read from the debt's person_uri.
+# Anything else records only its SHAPE (never a real name in evidence).
+SEED_PROVENANCE_PREFIX = "urn:ostler-walk-fixture:"
+SEED_REPLY_DEBT_NAMES = frozenset(n.lower() for n in (
+    "Jane Smith", "Tom Jones", "Sam Doe", "John Doe", "Jane Doe", "Bob Brown",
+    "Alex Patel", "Mary Ross", "Raj Patel", "Liz Stewart"))
+
+
+def _name_shape(name):
+    """What a name LOOKS like without saying it: word count and script class."""
+    if not isinstance(name, str) or not name.strip():
+        return "no name"
+    if sum(ch.isdigit() for ch in name) * 2 >= len(name.strip()):
+        return "digits (a raw number)"
+    words = len(name.split())
+    ascii_only = all(ord(ch) < 0x250 for ch in name)
+    return "%d word%s, %s" % (words, "" if words == 1 else "s", "latin" if ascii_only else "non-latin")
+
+
+def debt_evidence(d):
+    """One missed debt as a dict of name (seed cast name AND seed provenance, else None), shape,
+    resolved flag and age in hours. Never carries a non-seed name."""
+    nm = d.get("person_name")
+    uri = d.get("person_uri")
+    seed = (isinstance(nm, str) and nm.strip().lower() in SEED_REPLY_DEBT_NAMES
+            and isinstance(uri, str) and uri.startswith(SEED_PROVENANCE_PREFIX))
+    wh = d.get("waiting_hours")
+    return {"name": nm.strip() if seed else None,
+            "shape": _name_shape(nm),
+            "resolved": d.get("resolved"),
+            "age_hours": round(wh, 1) if isinstance(wh, (int, float)) and not isinstance(wh, bool) else None}
+
+
+def format_missed(missed):
+    """The evidence line for missed debts: 'name=Jane Smith' for a seed name,
+    'name=<not a seed name>' otherwise, then shape, resolved and age."""
+    parts = []
+    for m in missed or []:
+        parts.append("[name=%s shape=%s resolved=%s age_h=%s]" % (
+            m.get("name") if m.get("name") else "<not a seed name>", m.get("shape"), m.get("resolved"), m.get("age_hours")))
+    return " ".join(parts)
+
+
+def graded_debts(debts):
+    """The reply-debt rows that are graded by name, in order (see grade_reply_debts)."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    resolved = [d for d in rows if d.get("resolved") is not False]
+    return [d for d in resolved
+            if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+
+
+def missed_debts(debts, named_flags):
+    """Evidence for each graded debt whose name the answer/brief did NOT carry."""
+    g = graded_debts(debts)
+    return [debt_evidence(d) for d, ok in zip(g, named_flags) if not ok]
+
+
 def grade_reply_debts(debts):
     """Split reply-debt rows into (names to grade, unsaved count).
 
@@ -97,8 +159,7 @@ def grade_reply_debts(debts):
     resolved field (an older Hub) are graded, as before."""
     rows = [d for d in debts if isinstance(d, dict)]
     resolved = [d for d in rows if d.get("resolved") is not False]
-    names = [d.get("person_name") for d in resolved
-             if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+    names = [d.get("person_name") for d in graded_debts(rows)]
     return names, len(rows) - len(resolved)
 
 
@@ -279,6 +340,7 @@ def box_reply_debt():
     out["tools"] = sorted(set(tools))
     out["graded"] = len(names)
     out["named"] = [_named(text, n) for n in names]
+    out["missed"] = missed_debts(debts, out["named"])
     out["l3_named"] = sum(1 for n in l3 if _named(text, n))
     out["says_none"] = bool(NONE_WORDS.search(text)) if not debts else None
     # Every debt an unsaved number: nobody is NAMED, and the correct answer says
@@ -325,8 +387,10 @@ def judge_reply_debt(c):
         lines.append("  note   %d unsaved number(s) not graded by name (the brief says 'someone not in your contacts'; age-out window %s h read from the shipped reply_debt.py)"
                      % (c["unsaved"], c.get("unsaved_window_hours") if c.get("unsaved_window_hours") is not None else "UNREADABLE"))
     if c.get("count", 0) - c.get("unsaved", 0) > 0:
-        check("the answer names the %d people the Hub says are waiting (%d of %d)"
-              % (c.get("graded", 0), sum(named), len(named)), bool(named) and all(named))
+        check("the answer names the %d people the Hub says are waiting (%d of %d)%s"
+              % (c.get("graded", 0), sum(named), len(named),
+                 "; MISSED " + format_missed(c.get("missed")) if c.get("missed") else ""),
+              bool(named) and all(named))
     elif c.get("count", 0) > 0:
         check("every waiting debt is an unsaved number: the answer says 'not in your contacts' rather than naming or denying",
               bool(c.get("says_unsaved")))
@@ -354,6 +418,58 @@ def brief_shape(text):
     low = (text or "").lower()
     return {"iso_date_leak": bool(re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", text or "")),
             "chat_echo": any(p in low for p in CHAT_ECHO_PHRASES)}
+_ITEM_SPLIT = re.compile(r"\s*(?:[,;:]|\band\b)\s*", re.I)
+
+
+def _norm_item(t):
+    t = re.sub(r"^[\s\-\*\u2022\d\.\)]+", "", t or "")
+    return " ".join(re.sub(r"[^\w' ]+", " ", t.casefold()).split())
+
+
+def brief_repeats(text):
+    """How many lines, or list items within one line, the brief says twice.
+
+    The v1.0.120 walk listed one person's birthday three times (three Person
+    nodes for one human). A repeat is a COUNT, so it can leave the box; the
+    text itself stays there. Only items of 2+ words count, and never an
+    empty-section phrase ("nothing overdue"), so a heading or a "none" line
+    repeated across sections is not a repeat."""
+    seen_lines, seen_items, repeats = set(), set(), 0
+    for line in (text or "").splitlines():
+        n = _norm_item(line)
+        if len(n.split()) >= 2 and not NONE_WORDS.search(n):
+            if n in seen_lines:
+                repeats += 1
+                continue
+            seen_lines.add(n)
+        items = [_norm_item(i) for i in _ITEM_SPLIT.split(line)]
+        items = [i for i in items if len(i.split()) >= 2 and not NONE_WORDS.search(i)]
+        local = set()
+        for i in items:
+            if i in local:
+                repeats += 1
+            local.add(i)
+        seen_items |= local
+    return repeats
+
+
+def export_brief_text(text):
+    """Keep the judged brief text ON THE BOX, owner-only, so a defect in it
+    (a duplicate, a leak) can be read there after the walk. Returns
+    (path, sha256, error). Only the path and hash leave the box."""
+    import hashlib
+    d = os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(OSTLER, "walks", "probe-evidence")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "morning_brief_%s.txt" % time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text or "")
+        return path, hashlib.sha256((text or "").encode("utf-8")).hexdigest(), None
+    except OSError as exc:
+        return None, None, "%s: %s" % (type(exc).__name__, exc)
+
+
 OTHER_PROMISE = "Thomas will share the walk-probe venue list"
 SEED_NS = "urn:ostler-walk-fixture:wow7"
 
@@ -416,7 +532,8 @@ def box_morning(wait_s=600):
             return out
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
-        reply_names, _unsaved = grade_reply_debts((rd or {}).get("debts") or [])
+        reply_debts = (rd or {}).get("debts") or []
+        reply_names, _unsaved = grade_reply_debts(reply_debts)
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -447,10 +564,14 @@ def box_morning(wait_s=600):
             return out
         out["answered"] = bool(text.strip())
         out.update(brief_shape(text))
+        out["repeats"] = brief_repeats(text)
+        p, h, err = export_brief_text(text)
+        out["brief_text_path"], out["brief_text_sha256"], out["brief_text_export_error"] = p, h, err
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
         out["reply_graded"] = len(reply_names)
         out["reply_named"] = [_named(text, n) for n in reply_names]
+        out["reply_missed"] = missed_debts(reply_debts, out["reply_named"])
         out["reply_source"] = "ok" if rd is not None else "unavailable"
         out["meetings_graded"] = len(meetings)
         out["meetings_named"] = [all(w in text.lower() for w in re.findall(r"[\w']{3,}", m.lower())[:4])
@@ -478,9 +599,21 @@ def judge_morning(c):
     check("the brief does NOT present a promise someone else owes as the owner's", not c.get("other_promise", True))
     check("the brief carries no raw ISO date", not c.get("iso_date_leak", True))
     check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
+    if "repeats" in c:
+        check("the brief lists nobody and nothing twice (%d repeated)" % c["repeats"], c["repeats"] == 0)
+    else:
+        lines.append("  note   NOT MEASURED: this capture predates the repeat count")
+    if c.get("brief_text_path"):
+        lines.append("  note   judged brief text kept on the box: %s (sha256 %s)"
+                     % (c["brief_text_path"], (c.get("brief_text_sha256") or "")[:16]))
+    elif "brief_text_path" in c:
+        lines.append("  note   NOT EXPORTED: the judged brief text could not be kept (%s)"
+                     % c.get("brief_text_export_error"))
     rn = c.get("reply_named") or []
     if c.get("reply_graded", 0):
-        check("the brief names who is waiting on a reply (%d of %d)" % (sum(rn), len(rn)), all(rn))
+        check("the brief names who is waiting on a reply (%d of %d)%s"
+              % (sum(rn), len(rn), "; MISSED " + format_missed(c.get("reply_missed")) if c.get("reply_missed") else ""),
+              all(rn))
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
     mn = c.get("meetings_named") or []
@@ -521,7 +654,8 @@ def self_test():
     ok &= rc == EX_FAIL
     mb_good = {"prompt_covers_today": True, "answered": True, "run_status": "ok", "owner_promise": True,
                "other_promise": False, "reply_graded": 1, "reply_named": [True], "reply_source": "ok",
-               "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False}
+               "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False,
+               "repeats": 0}
     mb_mut = {
         "prompt still only about yesterday": dict(mb_good, prompt_covers_today=False),
         "owner's promise missing": dict(mb_good, owner_promise=False),
@@ -531,7 +665,18 @@ def self_test():
         "empty brief": dict(mb_good, answered=False),
         "a raw ISO date reached the owner": dict(mb_good, iso_date_leak=True),
         "the owner's chats with the assistant retold as news": dict(mb_good, chat_echo=True),
+        "one person's birthday listed twice": dict(mb_good, repeats=1),
     }
+    # The repeat counter on synthetic text: one person three times (the walk's
+    # shape), the same on one line, and a clean brief.
+    for label, txt, want in (
+            ("three birthday lines for one person",
+             "Birthdays:\n- Jane Stewart, 2 Nov\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\n- Jane Stewart, 2 Nov", 2),
+            ("one person twice on one line", "Birthdays this week: Jane Stewart, Tom Jones and Jane Stewart.", 1),
+            ("a clean brief", "Birthdays:\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\nNothing overdue.\nNothing overdue.", 0)):
+        got = brief_repeats(txt)
+        print("  %s  brief_repeats: %s (%d, want %d)" % ("ok   " if got == want else "FAIL ", label, got, want))
+        ok &= got == want
     # The shape reader itself, on the two real 2026-10-19 shapes (synthetic text).
     shp = brief_shape("You promised to send the pack (due 2030-01-16). Yesterday you greeted me with 'Hola'.")
     print("  %s  brief_shape reads a raw ISO date and a chat echo" % ("ok   " if shp == {"iso_date_leak": True, "chat_echo": True} else "FAIL "))

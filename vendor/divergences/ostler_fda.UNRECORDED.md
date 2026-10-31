@@ -122,3 +122,91 @@ Proof: `tests/test_read_messages_are_not_no_data.py` (hydrate-sentinel.yml).
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, the same return keys. Retire when it
 lands there and the tree is re-pinned past it.
+
+## 2026-10-30 (v1.0.121): dedupe_merge email-twin pass
+
+Tree `ostler_fda`, file `dedupe_merge.py`. New `merge_email_twins`, called at
+the end of `run()` (result keys `email_twins_merged`,
+`email_twins_shared_refused`, `email_twins_name_differs`,
+`email_twins_unreadable`). An address-only Person (the email ingest's shape:
+bare `pwg:email`, provisional name, no `pwg:hasIdentifier`) folds into the ONE
+live person holding that address as an `email` identifier, when its name is
+not human or is the same full name. A shared address or a different human
+name joins nobody. Measured on the v1.0.120 walk box (Mini16, counts only):
+691 live address-only nodes, 33 sharing their address with a live
+identifier-holding node; the walk's People check failed on one of them.
+
+Every fold is a merge like the others: journalled BEFORE the first write
+through `identity_resolver.merge_journal.record_merge` (found in the import
+pipeline; no journal, no fold), then the `mergedInto` tombstone, then the
+twin's people vector deleted (`merge_journal.delete_person_points`, CM051
+#3235). `tick_email_twins()` runs the pass from the hourly fda-rerun tick
+(the python block install.sh writes into `~/.ostler/bin/ostler-fda`), so
+twins minted after install are folded within the hour, not at the next
+upgrade. The tick is capped (`TICK_MAX_EMAIL_TWIN_FOLDS` = 25, override
+`OSTLER_EMAIL_TWIN_MAX_FOLDS`): at most 25 folds a tick, the rest deferred
+and counted on the tick's line. Names compare by `_name_key` (casefold plus
+whitespace collapse), so a case- or whitespace-only difference is the same
+name and a suffix ("Jr") is a different one.
+
+Proof: `tests/test_email_named_twin_folds_into_the_card_holder.py` and
+`tests/test_fda_tick_folds_a_post_install_email_twin.py` (both wired in
+`.github/workflows/dedupe-merge-rule-2.yml`).
+
+Owed upstream: yes, HR015 `ostler_fda/dedupe_merge.py`, the same pass. Retire
+when it lands there and the tree is re-pinned past it.
+
+## 2026-10-30: v1.0.121, the install-time call can defer food and names what failed
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- `DEFERRABLE_AT_INSTALL = frozenset({"food"})`, and `ingest_all(fda_dir, defer=())`:
+  a deferred dispatch entry is not called and is recorded as
+  `{"status": "deferred", "reason": "runs_on_the_hourly_ingest_tick"}`.
+- `main()` gains `--defer <name>` (choices: `DEFERRABLE_AT_INSTALL`) and
+  `--failed-out <path>`, which writes the failing dispatch keys one per line
+  (empty file when none). Exit codes are unchanged.
+- `_timing_line`: `ingest_all` prints `[ingest-timing] source=<k> phase=start|end|deferred
+  at=<UTC> [elapsed_s=<n> status=<s>]` to stdout for every dispatch entry, so the
+  hourly tick's fda-rerun.log carries each source's duration.
+
+Why: the v1.0.120 cold walk (16 GB Mac) ran the whole dispatch inside the install's
+WhatsApp hydrate leg; `ingest_food` hit the 900 s CM019 ingest cap, the CLI exited 1,
+hydrate_graph closed rc 1 and the warning blamed WhatsApp. install.sh now passes
+`--defer food` and names failures from `--failed-out`. The hourly tick
+(com.ostler.fda-rerun) still calls `ingest_all(fda_dir)` with nothing deferred.
+Proof: tests/test_hydrate_graph_food_deferred.sh (bash32-compat.yml).
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`.
+
+### v1.0.121 addendum: food cadence
+
+`food_due(ostler_dir, now=None)` with `FOOD_MIN_INTERVAL_S` (24 h) and
+`FOOD_FIRST_AFTER_INSTALL_S` (6 h): reads `state/install_completed_at` (epoch,
+written once at the end of install) and `last_run_at`/`last_status` from
+`state/source_activity/food.tsv`, never an mtime. The fda-rerun tick (install.sh,
+between `# food-gate-begin` and `# food-gate-end`) drops food from its dispatch when
+not due, so no food row is written and the last completed stamp survives.
+
+## 2026-10-30: repair_overmerged_contact_cards.py DELETED (RULE 2 exception ratified)
+
+`vendor/ostler_fda/repair_overmerged_contact_cards.py` is deleted, with its test
+`tests/test_repair_overmerged_contact_cards.py` and its only workflow
+`.github/workflows/contact-card-repair.yml`. Last commit that touched the file:
+`d1b0367d3f6b5d0a93fbdd8cc9c055ccc1f3e298` (recover it with
+`git show d1b0367d3f6b5d0a93fbdd8cc9c055ccc1f3e298:vendor/ostler_fda/repair_overmerged_contact_cards.py`).
+
+Why: on 2026-10-30 Andy ratified the exact-identifier exception to RULE 2 (two
+Contacts cards with the same full name sharing an email, a person-specific phone
+or a LinkedIn URL are one person and merge). This module un-merged EVERY Person
+node carrying 2+ distinct icloud_contact_uid, so wired to anything it would undo
+ratified merges. It was dormant (no caller; DORMANT row in
+scripts/fda_unwired_modules.tsv), and dormant code that undoes a ratified rule is
+a landmine (Archie, 2026-10-30).
+
+Also removed: its VENDOR_ONLY.tsv row, its fda_unwired_modules.tsv row (the
+dormant count in tests/test_fda_module_reachable.sh drops 5 -> 4), and its
+new-file hunk in `ostler_fda.patch`, so a sync cannot restore it.
+
+Upstream: none. The file was vendor-only and exists in no HR015 commit, so
+nothing is owed upstream.

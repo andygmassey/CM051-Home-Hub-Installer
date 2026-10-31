@@ -202,6 +202,7 @@ def run_probe(w, tmp_path, cap):
                OSTLER_DOCTOR_PEOPLE_URL=w.doctor + "/api/v1/hydration/status",
                OSTLER_PEOPLE_RULES_DIR=str(API), NO_PROXY="127.0.0.1,localhost",
                OSTLER_PEOPLE_STABILITY_STEP_S="1", OSTLER_PEOPLE_STABILITY_WAIT_S="10",
+               OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="40",
                OSTLER_PEOPLE_CONVERGE_WAIT_S="0", OSTLER_PROBE_STATE_DIR=str(tmp_path / "pstate"),
                # The fixture's cap governs: 100% of the larger count never
                # binds below it. The shipped cap (5) is not touched.
@@ -280,10 +281,25 @@ def test_a_real_extra_named_person_in_one_store_still_fails(world, tmp_path):
     v, text = run_probe(world, tmp_path, cap=0)
     assert v.startswith("FAIL"), text
     assert "oxigraph=3 doctor=4 differ by 1" in text, text
-    # and in the graph only, against the fixture cap of 2
+    # and in the graph only, against the fixture cap of 2. Three named graph
+    # people with no vector are the embed queue (v1.0.121: the probe reads only
+    # after it drains); here the vector writer's own marker (people_index.tsv)
+    # says a run that began AFTER they were first seen completed and they are
+    # still missing, so they are a drop and are graded (FAIL), not waited on.
     for slug in ("y1", "y2", "y3"):
         world.node(slug, "Ben Ross " + slug)
     world.points.pop(next(k for k, p in world.points.items() if p["person_uri"].endswith("_x1")))
+    import threading
+    import time as _time
+    marker = tmp_path / "acct" / ".ostler" / "state" / "source_activity" / "people_index.tsv"
+
+    def _writer_ran():
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        stamp = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+        marker.write_text("source=people_index\nlast_run_at=%s\nlast_status=ok\nlast_success_at=%s\n" % (stamp, stamp))
+    t = threading.Timer(12, _writer_ran)
+    t.daemon = True
+    t.start()
     v, text = run_probe(world, tmp_path, cap=2)
     assert v.startswith("FAIL"), text
     assert "oxigraph=6 doctor=3 differ by 3" in text, text

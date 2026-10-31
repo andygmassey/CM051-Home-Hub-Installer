@@ -1603,3 +1603,33 @@ Guarded by `tests/test_people_count_one_definition.py` (wired in
 
 UPSTREAM ROW (owed to CM041): canonical CM041 has no `assistant_api/people_rules.py`
 (vendor-only extraction), so there is nothing to port it to alone.
+
+## 2026-10-30 v1.0.121 second batch: the commitments reader drops L3 todos
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `commitments_list`: in the row loop, a row whose `plevel` resolves to L3 (tagged L3, or tagged but unparseable, which fails closed) is skipped. A row with no privacyLevel (legacy) is kept at the default level, as before. The comment block above the query, which claimed ZERO todos carry a privacyLevel, is rewritten: the writer tags every todo at `vendor/cm048_pipeline/src/ingest.py` (privacyLevel line of the todo block) and skips L3 conversations at its guards.
+- Why: the brief is emailed, and L3 safety rested on the CM048 writer alone.
+- Proof: `tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py` mutates the three writer guards off in a private copy of the vendored pipeline, so an L3 todo reaches a real pyoxigraph store, and asserts `commitments_list` and the brief reader return the L1 control and the untagged legacy todo and not the L3 one. It FAILS on the base commit.
+- Upstream owed: canonical CM041 `origin/main` `commitments_list` (assistant_api/ical-server.py:6346) has the same loop and the stale comment. No canonical PR now. Retire this section when a re-pin brings the filter in.
+
+## 2026-10-31, v1.0.121 batch-2: slow-request log line (instrumentation only)
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `ical-server.py` | new helpers above `class Handler` (`_instrumented`, `_store_urlopen`, `_route_template`, an in-flight counter); `do_GET`, `do_POST`, `do_OPTIONS` carry `@_instrumented`; `Handler.send_response` records the status; 14 Qdrant/Oxigraph/embed `urllib.request.urlopen(` call sites became `_store_urlopen(` (identical behaviour, plus per-request timing). |
+
+Why: pwg_people hit its 15s timeout to ical-server on 5 of 10 chat openings on
+the trial walk and the access log is suppressed, so the cause was not
+instrumented. A request over `OSTLER_ICAL_SLOW_REQUEST_S` (default 2.0) writes one
+line to stdout (launchd: ical-server.log): route template, duration, in-flight
+count at start and end, qdrant/oxigraph/embed seconds. Fast requests write
+nothing. No query string, body or identifier is logged.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
+(wired in `.github/workflows/ical-slow-request-log.yml`).
+
+UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
+`assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.

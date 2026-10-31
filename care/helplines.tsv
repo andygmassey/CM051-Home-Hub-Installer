@@ -1,0 +1,32 @@
+# Ostler on-box crisis lines. Shipped offline; URLs are shown here for audit, never fetched.
+# Source = the operator's or a government page, checked 2026-10-31. Operator-sourced numbers only; no third-party directory data.
+# flag: exactly CONFIRMED (number seen on the source page) or VERIFY (needs a human check). Only exact CONFIRMED rows ship. Caveats live in the note column, never in flag.
+# Emergency numbers marked * were not seen on an official page: they never ship (generic line used). A row whose emergency_source and emergency_checked are set was read on that official page and ships exactly the number the page states.
+# Columns: iso2 <TAB> helpline_line <TAB> graded_number <TAB> emergency_line <TAB> source <TAB> checked <TAB> flag <TAB> note <TAB> emergency_source <TAB> emergency_checked
+GB	Samaritans, free, 24 hours: call 116 123.	116 123	call 999	https://www.samaritans.org/how-we-can-help/contact-samaritan/	2026-10-31	CONFIRMED		https://www.nhs.uk/nhs-services/urgent-and-emergency-care-services/when-to-call-999/	2026-10-31
+IE	Samaritans, free, 24 hours: call 116 123. Pieta: 1800 247 247.	116 123	call 112	https://www2.hse.ie/mental-health/services-support/supports-services/	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+US	988 Suicide and Crisis Lifeline, 24 hours: call or text 988.	988	call 911	https://988lifeline.org/	2026-10-31	CONFIRMED		https://www.911.gov/	2026-10-31
+CA	9-8-8 Suicide Crisis Helpline, 24 hours: call or text 988.	988	call 911	https://988.ca/	2026-10-31	CONFIRMED		https://rcmp.ca/en	2026-10-31
+AU	Lifeline: call 13 11 14 or text 0477 13 11 14.	13 11 14	call 000*	https://www.lifeline.org.au/	2026-10-31	CONFIRMED	phone hours VERIFY		
+NZ	1737, 24 hours: call or text 1737.	1737	call 111	https://1737.org.nz/	2026-10-31	CONFIRMED		https://www.police.govt.nz/	2026-10-31
+DE	TelefonSeelsorge, free, 24 hours: 0800 111 0 111 or 0800 111 0 222.	0800 111 0 111	call 112	https://www.telefonseelsorge.de/	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+AT	TelefonSeelsorge, 24 hours: call 142.	142	call 112	https://www.telefonseelsorge.at/	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+CH	Die Dargebotene Hand / La Main Tendue: call 143.	143	call 112 (or 144)*	https://www.143.ch/	2026-10-31	CONFIRMED	24/7 not stated		
+FR	3114, free, 24 hours: call 3114.	3114	call 112	https://3114.fr/	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+BE	Zelfmoordlijn 1813 (24 hours): 1813. Centre de Prevention du Suicide: 0800 32 123.	1813	call 112	https://www.zelfmoord1813.be/	2026-10-31	CONFIRMED	FR line hours VERIFY	https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+ES	Linea 024, 24 hours: call 024.	024	call 112	https://www.sanidad.gob.es/linea024/home.htm	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+MX	Linea de la Vida: 800 911 2000.	800 911 2000	call 911*	https://www.gob.mx/salud/conadic	2026-10-31	VERIFY			
+IT	Telefono Amico Italia: 02 2327 2327.	02 2327 2327	call 112	https://www.telefonoamico.it/	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+NL	113 Zelfmoordpreventie, free, 24 hours: call 113.	113	call 112	https://www.113.nl/hulp-nodig	2026-10-31	CONFIRMED		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+PT	SNS 24, aconselhamento psicologico: 808 24 24 24, option 4.	808 24 24 24	call 112	https://www.sns24.gov.pt/servico/aconselhamento-psicologico/	2026-10-31	VERIFY		https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm	2026-10-31
+BR	CVV, free, 24 hours: call 188.	188	call 192	https://cvv.org.br/	2026-10-31	CONFIRMED		https://www.gov.br/saude/pt-br/composicao/saes/samu-192	2026-10-31
+JP	Yorisoi Hotline, 24 hours: 0120-279-338.	0120-279-338	call 119 (or 110)*	https://www.mhlw.go.jp/mamorouyokokoro/soudan/tel/	2026-10-31	CONFIRMED			
+KR	Suicide prevention line: call 109.	109	call 112 (or 119)*	https://www.korea.kr/	2026-10-31	CONFIRMED	24/7 VERIFY		
+CN	National psychological assistance hotline: 12356.	12356	call 120 (or 110)*	(state media only)	2026-10-31	VERIFY			
+HK	Samaritan Befrienders Hong Kong, 24 hours: 2389 2222.	2389 2222	call 999	https://www.sbhk.org.hk/	2026-10-31	CONFIRMED		https://www.police.gov.hk/ppp_en/index.html	2026-10-31
+TW	1925 Anxin line, free, 24 hours: call 1925.	1925	call 119 (or 110)*	https://www.mohw.gov.tw/cp-16-50587-1.html	2026-10-31	CONFIRMED			
+SG	Samaritans of Singapore, 24 hours: call 1767.	1767	call 995 (or 999)	https://www.sos.org.sg/	2026-10-31	CONFIRMED		https://www.police.gov.sg/ https://www.scdf.gov.sg/	2026-10-31
+AE	National Mental Support Line: 800 4673.	800 4673	call 999*	(2020 government announcement)	2026-10-31	VERIFY (not 24/7; still running?)			
+SA	Ministry of Health mental health line: 920033360 (daytime only).	920033360	call 911*	https://www.moh.gov.sa/en/Ministry/Information-and-services/Pages/Psychiatry.aspx	2026-10-31	CONFIRMED	daytime only, not 24/7		
+EG	Ministry of Health mental health hotline: 16328.	16328	call 123*	(not loadable)	2026-10-31	VERIFY			
+ZZ	If you can, contact a local crisis line or someone you trust.		call your local emergency number	(fallback when the region is unknown)	2026-10-31	n/a			

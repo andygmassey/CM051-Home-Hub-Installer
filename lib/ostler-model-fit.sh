@@ -67,9 +67,15 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 #
 # Ordering matters: BEST-first (most capable model first). The recommender
 # walks this order and picks the first model whose verdict is "fits".
-OSTLER_MODEL_TAGS=(   "qwen3.6:35b-a3b" "qwen3.5:9b" "gemma4:e2b" )
-OSTLER_MODEL_WEIGHTS=( 23                6            5            )
-OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
+#
+# 2026-10-31 (v1.0.121): the 48GB+ tier installs qwen3.5:9b. The 35b-a3b row
+# (min_fit 48, min_slow 36, ~23 GB, "~23 GB", q4_K_M) cannot be safety-tested
+# until about 21 Nov because no 48GB+ test box exists. 35b restored after the
+# M5 red team, tracked as a 122 row. Removing the row (not just raising its
+# threshold) also keeps it out of the customer-facing fit list.
+OSTLER_MODEL_TAGS=(   "qwen3.5:9b" "gemma4:e2b" )
+OSTLER_MODEL_WEIGHTS=( 6            5            )
+OSTLER_MODEL_QUANT=(  "q4_K_M"     "q4_K_M"      )
 # size_label PROVENANCE. gemma4:e2b read "~5 GB" until v1061-D002 (reg #623).
 # It was MEASURED at 7.2 GB on the v1.0.61 walk box -- a 44% understatement of
 # the largest single download in the install. The repo already knew: install.sh
@@ -78,14 +84,13 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # "7.2 GB of models". Only this customer-facing label still said 5.
 # The other two labels are NOT measured -- they are still inherited from
 # weights_gb and are the remaining live half of the download-honesty class.
-OSTLER_MODEL_SIZELBL=("~23 GB"          "~6.6 GB"    "~7.2 GB"     )
+OSTLER_MODEL_SIZELBL=("~6.6 GB"    "~7.2 GB"     )
 # min_fit: comfortable at num_ctx 32768.
-#   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
 #   e2b    : ~5 GB weights  + ~1 GB 32k KV + headroom -> needs ~16 GB box.
-OSTLER_MODEL_MINFIT=( 48                24           16           )
+OSTLER_MODEL_MINFIT=( 24           16           )
 # min_slow: will load but tight (swap risk) below min_fit.
-OSTLER_MODEL_MINSLOW=(36                18           12           )
+OSTLER_MODEL_MINSLOW=(18           12           )
 
 # Internal: index of a model tag in the parallel arrays. Echoes -1 if absent.
 _ostler_model_index() {

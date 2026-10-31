@@ -267,3 +267,23 @@ wiki-compiler	sha256:1e5123ca202b1da8ba893d8aa8beace2d7e883fc7ef5fea23804a4e7f8f
 wiki-site	sha256:8088f892f90f9dd12c4117007513341c05986d8985b149feca13818f6e7c0e78	23356c01f3161d8e2bbb1b2612bfe772ed809387
 wiki-compiler	sha256:ebe774cd9c3f19e3adfd52141e7f92cb578e08dfa715adb1b8f907bd1beb73e8	fbeb185987b4ed430ba5f6486880e82d111d958e
 wiki-site	sha256:b5e93c6708edd9226b80c37526207ab40302d1e52e3dd2329aba4d978a4aba8b	fbeb185987b4ed430ba5f6486880e82d111d958e
+# v0.1.63 (2026-10-31 ORM, integration/v1.0.121-batch2, CM051 aeb1f3a3): both
+# images built by CM044 CI release-images.yml run 41036143364
+# (https://github.com/andygmassey/CM044-PWG-Personal-Wiki/actions/runs/41036143364,
+# conclusion success, triggered 2026-10-30T09:48:43Z by tag v0.1.63). aeb1f3a3
+# re-pinned install.sh but added no rows here, so verify_cut_freshness.sh went RED
+# unrecorded-provenance on both. RESOLVED FROM THE ARTEFACT, NOT TYPED: read off
+# the published manifests with an anonymous GHCR pull token (both are
+# application/vnd.oci.image.manifest.v1+json, arm64):
+#     ai.ostler.wiki.source_revision     e5450694babdb76afd09de2291bafe9291c87156
+#     org.opencontainers.image.revision  e5450694babdb76afd09de2291bafe9291c87156
+#     org.opencontainers.image.version   0.1.63
+# CORROBORATIONS: (1) CM044 tag v0.1.63 is a lightweight tag resolving to exactly
+# e5450694 (#412, 2026-10-29T12:00:40Z). (2) the run's headSha is e5450694 and the
+# images were created 2026-10-30T09:49:29Z (site) / 09:49:55Z (compiler), after
+# the run started. (3) CONTROL: the base image commit 51b87149d227... does NOT
+# resolve in CM044 (HTTP 422) while e5450694 does, so the label is ours, not the
+# base image's. NOT DONE: no docker create/cp content check of the extracted files
+# (CANNOT-RUN this job; labels + tag + run only).
+wiki-compiler	sha256:ef145f42d5aa88470644e22a16fcecd19df0312d651681350321b1a96eecac57	e5450694babdb76afd09de2291bafe9291c87156
+wiki-site	sha256:a6fab0ed00b008ae58a86bd9f14a1d62347c701d51e795e3607e5b5fd385254e	e5450694babdb76afd09de2291bafe9291c87156

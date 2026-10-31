@@ -166,6 +166,7 @@ def _warn_plaintext_once(db_path: str) -> None:
         file=sys.stderr,
         flush=True,
     )
+import functools
 import threading
 import time
 import urllib.error
@@ -846,7 +847,7 @@ def _qdrant_payloads_by_uri(uris):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 pts = (json.loads(resp.read()).get("result", {}) or {}).get("points", [])
             for pt in pts:
                 pl = pt.get("payload", {}) or {}
@@ -1847,7 +1848,7 @@ def _embed_text(text, timeout=30):
         data=data,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=timeout)
+    resp = _store_urlopen(req, timeout=timeout)
     payload = json.loads(resp.read())
     _record_embed_usage(payload, EMBED_MODEL)
     return payload["embeddings"][0]
@@ -2018,7 +2019,7 @@ def _sparql_select(sparql):
             "Accept": "application/sparql-results+json",
         },
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = _store_urlopen(req, timeout=30)
     data = json.loads(resp.read())
     return [{k: v["value"] for k, v in b.items()}
             for b in data.get("results", {}).get("bindings", [])]
@@ -2037,7 +2038,7 @@ def _sparql_update(sparql):
         headers={"Content-Type": "application/sparql-update"},
         method="POST",
     )
-    urllib.request.urlopen(req, timeout=30)
+    _store_urlopen(req, timeout=30)
 
 
 # Control characters that must never reach a SPARQL literal. We reject the
@@ -2209,7 +2210,7 @@ def people_search(query, limit=10, timeout=30):
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    resp = urllib.request.urlopen(req, timeout=_left)
+    resp = _store_urlopen(req, timeout=_left)
     data = json.loads(resp.read())
 
     # Qdrant payload keys are stored in American English ("organization",
@@ -3162,7 +3163,7 @@ def _qdrant_post(path, body):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    return urllib.request.urlopen(req, timeout=30)
+    return _store_urlopen(req, timeout=30)
 
 
 def _forget_qdrant(cluster):
@@ -7022,7 +7023,7 @@ def person_enrichment(slug):
             data=body,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _store_urlopen(req, timeout=10) as resp:
             qresult = json.loads(resp.read())
         points = qresult.get("result", {}).get("points", [])
         if points:
@@ -7409,7 +7410,7 @@ def _decision_facts_from_conversations(about=None, query=None):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -7799,33 +7800,27 @@ def commitments_list(owner=None, due_before=None, status="open",
         )
 
     try:
-        # 🔴 TODOS ARE DELIBERATELY NOT PRIVACY-GATED, AND HERE IS THE REASON.
+        # TODOS CARRY privacyLevel NOW, AND THIS READER DROPS L3 ROWS.
         #
-        # The two signal readers and the timeline reader above gained an L3
-        # filter in this change. This one did not, and that asymmetry is a
-        # decision rather than an oversight, so it is written here next to the
-        # query rather than in a commit message nobody reads at 3am.
+        # History: when this was first written, a box measurement found 93
+        # OutstandingTodo nodes and ZERO with a privacyLevel, so a
+        # fail-closed filter would have hidden all of them. That is no longer
+        # true: CM048's ingest tags every todo it writes
+        # (vendor/cm048_pipeline/src/ingest.py, the privacyLevel line of the
+        # todo block, ~:929) and skips L3 conversations at the writer
+        # (ingest.py ~:602, processor.py ~:395 and ~:2730).
         #
-        # MEASURED on the box: 93 OutstandingTodo nodes, and ZERO carry a
-        # privacyLevel under EITHER namespace -- 0 with pwg:privacyLevel and 0
-        # with urn:ostler:privacyLevel. filter_l3_facts fails closed on an
-        # untagged record, so joining it here would hide all 93 and delete the
-        # commitments wing outright. A privacy filter whose only effect is to
-        # return nothing is not a privacy control, it is an outage.
+        # The writer guards are the primary control. The loop below is the
+        # second line of defence (belt and braces): an L3-tagged row is
+        # dropped here even if a writer guard regresses, because the brief
+        # built from the same store is EMAILED. A row with NO privacyLevel
+        # (legacy, written before todos were tagged) is NOT dropped and is
+        # served at the default level, exactly as before.
         #
         # urn:ostler:visibility is NOT a usable substitute, and this was
-        # checked rather than assumed. All 93 todos carry it, but so does
-        # every other CM048 node, always with the literal "private": 471 of
-        # 471 signals, 93 of 93 todos, and 1462 of 1462 facts INCLUDING the
-        # 1369 tagged L0. A predicate with one value across the whole corpus
-        # carries no information; filtering on it hides everything or nothing.
-        # Nothing in this repo reads it either (0 hits outside .venv, against
-        # 11 for ostler:privacyLevel as the control).
-        #
-        # So the gate this wing needs is on the WRITER: CM048 should tag todos
-        # the way it already tags facts and signals. Until it does, these rows
-        # are the operator's own outstanding commitments, scoped by
-        # urn:ostler:owner, and are served ungated.
+        # checked rather than assumed: it is the literal "private" on every
+        # CM048 node (471 of 471 signals, 93 of 93 todos, 1462 of 1462
+        # facts INCLUDING the 1369 tagged L0). Nothing in this repo reads it.
         #
         # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
         # ARE TWO AND ONLY ONE IS ENFORCED.
@@ -7884,6 +7879,11 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = []
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
+            continue
+        # Second line of defence behind the CM048 writer's L3 guards. Untagged
+        # legacy rows resolve to the default level and are kept; a tagged but
+        # unparseable level resolves to L3 (fail closed) and is dropped.
+        if _commitment_privacy_level(r.get("plevel")) == "L3":
             continue
         deadline = r.get("deadline", "")
         if due_norm:
@@ -8209,7 +8209,7 @@ def people_list(sort=None, ceiling=10000):
                 data=data,
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -8674,7 +8674,7 @@ def people_stale(months=3, limit=5):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 page_res = json.loads(resp.read()).get("result", {}) or {}
             all_points.extend(page_res.get("points", []) or [])
             next_offset = page_res.get("next_page_offset")
@@ -9751,7 +9751,7 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
                 data=json.dumps(body).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with _store_urlopen(req, timeout=10) as resp:
                 result = json.loads(resp.read()).get("result", {}) or {}
             batch = result.get("points", []) or []
             points.extend(batch)
@@ -10558,7 +10558,7 @@ def _safari_qdrant_ensure_collection(vector_size):
         headers={"Content-Type": "application/json"},
         method="PUT",
     )
-    urllib.request.urlopen(req, timeout=15)
+    _store_urlopen(req, timeout=15)
 
 
 def _safari_qdrant_upsert(point_id, vector, payload):
@@ -10583,7 +10583,7 @@ def _safari_qdrant_upsert(point_id, vector, payload):
         method="PUT",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _store_urlopen(req, timeout=30) as resp:
             return resp.status in (200, 202)
     except Exception:
         return False
@@ -12351,7 +12351,7 @@ def _sparql_select_unscoped(sparql):
             "Accept": "application/sparql-results+json",
         },
     )
-    resp = urllib.request.urlopen(req, timeout=30)
+    resp = _store_urlopen(req, timeout=30)
     data = json.loads(resp.read())
     return [{k: v["value"] for k, v in b.items()}
             for b in data.get("results", {}).get("bindings", [])]
@@ -12385,9 +12385,170 @@ def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
         reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
 
 
+# ----------------------------------------------------------------------
+# Slow-request instrumentation (v1.0.121 batch-2).
+#
+# The access log is suppressed (Handler.log_message), so when the assistant's
+# pwg_people tool hit its 15s timeout on 5 of 10 chat openings there was no
+# record of WHY the server was slow. A request slower than the threshold now
+# writes ONE line to stdout (launchd points that at ical-server.log); a fast
+# request writes nothing. The line carries the route TEMPLATE and numbers
+# only: never a query string, a body, a name, a slug or any identifier.
+# ----------------------------------------------------------------------
+_SLOW_REQUEST_DEFAULT_S = 2.0
+_inflight_lock = threading.Lock()
+_inflight_count = 0
+_req_ctx = threading.local()
+
+# Dynamic route shapes -> template. Anything with an identifier in it MUST be
+# listed here: _route_template fails closed, so an unlisted dynamic route logs
+# as /api/v1/<resource>/{masked}, never with the identifier.
+_ROUTE_TEMPLATES = (
+    (re.compile(r"^/api/v1/people/[^/]+/(enrichment|forget|minor|suppress-suggestions)$"),
+     r"/api/v1/people/{slug}/\1"),
+    (re.compile(r"^/api/v1/people/[^/]+/minor-suggestion/dismiss$"),
+     "/api/v1/people/{slug}/minor-suggestion/dismiss"),
+    (re.compile(r"^/api/v1/person/[^/]+/timeline$"), "/api/v1/person/{slug}/timeline"),
+    (re.compile(r"^/api/v1/topics/[^/]+/mentions$"), "/api/v1/topics/{topic}/mentions"),
+    (re.compile(r"^/api/v1/conversation/[^/]+/speakers$"), "/api/v1/conversation/{id}/speakers"),
+    (re.compile(r"^/api/v1/conversation/status/[^/]+$"), "/api/v1/conversation/status/{id}"),
+    (re.compile(r"^/api/v1/memory/assert/pending/[^/]+$"), "/api/v1/memory/assert/pending/{id}"),
+    (re.compile(r"^/api/v1/memory/correct/[^/]+$"), "/api/v1/memory/correct/{id}"),
+)
+
+# Every STATIC route the Handler serves (no identifier in any of them). A path
+# is printed verbatim ONLY if the whole path is in this set. Adding a static
+# route to the Handler without listing it here only loses detail in the log
+# (it is masked); it can never leak.
+_STATIC_ROUTES = frozenset({
+    "/", "/health", "/email", "/calendar", "/calendar/today",
+    "/people", "/people/search", "/people/context", "/people/stale",
+    "/people/recent", "/people/birthdays",
+    "/api/v1/people", "/api/v1/people/search", "/api/v1/people/context",
+    "/api/v1/people/stale", "/api/v1/people/recent", "/api/v1/people/birthdays",
+    "/api/v1/calendar", "/api/v1/calendar/today",
+    "/api/v1/browsing/search", "/api/v1/email/recent", "/api/v1/minors",
+    "/api/v1/minors/suggestions", "/api/v1/suggestions", "/api/v1/meeting/upcoming",
+    "/api/v1/timeline", "/api/v1/health/day", "/api/v1/contacts/diff",
+    "/api/v1/coach/recent", "/api/v1/memory", "/api/v1/employer",
+    "/api/v1/hub/health", "/api/v1/hydration/status", "/api/v1/decisions",
+    "/api/v1/topics", "/api/v1/commitments", "/api/v1/reply-debt",
+    "/api/v1/recording/active", "/api/v1/preferences",
+    "/api/v1/preferences/derived", "/api/v1/conversation/process",
+    "/api/v1/conversation/upload-part", "/api/v1/conversation/retry-failed",
+    "/api/v1/speakers/identify", "/api/v1/speakers/correct",
+    "/api/v1/ingest/ios", "/api/v1/subscription/receipt",
+    "/api/safari/ingest", "/api/safari/save", "/api/v1/memory/assert",
+})
+_KNOWN_RESOURCES = frozenset(
+    (p.split("/")[3] if p.startswith("/api/v1/") and len(p.split("/")) > 3
+     else p.split("/")[1])
+    for p in _STATIC_ROUTES) - {""}
+
+
+def _route_template(path):
+    """Path -> route template with no identifier in it, failing CLOSED.
+
+    1. a known dynamic shape -> its template;
+    2. the WHOLE path is a known static route -> printed as is;
+    3. anything else -> /api/v1/<first resource segment>/{masked} (or
+       /{masked} when even that segment is not a known resource).
+    No per-segment guessing: a single-word slug is indistinguishable from a
+    resource name, so nothing outside the two lists above is ever printed.
+    The query string is never passed in (callers hand over the path only)."""
+    for rx, tpl in _ROUTE_TEMPLATES:
+        m = rx.match(path)
+        if m:
+            return m.expand(tpl)
+    if path in _STATIC_ROUTES:
+        return path
+    segs = [x for x in path.split("/") if x]
+    if segs[:2] == ["api", "v1"]:
+        res, prefix = (segs[2] if len(segs) > 2 else ""), "/api/v1/"
+    else:
+        res, prefix = (segs[0] if segs else ""), "/"
+    if res in _KNOWN_RESOURCES:
+        return prefix + res + "/{masked}"
+    return prefix + "{masked}"
+
+
+def _slow_request_threshold_s():
+    try:
+        return float(os.environ.get("OSTLER_ICAL_SLOW_REQUEST_S", _SLOW_REQUEST_DEFAULT_S))
+    except (TypeError, ValueError):
+        return _SLOW_REQUEST_DEFAULT_S
+
+
+def _store_kind_for_url(url):
+    for kind, base in (("embed", EMBED_OLLAMA_URL), ("qdrant", QDRANT_URL),
+                       ("oxigraph", OXIGRAPH_URL)):
+        if base and url.startswith(str(base).rstrip("/")):
+            return kind
+    return None
+
+
+def _store_urlopen(req, *args, **kwargs):
+    """urllib.request.urlopen, plus per-request qdrant/oxigraph/embed timing
+    (time to response headers) for the slow-request line. Same behaviour and
+    same exceptions as urlopen; the timing is only recorded."""
+    t0 = time.monotonic()
+    try:
+        return urllib.request.urlopen(req, *args, **kwargs)
+    finally:
+        try:
+            store = getattr(_req_ctx, "store", None)
+            if store is not None:
+                kind = _store_kind_for_url(str(getattr(req, "full_url", req)))
+                if kind:
+                    store[kind] += time.monotonic() - t0
+        except Exception:
+            pass
+
+
+def _instrumented(fn):
+    """Wrap a Handler.do_* method: count in-flight requests and emit the
+    slow-request line when it ran longer than the threshold."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        global _inflight_count
+        t0 = time.monotonic()
+        _req_ctx.store = {"qdrant": 0.0, "oxigraph": 0.0, "embed": 0.0}
+        self._ical_status = None
+        with _inflight_lock:
+            _inflight_count += 1
+            at_start = _inflight_count
+        try:
+            return fn(self, *args, **kwargs)
+        finally:
+            with _inflight_lock:
+                at_end = _inflight_count
+                _inflight_count -= 1
+            try:
+                dur = time.monotonic() - t0
+                if dur > _slow_request_threshold_s():
+                    st = _req_ctx.store
+                    print(
+                        "[slow-request] route=%s method=%s status=%s duration_s=%.3f "
+                        "inflight_start=%d inflight_end=%d "
+                        "qdrant_s=%.3f oxigraph_s=%.3f embed_s=%.3f" % (
+                            _route_template(urlparse(self.path).path),
+                            fn.__name__[3:], self._ical_status, dur,
+                            at_start, at_end,
+                            st["qdrant"], st["oxigraph"], st["embed"]),
+                        flush=True)
+            except Exception:
+                pass
+            _req_ctx.store = None
+    return wrapper
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def send_response(self, code, message=None):
+        self._ical_status = code
+        super().send_response(code, message)
 
     # ── Security guards (v1.0.10 lockdown) ───────────────────────────────
     def _send_guard_error(self, code, message):
@@ -12500,6 +12661,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
+    @_instrumented
     def do_OPTIONS(self):
         # Preflight support for the hydration route (browsers may send it
         # if a custom header ever creeps into the fetch). Other paths get
@@ -12544,6 +12706,7 @@ class Handler(BaseHTTPRequestHandler):
     def _is_post_only_path(cls, path):
         return path in cls._POST_ONLY_PATHS or bool(cls._FORGET_PATH_RE.match(path))
 
+    @_instrumented
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path in self._VERSIONED_TO_LEGACY:
@@ -13490,6 +13653,7 @@ class Handler(BaseHTTPRequestHandler):
             "/health": "Health check (pass ?detailed=1 for dependency checks)",
         }}).encode())
 
+    @_instrumented
     def do_POST(self):
         parsed = urlparse(self.path)
 
