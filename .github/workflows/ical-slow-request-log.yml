@@ -1,0 +1,48 @@
+# v1.0.121 batch-2: ical-server logs ONE line for a request slower than
+# OSTLER_ICAL_SLOW_REQUEST_S (route template, duration, in-flight count,
+# qdrant/oxigraph/embed split), nothing for a fast one, and never a query
+# string. Drives the real Handler over a socket; only urlopen is faked.
+name: ical-slow-request-log
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py'
+      - '.github/workflows/ical-slow-request-log.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py'
+      - '.github/workflows/ical-slow-request-log.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  slow-request-log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      - name: A slow ical-server request logs one line, a fast one none, and no query string
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py -v
