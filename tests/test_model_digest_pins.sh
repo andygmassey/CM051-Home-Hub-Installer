@@ -92,16 +92,18 @@ coverage() {   # coverage <install.sh>  -> prints "MISSING <m>" / "BADDIGEST <m>
         echo "N $n"
     '
 }
+# Floor 4 -> 3 on 2026-10-31 (v1.0.121): the picker withholds 35b-a3b, so the
+# pullable set is 9b, e2b, embed (the 35b pin row stays for its restoration).
 out="$(coverage "$INSTALL")"
 if grep -q '^NOTABLE' <<<"$out"; then
     bad "A coverage: install.sh has no OSTLER_MODEL_PINS table / ostler_model_pinned_digest (pulls are unpinned)"
 else
     n="$(sed -n 's/^N //p' <<<"$out")"
     miss="$(grep -E '^(MISSING|BADDIGEST|UNKNOWNVAR)' <<<"$out" || true)"
-    if [ -z "$miss" ] && [ "${n:-0}" -ge 4 ]; then
+    if [ -z "$miss" ] && [ "${n:-0}" -ge 3 ]; then
         pass "A coverage: $n pullable models examined, every one has a sha256 pin"
     else
-        bad "A coverage: examined ${n:-0} (need >=4); $(tr '\n' ';' <<<"$miss")"
+        bad "A coverage: examined ${n:-0} (need >=3); $(tr '\n' ';' <<<"$miss")"
     fi
     # Mutant: delete the gemma4:e2b row; the arm must go RED for that model.
     grep -v '^    "gemma4:e2b ' "$INSTALL" > "$W/mutant.sh"
