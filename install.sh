@@ -25521,19 +25521,19 @@ for d in "${DIRS[@]}"; do
 done
 
 # ── smart-prefs P1: an import that has finished reaches the digest NOW ─────
-# The interest-profile compile (editor-frontpage tick) is what puts
-# preferences into ~/.ostler/preferences/interest_profile.json, which is what
-# the digest and the assistant's pwg_preferences tool read. It ran only on the
-# hourly tick, so a customer who imported and asked straight away got an empty
-# answer. Kick it here. The derive agent is kicked too, so the "What you like"
-# graph (read straight from the graph by the wiki and the derived route, not
-# through the compile) is refreshed after an import as well. Both are bounded and skip-if-absent:
-# a missing agent never fails an import. The marker makes that derive kick count
-# once even on a box the import itself left busy (v1.0.120: deferred on load);
-# the tick consumes it, and an operator Pause and the ingest slot still apply.
+# The interest-profile compile (editor-frontpage tick) writes ~/.ostler/
+# preferences/interest_profile.json, which the digest and the pwg_preferences
+# tool read. It ran only hourly, so kick it here, plus the derive agent ("What
+# you like"). Bounded and skip-if-absent; the marker makes the derive kick count
+# once on a busy box (v1.0.120). Then the digest (context-refresh), and only
+# AFTER the compile finishes: nothing else orders them, and a digest run before
+# the profile exists shows no preferences until 13:00. Wait for the profile to
+# change (bounded; a failed compile still gets its digest at the bound).
 mkdir -p "${OSTLER_DIR}/state" 2>/dev/null && : > "${OSTLER_DIR}/state/derive-preferences.after-import" 2>/dev/null || true
 _ks_bounded "gui/$(id -u)/com.ostler.derive-preferences"
-_ks_bounded "gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"
+_efp_lbl="gui/$(id -u)/com.creativemachines.ostler.editor-frontpage"; _efp_prof="${OSTLER_INTEREST_PROFILE:-${OSTLER_DIR}/preferences/interest_profile.json}"; _efp_sum="$(cksum < "$_efp_prof" 2>/dev/null || true)"
+if launchctl print "$_efp_lbl" >/dev/null 2>&1; then
+    ( set -m; ( _ks_bounded "$_efp_lbl"; _w=0; while [ "$_w" -lt "${OSTLER_DIGEST_AFTER_COMPILE_WAIT:-900}" ] && [ "$(cksum < "$_efp_prof" 2>/dev/null || true)" = "$_efp_sum" ]; do sleep 2; _w=$((_w+2)); done; sleep 2; _ks_bounded "gui/$(id -u)/com.creativemachines.ostler.context-refresh" ) </dev/null >/dev/null 2>&1 & ) </dev/null >/dev/null 2>&1; fi  # set -m: own process group, so a caller's launchd job exiting cannot reap the wait
 exit $rc
 IMPORTEOF
 fi
