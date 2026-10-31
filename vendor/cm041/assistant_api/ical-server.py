@@ -7799,33 +7799,27 @@ def commitments_list(owner=None, due_before=None, status="open",
         )
 
     try:
-        # 🔴 TODOS ARE DELIBERATELY NOT PRIVACY-GATED, AND HERE IS THE REASON.
+        # TODOS CARRY privacyLevel NOW, AND THIS READER DROPS L3 ROWS.
         #
-        # The two signal readers and the timeline reader above gained an L3
-        # filter in this change. This one did not, and that asymmetry is a
-        # decision rather than an oversight, so it is written here next to the
-        # query rather than in a commit message nobody reads at 3am.
+        # History: when this was first written, a box measurement found 93
+        # OutstandingTodo nodes and ZERO with a privacyLevel, so a
+        # fail-closed filter would have hidden all of them. That is no longer
+        # true: CM048's ingest tags every todo it writes
+        # (vendor/cm048_pipeline/src/ingest.py, the privacyLevel line of the
+        # todo block, ~:929) and skips L3 conversations at the writer
+        # (ingest.py ~:602, processor.py ~:395 and ~:2730).
         #
-        # MEASURED on the box: 93 OutstandingTodo nodes, and ZERO carry a
-        # privacyLevel under EITHER namespace -- 0 with pwg:privacyLevel and 0
-        # with urn:ostler:privacyLevel. filter_l3_facts fails closed on an
-        # untagged record, so joining it here would hide all 93 and delete the
-        # commitments wing outright. A privacy filter whose only effect is to
-        # return nothing is not a privacy control, it is an outage.
+        # The writer guards are the primary control. The loop below is the
+        # second line of defence (belt and braces): an L3-tagged row is
+        # dropped here even if a writer guard regresses, because the brief
+        # built from the same store is EMAILED. A row with NO privacyLevel
+        # (legacy, written before todos were tagged) is NOT dropped and is
+        # served at the default level, exactly as before.
         #
         # urn:ostler:visibility is NOT a usable substitute, and this was
-        # checked rather than assumed. All 93 todos carry it, but so does
-        # every other CM048 node, always with the literal "private": 471 of
-        # 471 signals, 93 of 93 todos, and 1462 of 1462 facts INCLUDING the
-        # 1369 tagged L0. A predicate with one value across the whole corpus
-        # carries no information; filtering on it hides everything or nothing.
-        # Nothing in this repo reads it either (0 hits outside .venv, against
-        # 11 for ostler:privacyLevel as the control).
-        #
-        # So the gate this wing needs is on the WRITER: CM048 should tag todos
-        # the way it already tags facts and signals. Until it does, these rows
-        # are the operator's own outstanding commitments, scoped by
-        # urn:ostler:owner, and are served ungated.
+        # checked rather than assumed: it is the literal "private" on every
+        # CM048 node (471 of 471 signals, 93 of 93 todos, 1462 of 1462
+        # facts INCLUDING the 1369 tagged L0). Nothing in this repo reads it.
         #
         # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
         # ARE TWO AND ONLY ONE IS ENFORCED.
@@ -7884,6 +7878,11 @@ def commitments_list(owner=None, due_before=None, status="open",
     commitments = []
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
+            continue
+        # Second line of defence behind the CM048 writer's L3 guards. Untagged
+        # legacy rows resolve to the default level and are kept; a tagged but
+        # unparseable level resolves to L3 (fail closed) and is dropped.
+        if _commitment_privacy_level(r.get("plevel")) == "L3":
             continue
         deadline = r.get("deadline", "")
         if due_norm:
