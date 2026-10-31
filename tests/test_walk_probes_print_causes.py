@@ -90,6 +90,16 @@ def sparql_answer(q):
         return [{"side": "self", "t": "email", "v": "one@example.com"},
                 {"side": "self", "t": "email", "v": "two@example.com"}]
     cf = CARDS_FIXTURE[0]
+    # v1.0.121: the probe re-checks a journalled override IN THE GRAPH. These
+    # answer its identifier, holder and live-Person reads: both cards' email
+    # identifiers (same value) now sit on the survivor x, the only live node.
+    if "?jid ?jt ?jv" in q:
+        return [] if cf == "default" else [{"jid": P + "idx_e", "jt": "email", "jv": "one@example.com"},
+                                           {"jid": P + "idx2_e", "jt": "email", "jv": "one@example.com"}]
+    if "?jh ?jhid" in q:
+        return [] if cf == "default" else [{"jh": P + "x", "jhid": P + "idx_e"}, {"jh": P + "x", "jhid": P + "idx2_e"}]
+    if "?jlive WHERE" in q:
+        return [] if cf == "default" else [{"jlive": P + "x"}]
     if "?jfrom ?jto" in q:
         return [] if cf == "default" else [{"jfrom": P + "x2", "jto": P + "x"}]
     if "?jname_s ?jname" in q:
@@ -108,7 +118,7 @@ def sparql_answer(q):
         return [{"n": 6}]
     if "AS ?uidn" in q:
         return [{"uidn": UIDS[0]}]
-    if "FILTER(?a != ?b)" in q:
+    if "HAVING (COUNT(DISTINCT ?h) > 1)" in q:
         return [{"n": OPP[0]}]
     if "?src p:mergedInto ?s ; p:displayName ?m" in q:
         return [{"n": 0}]
@@ -171,14 +181,18 @@ OPP = [3]
 SHAPE_HASH = "0f1e2d3c4b5a6978"
 
 
-def jrow(keys, reason="", override="exact_identifier:phone", rid="20261029T010203Z-0a0b0c0d"):
+def jrow(keys, reason="", override="exact_identifier:email", rid="20261029T010203Z-0a0b0c0d"):
     return {"kind": "merge", "id": rid, "ts": "2026-10-29T01:02:03Z", "keep": P + "x", "discard": P + "x2",
-            "strategy": "phone_match", "confidence": 1.0, "details": "identifier values withheld from the journal",
+            "strategy": "email_match", "confidence": 1.0, "details": "identifier values withheld from the journal",
             "override": override, "shared_kinds": sorted({k["kind"] for k in keys}), "matched_keys": keys,
             "matched_keys_reason": reason, "snapshot": "merge_snapshots/x.json", "qdrant_status": "ok", "qdrant_points": 1}
 
 
-_KEYED = [{"kind": "phone", "hash": SHAPE_HASH}]
+_KEYED = [{"kind": "email", "hash": SHAPE_HASH}]
+# The merge snapshot record_merge writes: which identifier node each card held.
+SNAPSHOT = {"keep": P + "x", "discard": P + "x2", "nodes": {
+    P + "x": {"subj": [[ONT + "hasIdentifier", ["uri", P + "idx_e", ""]]], "obj": []},
+    P + "x2": {"subj": [[ONT + "hasIdentifier", ["uri", P + "idx2_e", ""]]], "obj": []}}}
 JOURNAL_CASES = {
     # case: (journal rows, or "ABSENT" / "DIR", expected exit, label)
     "pass": ([jrow(_KEYED)], 0, "journalled override with a key hash and identical names PASSES"),
@@ -189,7 +203,7 @@ JOURNAL_CASES = {
     "namemismatch": ([jrow(_KEYED)], 1, "different display names FAIL"),
     "undone": ([jrow(_KEYED), {"kind": "undo", "merge_id": "20261029T010203Z-0a0b0c0d"}], 1,
                "an undone merge is not proof and FAILS"),
-    "secret": ([jrow([{"kind": "phone", "hash": None}], reason="journal_secret_unavailable")], 78,
+    "secret": ([jrow([{"kind": "email", "hash": None}], reason="journal_secret_unavailable")], 78,
                "hash=null with journal_secret_unavailable is CANNOT-RUN, never PASS"),
     "unreadable": ("DIR", 78, "an unreadable journal is CANNOT-RUN, never PASS"),
 }
@@ -329,14 +343,16 @@ def probes_end_to_end():
             if rows == "DIR":
                 os.makedirs(jpath)
             elif rows != "ABSENT":
-                os.makedirs(jdir)
+                os.makedirs(os.path.join(jdir, "merge_snapshots"))
                 with open(jpath, "w") as fh:
                     fh.write("".join(json.dumps(r) + "\n" for r in rows))
+                with open(os.path.join(jdir, "merge_snapshots", "x.json"), "w") as fh:
+                    json.dump(SNAPSHOT, fh)
             rc, out = run_probe("no_person_holds_two_contact_cards", env)
             check(rc == want, "no_person_holds_two_contact_cards journal rule: " + label,
                   "rc=%s want %s %s" % (rc, want, out[-300:]))
             if case == "pass":
-                check("phone_match/phone" in out, "journal rule: the node line names the journal's strategy and key kind")
+                check("email_match/email" in out, "journal rule: the node line names the journal's strategy and key kind")
             if SHAPE_HASH in out:
                 bad("journal rule: a key hash reached the output (%s)" % case)
         shutil.rmtree(jdir, ignore_errors=True)

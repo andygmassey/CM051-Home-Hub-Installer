@@ -45,6 +45,11 @@ def run(env, cards, uids, opp, journal=None):
         os.makedirs(jdir)
         with open(os.path.join(jdir, "merge_journal.jsonl"), "w") as fh:
             fh.write("".join(json.dumps(r) + "\n" for r in journal))
+        # v1.0.121: the probe re-checks a journalled override in the graph, and
+        # reads which card held which identifier from the merge snapshot.
+        os.makedirs(os.path.join(jdir, "merge_snapshots"))
+        with open(os.path.join(jdir, "merge_snapshots", "x.json"), "w") as fh:
+            json.dump(pc.SNAPSHOT, fh)
     return pc.run_probe(NAME, env)
 
 
