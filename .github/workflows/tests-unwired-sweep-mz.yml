@@ -73,6 +73,12 @@ jobs:
         if: always()
         run: bash tests/test_owner_language_from_installer.sh
 
+      # INDIVIDUAL STEP: an empty name or id is re-asked (GUI + terminal) or
+      # refused by name with no TTY; it never reaches _consent_cli_record.
+      - name: An empty owner name or id is re-asked or refused at the prompt, never at consent
+        if: always()
+        run: bash tests/test_owner_name_id_never_empty.sh
+
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
         run: |

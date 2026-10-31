@@ -1081,6 +1081,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
