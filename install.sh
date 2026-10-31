@@ -42859,11 +42859,11 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # Tailscale auto-suffixes (-1, -2) only on a collision within
             # the same tailnet, which a single-Hub customer tailnet will
             # not hit.
-            ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) &
+            ( "$TS_CLI" --socket="$TS_SOCK" up --hostname=ostler-hub >"$TS_UP_LOG" 2>&1 || true ) & TS_UP_PID=$!
             # Surface + open the login URL once tailscale prints it.
             TS_URL=""
             TS_URL_WAIT=0
-            while [[ -z "$TS_URL" && $TS_URL_WAIT -lt 30 ]]; do
+            while [[ -z "$TS_URL" && $TS_URL_WAIT -lt ${OSTLER_TS_URL_WAIT:-30} ]]; do
                 TS_URL="$(grep -Eo 'https://login\.tailscale\.com/[a-zA-Z0-9/._-]+' "$TS_UP_LOG" 2>/dev/null | head -1 || true)"
                 [[ -n "$TS_URL" ]] && break
                 # Already-authenticated installs print no URL; stop once
@@ -42924,7 +42924,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
             TS_WAIT=0
             TS_NEXT_TICK=30
-            while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt 180 ]]; do
+            while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt ${OSTLER_TS_SIGNIN_WAIT:-180} ]]; do
                 OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
                 [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
                 if [[ -f "$TS_SKIP_SENTINEL" ]]; then
@@ -42940,7 +42940,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                     [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
                     TS_NEXT_TICK=$((TS_NEXT_TICK + 30))
                 fi
-            done
+            done; if [[ -z "$OSTLER_TAILSCALE_IP" ]]; then pkill -P "$TS_UP_PID" 2>/dev/null || true; kill "$TS_UP_PID" 2>/dev/null || true; wait "$TS_UP_PID" 2>/dev/null || true; fi  # reap the orphaned `tailscale up` on timeout or skip
         else
             info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"
         fi
