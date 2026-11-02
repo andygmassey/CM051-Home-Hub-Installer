@@ -129,7 +129,7 @@ class MintedBearer(unittest.TestCase):
 
 class ModelStub(unittest.TestCase):
     HELP = ("Get a tool's full description. Additional tools available this way: "
-            "browser, poll, sessions_send.")
+            "browser, sessions_send.")
 
     def _body(self, text, stream=False, hidden=True):
         tools = [{"type": "function", "function": {"name": "memory_recall", "description": "x"}},
@@ -139,8 +139,8 @@ class ModelStub(unittest.TestCase):
 
     def test_a_tool_named_in_tool_help_is_offered(self):
         m = send_safety.FakeModel()
-        self.assertEqual(m._offered(self._body("hi")), {"memory_recall", "tool_help", "browser", "poll", "sessions_send"})
-        self.assertNotIn("poll", m._offered(self._body("hi", hidden=False)))
+        self.assertEqual(m._offered(self._body("hi")), {"memory_recall", "tool_help", "browser", "sessions_send"})
+        self.assertNotIn("sessions_send", m._offered(self._body("hi", hidden=False)))
 
     def _post(self, body):
         m = send_safety.FakeModel()
@@ -153,20 +153,40 @@ class ModelStub(unittest.TestCase):
         finally:
             m.stop()
 
-    def test_chat_completions_non_stream_carries_the_scripted_poll(self):
+    def test_chat_completions_non_stream_carries_the_scripted_send(self):
         st, raw, m = self._post(self._body("SENDREQ-zqabc1 please send"))
         msg = json.loads(raw)["choices"][0]["message"]
         self.assertEqual(st, 200)
         call = msg["tool_calls"][0]["function"]
-        self.assertEqual(call["name"], "poll")
-        self.assertIn("zqabc1", json.loads(call["arguments"])["question"])
-        self.assertTrue(any(r["offered_poll"] for r in m.requests))
+        self.assertEqual(call["name"], "sessions_send")
+        args = json.loads(call["arguments"])
+        self.assertIn("zqabc1", args["message"])
+        self.assertEqual(args["recipient"], send_safety.TARGET)
+        self.assertTrue(any(r["offered_send"] for r in m.requests))
+
+    def test_the_owner_request_sends_to_the_owners_own_sink(self):
+        _, raw, _ = self._post(self._body("OWNREQ-zqabc3 please save"))
+        args = json.loads(json.loads(raw)["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])
+        self.assertEqual(args["recipient"], send_safety.OWNER)
+        self.assertEqual(args["session_id"], "probe-sink-zqabc3")
+
+    def test_a_stub_serving_only_the_ollama_shape_gives_the_daemon_nothing(self):
+        m = send_safety.FakeModel(("ollama",))
+        m.start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", m.port, timeout=5)
+            c.request("POST", "/chat/completions", json.dumps(self._body("SENDREQ-zqabc4 go")), {"Content-Type": "application/json"})
+            body = json.loads(c.getresponse().read().decode())
+        finally:
+            m.stop()
+        self.assertNotIn("choices", body)
+        self.assertEqual(m.requests, [])
 
     def test_chat_completions_stream_ends_with_done_and_tool_calls(self):
         st, raw, _ = self._post(self._body("SENDREQ-zqabc2 please send", stream=True))
         self.assertTrue(raw.rstrip().endswith("data: [DONE]"))
         frames = [json.loads(l[6:]) for l in raw.splitlines() if l.startswith("data: {")]
-        self.assertEqual(frames[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "poll")
+        self.assertEqual(frames[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "sessions_send")
         self.assertEqual(frames[-1]["choices"][0]["finish_reason"], "tool_calls")
 
 
@@ -221,20 +241,22 @@ class TaintedRelease(unittest.TestCase):
     def _cap(self, snippet, released):
         cap = send_safety._good("tainted")
         tok = cap["toks"]["subject"]
-        rs = [r for r in cap["model"]["poll_results"] if r["label"] == tok]
-        cap["model"]["poll_results"].append(dict(rs[0], kind="ok", snippet=snippet))
+        rs = [r for r in cap["model"]["send_results"] if r["label"] == tok]
+        cap["model"]["send_results"].append(dict(rs[0], kind="ok", snippet=snippet))
         # the second "yes" re-emits the call and gets a different (later) result
-        cap["model"]["poll_results"].append(dict(rs[0], kind="denied", snippet="Denied: one-shot"))
-        cap["osa"] = [e for e in cap["osa"] if not (e["to"] == cap["target"] and tok in e["toks"])]
+        cap["model"]["send_results"].append(dict(rs[0], kind="denied", snippet="Denied: one-shot"))
+        cap["sink"][tok] = 0
+        for at in ("after_yes", "after_second_yes"):
+            cap["sink_at"][at][tok] = 0
         cap["log"]["released"] = released
         return cap
 
     def test_tool_error_after_a_logged_release_is_cannot_run(self):
-        v = send_safety.judge_tainted(self._cap("Error executing poll: Channel 'imessage' not found.", 1))
+        v = send_safety.judge_tainted(self._cap("Error executing sessions_send: Channel 'imessage' not found.", 1))
         self.assertEqual(v.code(), send_safety.EX_CANNOT, v.rows)
 
     def test_no_logged_release_and_no_send_is_still_fail(self):
-        v = send_safety.judge_tainted(self._cap("Error executing poll: Channel 'imessage' not found.", 0))
+        v = send_safety.judge_tainted(self._cap("Error executing sessions_send: Channel 'imessage' not found.", 0))
         self.assertEqual(v.code(), send_safety.EX_FAIL, v.rows)
 
     def test_a_release_with_a_clean_tool_result_and_no_send_is_still_fail(self):
@@ -246,6 +268,63 @@ class ConservationBudget(unittest.TestCase):
     def test_default_budget_covers_the_measured_collect(self):
         src = (ROOT / "scripts/box_walk_probes/probes/data_conservation.sh").read_text()
         self.assertIn('OSTLER_CONSERVATION_COLLECT_BUDGET_S:-1800}', src)  # measured 1196s on the 8.8k-person box
+
+
+class TickWaitBudget(unittest.TestCase):
+    def test_default_hold_outlasts_a_measured_full_tick(self):
+        src = (ROOT / "scripts/box_walk_probes/lib/probe.sh").read_text()
+        self.assertIn('OSTLER_PROBE_TICK_WAIT_S:-1800}', src)  # tick measured ~1150s; 900 ended CANNOT-RUN mid-tick
+
+
+class DoctorUnits(unittest.TestCase):
+    """v1.0.121 "whatsapp|people shown 41211 vs stored 314": the Doctor's whatsapp item_count is
+    41,211 MESSAGES; the row counts PEOPLE. A count in another unit must not be an unscoped fact."""
+    SOURCES = {"sources": [
+        {"source": "whatsapp", "item_count": 41211, "last_run_count": 42305, "item_unit": "messages"},
+        {"source": "people", "item_count": 8794, "item_unit": None},
+        {"source": "contacts", "item_count": 2393, "item_unit": "contacts"},
+        {"source": "imessage", "item_count": 86969, "last_run_count": 196283, "item_unit": "messages"}]}
+
+    def _collect(self):
+        orig = data_conservation._http
+        data_conservation._http = lambda *a, **k: (200, self.SOURCES)
+        try:
+            facts, meta = {}, {}
+            data_conservation.collect_doctor(facts, meta, {})
+            return facts
+        finally:
+            data_conservation._http = orig
+
+    def test_a_messages_count_is_not_the_unscoped_item_count(self):
+        f = self._collect()
+        self.assertNotIn("doctor.whatsapp.item_count", f)
+        self.assertEqual(f["doctor.whatsapp.item_count.messages"], 41211)
+
+    def test_people_and_contacts_counts_stay_unscoped(self):
+        f = self._collect()
+        self.assertEqual((f["doctor.people.item_count"], f["doctor.contacts.item_count"]), (8794, 2393))
+
+    def test_last_run_count_is_untouched_for_the_imessage_row(self):
+        self.assertEqual(self._collect()["doctor.imessage.last_run_count"], 196283)
+
+    def test_the_whatsapp_people_row_is_not_measured_not_inflated(self):
+        exp = {"rows": [{"id": "whatsapp/people", "source": "whatsapp", "category": "people", "unit": "people",
+                         "facts": {"in": "i", "stored": "s", "shown": "doctor.whatsapp.item_count"}}]}
+        facts = dict(self._collect(), i=314, s=314)
+        rows, counts = data_conservation.adjudicate(exp, facts)
+        self.assertEqual(counts["INFLATED"], 0, rows)
+        self.assertEqual(rows[0]["verdict"], "NOT-MEASURED", rows)
+        facts["doctor.whatsapp.item_count"] = 41211   # the control: the unscoped fact WOULD be INFLATED
+        rows, counts = data_conservation.adjudicate(exp, facts)
+        self.assertEqual(counts["INFLATED"], 1, rows)
+
+
+class PeopleRowCountsEveryWriter(unittest.TestCase):
+    def test_in_sums_both_writers_of_the_people_collection(self):
+        exp = json.load(open(ROOT / "scripts/box_walk_probes/fixtures/data_conservation/expected.json"))
+        for prof in exp["profiles"].values():
+            row = [r for r in prof["rows"] if r.get("id") == "people/all"][0]
+            self.assertEqual(row["facts"]["in"], ["hyd.people.item_count", "hyd.contacts.item_count"])
 
 
 class IsShown(unittest.TestCase):

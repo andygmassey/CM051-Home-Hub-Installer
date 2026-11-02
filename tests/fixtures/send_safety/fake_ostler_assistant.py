@@ -57,21 +57,36 @@ def osa(to, body):
     subprocess.run(["osascript", "-e", script], capture_output=True)
 
 
+WIRE = os.environ.get("OSTLER_STUB_WIRE", "ollama")  # openai = what the installed daemon speaks (POST /chat/completions)
+
+
 def chat(messages, tools):
+    specs = [{"type": "function", "function": {"name": t}} for t in tools]
+    if WIRE == "openai":
+        req = urllib.request.Request(MODEL + "/chat/completions", data=json.dumps({
+            "model": "probe-model", "stream": False, "messages": messages, "tools": specs}).encode(), method="POST")
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as r:
+            m = json.loads(r.read().decode())["choices"][0]["message"]
+        calls = [{"function": {"name": c["function"]["name"], "arguments": json.loads(c["function"]["arguments"])}}
+                 for c in (m.get("tool_calls") or [])]
+        return {"role": "assistant", "content": m.get("content") or "", "tool_calls": calls}
     req = urllib.request.Request(MODEL + "/api/chat", data=json.dumps({
-        "model": "probe-model", "stream": False, "messages": messages,
-        "tools": [{"type": "function", "function": {"name": t}} for t in tools]}).encode(), method="POST")
+        "model": "probe-model", "stream": False, "messages": messages, "tools": specs}).encode(), method="POST")
     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as r:
         return json.loads(r.read().decode())["message"]
 
 
-def run_poll(args):
-    osa(args["recipient"], args["question"] + "\n1. " + "\n2. ".join(args["options"]))
-    return "Poll sent."
+def run_send(args):
+    """sessions_send: append the message to sessions/<id>.jsonl (the sink the probe reads)."""
+    safe = "".join(ch if (ch.isalnum() or ch in "_-") else "_" for ch in args["session_id"])
+    os.makedirs(os.path.join(CFG, "sessions"), exist_ok=True)
+    with open(os.path.join(CFG, "sessions", safe + ".jsonl"), "a") as f:
+        f.write(json.dumps({"role": "user", "content": args["message"]}) + "\n")
+    return "Message sent to session '%s'." % args["session_id"]
 
 
 def describe(args):
-    return "Action: poll\nTo: %s\nquestion: %s" % (args["recipient"], args["question"])
+    return "Action: sessions_send\nTo: %s\nmessage: %s" % (args["recipient"], args["message"])
 
 
 def gate(args, kind, owner_text, owner):
@@ -82,10 +97,10 @@ def gate(args, kind, owner_text, owner):
         kind = "owner_clean"
     if kind in ("not_owner", "cron"):
         reason = "no_turn_provenance" if kind == "cron" else "not_owner_turn"
-        log("WARN", 'turn_provenance: outbound send refused tool="poll" reason="%s"' % reason)
+        log("WARN", 'turn_provenance: outbound send refused tool="sessions_send" reason="%s"' % reason)
         if kind == "not_owner" and MODE == "stranger_prompted":
             osa(owner[1], "I need your OK before I do this. Nothing has been sent.\n\n" + describe(args))
-        return False, "Denied: `poll` would send something to another person, and only the owner's own chat message can ask for that. Do not retry."
+        return False, "Denied: `sessions_send` would send something to another person, and only the owner's own chat message can ask for that. Do not retry."
     if kind == "owner_tainted" and MODE == "tainted_sends":
         return True, None
     asks = kind == "owner_tainted" or args["recipient"] not in EXACT
@@ -97,16 +112,16 @@ def gate(args, kind, owner_text, owner):
         if held is not None and held != TURN[0] and re.fullmatch(r"\s*yes[.!]?\s*", owner_text, re.I):
             if MODE != "release_twice":
                 PENDING.pop(key, None)
-            log("INFO", 'action_confirm: owner confirmed; releasing the call tool="poll"')
+            log("INFO", 'action_confirm: owner confirmed; releasing the call tool="sessions_send"')
             return True, None
         PENDING[key] = TURN[0]
-    log("WARN", 'action_confirm: owner confirmation required tool="poll" what="send"')
+    log("WARN", 'action_confirm: owner confirmation required tool="sessions_send" what="send"')
     body = describe(args)
     if MODE == "no_prompt_body":
-        body = "Action: poll"
+        body = "Action: sessions_send"
     osa(owner[1], "I need your OK before I do this. Nothing has been sent or changed.\n\n%s\n\nReply yes to go ahead. Anything else cancels it." % body)
     extra = (" " + describe(args)) if MODE == "prompt_via_model" else ""
-    return False, "Held: `poll` needs the owner's explicit yes. The SYSTEM has already shown the owner the exact request.%s" % extra
+    return False, "Held: `sessions_send` needs the owner's explicit yes. The SYSTEM has already shown the owner the exact request.%s" % extra
 
 
 def agent(user_text, sender, kind, tools):
@@ -124,10 +139,10 @@ def agent(user_text, sender, kind, tools):
             if name == "memory_recall":
                 tainted = True
                 msgs.append({"role": "tool", "content": "nothing found"})
-            elif name == "poll":
+            elif name == "sessions_send":
                 k = "owner_tainted" if (kind == "owner_clean" and tainted) else kind
                 run, res = gate(args, k, user_text, ("owner", sender))
-                msgs.append({"role": "tool", "content": run_poll(args) if run else res})
+                msgs.append({"role": "tool", "content": run_send(args) if run else res})
     return ""
 
 
@@ -144,7 +159,7 @@ def poll_loop():
             if "*" not in ALLOWED and sender not in ALLOWED:
                 continue
             kind = "owner_clean" if sender in EXACT else "not_owner"
-            reply = agent(text, sender, kind, ["poll", "memory_recall"])
+            reply = agent(text, sender, kind, ["sessions_send", "memory_recall", "shell", "memory_store"])
             if reply:
                 osa(sender, reply)
 
@@ -153,7 +168,12 @@ def cron_loop():
     if not CRON:
         return
     time.sleep(4)
-    agent(CRON.group(1), "", "cron", ["poll"])
+    # intended: the scheduled run's registry is filtered to nothing (only the tool_help stub remains)
+    leaky = MODE in ("cron_sends", "v117")
+    offered = ["sessions_send"] if leaky else ["tool_help"]
+    log("INFO", "zeroclaw_runtime::agent::loop_: Applied capability-based tool access filter allowed=%d retained=%d" % (
+        int(leaky), int(leaky)))
+    agent(CRON.group(1), "", "cron", offered)
 
 
 class H(http.server.BaseHTTPRequestHandler):

@@ -732,9 +732,17 @@ def collect_doctor(facts, meta, hdr):
         k = r.get("source")
         if k is None:
             continue
+        # The Doctor counts each source in ITS OWN unit (whatsapp: 41,211 messages, imessage: messages,
+        # people: records). An unscoped fact would be compared against a people or chats row (v1.0.121:
+        # "whatsapp|people shown 41211 vs stored 314"), so a count in a unit other than contacts/people
+        # is filed under its unit and the unscoped item_count stays ABSENT = NOT-MEASURED, never INFLATED.
+        unit = r.get("item_unit")
         for f in ("item_count", "last_run_count"):
             if isinstance(r.get(f), int):
-                facts["doctor.%s.%s" % (k, f)] = r[f]
+                if f == "item_count" and unit and unit not in ("people", "contacts"):
+                    facts["doctor.%s.%s.%s" % (k, f, unit)] = r[f]
+                else:
+                    facts["doctor.%s.%s" % (k, f)] = r[f]
 
 
 def collect():

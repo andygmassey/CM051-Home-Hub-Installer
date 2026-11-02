@@ -358,7 +358,9 @@ _probe_tick_state() {
 box_wait_ingest_quiet() {
     local label budget step state
     label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
-    budget="${OSTLER_PROBE_TICK_WAIT_S:-900}"
+    # 1800, not 900: a full fda-rerun tick on the 8.8k-person seed measured ~1150s on Mini16 (13:07 to 13:26Z,
+    # v1.0.121), so a 900s hold ended CANNOT-RUN with the tick still running (people_count_agreement).
+    budget="${OSTLER_PROBE_TICK_WAIT_S:-1800}"
     step="${OSTLER_PROBE_TICK_POLL_S:-15}"
     PROBE_TICK_WAITED=0
     while :; do
