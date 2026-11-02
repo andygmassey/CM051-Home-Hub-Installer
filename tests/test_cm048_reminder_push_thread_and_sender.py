@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,12 @@ STORE = {
 }
 
 
+# Relative to now: a fixed date goes stale past the 30d cutoff (see #3283).
+_D = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=1)
+_START = _D.strftime("%Y-%m-%dT%H:%M:%SZ")
+_END = (_D + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @pytest.fixture(autouse=True)
 def _store(monkeypatch, tmp_path):
     # the fail-open path writes <ostler>/logs/cm048-reminders.err: keep it
@@ -40,7 +47,7 @@ def _bundle(participants, sid="s-1", level="L2"):
     return ConversationBundle(
         conversation_id=f"c-{sid}", source_kind="channel", source_subtype="imessage",
         source_session_id=sid, channel="im", participants=tuple(participants),
-        started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+        started_at=_START, ended_at=_END,
         summary=ConversationSummary(overall="Synthetic.", topics=()),
         transcript="synthetic", privacy_level=level,
     )

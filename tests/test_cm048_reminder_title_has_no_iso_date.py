@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,12 @@ ISO_DATE = re.compile(r"20\d\d-\d\d-\d\d")
 DEADLINE = "2026-10-14"
 
 
+# Relative to now: a fixed date goes stale past the 30d cutoff (see #3283).
+_D = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=1)
+_START = _D.strftime("%Y-%m-%dT%H:%M:%SZ")
+_END = (_D + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _bundle(participants, level="L2"):
     return ConversationBundle(
         conversation_id="synthetic-1",
@@ -33,8 +40,8 @@ def _bundle(participants, level="L2"):
         source_session_id="s-1",
         channel="im",
         participants=tuple(participants),
-        started_at="2026-10-01T09:00:00Z",
-        ended_at="2026-10-01T09:30:00Z",
+        started_at=_START,
+        ended_at=_END,
         summary=ConversationSummary(overall="Synthetic.", topics=()),
         transcript="synthetic transcript",
         privacy_level=level,

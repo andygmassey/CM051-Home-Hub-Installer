@@ -16,6 +16,7 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,12 @@ from src.conversation_writer import ConversationBundle, ConversationSummary, Tod
 from src.reminders_push import decide_push
 
 GENERIC = "Follow up on a conversation"
+
+
+# Relative to now: a fixed date goes stale past the 30d cutoff (see #3283).
+_D = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=1)
+_START = _D.strftime("%Y-%m-%dT%H:%M:%SZ")
+_END = (_D + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _rejected(d):
@@ -52,8 +59,8 @@ def _bundle(participants, level="L2"):
         source_session_id="s-1",
         channel="im",
         participants=tuple(participants),
-        started_at="2026-10-01T09:00:00Z",
-        ended_at="2026-10-01T09:30:00Z",
+        started_at=_START,
+        ended_at=_END,
         summary=ConversationSummary(overall="Synthetic.", topics=()),
         transcript="synthetic transcript",
         privacy_level=level,
