@@ -102,8 +102,9 @@ case "$(run_mirror "${SANDBOX}/failbin:$PATH")" in *"[mirror] FAIL"*) ok "5 a fa
 
 heredoc() { awk -v m="$1" '$0 ~ "<<.?" m ".?$" {on=1; next} $0 == m {on=0} on' "$INSTALL_SH"; }
 if heredoc FDAEOF | grep -q 'source .*ostler-conversations-mirror.sh' && heredoc FDAEOF | grep -q '_ostler_conversations_mirror' \
-   && grep -q 'cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh"' "$INSTALL_SH"; then ok "6 ostler-fda sources the mirror lib and install.sh installs it"
-else bad "6 the ostler-fda wrapper does not source the lib, or install.sh does not install it"; fi
+   && grep -q 'cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh"' "$INSTALL_SH" \
+   && ! heredoc FDAEOF | grep -q 'SCRIPT_DIR'; then ok "6 ostler-fda sources the mirror lib and install.sh installs it (outside the wrapper, where SCRIPT_DIR exists)"
+else bad "6 the wrapper does not source the lib, install.sh does not install it, or the install cp is inside the wrapper (no SCRIPT_DIR at tick time)"; fi
 if heredoc UNINSTALLEOF | grep -q 'rm -rf .*state/conversations_mirror'; then ok "7 ostler-uninstall removes state/conversations_mirror"
 else bad "7 ostler-uninstall does not remove state/conversations_mirror"; fi
 

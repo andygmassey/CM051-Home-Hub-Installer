@@ -26162,12 +26162,6 @@ _ostler_tm_status_record() {
 }
 _ostler_tm_status_record || true
 
-# ── CONVERSATION MIRROR helper: sourced by bin/ostler-fda on every tick, so the
-# derive tick (bare python) never opens ~/Documents. See the lib's own header.
-mkdir -p "${OSTLER_DIR}/lib"
-cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh" "${OSTLER_DIR}/lib/" \
-    && chmod 700 "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" \
-    || warn "conversations mirror helper not installed: the derive tick will have no mirror"
 
 # ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
 #
@@ -26670,6 +26664,12 @@ if [[ "$_notes_rc" -ne 0 ]]; then
 fi
 exit "$_reminders_rc"
 FDAEOF
+# ── CONVERSATION MIRROR helper: sourced by bin/ostler-fda on every tick, so the
+# derive tick (bare python) never opens ~/Documents. See the lib's own header.
+mkdir -p "${OSTLER_DIR}/lib"
+cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh" "${OSTLER_DIR}/lib/" \
+    && chmod 700 "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" \
+    || warn "conversations mirror helper not installed: the derive tick will have no mirror"
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
 # ── THE DEFERRED fda-rerun LOAD (see the note at its plist write) ─────────
