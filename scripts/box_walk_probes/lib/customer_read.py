@@ -81,6 +81,9 @@ SOURCE_LABELS = {
     "apple_music": ["apple music"],
     "places": ["places you go", "places"],
     "ai_conversations": ["ai chats"],
+    # CM044 labels this source "Downloads folder" (walk 121: listed, but the probe had no map
+    # for it, so a working source read as absent from Data freshness).
+    "downloads_exports": ["downloads folder", "downloads"],
     "privacy_backfill": ["privacy labelling"],
     "dedupe": ["duplicate check", "dedupe"],
 }
@@ -1801,12 +1804,13 @@ def _good():
                               "PEOPLE\nYou've gone quiet with John Doe\nFor you\n1,000\nPEOPLE\n50\nORGANISATIONS\n",
                       "sources": [["Mail", "Up to date · 1 hour ago"], ["WhatsApp", "Up to date · 1 hour ago"],
                                   ["Contacts", "Up to date · 1 hour ago"]],
-                      "freshness": ["Mail", "WhatsApp", "Contacts"],
+                      "freshness": ["Mail", "WhatsApp", "Contacts", "Downloads folder"],
                       "boxes": [{"what": "table", "label": "Data freshness", "w": 900, "aw": 912}]},
             "people": {"text": "People\n1,000 people, from your address book and conversations.\n", "boxes": []},
             "organisations": {"text": "Organisations\n50\nORGANISATIONS\n", "boxes": []},
         }},
-        "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"]],
+        "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"],
+                            ["downloads_exports", "ok"]],
                 "config_as_app": 200},
         "box": {"ollama_calls": 1000, "journal_calls": 990, "window_min": 60},
         "people_api_total": 1000,
@@ -2213,7 +2217,8 @@ def self_test():
         print("  ok    Data freshness is read from the list shape and the table shape; absent is NOT MEASURED")
     listed = copy.deepcopy(_good())
     listed["wiki"]["pages"]["front"]["freshness"] = freshness_labels(
-        {"kind": "list", "text": "\u2713\nMail\nUp to date\n\u2713\nWhatsApp\nUp to date\n\u2713\nContacts\nUp to date\n"})
+        {"kind": "list", "text": "\u2713\nMail\nUp to date\n\u2713\nWhatsApp\nUp to date\n\u2713\nContacts\nUp to date\n"
+                 "\u2713\nDownloads folder\nUp to date\n"})
     got19 = [ok for n, ok, _ in judge(listed) if n == DECLARED[19]]
     if got19 != [True]:
         missed.append("a list-shaped freshness section naming every working source still fails ({!r})".format(got19))
