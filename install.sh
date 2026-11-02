@@ -614,6 +614,8 @@ _install_derive_preferences_agent() {
         <string>${cm019_dir}</string>
         <key>OSTLER_DERIVE_USER</key>
         <string>${derive_user}</string>
+        <key>OSTLER_CONVERSATIONS_DIR</key>
+        <string>${OSTLER_DIR}/state/conversations_mirror</string>
         <key>OXIGRAPH_URL</key>
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>QDRANT_URL</key>
@@ -26157,6 +26159,27 @@ _ostler_tm_status_record() {
     return 0
 }
 _ostler_tm_status_record || true
+
+# ── CONVERSATION MIRROR: measured HERE so the derive tick never opens ~/Documents ──
+#
+# derive-preferences runs as bare launchd python. Its stated_transcripts reader
+# (derive/config.py: OSTLER_CONVERSATIONS_DIR, else ~/Documents/Ostler/Conversations)
+# made TCC charge a Documents request to python3.11 as the RESPONSIBLE process
+# (v1.0.121 walk: no_python_is_tcc_responsible FAIL; it passed on v1.0.120 only
+# because the tier gate was deferring the tick, see 226539ab). This wrapper is a
+# child of the signed FDA holder, so the read is charged to ai.ostler.assistant;
+# the derive plist points OSTLER_CONVERSATIONS_DIR at the copy. --delete so a
+# forgotten conversation leaves the mirror on the next tick.
+_ostler_conversations_mirror() {
+    local src="${HOME}/Documents/Ostler/Conversations"
+    local dst="${OSTLER_DIR}/state/conversations_mirror"
+    [[ -d "$src" ]] || return 0
+    command -v rsync >/dev/null 2>&1 || return 0
+    mkdir -p "$dst" 2>/dev/null || return 0
+    rsync -a --delete "${src}/" "${dst}/" >/dev/null 2>&1 || true
+    return 0
+}
+_ostler_conversations_mirror || true
 
 # ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
 #
