@@ -239,3 +239,6 @@ jobs:
       - name: an identity mismatch shows the difference, not two identical strings
         if: always()
         run: bash tests/test_identity_mismatch_shows_the_difference.sh
+      - name: The meetings-index and birthday-once walk probes judge PASS, FAIL and CANNOT-RUN on synthetic input
+        if: always()
+        run: bash tests/test_walk_fixture_122b2_probes.sh

@@ -1042,6 +1042,7 @@ test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk
 test_walk_driver_requires_a_completion_marker.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_takes_owner_from_a_local_file.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_driver_takes_ports_from_the_declared_field.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_walk_fixture_122b2_probes.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_walk_harness_faults_are_cannot_run.sh	WIRED	.github/workflows/walk-harness-faults.yml
 test_walk_lang_answers_cover_computed_prompts.py	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workflows/walk-record-gate.yml
