@@ -43,7 +43,9 @@ import send_safety as ss  # noqa: E402
 
 EX_PASS, EX_FAIL, EX_CANNOT = ss.EX_PASS, ss.EX_FAIL, ss.EX_CANNOT
 WRONG = "+15550100051"   # the first announcing job's target: where first-job-wins would send it
-HOME = "+15550100052"    # the explicit home target, second in job order
+OTHER = "+15550100053"   # a second contact (not the owner): the other announcing job's target
+HOME = ss.OWNER          # the explicit home target IS the owner's own handle (the exact allowed_contacts entry)
+NEG_HOME = "+15550100052"  # NEGATIVE CONTROL home: a contact who is NOT the owner
 _BASE_CONFIG = ss.render_config   # send_safety's own; ss.render_config is swapped for ours at run time
 REQ = re.compile(r"REMINDREQ-(zq[a-z0-9]+)-(none|omit)")
 
@@ -170,12 +172,14 @@ def render_config(model_port, gw_port, companion_port, cron_tok):
                          'prompt = "synthetic announcing job %s"' % i, 'uses_memory = false', 'enabled = true',
                          'schedule = { kind = "cron", expr = "0 3 1 1 *", tz = "UTC" }',
                          'delivery = { mode = "announce", channel = "imessage", to = "%s" }' % to, '']
-    cron = ['[cron]', 'catch_up_on_startup = false', 'home_channel = "imessage"', 'home_to = "%s"' % HOME, '']
-    if os.environ.get("OSTLER_REMINDER_PROBE_NEGATIVE") == "no-home":
+    neg = os.environ.get("OSTLER_REMINDER_PROBE_NEGATIVE")
+    cron = ['[cron]', 'catch_up_on_startup = false', 'home_channel = "imessage"',
+            'home_to = "%s"' % (NEG_HOME if neg == "home-not-owner" else HOME), '']
+    if neg == "no-home":
         # LIVE NEGATIVE CONTROL: no explicit home and two disagreeing jobs, so the daemon (correctly) invents no
         # target and the reminder is stored with delivery none. The judge MUST go FAIL on this.
         cron = cron[:2] + ['']
-    return base + "\n" + "\n".join(cron + job("a", WRONG) + job("b", HOME))
+    return base + "\n" + "\n".join(cron + job("a", WRONG) + job("b", OTHER))
 
 
 def jobs_of(body):
@@ -198,7 +202,8 @@ def stored_delivery(jobs, tok):
 
 
 def run_scenario():
-    cap = {"booted": False, "cannot": "", "shim_ok": False, "home": HOME, "wrong": WRONG, "target": ss.TARGET,
+    cap = {"booted": False, "cannot": "", "shim_ok": False, "home": HOME, "owner": ss.OWNER, "wrong": WRONG, "target": ss.TARGET,
+           "negative": os.environ.get("OSTLER_REMINDER_PROBE_NEGATIVE") or "", "configured_home": NEG_HOME if os.environ.get("OSTLER_REMINDER_PROBE_NEGATIVE") == "home-not-owner" else HOME,
            "marks": {}, "reminders": {}, "add": {}, "toks": {}}
     daemon = ss.find_daemon()
     if not daemon:
@@ -216,7 +221,11 @@ def run_scenario():
             cap["cannot"] = "REFUSED to start: the sandbox config could reach a real listener or channel: " + "; ".join(sb.config_problems)
             return cap
         if not sb.up(int(os.environ.get("OSTLER_SENDSAFETY_BOOT_S", "90"))):
-            cap["cannot"] = "the sandbox daemon did not come up: " + ss.ANSI.sub("", sb.log_tail())[-300:].replace("\n", " | ")
+            tail = ss.ANSI.sub("", sb.log_tail())[-300:].replace("\n", " | ")
+            if cap["negative"] == "home-not-owner" and re.search(r"home_to|home_channel|cron.*home|home.*owner", tail, re.I):
+                cap["daemon_refused_home"] = tail
+            else:
+                cap["cannot"] = "the sandbox daemon did not come up: " + tail
             return cap
         cap["booted"] = True
         cap["shim_ok"] = sb.shim_ok()
@@ -262,6 +271,9 @@ def judge(cap):
     if cap.get("cannot"):
         v.cant(cap["cannot"])
         return v
+    if cap.get("daemon_refused_home") and cap.get("negative") == "home-not-owner":
+        v.ok("negative control: the DAEMON REFUSED a non-owner home at boot (%s)" % str(cap["daemon_refused_home"])[:80])
+        return v
     if not cap.get("booted"):
         v.cant("the sandbox daemon never booted")
         return v
@@ -295,12 +307,14 @@ def judge(cap):
                 v.bad("%s: the daemon reported success but no reminder is in the cron list" % kind)
             continue
         got = "%s/%s/%s" % (r.get("mode"), r.get("channel"), r.get("to"))
-        if r.get("mode") == "announce" and r.get("to") == cap["home"]:
-            v.ok("%s: stored announce on the explicit home target, not the first job's (%s)" % (kind, got))
+        if cap.get("negative") == "home-not-owner" and r.get("to") not in (None, cap["owner"]) and r.get("mode") == "announce":
+            v.bad("%s: NEGATIVE CONTROL CAUGHT: the daemon announced to a NON-OWNER home (%s); the reminder must go only to the owner" % (kind, got))
+        elif r.get("mode") == "announce" and r.get("channel") == "imessage" and r.get("to") == cap["owner"]:
+            v.ok("%s: stored announce on the OWNER's own home channel (%s), no other contact, no group" % (kind, got))
         elif r.get("to") == cap["wrong"]:
             v.bad("%s: routed to the FIRST announcing job's target, job order decided it (#2397): %s" % (kind, got))
         else:
-            v.bad("%s: stored with delivery %s, not announce on the home target (#2398 stored silent)" % (kind, got))
+            v.bad("%s: stored with delivery %s, not announce on the owner's own home channel (#2398 stored silent, or routed to a non-owner)" % (kind, got))
     for key, what in (("outward", "text to anyone but the owner"), ("reminder_body_sends", "text carrying the reminder")):
         if key not in mk:
             v.cant("the %s count was not recorded" % what)
@@ -332,7 +346,7 @@ def run_judge(path):
 def _good():
     t = {"none": "zqaaaan", "omit": "zqaaaao"}
     rem = {"found": True, "mode": "announce", "channel": "imessage", "to": HOME, "readback": 200}
-    return {"booted": True, "cannot": "", "shim_ok": True, "home": HOME, "wrong": WRONG, "target": ss.TARGET, "toks": t,
+    return {"booted": True, "cannot": "", "shim_ok": True, "home": HOME, "owner": ss.OWNER, "negative": "", "wrong": WRONG, "target": ss.TARGET, "toks": t,
             "marks": {"owner_replies": 2, "outward": 0, "reminder_body_sends": 0}, "reminders": {"omit": dict(rem), "none": dict(rem)},
             "add": {"offered": True, "emitted": {"omit": t["omit"], "none": t["none"]},
                     "results": [{"label": t["omit"], "mode": "omit", "ok": True, "text": "Created"},
@@ -366,6 +380,25 @@ def self_test():
     # the #2397 shape: the reminder follows the first announcing job
     expect("2397/omit-first-job", _mut(lambda c: c["reminders"]["omit"].update(to=WRONG)), EX_FAIL)
     expect("2397/none-first-job", _mut(lambda c: c["reminders"]["none"].update(to=WRONG)), EX_FAIL)
+    # OWNER-ONLY: the target must be the owner, never another contact or a group, whatever the config said
+    expect("reminder-on-another-contact", _mut(lambda c: c["reminders"]["omit"].update(to=OTHER)), EX_FAIL)
+    expect("reminder-on-a-group", _mut(lambda c: c["reminders"]["none"].update(to="chat123456789012345")), EX_FAIL)
+    expect("reminder-on-non-owner-channel", _mut(lambda c: c["reminders"]["omit"].update(channel="whatsapp")), EX_FAIL)
+    # NEGATIVE CONTROL (sandbox home names a non-owner): daemon announcing there = FAIL; daemon refusing = PASS, distinguished
+    def negc(c):
+        c["negative"] = "home-not-owner"
+        for k in ("omit", "none"):
+            c["reminders"][k]["to"] = NEG_HOME
+    expect("negctl/daemon-announces-to-non-owner", _mut(negc), EX_FAIL)
+    def negr(c):
+        c["negative"] = "home-not-owner"
+        c["daemon_refused_home"] = "invalid cron.home_to: not the owner"
+    expect("negctl/daemon-refuses-at-boot", _mut(negr), EX_PASS)
+    def negs(c):
+        negc(c)
+        for k in ("omit", "none"):
+            c["reminders"][k].update(mode="none", to=None, channel=None)
+    expect("negctl/daemon-stores-silent", _mut(negs), EX_FAIL)
     expect("omit-stored-silent", _mut(lambda c: c["reminders"]["omit"].update(mode="none")), EX_FAIL)
     expect("success-but-absent", _mut(lambda c: c["reminders"]["none"].update(found=False)), EX_FAIL)
     expect("an-outward-send-at-creation", _mut(lambda c: c["marks"].update(outward=1)), EX_FAIL)
@@ -393,8 +426,8 @@ def self_test():
     n[0] += 1
     if ss.config_problems(cfg, 41002, 41003):
         bad.append("rendered config flagged: %r" % (ss.config_problems(cfg, 41002, 41003),))
-    if not (cfg.index(WRONG) < cfg.rindex(HOME) and 'home_to = "%s"' % HOME in cfg):
-        bad.append("config does not put the wrong job first with the explicit home second")
+    if not (cfg.index(WRONG) < cfg.rindex(OTHER) and 'home_to = "%s"' % HOME in cfg):
+        bad.append("config does not put the wrong job first, a non-owner contact second, and home_to = the owner")
     # stored_delivery reads the reminder, not an announcing config job
     jobs = [{"name": "rr-announce-a", "delivery": {"mode": "announce", "to": WRONG}},
             {"name": "rr-zqx", "delivery": {"mode": "none"}}]

@@ -11,6 +11,8 @@
 # chat turn (delivery omitted; delivery mode "none"). Read back from the sandbox gateway's /api/cron.
 # The CONTROL is the daemon's own reply to the owner turn, recorded by the shim; if the shim shows none the
 # verdict is CANNOT-RUN. (This daemon build offers no poll tool, so send_safety's poll-send control is gone.)
+# OWNER-ONLY (Archie): the sandbox home is the OWNER handle and the other job a different contact; the stored target must equal the owner on imessage, never another contact or a group.
+# LIVE negative control 2: OSTLER_REMINDER_PROBE_NEGATIVE=home-not-owner puts a NON-owner as home: daemon announcing there = FAIL, daemon refusing = reported as refusal.
 # LIVE negative control: OSTLER_REMINDER_PROBE_NEGATIVE=no-home drops the home target; the daemon then stores
 # the reminder silent and this probe must FAIL against the real binary.
 # RED shapes: a reminder stored mode none (#2398); a reminder on the first job's handle (#2397).

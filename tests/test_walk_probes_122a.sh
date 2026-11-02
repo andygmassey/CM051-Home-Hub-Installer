@@ -41,8 +41,10 @@ mutant() {
     [ "$rc" -ne 0 ] && ok "mutant $label turns the self-test RED (rc=$rc)" || bad "mutant $label survived: the self-test stayed green"
 }
 mutant reminder_routing 's/\(v\.ok if mk\[key\] == 0 else v\.bad\)/(v.ok if True else v.bad)/' reminder-outward-send
-mutant reminder_routing 's/ and r\.get\("to"\) == cap\["home"\]:/ and r.get("to"):/' reminder-first-job
-mutant reminder_routing 's/if r\.get\("mode"\) == "announce" and r\.get\("to"\) == cap\["home"\]:/if r.get("found"):/' reminder-silent
+mutant reminder_routing 's/ and r\.get\("channel"\) == "imessage" and r\.get\("to"\) == cap\["owner"\]:/ and r.get("mode") == "announce":/' reminder-owner-only
+mutant reminder_routing 's/ and r\.get\("to"\) == cap\["owner"\]:/ and r.get("to"):/' reminder-first-job
+mutant reminder_routing 's/elif r\.get\("mode"\) == "announce" and r\.get\("channel"\) == "imessage" and/elif r.get("found") and/' reminder-silent
+mutant reminder_routing 's/if cap\.get\("negative"\) == "home-not-owner" and r\.get\("to"\) not in/if False and r.get("to") not in/; s/ and r\.get\("channel"\) == "imessage" and r\.get\("to"\) == cap\["owner"\]:/ and r.get("found"):/; s/elif r\.get\("to"\) == cap\["wrong"\]:/elif False:/; s/^(            v\.bad\("%s: stored with delivery).*$/            v.ok("x")/' negctl-assertion
 mutant image_pins 's/elif pin in held:/elif True:/' image-held-digest
 mutant image_pins 's/elif all\(r == pin for r in run\):/elif True:/' image-running
 mutant status_dates 's/late = \[f for f in fs if f\[2\] > cut\]/late = []/' status-horizon
