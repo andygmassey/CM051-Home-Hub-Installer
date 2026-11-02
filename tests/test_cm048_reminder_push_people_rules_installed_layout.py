@@ -67,12 +67,16 @@ SCRIPT = textwrap.dedent(
     from pathlib import Path
     from src import reminders_push as rp
     from src.conversation_writer import ConversationBundle, ConversationSummary, Todo
+    from datetime import datetime, timedelta, timezone
+    _N = datetime.now(timezone.utc) - timedelta(hours=1)  # relative: reminders_push drops sources older than 30 days
+    _T0 = _N.strftime('%Y-%m-%dT%H:%M:%SZ')
+    _T1 = (_N + timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     def decide(label):
         b = ConversationBundle(
             conversation_id="c", source_kind="channel", source_subtype="imessage",
             source_session_id="s", channel="im", participants=("user", label),
-            started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+            started_at=_T0, ended_at=_T1,
             summary=ConversationSummary(overall="x", topics=()), transcript="x",
             privacy_level="L2")
         t = Todo(id="t", text="send the synthetic draft", owner="user", deadline=None)
@@ -202,6 +206,10 @@ APPLY_SCRIPT = textwrap.dedent(
     from pathlib import Path
     from src import reminders_push as rp
     from src.conversation_writer import ConversationBundle, ConversationSummary, Todo
+    from datetime import datetime, timedelta, timezone
+    _N = datetime.now(timezone.utc) - timedelta(hours=1)  # relative: reminders_push drops sources older than 30 days
+    _T0 = _N.strftime('%Y-%m-%dT%H:%M:%SZ')
+    _T1 = (_N + timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     def todo(i):
         return Todo(id=i, text="send the synthetic draft", owner="user", deadline=None)
@@ -209,7 +217,7 @@ APPLY_SCRIPT = textwrap.dedent(
     b = ConversationBundle(
         conversation_id="c", source_kind="channel", source_subtype="imessage",
         source_session_id="s", channel="im", participants=("user", "Jane Doe"),
-        started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+        started_at=_T0, ended_at=_T1,
         summary=ConversationSummary(overall="x", topics=()), transcript="x",
         privacy_level="L2")
     rp.apply_push_status_to_todos((todo("t1"), todo("t2")), b, summary_path=Path("/tmp/s.md"),

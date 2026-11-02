@@ -1643,7 +1643,7 @@ Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
 | `people_rules.py` | `_SERVICE_NAME_SUFFIX_WORDS` gains `verification`, `verify`, `order`, `orders` (one comment line plus one set line). |
 
 Why: walk 121 `hub_screens_customer_read` found two uncarded People rows
-("<App> Verification", "Order Review") that `_is_automated_or_service_name`
+("<App> Verification", "order review") that `_is_automated_or_service_name`
 kept because the vocabulary lacked those words.
 
 Guarded by `tests/test_verification_and_order_senders_are_not_people.py`

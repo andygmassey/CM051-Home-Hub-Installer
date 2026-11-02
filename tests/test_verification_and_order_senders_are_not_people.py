@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk 121 (hub_screens_customer_read): 2 of 7,433 People rows were services.
 
-Shapes "<x> Verification" and "Order <x>" (uncarded, no phone, no email) passed
+Shapes "<x> Verification" and "order <x>" (uncarded, no phone, no email) passed
 _is_automated_or_service_name, whose vocabulary had no "verification" or
 "order", so people_list kept them while the probe's SERVICE_PHRASE flagged them.
 Synthetic names only. A carded or phone-bearing row is never judged by this
@@ -23,8 +23,8 @@ except Exception as exc:
     sys.exit(2)
 
 f = mod._is_automated_or_service_name
-SERVICES = ["Example App Verification", "Order Review", "Order Confirmation", "Your Orders", "Verify Your Email"]
-PEOPLE = ["Jane Doe", "Priya Nair", "Omar Verhoeven", "Orderly Smith", "Sam Ordway", "Kei Chan"]
+SERVICES = ["acme app verification", "order review", "order confirmation", "your orders", "verify your email"]
+PEOPLE = ["Jane Doe", "John Smith", "Alex Jones", "Sam Patel", "Bob Brown", "jane orderly"]
 bad = [n for n in SERVICES if not f(n)] + [n for n in PEOPLE if f(n)]
 for n in SERVICES:
     print("  {}    service shape hidden: {}".format("ok  " if f(n) else "FAIL", n))
