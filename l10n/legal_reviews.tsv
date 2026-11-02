@@ -129,55 +129,55 @@ zh-Hans	install_sh	MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING	a9ee506ee301	legal rev
 zh-Hans	viewcopy	consent_spoken_capture/ask_heading	a9ee506ee301	legal reviewer (zh)	2026-10-24	reviewed-superseded-by-english-only
 zh-Hans	install_sh	MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL	19766ed6ccb2	legal reviewer (zh)	2026-10-24	reviewed-superseded-by-english-only
 zh-Hans	viewcopy	onboarding_question/consent_install_cancel	19766ed6ccb2	legal reviewer (zh)	2026-10-24	reviewed-superseded-by-english-only
-ar	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ar	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ar	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ar	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-de	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-de	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-de	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-de	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-es	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-es	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-es	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-es	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-fr	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-fr	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-fr	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-fr	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-it	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-it	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-it	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-it	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ja	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ja	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ja	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ja	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ko	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ko	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ko	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-ko	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-nl	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-nl	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-nl	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-nl	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	model review (best effort, Andy ruling)	2026-11-02	reviewed
-zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	model review (best effort, Andy ruling)	2026-11-02	reviewed
+ar	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+ar	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+ar	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+ar	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+de	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+de	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+de	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+de	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+es	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+es	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+es	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+es	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+fr	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+fr	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+fr	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+fr	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+it	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+it	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+it	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+it	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+ja	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+ja	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+ja	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+ja	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+ko	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+ko	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+ko	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+ko	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+nl	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+nl	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+nl	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+nl	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+pt-BR	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+pt-PT	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+zh-Hans	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+zh-Hant	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
+zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_title	2366f1c25c34	legal reviewer (model)	2026-11-02	reviewed
+zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_body	bd7bbbea098d	legal reviewer (model)	2026-11-02	reviewed
+zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_stop	88b5ac53d755	legal reviewer (model)	2026-11-02	reviewed
+zh-HK	viewcopy	onboarding_question/consent_install_cancel_confirm_keep	9d7fd0e0bd0a	legal reviewer (model)	2026-11-02	reviewed
