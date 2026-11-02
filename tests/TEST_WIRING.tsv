@@ -1047,6 +1047,7 @@ test_walk_lang_answers_cover_computed_prompts.py	WIRED	.github/workflows/walk-re
 test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_walk_probes_122a.sh	WIRED	.github/workflows/walk-probes-122a.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
