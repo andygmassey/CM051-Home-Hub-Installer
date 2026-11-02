@@ -31,6 +31,21 @@ import SwiftUI
 /// `stop()` is idempotent, so overlapping with the subprocess handler
 /// is harmless.
 final class InstallerAppDelegate: NSObject, NSApplicationDelegate {
+    /// The installer is drawn in the light brand palette only. Without this
+    /// pin, a Mac in Dark Mode draws system controls dark-mode style on our
+    /// cream background: typed text in every field came out white on cream,
+    /// invisible (tester report, 2 Nov 2026). The consent screen's Continue
+    /// stays disabled until the typed word matches, so with the field
+    /// unreadable its Cancel was the only working button. Set before any
+    /// window exists so sheets and alerts are pinned too.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        InstallerAppDelegate.pinLightAppearance(NSApplication.shared)
+    }
+
+    static func pinLightAppearance(_ app: NSApplication) {
+        app.appearance = NSAppearance(named: .aqua)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             CaffeinateManager.shared.stop()

@@ -31,6 +31,9 @@ struct OnboardingQuestionView: View {
     @State private var textValue: String = ""
     @State private var secretValue: String = ""
     @State private var yesnoValue: Bool = true
+    /// Set by the consent screen's Cancel; the install only ends on the
+    /// dialog's Stop install.
+    @State private var confirmingConsentCancel: Bool = false
     @State private var choiceValue: String = ""
     /// `folder` kind: holds the path the customer has picked (or
     /// the default `~/Downloads`). Empty string means "skip".
@@ -868,10 +871,29 @@ struct OnboardingQuestionView: View {
                 let cancelSentinel = q.prompt.choices.count > 1
                     ? q.prompt.choices[1]
                     : "CANCEL"
+                // Cancel ends the install, so it asks first (tester report,
+                // 2 Nov 2026: one click on Cancel ended a third attempt).
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel")) {
-                    coordinator.respond(to: q.prompt, with: cancelSentinel)
+                    confirmingConsentCancel = true
                 }
                 .buttonStyle(.ostlerGhost)
+                .confirmationDialog(
+                    ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_title"),
+                    isPresented: $confirmingConsentCancel
+                ) {
+                    Button(
+                        ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_stop"),
+                        role: .destructive
+                    ) {
+                        coordinator.respond(to: q.prompt, with: cancelSentinel)
+                    }
+                    Button(
+                        ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_keep"),
+                        role: .cancel
+                    ) {}
+                } message: {
+                    Text(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_body"))
+                }
 
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_primary")) {
                     submit(q)
