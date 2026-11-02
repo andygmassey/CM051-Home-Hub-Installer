@@ -1140,6 +1140,7 @@ context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_reads_derived_preferences.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_digest_cap_trims_lines_not_blocks.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_size_cap_keeps_preferences.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_owner_brief.py	WIRED	.github/workflows/context-digest-auth.yml

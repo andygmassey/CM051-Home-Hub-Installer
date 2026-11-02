@@ -180,7 +180,7 @@ jobs:
       # walk probe accepts the owner's exact urn:ostler:user/<id> and no other.
       - name: About you is the owner only, Preferences outlive the cap, probe owner URI is exact
         if: always()
-        run: python -m pytest context-refresh/tests/test_about_you_excludes_other_peoples_facts.py context-refresh/tests/test_digest_size_cap_keeps_preferences.py tests/test_owner_digest_about_check_accepts_the_owner_uri.py -v
+        run: python -m pytest context-refresh/tests/test_about_you_excludes_other_peoples_facts.py context-refresh/tests/test_digest_size_cap_keeps_preferences.py context-refresh/tests/test_digest_cap_trims_lines_not_blocks.py tests/test_owner_digest_about_check_accepts_the_owner_uri.py -v
 
       # The generator is the artefact that ships to a customer Mac; a syntax
       # error in it is a dead LaunchAgent, not a failing import.
