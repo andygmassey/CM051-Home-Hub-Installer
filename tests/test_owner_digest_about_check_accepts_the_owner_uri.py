@@ -11,11 +11,11 @@ _s = importlib.util.spec_from_file_location("owner_digest_under_test", _p)
 od = importlib.util.module_from_spec(_s)
 _s.loader.exec_module(od)
 
-DIGEST = "## About you\n- Name: Pat Doe\n- Family and close people: Pat Doe asked about cooking twice a week.\n\n## Next\n"
+DIGEST = "## About you\n- Name: Jane Doe\n- Family and close people: Jane Doe asked about cooking twice a week.\n\n## Next\n"
 
 
 def _run(about):
-    od._identity = lambda: {"user_id": "pat", "name": "Pat Doe", "emails": []}
+    od._identity = lambda: {"user_id": "jane", "name": "Jane Doe", "emails": []}
 
     def sparql(q):
         if "urn:ostler:Fact" in q:
@@ -26,9 +26,20 @@ def _run(about):
 
 
 def test_owner_fact_in_urn_user_form_is_the_owner():
-    r = _run("urn:ostler:user/pat")
+    r = _run("urn:ostler:user/jane")
     assert r["items"] == 1 and r["not_owner"] == 0
 
 
 def test_a_neighbours_fact_is_still_not_the_owner():
-    assert _run("urn:ostler:person/sam-neighbour")["not_owner"] == 1
+    assert _run("urn:ostler:person/john-neighbour")["not_owner"] == 1
+
+
+def test_another_users_fact_is_not_the_owner():
+    """owner_about_forms matches the owner's exact id, never any user/ URN."""
+    assert _run("urn:ostler:user/john")["not_owner"] == 1
+    assert _run("urn:ostler:user/jane2")["not_owner"] == 1
+    assert _run("urn:ostler:user/")["not_owner"] == 1
+
+
+def test_owner_forms_are_exact():
+    assert od.owner_about_forms("jane") == ["urn:ostler:user/jane", "https://schema.ostler.ai/ontology#user_jane"]

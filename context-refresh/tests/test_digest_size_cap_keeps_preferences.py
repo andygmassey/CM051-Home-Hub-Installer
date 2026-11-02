@@ -31,7 +31,7 @@ def over_cap(monkeypatch, tmp_path):
     g = _gen()
     pad = lambda tag, n: ["- %s %s" % (tag, "x" * 90)] * n  # noqa: E731
     stubs = {
-        "_about_you_section": ["- Name: Pat Doe"],
+        "_about_you_section": ["- Name: Jane Doe"],
         "_autonomy_section": pad("auto", 4),
         "_user_asserted_section": [],
         "_routines_priorities_section": pad("routine", 3),
