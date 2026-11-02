@@ -1090,6 +1090,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="全名（例如 Tom Harrison）"
 
 MSG_PROMPT_USER_ID_TITLE="你希望助手怎么称呼你？"
 MSG_PROMPT_USER_ID_HELP="助手称呼你时使用的简短名称（例如“Andy”“Andrew”“Smith 女士”）。它会出现在你的早间简报和聊天回复中，与上面的全名不同。"
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1588,6 +1592,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="正在读取你的 WhatsApp 历史记录 – 你�
 MSG_HYDRATE_WHATSAPP_DONE="在你的 WhatsApp 聊天中找到 %s 位联系人"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp 聊天已读取，但未写入你的人物图谱（退出码 %s）。Ostler 将重试。详情：%s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="没有可读取的 WhatsApp 聊天。你可以稍后在“设置”中重新运行。"
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="未安装 WhatsApp Desktop。请从 Mac App Store 安装，然后在“设置”中重新运行。"
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp 读取器尚未就绪。你可以稍后在“设置”中重新运行。"
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp 仍在后台加载。你的 wiki 会随之逐步充实，并显示当前进度。"

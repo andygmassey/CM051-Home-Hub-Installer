@@ -1093,6 +1093,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Nombre completo (p. ej., Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="¿Cómo quieres que te llame tu asistente?"
 MSG_PROMPT_USER_ID_HELP="Un nombre corto con el que tu asistente se dirigirá a ti (p. ej., 'Andy', 'Andrew', 'Sra. Smith'). Es el que aparece en tus resúmenes matutinos y en las respuestas del chat. Es distinto de tu nombre completo indicado arriba."
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1592,6 +1596,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="Leyendo tu historial de WhatsApp – tus mensajes 
 MSG_HYDRATE_WHATSAPP_DONE="Se encontraron %s personas en tus chats de WhatsApp"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="Se leyeron los chats de WhatsApp, pero no se escribieron en tu grafo de personas (código de salida %s). Ostler lo reintentará. Detalles: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No hay chats de WhatsApp que leer. Puedes volver a ejecutarlo más tarde desde Ajustes."
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop no está instalado. Instálalo desde la Mac App Store y vuelve a ejecutarlo desde Ajustes."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="El lector de WhatsApp aún no está listo. Puedes volver a ejecutarlo más tarde desde Ajustes."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp sigue cargándose en segundo plano. Tu wiki se va completando poco a poco y te muestra hasta dónde ha llegado."

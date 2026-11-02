@@ -2,6 +2,18 @@
   "_meta": {
     "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes – use ASCII '--' or en-dash with spaces."
   },
+  "system_requirements": {
+    "_meta": "F006 (2026-10-24): first screen on a Mac below the hardware floor (16 GB memory, Apple Silicon, macOS 14; the same floors install.sh enforces). Shown before Full Disk Access, permissions, licence, device registration, admin and the Command Line Tools download, so nothing has been installed or changed. Only the lines for the floors this Mac misses are shown.",
+    "heading": "Ostler can't run on this Mac",
+    "body": "Ostler needs a Mac with Apple Silicon and at least {min_gb} GB of memory, running macOS {min_macos} or later.",
+    "memory_line": "This Mac has {gb} GB of memory.",
+    "chip_line": "This Mac has an Intel processor.",
+    "macos_line": "This Mac is running macOS {version}.",
+    "nothing_changed": "Nothing has been installed or changed.",
+    "requirements_link": "See the system requirements",
+    "requirements_url": "https://ostler.ai/faq#requirements",
+    "quit_button": "Quit"
+  },
   "device_registration_error": {
     "heading": "이 Mac을 등록하지 못했습니다",
     "quit_button": "설치 프로그램 종료"
@@ -149,7 +161,10 @@
     "step_2": "목록에서 OstlerInstaller를 켜세요.",
     "step_3": "macOS가 종료를 요청합니다. 종료 후 다시 열면 설정이 자동으로 이어집니다.",
     "open_settings_button": "시스템 설정 열기",
-    "recheck_button": "켰습니다. 계속"
+    "recheck_button": "켰습니다. 계속",
+    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
+    "continue_anyway_button": "Continue anyway",
+    "quit_reopen_button": "Quit and reopen"
   },
   "log_drawer": {
     "header_label": "로그"
@@ -210,6 +225,10 @@
     "folder_picker_no_selection_placeholder": "(선택된 폴더 없음 – 건너뜀)",
     "consent_install_primary": "Install Ostler",
     "consent_install_cancel": "Cancel",
+    "consent_install_cancel_confirm_title": "Stop the install?",
+    "consent_install_cancel_confirm_body": "Nothing has been installed yet. You can run the installer again whenever you are ready.",
+    "consent_install_cancel_confirm_stop": "Stop install",
+    "consent_install_cancel_confirm_keep": "Keep going",
     "consent_install_terms_link_label": "terms",
     "consent_install_terms_url": "https://ostler.ai/terms",
     "_meta_consent_install_body": "CX-18 (Studio retest #13, 2026-05-23): Q20 body was duplicating the headline ('Ready to install?' / 'Ready to install. By clicking...') AND rendered the type-INSTALL action as plain body copy AND rendered 'terms' as plain text. Split into five runs so the SwiftUI view can render INSTALL bold + terms as an underlined link, with no headline repetition. consentInstallBody() in OnboardingQuestionView.swift composes prefix + bold(install_token) + middle + link(terms_link_label) + suffix.",
@@ -237,7 +256,10 @@
   },
   "hint_panel": {
     "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
-    "watchdog_still_going": "아직 진행 중입니다. 잠시만 기다려 주세요..."
+    "watchdog_still_going": "아직 진행 중입니다. 잠시만 기다려 주세요...",
+    "clt_waiting": "Waiting for Apple's developer tools. Click Install in the macOS dialog when it appears.",
+    "clt_waiting_timeout": "Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog.",
+    "clt_install_button": "Install developer tools"
   },
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
@@ -256,12 +278,22 @@
     "legal_note": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
   },
   "consent_spoken_capture": {
-    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline.",
+    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline. REGION (2026-10-24): the single legal_note is split into legal_prefix + legal_core + legal_local + legal_region_{gb,eu,de,fr,hk,us} + legal_responsibility, composed by LegalRegion.spokenCaptureLegalNote (ViewCopy.swift) from the Mac's REGION (the country part of AppleLocale, never the language), the same rule install.sh uses. Every legal_region_* line is a best-effort draft, not legal advice, and needs local professional sign-off. Consent / legal keys: translations need human legal review; English prevails. Every value except legal_local equals its MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* twin (tests/test_spoken_capture_legal_note_follows_region.sh).",
     "intro_body": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
     "ask_heading": "What we ask of you:",
     "bullet_1": "Get any consent your local law requires before you capture a conversation.",
     "bullet_2": "Tell people audio is being captured, or keep a visible indicator on.",
-    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings."
+    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
+    "legal_prefix": "Legal note:",
+    "legal_core": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere.",
+    "legal_local": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac.",
+    "legal_region_gb": "UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_eu": "The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_de": "In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes).",
+    "legal_region_fr": "In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code.",
+    "legal_region_hk": "In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful.",
+    "legal_region_us": "In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in.",
+    "legal_responsibility": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
@@ -361,5 +393,9 @@
     "connect_now_button": "지금 연결",
     "no_phone": "WhatsApp은 켜져 있지만 Ostler에 사용자의 WhatsApp 번호가 없어 여기서 코드를 만들 수 없습니다. 연결하려면 터미널을 열고 다음을 실행하세요:",
     "later_command": "~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive whatsapp"
+  },
+  "legal": {
+    "_meta": "owner ruling 2026-10-24: 'localisation with English prevails'. Shown under every legal/consent screen ONLY when this line is itself translated for the installer's language (ViewCopy.englishPrevailsNote). l10n/ostler_l10n.py ships a translation of it, and of any legal key, only once a native reviewer has passed it (l10n/legal_reviews.tsv).",
+    "english_prevails": "This is a translation. If it differs from the English version, the English version prevails."
   }
 }
