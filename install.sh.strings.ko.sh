@@ -1089,6 +1089,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="전체 이름(예: Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="어시스턴트가 어떻게 불러 드리면 좋을까요?"
 MSG_PROMPT_USER_ID_HELP="어시스턴트가 사용자를 부를 때 사용할 짧은 이름입니다(예: 'Andy', 'Andrew', 'Mrs Smith'). 아침 브리핑과 채팅 답장에 이 이름이 표시됩니다. 위의 전체 이름과는 다릅니다."
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1587,6 +1591,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="WhatsApp 기록을 읽는 중 – 메시지는 이
 MSG_HYDRATE_WHATSAPP_DONE="WhatsApp 대화에서 %s명을 찾았습니다"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp 대화를 읽었지만 인물 그래프에 기록하지 못했습니다(종료 코드 %s). Ostler가 다시 시도합니다. 상세 정보: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="읽을 WhatsApp 대화가 없습니다. 나중에 설정에서 다시 실행할 수 있습니다."
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop이 설치되어 있지 않습니다. Mac App Store에서 설치한 다음 설정에서 다시 실행하세요."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp 리더가 아직 준비되지 않았습니다. 나중에 설정에서 다시 실행할 수 있습니다."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp을 백그라운드에서 계속 불러오는 중입니다. 위키는 진행에 따라 채워지며 진행 상황도 함께 표시됩니다."

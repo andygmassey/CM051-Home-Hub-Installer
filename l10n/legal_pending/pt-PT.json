@@ -324,6 +324,26 @@
   "src_hash": "19766ed6ccb2",
   "src": "Cancel"
  },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_body": {
+  "text": "Ainda não foi instalado nada. Pode executar o instalador novamente quando quiser.",
+  "src_hash": "bd7bbbea098d",
+  "src": "Nothing has been installed yet. You can run the installer again whenever you are ready."
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_keep": {
+  "text": "Continuar",
+  "src_hash": "9d7fd0e0bd0a",
+  "src": "Keep going"
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_stop": {
+  "text": "Parar instalação",
+  "src_hash": "88b5ac53d755",
+  "src": "Stop install"
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_title": {
+  "text": "Parar a instalação?",
+  "src_hash": "2366f1c25c34",
+  "src": "Stop the install?"
+ },
  "viewcopy::onboarding_question/consent_install_primary": {
   "text": "Instalar o Ostler",
   "src_hash": "01c3622c44fe",

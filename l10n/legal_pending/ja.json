@@ -319,6 +319,26 @@
   "src_hash": "19766ed6ccb2",
   "src": "Cancel"
  },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_body": {
+  "text": "まだ何もインストールされていません。準備ができたら、いつでもインストーラを再実行できます。",
+  "src_hash": "bd7bbbea098d",
+  "src": "Nothing has been installed yet. You can run the installer again whenever you are ready."
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_keep": {
+  "text": "続ける",
+  "src_hash": "9d7fd0e0bd0a",
+  "src": "Keep going"
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_stop": {
+  "text": "インストールを中止",
+  "src_hash": "88b5ac53d755",
+  "src": "Stop install"
+ },
+ "viewcopy::onboarding_question/consent_install_cancel_confirm_title": {
+  "text": "インストールを中止しますか?",
+  "src_hash": "2366f1c25c34",
+  "src": "Stop the install?"
+ },
  "viewcopy::onboarding_question/consent_install_primary": {
   "text": "Ostlerをインストール",
   "src_hash": "01c3622c44fe",

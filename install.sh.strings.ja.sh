@@ -1092,6 +1092,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="氏名(例: 山田 太郎)"
 
 MSG_PROMPT_USER_ID_TITLE="アシスタントにどう呼んでほしいですか?"
 MSG_PROMPT_USER_ID_HELP="アシスタントがあなたに呼びかけるときの短い名前です(例: 「太郎」、「山田さん」)。朝のブリーフやチャットの返信に表示されます。上の氏名とは別のものです。"
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1591,6 +1595,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="WhatsApp の履歴を読み込んでいます。�
 MSG_HYDRATE_WHATSAPP_DONE="WhatsAppのチャットで%s人が見つかりました"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsAppのチャットは読み込まれましたが、人物グラフに書き込まれませんでした(終了コード %s)。Ostlerは再試行します。詳細: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="読み込むWhatsAppのチャットがありません。あとで設定から再実行できます。"
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktopがインストールされていません。Mac App Storeからインストールし、設定で再実行してください。"
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsAppリーダーの準備がまだできていません。あとで設定から再実行できます。"
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsAppはバックグラウンドで読み込み中です。wikiは進むにつれて内容が増え、現在の進行状況も表示されます。"
