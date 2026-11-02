@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,18 @@ def installed(tmp_path):
     return home, ical_py, site
 
 
+# The age cutoff (reminders_push.DEFAULT_MAX_AGE_DAYS, 30d) is read inside a
+# subprocess whose env is hand-built, so conftest's monkeypatched
+# OSTLER_TODO_MAX_AGE_DAYS=0 never reaches it. Dates must be relative to now.
+_NOW = datetime.now(timezone.utc).replace(microsecond=0)
+_START = (_NOW - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_END = (_NOW - timedelta(days=1) + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _dated(code):
+    return code.replace("__START__", _START).replace("__END__", _END)
+
+
 SCRIPT = textwrap.dedent(
     """
     import json, sys
@@ -72,7 +85,7 @@ SCRIPT = textwrap.dedent(
         b = ConversationBundle(
             conversation_id="c", source_kind="channel", source_subtype="imessage",
             source_session_id="s", channel="im", participants=("user", label),
-            started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+            started_at="__START__", ended_at="__END__",
             summary=ConversationSummary(overall="x", topics=()), transcript="x",
             privacy_level="L2")
         t = Todo(id="t", text="send the synthetic draft", owner="user", deadline=None)
@@ -115,7 +128,7 @@ def _run(code, args, home, site, ostler_dir=None):
     if ostler_dir is not None:
         env["OSTLER_DIR"] = str(ostler_dir)
     return subprocess.run(
-        [sys.executable, "-c", code, *args],
+        [sys.executable, "-c", _dated(code), *args],
         env=env, cwd=str(home), capture_output=True, text=True, timeout=60,
     )
 
@@ -209,7 +222,7 @@ APPLY_SCRIPT = textwrap.dedent(
     b = ConversationBundle(
         conversation_id="c", source_kind="channel", source_subtype="imessage",
         source_session_id="s", channel="im", participants=("user", "Jane Doe"),
-        started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+        started_at="__START__", ended_at="__END__",
         summary=ConversationSummary(overall="x", topics=()), transcript="x",
         privacy_level="L2")
     rp.apply_push_status_to_todos((todo("t1"), todo("t2")), b, summary_path=Path("/tmp/s.md"),
