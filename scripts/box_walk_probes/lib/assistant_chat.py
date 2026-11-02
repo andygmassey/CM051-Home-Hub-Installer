@@ -44,6 +44,8 @@ LEAKS = [
     ("web_fetch", re.compile(r"web_fetch", re.I)),
     ("HTTP request", re.compile(r"http request", re.I)),
 ]
+MIN_STREAM_CHUNKS = 2
+STREAM_MIN_REPLY_CHARS = 80
 SELFDESC_QUESTIONS = ("What can you do?", "Who are you?")
 LATENCY_QUESTIONS = (
     "What can you help me with today?",
@@ -136,7 +138,7 @@ def ws_chat(question, deadline_s=420):
     hdr = struct.pack("!BB", 0x81, 0x80 | len(d)) if len(d) < 126 else struct.pack("!BBH", 0x81, 0x80 | 126, len(d))
     t_sent = time.time()
     s.sendall(hdr + m + mk)
-    text, final, t_first, err = "", None, None, None
+    text, final, t_first, err, n_chunks = "", None, None, None, 0
     while time.time() < deadline:
         try:
             op, pay = frame()
@@ -154,6 +156,7 @@ def ws_chat(question, deadline_s=420):
         t = ev.get("type")
         if t == "chunk" and ev.get("content"):
             t_first = t_first or time.time()
+            n_chunks += 1
             text += ev["content"]
         elif t == "chunk_reset":
             text = ""
@@ -167,7 +170,7 @@ def ws_chat(question, deadline_s=420):
     t_end = time.time()
     return {"text": final if final is not None else text,
             "ttft_s": round(t_first - t_sent, 2) if t_first else None,
-            "total_s": round(t_end - t_sent, 2), "error": err}
+            "total_s": round(t_end - t_sent, 2), "chunks": n_chunks, "error": err}
 
 
 def _config():
@@ -227,6 +230,7 @@ def box_latency():
     for q in LATENCY_QUESTIONS:
         r = ws_chat(q)
         turns.append({"question": q, "ttft_s": r.get("ttft_s"), "total_s": r.get("total_s"),
+                      "chunks": r.get("chunks"), "reply_chars": len((r.get("text") or "").strip()),
                       "error": r.get("error"), "answered": bool((r.get("text") or "").strip())})
     return {"model": cfg.get("model") or "unknown", "ram_gb": ram_gb, "ram_tier": tier, "turns": turns}
 
@@ -235,16 +239,23 @@ def judge_latency(c):
     lines = ["  note   model %s, RAM %s GB (tier %s)" % (c.get("model"), c.get("ram_gb"), c.get("ram_tier"))]
     measured = [t for t in c.get("turns") or [] if t.get("total_s") is not None and t.get("answered")]
     for t in c.get("turns") or []:
-        lines.append("  ok     %-55s ttft %s s, total %s s%s" % (
+        lines.append("  ok     %-55s ttft %s s, total %s s, %s chunks%s" % (
             repr(t["question"]), t.get("ttft_s") if t.get("ttft_s") is not None else "NOT-MEASURED",
-            t.get("total_s"), "" if t.get("answered") else " (no answer: %s)" % t.get("error")))
+            t.get("total_s"), t.get("chunks"), "" if t.get("answered") else " (no answer: %s)" % t.get("error")))
     if not measured:
         return lines + ["  CANNOT no turn completed, so there is no baseline"], EX_CANNOT
+    # Streaming assertion (#2416): a customer must see words arrive. An answer
+    # of real length that came as <=1 chunk was delivered in one piece.
+    unstreamed = [t for t in measured if (t.get("chunks") or 0) < MIN_STREAM_CHUNKS
+                  and (t.get("reply_chars") or 0) >= STREAM_MIN_REPLY_CHARS]
+    for t in unstreamed:
+        lines.append("  FAIL   %r arrived in one piece: %s chunk(s) for %s chars, ttft %s s vs total %s s"
+                     % (t["question"], t.get("chunks"), t.get("reply_chars"), t.get("ttft_s"), t.get("total_s")))
     tt = sorted(t["ttft_s"] for t in measured if t.get("ttft_s") is not None)
     tot = sorted(t["total_s"] for t in measured)
     lines.append("  note   %d of %d turns answered; median ttft %s s, median total %s s"
                  % (len(measured), len(c.get("turns") or []), tt[len(tt) // 2] if tt else "NOT-MEASURED", tot[len(tot) // 2]))
-    return lines, EX_PASS
+    return lines, (EX_FAIL if unstreamed else EX_PASS)
 
 
 def self_test():
@@ -281,12 +292,19 @@ def self_test():
     print("  %s  self-description: a missing prerequisite is CANNOT-RUN" % ("ok    " if rc == EX_CANNOT else "FAIL  "))
     ok &= rc == EX_CANNOT
     lat = {"model": "qwen3.5:9b", "ram_gb": 24, "ram_tier": "24-47",
-           "turns": [{"question": q, "ttft_s": 1.5, "total_s": 6.0, "answered": True, "error": None} for q in LATENCY_QUESTIONS]}
+           "turns": [{"question": q, "ttft_s": 1.5, "total_s": 6.0, "answered": True, "chunks": 40, "reply_chars": 300, "error": None} for q in LATENCY_QUESTIONS]}
     _, rc = judge_latency(lat)
     _, rc2 = judge_latency(dict(lat, turns=[dict(t, answered=False, total_s=None) for t in lat["turns"]]))
-    print("  %s  latency: measured turns PASS (advisory); no completed turn is CANNOT-RUN" %
+    print("  %s  latency: streamed turns PASS; no completed turn is CANNOT-RUN" %
           ("ok    " if (rc, rc2) == (EX_PASS, EX_CANNOT) else "FAIL  "))
     ok &= (rc, rc2) == (EX_PASS, EX_CANNOT)
+    one_piece = dict(lat, turns=[dict(t, chunks=1, ttft_s=6.0) for t in lat["turns"]])
+    zero = dict(lat, turns=[dict(t, chunks=0, ttft_s=None) for t in lat["turns"]])
+    short = dict(lat, turns=[dict(t, chunks=1, reply_chars=20) for t in lat["turns"]])
+    got = (judge_latency(one_piece)[1], judge_latency(zero)[1], judge_latency(short)[1])
+    print("  %s  latency: a long answer in one piece (1 chunk, or 0) is FAIL; a short one-chunk answer is not" %
+          ("ok    " if got == (EX_FAIL, EX_FAIL, EX_PASS) else "FAIL  "))
+    ok &= got == (EX_FAIL, EX_FAIL, EX_PASS)
     print("every mutant went red" if ok else "SELF-TEST BROKEN")
     return 0 if ok else 1
 
