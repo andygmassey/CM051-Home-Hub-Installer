@@ -192,7 +192,7 @@ MAX_ORGS = 6
 # calendar they came from, so the brief never merges one person's trip into
 # another's. Bounded per-owner and overall to respect MAX_CHARS.
 MAX_CALENDAR_PER_OWNER = 6
-MAX_CALENDAR_TOTAL = 8
+MAX_CALENDAR_TOTAL = 14
 
 # User-asserted facts are authoritative and go at the top of the digest, so we
 # allow more of them than the mined sections -- but still bounded so a runaway
