@@ -192,7 +192,7 @@ MAX_ORGS = 6
 # calendar they came from, so the brief never merges one person's trip into
 # another's. Bounded per-owner and overall to respect MAX_CHARS.
 MAX_CALENDAR_PER_OWNER = 6
-MAX_CALENDAR_TOTAL = 14
+MAX_CALENDAR_TOTAL = 8
 
 # User-asserted facts are authoritative and go at the top of the digest, so we
 # allow more of them than the mined sections -- but still bounded so a runaway
@@ -1944,16 +1944,20 @@ def build_digest() -> str | None:
          "", people),
         ("Tastes", "Tastes",
          "The owner's top stored preferences, with the profile's own score.", tastes),
-        ("Channel style", "Channel style",
-         "Counts of the owner's own sent messages per channel; no message text.",
-         channel),
+        ("Preferences and things to keep in mind",
+         "Preferences and things to keep in mind", "", preferences),
         ("Recent meetings (last 7 days)", "Recent meetings (last 7 days)",
          "", recent),
         ("Calendar events by owner", "Calendar events by owner",
          calendar_intro, calendar_by_owner),
-        ("Preferences and things to keep in mind",
-         "Preferences and things to keep in mind", "", preferences),
         ("Key organisations", "Key organisations", "", orgs),
+        # Last, so it is the first dropped under the cap: counts only, the
+        # least useful block. The Preferences block above carries the derived
+        # "What you like" lines; listed after Calendar events it was the block
+        # dropped whenever the digest ran over (walk 121, 3dd087ff).
+        ("Channel style", "Channel style",
+         "Counts of the owner's own sent messages per channel; no message text.",
+         channel),
     ]
     # NOTE: there is deliberately no "## Upcoming meetings" section. Future
     # calendar events are rendered only via "## Calendar events by owner",
