@@ -614,14 +614,12 @@ _install_derive_preferences_agent() {
         <string>${cm019_dir}</string>
         <key>OSTLER_DERIVE_USER</key>
         <string>${derive_user}</string>
-        <key>OSTLER_CONVERSATIONS_DIR</key>
-        <string>${OSTLER_DIR}/state/conversations_mirror</string>
+        <key>OSTLER_CONVERSATIONS_DIR</key><string>${OSTLER_DIR}/state/conversations_mirror</string>
         <key>OXIGRAPH_URL</key>
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>QDRANT_URL</key>
         <string>${QDRANT_URL:-http://localhost:6333}</string>
-        <key>QDRANT_COLLECTION</key>
-        <string>preferences</string>
+        <key>QDRANT_COLLECTION</key><string>preferences</string>
     </dict>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
@@ -26047,6 +26045,10 @@ if ! mkdir "$_FDA_LOCK" 2>/dev/null; then
 fi
 echo "$$" > "$_FDA_LOCK/pid"
 trap 'rm -rf "$_FDA_LOCK"' EXIT
+# Conversations mirror for the derive tick (this process holds the FDA grant).
+if [[ -f "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" ]]; then
+    source "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh"; _ostler_conversations_mirror || true
+else echo "[mirror] CANNOT-RUN: ${OSTLER_DIR}/lib/ostler-conversations-mirror.sh missing"; fi
 FDA_DIR="${OSTLER_DIR}/fda-module"
 # v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
 # the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
@@ -26160,26 +26162,12 @@ _ostler_tm_status_record() {
 }
 _ostler_tm_status_record || true
 
-# ── CONVERSATION MIRROR: measured HERE so the derive tick never opens ~/Documents ──
-#
-# derive-preferences runs as bare launchd python. Its stated_transcripts reader
-# (derive/config.py: OSTLER_CONVERSATIONS_DIR, else ~/Documents/Ostler/Conversations)
-# made TCC charge a Documents request to python3.11 as the RESPONSIBLE process
-# (v1.0.121 walk: no_python_is_tcc_responsible FAIL; it passed on v1.0.120 only
-# because the tier gate was deferring the tick, see 226539ab). This wrapper is a
-# child of the signed FDA holder, so the read is charged to ai.ostler.assistant;
-# the derive plist points OSTLER_CONVERSATIONS_DIR at the copy. --delete so a
-# forgotten conversation leaves the mirror on the next tick.
-_ostler_conversations_mirror() {
-    local src="${HOME}/Documents/Ostler/Conversations"
-    local dst="${OSTLER_DIR}/state/conversations_mirror"
-    [[ -d "$src" ]] || return 0
-    command -v rsync >/dev/null 2>&1 || return 0
-    mkdir -p "$dst" 2>/dev/null || return 0
-    rsync -a --delete "${src}/" "${dst}/" >/dev/null 2>&1 || true
-    return 0
-}
-_ostler_conversations_mirror || true
+# ── CONVERSATION MIRROR helper: sourced by bin/ostler-fda on every tick, so the
+# derive tick (bare python) never opens ~/Documents. See the lib's own header.
+mkdir -p "${OSTLER_DIR}/lib"
+cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh" "${OSTLER_DIR}/lib/" \
+    && chmod 700 "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" \
+    || warn "conversations mirror helper not installed: the derive tick will have no mirror"
 
 # ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
 #
@@ -28807,6 +28795,7 @@ _u_tick_rc=0; bash "${HOME}/.ostler/bin/ostler-stop-background" || _u_tick_rc=$?
 # installing it, so an Ollama.app here is the customer's own or a cask-era leftover.
 # Deleting a customer's app on uninstall is worse than leaving ours.
 rm -rf "${HOME}/.ostler/runtime"/ollama-* 2>/dev/null || true
+rm -rf "${HOME}/.ostler/state/conversations_mirror" 2>/dev/null || true
 
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"

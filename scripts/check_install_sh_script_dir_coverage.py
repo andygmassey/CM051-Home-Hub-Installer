@@ -195,6 +195,9 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # construction, which is why this gate refused the change until the
     # postBuildScript existed. Both needles assert the cp lines.
     "lib/ostler-container-engine.sh": ['${SRCROOT}/../lib/ostler-container-engine.sh'],
+    # ostler-conversations-mirror.sh: sourced by bin/ostler-fda each tick (the derive
+    # tick's ~/Documents mirror); bundled by the same postBuildScript.
+    "lib/ostler-conversations-mirror.sh": ['${SRCROOT}/../lib/ostler-conversations-mirror.sh'],
     "bin": ['${SRCROOT}/../bin/ostler-engine-supervisor.sh'],
     # settling_progress.sh: install.sh sources
     # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021

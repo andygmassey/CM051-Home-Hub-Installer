@@ -13,14 +13,20 @@
 # WHAT THIS RUNS (synthetic data, sandbox HOME):
 #   1  the plist the REAL _install_derive_preferences_agent writes sets
 #      OSTLER_CONVERSATIONS_DIR to a path outside ~/Documents
-#   2  the REAL _ostler_conversations_mirror, lifted from install.sh, copies a
-#      transcript into exactly that path
-#   3  a transcript removed from the source is removed from the mirror
-# INSTALL_SH may point at another copy (how the red is watched).
+#   2  the REAL lib/ostler-conversations-mirror.sh copies an L2 transcript into
+#      exactly that path, and withholds an L3 one and one with NO privacy_level
+#   3  a transcript removed from the source, or re-levelled to L3, leaves the mirror
+#   4  mirror directories are 700 and files 600
+#   5  a failing rsync is logged ([mirror] FAIL), not swallowed
+#   6  the ostler-fda wrapper in install.sh sources the lib; install.sh installs it
+#   7  ostler-uninstall removes state/conversations_mirror
+# INSTALL_SH / MIRROR_LIB may point at another copy (how the red is watched).
 # Exit 0 pass, 1 fail, 2 cannot-run. Bash 3.2 portable.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SH="${INSTALL_SH:-$(cd "${HERE}/.." && pwd)/install.sh}"
+MIRROR_LIB="${MIRROR_LIB:-$(cd "${HERE}/.." && pwd)/lib/ostler-conversations-mirror.sh}"
+[ -r "$MIRROR_LIB" ] || { echo "CANNOT-RUN: $MIRROR_LIB unreadable"; exit 2; }
 [ -r "$INSTALL_SH" ] || { echo "CANNOT-RUN: $INSTALL_SH unreadable"; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "CANNOT-RUN: no python3"; exit 2; }
 command -v rsync >/dev/null 2>&1 || { echo "CANNOT-RUN: no rsync"; exit 2; }
@@ -41,7 +47,7 @@ lift() { # lift <function name> <outfile>
     return 1
 }
 lift _install_derive_preferences_agent "${SANDBOX}/agent.sh" || { echo "CANNOT-RUN: cannot lift the derive agent installer"; exit 2; }
-lift _ostler_conversations_mirror "${SANDBOX}/mirror.sh" || { echo "FAIL: _ostler_conversations_mirror is not defined in install.sh"; exit 1; }
+grep -q '^_ostler_conversations_mirror() {' "$MIRROR_LIB" || { echo "FAIL: _ostler_conversations_mirror is not defined in $MIRROR_LIB"; exit 1; }
 
 BIN="${SANDBOX}/bin"; mkdir -p "$BIN"
 printf '#!/bin/sh\nexit 0\n' > "${BIN}/launchctl"; chmod +x "${BIN}/launchctl"
@@ -62,24 +68,44 @@ case "$root" in
     *) ok "1 derive plist reads conversations from ${root#"$H"/}" ;;
 esac
 
-SRC="${H}/Documents/Ostler/Conversations/2026-11-01/synthetic-a"; mkdir -p "$SRC"
-printf 'synthetic owner line\n' > "${SRC}/transcript.md"
-(
-    export HOME="$H"; OSTLER_DIR="$O"
-    . "${SANDBOX}/mirror.sh"
-    _ostler_conversations_mirror
-)
-if [ -n "$root" ] && [ -f "${root}/2026-11-01/synthetic-a/transcript.md" ]; then ok "2 the mirror holds the transcript at the path the plist names"
-else bad "2 no transcript at '${root}/2026-11-01/synthetic-a/transcript.md' after the mirror ran"; fi
+CONV="${H}/Documents/Ostler/Conversations"
+mk() { # mk <name> <frontmatter line or ''>
+    mkdir -p "${CONV}/2026-11-01/$1"
+    if [ -n "$2" ]; then printf -- '---\nchannel: im\n%s\n---\nsynthetic owner line\n' "$2" > "${CONV}/2026-11-01/$1/transcript.md"
+    else printf -- '---\nchannel: im\n---\nsynthetic owner line\n' > "${CONV}/2026-11-01/$1/transcript.md"; fi
+}
+run_mirror() { ( export HOME="$H" PATH="${1:-$PATH}"; OSTLER_DIR="$O"; . "$MIRROR_LIB"; _ostler_conversations_mirror ) 2>&1; }
+mk l2 'privacy_level: L2'; mk l3 'privacy_level: L3'; mk nolevel ''; mk "odd [x]*" 'privacy_level: "L3"'
+mk l0 "privacy_level: 'L0'"
+MLOG="$(run_mirror)"
+T="2026-11-01"
+if [ -n "$root" ] && [ -f "${root}/${T}/l2/transcript.md" ] && [ -f "${root}/${T}/l0/transcript.md" ]; then ok "2a L2 and L0 transcripts are in the mirror at the path the plist names"
+else bad "2a L2/L0 transcript missing from '${root}'"; fi
+if [ ! -e "${root}/${T}/l3" ] && [ ! -e "${root}/${T}/odd [x]*" ]; then ok "2b the L3 transcripts are ABSENT from the mirror"
+else bad "2b an L3 transcript is in the mirror"; fi
+if [ ! -e "${root}/${T}/nolevel" ]; then ok "2c the no-level transcript is ABSENT from the mirror (fail closed)"
+else bad "2c a transcript with no privacy_level is in the mirror"; fi
 
-rm -rf "$SRC"
-(
-    export HOME="$H"; OSTLER_DIR="$O"
-    . "${SANDBOX}/mirror.sh"
-    _ostler_conversations_mirror
-)
-if [ -n "$root" ] && [ ! -e "${root}/2026-11-01/synthetic-a" ]; then ok "3 a removed conversation leaves the mirror"
-else bad "3 a removed conversation is still in the mirror"; fi
+rm -rf "${CONV}/${T}/l0"; mk l2 'privacy_level: L3'; mk l1 'privacy_level: L1'
+run_mirror >/dev/null
+if [ ! -e "${root}/${T}/l0" ]; then ok "3a a deleted conversation leaves the mirror"; else bad "3a a deleted conversation is still in the mirror"; fi
+if [ ! -e "${root}/${T}/l2" ]; then ok "3b a conversation re-levelled to L3 leaves the mirror"; else bad "3b a re-levelled L3 conversation is still in the mirror"; fi
+[ -f "${root}/${T}/l1/transcript.md" ] || bad "3c a new L1 conversation did not arrive"
+
+badperm="$(find "$root" -type d ! -perm 700 -o -type f ! -perm 600 2>&1 | head -3)"
+nfiles="$(find "$root" -type f | wc -l | tr -d ' ')"
+if [ -z "$badperm" ] && [ "$nfiles" -ge 1 ]; then ok "4 mirror dirs are 700 and files 600 (${nfiles} file(s) checked)"
+else bad "4 wrong modes or empty mirror: ${badperm:-none wrong}, files=${nfiles}"; fi
+
+mkdir -p "${SANDBOX}/failbin"; printf '#!/bin/sh\nexit 23\n' > "${SANDBOX}/failbin/rsync"; chmod +x "${SANDBOX}/failbin/rsync"
+case "$(run_mirror "${SANDBOX}/failbin:$PATH")" in *"[mirror] FAIL"*) ok "5 a failing rsync is logged" ;; *) bad "5 a failing rsync left no [mirror] FAIL line" ;; esac
+
+heredoc() { awk -v m="$1" '$0 ~ "<<.?" m ".?$" {on=1; next} $0 == m {on=0} on' "$INSTALL_SH"; }
+if heredoc FDAEOF | grep -q 'source .*ostler-conversations-mirror.sh' && heredoc FDAEOF | grep -q '_ostler_conversations_mirror' \
+   && grep -q 'cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh"' "$INSTALL_SH"; then ok "6 ostler-fda sources the mirror lib and install.sh installs it"
+else bad "6 the ostler-fda wrapper does not source the lib, or install.sh does not install it"; fi
+if heredoc UNINSTALLEOF | grep -q 'rm -rf .*state/conversations_mirror'; then ok "7 ostler-uninstall removes state/conversations_mirror"
+else bad "7 ostler-uninstall does not remove state/conversations_mirror"; fi
 
 echo "pass=${PASS} fail=${FAIL}"
 [ "$FAIL" -eq 0 ]

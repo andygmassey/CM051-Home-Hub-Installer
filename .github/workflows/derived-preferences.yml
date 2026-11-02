@@ -42,6 +42,7 @@ on:
       - 'tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh'
       - 'tests/test_wiki_summary_workers_pinned_at_one_for_every_tier.sh'
       - 'lib/ostler-resource-tier.sh'
+      - 'lib/ostler-conversations-mirror.sh'
       - 'wiki-recompile/launchd/**'
       - 'wiki-recompile/bin/**'
       - 'vendor/*_source/launchd/**'
