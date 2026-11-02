@@ -35,7 +35,7 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: a request from the box itself is loopback and proves nothing about the LAN"
     box_reachable || probe_cannot_run "cannot reach the box"
     local host log before cap
-    host="${OSTLER_PAIR_PROBE_HOST:-${OSTLER_BOX_HOST##*@}}"
+    host="$(box_lan_host)"
     log='$HOME/.ostler/logs/ostler-assistant.err'
     before="$(box_run "wc -c < ${log}" | tr -dc '0-9')"
     cap="$(mktemp)"

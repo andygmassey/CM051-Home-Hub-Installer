@@ -43,10 +43,13 @@ COLLECTION = os.environ.get("OSTLER_PROBE_COLLECTION", "people")
 TOKEN_PATH = os.environ.get("OSTLER_PROBE_TOKEN_PATH", os.path.join(HOME, ".ostler", "secrets", "service_token"))
 STORE_CONF = os.environ.get("OSTLER_PROBE_STORE_CURL_CONF", os.path.join(HOME, ".ostler", "secrets", "store-curl.conf"))
 
+# Names are deliberately UNCOMMON. v1.0.121: "Jane Doe" / "John Smith" were crowded out of the top-5 search
+# results by the ~8.8k seeded people, so the L1 control was "not found by name" and the probe read CANNOT-RUN.
+# The control still has to be found on all three shapes; this only stops common names hiding it.
 SUBJECTS = {
-    "l3": {"level": "L3", "name": "Jane Doe", "org": "Globex Corp probe-l3",
+    "l3": {"level": "L3", "name": "Wilhelmina Quillfeather", "org": "Globex Corp probe-l3",
            "email": "subject@l3probe.example", "phone": "+44 7700 900871"},
-    "l1": {"level": "L1", "name": "John Smith", "org": "Initech Corp probe-l1",
+    "l1": {"level": "L1", "name": "Barnaby Quillfeather", "org": "Initech Corp probe-l1",
            "email": "control@l1probe.example", "phone": "+44 7700 900872"},
 }
 for _k, _s in SUBJECTS.items():

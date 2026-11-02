@@ -264,6 +264,17 @@ def sweep(config_path, contract_path, bases, control_file=None, timeout=8.0,
         res["cannot"] = "the hub contract lists no gateway routes"
         return res
     blabel, bearer = find_bearer(secrets, bases, routes, timeout)
+    if bearer is None and os.environ.get("OSTLER_SWEEP_BEARER"):
+        # v1.0.121: config.toml stores paired_tokens as enc2: ciphertext, which no
+        # gateway accepts as a bearer, so this arm read CANNOT-RUN on every box
+        # (#3275). The probe mints a synthetic companion and hands its device
+        # bearer here; it is swept for too (a gateway echoing its own bearer is a
+        # leak), and its control is the same counter on itself.
+        minted = os.environ["OSTLER_SWEEP_BEARER"]
+        blabel, bearer = find_bearer([("paired_token[minted]", minted, [])], bases, routes, timeout)
+        if bearer is not None:
+            secrets.append(("minted_device_token", minted, []))
+            res["control"]["minted_device_token"] = count(minted.encode(), minted, [])
     res["bearer_label"] = blabel
     if bearer is None:
         res["cannot"] = "no paired token was accepted as a bearer on any base, so the authenticated arm cannot run"

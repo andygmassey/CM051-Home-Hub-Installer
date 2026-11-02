@@ -312,9 +312,37 @@ def load_wiki_corpus(wiki_dir):
     return " \n ".join(parts), n
 
 
+class _Corpus(object):
+    """The normalised wiki, padded ONCE, with its word set. v1.0.121: is_shown rebuilt
+    " " + corpus + " " (110 MB on the walk box) on every call, up to SHOWN_SAMPLE_CAP times per
+    group, and the collect sat at 100% CPU past its 600s budget (CANNOT-RUN-BUDGET). Same answers."""
+
+    def __init__(self, corpus):
+        self.padded = " " + corpus + " "
+        self.words = set(corpus.split(" "))
+
+
+_PREPARED = [None, None]
+
+
+def _prepared(corpus):
+    if isinstance(corpus, _Corpus):
+        return corpus
+    if _PREPARED[0] is not corpus:
+        _PREPARED[0], _PREPARED[1] = corpus, _Corpus(corpus)
+    return _PREPARED[1]
+
+
 def is_shown(text, corpus):
     t = _norm(text)
-    return bool(t) and (" " + t + " ") in (" " + corpus + " ")
+    if not t:
+        return False
+    c = _prepared(corpus)
+    # a phrase cannot be a whole-word substring if one of its words is not a word of the corpus
+    for w in t.split(" "):
+        if w not in c.words:
+            return False
+    return (" " + t + " ") in c.padded
 
 
 # ===========================================================================

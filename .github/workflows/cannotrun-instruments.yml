@@ -1,0 +1,40 @@
+name: cannotrun-instruments
+
+# v1.0.122: the v1.0.121 walk read 22 CANNOT-RUN, several of them instrument gaps
+# (an ssh alias used as a LAN address, a bearer that was ciphertext, a model stub
+# that spoke the wrong dialect, common-name fixtures crowded out of search, a derive
+# kick that was never repeated). One regression test per gap; each was shown RED
+# against its own mutant. Loopback stubs only, synthetic data.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'scripts/box_walk_probes/lib/stored_secret_sweep.py'
+      - 'scripts/box_walk_probes/lib/send_safety.py'
+      - 'scripts/box_walk_probes/lib/l3_prefetch.py'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/data_conservation.py'
+      - 'scripts/box_walk_probes/probes/companion_listener_refuses_unauthenticated.sh'
+      - 'scripts/box_walk_probes/probes/pair_endpoints_refuse_off_window.sh'
+      - 'scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh'
+      - 'tests/test_cannotrun_instruments_v1_0_122.py'
+      - '.github/workflows/cannotrun-instruments.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  cannotrun-instruments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: each instrument gap stays closed
+        run: python3 -I tests/test_cannotrun_instruments_v1_0_122.py -v

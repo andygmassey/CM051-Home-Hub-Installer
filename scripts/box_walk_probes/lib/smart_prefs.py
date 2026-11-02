@@ -341,6 +341,24 @@ def _derive_wait(prev, budget):
         time.sleep(poll)
 
 
+def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.time, nap=time.sleep):
+    """Kick the derive agent and wait for a pass, RE-KICKING while its tick only deferred or
+    yielded. v1.0.121: one kick and one 240s wait; the tick yielded to the busy hourly ingest slot
+    (com.ostler.fda-rerun, 900s+), nothing re-asked, and four probes read CANNOT-RUN. A tick that
+    wrote deferred/yielded has EXITED, so kickstart -k cannot kill a pass in flight; any other
+    outcome, or the total budget, ends the loop and the probe reads what is there."""
+    kick = kick or _kick
+    wait = wait or _derive_wait
+    end = clock() + total
+    ran, st = wait(prev, budget)
+    while not ran and st.get("outcome") in ("deferred", "yielded") and clock() < end:
+        nap(30)
+        if kick()[0] != 0:
+            break
+        ran, st = wait(prev, min(budget, max(1.0, end - clock())))
+    return ran, st
+
+
 def seed_main():
     out = {"state": "failed", "why": "", "points_written": 0, "facts_written": 0}
     code, info, err = _qdrant("GET", "/collections/%s" % COLLECTION)
@@ -381,7 +399,8 @@ def seed_main():
     out["kick"] = {"rc": rc, "out": kout}
     ran, st = (False, _status())
     if rc == 0:
-        ran, st = _derive_wait(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")))
+        ran, st = _derive_until_pass(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")),
+                                     float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_TOTAL_S", "900")))
     out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200]}
     out["state"] = "seeded"
     try:

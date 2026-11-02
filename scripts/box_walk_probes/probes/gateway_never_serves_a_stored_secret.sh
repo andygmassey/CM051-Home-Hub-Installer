@@ -57,7 +57,16 @@ run_probe() {
     fi
     rm -f "${routes}"
     cap="$(mktemp)"
-    box_run "umask 077; CFG=\"\${OSTLER_DIR:-\$HOME/.ostler}/assistant-config/config.toml\"; OSTLER_PAIR_PROBE_HOST='${OSTLER_PAIR_PROBE_HOST:-}' python3 '${remote}/s.py' sweep --config \"\$CFG\" --license \"\${OSTLER_DIR:-\$HOME/.ostler}/license/license.json\" --fingerprint \"\${OSTLER_DIR:-\$HOME/.ostler}/state/fingerprint.txt\" --contract '${remote}/c.json'${bases_arg}; rm -rf '${remote}'" > "${cap}"
+    # The stored paired_tokens are enc2: ciphertext and cannot be replayed as a
+    # bearer (v1.0.121 CANNOT-RUN), so pair a synthetic companion the way the
+    # phone does and sweep with ITS bearer. Revoked again below.
+    declare -F companion_pair_box_snippet >/dev/null || . "${_HERE}/lib/companion_pair.sh"
+    declare -F companion_walk_unpair >/dev/null || . "${_HERE}/lib/companion_unpair.sh"
+    local own_baseline=0
+    if [ -z "${OSTLER_COMPANION_WALK_START:-}" ]; then companion_walk_baseline >&2 || true; own_baseline=1; fi
+    box_run "umask 077; $(companion_pair_box_snippet 'https://127.0.0.1:8443' 0)
+CFG=\"\${OSTLER_DIR:-\$HOME/.ostler}/assistant-config/config.toml\"; OSTLER_SWEEP_BEARER=\"\$CP_TOKEN\" OSTLER_PAIR_PROBE_HOST='${OSTLER_PAIR_PROBE_HOST:-}' python3 '${remote}/s.py' sweep --config \"\$CFG\" --license \"\${OSTLER_DIR:-\$HOME/.ostler}/license/license.json\" --fingerprint \"\${OSTLER_DIR:-\$HOME/.ostler}/state/fingerprint.txt\" --contract '${remote}/c.json'${bases_arg}; rm -rf '${remote}'" > "${cap}"
+    [ "${own_baseline}" = 1 ] && { companion_walk_unpair >&2 || true; }
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side sweep returned no capture (is python3 on the box?)"; }
     out="$(python3 "${LIB}" judge "${cap}")"; rc=$?

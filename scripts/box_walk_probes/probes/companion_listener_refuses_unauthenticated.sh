@@ -31,7 +31,7 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: a request from the box itself is loopback and proves nothing about the LAN"
     box_reachable || probe_cannot_run "cannot reach the box"
     local host cap code cfg
-    host="${OSTLER_PAIR_PROBE_HOST:-${OSTLER_BOX_HOST##*@}}"
+    host="$(box_lan_host)"
     code() { curl -sk --noproxy '*' -m 15 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null; }
     cfg="$(box_run "awk '/^\\[/{g=(\$0==\"[gateway]\")} g' \$HOME/.ostler/assistant-config/config.toml 2>/dev/null; echo __END__")"
     cap="$(mktemp)"

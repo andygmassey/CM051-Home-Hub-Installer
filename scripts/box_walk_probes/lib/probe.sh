@@ -182,6 +182,19 @@ box_run() {
     fi
 }
 
+# box_lan_host -- the address a request FROM THE DRIVER should use to reach the box.
+# OSTLER_BOX_HOST is an ssh destination, and `${OSTLER_BOX_HOST##*@}` of an ssh
+# ALIAS (andy@macmini16) is a name only ~/.ssh/config can resolve: curl got no
+# answer and three security probes read CANNOT-RUN on the v1.0.121 walk. `ssh -G`
+# prints the hostname ssh itself would connect to. Override: OSTLER_PAIR_PROBE_HOST.
+box_lan_host() {
+    if [ -n "${OSTLER_PAIR_PROBE_HOST:-}" ]; then printf '%s\n' "$OSTLER_PAIR_PROBE_HOST"; return 0; fi
+    [ -n "${OSTLER_BOX_HOST:-}" ] || return 1
+    local h
+    h="$(ssh -G "$OSTLER_BOX_HOST" 2>/dev/null | awk '$1=="hostname"{print $2; exit}')"
+    printf '%s\n' "${h:-${OSTLER_BOX_HOST##*@}}"
+}
+
 box_reachable() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
         return 0
