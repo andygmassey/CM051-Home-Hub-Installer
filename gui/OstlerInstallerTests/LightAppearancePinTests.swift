@@ -1,7 +1,7 @@
 // LightAppearancePinTests.swift
 //
 // The installer is drawn in the light brand palette only. A tester on a
-// Dark Mode Mac (2 Nov 2026) saw every text field white on cream, and the
+// dark-mode Mac (2 Nov 2026) saw every text field white on cream, and the
 // consent screen's Cancel became the only working button. The fix pins
 // NSApp to Aqua in applicationWillFinishLaunching.
 
@@ -22,9 +22,9 @@ final class LightAppearancePinTests: XCTestCase {
         super.tearDown()
     }
 
-    /// THE TEST: from Dark Aqua, the delegate's launch hook leaves the app
+    /// THE TEST: from darkAqua, the delegate's launch hook leaves the app
     /// on Aqua. (Mutant: make applicationWillFinishLaunching a no-op and
-    /// this goes RED, because the control below puts the app in Dark Aqua.)
+    /// this goes RED, because the control below puts the app in darkAqua.)
     func testLaunchHookPinsAquaEvenWhenTheSystemIsDark() {
         let app = NSApplication.shared
         app.appearance = NSAppearance(named: .darkAqua)

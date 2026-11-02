@@ -32,7 +32,7 @@ import SwiftUI
 /// is harmless.
 final class InstallerAppDelegate: NSObject, NSApplicationDelegate {
     /// The installer is drawn in the light brand palette only. Without this
-    /// pin, a Mac in Dark Mode draws system controls dark-mode style on our
+    /// pin, a Mac in dark mode draws system controls dark-mode style on our
     /// cream background: typed text in every field came out white on cream,
     /// invisible (tester report, 2 Nov 2026). The consent screen's Continue
     /// stays disabled until the typed word matches, so with the field

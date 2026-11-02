@@ -1103,6 +1103,7 @@ gui/OstlerInstallerTests/LicenseEntryDropzoneTests.swift	WIRED	.github/workflows
 gui/OstlerInstallerTests/LicenseEntryShortIdHeuristicTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicensePersistenceTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseVerifierTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/LightAppearancePinTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LinkifyHelpTextTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LogDrawerFormatTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LogRedactorTests.swift	WIRED	.github/workflows/swift-tests.yml
