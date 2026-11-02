@@ -1028,6 +1028,7 @@ test_vendored_stated_transcripts_reach_the_derive_engine.py	WIRED	.github/workfl
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
 test_venvs_install_store_shim.sh	WIRED	.github/workflows/venv-store-shim.yml
+test_verification_and_order_senders_are_not_people.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_verify_appcast_published.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml
 test_verify_dmg_delivers_fixes.sh	WIRED	.github/workflows/dmg-delivery-gate.yml
