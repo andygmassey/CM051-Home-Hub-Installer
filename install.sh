@@ -26048,7 +26048,7 @@ trap 'rm -rf "$_FDA_LOCK"' EXIT
 # Conversations mirror for the derive tick (this process holds the FDA grant).
 if [[ -f "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" ]]; then
     source "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh"; _ostler_conversations_mirror || true
-else echo "[mirror] CANNOT-RUN: ${OSTLER_DIR}/lib/ostler-conversations-mirror.sh missing"; fi
+else echo "[mirror] CANNOT-RUN: ${OSTLER_DIR}/lib/ostler-conversations-mirror.sh missing" >&2; fi
 FDA_DIR="${OSTLER_DIR}/fda-module"
 # v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
 # the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the

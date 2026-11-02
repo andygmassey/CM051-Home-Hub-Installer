@@ -108,5 +108,15 @@ else bad "6 the wrapper does not source the lib, install.sh does not install it,
 if heredoc UNINSTALLEOF | grep -q 'rm -rf .*state/conversations_mirror'; then ok "7 ostler-uninstall removes state/conversations_mirror"
 else bad "7 ostler-uninstall does not remove state/conversations_mirror"; fi
 
+# 8  the helper writes NOTHING to stdout (the wrapper's stdout is read by callers; the
+#    forward-window gate saw "[mirror] CANNOT-RUN" there), while stderr keeps the lines
+out_ok="$( ( export HOME="$H"; OSTLER_DIR="$O"; . "$MIRROR_LIB"; _ostler_conversations_mirror ) 2>/dev/null )"
+out_fail="$( ( export HOME="$H" PATH="${SANDBOX}/failbin:$PATH"; OSTLER_DIR="$O"; . "$MIRROR_LIB"; _ostler_conversations_mirror ) 2>/dev/null )"
+err_fail="$( ( export HOME="$H" PATH="${SANDBOX}/failbin:$PATH"; OSTLER_DIR="$O"; . "$MIRROR_LIB"; _ostler_conversations_mirror ) 2>&1 >/dev/null )"
+if [ -z "$out_ok" ] && [ -z "$out_fail" ] && case "$err_fail" in *"[mirror] FAIL"*) true ;; *) false ;; esac; then ok "8 mirror status goes to stderr, stdout stays empty (ok and FAIL paths)"
+else bad "8 mirror wrote to stdout (ok='${out_ok}' fail='${out_fail}') or lost its stderr FAIL line"; fi
+if heredoc FDAEOF | grep 'mirror\] CANNOT-RUN' | grep -q '>&2'; then ok "8b the wrapper's missing-helper CANNOT-RUN line goes to stderr"
+else bad "8b the wrapper's missing-helper CANNOT-RUN line is on stdout"; fi
+
 echo "pass=${PASS} fail=${FAIL}"
 [ "$FAIL" -eq 0 ]

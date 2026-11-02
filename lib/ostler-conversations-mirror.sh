@@ -5,8 +5,9 @@
 # the v1.0.121 walk: no_python_is_tcc_responsible FAIL).
 #
 # Sourced by ~/.ostler/bin/ostler-fda (written by install.sh), which runs
-# _ostler_conversations_mirror on every tick. Failures are echoed to stdout, which
-# is the fda-rerun log; nothing is swallowed.
+# _ostler_conversations_mirror on every tick. Status lines go to STDERR
+# (fda-rerun.err), never stdout: the wrapper's stdout is read by callers and
+# tests. Nothing is swallowed.
 #
 # WHAT IS COPIED: only files whose frontmatter privacy_level is L0, L1 or L2.
 # L3 and a file with NO level stay out, matching derive stated.py
@@ -32,16 +33,16 @@ _ostler_conversations_mirror() {
     local dst="${OSTLER_DIR}/state/conversations_mirror"
     [[ -d "$src" ]] || return 0
     if ! command -v rsync >/dev/null 2>&1; then
-        echo "[mirror] CANNOT-RUN: rsync not found, conversations_mirror not updated"
+        echo "[mirror] CANNOT-RUN: rsync not found, conversations_mirror not updated" >&2
         return 0
     fi
     local old_umask; old_umask="$(umask)"; umask 077
     local rc=0 excl f rel lvl blocked=0 kept=0
     if ! mkdir -p "$dst"; then
-        echo "[mirror] FAIL: cannot create ${dst}"; umask "$old_umask"; return 0
+        echo "[mirror] FAIL: cannot create ${dst}" >&2; umask "$old_umask"; return 0
     fi
-    chmod 700 "$dst" || echo "[mirror] FAIL: chmod 700 ${dst}"
-    excl="$(mktemp "${dst}.excl.XXXXXX")" || { echo "[mirror] FAIL: mktemp"; umask "$old_umask"; return 0; }
+    chmod 700 "$dst" || echo "[mirror] FAIL: chmod 700 ${dst}" >&2
+    excl="$(mktemp "${dst}.excl.XXXXXX")" || { echo "[mirror] FAIL: mktemp" >&2; umask "$old_umask"; return 0; }
     while IFS= read -r -d '' f; do
         rel="${f#"${src}"/}"
         lvl="$(_ostler_conv_level "$f")" || lvl=""
@@ -55,12 +56,12 @@ _ostler_conversations_mirror() {
     rsync -a --delete --delete-excluded --prune-empty-dirs --exclude-from="$excl" "${src}/" "${dst}/" || rc=$?
     rm -f "$excl"
     if [[ $rc -ne 0 ]]; then
-        echo "[mirror] FAIL: rsync exit ${rc}, conversations_mirror may be stale"
+        echo "[mirror] FAIL: rsync exit ${rc}, conversations_mirror may be stale" >&2
     else
-        echo "[mirror] ok: ${kept} file(s) mirrored, ${blocked} withheld (L3 or no privacy_level)"
+        echo "[mirror] ok: ${kept} file(s) mirrored, ${blocked} withheld (L3 or no privacy_level)" >&2
     fi
-    find "$dst" -type d -exec chmod 700 {} + || echo "[mirror] FAIL: chmod dirs"
-    find "$dst" -type f -exec chmod 600 {} + || echo "[mirror] FAIL: chmod files"
+    find "$dst" -type d -exec chmod 700 {} + || echo "[mirror] FAIL: chmod dirs" >&2
+    find "$dst" -type f -exec chmod 600 {} + || echo "[mirror] FAIL: chmod files" >&2
     umask "$old_umask"
     return 0
 }
