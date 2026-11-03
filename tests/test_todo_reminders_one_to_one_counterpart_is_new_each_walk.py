@@ -11,6 +11,7 @@ import re
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,12 +41,17 @@ def reason_for(db, session):
     return r
 
 
+# Relative, never a calendar date: the product skips a bundle older than
+# DEFAULT_MAX_AGE_DAYS as stale_source, so a pinned 2026-10-01 went red on its
+# own once the clock passed the cutoff (main c6759438, 2 Nov 2026).
+_FRESH = datetime.now(timezone.utc) - timedelta(days=1)
+
 # the leftover: an open reminder for the OLD fixed counterpart, as walk N-1 left it
 old = box.ONE_TO_ONE_COUNTERPART
 b = ConversationBundle(
     conversation_id="c-old", source_kind="channel", source_subtype="imessage",
     source_session_id="old-walk-1to1", channel="im", participants=("user", old),
-    started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+    started_at=_FRESH.strftime("%Y-%m-%dT09:00:00Z"), ended_at=_FRESH.strftime("%Y-%m-%dT09:30:00Z"),
     summary=ConversationSummary(overall="Synthetic.", topics=()), transcript="synthetic", privacy_level="L2")
 t = Todo(id="old-t", text="SYNTHETIC WALK PROBE old leftover", owner="user", deadline=None)
 reminders_push.apply_push_status_to_todos((t,), b, summary_path=Path("/tmp/x.md"), demo_mode=False, user_id="walk-probe", db_path=None)
