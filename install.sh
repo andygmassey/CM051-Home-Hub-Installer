@@ -22139,11 +22139,9 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
-  # Personal wiki -- the human-readable browse layer over
-  # the Oxigraph graph + Qdrant vectors. Compiled by wiki-compiler
-  # below into the shared wiki-docs volume; served by MkDocs Material.
-  # See CM044 (PWG Personal Wiki) for compiler internals.
-  #
+  # Personal wiki: the browse layer over the Oxigraph graph + Qdrant
+  # vectors, compiled by wiki-compiler into wiki-docs, served by MkDocs
+  # Material (CM044). wiki-built keeps every built site across recreates.
   # Volume paths fixed in the Gap 3 PR:
   #   - wiki-docs at /docs/docs (MkDocs's default docs_dir under
   #     the image's WORKDIR /docs). Was wiki_docs:/app/site, which
@@ -22178,6 +22176,7 @@ services:
     volumes:
       - wiki-docs:/docs/docs:ro
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
+      - wiki-built:/site
     restart: unless-stopped
 
   # Wiki compiler -- runs on demand (compose profile "compile") to
@@ -22590,6 +22589,7 @@ volumes:
   oxigraph_data:
   redis_data:
   wiki-docs:
+  wiki-built:
   vane_data:
 DCEOF
 
@@ -29341,7 +29341,7 @@ else
     echo "    Docker and run:"
     echo "        cd ~/.ostler && docker compose down -v"
     echo "    If that directory is already gone, list them with:"
-    echo "        docker volume ls | grep -E 'qdrant_data|oxigraph_data|redis_data|wiki-docs|vane_data'"
+    echo "        docker volume ls | grep -E 'qdrant_data|oxigraph_data|redis_data|wiki-docs|wiki-built|vane_data'"
     echo "    and remove each with: docker volume rm <name>"
     echo ""
     echo "  Done. Ostler has been removed APART FROM the stores named above."
