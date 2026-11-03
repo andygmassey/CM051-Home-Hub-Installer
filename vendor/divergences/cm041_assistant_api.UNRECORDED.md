@@ -1679,7 +1679,7 @@ Tree `cm041/assistant_api`. Pin HELD.
 - `GET /api/v1/employer` (read by context-refresh `generate_pwg_context.py:885`) passes `outbound=True`. The Memory tab (`api_memory_list`) and `person_context` / `person_enrichment` / people-card overlays keep the default `False`: on-box Hub screens still show every level.
 - Timeline: see the next section (closed in the same wave).
 - Proof: `tests/test_vendored_employer_outbound_l3.py` (mutant with the filter off: 5 fail, 2 pass).
-- Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.
+- UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)
 
 ## 2026-11-03 v1.0.122 (fix122_timeline): `/api/v1/timeline?outbound=1` withholds L3
 
@@ -1690,4 +1690,4 @@ Tree `cm041/assistant_api`. Pin HELD.
 - Consumer: `context-refresh/bin/generate_pwg_context.py` `_meetings_section` now requests `?days=7&outbound=1` (CM051-native, no CM041 counterpart).
 - NOT covered: the digest's second source `_meeting_rows` reads `pwg:Meeting` directly and uses the digest's own `_is_withheld` (explicit L3 only; an untagged meeting is KEPT, and the attendee level is not read). Not changed here. Any other client of `/api/v1/timeline` (oa, Companion) that forwards it off the box must pass `outbound=1`: not audited.
 - Proof: `tests/test_vendored_timeline_outbound_l3.py`, `tests/test_digest_timeline_outbound_l3.py` (digest text, real generator, real SPARQL engine), `tests/test_every_outbound_graph_reader_filters_l3.py` (`_timeline_from_graph` now OUTBOUND, KNOWN_GAP empty).
-- Upstream: CM041 PR #244 (branch fix122/l3-outbound, test `assistant_api/tests/test_timeline_outbound_l3.py`). The vendored copy has `start`/`end`/`ascending`/`allDay` that CM041 main lacks, so the edit is hand-ported, not a re-vendor. Retire this section when a re-pin brings it in.
+- UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)

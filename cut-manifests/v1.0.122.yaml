@@ -142,6 +142,13 @@
 
 version: v1.0.122
 description: |
+  v1.0.122 KNOWN ISSUES (Andy/Archie rulings 3 Nov 2026; source ~/walkdriver/V122_CONSOLE_SHEET_ADDITIONS.md):
+  - Google Takeout calendars: if you import a Google calendar from Takeout and leave it unclassified, its events stay private and won't appear in your brief. (Andy 3 Nov; calendar default unchanged.)
+  - Installer translations UNLANDED: mr/3092 (PR #3092 l10n, OPEN, never merged). A non-English customer gets whatever main ships, with part of the installer text in English. Owner: Archie.
+  - Needs-you-now birthdays on the SPARQL fallback: with the Hub editor feed absent the Front Page lists ONE birthday card where 6 are due within 14 days (probe finding, Mini16 v1.0.121). Fix is CM044 #296, closed unmerged. Owner: Aesop (re-open for 123?).
+  - UNLANDED branches, no DMG behaviour: fix/q32b-calendar-classify-118 (123, Aesop); fix/qr-scan-size (unassigned, flag to Archie).
+  v1.0.122 CONSOLE-WALK LINES (Andy must see): #997 installer sidebar advances past the briefing and the installer is really in the Trash if it says so; #2477 "Connect WhatsApp" directly under "What's happening now" with no scrolling; #2415 wiki Place page "Photos here" lists photos (no ssh probe: needs Photos TCC).
+  v1.0.122 WALK BRIEF: walk holds lockf -t 0 ~/walkdriver/.mini16.lock for the whole run; crash sweep (runs + last exit code per Ostler agent, all user domains) at walk start and end; dislike probes (derived_preferences_dislike, dislike_respected_in_brief) anything but PASS is a FAIL.
   v1.0.107 carries every v1.0.106 row and adds the fix for #2467/#2470/#2516
   (Andy's v1.0.106 console walk, 2026-10-01): "Spot on" and "Not me" on the
   Front Page both 400'd. Traced to THREE independent defects, all required
