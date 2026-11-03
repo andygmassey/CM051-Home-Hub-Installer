@@ -44,5 +44,8 @@ elif fn == "judge_brief_birthday":
 elif fn == "judge_birthday":
     n = lambda x: None if x in ("", "None") else int(x)
     s, d = m.judge_birthday(n(args[0]), n(args[1]))
+elif fn == "delivery_is_silent":
+    import json
+    s, d = ("silent" if m.delivery_is_silent(json.loads(args[0])) else "REFUSED"), ""
 print("%s\t%s" % (s, d))' "${here}/walk_fixture_122b2.py" "$@"
 }

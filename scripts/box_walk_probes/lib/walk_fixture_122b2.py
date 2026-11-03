@@ -149,6 +149,12 @@ def count_q():
             "  FILTER(STRSTARTS(STR(?s), %s) || (isIRI(?o) && STRSTARTS(STR(?o), %s))) }" % (_lit(NS), _lit(NS)))
 
 
+def count_named_q():
+    """Same count, but inside NAMED graphs (a bare triple pattern does not reach them on every store setup)."""
+    return (_prefix() + "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o\n"
+            "  FILTER(STRSTARTS(STR(?s), %s) || (isIRI(?o) && STRSTARTS(STR(?o), %s))) } }" % (_lit(NS), _lit(NS)))
+
+
 def total_q():
     return "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"
 
@@ -172,7 +178,8 @@ def delete_update():
 
 
 def bday_seed_update(today=None):
-    today = today or datetime.date.today()
+    # TOMORROW, not today: the brief lists the coming birthdays, and a birthday dated today was not named (b3: named 0).
+    today = today or (datetime.date.today() + datetime.timedelta(days=1))
     mmdd = "%02d-%02d" % (today.month, today.day)
     a, b = NS + "person-survivor", NS + "person-card2"
     t = lambda x: "<%s>" % x
@@ -221,6 +228,18 @@ def served_birthdays(days=14):
     return code, [r for r in rows if isinstance(r, dict) and SURNAME in str(r.get("name", ""))]
 
 
+def delivery_is_silent(stored):
+    """True only when the stored cron job can never send. Null or absent delivery is treated
+    EXACTLY like mode 'none': ostler-assistant PR #659 (test null_or_none_delivery_never_announces;
+    scheduler.rs:1181 only 'announce' sends). 'announce', '' and ANY unknown string stay refused,
+    as does a job that could not be read back at all."""
+    if not isinstance(stored, dict):
+        return False
+    d = stored.get("delivery")
+    mode = d.get("mode") if isinstance(d, dict) else d
+    return mode is None or mode == "none"
+
+
 def brief_text():
     """Run an UNDELIVERED copy of the morning-brief job and return (status, text-or-None).
     Same safeguards as smart_prefs.box_brief_main: the stored job is read back and the run
@@ -251,10 +270,10 @@ def brief_text():
             c, b = wm._http("GET", wm.GATEWAY + "/api/cron", headers=auth)
             rows = b if isinstance(b, list) else (b or {}).get("jobs") or []
             stored = next((r for r in rows if isinstance(r, dict) and r.get("id") == job), None)
-        d = stored.get("delivery") if isinstance(stored, dict) else None
-        mode = d.get("mode") if isinstance(d, dict) else d
-        if mode != "none":
-            return "REFUSED: gateway stored delivery mode %r, not 'none'; job deleted before it could fire" % (mode,), None
+        if not delivery_is_silent(stored):
+            d = stored.get("delivery") if isinstance(stored, dict) else None
+            mode = d.get("mode") if isinstance(d, dict) else d
+            return "REFUSED: gateway stored delivery mode %r, not null/'none'; job deleted before it could fire" % (mode,), None
         deadline = time.time() + float(os.environ.get("OSTLER_WF122B2_BRIEF_WAIT_S", "600"))
         while time.time() < deadline:
             time.sleep(10)
@@ -285,7 +304,7 @@ def main(argv):
         return 0
     s = _syncer()
     if cmd == "count":
-        print(json.dumps({"fixture": _scalar(s, count_q()), "total": _scalar(s, total_q())}))
+        print(json.dumps({"fixture": _scalar(s, count_q()) + _scalar(s, count_named_q()), "total": _scalar(s, total_q())}))
     elif cmd == "raw":
         print(len(s._sparql_query(raw_rows_q())["results"]["bindings"]))
     elif cmd == "seed":

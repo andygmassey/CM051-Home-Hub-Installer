@@ -13,7 +13,7 @@ ok()  { total=$((total + 1)); echo "  ok    $1"; }
 bad() { total=$((total + 1)); fails=$((fails + 1)); echo "  FAIL  $1"; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 if [ "${WF_MUTANT:-0}" = "1" ]; then
-    sed 's/if served_rows == 1:/if served_rows >= 1:/' "$L" > "$TMP/walk_fixture_122b2.py"; L="$TMP/walk_fixture_122b2.py"
+    sed -e 's/if served_rows == 1:/if served_rows >= 1:/' -e 's/return mode is None or mode == "none"/return True/' "$L" > "$TMP/walk_fixture_122b2.py"; L="$TMP/walk_fixture_122b2.py"
 fi
 py() { /usr/bin/python3 -I -c 'import sys, importlib.util
 spec = importlib.util.spec_from_file_location("wf", sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -40,6 +40,14 @@ want "brief omits the birthday"             "print(m.judge_brief_birthday('Nothi
 want "name outside the birthday lines ignored" "print(m.judge_brief_birthday('Quillfeather called\nBirthdays: Ann Quillfeather today')[0])" ok
 want "seed SPARQL carries the surname twice" "print(m.bday_seed_update().count('Quillfeather'))" 3
 want "delete is scoped to the fixture IRI"  "print('STRSTARTS' in m.delete_update() and 'example.com/walkfixture122b2/' in m.delete_update())" True
+want "delivery mode none is silent"         "print(m.delivery_is_silent({'delivery': {'mode': 'none'}}))" True
+want "delivery null is silent"              "print(m.delivery_is_silent({'delivery': None}))" True
+want "delivery absent is silent"            "print(m.delivery_is_silent({'id': 'x'}))" True
+want "delivery mode null is silent"         "print(m.delivery_is_silent({'delivery': {'mode': None}}))" True
+want "CONTROL: announce is refused"         "print(m.delivery_is_silent({'delivery': {'mode': 'announce'}}))" False
+want "CONTROL: empty-string mode refused"   "print(m.delivery_is_silent({'delivery': {'mode': ''}}))" False
+want "CONTROL: unknown mode refused"        "print(m.delivery_is_silent({'delivery': {'mode': 'webhook'}}))" False
+want "CONTROL: unreadable job refused"      "print(m.delivery_is_silent(None))" False
 
 for p in meetings_index_lists_meetings_not_holidays birthday_listed_once_per_person; do
     out="$(bash "$P/$p.sh" --self-test 2>&1)"

@@ -48,7 +48,11 @@ self_test() {
     printf 'Your day\nNothing on today\n' > "$f"
     s="$(wf_judge judge_brief_birthday "$f" | cut -f1)"
     [ "$s" = "CANNOT" ] || probe_pass "NEGATIVE CONTROL DID NOT FIRE: a brief that omits the birthday judged '$s', expected CANNOT."
-    probe_examined 9 "synthetic judge inputs"
+    s="$(wf_judge delivery_is_silent '{"delivery": {"mode": "announce"}}' | cut -f1)"
+    [ "$s" = "REFUSED" ] || probe_pass "NEGATIVE CONTROL DID NOT FIRE: a job with delivery 'announce' judged '$s', expected REFUSED."
+    s="$(wf_judge delivery_is_silent '{"delivery": null}' | cut -f1)"
+    [ "$s" = "silent" ] || probe_pass "SELF-TEST BROKEN: a job with null delivery judged '$s', expected silent (oa PR #659)."
+    probe_examined 11 "synthetic judge inputs"
     probe_fail "negative control behaved correctly (passed one-of-four, failed two, refused a vacuous one, failed none, refused an unreadable count, passed a once-named brief, failed a twice-named brief, refused a brief that omits the birthday)"
 }
 
