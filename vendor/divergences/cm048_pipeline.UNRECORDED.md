@@ -130,3 +130,23 @@ by CM051 #3291 and riding in `vendor/divergences/cm048_pipeline.patch`.
 
 UPSTREAM: CM048 #109 MERGED as ba26e09e (upstream landing). Retire this section
 when a re-pin brings it in; pin stays aed03798 until then.
+
+## 2026-11-04 (v1.0.123): the follow-up thread key counts every chat member
+
+Regeneration REFUSED, measured 2026-11-04: `VENDOR_PATCH_REGEN_CONFIRM=cm048_pipeline
+bash scripts/regenerate_divergence_patch.sh cm048_pipeline --write` printed "could not
+verify cm048_pipeline: source repo not found ()".
+
+`vendor/cm048_pipeline/src/channel_adapter.py`: new `_thread_basis_handles(metadata)`
+above `_counterpart_handles`; `make_bundle` sets `participant_handles` from it. It
+returns the source's `chat_handles` (every chat member, chat.db chat_handle_join)
+when present, else the speakers' handles as before. `participant_handles` is read
+only by `reminders_push._thread_handles` (the thread key).
+
+Why: walk v1.0.122 diag, followup_keys_match_chat_threads 0 of 7. The daemon keys a
+chat by all its members (ostler-assistant followup.rs); CM048 keyed a group on the
+members who spoke, so a group with a silent member never matched and its follow-ups
+never closed. Proof: tests/test_group_followup_key_counts_silent_members.py (Rust
+reference vector for three members).
+
+Owed upstream: yes, CM048 `src/channel_adapter.py`.
