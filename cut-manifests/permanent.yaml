@@ -1622,3 +1622,32 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "l3_not_prefetched"
+
+  - id: box-walk-chat-reminder-routes-to-home
+    title: "box-walk probe must PASS: chat_reminder_routes_to_home"
+    incident: >-
+      #2397 + #2398: a chat reminder landed on the first announcing cron job
+      in config order, not the [cron] home target, and a model-sent delivery
+      mode none was stored silent. Drives the installed binary in the
+      send_safety sandbox. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "chat_reminder_routes_to_home"
+
+  - id: box-walk-image-pulls-match-pins
+    title: "box-walk probe must PASS: image_pulls_match_pins"
+    incident: >-
+      #2404: the qdrant, nginx and valkey images pulled and running must be
+      the digests install.sh pins. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "image_pulls_match_pins"
+
+  - id: box-walk-status-api-dates-are-sane
+    title: "box-walk probe must PASS: status_api_dates_are_sane"
+    incident: >-
+      #966: no date field on /api/v1/sources or /doctor/api/status may parse
+      past now + 10 years (the year-2318 sentinel). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "status_api_dates_are_sane"
