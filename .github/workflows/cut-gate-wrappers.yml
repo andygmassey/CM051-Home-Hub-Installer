@@ -635,8 +635,11 @@ jobs:
       - name: ARM 9 catches a .py edited after its unchecked-hash .pyc was seeded
         if: always()
         run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest -q tests/test_verify_seeded_pyc_matches_source.py
+          # A venv, never the runner's system Python (PEP 668:
+          # "externally-managed-environment" on macos-latest).
+          python3 -m venv "$RUNNER_TEMP/arm9-venv"
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pip install --quiet pytest
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pytest -q tests/test_verify_seeded_pyc_matches_source.py
       - name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
         if: always()
         run: |
