@@ -2489,3 +2489,7 @@ nonperson	care/helplines.tsv::602f780df1ee43b3	PRODUCT: line 23 of the crisis-li
 nonperson	care/helplines.tsv::d4f5125465011bab	PRODUCT: line 26 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
 nonperson	care/helplines.tsv::c063fb13a29a9b74	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
 nonperson	care/helplines.tsv::baae82d31cac5af2	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+phrase	smart prefs	walk probe and feature name (scripts/box_walk_probes smart_prefs), not a person
+phrase	smart preferences	feature name (derived preferences), not a person
+phrase	reply debt	Hub screen and feature name, not a person
+phrase	dark mode	macOS appearance setting, not a person
