@@ -255,6 +255,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py -v
+      - name: Topics are written only for a known non-L3 privacy level, in both layers (CM048 #109)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |
