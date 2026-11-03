@@ -1084,7 +1084,10 @@ def _meetings_section() -> list[str]:
     the brief exclusively via ``_calendar_by_owner_section`` below, which
     reads the CM041 owner + type provenance and fails closed on L3.
     """
-    data = _get_json("/api/v1/timeline?days=7")
+    # outbound=1: this text enters the assistant's context and channel replies
+    # leave the box, so the route applies the fail-closed L3 filter (default
+    # is the on-box Hub view, which sees every level).
+    data = _get_json("/api/v1/timeline?days=7&outbound=1")
     items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
         items = []
@@ -1122,6 +1125,32 @@ def _meetings_section() -> list[str]:
     return recent
 
 
+def _meeting_outbound_hidden(row: dict) -> bool:
+    """True when a meeting row must not reach the digest (fail-closed L3).
+
+    Same rule as CM041 ``pwg_privacy.is_l3`` / ``_timeline_from_graph(outbound)``:
+    the meeting's own ``pwg:privacyLevel`` and EACH attendee's are combined,
+    one L3 on either axis hides it, a missing item level inherits the
+    attendee's, and no parseable level anywhere (or an unparseable one with
+    nothing to inherit) hides it. An attendee with no level counts as unknown,
+    never skipped. ``_is_withheld`` keeps untagged records and ignores the
+    attendees, which is wrong for a meeting.
+    """
+    def parse(raw):
+        v = str(raw or "").strip().upper()
+        return v if v in ("L0", "L1", "L2", "L3") else None
+
+    def split(raw):
+        return [parse(v) for v in str(raw or "").split("|")] or [None]
+
+    for m in split(row.get("mlevels")):
+        for a in split(row.get("alevels")):
+            levels = [lv for lv in (m, a) if lv is not None]
+            if not levels or "L3" in levels:
+                return True
+    return False
+
+
 def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
     """pwg:Meeting rows in the last (past=True) or next ``days`` days.
 
@@ -1140,16 +1169,21 @@ def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
         order = "?d"
     rows = _sparql_select(
         f"PREFIX pwg: <{PWG_NS}>\n"
-        "SELECT ?summary ?d ?l WHERE {\n"
+        "SELECT ?m ?summary ?d "
+        '(GROUP_CONCAT(DISTINCT STR(?mpriv); SEPARATOR="|") AS ?mlevels) '
+        '(GROUP_CONCAT(DISTINCT COALESCE(STR(?apriv), "none"); SEPARATOR="|") AS ?alevels) '
+        "WHERE {\n"
         "  ?m a pwg:Meeting ; pwg:meetingSummary ?summary ; pwg:meetingDate ?d .\n"
-        "  OPTIONAL { ?m pwg:privacyLevel ?l }\n"
+        "  OPTIONAL { ?m pwg:privacyLevel ?mpriv }\n"
+        "  OPTIONAL { ?m pwg:meetingAttendee ?pa . "
+        "OPTIONAL { ?pa pwg:privacyLevel ?apriv } }\n"
         f'  FILTER(STR(?d) >= "{lo.isoformat()}" && STR(?d) < "{hi.isoformat()}")\n'
-        f"}} ORDER BY {order} LIMIT {limit}"
+        f"}} GROUP BY ?m ?summary ?d ORDER BY {order} LIMIT {limit * 3}"
     ) or []
     now_s = _today().strftime("%Y-%m-%d %H:%M")
     out: list[dict] = []
     for row in rows:
-        if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+        if not isinstance(row, dict) or _meeting_outbound_hidden(row):
             continue
         summary = " ".join((row.get("summary") or "").split())
         date = (row.get("d") or "").strip().replace("T", " ")[:16]
@@ -1161,7 +1195,7 @@ def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
         if not past and date < now_s:
             continue
         out.append({"summary": summary, "date": date})
-    return out
+    return out[:limit]
 
 
 def _calendar_by_owner_section() -> list[str]:

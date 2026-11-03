@@ -1755,6 +1755,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
@@ -4227,6 +4228,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
@@ -6269,6 +6271,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
