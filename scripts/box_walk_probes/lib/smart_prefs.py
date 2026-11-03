@@ -475,9 +475,14 @@ def box_runs_main():
     return 0
 
 
+ROUTE_LIMIT = 5000
+
+
 def _route(tier=None):
     tok = _secret("service_token")
-    q = "limit=200&min_confidence=0" + ("&tier=%s" % tier if tier else "")
+    # limit well above any derived node count (312 on the v1.0.121 box; the route
+    # ranks by round-robin THEN cuts, so limit=200 hid a rank-186 dislike).
+    q = "limit=%d&min_confidence=0" % ROUTE_LIMIT + ("&tier=%s" % tier if tier else "")
     code, body, err = _http("GET", HUB + "/api/v1/preferences/derived?" + q, None,
                             {"Authorization": "Bearer " + tok} if tok else {})
     return code, body, err

@@ -1633,3 +1633,20 @@ Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
 
 UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
 `assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
+
+## 2026-11-03, v1.0.122 fix wave: derived dislikes ride alongside the capped list
+
+Tree: cm041/assistant_api. File: `vendor/cm041/assistant_api/derived_preferences.py` only (whole-file copy of the CM041 PR branch; no `ical-server.py` change).
+
+| symbol | change |
+|---|---|
+| `NEGATIVES_LIMIT` (new) | 100 |
+| `DerivedGraphReader.get_derived_preferences` | new `negative_only` flag: adds `FILTER(?strength < 0)` and orders by `ASC(?strength * ?confidence)`; same privacy filters and row guard |
+| `DerivedGraphReader.get_negative_preferences` (new) | negatives above `min_confidence`, any tier, bounded at 100, `exclude` drops keys already served |
+| `_view_key` (new), `build_derived_preferences_response` | appends the negatives after the capped list, not counted against `limit`, no duplicates |
+
+Why: on the v1.0.121 Mini16 walk a seeded dislike ranked 186th of 312 derived nodes, and the route cuts to `limit` after the category round-robin, so a `limit=8` consumer never saw it (probes `derived_preferences_dislike`, `dislike_respected_in_brief`).
+
+Guarded by `tests/test_vendored_derived_negatives_survive_cap.py` (wired in `.github/workflows/derived-preferences.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/242 (branch `fix122-dislike`). Retire this section when a re-pin brings it in.

@@ -56,6 +56,7 @@ on:
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derived_route_privacy_level.py'
+      - 'tests/test_vendored_derived_negatives_survive_cap.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
@@ -164,6 +165,11 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: A stated dislike is served alongside the capped list (any tier, bounded, no dupes)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest 'pyoxigraph>=0.5.11,<0.6'
+          python3 -m pytest -q tests/test_vendored_derived_negatives_survive_cap.py
       - name: Food evidence reaches smart preferences (restaurants, cuisines, what you buy)
         # ingest_food stages only the claimed extracts, the parser output derives
         # through the vendored registry, a diet signal stays private, and the OSM
