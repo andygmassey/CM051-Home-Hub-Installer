@@ -75,3 +75,31 @@ def test_l3_meeting_never_in_the_generated_context(digest_text):
 def test_l1_control_reaches_the_generated_context(digest_text):
     text, _ = digest_text
     assert "L1 control lunch" in text
+
+
+# ---- the digest's second source, _meeting_rows (pwg:Meeting read directly) ----
+
+@pytest.fixture()
+def second_source_text(monkeypatch, tmp_path):
+    """Real ``_meeting_rows`` over the real rdflib engine; timeline pinned empty."""
+    for key in ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME",
+                "WIKI_OPERATOR_EMAILS", "OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "no-ostler-dir"))
+    gen = _gen()
+    engine = T._engine()
+    monkeypatch.setattr(gen, "_get_json", lambda path: {"items": []})
+    monkeypatch.setattr(gen, "_sparql_select", lambda sparql: engine(sparql))
+    # the fixture meetings sit at 09:00 three days ago; "now" is unaffected
+    return "\n".join(gen._meetings_section())
+
+
+def test_second_source_l3_meeting_absent_l1_control_present(second_source_text):
+    assert "L3 secret meeting" not in second_source_text
+    assert "L1 control lunch" in second_source_text
+
+
+def test_second_source_untagged_meeting_with_l3_attendee_absent(second_source_text):
+    assert "untagged meeting, L3 attendee" not in second_source_text
+    assert "L1 meeting with an L3 attendee" not in second_source_text
+    assert "untagged meeting, untagged attendee" not in second_source_text
