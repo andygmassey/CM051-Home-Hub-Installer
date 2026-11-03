@@ -614,12 +614,12 @@ _install_derive_preferences_agent() {
         <string>${cm019_dir}</string>
         <key>OSTLER_DERIVE_USER</key>
         <string>${derive_user}</string>
+        <key>OSTLER_CONVERSATIONS_DIR</key><string>${OSTLER_DIR}/state/conversations_mirror</string>
         <key>OXIGRAPH_URL</key>
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>QDRANT_URL</key>
         <string>${QDRANT_URL:-http://localhost:6333}</string>
-        <key>QDRANT_COLLECTION</key>
-        <string>preferences</string>
+        <key>QDRANT_COLLECTION</key><string>preferences</string>
     </dict>
     <key>StartInterval</key>
     <integer>${interval_s}</integer>
@@ -19739,7 +19739,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.32}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.33}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -19852,7 +19852,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="12101ded4af1b2dc4fa5ed0fcd873fbc35fb90ef83f7345ba86240b88861dd47"
+DEFAULT_ASSISTANT_TARBALL_SHA256="65669ddeefae1b4531dbc700399f0cee76072623d28b3640d47eae8561643560"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -23934,7 +23934,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.32"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.33"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -26045,6 +26045,10 @@ if ! mkdir "$_FDA_LOCK" 2>/dev/null; then
 fi
 echo "$$" > "$_FDA_LOCK/pid"
 trap 'rm -rf "$_FDA_LOCK"' EXIT
+# Conversations mirror for the derive tick (this process holds the FDA grant).
+if [[ -f "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" ]]; then
+    source "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh"; _ostler_conversations_mirror || true
+else echo "[mirror] CANNOT-RUN: ${OSTLER_DIR}/lib/ostler-conversations-mirror.sh missing" >&2; fi
 FDA_DIR="${OSTLER_DIR}/fda-module"
 # v1.0.12 FIX A: self-resolve the Python interpreter. This script is driven by
 # the com.ostler.fda-rerun LaunchAgent, whose environment does NOT inherit the
@@ -26157,6 +26161,7 @@ _ostler_tm_status_record() {
     return 0
 }
 _ostler_tm_status_record || true
+
 
 # ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
 #
@@ -26659,6 +26664,12 @@ if [[ "$_notes_rc" -ne 0 ]]; then
 fi
 exit "$_reminders_rc"
 FDAEOF
+# ── CONVERSATION MIRROR helper: sourced by bin/ostler-fda on every tick, so the
+# derive tick (bare python) never opens ~/Documents. See the lib's own header.
+mkdir -p "${OSTLER_DIR}/lib"
+cp "${SCRIPT_DIR}/lib/ostler-conversations-mirror.sh" "${OSTLER_DIR}/lib/" \
+    && chmod 700 "${OSTLER_DIR}/lib/ostler-conversations-mirror.sh" \
+    || warn "conversations mirror helper not installed: the derive tick will have no mirror"
 chmod +x "${OSTLER_DIR}/bin/ostler-fda"
 
 # ── THE DEFERRED fda-rerun LOAD (see the note at its plist write) ─────────
@@ -28784,6 +28795,7 @@ _u_tick_rc=0; bash "${HOME}/.ostler/bin/ostler-stop-background" || _u_tick_rc=$?
 # installing it, so an Ollama.app here is the customer's own or a cask-era leftover.
 # Deleting a customer's app on uninstall is worse than leaving ours.
 rm -rf "${HOME}/.ostler/runtime"/ollama-* 2>/dev/null || true
+rm -rf "${HOME}/.ostler/state/conversations_mirror" 2>/dev/null || true
 
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"

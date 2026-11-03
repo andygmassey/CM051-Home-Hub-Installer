@@ -20,7 +20,7 @@
 ["jane@example.invalid", false],
 ["jane doe <jane@example.invalid>", false],
 ["subject: hello there", false],
-["re: your order", false],
+["re: your order", true],
 ["your account update", true],
 ["alert", true],
 ["ALERT", true],

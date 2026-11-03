@@ -25,6 +25,8 @@ on:
       - 'scripts/box_walk_probes/probes/qdrant_has_fd_headroom_and_writes_land.sh'
       - 'scripts/box_walk_probes/probes/assistant_self_description_is_clean.sh'
       - 'scripts/box_walk_probes/probes/chat_latency_baseline.sh'
+      - 'scripts/box_walk_probes/lib/needs_you_now_fallback.py'
+      - 'scripts/box_walk_probes/probes/needs_you_now_birthdays_survive_fallback.sh'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/walk_promote_scope.tsv'
       - '.pii-name-registry.tsv'

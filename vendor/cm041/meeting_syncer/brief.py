@@ -313,19 +313,28 @@ def _get_person_facts(oxigraph_url, person_uri):
 def _get_meeting_history(oxigraph_url, person_uri):
     """Get past meetings with this person, most recent first."""
     sparql = """
-    PREFIX pwg: <{}>
-    SELECT ?summary ?date ?id WHERE {{
+    PREFIX pwg: <{0}>
+    SELECT ?summary ?date ?id ?mpriv ?ownerPriv WHERE {{
       ?meeting a pwg:Meeting ;
-               pwg:meetingAttendee <{}> ;
+               pwg:meetingAttendee <{1}> ;
                pwg:meetingSummary ?summary .
       OPTIONAL {{ ?meeting pwg:meetingDate ?date }}
       OPTIONAL {{ ?meeting pwg:meetingId ?id }}
+      OPTIONAL {{ ?meeting pwg:privacyLevel ?mpriv }}
+      OPTIONAL {{ <{1}> pwg:privacyLevel ?ownerPriv }}
     }}
     ORDER BY DESC(?date)
     """.format(PWG, person_uri)
     result = _sparql_query(oxigraph_url, sparql)
     meetings = []
     for b in result.get("results", {}).get("bindings", []):
+        # Outbound (brief) path: same fail-closed L3 filter as
+        # _get_person_facts. The meeting's own level and the attendee's
+        # level are both read, most-restrictive wins, and a meeting with
+        # no parseable level on either axis is dropped.
+        if pwg_privacy.is_l3({"privacy_level": b.get("mpriv", {}).get("value")},
+                             owner_level=b.get("ownerPriv", {}).get("value")):
+            continue
         meetings.append({
             "summary": b["summary"]["value"],
             "date": b.get("date", {}).get("value", ""),
@@ -349,20 +358,46 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
     """
     sparql = """
     PREFIX pwg: <urn:ostler:>
-    SELECT ?conv ?date WHERE {{
+    SELECT ?conv ?date ?fpriv WHERE {{
       ?fact <urn:ostler:about> <{person}> ;
             <urn:ostler:fromConversation> ?conv .
       OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
+      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}
     }}
     ORDER BY DESC(?date)
-    LIMIT 1
     """.format(person=person_uri)
     try:
         result = _sparql_query(oxigraph_url, sparql)
     except Exception as exc:
         logger.warning("last-conversation query failed for %s: %s", person_uri, exc)
         return ""
-    bindings = result.get("results", {}).get("bindings", [])
+    # No LIMIT in the query: the L3 filter must run BEFORE the "most recent"
+    # pick, or an L3 fact's conversation would hide a visible one. Same
+    # fail-closed rule as _get_person_facts: the fact's level and the
+    # person's level, most-restrictive wins, nothing parseable -> dropped.
+    # The person's level is a separate read because the person node and the
+    # CM048 fact can sit in different graphs; a failed read leaves it
+    # unknown, which only ever hides more.
+    owner_level = None
+    try:
+        owner_rows = _sparql_query(
+            oxigraph_url,
+            "SELECT ?l WHERE {{ <{p}> <{pwg}privacyLevel> ?l }}".format(
+                p=person_uri, pwg=PWG))
+        levels = [r.get("l", {}).get("value") for r in
+                  owner_rows.get("results", {}).get("bindings", [])]
+        if any(pwg_privacy.parse_privacy_level(v) == "L3" for v in levels):
+            owner_level = "L3"
+        elif levels:
+            owner_level = levels[0]
+    except Exception as exc:
+        logger.warning("person-level query failed for %s: %s", person_uri, exc)
+    bindings = [
+        b for b in result.get("results", {}).get("bindings", [])
+        if not pwg_privacy.is_l3(
+            {"privacy_level": b.get("fpriv", {}).get("value")},
+            owner_level=owner_level)
+    ]
     if not bindings:
         return ""
     conv_uri = bindings[0].get("conv", {}).get("value", "")

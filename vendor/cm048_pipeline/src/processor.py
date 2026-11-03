@@ -2957,17 +2957,20 @@ def _step_bundle(
     # Placed ahead of sub-step B deliberately: a channel whose bundle
     # adapter has not landed yet still gets its topics into the graph.
     # Imported lazily, matching the last_contact_updater call below.
+    # Gated here AND in write_topics, independently: runs ONLY for a known
+    # non-L3 level (skips L3, None, "" and anything unparseable).
     if ingest_sinks:
         from . import topic_writer as _topic_writer
 
-        _topic_writer.write_topics(
-            conversation_id=str(metadata.get("conversation_id") or ""),
-            topics=extraction.topics,
-            settings=settings,
-            privacy_level=privacy_level,
-            metadata=metadata,
-            dry_run=dry_run,
-        )
+        if _topic_writer.is_writable_privacy_level(privacy_level):
+            _topic_writer.write_topics(
+                conversation_id=str(metadata.get("conversation_id") or ""),
+                topics=extraction.topics,
+                settings=settings,
+                privacy_level=privacy_level,
+                metadata=metadata,
+                dry_run=dry_run,
+            )
 
     # ── Sub-step B: bundle assembly + atomic write ─────────────────
     if _is_gist_only(metadata):

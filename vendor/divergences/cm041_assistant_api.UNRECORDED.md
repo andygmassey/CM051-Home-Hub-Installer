@@ -1633,3 +1633,61 @@ Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
 
 UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
 `assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
+
+## 2026-11-02, v1.0.122 candidate (walk 121): service-name vocabulary gains verification and order
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `people_rules.py` | `_SERVICE_NAME_SUFFIX_WORDS` gains `verification`, `verify`, `order`, `orders` (one comment line plus one set line). |
+
+Why: walk 121 `hub_screens_customer_read` found two uncarded People rows
+("<App> Verification", "order review") that `_is_automated_or_service_name`
+kept because the vocabulary lacked those words.
+
+Guarded by `tests/test_verification_and_order_senders_are_not_people.py`
+(wired in `.github/workflows/hub-screens-and-106c.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/241
+makes the same change in `assistant_api/ical-server.py`, where canonical CM041
+keeps the set (people_rules.py is a CM051 extraction and does not exist
+upstream). Retire this section when a re-pin brings #241 in.
+
+## 2026-11-03, v1.0.122 fix wave: derived dislikes ride alongside the capped list
+
+Tree: cm041/assistant_api. File: `vendor/cm041/assistant_api/derived_preferences.py` only (whole-file copy of the CM041 PR branch; no `ical-server.py` change).
+
+| symbol | change |
+|---|---|
+| `NEGATIVES_LIMIT` (new) | 100 |
+| `DerivedGraphReader.get_derived_preferences` | new `negative_only` flag: adds `FILTER(?strength < 0)` and orders by `ASC(?strength * ?confidence)`; same privacy filters and row guard |
+| `DerivedGraphReader.get_negative_preferences` (new) | negatives above `min_confidence`, any tier, bounded at 100, `exclude` drops keys already served |
+| `_view_key` (new), `build_derived_preferences_response` | appends the negatives after the capped list, not counted against `limit`, no duplicates |
+
+Why: on the v1.0.121 Mini16 walk a seeded dislike ranked 186th of 312 derived nodes, and the route cuts to `limit` after the category round-robin, so a `limit=8` consumer never saw it (probes `derived_preferences_dislike`, `dislike_respected_in_brief`).
+
+Guarded by `tests/test_vendored_derived_negatives_survive_cap.py` (wired in `.github/workflows/derived-preferences.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/242, MERGED as aa11cba1 (upstream landing). Retire this section when a re-pin brings it in.
+
+## 2026-11-03 v1.0.122 (fix122_l3out): the outbound employer path withholds L3 career facts
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_query_operator_career_facts(outbound=False)`: selects each fact's `pwg:privacyLevel` and the operator node's; with `outbound=True` drops rows `pwg_privacy.is_l3` hides (most-restrictive; nothing parseable is hidden, as in the brief's `_get_person_facts`). `_select_current_employer` and `_current_employer_safe` pass `outbound` through.
+- `GET /api/v1/employer` (read by context-refresh `generate_pwg_context.py:885`) passes `outbound=True`. The Memory tab (`api_memory_list`) and `person_context` / `person_enrichment` / people-card overlays keep the default `False`: on-box Hub screens still show every level.
+- Timeline: see the next section (closed in the same wave).
+- Proof: `tests/test_vendored_employer_outbound_l3.py` (mutant with the filter off: 5 fail, 2 pass).
+- Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.
+
+## 2026-11-03 v1.0.122 (fix122_timeline): `/api/v1/timeline?outbound=1` withholds L3
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_timeline_from_graph(outbound=False)`, `_timeline_conversations(outbound=False)`, `api_timeline(outbound=False)`: with `outbound=True` each meeting's own `pwg:privacyLevel` and EACH attendee's are read (one SPARQL row per meeting, levels GROUP_CONCATed; an attendee with no level is carried as "unknown", not skipped) and `pwg_privacy.is_l3` hides it (most-restrictive; a missing meeting level inherits the attendee's, never L1; unparseable or nothing parseable is hidden; one L3 attendee hides the meeting). Conversation rows are tested on their payload level (untagged hidden). The live-calendar strip is omitted outbound (no level exists to clear it by).
+- Route: `GET /api/v1/timeline?outbound=1` (also `true`/`yes`) sets it. No param = the on-box hub timeline, unchanged (every level). The flag is opt-in, so an on-box client is unaffected and an outbound consumer must ask.
+- Consumer: `context-refresh/bin/generate_pwg_context.py` `_meetings_section` now requests `?days=7&outbound=1` (CM051-native, no CM041 counterpart).
+- NOT covered: the digest's second source `_meeting_rows` reads `pwg:Meeting` directly and uses the digest's own `_is_withheld` (explicit L3 only; an untagged meeting is KEPT, and the attendee level is not read). Not changed here. Any other client of `/api/v1/timeline` (oa, Companion) that forwards it off the box must pass `outbound=1`: not audited.
+- Proof: `tests/test_vendored_timeline_outbound_l3.py`, `tests/test_digest_timeline_outbound_l3.py` (digest text, real generator, real SPARQL engine), `tests/test_every_outbound_graph_reader_filters_l3.py` (`_timeline_from_graph` now OUTBOUND, KNOWN_GAP empty).
+- Upstream: CM041 PR #244 (branch fix122/l3-outbound, test `assistant_api/tests/test_timeline_outbound_l3.py`). The vendored copy has `start`/`end`/`ascending`/`allDay` that CM041 main lacks, so the edit is hand-ported, not a re-vendor. Retire this section when a re-pin brings it in.

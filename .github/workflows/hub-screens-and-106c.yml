@@ -21,6 +21,8 @@ on:
       - 'tests/test_walk_probes_bypass_a_local_proxy.sh'
       - 'tests/test_customer_read_click_timeout_names_its_cause.py'
       - 'tests/test_customer_read_dismisses_welcome_modal.py'
+      - 'tests/test_verification_and_order_senders_are_not_people.py'
+      - 'vendor/cm041/assistant_api/people_rules.py'
       - 'tests/test_customer_read_assertion_count_is_one_integer.sh'
       - 'scripts/box_walk_probes/probes/hub_screens_customer_read.sh'
       - 'vendor/cm041/assistant_api/ical-server.py'
@@ -145,6 +147,9 @@ jobs:
         # Exit 2 is CANNOT-RUN and fails here. Needs the /tmp/pw venv built above.
         if: always()
         run: /tmp/pw/bin/python tests/test_customer_read_dismisses_welcome_modal.py
+      - name: Verification and Order service senders are not People
+        if: always()
+        run: python3 tests/test_verification_and_order_senders_are_not_people.py
       - name: Walk probes reach loopback through a dead HTTP_PROXY
         if: always()
         run: bash tests/test_walk_probes_bypass_a_local_proxy.sh

@@ -37,6 +37,10 @@ ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
 # an unparseable level fails closed). A node with NO level is served: it is
 # behavioural evidence, or a graph written before CM019 #423.
 SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
+# A stated dislike is rare and decisive ("never serve me coriander"), but the
+# round-robin cap ranks it by confidence among hundreds of likes. Negatives are
+# therefore read in their own pass, bounded here and NOT counted against `limit`.
+NEGATIVES_LIMIT = 100
 # Dedicated, fully-regenerable named graph for derived nodes.
 DERIVED_GRAPH = "https://schema.ostler.ai/derived/graph/preferences"
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
@@ -108,6 +112,7 @@ class DerivedGraphReader:
         min_confidence: float = 0.4,
         limit: int = 8,
         with_evidence: bool = True,
+        negative_only: bool = False,
         **_kw,
     ) -> List[AffinityView]:
         served = ", ".join(f'"{lvl}"' for lvl in SERVED_PRIVACY_LEVELS)
@@ -126,8 +131,14 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
             f"    FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
-            "  }\n"
-            "} ORDER BY DESC(?confidence) DESC(?strength)\n"
+            + ("    FILTER(?strength < 0)\n" if negative_only else "")
+            + "  }\n"
+            + (
+                # Strongest dislike first: most negative strength x confidence.
+                "} ORDER BY ASC(?strength * ?confidence)\n"
+                if negative_only
+                else "} ORDER BY DESC(?confidence) DESC(?strength)\n"
+            ) +
             f"LIMIT {int(limit)}"
         )
         views: List[AffinityView] = []
@@ -183,6 +194,28 @@ class DerivedGraphReader:
         picked = interleave_by_category(ranked, limit)
         return [replace(v, because=self._evidence_titles(v.node)) for v in picked]
 
+    def get_negative_preferences(
+        self,
+        user_id: str,
+        min_confidence: float = 0.4,
+        limit: int = NEGATIVES_LIMIT,
+        exclude=frozenset(),
+    ) -> List[AffinityView]:
+        """Every negative-strength item above ``min_confidence``, strongest first.
+
+        Same query, privacy filters (no L3, unparseable level fails closed) and
+        row guard as get_derived_preferences, so a negative is held to every
+        gate a like is. Ignores the tier and the category round-robin. Rows whose
+        key is in ``exclude`` (already served in the capped list) are dropped
+        before their evidence is resolved; the bound applies to what is returned.
+        """
+        rows = self.get_derived_preferences(
+            user_id, min_confidence=min_confidence, limit=int(limit) + len(exclude),
+            with_evidence=False, negative_only=True,
+        )
+        keep = [v for v in rows if v.strength < 0 and _view_key(v) not in exclude][: int(limit)]
+        return [replace(v, because=self._evidence_titles(v.node)) for v in keep]
+
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
         """Titles behind a node: its own pwg:evidenceTitle first (written by the
         CM019 engine, works for every source), else the overlay's matchedTitle for
@@ -225,6 +258,11 @@ def _now_iso(now: Optional[datetime]) -> str:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _view_key(view) -> tuple:
+    """Identity for de-duplication: the node URI, else dimension + subject."""
+    return (view.node,) if getattr(view, "node", "") else (view.dimension, view.subject)
 
 
 def _item(view) -> dict:
@@ -281,6 +319,15 @@ def build_derived_preferences_response(
         if not views and defaulted and mixed is not None and tier == "broad":
             views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier="all")
             fell_back = bool(views)
+        # Dislikes ride ALONGSIDE the capped list whatever the tier, so a low
+        # ranked one cannot fall off the cap. Bounded on their own, not counted
+        # against `limit`; one already in the capped list is not repeated.
+        negs = getattr(reader, "get_negative_preferences", None)
+        if negs is not None:
+            have = {_view_key(v) for v in views}
+            views = list(views) + negs(
+                user_id, min_confidence=min_confidence, limit=NEGATIVES_LIMIT, exclude=have
+            )
     except Exception as exc:  # dependency down: degrade, do not 200 []
         return {
             "generated_at": ts,

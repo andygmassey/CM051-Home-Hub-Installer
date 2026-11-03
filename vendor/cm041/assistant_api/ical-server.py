@@ -5746,7 +5746,7 @@ def _domain_corroborates(org: str, domains: set):
     return None
 
 
-def _query_operator_career_facts() -> list:
+def _query_operator_career_facts(outbound: bool = False) -> list:
     """Reified, dated ``career_position`` facts about the operator.
 
     Read off ``USER_URI`` only. Returns raw binding dicts (fact, org,
@@ -5769,13 +5769,21 @@ def _query_operator_career_facts() -> list:
     to that assert endpoint (emit a ``career_position`` fact), out of scope
     for this read-path PR; tracked as the first-pass MED finding, not a
     defect in the resolver's keying.
+
+    ``outbound=True`` is the path that leaves the box (``/api/v1/employer``,
+    read by the brief agent): each fact's own ``pwg:privacyLevel`` and the
+    operator node's are read, most-restrictive wins, and a fact with no
+    parseable level on either axis is dropped (same rule as the brief's
+    ``_get_person_facts``). The default ``False`` keeps the on-box Hub
+    screens (Memory tab, person_context) seeing every level.
     """
     if not USER_URI:
         return []
     try:
-        return _sparql_select(
+        rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?fact ?org ?title ?startDate ?endDate ?factText ?conf '
+            '?fpriv ?ownerPriv '
             'WHERE {{\n'
             '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
             'pwg:factType "career_position" .\n'
@@ -5785,14 +5793,21 @@ def _query_operator_career_facts() -> list:
             '  OPTIONAL {{ ?fact pwg:endDate ?endDate }}\n'
             '  OPTIONAL {{ ?fact pwg:factText ?factText }}\n'
             '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+            '  OPTIONAL {{ ?fact pwg:privacyLevel ?fpriv }}\n'
+            '  OPTIONAL {{ <{user}> pwg:privacyLevel ?ownerPriv }}\n'
             '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?vt }}\n'
             '}}'.format(ns=PWG_NS, user=USER_URI)
         )
     except Exception:
         return []
+    if outbound:
+        rows = [r for r in rows
+                if not pwg_privacy.is_l3({"privacy_level": r.get("fpriv")},
+                                         owner_level=r.get("ownerPriv"))]
+    return rows
 
 
-def _select_current_employer() -> dict:
+def _select_current_employer(outbound: bool = False) -> dict:
     """Deterministically resolve the operator's CURRENT employer.
 
     Combines three signals (the operator's stated corroboration
@@ -5825,7 +5840,7 @@ def _select_current_employer() -> dict:
 
     verdicts = _hygiene_verdicts()
     domains = _operator_email_domains()
-    raw = _query_operator_career_facts()
+    raw = _query_operator_career_facts(outbound=outbound)
     # F3 (Archie re-review): the operator's OWN memory-tab corrections are
     # authoritative over the source triples. A career fact the operator has
     # explicitly forgotten via POST /api/v1/memory/correct/{id} MUST never be
@@ -6022,10 +6037,13 @@ def _select_current_employer() -> dict:
     }
 
 
-def _current_employer_safe() -> dict:
-    """``_select_current_employer`` wrapped so no read path can 5xx."""
+def _current_employer_safe(outbound: bool = False) -> dict:
+    """``_select_current_employer`` wrapped so no read path can 5xx.
+
+    ``outbound=True`` withholds L3 career facts (see
+    ``_query_operator_career_facts``)."""
     try:
-        return _select_current_employer()
+        return _select_current_employer(outbound=outbound)
     except Exception:
         return {"found": False}
 
@@ -9640,7 +9658,7 @@ def api_meeting_upcoming(within_minutes=120):
 
 
 def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
-                         ascending=False):
+                         ascending=False, outbound=False):
     """Historic timeline rows from the People Graph - one entry PER MEETING.
 
     The Timeline is mainly a HISTORIC view, so its primary source is the graph
@@ -9652,24 +9670,48 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
 
     Returns ``(rows, error)`` - newest first. ``error`` is a string when the
     graph query failed (so the caller can surface a degraded marker), else None.
+
+    ``outbound=True`` is the path that leaves the box (the 7-day digest reads
+    ``/api/v1/timeline?outbound=1`` into the assistant's context, and channel
+    replies leave the box). Same rule as the brief readers: each meeting's own
+    ``pwg:privacyLevel`` and EACH attendee's are read, most-restrictive wins,
+    a meeting with no level (own or inherited) is hidden, an unparseable level
+    is hidden, and one L3 attendee hides the meeting. An attendee with no level
+    is kept in the check as "unknown", never skipped. The default ``False``
+    keeps the on-box hub timeline seeing every level.
     """
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc)
               - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+    level_select = ''
+    level_where = ''
+    if outbound:
+        level_select = (
+            ' (GROUP_CONCAT(DISTINCT STR(?mpriv); SEPARATOR="|") AS ?mlevels) '
+            '(GROUP_CONCAT(DISTINCT COALESCE(STR(?apriv), "none"); '
+            'SEPARATOR="|") AS ?alevels)'
+        )
+        level_where = (
+            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '  OPTIONAL {{ ?m pwg:meetingAttendee ?pa . '
+            'OPTIONAL {{ ?pa pwg:privacyLevel ?apriv }} }}\n'
+        )
     try:
         rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
+            ('PREFIX pwg: <{ns}>\n'
             'SELECT ?m ?date (SAMPLE(?summary) AS ?summary) '
             '(SAMPLE(?location) AS ?location) (SAMPLE(?allDay) AS ?allDay) '
-            '(GROUP_CONCAT(DISTINCT ?name; SEPARATOR="|") AS ?attendees)\n'
+            '(GROUP_CONCAT(DISTINCT ?name; SEPARATOR="|") AS ?attendees)'
+            + level_select + '\n'
             'WHERE {{\n'
             '  ?m a pwg:Meeting ; pwg:meetingDate ?date .\n'
             '  OPTIONAL {{ ?m pwg:meetingAttendee ?p . ?p pwg:displayName ?name }}\n'
             '  OPTIONAL {{ ?m pwg:meetingSummary ?summary }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
             '  OPTIONAL {{ ?m pwg:meetingAllDay ?allDay }}\n'
+            + level_where +
             '  FILTER(?date >= "{cutoff}"){start_f}{end_f}\n'
-            '}} GROUP BY ?m ?date ORDER BY {order}(?date) LIMIT {limit}'.format(
+            '}} GROUP BY ?m ?date ORDER BY {order}(?date) LIMIT {limit}').format(
                 ns=PWG_NS, cutoff=cutoff, limit=max(1, limit),
                 # Window bounds (#106c). `start` is EXCLUSIVE (the newest day
                 # the client already holds), `end` is EXCLUSIVE (the oldest).
@@ -9684,6 +9726,15 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
         )
     except Exception as exc:
         return [], str(exc)
+
+    if outbound:
+        def _lv(raw):
+            vals = [v for v in (raw or "").split("|")]
+            return [None if v in ("", "none") else v for v in vals] or [None]
+        rows = [r for r in rows
+                if not any(pwg_privacy.is_l3({"privacy_level": m}, owner_level=a)
+                           for m in _lv(r.get("mlevels"))
+                           for a in _lv(r.get("alevels")))]
 
     out = []
     for r in rows:
@@ -9708,7 +9759,8 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
     return out, None
 
 
-def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
+def _timeline_conversations(past_days=730, limit=200, start=None, end=None,
+                            outbound=False):
     """Historic conversation rows for the Timeline, from Qdrant.
 
     Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
@@ -9783,6 +9835,9 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None):
             continue
         if (start and date <= start) or (end and date >= end):
             continue
+        # Outbound: the payload's own level, fail-closed (untagged hidden).
+        if outbound and pwg_privacy.is_l3(payload):
+            continue
         counterpart = (payload.get("contact_name")
                        or payload.get("wing")
                        or payload.get("participant")
@@ -9829,7 +9884,8 @@ def _conversation_title(channel, participants):
     return "{} conversation".format(label)
 
 
-def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
+def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
+                 outbound=False):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
 
     The Timeline is a HISTORIC view first. Its backbone is the People Graph
@@ -9842,22 +9898,30 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
     Output shape: {items: [{kind, date, summary, participants?, location?}],
                    entries: [...CM031 shape...], days, past_days, limit, count}
     Rows are newest-first and capped at ``limit``.
+
+    ``outbound=True`` (``?outbound=1``) is the path whose output enters the
+    assistant's context and so can leave the box: meetings and conversations
+    pass the fail-closed L3 filter, and the live-calendar strip is omitted
+    (those events carry no privacy level, so none can be cleared). The
+    default keeps the on-box hub timeline unchanged.
     """
     items = []
 
-    # Future: calendar events
+    # Future: calendar events (omitted outbound: no level to clear them by)
     try:
         cal_events = []
         try:
-            result = subprocess.run(
-                [ICAL_SCRIPT, str(days)],
-                capture_output=True, text=True, timeout=30,
-            )
-            cal_events.extend(parse_ical_output(result.stdout))
+            if not outbound:
+                result = subprocess.run(
+                    [ICAL_SCRIPT, str(days)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                cal_events.extend(parse_ical_output(result.stdout))
         except Exception:
             pass
         try:
-            cal_events.extend(query_google_calendar(days))
+            if not outbound:
+                cal_events.extend(query_google_calendar(days))
         except Exception:
             pass
         for e in cal_events:
@@ -9895,7 +9959,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
         window_end = (_date.today() + _td(days=max(0, days) + 1)).isoformat()
     past_rows, past_err = _timeline_from_graph(
         past_days=past_days, limit=limit, start=window_start, end=window_end,
-        ascending=forward)
+        ascending=forward, outbound=outbound)
     if past_err is not None:
         items.append({"kind": "meeting_error", "error": past_err})
     else:
@@ -9909,7 +9973,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None):
     # Failure here is reported, never fatal: a broken conversation store must
     # degrade this section, not empty the whole Timeline of its meetings.
     conv_rows, conv_err = _timeline_conversations(
-        past_days=past_days, limit=limit, start=window_start, end=window_end)
+        past_days=past_days, limit=limit, start=window_start, end=window_end,
+        outbound=outbound)
     if conv_err is not None:
         items.append({"kind": "conversation_error", "error": conv_err})
     else:
@@ -13045,8 +13110,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
+                outbound = (params.get("outbound") or [""])[0].strip().lower() in (
+                    "1", "true", "yes")
                 result = api_timeline(days=days, past_days=past_days,
-                                      limit=limit, before=before, after=after)
+                                      limit=limit, before=before, after=after,
+                                      outbound=outbound)
             except Exception as exc:
                 # `entries` mirrors `items` per the iOS ServerTimelineResponse
                 # decoder (F-1, 2026-05-27). Without it the Companion drops
@@ -13178,7 +13246,7 @@ class Handler(BaseHTTPRequestHandler):
         # employer from the flat fact list. Never 5xx: returns
         # {"found": false} when there is no evidence.
         if parsed.path == "/api/v1/employer":
-            result = _current_employer_safe()
+            result = _current_employer_safe(outbound=True)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

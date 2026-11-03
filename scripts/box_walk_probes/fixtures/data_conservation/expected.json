@@ -24,7 +24,7 @@
        "key": "x.class.Person",
        "zero_if": "x.class.total"
       },
-      "in": "hyd.people.item_count",
+      "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
       "shown": "w.shown.people.source=fda_people_index",
       "stored": "q.people.total"
      },
@@ -94,7 +94,7 @@
        "key": "x.class.Person",
        "zero_if": "x.class.total"
       },
-      "in": "hyd.people.item_count",
+      "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
       "shown": "w.shown.people.source=fda_people_index",
       "stored": "q.people.total"
      },

@@ -30,6 +30,11 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="${REPO}/scripts/box_walk_probes/probes"
 [ -d "$DIR" ] || { printf 'CANNOT-RUN: no probe directory at %s\n' "$DIR" >&2; exit 2; }
 
+LIB="${REPO}/scripts/box_walk_probes/lib/promote_order.sh"
+[ -f "$LIB" ] || { printf 'CANNOT-RUN: no %s\n' "$LIB" >&2; exit 2; }
+# shellcheck disable=SC1090
+. "$LIB"
+
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  [PASS] %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
@@ -59,14 +64,13 @@ for f in "$DIR"/*.sh; do
     fi
 done
 set -- $MUTATORS
-if [ "$#" -ne 1 ]; then
-    printf 'CANNOT-RUN: expected exactly ONE probe that pairs against :8443, found %s (%s).\n' "$#" "${MUTATORS# }" >&2
+if [ "$#" -lt 1 ]; then
+    printf 'CANNOT-RUN: expected at least ONE probe that pairs against :8443, found %s (%s).\n' "$#" "${MUTATORS# }" >&2
     printf '  The predicate no longer matches how the mutation is written, so the\n' >&2
     printf '  ordering below would be asserted about the wrong subject.\n' >&2
     exit 2
 fi
-MUTATOR="$1"
-ok "the pairing mutator is ${MUTATOR} (exactly one probe pairs against :8443)"
+ok "pairing mutators found: $# (${MUTATORS# }); EVERY one must run after every reader"
 
 # --- discover the readers ---------------------------------------------------
 # Device-layer and policy pairing state. Deliberately NOT the word "pair" alone:
@@ -74,7 +78,7 @@ ok "the pairing mutator is ${MUTATOR} (exactly one probe pairs against :8443)"
 READERS=""
 for f in "$DIR"/*.sh; do
     b="$(basename "$f" .sh)"
-    [ "$b" = "$MUTATOR" ] && continue
+    case " $MUTATORS " in *" $b "*) continue ;; esac
     if [ "$(grep -cE 'devices\.db|paired_devices|pairing_required|require_pairing|"paired"' "$f")" -gt 0 ]; then
         READERS="${READERS} ${b}"
     fi
@@ -89,10 +93,36 @@ fi
 ok "pairing-state readers found: $# (${READERS# })"
 
 # --- the two orders ---------------------------------------------------------
-order_under() {
-    # order_under <locale>  -> probe basenames, one per line, as a glob would sort
-    ( cd "$DIR" && LC_ALL="$1" ls -1 ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | LC_ALL="$1" sort )
+# THE ORDER COMES FROM THE RUNNER, NOT FROM THE LIB. The block of run_box_walk.sh
+# that turns the C-sorted list into the list it executes (from sourcing
+# promote_order.sh through the pin_last line) is cut out of the runner and run
+# here, so deleting or reordering the apply_pins / pin_last calls in the runner
+# changes this test's order. Promotion needs the operator walk store, so the
+# block runs against a stub early_repeat_fail_pass.sh that names $STUB_FAILS.
+RUNNER="${REPO}/scripts/box_walk_probes/run_box_walk.sh"
+BLOCK="$(sed -n '/^\. "\$HERE\/lib\/promote_order\.sh"/,/^PROBES="\$(pin_last /p' "$RUNNER")"
+case "$BLOCK" in
+    *'PROBES="$(pin_last '*) ;;
+    *) printf 'CANNOT-RUN: could not cut the ordering block out of %s\n' "$RUNNER" >&2; exit 2 ;;
+esac
+STUBROOT="$(mktemp -d)"; trap 'rm -rf "$STUBROOT"' EXIT
+mkdir -p "$STUBROOT/box_walk_probes"
+ln -s "${REPO}/scripts/box_walk_probes/lib" "$STUBROOT/box_walk_probes/lib"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" $STUB_FAILS\n' > "$STUBROOT/early_repeat_fail_pass.sh"
+
+runner_order() {
+    # runner_order <locale> [failed probe names] -> basenames, one per line, in the
+    # order run_box_walk.sh would execute them
+    local names out
+    names="$( cd "$DIR" && LC_ALL="$1" ls -1 ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | LC_ALL="$1" sort )"
+    out="$(HERE="$STUBROOT/box_walk_probes" ONLY="" STUB_FAILS="${2:-}" OSTLER_BOX_HOST=stub \
+        PROBES="$(for n in $names; do printf '%s ' "${DIR}/${n}.sh"; done)" \
+        bash -c "set -uo pipefail
+$BLOCK
+printf '@@ORDER@@ %s\n' \"\$PROBES\"")" || return 1
+    printf '%s\n' "$out" | sed -n 's/^@@ORDER@@ //p' | tr ' ' '\n' | while read -r p; do basename "$p" .sh; done
 }
+order_under() { runner_order "$1"; }
 AMBIENT="${LC_ALL:-${LANG:-C}}"
 ORDER_C="$(order_under C)"
 ORDER_A="$(order_under "$AMBIENT")"
@@ -107,20 +137,22 @@ pos_in() { printf '%s\n' "$1" | grep -nx -- "$2" | cut -d: -f1; }
 
 for locale_name in C "$AMBIENT"; do
     ORD="$(order_under "$locale_name")"
-    mpos="$(pos_in "$ORD" "$MUTATOR")"
-    if [ -z "$mpos" ]; then
-        printf 'CANNOT-RUN: %s does not appear in the %s ordering.\n' "$MUTATOR" "$locale_name" >&2
-        exit 2
-    fi
-    for r in $READERS; do
-        rpos="$(pos_in "$ORD" "$r")"
-        [ -z "$rpos" ] && continue
-        case " $ALLOWED " in *" $r "*) continue ;; esac
-        if [ "$rpos" -lt "$mpos" ]; then
-            ok "[${locale_name}] ${r} (#${rpos}) reads pairing state BEFORE ${MUTATOR} (#${mpos}) changes it"
-        else
-            bad "[${locale_name}] ${r} (#${rpos}) runs AFTER ${MUTATOR} (#${mpos}), so it reads pairing state THIS SUITE created. Either rename it to sort earlier, or add it to ALLOWED in this file WITH the reason it is unaffected."
+    for MUTATOR in $MUTATORS; do
+        mpos="$(pos_in "$ORD" "$MUTATOR")"
+        if [ -z "$mpos" ]; then
+            printf 'CANNOT-RUN: %s does not appear in the %s ordering.\n' "$MUTATOR" "$locale_name" >&2
+            exit 2
         fi
+        for r in $READERS; do
+            rpos="$(pos_in "$ORD" "$r")"
+            [ -z "$rpos" ] && continue
+            case " $ALLOWED " in *" $r "*) continue ;; esac
+            if [ "$rpos" -lt "$mpos" ]; then
+                ok "[${locale_name}] ${r} (#${rpos}) reads pairing state BEFORE ${MUTATOR} (#${mpos}) changes it"
+            else
+                bad "[${locale_name}] ${r} (#${rpos}) runs AFTER ${MUTATOR} (#${mpos}), so it reads pairing state THIS SUITE created. Either rename it to sort earlier, pin the mutator behind it (WALK_PIN_AFTER in lib/promote_order.sh), or add it to ALLOWED in this file WITH the reason it is unaffected."
+            fi
+        done
     done
 done
 
@@ -131,29 +163,28 @@ done
 # moves it EARLIER, so every reader stays ahead of the mutator. Checked on real
 # probes for several promoted lists, with a control that a naive promotion of the
 # mutator is caught by the same checker.
-LIB="${REPO}/scripts/box_walk_probes/lib/promote_order.sh"
-if [ ! -f "$LIB" ]; then
-    bad "lib/promote_order.sh is absent, so a promoted order is unchecked"
-else
-    # shellcheck disable=SC1090
-    . "$LIB"
+{
+    MUTATOR="${MUTATORS# }"; MUTATOR="${MUTATOR%% *}"   # the promoted checks below name one
     PROBES="$(for f in "$DIR"/*.sh; do printf '%s\n' "$f"; done | LC_ALL=C sort | tr '\n' ' ')"
     N_ALL="$(printf '%s' "$PROBES" | wc -w | tr -d ' ')"
     check_promoted() {   # label, ordered path list ; asserts reader < mutator and nothing lost
-        local label="$1" ord="$2" names mpos rpos r
+        local label="$1" ord="$2" names mpos rpos r M
+        [ -n "${NOPIN:-}" ] || ord="$(PROBES="$ord" apply_pins)"   # NOPIN: controls only
         names="$(for p in $ord; do basename "$p" .sh; done)"
         [ "$(printf '%s\n' "$names" | wc -l | tr -d ' ')" = "$N_ALL" ] \
             && ok "${label}: all ${N_ALL} probes still present, none added" \
             || { bad "${label}: probe count changed"; return; }
-        mpos="$(pos_in "$names" "$MUTATOR")"
-        for r in $READERS; do
-            case " $ALLOWED " in *" $r "*) continue ;; esac
-            rpos="$(pos_in "$names" "$r")"
-            if [ -n "$rpos" ] && [ "$rpos" -lt "$mpos" ]; then :; else
-                bad "${label}: ${r} (#${rpos}) is not ahead of ${MUTATOR} (#${mpos})"; return
-            fi
+        for M in $MUTATORS; do
+            mpos="$(pos_in "$names" "$M")"
+            for r in $READERS; do
+                case " $ALLOWED " in *" $r "*) continue ;; esac
+                rpos="$(pos_in "$names" "$r")"
+                if [ -n "$rpos" ] && [ "$rpos" -lt "$mpos" ]; then :; else
+                    bad "${label}: ${r} (#${rpos}) is not ahead of ${M} (#${mpos})"; return
+                fi
+            done
         done
-        ok "${label}: every reader is ahead of ${MUTATOR} (#${mpos})"
+        ok "${label}: every reader is ahead of every mutator (${MUTATORS# })"
     }
     FIRSTREADER="$(printf '%s' "$READERS" | awk '{print $1}')"
     check_promoted "promote nothing"                "$(promote_order "")"
@@ -162,17 +193,34 @@ else
 ingest_coverage")"
     check_promoted "promote a reader alone"         "$(promote_order "$FIRSTREADER")"
     check_promoted "promote a name that is not a probe" "$(promote_order "no_such_probe")"
+    # The same, through the runner's own block with a promoted list from the stub.
+    RO="$(runner_order C "$MUTATOR $FIRSTREADER")" || RO=""
+    if [ -n "$RO" ] && [ "$(printf '%s\n' "$RO" | wc -l | tr -d ' ')" = "$N_ALL" ]; then
+        rb=""
+        for M in $MUTATORS; do
+            mp="$(pos_in "$RO" "$M")"
+            for r in $READERS; do
+                case " $ALLOWED " in *" $r "*) continue ;; esac
+                rp="$(pos_in "$RO" "$r")"
+                { [ -n "$rp" ] && [ "$rp" -lt "$mp" ]; } || rb="$rb $r>$M"
+            done
+        done
+        [ -z "$rb" ] && ok "runner block with promoted failures: every reader is ahead of every mutator" \
+                     || bad "runner block with promoted failures: reader not ahead of mutator:${rb}"
+    else
+        bad "runner block with promoted failures: did not yield all ${N_ALL} probes"
+    fi
     # POSITIVE CONTROL: the naive promotion (mutator to the front, nothing else)
     # must be caught by the same checker, or the PASSes above prove nothing.
     NAIVE="${DIR}/${MUTATOR}.sh $(printf '%s' "$PROBES" | tr ' ' '\n' | grep -v -x -- "${DIR}/${MUTATOR}.sh" | tr '\n' ' ')"
     before_fail=$FAIL
-    check_promoted "NAIVE promotion (control)" "$NAIVE" >/dev/null
+    NOPIN=1 check_promoted "NAIVE promotion (control)" "$NAIVE" >/dev/null
     if [ "$FAIL" -gt "$before_fail" ]; then
         FAIL=$before_fail; ok "control: the naive 'mutator first' promotion is caught by this checker"
     else
         bad "control: the checker did NOT catch a mutator promoted to the front"
     fi
-fi
+}
 
 # --- the allowlist must not rot ---------------------------------------------
 for a in $ALLOWED; do

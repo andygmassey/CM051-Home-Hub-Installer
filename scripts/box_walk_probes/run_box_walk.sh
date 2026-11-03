@@ -826,6 +826,11 @@ fi
 # promotion never moves it, and this puts it behind the p..z probes that the C
 # sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
 # asserts the order.
+# A pairing mutator runs after the pairing-state readers: apply_pins puts
+# gateway_never_serves_a_stored_secret behind pair_state_agreement (the C sort
+# has it ahead). tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
+# asserts the order.
+PROBES="$(apply_pins)"
 PROBES="$(pin_last owner_knowledge_score)"
 # The probe seeds only on a walk that may write: --only implies --read-only, and
 # the probe reads this to leave the graph alone.

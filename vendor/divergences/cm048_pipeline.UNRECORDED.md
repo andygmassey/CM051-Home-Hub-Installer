@@ -122,3 +122,11 @@ length refusal is `title_too_long`) is CM048 PR #108, stacked on #106, and is
 carried here by CM051 #3232. Both ride in `vendor/divergences/cm048_pipeline.patch`.
 RETIRE this entry when #106 (with #108) merges canonically and the pin is moved
 past it; until then do not let a re-pin overwrite `src/reminders_push.py`.
+
+## Topic writes only for a known non-L3 level (CM048 #109), v1.0.122
+
+Tree `cm048_pipeline`. Files `src/processor.py` and `src/topic_writer.py`, carried
+by CM051 #3291 and riding in `vendor/divergences/cm048_pipeline.patch`.
+
+UPSTREAM: CM048 #109 MERGED as ba26e09e (upstream landing). Retire this section
+when a re-pin brings it in; pin stays aed03798 until then.
