@@ -1649,4 +1649,4 @@ Why: on the v1.0.121 Mini16 walk a seeded dislike ranked 186th of 312 derived no
 
 Guarded by `tests/test_vendored_derived_negatives_survive_cap.py` (wired in `.github/workflows/derived-preferences.yml`).
 
-UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/242 (branch `fix122-dislike`). Retire this section when a re-pin brings it in.
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/242, MERGED as aa11cba1 (upstream landing). Retire this section when a re-pin brings it in.
