@@ -37,6 +37,11 @@ class SearchResult:
     metadata: Dict[str, Any]
 
 
+# Per-chunk upsert: attempts, and the first back-off (doubling).
+UPSERT_ATTEMPTS = 3
+UPSERT_RETRY_BASE_S = 1.0
+
+
 class QdrantStore:
     """
     Vector store using Qdrant for Evernote knowledge.
@@ -252,16 +257,27 @@ class QdrantStore:
             "content_hash": content_hash,
         }
 
-        try:
-            count = await self.upsert_vectors(
-                vectors=[vector],
-                payloads=[payload],
-                ids=[point_id],
-            )
-            return count > 0
-        except Exception as e:
-            logger.error(f"Failed to upsert chunk: {e}")
-            return False
+        # A transient store error (a timeout under load) used to drop the
+        # chunk for good: walk v1.0.122 on Mini16 logged "Failed to upsert
+        # chunk: timed out" once and the import wrote 17999 of 18000. The
+        # point id is deterministic, so a retry is idempotent.
+        import asyncio
+        last: Optional[Exception] = None
+        for attempt in range(UPSERT_ATTEMPTS):
+            try:
+                count = await self.upsert_vectors(
+                    vectors=[vector],
+                    payloads=[payload],
+                    ids=[point_id],
+                )
+                return count > 0
+            except Exception as e:  # noqa: BLE001 - logged, retried, then reported
+                last = e
+                if attempt + 1 < UPSERT_ATTEMPTS:
+                    logger.warning(f"Upsert chunk attempt {attempt + 1} failed ({e}); retrying")
+                    await asyncio.sleep(UPSERT_RETRY_BASE_S * (2 ** attempt))
+        logger.error(f"Failed to upsert chunk: {last}")
+        return False
 
     async def search(
         self,
