@@ -210,3 +210,25 @@ new-file hunk in `ostler_fda.patch`, so a sync cannot restore it.
 
 Upstream: none. The file was vendor-only and exists in no HR015 commit, so
 nothing is owed upstream.
+
+## 2026-11-04: the people index keeps the Contacts card it mirrors (v1.0.123)
+
+Regeneration REFUSED, measured 2026-11-04 (same refusal as the section above:
+"source repo for ostler_fda is not available"), so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- `_load_people_from_oxigraph`: collects each person's `icloud_contact_uid`
+  identifier (`card_by_uri`) and returns it as `icloud_uid`.
+- `ingest_people_to_qdrant`: the point payload carries `icloud_uid`.
+
+Why: walk v1.0.122 diag on Mini16, people_count_agreement FAILED by 100 (graph
+11365, Qdrant 11265). This sweep upserts at uuid5(person_uri), the same point
+id contact_syncer writes, and a Qdrant upsert replaces the payload, so the card
+contact_syncer stamped was erased: 2178 carded graph people, 1 carded point of
+11370. 101 of the 105 Qdrant-hidden people differed from the graph ONLY in
+has_card. Proof: `tests/test_people_index_keeps_the_contacts_card.py`, wired in
+dedupe-merge-rule-2.yml.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
+source this tree is cut from.

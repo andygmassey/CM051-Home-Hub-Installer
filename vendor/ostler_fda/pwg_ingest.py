@@ -3334,6 +3334,12 @@ def _load_people_from_oxigraph() -> list[dict]:
     )
     phones_by_uri: dict[str, list[str]] = {}
     emails_by_uri: dict[str, list[str]] = {}
+    # The Contacts-card uid. This sweep upserts at uuid5(person_uri), the SAME
+    # point id contact_syncer writes, and a Qdrant upsert REPLACES the payload,
+    # so leaving the uid out erased the card contact_syncer stamped. Every
+    # has_card reader (people_rules SHARED RULE A, ical-server people paths)
+    # then hid carded people whose only handles are sender-ID shaped.
+    card_by_uri: dict[str, str] = {}
     for row in id_rows:
         uri = (row.get("uri", {}) or {}).get("value", "")
         id_type = (row.get("idType", {}) or {}).get("value", "")
@@ -3348,6 +3354,8 @@ def _load_people_from_oxigraph() -> list[dict]:
             emails_by_uri.setdefault(uri, [])
             if id_value not in emails_by_uri[uri]:
                 emails_by_uri[uri].append(id_value)
+        elif id_type == "icloud_contact_uid" and id_value.strip():
+            card_by_uri.setdefault(uri, id_value.strip())
 
     # A person may produce more than one row when they carry several
     # pwg:createdAt values (the contact_syncer "update if earlier" path can
@@ -3385,6 +3393,7 @@ def _load_people_from_oxigraph() -> list[dict]:
             "family_name": (row.get("familyName", {}) or {}).get("value", ""),
             "phones": phones_by_uri.get(uri, []),
             "emails": emails_by_uri.get(uri, []),
+            "icloud_uid": card_by_uri.get(uri, ""),
             # Real historical first-seen date (may be ""). Surfaced to the
             # Qdrant payload as observed_at/created_at so time-ordered views
             # can place this person. Empty -> omitted from those views (no
@@ -3566,6 +3575,8 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "family_name": person["family_name"],
             "phones": person["phones"],
             "emails": person["emails"],
+            # has_card for every reader; see card_by_uri in the loader.
+            "icloud_uid": person.get("icloud_uid", ""),
             # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
             # documented default -- ical-server.py ~L1019 "Default person tag
             # today is L2"). The reader (ical-server.py ~L1020) drops a person
