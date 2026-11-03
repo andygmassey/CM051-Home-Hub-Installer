@@ -220,7 +220,15 @@ Regeneration REFUSED, measured 2026-11-04 (same refusal as the section above:
 
 - `_load_people_from_oxigraph`: collects each person's `icloud_contact_uid`
   identifier (`card_by_uri`) and returns it as `icloud_uid`.
-- `ingest_people_to_qdrant`: the point payload carries `icloud_uid`.
+- `ingest_people_to_qdrant`: the point payload carries `icloud_uid`; new
+  helpers `_PRIVACY_RANK`, `_privacy_rank`, `_merge_people_payload` above it.
+  The sweep reads the stored points first (`_qdrant_scroll_points`; None means
+  the read failed and the sweep returns error `could_not_read_existing` without
+  writing), and each upserted payload is the computed one laid over the stored
+  one: keys the sweep does not compute (icloud_uid, profile_photo_path,
+  created_at, updated_at, ...) are carried over, an empty computed value never
+  blanks a stored one, and privacy_level is the stricter of stored and computed
+  (unparseable ranks as L3).
 
 Why: walk v1.0.122 diag on Mini16, people_count_agreement FAILED by 100 (graph
 11365, Qdrant 11265). This sweep upserts at uuid5(person_uri), the same point

@@ -3479,6 +3479,46 @@ def _current_person_uris() -> Optional[set]:
     return uris or None
 
 
+_PRIVACY_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+
+
+def _privacy_rank(value) -> Optional[int]:
+    """0..3 for a stored level ("L2", "l3", 2); None when absent. Anything
+    present but unparseable ranks as L3: an unknown level is never weakened."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool):
+        return 3
+    if isinstance(value, int):
+        return value if 0 <= value <= 3 else 3
+    return _PRIVACY_RANK.get(str(value).strip().upper(), 3)
+
+
+def _merge_people_payload(existing: Optional[dict], computed: dict) -> dict:
+    """The sweep's payload laid over the point's existing one.
+
+    contact_syncer writes the SAME point id (uuid5(person_uri)) with keys this
+    sweep does not compute (icloud_uid, profile_photo_path, created_at, ...),
+    and a Qdrant upsert REPLACES the payload, so a plain upsert erased them
+    (walk v1.0.122: 101 carded people lost their card, and every resync dropped
+    photos). Every key the sweep does not compute is carried over; a computed
+    key that came out EMPTY never blanks a stored value; privacy_level is the
+    STRICTER of the stored and the computed level, so L3 is never downgraded."""
+    old = dict(existing or {})
+    merged = dict(old)
+    for key, value in computed.items():
+        if key == "privacy_level":
+            continue
+        if value in ("", None, [], {}) and old.get(key) not in ("", None, [], {}):
+            continue
+        merged[key] = value
+    old_rank = _privacy_rank(old.get("privacy_level"))
+    new_rank = _privacy_rank(computed.get("privacy_level"))
+    ranks = [r for r in (old_rank, new_rank) if r is not None]
+    merged["privacy_level"] = "L%d" % max(ranks) if ranks else computed.get("privacy_level")
+    return merged
+
+
 def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
 
@@ -3558,6 +3598,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "total": len(people),
         }
 
+    # The stored payloads, so the upsert below never drops a field this sweep
+    # does not own. None means the read FAILED: refuse rather than overwrite
+    # blind (an empty list is a genuinely empty collection).
+    stored = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
+    if stored is None:
+        logger.warning("People: could not read the stored points; not overwriting them blind.")
+        return {"status": "error", "reason": "could_not_read_existing",
+                "sent": 0, "points_created": 0, "total": len(people)}
+    existing_by_id = {str(p.get("id")): (p.get("payload") or {}) for p in stored}
+
     points: list[dict] = []
     for person, vec in zip(people, vectors):
         uri = person["uri"]
@@ -3622,7 +3672,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         points.append({
             "id": point_id,
             "vector": vec,
-            "payload": payload,
+            "payload": _merge_people_payload(existing_by_id.get(point_id), payload),
         })
 
     sent = 0

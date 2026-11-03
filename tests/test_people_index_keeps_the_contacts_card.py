@@ -72,3 +72,48 @@ def test_the_point_carries_the_card_and_both_stores_count_the_person(world):
 def test_control_the_same_person_without_a_card_is_hidden():
     # Proves the fixture exercises SHARED RULE A: without the card it hides.
     assert not is_countable_person("Testbank Alerts", "Testbank", "", [], [SENDER], has_card=False)
+
+
+def _seed_existing(mod, monkeypatch, payload):
+    import uuid
+    pid = str(uuid.uuid5(uuid.NAMESPACE_URL, URI))
+    monkeypatch.setattr(mod, "_qdrant_scroll_points", lambda *a, **k: [{"id": pid, "payload": dict(payload)}])
+
+
+# Every key contact_syncer writes (syncer.py ~1100-1150), synthetic values,
+# and the strictest level.
+SYNCER = {
+    "person_id": "p", "person_uri": URI, "display_name": "Testbank Alerts",
+    "given_name": "Testbank", "family_name": "", "organization": "Test Org",
+    "job_title": "Tester", "phones": [SENDER], "emails": [],
+    "icloud_uid": "CARD-0001", "profile_photo_path": "/synthetic/photo.jpg",
+    "contact_type": "person", "privacy_level": "L3", "source": "icloud_contacts",
+    "last_contact": "", "last_contact_ts": 0,
+    "created_at": "2026-01-02T03:04:05Z", "updated_at": "2026-01-02T03:04:05Z",
+}
+
+
+def test_the_sweep_never_drops_a_key_it_does_not_compute_nor_weakens_l3(world, monkeypatch):
+    mod, points = world
+    _seed_existing(mod, monkeypatch, SYNCER)
+    mod.ingest_people_to_qdrant()
+    pl = [p["payload"] for p in points if p["payload"]["person_uri"] == URI][0]
+    for key in ("icloud_uid", "profile_photo_path", "created_at", "updated_at", "organization", "job_title"):
+        assert pl.get(key) == SYNCER[key], key
+    assert pl["privacy_level"] == "L3"
+
+
+def test_an_unparseable_stored_level_is_treated_as_l3(world, monkeypatch):
+    mod, points = world
+    _seed_existing(mod, monkeypatch, dict(SYNCER, privacy_level="secret-ish"))
+    mod.ingest_people_to_qdrant()
+    pl = [p["payload"] for p in points if p["payload"]["person_uri"] == URI][0]
+    assert pl["privacy_level"] == "L3"
+
+
+def test_a_failed_read_of_the_stored_points_refuses_to_overwrite(world, monkeypatch):
+    mod, points = world
+    monkeypatch.setattr(mod, "_qdrant_scroll_points", lambda *a, **k: None)
+    res = mod.ingest_people_to_qdrant()
+    assert res["status"] == "error" and res.get("reason") == "could_not_read_existing"
+    assert points == []
