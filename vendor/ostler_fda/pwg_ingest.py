@@ -2338,6 +2338,11 @@ def _qdrant_scroll_points(collection: str, limit: int = 1000) -> Optional[list[d
                 if offset is not None:
                     body["offset"] = offset
                 resp = client.post(url, json=body)
+                if resp.status_code == 404 and offset is None:
+                    # No such collection: genuinely nothing stored (a fresh
+                    # install before the first write). That is an answer,
+                    # not a failed read.
+                    return []
                 resp.raise_for_status()
                 result = resp.json().get("result") or {}
                 out.extend(result.get("points") or [])

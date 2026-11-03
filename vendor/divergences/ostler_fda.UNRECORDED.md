@@ -229,6 +229,9 @@ Regeneration REFUSED, measured 2026-11-04 (same refusal as the section above:
   created_at, updated_at, ...) are carried over, an empty computed value never
   blanks a stored one, and privacy_level is the stricter of stored and computed
   (unparseable ranks as L3).
+- `_qdrant_scroll_points`: a 404 on the first page (no such collection) returns
+  `[]` (nothing stored) instead of None (could not look), so a fresh install's
+  sweep is not refused before its first write.
 
 Why: walk v1.0.122 diag on Mini16, people_count_agreement FAILED by 100 (graph
 11365, Qdrant 11265). This sweep upserts at uuid5(person_uri), the same point

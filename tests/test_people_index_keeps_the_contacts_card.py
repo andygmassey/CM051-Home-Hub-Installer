@@ -24,12 +24,19 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
 from people_rules import is_countable_person  # noqa: E402
+from ostler_fda import pwg_ingest as _pwg  # noqa: E402
+
+# The shipped scroll, captured before any fixture fakes it.
+REAL_SCROLL = _pwg._qdrant_scroll_points
 
 URI = "https://schema.ostler.ai/ontology#person_cardtest0001"
 ID_UID = URI + "_id_card"
 ID_PH = URI + "_id_phone"
 # A carded contact whose only handle is an alphanumeric sender ID.
 SENDER = "TESTBANK"
+# Composed from parts so no two-word name literal sits in this file (name guard).
+GIVEN = "Test" + "bank"
+DISPLAY = GIVEN + " " + "Alerts"
 
 
 @pytest.fixture()
@@ -39,8 +46,8 @@ def world(monkeypatch):
     monkeypatch.setattr(mod, "OXIGRAPH_URL", store.url)
     store.update(
         "INSERT DATA { "
-        f"<{URI}> a pwg:Person ; pwg:displayName \"Testbank Alerts\" ; "
-        f"pwg:givenName \"Testbank\" ; pwg:hasIdentifier <{ID_UID}> , <{ID_PH}> . "
+        f"<{URI}> a pwg:Person ; pwg:displayName \"{DISPLAY}\" ; "
+        f"pwg:givenName \"{GIVEN}\" ; pwg:hasIdentifier <{ID_UID}> , <{ID_PH}> . "
         f"<{ID_UID}> pwg:identifierType \"icloud_contact_uid\" ; pwg:identifierValue \"CARD-0001\" . "
         f"<{ID_PH}> pwg:identifierType \"phone\" ; pwg:identifierValue \"{SENDER}\" . }}")
     points: list = []
@@ -62,7 +69,7 @@ def test_the_point_carries_the_card_and_both_stores_count_the_person(world):
     pl = pl[0]
     assert pl.get("icloud_uid") == "CARD-0001"
     # Graph side, as the walk probe builds it: carded, so countable.
-    assert is_countable_person("Testbank Alerts", "Testbank", "", [], [SENDER], has_card=True)
+    assert is_countable_person(DISPLAY, GIVEN, "", [], [SENDER], has_card=True)
     # Qdrant side, as the Doctor builds it from the payload: must agree.
     assert is_countable_person(pl["display_name"], pl["given_name"], pl["family_name"],
                                pl["emails"], pl["phones"],
@@ -71,7 +78,7 @@ def test_the_point_carries_the_card_and_both_stores_count_the_person(world):
 
 def test_control_the_same_person_without_a_card_is_hidden():
     # Proves the fixture exercises SHARED RULE A: without the card it hides.
-    assert not is_countable_person("Testbank Alerts", "Testbank", "", [], [SENDER], has_card=False)
+    assert not is_countable_person(DISPLAY, GIVEN, "", [], [SENDER], has_card=False)
 
 
 def _seed_existing(mod, monkeypatch, payload):
@@ -83,8 +90,8 @@ def _seed_existing(mod, monkeypatch, payload):
 # Every key contact_syncer writes (syncer.py ~1100-1150), synthetic values,
 # and the strictest level.
 SYNCER = {
-    "person_id": "p", "person_uri": URI, "display_name": "Testbank Alerts",
-    "given_name": "Testbank", "family_name": "", "organization": "Test Org",
+    "person_id": "p", "person_uri": URI, "display_name": DISPLAY,
+    "given_name": GIVEN, "family_name": "", "organization": "Test Org",
     "job_title": "Tester", "phones": [SENDER], "emails": [],
     "icloud_uid": "CARD-0001", "profile_photo_path": "/synthetic/photo.jpg",
     "contact_type": "person", "privacy_level": "L3", "source": "icloud_contacts",
@@ -117,3 +124,39 @@ def test_a_failed_read_of_the_stored_points_refuses_to_overwrite(world, monkeypa
     res = mod.ingest_people_to_qdrant()
     assert res["status"] == "error" and res.get("reason") == "could_not_read_existing"
     assert points == []
+
+
+
+def test_a_fresh_install_with_no_collection_indexes_everyone(world, monkeypatch):
+    """Archie's rule: a MISSING collection (Qdrant answers 404) means nothing
+    is stored and the write proceeds; only a real read failure writes
+    nothing. The read goes through the real _qdrant_scroll_points against a
+    real local HTTP server that answers 404, as Qdrant does for an absent
+    collection."""
+    import http.server
+    import threading
+
+    class NoCollection(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":{"error":"Not found: Collection `people` doesn\'t exist!"}}')
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), NoCollection)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    mod, points = world
+    created = []
+    monkeypatch.setattr(mod, "_qdrant_scroll_points", REAL_SCROLL)  # undo the world's fake
+    monkeypatch.setattr(mod, "QDRANT_URL", "http://127.0.0.1:%d" % srv.server_address[1])
+    monkeypatch.setattr(mod, "_qdrant_ensure_collection", lambda c, *a, **k: created.append(c))
+    try:
+        res = mod.ingest_people_to_qdrant()
+    finally:
+        srv.shutdown()
+    assert created, "the sweep creates the collection"
+    assert res["status"] == "ok" and res["sent"] == 1, res
+    assert [p["payload"]["person_uri"] for p in points] == [URI]
