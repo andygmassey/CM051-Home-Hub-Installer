@@ -577,6 +577,7 @@ def process_imessage(
             is_group=convo.is_group,
             display_name=convo.display_name,
             gap=session_gap,
+            members=convo.participants,
         )
         for session in sessions:
             session_max = max(m.rowid for m in session.messages)

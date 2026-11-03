@@ -838,6 +838,7 @@ source_repo      = "$CM040"
 source_path      = "services/imessage_source"
 pinned_sha       = "62a776a"
   divergence_patch = "vendor/divergences/imessage_source.patch"
+  unrecorded_divergence = "vendor/divergences/imessage_source.UNRECORDED.md"  # 2026-11-04 (v1.0.123): chat_handles for the follow-up key; regeneration refused, see that file
   # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter, reply-debt snapshot and first-bundle window widening now in this tree's divergence patch,
   # written by scripts/regenerate_divergence_patch.sh against the source AT pin 62a776a; the tool
   # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
