@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,12 @@ PHONE = "+15550100"
 STORE = {PHONE: {"display_name": PHONE, "given_name": "Jane", "family_name": "Doe", "phones": [PHONE]}}
 
 
+# Relative to now: a fixed date goes stale past the 30d cutoff (see #3283).
+_D = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=1)
+_START = _D.strftime("%Y-%m-%dT%H:%M:%SZ")
+_END = (_D + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @pytest.fixture(autouse=True)
 def _store(monkeypatch, tmp_path):
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "ostler"))
@@ -39,7 +46,7 @@ def _bundle():
     return ConversationBundle(
         conversation_id="c-1", source_kind="channel", source_subtype="imessage",
         source_session_id="s-1", channel="im", participants=("user", PHONE),
-        started_at="2026-10-01T09:00:00Z", ended_at="2026-10-01T09:30:00Z",
+        started_at=_START, ended_at=_END,
         summary=ConversationSummary(overall="Synthetic.", topics=()),
         transcript="synthetic", privacy_level="L2",
     )
