@@ -431,8 +431,27 @@ def _forget_brief_job():
     return code
 
 
+FIXTURE_NS = "urn:ostler-walk-fixture:"
+_FIXTURE_FILTER = ('FILTER((isIRI(?s) && STRSTARTS(STR(?s), "%s")) || (isIRI(?o) && STRSTARTS(STR(?o), "%s")))'
+                   % (FIXTURE_NS, FIXTURE_NS))
+_ALL_GRAPHS = "{ { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }"
+
+
+def fixture_all_graph_count():
+    """Triples naming a fixture URI (subject or object) in the default AND every named graph; None = could not look.
+
+    A derive tick writes derivedFrom edges to urn:ostler-walk-fixture:smartprefs/factN into the
+    named graph derived/graph/preferences, which a default-graph delete never reaches."""
+    _c, body, _e = _oxi_select("SELECT (COUNT(*) AS ?n) WHERE { %s %s }" % (_ALL_GRAPHS, _FIXTURE_FILTER))
+    try:
+        return int(body["results"]["bindings"][0]["n"]["value"])
+    except Exception:
+        return None
+
+
 def forget_main():
     res = {}
+    res["fixture_all_graph_before"] = fixture_all_graph_count()
     code, _b, err = _qdrant("POST", "/collections/%s/points/delete?wait=true" % COLLECTION,
                             {"filter": {"must": [{"key": "walk_fixture", "match": {"value": TAG}}]}})
     res["qdrant_delete"] = code
@@ -441,6 +460,8 @@ def forget_main():
     res["overlay_delete"] = _oxi_update(
         'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . FILTER(STRSTARTS(STR(?o), "%s") || STRSTARTS(STR(?s), "%s") '
         '|| (STRSTARTS(STR(?s), "urn:ostler:preference:") && EXISTS { ?s <%shasGenre> ?x } ) ) }' % (TAG_NS, TAG_NS, ENRICH_NS))[0]
+    res["named_graph_delete"] = _oxi_update(
+        "DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } %s }" % _FIXTURE_FILTER)[0]
     res["brief_job_deleted"] = _forget_brief_job()
     try:
         os.remove(MARKER)
@@ -448,7 +469,10 @@ def forget_main():
         pass
     res["kick_rc"] = _kick()[0]
     res["presence_after"] = fixture_presence()
+    res["fixture_all_graph_after"] = fixture_all_graph_count()
     print(json.dumps(res))
+    # last line, because the seed wrapper shows only the tail of this output
+    print("fixture triples, all graphs: before=%s after=%s" % (res["fixture_all_graph_before"], res["fixture_all_graph_after"]))
     return 0
 
 
@@ -494,9 +518,14 @@ def box_runs_main():
     return 0
 
 
+ROUTE_LIMIT = 5000
+
+
 def _route(tier=None):
     tok = _secret("service_token")
-    q = "limit=200&min_confidence=0" + ("&tier=%s" % tier if tier else "")
+    # limit well above any derived node count (312 on the v1.0.121 box; the route
+    # ranks by round-robin THEN cuts, so limit=200 hid a rank-186 dislike).
+    q = "limit=%d&min_confidence=0" % ROUTE_LIMIT + ("&tier=%s" % tier if tier else "")
     code, body, err = _http("GET", HUB + "/api/v1/preferences/derived?" + q, None,
                             {"Authorization": "Bearer " + tok} if tok else {})
     return code, body, err
