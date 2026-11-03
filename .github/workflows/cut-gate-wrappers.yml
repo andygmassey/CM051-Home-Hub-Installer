@@ -111,6 +111,9 @@ on:
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
+      # ARM 9's gate and its test (a .py edited after seeding is not the code that runs).
+      - 'scripts/verify_seeded_pyc_matches_source.py'
+      - 'tests/test_verify_seeded_pyc_matches_source.py'
       - 'tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
@@ -629,6 +632,11 @@ jobs:
       - name: walk arms say CANNOT-RUN when they could not measure
         if: always()
         run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
+      - name: ARM 9 catches a .py edited after its unchecked-hash .pyc was seeded
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest -q tests/test_verify_seeded_pyc_matches_source.py
       - name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
         if: always()
         run: |
