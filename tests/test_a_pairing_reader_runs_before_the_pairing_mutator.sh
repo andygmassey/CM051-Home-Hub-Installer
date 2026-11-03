@@ -93,13 +93,36 @@ fi
 ok "pairing-state readers found: $# (${READERS# })"
 
 # --- the two orders ---------------------------------------------------------
-order_under() {
-    # order_under <locale>  -> probe basenames, one per line, as a glob would sort
-    # The walk applies WALK_PIN_AFTER (lib/promote_order.sh) on top of the sort.
-    local names
+# THE ORDER COMES FROM THE RUNNER, NOT FROM THE LIB. The block of run_box_walk.sh
+# that turns the C-sorted list into the list it executes (from sourcing
+# promote_order.sh through the pin_last line) is cut out of the runner and run
+# here, so deleting or reordering the apply_pins / pin_last calls in the runner
+# changes this test's order. Promotion needs the operator walk store, so the
+# block runs against a stub early_repeat_fail_pass.sh that names $STUB_FAILS.
+RUNNER="${REPO}/scripts/box_walk_probes/run_box_walk.sh"
+BLOCK="$(sed -n '/^\. "\$HERE\/lib\/promote_order\.sh"/,/^PROBES="\$(pin_last /p' "$RUNNER")"
+case "$BLOCK" in
+    *'PROBES="$(pin_last '*) ;;
+    *) printf 'CANNOT-RUN: could not cut the ordering block out of %s\n' "$RUNNER" >&2; exit 2 ;;
+esac
+STUBROOT="$(mktemp -d)"; trap 'rm -rf "$STUBROOT"' EXIT
+mkdir -p "$STUBROOT/box_walk_probes"
+ln -s "${REPO}/scripts/box_walk_probes/lib" "$STUBROOT/box_walk_probes/lib"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" $STUB_FAILS\n' > "$STUBROOT/early_repeat_fail_pass.sh"
+
+runner_order() {
+    # runner_order <locale> [failed probe names] -> basenames, one per line, in the
+    # order run_box_walk.sh would execute them
+    local names out
     names="$( cd "$DIR" && LC_ALL="$1" ls -1 ./*.sh 2>/dev/null | sed 's|^\./||; s|\.sh$||' | LC_ALL="$1" sort )"
-    PROBES="$(for n in $names; do printf '%s ' "${DIR}/${n}.sh"; done)" apply_pins | tr ' ' '\n' | while read -r p; do basename "$p" .sh; done
+    out="$(HERE="$STUBROOT/box_walk_probes" ONLY="" STUB_FAILS="${2:-}" OSTLER_BOX_HOST=stub \
+        PROBES="$(for n in $names; do printf '%s ' "${DIR}/${n}.sh"; done)" \
+        bash -c "set -uo pipefail
+$BLOCK
+printf '@@ORDER@@ %s\n' \"\$PROBES\"")" || return 1
+    printf '%s\n' "$out" | sed -n 's/^@@ORDER@@ //p' | tr ' ' '\n' | while read -r p; do basename "$p" .sh; done
 }
+order_under() { runner_order "$1"; }
 AMBIENT="${LC_ALL:-${LANG:-C}}"
 ORDER_C="$(order_under C)"
 ORDER_A="$(order_under "$AMBIENT")"
@@ -170,6 +193,23 @@ done
 ingest_coverage")"
     check_promoted "promote a reader alone"         "$(promote_order "$FIRSTREADER")"
     check_promoted "promote a name that is not a probe" "$(promote_order "no_such_probe")"
+    # The same, through the runner's own block with a promoted list from the stub.
+    RO="$(runner_order C "$MUTATOR $FIRSTREADER")" || RO=""
+    if [ -n "$RO" ] && [ "$(printf '%s\n' "$RO" | wc -l | tr -d ' ')" = "$N_ALL" ]; then
+        rb=""
+        for M in $MUTATORS; do
+            mp="$(pos_in "$RO" "$M")"
+            for r in $READERS; do
+                case " $ALLOWED " in *" $r "*) continue ;; esac
+                rp="$(pos_in "$RO" "$r")"
+                { [ -n "$rp" ] && [ "$rp" -lt "$mp" ]; } || rb="$rb $r>$M"
+            done
+        done
+        [ -z "$rb" ] && ok "runner block with promoted failures: every reader is ahead of every mutator" \
+                     || bad "runner block with promoted failures: reader not ahead of mutator:${rb}"
+    else
+        bad "runner block with promoted failures: did not yield all ${N_ALL} probes"
+    fi
     # POSITIVE CONTROL: the naive promotion (mutator to the front, nothing else)
     # must be caught by the same checker, or the PASSes above prove nothing.
     NAIVE="${DIR}/${MUTATOR}.sh $(printf '%s' "$PROBES" | tr ' ' '\n' | grep -v -x -- "${DIR}/${MUTATOR}.sh" | tr '\n' ' ')"
