@@ -4,15 +4,15 @@
   },
   "system_requirements": {
     "_meta": "F006 (2026-10-24): first screen on a Mac below the hardware floor (16 GB memory, Apple Silicon, macOS 14; the same floors install.sh enforces). Shown before Full Disk Access, permissions, licence, device registration, admin and the Command Line Tools download, so nothing has been installed or changed. Only the lines for the floors this Mac misses are shown.",
-    "heading": "Ostler can't run on this Mac",
-    "body": "Ostler needs a Mac with Apple Silicon and at least {min_gb} GB of memory, running macOS {min_macos} or later.",
-    "memory_line": "This Mac has {gb} GB of memory.",
-    "chip_line": "This Mac has an Intel processor.",
-    "macos_line": "This Mac is running macOS {version}.",
-    "nothing_changed": "Nothing has been installed or changed.",
-    "requirements_link": "See the system requirements",
+    "heading": "Ostler kan niet op deze Mac draaien",
+    "body": "Ostler vereist een Mac met Apple Silicon en minstens {min_gb} GB geheugen, met macOS {min_macos} of nieuwer.",
+    "memory_line": "Deze Mac heeft {gb} GB geheugen.",
+    "chip_line": "Deze Mac heeft een Intel-processor.",
+    "macos_line": "Op deze Mac draait macOS {version}.",
+    "nothing_changed": "Er is niets geïnstalleerd of gewijzigd.",
+    "requirements_link": "Bekijk de systeemvereisten",
     "requirements_url": "https://ostler.ai/faq#requirements",
-    "quit_button": "Quit"
+    "quit_button": "Stop"
   },
   "device_registration_error": {
     "heading": "We konden deze Mac niet registreren",
@@ -162,9 +162,9 @@
     "step_3": "macOS vraagt je om af te sluiten. Sluit af en open opnieuw, dan gaat de configuratie automatisch verder.",
     "open_settings_button": "Open Systeeminstellingen",
     "recheck_button": "Ik heb het aangezet, ga door",
-    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
-    "continue_anyway_button": "Continue anyway",
-    "quit_reopen_button": "Quit and reopen"
+    "unconfirmed_note": "Ostler kon Volledige schijftoegang niet bevestigen. Je kunt doorgaan; Berichten, Mail en Safari-geschiedenis worden geïmporteerd zodra de toegang is ingeschakeld.",
+    "continue_anyway_button": "Toch doorgaan",
+    "quit_reopen_button": "Stop en open opnieuw"
   },
   "log_drawer": {
     "header_label": "LOG"
@@ -185,12 +185,12 @@
     "yes_label_per_prompt": {
       "reuse_settings": "Mijn eerdere antwoorden gebruiken",
       "calendar_review": "Ja, dit klopt",
-      "calendar_set_aside_include": "Include in my brief"
+      "calendar_set_aside_include": "Opnemen in mijn overzicht"
     },
     "no_label_per_prompt": {
       "reuse_settings": "Opnieuw beginnen bij de eerste vraag",
       "calendar_review": "Ik wil iets wijzigen",
-      "calendar_set_aside_include": "Include in my brief"
+      "calendar_set_aside_include": "Opnemen in mijn overzicht"
     },
     "secret_review_placeholder": "(verborgen)",
     "error_empty_text": "Voer een waarde in om door te gaan.",
@@ -223,21 +223,21 @@
     "folder_picker_choose_panel_prompt": "Kies map",
     "folder_picker_skip_button": "Deze stap overslaan",
     "folder_picker_no_selection_placeholder": "(geen map geselecteerd – wordt overgeslagen)",
-    "consent_install_primary": "Install Ostler",
-    "consent_install_cancel": "Cancel",
-    "consent_install_cancel_confirm_title": "Stop the install?",
-    "consent_install_cancel_confirm_body": "Nothing has been installed yet. You can run the installer again whenever you are ready.",
-    "consent_install_cancel_confirm_stop": "Stop install",
-    "consent_install_cancel_confirm_keep": "Keep going",
-    "consent_install_terms_link_label": "terms",
+    "consent_install_primary": "Ostler installeren",
+    "consent_install_cancel": "Annuleer",
+    "consent_install_cancel_confirm_title": "Installatie stoppen?",
+    "consent_install_cancel_confirm_body": "Er is nog niets geïnstalleerd. Je kunt het installatieprogramma opnieuw starten wanneer je wilt.",
+    "consent_install_cancel_confirm_stop": "Installatie stoppen",
+    "consent_install_cancel_confirm_keep": "Doorgaan",
+    "consent_install_terms_link_label": "voorwaarden",
     "consent_install_terms_url": "https://ostler.ai/terms",
     "_meta_consent_install_body": "CX-18 (Studio retest #13, 2026-05-23): Q20 body was duplicating the headline ('Ready to install?' / 'Ready to install. By clicking...') AND rendered the type-INSTALL action as plain body copy AND rendered 'terms' as plain text. Split into five runs so the SwiftUI view can render INSTALL bold + terms as an underlined link, with no headline repetition. consentInstallBody() in OnboardingQuestionView.swift composes prefix + bold(install_token) + middle + link(terms_link_label) + suffix.",
-    "consent_install_body_prefix": "Please type ",
+    "consent_install_body_prefix": "Typ ",
     "consent_install_body_install_token": "INSTALL",
-    "consent_install_body_middle": " to confirm you accept the ",
+    "consent_install_body_middle": " om te bevestigen dat je akkoord gaat met de ",
     "consent_install_body_suffix": ".",
-    "consent_install_typed_placeholder": "Type INSTALL",
-    "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
+    "consent_install_typed_placeholder": "Typ INSTALL",
+    "consent_install_typed_mismatch": "Typ INSTALL precies zo (hoofdletters maken niet uit) om te bevestigen, of klik op Annuleer om terug te gaan.",
     "preinstall_status_caption": "STATUS"
   },
   "assistant_name_suggestions": {
@@ -257,9 +257,9 @@
   "hint_panel": {
     "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
     "watchdog_still_going": "Nog bezig, een ogenblik geduld...",
-    "clt_waiting": "Waiting for Apple's developer tools. Click Install in the macOS dialog when it appears.",
-    "clt_waiting_timeout": "Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog.",
-    "clt_install_button": "Install developer tools"
+    "clt_waiting": "Wachten op de ontwikkelaarstools van Apple. Klik op Installeer in het macOS-venster zodra het verschijnt.",
+    "clt_waiting_timeout": "Nog steeds wachten op de ontwikkelaarstools van Apple. Klik op Installeer ontwikkelaarstools als je het venster niet ziet.",
+    "clt_install_button": "Installeer ontwikkelaarstools"
   },
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
@@ -269,21 +269,21 @@
   },
   "consent_third_party": {
     "_meta": "CX-18 (Studio retest #13, 2026-05-23): Q19 third-party-data acknowledgement was rendering as a wall of equal-weight body text with 'Legal note:' buried mid-paragraph and no visual separation between the customer-facing explanation and the GDPR fine-print. The SwiftUI view now overrides the default help-text render with two Text() views: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Bash-side MSG_PROMPT_CONSENT_THIRD_PARTY_HELP keeps the full text for TTY installs; the GUI uses these split strings instead. docs.ostler.ai/privacy/third-party-data link rendering is handled by the existing linkifyHelpText() Markdown post-processor.",
-    "intro_body": "Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.\n\nBy continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.",
+    "intro_body": "Alle gegevens die je van derden importeert (Google Takeout, Meta-downloads, LinkedIn-exports enzovoort) blijven op deze Mac. Ostler slaat ze op in je lokale kennisgraaf; er verlaat niets je apparaat.\n\nAls je doorgaat, begrijp en accepteer je dat je zelf volledig verantwoordelijk bent voor het verwerken en bewaren van deze gegevens op je computer, net als voor de e-mailberichten die al op je harde schijf staan.",
     "legal_note": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
   },
   "consent_article_9": {
     "_meta": "EU/UK Article-9 special-category consent (install.sh region==eu branch, gui_read id=consent_article_9). Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary, so before this entry the GUI rendered just that line while the full special-category disclosure was echoed to stdout and filtered out of the window -- a compliance gap. The SwiftUI view now overrides the default help-text render exactly like consent_third_party: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Wording mirrors legal/consent_strings.py (ARTICLE_9_EU_CONSENT, v1.1-2026-07-15) reflowed for the GUI medium: the TTY-only 'Your decision' [Y]/[N] block and the 'click Read the Privacy Policy below' button reference are omitted because the GUI carries a yes/no toggle + Continue instead. The ostler.ai/privacy reference stays plain text (linkifyHelpText only auto-links https:// and docs.ostler.ai/... substrings).",
-    "intro_body": "One last thing – what Ostler will look at on your Mac\n\nOstler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.\n\nWhere the data lives. Everything Ostler reads stays on this Mac, in encrypted folders only you can unlock. We never get a copy. There is no \"cloud\" version of your data.\n\nWhat's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as \"special category\" data:\n\n- Health information that you mention in emails, messages, calendar entries or transcribed conversations\n- Religious or philosophical beliefs mentioned in any of the above\n- Sexual orientation mentioned in any of the above\n- Trade union membership\n- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iOS app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)\n- Mentions of criminal offences – your own or other people's – in any of the above\n\nWe do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.\n\nThe categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services).\n\nYou can change your mind any time. You can:\n\n- turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source\n- delete everything Ostler has stored using \"Reset Ostler\" in the menu\n- completely uninstall Ostler using the uninstaller at ~/Documents/Ostler/Uninstall Ostler.app\n\nWithdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.",
+    "intro_body": "Nog één ding – wat Ostler op je Mac gaat bekijken\n\nOstler is een persoonlijke assistent, dus werkt hij door te kijken naar de delen van je leven die je op deze Mac bewaart. Een deel daarvan is gevoelig. Britse en Europese privacywetgeving verplicht ons om je in duidelijke woorden toestemming te vragen voordat we daar iets mee doen.\n\nWaar de gegevens staan. Alles wat Ostler leest, blijft op deze Mac, in versleutelde mappen die alleen jij kunt ontgrendelen. Wij krijgen nooit een kopie. Er bestaat geen \"cloud\"-versie van je gegevens.\n\nWat eronder valt. Afhankelijk van welke connectoren je inschakelt, kan Ostler de volgende soorten informatie verwerken die de wet als gegevens van een \"bijzondere categorie\" beschouwt:\n\n- Gezondheidsinformatie die je noemt in e-mails, berichten, agenda-items of getranscribeerde gesprekken\n- Religieuze of levensbeschouwelijke overtuigingen die in een van de bovenstaande bronnen worden genoemd\n- Seksuele geaardheid die in een van de bovenstaande bronnen wordt genoemd\n- Lidmaatschap van een vakbond\n- Stem - aangeven *wie* er spreekt tijdens gesprekken (sprekerherkenning). Dit gebeurt alleen door de optionele Ostler iOS-app, op je iPhone, via een apart toestemmingsscherm in die app - niet op deze Mac. Deze Mac ontvangt nooit stemopnamen of stemvingerafdrukken. (We leiden geen stemming, emotie, sentiment, stress of misleiding af uit stem.)\n- Vermeldingen van strafbare feiten – van jezelf of van anderen – in een van de bovenstaande bronnen\n\nWe passen geen emotieherkenning toe. Als dat ooit verandert, vragen we het je opnieuw, apart, op een nieuw toestemmingsscherm.\n\nDe bovenstaande categorieën worden op deze Mac verwerkt en blijven erop - de enige uitzondering is sprekerherkenning op basis van stem, die alleen op je iPhone gebeurt (zoals hierboven vermeld) en nooit deze Mac bereikt. Niets hiervan wordt naar Creative Machines of een derde partij gestuurd, behalve in de specifieke gevallen die in ons privacybeleid op ostler.ai/privacy staan (voornamelijk: optionele cloudroutering voor niet-persoonlijke vragen, controles op software-updates en een handvol openbare metadatadiensten).\n\nJe kunt altijd van gedachten veranderen. Je kunt:\n\n- afzonderlijke connectoren (e-mail, agenda, WhatsApp enz.) uitschakelen in Instellingen, waardoor Ostler die bron niet meer leest\n- alles wat Ostler heeft opgeslagen verwijderen met \"Reset Ostler\" in het menu\n- Ostler volledig verwijderen met het verwijderprogramma op ~/Documents/Ostler/Uninstall Ostler.app\n\nAls je je toestemming intrekt, stopt de verwerking vanaf dat moment. Wat Ostler al deed met je eerdere toestemming, wordt niet ongedaan gemaakt.",
     "legal_note": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
   },
   "consent_spoken_capture": {
     "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline. REGION (2026-10-24): the single legal_note is split into legal_prefix + legal_core + legal_local + legal_region_{gb,eu,de,fr,hk,us} + legal_responsibility, composed by LegalRegion.spokenCaptureLegalNote (ViewCopy.swift) from the Mac's REGION (the country part of AppleLocale, never the language), the same rule install.sh uses. Every legal_region_* line is a best-effort draft, not legal advice, and needs local professional sign-off. Consent / legal keys: translations need human legal review; English prevails. Every value except legal_local equals its MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* twin (tests/test_spoken_capture_legal_note_follows_region.sh).",
-    "intro_body": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
-    "ask_heading": "What we ask of you:",
-    "bullet_1": "Get any consent your local law requires before you capture a conversation.",
-    "bullet_2": "Tell people audio is being captured, or keep a visible indicator on.",
-    "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
+    "intro_body": "Ostler kan gesprekken en vergaderingen die je vastlegt hier op je Mac omzetten in doorzoekbare tekst.",
+    "ask_heading": "Wat we van je vragen:",
+    "bullet_1": "Zorg voor de toestemming die je lokale wetgeving vereist voordat je een gesprek vastlegt.",
+    "bullet_2": "Vertel mensen dat er audio wordt vastgelegd, of laat een zichtbare indicator aan staan.",
+    "bullet_3": "Twijfel je, laat dit dan uit. Je kunt het later inschakelen in Instellingen.",
     "legal_prefix": "Legal note:",
     "legal_core": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere.",
     "legal_local": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac.",
