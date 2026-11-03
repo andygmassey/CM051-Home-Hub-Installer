@@ -372,14 +372,31 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
         logger.warning("last-conversation query failed for %s: %s", person_uri, exc)
         return ""
     # No LIMIT in the query: the L3 filter must run BEFORE the "most recent"
-    # pick, or an L3 fact's conversation would hide a visible one. Fail
-    # closed like _get_person_facts: a fact with no parseable level is
-    # dropped. The person's own level is not read here (the fact is
-    # stamped at ingest, and the person node can live in another graph).
+    # pick, or an L3 fact's conversation would hide a visible one. Same
+    # fail-closed rule as _get_person_facts: the fact's level and the
+    # person's level, most-restrictive wins, nothing parseable -> dropped.
+    # The person's level is a separate read because the person node and the
+    # CM048 fact can sit in different graphs; a failed read leaves it
+    # unknown, which only ever hides more.
+    owner_level = None
+    try:
+        owner_rows = _sparql_query(
+            oxigraph_url,
+            "SELECT ?l WHERE {{ <{p}> <{pwg}privacyLevel> ?l }}".format(
+                p=person_uri, pwg=PWG))
+        levels = [r.get("l", {}).get("value") for r in
+                  owner_rows.get("results", {}).get("bindings", [])]
+        if any(pwg_privacy.parse_privacy_level(v) == "L3" for v in levels):
+            owner_level = "L3"
+        elif levels:
+            owner_level = levels[0]
+    except Exception as exc:
+        logger.warning("person-level query failed for %s: %s", person_uri, exc)
     bindings = [
         b for b in result.get("results", {}).get("bindings", [])
         if not pwg_privacy.is_l3(
-            {"privacy_level": b.get("fpriv", {}).get("value")})
+            {"privacy_level": b.get("fpriv", {}).get("value")},
+            owner_level=owner_level)
     ]
     if not bindings:
         return ""

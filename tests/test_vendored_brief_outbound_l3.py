@@ -121,6 +121,14 @@ class LastConversationL3(unittest.TestCase):
     def test_untagged_fact_hidden(self):
         self.assertEqual(_conv_id(_conv("f1", "convX", "2026-01-01", None)), "")
 
+    def test_untagged_fact_on_l2_person_kept(self):
+        t = _conv("f1", "convX", "2026-01-01", None) + [(PERSON, PWG + "privacyLevel", "L2")]
+        self.assertEqual(_conv_id(t), "convX")
+
+    def test_l3_person_hides_an_l1_fact(self):
+        t = _conv("f1", "convX", "2026-01-01", "L1") + [(PERSON, PWG + "privacyLevel", "L3")]
+        self.assertEqual(_conv_id(t), "")
+
     def test_unparseable_level_hidden(self):
         self.assertEqual(_conv_id(_conv("f1", "convX", "2026-01-01", "banana")), "")
 
