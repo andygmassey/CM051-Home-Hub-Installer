@@ -1633,3 +1633,13 @@ Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
 
 UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
 `assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
+
+## 2026-11-03 v1.0.122 (fix122_l3out): the outbound employer path withholds L3 career facts
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_query_operator_career_facts(outbound=False)`: selects each fact's `pwg:privacyLevel` and the operator node's; with `outbound=True` drops rows `pwg_privacy.is_l3` hides (most-restrictive; nothing parseable is hidden, as in the brief's `_get_person_facts`). `_select_current_employer` and `_current_employer_safe` pass `outbound` through.
+- `GET /api/v1/employer` (read by context-refresh `generate_pwg_context.py:885`) passes `outbound=True`. The Memory tab (`api_memory_list`) and `person_context` / `person_enrichment` / people-card overlays keep the default `False`: on-box Hub screens still show every level.
+- NOT covered, recorded in `tests/test_every_outbound_graph_reader_filters_l3.py` KNOWN_GAP: `_timeline_from_graph` (digest `/api/v1/timeline`) has no L3 filter.
+- Proof: `tests/test_vendored_employer_outbound_l3.py` (mutant with the filter off: 5 fail, 2 pass).
+- Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.

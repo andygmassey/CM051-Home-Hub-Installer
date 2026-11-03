@@ -38,3 +38,13 @@ canonical PR is raised now. Retire this record by re-pinning past an upstream
 fix, or by regenerating the patch once the apply failure is understood.
 
 Test: `tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py`.
+
+## 2026-11-03 v1.0.122 (fix122_l3out): brief meeting history and last conversation withhold L3
+
+Tree `cm041/meeting_syncer`. Pin HELD.
+
+- `brief.py` `_get_meeting_history`: selects the meeting's `pwg:privacyLevel` and the attendee's, and drops a row when `pwg_privacy.is_l3` says hide (most-restrictive of the two; nothing parseable on either axis is hidden). Same rule as `_get_person_facts`.
+- `brief.py` `_get_last_conversation_id`: selects the fact's `urn:ostler:privacyLevel`, drops L3 / untagged / unparseable facts IN PYTHON, then takes the newest. The `LIMIT 1` is removed so an L3 fact cannot mask a visible one. The vendored query is the plain default-graph form (the allow-list scope is applied by `_sparql_query`'s caller path); upstream's wraps the same body in `read_across_graphs`.
+- Why: the brief is emailed; both readers fed it with no filter (audit scratch/p1_scoped.evidence.txt).
+- Proof: `tests/test_vendored_brief_outbound_l3.py` (stock brief.py: 8 fail, 1 pass; fixed: 9 pass).
+- Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.

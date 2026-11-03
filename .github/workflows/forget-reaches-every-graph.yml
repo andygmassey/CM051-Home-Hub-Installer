@@ -51,6 +51,9 @@ on:
       - 'tests/test_the_erasure_graft_survives_a_revendor.py'
       - '.github/workflows/forget-reaches-every-graph.yml'
       - 'tests/test_no_vendored_caller_of_read_across_graphs.py'
+      - 'tests/test_every_outbound_graph_reader_filters_l3.py'
+      - 'tests/test_vendored_brief_outbound_l3.py'
+      - 'tests/test_vendored_employer_outbound_l3.py'
       - 'vendor/**.py'
   push:
     branches: [main]
@@ -145,3 +148,20 @@ jobs:
       - name: read_across_graphs is called by no vendored file
         if: always()
         run: python3 tests/test_no_vendored_caller_of_read_across_graphs.py
+
+      # fix122_l3out (P0 privacy). Every vendored graph reader whose output can
+      # leave the box (the emailed brief, the context digest) carries an L3
+      # filter. An explicit registry decides what is outbound; a caller in no
+      # class is RED. The self-test plants an unfiltered outbound caller (RED),
+      # a filtered one (GREEN) and an unfiltered on-box one (not flagged).
+      - name: Every outbound graph reader filters L3 (self-test)
+        if: always()
+        run: python3 tests/test_every_outbound_graph_reader_filters_l3.py --self-test
+      - name: Every outbound graph reader filters L3
+        if: always()
+        run: python3 tests/test_every_outbound_graph_reader_filters_l3.py
+      - name: The brief's meeting, conversation and employer readers withhold L3
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest tests/test_vendored_brief_outbound_l3.py tests/test_vendored_employer_outbound_l3.py -q

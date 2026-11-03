@@ -5746,7 +5746,7 @@ def _domain_corroborates(org: str, domains: set):
     return None
 
 
-def _query_operator_career_facts() -> list:
+def _query_operator_career_facts(outbound: bool = False) -> list:
     """Reified, dated ``career_position`` facts about the operator.
 
     Read off ``USER_URI`` only. Returns raw binding dicts (fact, org,
@@ -5769,13 +5769,21 @@ def _query_operator_career_facts() -> list:
     to that assert endpoint (emit a ``career_position`` fact), out of scope
     for this read-path PR; tracked as the first-pass MED finding, not a
     defect in the resolver's keying.
+
+    ``outbound=True`` is the path that leaves the box (``/api/v1/employer``,
+    read by the brief agent): each fact's own ``pwg:privacyLevel`` and the
+    operator node's are read, most-restrictive wins, and a fact with no
+    parseable level on either axis is dropped (same rule as the brief's
+    ``_get_person_facts``). The default ``False`` keeps the on-box Hub
+    screens (Memory tab, person_context) seeing every level.
     """
     if not USER_URI:
         return []
     try:
-        return _sparql_select(
+        rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?fact ?org ?title ?startDate ?endDate ?factText ?conf '
+            '?fpriv ?ownerPriv '
             'WHERE {{\n'
             '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
             'pwg:factType "career_position" .\n'
@@ -5785,14 +5793,21 @@ def _query_operator_career_facts() -> list:
             '  OPTIONAL {{ ?fact pwg:endDate ?endDate }}\n'
             '  OPTIONAL {{ ?fact pwg:factText ?factText }}\n'
             '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+            '  OPTIONAL {{ ?fact pwg:privacyLevel ?fpriv }}\n'
+            '  OPTIONAL {{ <{user}> pwg:privacyLevel ?ownerPriv }}\n'
             '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?vt }}\n'
             '}}'.format(ns=PWG_NS, user=USER_URI)
         )
     except Exception:
         return []
+    if outbound:
+        rows = [r for r in rows
+                if not pwg_privacy.is_l3({"privacy_level": r.get("fpriv")},
+                                         owner_level=r.get("ownerPriv"))]
+    return rows
 
 
-def _select_current_employer() -> dict:
+def _select_current_employer(outbound: bool = False) -> dict:
     """Deterministically resolve the operator's CURRENT employer.
 
     Combines three signals (the operator's stated corroboration
@@ -5825,7 +5840,7 @@ def _select_current_employer() -> dict:
 
     verdicts = _hygiene_verdicts()
     domains = _operator_email_domains()
-    raw = _query_operator_career_facts()
+    raw = _query_operator_career_facts(outbound=outbound)
     # F3 (Archie re-review): the operator's OWN memory-tab corrections are
     # authoritative over the source triples. A career fact the operator has
     # explicitly forgotten via POST /api/v1/memory/correct/{id} MUST never be
@@ -6022,10 +6037,13 @@ def _select_current_employer() -> dict:
     }
 
 
-def _current_employer_safe() -> dict:
-    """``_select_current_employer`` wrapped so no read path can 5xx."""
+def _current_employer_safe(outbound: bool = False) -> dict:
+    """``_select_current_employer`` wrapped so no read path can 5xx.
+
+    ``outbound=True`` withholds L3 career facts (see
+    ``_query_operator_career_facts``)."""
     try:
-        return _select_current_employer()
+        return _select_current_employer(outbound=outbound)
     except Exception:
         return {"found": False}
 
@@ -13178,7 +13196,7 @@ class Handler(BaseHTTPRequestHandler):
         # employer from the flat fact list. Never 5xx: returns
         # {"found": false} when there is no evidence.
         if parsed.path == "/api/v1/employer":
-            result = _current_employer_safe()
+            result = _current_employer_safe(outbound=True)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
