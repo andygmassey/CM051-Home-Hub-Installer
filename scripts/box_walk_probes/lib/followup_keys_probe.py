@@ -46,7 +46,7 @@ CHAT_DB = os.path.join(HOME, "Library", "Messages", "chat.db")
 FAIL_FLOOR = 3
 
 COUNT_FIELDS = ("keyed_rows", "keys_matching_one_to_one", "keys_matching_group",
-                "completed_by_followup", "reopened")
+                "completed_by_followup", "reopened", "chat_keyed_rows")
 BOOL_FIELDS = ("available", "measured", "enabled", "chat_db_readable")
 
 
@@ -128,11 +128,26 @@ def judge(c):
     if missing:
         lines.append("  CANNOT followup block is missing %s" % ", ".join(missing))
         return lines, EX_CANNOT
-    n = c["keyed_rows"]
+    n_all = c["keyed_rows"]
     one, grp = c["keys_matching_one_to_one"], c["keys_matching_group"]
     matched = one + grp
-    lines.append("  note  denominator: %d pushed map row(s) with a thread_key; %d match a 1:1 chat, %d a group chat"
-                 % (n, one, grp))
+    # v1.0.122: an email or WhatsApp row is keyed from other identities and
+    # can never match a chat, so counting it made "0 of 7" read as broken
+    # keys. A daemon that reports chat_keyed_rows gives the honest
+    # denominator: the keyed rows that came from an iMessage chat.
+    if "chat_keyed_rows" in c:
+        n = c["chat_keyed_rows"]
+        lines.append("  note  denominator: %d keyed row(s) from an iMessage chat (of %d keyed in all); "
+                     "%d match a 1:1 chat, %d a group chat" % (n, n_all, one, grp))
+        if n == 0 and n_all > 0:
+            lines.append("  CANNOT no keyed reminder came from an iMessage chat yet (%d keyed from other "
+                         "sources, which never match a chat by design)" % n_all)
+            return lines, EX_CANNOT
+    else:
+        n = n_all
+        lines.append("  note  denominator: %d pushed map row(s) with a thread_key (this daemon does not report "
+                     "chat_keyed_rows, so rows from email or WhatsApp are counted too); %d match a 1:1 chat, "
+                     "%d a group chat" % (n, one, grp))
     if "completed_by_followup" in c:
         lines.append("  ADVISORY %d reminder(s) completed on a follow-up so far, %d reopened by the owner "
                      "(real activity only; never seeded)"
@@ -147,8 +162,8 @@ def judge(c):
         lines.append("  ok    %d of %d keyed row(s) match a chat.db thread" % (matched, n))
         return lines, EX_PASS
     if n >= FAIL_FLOOR:
-        lines.append("  FAIL  0 of %d keyed rows match any chat.db thread: CM048's thread keys are not built "
-                     "from the chat handles, so no reminder can ever complete on a follow-up" % n)
+        lines.append("  FAIL  0 of %d keyed rows match any chat.db thread, so none of those reminders can "
+                     "complete on a follow-up (the cause is not measured here: read the map's sources and keys)" % n)
         return lines, EX_FAIL
     lines.append("  CANNOT 0 of %d keyed row(s) match, below the %d needed to call it" % (n, FAIL_FLOOR))
     return lines, EX_CANNOT
@@ -174,6 +189,14 @@ def self_test():
         ("build without reminders push", dict(good, available=False), EX_CANNOT),
         ("daemon predates #509", {"cannot": "no followup block"}, EX_CANNOT),
         ("counts missing", {k: v for k, v in good.items() if k != "keyed_rows"}, EX_CANNOT),
+        # v1.0.122: email rows in the denominator. 4 keyed, none from a chat.
+        ("only email-keyed rows: nothing to judge", dict(good, keyed_rows=4, chat_keyed_rows=0,
+                                                         keys_matching_one_to_one=0, keys_matching_group=0),
+         EX_CANNOT),
+        ("chat rows that all fail to match", dict(good, keyed_rows=7, chat_keyed_rows=4,
+                                                  keys_matching_one_to_one=0, keys_matching_group=0), EX_FAIL),
+        ("chat rows with a match", dict(good, keyed_rows=7, chat_keyed_rows=4), EX_PASS),
+        ("more matches than chat rows", dict(good, keyed_rows=7, chat_keyed_rows=2), EX_FAIL),
     ]
     ok = True
     names = {EX_PASS: "PASS", EX_FAIL: "FAIL", EX_CANNOT: "CANNOT-RUN"}
