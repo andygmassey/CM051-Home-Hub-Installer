@@ -1633,3 +1633,23 @@ Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
 
 UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
 `assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
+
+## 2026-11-02, v1.0.122 candidate (walk 121): service-name vocabulary gains verification and order
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `people_rules.py` | `_SERVICE_NAME_SUFFIX_WORDS` gains `verification`, `verify`, `order`, `orders` (one comment line plus one set line). |
+
+Why: walk 121 `hub_screens_customer_read` found two uncarded People rows
+("<App> Verification", "order review") that `_is_automated_or_service_name`
+kept because the vocabulary lacked those words.
+
+Guarded by `tests/test_verification_and_order_senders_are_not_people.py`
+(wired in `.github/workflows/hub-screens-and-106c.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/241
+makes the same change in `assistant_api/ical-server.py`, where canonical CM041
+keeps the set (people_rules.py is a CM051 extraction and does not exist
+upstream). Retire this section when a re-pin brings #241 in.

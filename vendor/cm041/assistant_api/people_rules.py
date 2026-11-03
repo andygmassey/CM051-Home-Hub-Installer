@@ -248,6 +248,8 @@ _SERVICE_NAME_SUFFIX_WORDS = frozenset({
     "notification", "notifications", "alert", "alerts", "advice",
     "marketplace", "reward", "rewards", "gift", "gifts", "update",
     "updates", "delivery", "deliveries",
+    # walk 121: "<x> Verification" and "Order <x>" senders passed every check here.
+    "verification", "verify", "order", "orders",
 })
 
 
