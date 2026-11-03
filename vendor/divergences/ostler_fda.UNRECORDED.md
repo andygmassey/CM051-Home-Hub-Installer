@@ -210,3 +210,34 @@ new-file hunk in `ostler_fda.patch`, so a sync cannot restore it.
 
 Upstream: none. The file was vendor-only and exists in no HR015 commit, so
 nothing is owed upstream.
+
+## 2026-11-04: food reads each mbox once; fail-closed prune of consumed mboxes (v1.0.123)
+
+Regeneration REFUSED, measured 2026-11-04: `bash scripts/regenerate_divergence_patch.sh
+ostler_fda --write` printed "could not verify ostler_fda: source repo not found
+(/ostler_fda)" and "CANNOT RUN -- source repo for ostler_fda is not available".
+Same refusal shape as the entries above, so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- New constants `FOOD_STATE_REL`, `EMAIL_INGEST_LOG_REL`, `FOOD_TIMEOUT_BASE_S`,
+  `FOOD_TIMEOUT_PER_GB_S`, `FOOD_TIMEOUT_CAP_S`, `_HOURLY_MBOX`, `_EMAIL_LOG_LINE`,
+  `_MBOX_PATH`, `_INGESTED_OK`, and helpers `food_timeout_s`, `_mbox_key`,
+  `_load_food_state`, `_save_food_state`, `_consumed`,
+  `email_ingest_last_outcome`, `prune_consumed_mboxes`, directly above
+  `ingest_food`.
+- `ingest_food`: stages only mboxes not recorded as consumed (name + inode +
+  size + mtime_ns), passes a byte-scaled timeout to `run_cm019_ingest`, records
+  consumption and prunes only after an ok run, and returns `staged_bytes` and
+  `pruned` beside `status` and `staged`.
+
+`vendor/ostler_fda/apple_music_refresh.py` (vendor-only, VENDOR_ONLY.tsv):
+`run_cm019_ingest` takes an optional `timeout_s` (default unchanged, 900 s).
+
+Why: walk122 (Mini16 scale fixture), `~/.ostler/imports/email` held 12 GB and
+grew ~140 MB an hour with nothing removing it; the daily food step re-read all
+of it and timed out under load (fda-rerun exit 1). Tests:
+`tests/test_food_mbox_consumed_and_pruned.py`, wired in derived-preferences.yml.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
+source this tree is cut from.

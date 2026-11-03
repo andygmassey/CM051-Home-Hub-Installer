@@ -2846,7 +2846,7 @@ _FOOD_EXTRACTS = (
 # imports/email during the five-year backfill, after a first export that was
 # 12.2 GB on the scale fixture, and nothing removed them. Food re-read all of
 # them every day. Food now records each mbox it has consumed, keyed by name AND
-# (inode, size), and stages only what it has not; the run's timeout scales with
+# (inode, size, mtime_ns), and stages only what it has not; the run's timeout scales with
 # the bytes staged; and an mbox is deleted only when BOTH of its readers have
 # recorded success for that exact file. Readers of imports/email, from a grep
 # of CM051 and ostler-assistant main: the sealed email-ingest tick (writes the
@@ -2871,8 +2871,11 @@ def food_timeout_s(staged_bytes: int) -> float:
 
 
 def _mbox_key(path: Path) -> dict:
+    # mtime_ns as well: Linux (and APFS) can hand a freed inode to the next
+    # file at once, so a replaced file of the same size is not told apart by
+    # inode and size alone.
     st = path.stat()
-    return {"inode": st.st_ino, "size": st.st_size}
+    return {"inode": st.st_ino, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
 
 
 def _load_food_state(ostler_dir: Path) -> dict:
@@ -2896,7 +2899,8 @@ def _save_food_state(ostler_dir: Path, state: dict) -> None:
 def _consumed(state: dict, name: str, key: dict) -> bool:
     rec = state.get(name)
     return (isinstance(rec, dict) and rec.get("inode") == key["inode"]
-            and rec.get("size") == key["size"])
+            and rec.get("size") == key["size"]
+            and rec.get("mtime_ns") == key["mtime_ns"])
 
 
 def email_ingest_last_outcome(log_path: Path) -> dict:
@@ -2935,7 +2939,7 @@ def prune_consumed_mboxes(mail_dir: Path, state: dict, email_log: Path,
        (no same-hour re-run can still append to it);
     2. the LAST email-ingest.log line naming that exact path is
        "ingested <path> successfully", stamped at or after the file's mtime;
-    3. food recorded the same name and (inode, size).
+    3. food recorded the same name and (inode, size, mtime_ns).
     A missing or rotated log, an unknown name or a changed file keeps it."""
     import time
     now = time.time() if now is None else float(now)

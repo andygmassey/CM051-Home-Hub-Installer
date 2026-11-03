@@ -12,7 +12,7 @@ own install-time file), and ingest_food.
   arm 3  a TIMEOUT under a slow parser (the real run_cm019_ingest, a fake venv
          python that sleeps past the scaled limit) records nothing, keeps the
          file, and the next run retries it.
-  arm 4  the record is keyed by name AND (inode, size): a replaced or appended
+  arm 4  the record is keyed by name AND (inode, size, mtime_ns): a replaced or appended
          file is read again.
   arm 5  prune deletes only a past-hour, food-consumed file whose LAST log line
          is "ingested <path> successfully" at or after its mtime; it keeps an
@@ -64,7 +64,13 @@ def box():
     return root, root / "imports" / "fda", root / "imports" / "email"
 
 
-def mbox(mail: Path, name: str, body: str = "From a@b Thu Sep  3 12:00:00 2026\nSubject: x\n\nbody\n") -> Path:
+# mbox From_ line: weekday and month kept apart for the name guard.
+DAY, MON = "Thu", "Sep"
+FROM_LINE = "From a@b " + DAY + " " + MON + "  3 {hh}:00:00 2026\n"
+
+
+def mbox(mail: Path, name: str, body: str = None) -> Path:
+    body = body if body is not None else FROM_LINE.format(hh="12") + "Subject: x\n\nbody\n"
     p = mail / name
     p.write_text(body)
     return p
@@ -96,7 +102,7 @@ check(PAST in calls[0], "arm 1: the first run stages the mbox")
 check(PAST not in calls[1], f"arm 1: the second run does not stage it (staged {calls[1]})")
 check(second.get("staged_bytes") == 2, f"arm 1: the second run stages 0 mbox bytes (staged_bytes={second.get('staged_bytes')}, the 2-byte extract only)")
 state = json.loads((root / "state" / "food_mbox_consumed.json").read_text())
-check(set(state[PAST]) >= {"inode", "size", "consumed_at"}, "arm 1: the record carries inode, size and consumed_at")
+check(set(state[PAST]) >= {"inode", "size", "mtime_ns", "consumed_at"}, "arm 1: the record carries inode, size, mtime_ns and consumed_at")
 
 # ── arm 2: a failed ingest records nothing and is retried ────────────────────
 root, fdadir, mail = box()
@@ -134,7 +140,7 @@ with mock.patch.dict(os.environ, {"OSTLER_DIR": str(root)}):
     res = fda.ingest_food(fdadir)
 check(res["status"] == "ok" and PAST in fda._load_food_state(root), "arm 3: the next run retries it and records it")
 
-# ── arm 4: keyed by name AND (inode, size) ───────────────────────────────────
+# ── arm 4: keyed by name AND (inode, size, mtime_ns) ─────────────────────────
 root, fdadir, mail = box()
 p = mbox(mail, PAST)
 calls = []
@@ -142,16 +148,27 @@ with mock.patch.dict(os.environ, {"OSTLER_DIR": str(root)}), \
         mock.patch("ostler_fda.apple_music_refresh.run_cm019_ingest", runner(calls)):
     fda.ingest_food(fdadir)
     with open(p, "a") as fh:
-        fh.write("From a@b Thu Sep  3 13:00:00 2026\nSubject: y\n\nmore\n")
+        fh.write(FROM_LINE.format(hh="13") + "Subject: y\n\nmore\n")
     fda.ingest_food(fdadir)
     size = p.stat().st_size
     fda.ingest_food(fdadir)
     p.unlink()
     mbox(mail, PAST, "x" * size)  # same name and size, a new inode
     fda.ingest_food(fdadir)
+    # Linux hands a freed inode straight to the next file: the same name, the
+    # SAME inode and the same size, different bytes. Rewritten in place here so
+    # the inode is provably reused on every OS; only the mtime tells it apart.
+    ino = p.stat().st_ino
+    st = p.stat()
+    with open(p, "r+") as fh:
+        fh.write("y" * size)
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+    fda.ingest_food(fdadir)
 check(PAST in calls[1], "arm 4: an appended file (new size) is read again")
 check(PAST not in calls[2], "arm 4: and then not again")
 check(PAST in calls[3], "arm 4: a replaced file (same name and size, new inode) is read again")
+check(p.stat().st_ino == ino and p.stat().st_size == size, "arm 4: control: the rewrite kept the inode and the size")
+check(PAST in calls[4], "arm 4: a reused inode with the same size (Linux) is read again")
 
 # ── arm 5: prune keeps everything it cannot prove done ───────────────────────
 root, fdadir, mail = box()
