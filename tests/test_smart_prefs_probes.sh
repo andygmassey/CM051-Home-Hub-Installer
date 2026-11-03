@@ -146,6 +146,7 @@ class H(http.server.BaseHTTPRequestHandler):
         m = re.match(r"/api/cron/(\w+)$", self.path)
         if m: S["jobs"].pop(m.group(1), None); S["deleted"].append(m.group(1))
         self.send(200, {})
+time.sleep(float(os.environ.get("FAKE_START_DELAY_S", "0")))  # the test injects a slow start: start() must wait for readiness
 http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PYEOF
 
@@ -169,8 +170,14 @@ start() { # $1 = mode; fresh scratch HOME and servers; exports the environment t
         printf '#!/bin/sh\ncase "$*" in %s) exit 0;; esac\nexec "%s" "$@"\n' "$imp" "$PY" > "$vpy"
     fi
     chmod +x "$vpy"
-    "$PY" "$WORK/fake.py" "$PORT" "$1" "$H" & SRVPID=$!
-    sleep 1
+    FAKE_START_DELAY_S="${FAKE_START_DELAY_S:-2}" "$PY" "$WORK/fake.py" "$PORT" "$1" "$H" & SRVPID=$!
+    # wait for the listener, not a fixed sleep: a cold CI runner took longer than 1s (seed: Connection refused)
+    local up=0 i
+    for i in $(seq 1 100); do
+        curl -s --noproxy '*' -o /dev/null "http://127.0.0.1:$PORT/__jobs" && { up=1; break; }
+        sleep 0.2
+    done
+    [ "$up" -eq 1 ] || { echo "fake server did not listen on $PORT within 20s" >&2; exit 1; }
     export HOME="$H" FAKE_PORT="$PORT" OSTLER_BOX_HOST= OSTLER_HUB_URL="http://127.0.0.1:$PORT" OSTLER_QDRANT_URL="http://127.0.0.1:$PORT" \
         OSTLER_OXIGRAPH_URL="http://127.0.0.1:$PORT" OSTLER_PROBE_GATEWAY="http://127.0.0.1:$PORT" OSTLER_SMARTPREFS_LAUNCHCTL="$WORK/launchctl" \
         OSTLER_SMARTPREFS_POLL_S=0.2 OSTLER_SMARTPREFS_DERIVE_BUDGET_S=20 OSTLER_SMARTPREFS_BRIEF_POLL_S=0.2 OSTLER_SMARTPREFS_BRIEF_WAIT_S=20
