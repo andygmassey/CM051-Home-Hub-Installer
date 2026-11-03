@@ -46,7 +46,7 @@ trap '[ -n "$SRVPID" ] && kill "$SRVPID" 2>/dev/null; rm -rf "$WORK"' EXIT
 cat > "$WORK/fake.py" <<'PYEOF'
 import http.server, json, os, re, sys, time, urllib.parse
 MODE = sys.argv[2]; HOME = sys.argv[3]
-S = {"tags": set(), "jobs": {}, "posted_delivery": [], "deleted": [], "points": {}, "facts": [], "derived": [{"dimension": "media.film.genre", "label": "science fiction", "strength": 0.7, "confidence": 0.8}], "n": 0}
+S = {"named": 0, "tags": set(), "jobs": {}, "posted_delivery": [], "deleted": [], "points": {}, "facts": [], "derived": [{"dimension": "media.film.genre", "label": "science fiction", "strength": 0.7, "confidence": 0.8}], "n": 0}
 CATS = {"tv_show": "media.tv.series", "music": "media.music.artist", "podcast": "media.podcast.show", "bookmark": "web.site",
         "place": "place.city", "product": "commerce.brand", "food": "food.restaurant", "fitness": "health.activity", "professional": "work.skill",
         "movie": "media.film.genre", "book": "media.book.genre", "interest": "interests.topic"}
@@ -71,6 +71,7 @@ def derive():
                     items.append({"dimension": dim, "label": label, "strength": -0.74 if "can't stand" in t else 0.74, "confidence": 0.7})
     S["derived"] = items
     S["n"] += 1
+    if MODE != "v116": S["named"] += len(S["facts"])   # derivedFrom edges to fixture facts, in the derived/graph/preferences named graph
     st = os.path.join(HOME, ".ostler", "state"); os.makedirs(st, exist_ok=True)
     json.dump({"schema": 1, "last_run_at": "2026-10-22T00:00:%02dZ" % S["n"], "outcome": "written", "graph_node_count": len(items), "reason": ""},
               open(os.path.join(st, "derived-preferences.json"), "w"))
@@ -109,6 +110,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.send(200, derived_for(u.query))
         if u.path == "/query":
             q = urllib.parse.parse_qs(u.query)["query"][0]
+            if "UNION" in q: return self.send(200, {"results": {"bindings": [{"n": {"value": str(len(S["tags"]) + len(S["facts"]) + S["named"])}}]}})
             n = len(S["tags"]) if "smartprefs/tag" in q else len(S["facts"])
             return self.send(200, {"results": {"bindings": [{"n": {"value": str(n)}}]}})
         if u.path == "/__jobs": return self.send(200, {"live": list(S["jobs"]), "posted_delivery": S["posted_delivery"], "deleted": S["deleted"]})
@@ -132,7 +134,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 for m in re.finditer(r"<urn:ostler:about> <([^>]+)>.*?<urn:ostler:text> \"((?:[^\"\\]|\\.)*)\"", q):
                     S["facts"].append({"about": m.group(1), "text": m.group(2)})
             if q.startswith("DROP"): S["facts"].clear()
-            if q.startswith("DELETE"): S["tags"].clear()
+            if q.startswith("DELETE") and "GRAPH ?g" in q: S["named"] = 0
+            elif q.startswith("DELETE"): S["tags"].clear()
             return self.send(204)
         if u.path == "/api/cron":
             b = json.loads(raw); S["jn"] = S.get("jn", 0) + 1; jid = "j%d" % S["jn"]
@@ -281,6 +284,19 @@ smart_prefs_seed_forget >/dev/null 2>&1
 verdicts
 echo "  -- S5: after the forget the fixture is gone (CANNOT-RUN, not a stale pass)"
 want derived_preferences_breadth CANNOT-RUN
+
+# ---- S11: forget clears fixture URIs in ALL graphs, incl. the derive tick's named-graph edges ----
+start intended; seed
+SMARTPREFS_SEED_STATE=seeded
+curl -s --noproxy "*" "http://127.0.0.1:$PORT/__derive" >/dev/null
+ALLQ='SELECT (COUNT(*) AS ?n) WHERE { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }'
+allcount() { curl -s --noproxy "*" -G "http://127.0.0.1:$PORT/query" --data-urlencode "query=$ALLQ" | python3 -c 'import json,sys;print(json.load(sys.stdin)["results"]["bindings"][0]["n"]["value"])'; }
+B11="$(allcount)"
+F11="$(smart_prefs_seed_forget 2>&1)"
+A11="$(allcount)"
+[ "$B11" -gt 0 ] && [ "$A11" = 0 ] && ok "S11 all-graph fixture triples $B11 -> $A11 after forget" || bad "S11 all-graph count before=$B11 after=$A11"
+printf '%s\n' "$F11" | /usr/bin/grep -q "all graphs: before=$B11 after=0" \
+    && ok "S11 forget prints the before/after all-graph count" || bad "S11 forget did not print the counts: $F11"
 
 # ---- S6: the real runner collects and invokes all five ------------------------
 start v116; unset OSTLER_SMARTPREFS_SEED_STATE
