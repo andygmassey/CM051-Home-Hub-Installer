@@ -83,3 +83,5 @@ CFG=\"\${OSTLER_DIR:-\$HOME/.ostler}/assistant-config/config.toml\"; OSTLER_SWEE
 }
 
 probe_main "$@"
+
+# WALK_WRITES: pairs and then revokes a synthetic companion (POST /api/pair via companion_pair_box_snippet, then companion_walk_unpair), which writes a paired_tokens row and the daemon log

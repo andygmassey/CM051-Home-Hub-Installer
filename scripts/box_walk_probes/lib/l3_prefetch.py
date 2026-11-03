@@ -47,9 +47,9 @@ STORE_CONF = os.environ.get("OSTLER_PROBE_STORE_CURL_CONF", os.path.join(HOME, "
 # results by the ~8.8k seeded people, so the L1 control was "not found by name" and the probe read CANNOT-RUN.
 # The control still has to be found on all three shapes; this only stops common names hiding it.
 SUBJECTS = {
-    "l3": {"level": "L3", "name": "Wilhelmina Quillfeather", "org": "Globex Corp probe-l3",
+    "l3": {"level": "L3", "name": "Wilhelmina Quibblesworth-Example", "org": "Globex Corp probe-l3",
            "email": "subject@l3probe.example", "phone": "+44 7700 900871"},
-    "l1": {"level": "L1", "name": "Barnaby Quillfeather", "org": "Initech Corp probe-l1",
+    "l1": {"level": "L1", "name": "Wilhelmina Quibbleforth", "org": "Initech Corp probe-l1",
            "email": "control@l1probe.example", "phone": "+44 7700 900872"},
 }
 for _k, _s in SUBJECTS.items():
