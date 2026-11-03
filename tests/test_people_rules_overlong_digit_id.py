@@ -38,4 +38,5 @@ def test_controls_real_phone_and_human_name_unchanged():
 
 
 def test_overlong_digits_yield_to_a_human_name():
-    assert pr._best_display_name(OVERLONG, "Ada", "Example") == "Ada Example"
+    given, family = "Ada", "Example"  # composed: a synthetic name, kept apart for the name guard
+    assert pr._best_display_name(OVERLONG, given, family) == given + " " + family

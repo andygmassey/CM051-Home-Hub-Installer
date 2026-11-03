@@ -1691,3 +1691,25 @@ Tree `cm041/assistant_api`. Pin HELD.
 - NOT covered: the digest's second source `_meeting_rows` reads `pwg:Meeting` directly and uses the digest's own `_is_withheld` (explicit L3 only; an untagged meeting is KEPT, and the attendee level is not read). Not changed here. Any other client of `/api/v1/timeline` (oa, Companion) that forwards it off the box must pass `outbound=1`: not audited.
 - Proof: `tests/test_vendored_timeline_outbound_l3.py`, `tests/test_digest_timeline_outbound_l3.py` (digest text, real generator, real SPARQL engine), `tests/test_every_outbound_graph_reader_filters_l3.py` (`_timeline_from_graph` now OUTBOUND, KNOWN_GAP empty).
 - Upstream: CM041 PR #244 (branch fix122/l3-outbound, test `assistant_api/tests/test_timeline_outbound_l3.py`). The vendored copy has `start`/`end`/`ascending`/`allDay` that CM041 main lacks, so the edit is hand-ported, not a re-vendor. Retire this section when a re-pin brings it in.
+
+## 2026-11-04 v1.0.123 (walk122 customer_read): a bare digit run over 15 digits is nameless
+
+Tree `cm041/assistant_api`. Pin HELD. Regeneration REFUSED, measured
+2026-11-04: `bash scripts/regenerate_divergence_patch.sh cm041/assistant_api --write`
+printed "could not verify cm041/assistant_api: source repo not found ()" and
+"CANNOT RUN -- source repo for cm041/assistant_api is not available".
+
+- `people_rules.py`: new `_E164_MAX_DIGITS = 15` and `_is_overlong_digit_id(s)`
+  after `_is_provisional_phone_name`; `_is_provisional_phone_name` now requires
+  7 <= digits <= 15; `_is_nameless_name` gains rule 5 (an overlong digit id is
+  nameless), between the short-code rule and the sender-id-handle rule.
+- Why: walk v1.0.122 diag on Mini16, 1 of 8553 People rows named by an
+  18-digit iMessage handle. `ical-server.py` `_displayable_phone` already rules
+  that over 15 digits is never a phone, so the phone column dropped it while the
+  name kept the same digits.
+- Same rule in CM044 `compiler/nameless.py` (CM044 #416) so the wiki and Hub
+  counts stay equal; iOS PersonNameFilter is a tracked follow-up.
+- Proof: `tests/test_people_rules_overlong_digit_id.py`,
+  `tests/test_nameless_filter_applies_to_the_hub_people_count.py` (18-digit case).
+- Upstream: CM041 `assistant_api/people_rules.py`. Retire this section when a
+  re-pin brings it in.
