@@ -36,6 +36,7 @@ on:
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -89,6 +90,7 @@ on:
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -325,6 +327,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_people_rules_short_codes_up_to_8_digits.py -v
+      - name: A bare digit run over 15 digits is an id, never a person's name (walk v1.0.122)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_people_rules_overlong_digit_id.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_overlong_digit_id.py -v
       - name: A carded name always shows, and the name ladder holds in list, search, stale, recent and birthdays
         if: always()
         run: PYTHONPATH=vendor python tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py

@@ -107,7 +107,18 @@ def _is_provisional_phone_name(display_name):
     mark, until a better name arrives (tier 0 phone < tier 1 email < tier 2
     human name; names go upward only). Andy's ruling 2026-08-10."""
     s = (display_name or "").strip()
-    return _is_bare_phone_shape(s) and _digit_count(s) >= 7 and not _is_short_code_shape(s)
+    return (_is_bare_phone_shape(s) and 7 <= _digit_count(s) <= _E164_MAX_DIGITS
+            and not _is_short_code_shape(s))
+
+
+# E.164's own ceiling. A bare digit run longer than this is never a phone
+# number (same rule as ical-server ``_displayable_phone``): it is an app's
+# internal id, and naming a person by it shows the customer a raw id.
+_E164_MAX_DIGITS = 15
+
+
+def _is_overlong_digit_id(s):
+    return _is_bare_phone_shape(s) and _digit_count(s) > _E164_MAX_DIGITS
 
 
 # SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
@@ -168,6 +179,10 @@ def _is_nameless_name(display_name, has_card=False, handles=None):
     if "@s.whatsapp.net" in low or "@lid" in low:
         return True
     if _is_short_code(s):
+        return True
+    # 5. a bare digit run over 15 digits: an internal id, never a phone
+    #    (walk v1.0.122: an 18-digit iMessage handle listed as a name).
+    if _is_overlong_digit_id(s):
         return True
     if not has_card and _all_handles_are_sender_ids(handles):
         return True
