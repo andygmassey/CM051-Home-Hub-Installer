@@ -59,7 +59,14 @@ def _fields(body: str) -> dict:
 def _is_ostler_python(proc: dict | None) -> bool:
     if not proc:
         return False
-    return any(_OSTLER_PY.search(proc.get(k, "")) for k in ("binary_path", "responsible_path"))
+    # tccd writes the ACCESSING binary as binary_path even inside a responsible
+    # block (Mini16 v1.0.121: responsible_path=/usr/libexec/sshd-keygen-wrapper,
+    # binary_path=<bundled python>). When responsible_path is present it names
+    # who is responsible and binary_path says nothing about it.
+    rpath = proc.get("responsible_path")
+    if rpath:
+        return bool(_OSTLER_PY.search(rpath))
+    return bool(_OSTLER_PY.search(proc.get("binary_path", "")))
 
 
 def _is_daemon(proc: dict | None) -> bool:
@@ -204,6 +211,10 @@ def _attr(msg, responsible=None, accessing=None, requesting=None):
 DAEMON = _proc("ai.ostler.assistant", "/Applications/Ostler.app/Contents/MacOS/ostler-assistant",
                "/Applications/Ostler.app/Contents/MacOS/ostler-assistant")
 PY_CHILD = _proc("python3", H + "/.ostler/python/bin/python3.11")
+# The shape tccd really writes for a python launched from an ssh session: the
+# responsible block carries the PYTHON's binary_path and sshd's responsible_path.
+SSHD_REAL = ("{TCCDProcess: identifier=com.apple.sshd-keygen-wrapper, pid=10, auid=501, euid=501, "
+             "responsible_path=/usr/libexec/sshd-keygen-wrapper, binary_path=" + H + "/.ostler/python/bin/python3.11}")
 PY_SELF = _proc("python3", H + "/.ostler/python/bin/python3.11",
                 H + "/.ostler/python/bin/python3.11")
 SANDBOXD = _proc("com.apple.sandboxd", "/usr/libexec/sandboxd")
@@ -214,6 +225,8 @@ CONTROL_ONLY = (_HDR + _ctx("1.1", "kTCCServiceSystemPolicyAllFiles")
                 + _attr("1.1", responsible=DAEMON, accessing=PY_CHILD)
                 + _ctx("1.2", "kTCCServiceSystemPolicyAllFiles")
                 + _attr("1.2", responsible=SSHD, accessing=PY_CHILD)
+                + _ctx("1.4", "kTCCServiceSystemPolicyAllFiles")
+                + _attr("1.4", responsible=SSHD_REAL, accessing=PY_CHILD)
                 + _ctx("1.3", "kTCCServiceDeveloperTool")
                 + _attr("1.3", accessing=PY_CHILD, requesting=SANDBOXD))
 PY_RESPONSIBLE_NO_BLOCK = (CONTROL_ONLY + _ctx("2.1", "kTCCServiceSystemPolicyAllFiles")

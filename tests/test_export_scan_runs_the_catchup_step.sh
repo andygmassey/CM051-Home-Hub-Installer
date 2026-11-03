@@ -50,12 +50,14 @@ else
     first="$(sed -n 1p "$SB/invocations.log")"
     second="$(sed -n 2p "$SB/invocations.log")"
     [ "$(wc -l < "$SB/invocations.log" | tr -d ' ')" = "2" ] && ok "both registered runners ran" || bad "runners invoked: ${lines}"
-    [ "$first" = "10-alpha budget=300" ] && ok "first runner got a fair half of 600 s: ${first}" || bad "first: ${first}"
+    # The script divides WALL-CLOCK time left, so a second tick between its start and the first runner yields 299.
+    b1="${first##*budget=}"
+    { [ "${first%% *}" = "10-alpha" ] && [ "$b1" -ge 295 ] && [ "$b1" -le 300 ]; } && ok "first runner got a fair half of 600 s: ${first}" || bad "first: ${first}"
     b2="${second##*budget=}"
     { [ "${second%% *}" = "20-beta" ] && [ "$b2" -ge 290 ] && [ "$b2" -le 600 ]; } \
         && ok "second runner got what was left: ${second}" || bad "second: ${second}"
 fi
-if grep -q "catch-up 10-alpha budget=300s rc=0" "$home/.ostler/logs/catchup.log" 2>/dev/null; then
+if grep -Eq "catch-up 10-alpha budget=(29[5-9]|300)s rc=0" "$home/.ostler/logs/catchup.log" 2>/dev/null; then
     ok "each runner's rc is recorded in logs/catchup.log"
 else
     bad "no rc line in catchup.log"
