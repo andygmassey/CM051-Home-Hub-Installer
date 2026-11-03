@@ -293,6 +293,11 @@ entries:
           - ec8200f59f  # gateway tests: serve_mock not webauthn-gated (test-only)
           - 125094c5f5  # feat(pairing): optional hub_tailnet_addr in the pairing QR, default off
           - 6f5c6d9aac  # test(pairing): default config QR keys equal the spec v1 set (test-only)
+          # ---- v1.0.122 addition (2026-11-03, Archie). Pin hub-v0.5.33 = oa 06f2eb80; the delta to oa main is FOUR commits, all oa #659 test-only (cron/scheduler.rs inside mod tests, +61, no Cargo.lock). Same adjudication as scripts/daemon_hold_ack.tsv row 06f2eb80.
+          - 1249d494cdaf10fcf1a353cb3b3d686c1fe316e5  # oa #659 (test-only)
+          - f9bfc3a70148e08d97b008812303d9f6e16ce5ee  # oa #659 (test-only)
+          - b2ffa2e7aa1d928495eb178925501f6b8a669e05  # oa #659 (test-only)
+          - 2d85e2de651f3c73ddb37d2c0724c73eceb42c28  # oa #659 merge (test-only)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
