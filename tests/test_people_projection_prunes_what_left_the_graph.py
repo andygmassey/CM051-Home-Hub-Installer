@@ -133,7 +133,12 @@ def test_a_failed_read_prunes_nothing(harness):
     """
     harness["scroll_fails"] = True
     res = mod.ingest_people_to_qdrant()
-    assert res["status"] == "ok", "a failed prune-read must not fail the ingest"
+    # v1.0.123: the same read now also supplies the stored payloads the sweep
+    # must not drop (a card, a photo, an L3 level), so a failed read writes
+    # NOTHING as well as deleting nothing: an honest error, never a blind
+    # overwrite (test_people_index_keeps_the_contacts_card.py).
+    assert res["status"] == "error" and res.get("reason") == "could_not_read_existing", (
+        "a failed read must refuse the sweep, not overwrite every point blind")
     assert harness["deleted"] == [], (
         "a FAILED READ authorised deletes -- this would wipe the customer's "
         "people index"

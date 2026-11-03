@@ -2338,6 +2338,11 @@ def _qdrant_scroll_points(collection: str, limit: int = 1000) -> Optional[list[d
                 if offset is not None:
                     body["offset"] = offset
                 resp = client.post(url, json=body)
+                if resp.status_code == 404 and offset is None:
+                    # No such collection: genuinely nothing stored (a fresh
+                    # install before the first write). That is an answer,
+                    # not a failed read.
+                    return []
                 resp.raise_for_status()
                 result = resp.json().get("result") or {}
                 out.extend(result.get("points") or [])
@@ -3491,6 +3496,12 @@ def _load_people_from_oxigraph() -> list[dict]:
     )
     phones_by_uri: dict[str, list[str]] = {}
     emails_by_uri: dict[str, list[str]] = {}
+    # The Contacts-card uid. This sweep upserts at uuid5(person_uri), the SAME
+    # point id contact_syncer writes, and a Qdrant upsert REPLACES the payload,
+    # so leaving the uid out erased the card contact_syncer stamped. Every
+    # has_card reader (people_rules SHARED RULE A, ical-server people paths)
+    # then hid carded people whose only handles are sender-ID shaped.
+    card_by_uri: dict[str, str] = {}
     for row in id_rows:
         uri = (row.get("uri", {}) or {}).get("value", "")
         id_type = (row.get("idType", {}) or {}).get("value", "")
@@ -3505,6 +3516,8 @@ def _load_people_from_oxigraph() -> list[dict]:
             emails_by_uri.setdefault(uri, [])
             if id_value not in emails_by_uri[uri]:
                 emails_by_uri[uri].append(id_value)
+        elif id_type == "icloud_contact_uid" and id_value.strip():
+            card_by_uri.setdefault(uri, id_value.strip())
 
     # A person may produce more than one row when they carry several
     # pwg:createdAt values (the contact_syncer "update if earlier" path can
@@ -3542,6 +3555,7 @@ def _load_people_from_oxigraph() -> list[dict]:
             "family_name": (row.get("familyName", {}) or {}).get("value", ""),
             "phones": phones_by_uri.get(uri, []),
             "emails": emails_by_uri.get(uri, []),
+            "icloud_uid": card_by_uri.get(uri, ""),
             # Real historical first-seen date (may be ""). Surfaced to the
             # Qdrant payload as observed_at/created_at so time-ordered views
             # can place this person. Empty -> omitted from those views (no
@@ -3627,6 +3641,46 @@ def _current_person_uris() -> Optional[set]:
     return uris or None
 
 
+_PRIVACY_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+
+
+def _privacy_rank(value) -> Optional[int]:
+    """0..3 for a stored level ("L2", "l3", 2); None when absent. Anything
+    present but unparseable ranks as L3: an unknown level is never weakened."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool):
+        return 3
+    if isinstance(value, int):
+        return value if 0 <= value <= 3 else 3
+    return _PRIVACY_RANK.get(str(value).strip().upper(), 3)
+
+
+def _merge_people_payload(existing: Optional[dict], computed: dict) -> dict:
+    """The sweep's payload laid over the point's existing one.
+
+    contact_syncer writes the SAME point id (uuid5(person_uri)) with keys this
+    sweep does not compute (icloud_uid, profile_photo_path, created_at, ...),
+    and a Qdrant upsert REPLACES the payload, so a plain upsert erased them
+    (walk v1.0.122: 101 carded people lost their card, and every resync dropped
+    photos). Every key the sweep does not compute is carried over; a computed
+    key that came out EMPTY never blanks a stored value; privacy_level is the
+    STRICTER of the stored and the computed level, so L3 is never downgraded."""
+    old = dict(existing or {})
+    merged = dict(old)
+    for key, value in computed.items():
+        if key == "privacy_level":
+            continue
+        if value in ("", None, [], {}) and old.get(key) not in ("", None, [], {}):
+            continue
+        merged[key] = value
+    old_rank = _privacy_rank(old.get("privacy_level"))
+    new_rank = _privacy_rank(computed.get("privacy_level"))
+    ranks = [r for r in (old_rank, new_rank) if r is not None]
+    merged["privacy_level"] = "L%d" % max(ranks) if ranks else computed.get("privacy_level")
+    return merged
+
+
 def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
 
@@ -3706,6 +3760,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "total": len(people),
         }
 
+    # The stored payloads, so the upsert below never drops a field this sweep
+    # does not own. None means the read FAILED: refuse rather than overwrite
+    # blind (an empty list is a genuinely empty collection).
+    stored = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
+    if stored is None:
+        logger.warning("People: could not read the stored points; not overwriting them blind.")
+        return {"status": "error", "reason": "could_not_read_existing",
+                "sent": 0, "points_created": 0, "total": len(people)}
+    existing_by_id = {str(p.get("id")): (p.get("payload") or {}) for p in stored}
+
     points: list[dict] = []
     for person, vec in zip(people, vectors):
         uri = person["uri"]
@@ -3723,6 +3787,8 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
             "family_name": person["family_name"],
             "phones": person["phones"],
             "emails": person["emails"],
+            # has_card for every reader; see card_by_uri in the loader.
+            "icloud_uid": person.get("icloud_uid", ""),
             # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
             # documented default -- ical-server.py ~L1019 "Default person tag
             # today is L2"). The reader (ical-server.py ~L1020) drops a person
@@ -3768,7 +3834,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         points.append({
             "id": point_id,
             "vector": vec,
-            "payload": payload,
+            "payload": _merge_people_payload(existing_by_id.get(point_id), payload),
         })
 
     sent = 0

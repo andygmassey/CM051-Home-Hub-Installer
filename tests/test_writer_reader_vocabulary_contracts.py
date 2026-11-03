@@ -134,6 +134,10 @@ class _StubbedPeopleWriter:
             pwg_ingest, "_qdrant_ensure_collection", lambda *a, **kw: True
         )
         monkeypatch.setattr(pwg_ingest, "_qdrant_upsert_points", fake_upsert)
+        # The stored-payload read (v1.0.123 carry-over): the collection was
+        # just ensured, so it holds nothing yet. A boundary fake, like the
+        # four above; the merge and the payload under test are shipped code.
+        monkeypatch.setattr(pwg_ingest, "_qdrant_scroll_points", lambda *a, **kw: [])
 
     def payloads(self):
         out = []
