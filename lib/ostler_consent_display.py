@@ -155,7 +155,9 @@ def catalogues(resources: Path, lang: str) -> dict[str, tuple[dict, dict]]:
 # plus the terms-language line) needs a legal_reviews.tsv row. Must match
 # l10n/config.yaml legal_patterns / legal_keys; a test checks they agree.
 LEGAL_SEGMENT = re.compile(r"(^|[_/.])legal([_/.\s]|$)", re.I)
-LEGAL_KEYS = {"MSG_LEGAL_ENGLISH_PREVAILS", "MSG_TERMS_LANGUAGE"}
+LEGAL_KEYS = {"MSG_LEGAL_ENGLISH_PREVAILS", "MSG_TERMS_LANGUAGE",
+              "MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL",
+              "MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL"}
 
 
 def is_legal_key(key: str) -> bool:

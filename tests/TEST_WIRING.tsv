@@ -543,6 +543,7 @@ test_launchagent_success_requires_verification.sh	WIRED	.github/workflows/launch
 test_launchd_plist_no_tmp.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_launchd_probe_read_survives_an_empty_launchagents_dir_under_zsh.sh	WIRED	.github/workflows/seeded-zero-launchd-lan-probes.yml
 test_legal_prevails_note_on_every_legal_prompt.py	WIRED	.github/workflows/l10n-check.yml
+test_legal_style_lines_are_legal_keys.py	WIRED	.github/workflows/l10n-check.yml
 test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml

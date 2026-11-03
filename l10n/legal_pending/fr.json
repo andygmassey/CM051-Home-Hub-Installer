@@ -59,10 +59,20 @@
   "src_hash": "5deac693a830",
   "src": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
+ "install_sh::MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL": {
+  "text": "Licence : %s – vérifiez les conditions de la licence d'origine avant tout usage commercial.",
+  "src_hash": "753246eaa2a6",
+  "src": "Licence: %s – check upstream terms before commercial use."
+ },
  "install_sh::MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF": {
   "text": "La transcription orale restera désactivée. Vous pourrez l'activer plus tard dans Réglages.",
   "src_hash": "40fb2092ab43",
   "src": "Spoken transcription will stay off. You can enable it later in Settings."
+ },
+ "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
+  "text": "      (RGPD du Royaume-Uni, article 9 : requis pour les catégories particulières de données).",
+  "src_hash": "6592e60a90f7",
+  "src": "      (UK GDPR Article 9 - required for special-category data)."
  },
  "install_sh::MSG_LEGAL_ENGLISH_PREVAILS": {
   "text": "Ceci est une traduction. En cas de divergence avec la version anglaise, la version anglaise prévaut.",

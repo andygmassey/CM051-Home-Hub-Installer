@@ -62,7 +62,9 @@ legal_english_only: false
 # searches "<key> <developer comment>", so a segment ends at _ / . space or
 # the end), not the word "consent".
 legal_patterns: ['(^|[_/.])legal([_/.\s]|$)', verbatim]
-legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS, MSG_TERMS_LANGUAGE]
+# Plus two plain-styled lines that cite a regulation or a licence (Archie,
+# 2026-11-04): they stay English like the small legal wording.
+legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS, MSG_TERMS_LANGUAGE, MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL, MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL]
 # The "English version prevails" line, one per catalogue the installer shows
 # legal wording from. Until EVERY one is reviewed for a language, every legal
 # key of that language stays English (the installer is one surface: install.sh

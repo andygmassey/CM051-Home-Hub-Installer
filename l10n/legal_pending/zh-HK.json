@@ -59,10 +59,20 @@
   "src_hash": "5deac693a830",
   "src": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
  },
+ "install_sh::MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL": {
+  "text": "授權條款：%s – 作商業用途前，請先查閱上游條款。",
+  "src_hash": "753246eaa2a6",
+  "src": "Licence: %s – check upstream terms before commercial use."
+ },
  "install_sh::MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF": {
   "text": "口述轉錄會保持關閉。你日後可在「設定」中啟用。",
   "src_hash": "40fb2092ab43",
   "src": "Spoken transcription will stay off. You can enable it later in Settings."
+ },
+ "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
+  "text": "      （英國 GDPR 第 9 條 - 處理特殊類別資料所必需）。",
+  "src_hash": "6592e60a90f7",
+  "src": "      (UK GDPR Article 9 - required for special-category data)."
  },
  "install_sh::MSG_LEGAL_ENGLISH_PREVAILS": {
   "text": "這是譯本。如與英文版本有任何差異,概以英文版本為準。",
