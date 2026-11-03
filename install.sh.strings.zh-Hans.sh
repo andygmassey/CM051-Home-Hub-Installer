@@ -158,7 +158,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="需要 Xcode 命令行工具。macOS 会请求安装权限，请留意一个灰色的小对话框（如果没有看到，请按 Cmd+Tab 或查看程序坞）。点击“安装”。在你回答下面的问题时，工具会在后台下载。"
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  仍在设置命令行工具（%s 秒）。如果有一个灰色的 macOS 小对话框正在询问是否安装开发者工具，请点击“安装”，此步骤正在等待它。（如果看不到，请按 Cmd+Tab 或查看程序坞。）"
-MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog."
+MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="仍在等待 Apple 开发者工具。如果没有看到对话框，请点按“安装开发者工具”。"
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="正在等待命令行工具安装完成（马上就好）..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="每小时运行一次。首次运行会拉取最近 5 年的邮件。"
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="正在停用旧版 iMessage 桥接 LaunchAgent（单机 v1.0）"
@@ -224,7 +224,7 @@ MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT="正在安装 GNU coreutils（用于为�
 MSG_INFO_INSTALLING_HOMEBREW="正在安装 Homebrew..."
 MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM="正在从 %s 安装知识服务..."
 MSG_INFO_INSTALLING_OLLAMA="正在安装 Ollama..."
-MSG_INFO_INSTALLING_OLLAMA_PINNED="Installing Ollama %s (verified release)..."
+MSG_INFO_INSTALLING_OLLAMA_PINNED="正在安装 Ollama %s（已验证版本）..."
 MSG_INFO_INSTALLING_FDA_DEPENDENCIES="  正在安装数据提取模块的依赖项..."
 MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV="  正在将 Apple Mail 读取器安装到专用 venv..."
 MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV="  正在将 ostler-knowledge 安装到 venv..."
@@ -246,7 +246,7 @@ MSG_INFO_LAPTOP_HUB_DESKTOP_ALTERNATIVE="Mac Mini 或 Mac Studio 作为 Hub 可�
 MSG_INFO_LATER_SYSTEM_SETTINGS_PRIVACY_SECURITY_FULL="稍后在“系统设置”>“隐私与安全性”>“完全磁盘访问权限”中设置"
 MSG_INFO_LAUNCH_VERIFY_CRON_DELIVERY_IMESSAGE_TCC="  启动以验证 cron 投递和 imessage-tcc 状态)。"
 MSG_INFO_LICENCE_APACHE_2_0_FULL_TEXT="许可证：%s 采用 Apache 2.0。全文：%s/LICENSES/Apache-2.0.txt"
-MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="Licence: %s – check upstream terms before commercial use."
+MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL="许可证:%s – 商业使用前请查看上游条款。"
 MSG_INFO_LOCAL_STORE_GOOGLE_NEVER_SEES_THAT="本地存储 – Google 永远不会知道 Ostler 的存在。"
 MSG_INFO_LOGS_EMAIL_INGEST_LOG_ERR="日志：%s/email-ingest.log（以及 .err）"
 MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR="日志：%s/ostler-assistant.log（以及 .err）"
@@ -277,13 +277,13 @@ MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="正在使用此 DMG 中附带的
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge 已安装到 venv 中。"
-MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
+MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler 会额外显示一个同意页面,然后再安装"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  可通过 ./install.sh --help 中说明的环境变量覆盖对话记忆引擎的源仓库。"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  使用 PWG_DOCTOR_REPO=<url> ./install.sh 覆盖源仓库"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  使用 PWG_HUB_POWER_REPO=<url> ./install.sh 覆盖源仓库"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  使用 PWG_KNOWLEDGE_REPO=<url> ./install.sh 覆盖源仓库"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  使用 PWG_PIPELINE_REPO=<url> ./install.sh 覆盖源仓库"
-MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
+MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="正在保存同意记录和地区..."
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="第 3 阶段电池监视器已启动（PID %s）"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="正在读取你的通讯录（较大的通讯录可能需要几分钟 – 请勿关闭安装程序）..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="策略覆盖：编辑 ~/.ostler/power.conf(normal / aggressive / eco)"
@@ -308,15 +308,15 @@ MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="正在复用位于 %s 的现有�
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="正在复用位于 %s 的现有 hub-power 安装"
 MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="正在复用位于 %s 的现有浏览器扩展密钥"
 MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="Chrome 版 Ostler 扩展不包含在此版本中。"
-MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="邮件对话:未设置,因为你未同意 Ostler 读取他人的消息。"
 MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="邮件对话：未设置，因为这台 Mac 上尚未设置 Apple Mail。"
-MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="信息对话:未设置,因为你未同意 Ostler 读取他人的消息。"
 MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="信息对话：未设置，因为这台 Mac 上没有“信息”记录。"
 MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  用 Ostler 转录一次通话后，此功能会自动开启。"
 MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="语音对话：尚未设置，因为没有可读取的转录内容。"
 MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="语音对话：已关闭，因为自安装 Ostler 以来，转录文稿文件夹已被移除。"
 MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  重新创建 %s 即可再次开启。Ostler 不会替你重新创建它。"
-MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp 对话:未设置,因为你未同意 Ostler 读取他人的消息。"
 MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="WhatsApp 对话：未设置，因为 WhatsApp 已关闭。"
 MSG_INFO_CHROME_HISTORY_STILL_READ="  Ostler 仍会读取你的 Chrome 历史记录，因此你访问过的页面会被记住。目前，浏览时的实时捕获仅支持 Safari。"
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="正在复用 %s 中现有的 JWT_SECRET"
@@ -327,7 +327,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="还剩一个手动步骤：打开 Saf
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="正在扫描 GDPR 数据导出文件..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="请设置 PWG_DOCTOR_REPO=<url> 后重新运行以进行安装。"
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="请设置 PWG_HUB_POWER_REPO=<HR015 url> 后重新运行以进行安装。"
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="已跳过对话模型。稍后可拉取：%s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="正在启动 Colima（轻量级 Docker 运行环境）..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="正在启动 Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="正在启动 Ollama..."
@@ -348,7 +348,7 @@ MSG_INFO_THIS_READS_MACOS_DATABASES_DIRECTLY_NO="这会直接读取 macOS 数据
 MSG_INFO_TIP_INCLUDE_YOUR_GMAIL_ADD_IT="提示：若要包含你的 Gmail，请先将其添加到 Mac 的“邮件”中"
 MSG_INFO_TO_INSTALL_LATER_ONCE_YOU_HAVE="获得访问权限后，如需稍后安装："
 MSG_INFO_TRIGGERING_ICLOUD_SYNC_SILENT_FIRST_RUN="正在为 %s 触发 iCloud 同步（静默进行，仅首次运行）..."
-MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      (UK GDPR Article 9 - required for special-category data)."
+MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL="      （英国 GDPR 第 9 条 - 处理特殊类别数据所必需）。"
 MSG_INFO_UPDATING_EXISTING_PIPELINE="正在更新现有流程..."
 MSG_INFO_USER_FACING_TREE_ALREADY_ANNOUNCED_SENTINEL="面向用户的目录树已发布过（存在标记文件）；已跳过"
 MSG_INFO_VANE_LARGE_DOWNLOAD_NO_PROGRESS="正在下载本地网页搜索引擎（约 3.5 GB）。首次安装时这是最耗时的一步，可能需要长达一小时。此步骤没有进度条，因此长时间没有动静是正常的，并不表示安装已停滞。"
@@ -415,8 +415,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="此安装程序缺少容器运行时监�
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="无法启动 Ostler Doctor 仪表板，因此 http://localhost:8089 将无法响应。App 中读取该仪表板数据的页面，包括人物、时间线、Governor 和频道状态，在其运行之前将显示为不可用。请重新运行安装程序再试一次。"
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="无法安排保持唤醒辅助程序。Ostler 仍可正常使用，但这台 Mac 可能会在长时间的后台任务期间进入睡眠，任务会在唤醒后继续，而不是在夜间完成。"
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="无法安排后台补充辅助程序，因此新的信息、邮件和日历条目将不会自动获取。请重新运行安装程序以恢复。"
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s 未设置:Ostler 没有记录你对相关问题的回答,因此没有自行假定。"
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  请重新运行 Ostler,并选择再次回答问题以将其开启。(同意记录:%s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="无法安排每日简报，因此你将不会收到早间摘要。其他功能均正常；请重新运行安装程序以恢复。"
 MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="无法安排记忆整理任务，因此过时或已被取代的事实不会被自动降低权重。其他功能均正常；请重新运行安装程序以恢复。"
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="无法启动“下载”文件夹监视程序，因此你放入“下载”的文件不会被自动获取。已导入的内容不受影响，你仍可在 App 内添加文件。请重新运行安装程序以恢复。"
@@ -427,7 +427,7 @@ MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="无法安排设备注册的重
 MSG_OK_CONTAINER_ENGINE_ANSWERED="容器运行时正在响应"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="已移除旧版本遗留的过时 Colima 启动项"
 MSG_OK_CONFIG_SAVED_ENV="配置已保存到 %s/.env"
-MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="同意记录和地区已保存到 ~/.ostler/posture/"
 MSG_OK_AT_REST_EXCLUDED="已排除在 Spotlight 和 Time Machine 之外（已检查）：%s"
 MSG_WARN_AT_REST_NOT_EXCLUDED="%s 未被排除在 Time Machine 或 Spotlight 之外：%s。其内容，包括 Ostler 的密钥，可能会被复制到你的备份磁盘。在问题解决之前，Doctor 会一直显示此提示。"
 MSG_INFO_AT_REST_FOLDER_ABSENT="%s 尚不存在，因此没有需要从备份中排除的内容。"
@@ -553,9 +553,9 @@ MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY="保留标准的五年邮件时间范围。�
 MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text 已可用"
 MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama 已安装"
-MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="An Ollama app is already installed in Applications. Ostler leaves it exactly as it is and runs its own copy of Ollama %s alongside it. If that app is open in the menu bar, quit it so Ostler can start its own."
-MSG_WARN_OLLAMA_PIN_DEFERRED="Could not update Ollama to %s this time, so Ostler is keeping the copy it already runs (%s). Your assistant keeps working. The update will be tried again the next time the installer runs. Details: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Not downloading %s this time: Ostler's tested copy of Ollama (%s) is not installed yet, and a different Ollama could fetch the wrong build. The next installer run downloads it."
+MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="“应用程序”中已安装 Ollama 应用。Ostler 不会改动它，而是在旁边运行自己的 Ollama %s 副本。如果该应用已在菜单栏中打开，请将其退出，以便 Ostler 启动自己的副本。"
+MSG_WARN_OLLAMA_PIN_DEFERRED="这次无法将 Ollama 更新到 %s，因此 Ostler 会继续使用已在运行的副本（%s）。你的助手仍可正常工作。下次运行安装程序时会再次尝试更新。详细信息：%s"
+MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="这次不会下载 %s：Ostler 测试过的 Ollama 副本（%s）尚未安装，而其他版本的 Ollama 可能会获取错误的构建。下次运行安装程序时会下载它。"
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama 已安装（仅命令行工具 – 重启后可能需要手动启动）"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama 已安装（桌面应用）"
 MSG_OK_OLLAMA_RUNNING="Ollama 正在运行"
@@ -655,7 +655,7 @@ MSG_OK_USER_FACING_TREE_READY="用户目录结构已就绪"
 MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD="改用“Ostler”文件夹/标签。"
 MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane 运行正常（本地网页搜索）"
 MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane 正在 http://localhost:3000 运行（与你本地的 Ollama 通信）"
-MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
+MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="将启用 WhatsApp 连接器（已记录同意）"
 MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="首日 wiki 补充更新 LaunchAgent 已加载（前几个小时内每 30 分钟重建一次你的 wiki，之后停止）"
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
 MSG_INFO_DEDUPE_STILL_MERGING="仍在合并重复的联系人 – 通讯录较大时可能需要几分钟（已用时 %s 秒）"
@@ -667,8 +667,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="后台联系人去重 LaunchAgent 已加载（安�
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="无法加载后台联系人去重 LaunchAgent。重复项仍会由每日维护流程合并，只是需要更长时间才能处理完毕。"
 MSG_OK_ENRICH_AGENT_LOADED="后台充实 LaunchAgent 已加载（补全你的电影、地点、图书和链接的详细信息；将在接下来一天左右分批运行）"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="无法加载后台充实 LaunchAgent。你的偏好已保存且可搜索，只是在其运行之前会缺少额外的参考信息（导演、演员、地点）。"
-MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
-MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
+MSG_OK_DERIVE_AGENT_LOADED="“你的喜好”代理已载入（每隔几小时根据这台 Mac 上保存的偏好推断你的口味；所有内容都不会离开你的 Mac）"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="无法载入“你的喜好”代理。你的偏好已保存且可搜索；在它运行之前，“你的喜好”页面将保持为空。"
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="wiki 重新编译 LaunchAgent 已加载（标签 com.creativemachines.ostler.wiki-recompile）"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="wiki 重新编译脚本已随安装程序打包"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="wiki 重新编译脚本已从 %s 克隆"
@@ -722,8 +722,8 @@ MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Colima 启动失败。正在
 MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="无法安装 GNU coreutils；耗时较长的步骤将不设时间上限（仍会显示进度行，表明它们在运行）。"
 MSG_WARN_COLIMA_START_RETRY="Colima 未能正常启动（Docker socket 尚未就绪）。%s 秒后重试……"
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="常见原因：标签 v%s 尚未发布、网络离线，"
-MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
-MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Your consent was saved, but not which language it was shown in (details in ~/.ostler/posture/consent-cli-failures.log)."
+MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr（前 400 个字符）："
+MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="你的同意已保存，但未记录当时显示的语言（详细信息见 ~/.ostler/posture/consent-cli-failures.log）。"
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  未在 %s 创建控制台脚本；pyproject.toml 可能缺少 [project.scripts] 条目。"
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="由于传入了 --allow-plaintext，继续执行。"
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="继续安装。排查上述错误后，请重新运行 \`ostler-fda\`。"
@@ -753,7 +753,7 @@ MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="无法获取 wiki-recompile �
 MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="无法自动打开 Chrome 网上应用店网址：%s"
 MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="无法保存 region.json（继续执行，Doctor 会显示相关提示）"
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="无法记录恢复密钥已送达。本次运行的摘要仍然正确，但之后的运行可能无法判断，并可能再次发出警告 – 这是此情况下较安全的失败方式。"
-MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac."
+MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="你的恢复密钥未存入钥匙串。请把它写下来，并保存在远离这台 Mac 的安全地方。"
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="无法自动启动 Ollama。"
 MSG_FAIL_OLLAMA_PORT_IN_USE="另一个程序已占用端口 11434，而 Ostler 的本地 AI 需要使用该端口。Ostler 无法启动自己的副本，因此安装在此停止，而不是只完成一半。
 
@@ -884,8 +884,8 @@ MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR="stderr 最后片段："
 MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY="ostler-assistant v%s 仅支持 Apple 芯片（检测到：%s）。"
 MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE="  ostler-import %s --user-name \"%s\" --verbose"
 MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048="  无法将加密存储依赖项安装到对话记忆 venv 中；对话增强将不会运行。"
-MSG_INFO_COACH_DB_READY="  Coaching database ready, encrypted: %s"
-MSG_WARN_COACH_DB_NOT_CREATED="  Could not prepare the encrypted coaching database (it will be created on the first coaching note): %s"
+MSG_INFO_COACH_DB_READY="  辅导数据库已就绪，已加密：%s"
+MSG_WARN_COACH_DB_NOT_CREATED="  无法准备加密的辅导数据库（将在写下第一条辅导笔记时创建）：%s"
 MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048="  在 SCRIPT_DIR 中未找到加密存储依赖项源文件；对话记忆引擎无法加载，对话增强将不会运行。"
 MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET="  - ostler-wiki-compiler 镜像暂时无法拉取（镜像仓库尚未接入）"
 MSG_WARN_OXIGRAPH_NOT_RESPONDING="Oxigraph 无响应"
@@ -1059,11 +1059,11 @@ MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="Homebrew 安装报告成功，但找不
 MSG_FAIL_HOMEBREW_NOT_ON_PATH="Homebrew 已安装在 /opt/homebrew/bin/brew，但在执行 shellenv 后，'brew' 命令仍不在 PATH 中。请打开新的“终端”窗口，然后重新运行安装程序。"
 MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 报告成功，但 PATH 中找不到 colima。请查看 %s 了解 Homebrew 的失败信息。恢复方法：打开“终端”，手动运行 'brew install colima docker docker-compose'，然后重新运行安装程序。"
 MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' 报告成功，但 PATH 中找不到 docker CLI。请查看 %s。恢复方法：手动运行 'brew install docker'，然后重新运行安装程序。"
-MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="The Ollama install reported success but its binary is missing. Check %s, then re-run the installer."
-MSG_FAIL_OLLAMA_PIN_DOWNLOAD="Could not download Ollama %s. Check your internet connection, then re-run the installer. Details: %s"
-MSG_FAIL_OLLAMA_PIN_SHA256="The Ollama %s download did not match its recorded fingerprint, so it was not installed. This can mean the download was damaged or altered. Re-run the installer; if it happens again, contact support. Details: %s"
-MSG_FAIL_OLLAMA_PIN_UNPACK="Ollama %s downloaded but could not be unpacked. Check free disk space, then re-run the installer. Details: %s"
-MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="The local AI service is set to run %s instead of the copy of Ollama this installer verified (%s), so it would not stay on a tested version. The install has stopped. Re-run the installer; if this repeats, contact support. Details: %s"
+MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="Ollama 安装报告成功，但找不到其可执行文件。请检查 %s，然后重新运行安装程序。"
+MSG_FAIL_OLLAMA_PIN_DOWNLOAD="无法下载 Ollama %s。请检查你的网络连接，然后重新运行安装程序。详细信息：%s"
+MSG_FAIL_OLLAMA_PIN_SHA256="Ollama %s 的下载内容与其记录的指纹不匹配，因此未安装。这可能意味着下载内容已损坏或被篡改。请重新运行安装程序；如果再次出现，请联系支持团队。详细信息：%s"
+MSG_FAIL_OLLAMA_PIN_UNPACK="Ollama %s 已下载，但无法解包。请检查可用磁盘空间，然后重新运行安装程序。详细信息：%s"
+MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="本地 AI 服务被设置为运行 %s，而不是此安装程序验证过的 Ollama 副本（%s），因此无法保持在经过测试的版本上。安装已停止。请重新运行安装程序；如果再次出现，请联系支持团队。详细信息：%s"
 MSG_FAIL_EMBED_HEALTHCHECK="Ollama 正在运行，但嵌入模型没有返回向量（HTTP 状态不是 200，或结果为空）。这样“人物”卡片、搜索和浏览都将为空。请查看 %s。恢复方法：确保已安装并运行 Ollama 应用（而非 Homebrew formula），然后重新运行安装程序。"
 MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' 报告成功，但 PATH 中找不到 sqlcipher。请查看 %s。恢复方法：手动运行 'brew install sqlcipher'，然后重新运行安装程序。"
 MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' 没有生成 /Applications/Tailscale.app。请查看 %s。恢复方法：从 https://tailscale.com/download/macos 下载 Tailscale，将其拖入 /Applications，然后重新运行安装程序。"
@@ -1090,10 +1090,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="全名（例如 Tom Harrison）"
 
 MSG_PROMPT_USER_ID_TITLE="你希望助手怎么称呼你？"
 MSG_PROMPT_USER_ID_HELP="助手称呼你时使用的简短名称（例如“Andy”“Andrew”“Smith 女士”）。它会出现在你的早间简报和聊天回复中，与上面的全名不同。"
-MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
-MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
-MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
-MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
+MSG_WARN_OWNER_NAME_EMPTY="姓名不能为空。请输入你的姓名。"
+MSG_WARN_OWNER_ID_EMPTY="此项不能为空。请输入你希望助手如何称呼你。"
+MSG_FAIL_OWNER_NAME_EMPTY="未输入姓名，且这里无法再次询问。请再次运行安装程序，并在提示时输入你的姓名。"
+MSG_FAIL_OWNER_ID_EMPTY="未回答你希望助手如何称呼你，且这里无法再次询问。请再次运行安装程序，并在提示时输入名称。"
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1121,8 +1121,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="生日"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri 建议"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="你订阅的日历"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="提醒事项"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="要将“%s”包含在你的简报中吗？"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="这看起来是%s，而不是日程安排，所以我们没有包含它。如果其中确有实际计划，请开启。"
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="“%s”是谁的日历？"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="“%s”是哪种日历？"
@@ -1157,8 +1157,8 @@ MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="可以输入任何你喜欢的名字，建
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="助手将如何联系你？"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="选择你希望助手使用的消息渠道。你可以稍后在 App 的 Doctor 部分更改。"
 
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="为你的助手启用 WhatsApp 消息?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web 是第三方服务。启用即表示你接受:你的消息会先经过 WhatsApp 自己的基础设施,再到达本地的 Ostler 实例;并且 WhatsApp(Meta Platforms Ireland Ltd)可能因自动化使用而暂停、限制或终止你的 WhatsApp 账户。你可以稍后在“设置”中停用。"
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="你的 WhatsApp 电话号码"
 # The example used to read "+44 7700 900123" – spaces – in the same sentence as
@@ -1276,7 +1276,7 @@ MSG_PROMPT_EMAIL_ALLOWED_TITLE="谁可以给你的助手发邮件？"
 MSG_PROMPT_EMAIL_ALLOWED_HELP="你自己的电子邮件地址，用逗号分隔。%s 只会回复此列表中地址发来的邮件，其他任何人发来的邮件都会被忽略。至少需要一个地址。你自己的地址已为你填好，可以修改，也可以再添加一个。"
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="密码（已隐藏）"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally in ~/.ostler/secrets/, not in your settings file, and never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="自托管 IMAP/SMTP 服务器的密码。它存储在本地的 ~/.ostler/secrets/ 中，而不是设置文件里，也绝不会发送给 Creative Machines。它以纯文本保存：唯一的保护是文件权限，仅允许你的 macOS 账户访问，其他人都不能。之后不会再对其加密。请使用应用专用密码，而不是主账户密码。"
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="确认密码"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="助手应该监视哪个文件夹？"
@@ -1286,11 +1286,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="再次输入 INBOX 以确认，或点按�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX 表示助手将读取你收到的每一封邮件。我们强烈建议改用专用的标签或文件夹。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="你已经申请数据导出了吗？"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可导入 18 个平台的导出数据。完整列表及各服务商申请页面的直接链接见 https://ostler.ai/docs/getting-started/data-exports/。
 
-Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+大多数存档需要 1 到 3 天通过电子邮件送达。ZIP 文件到达后，把它们放进“下载”文件夹，Ostler 会自动找到。
 
-Skip any you do not use; you can always import more later."
+不使用的可以跳过；以后随时可以导入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="在磁盘静态数据【未加密】的情况下继续吗？"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="这台 Mac 上的“文件保险箱”（FileVault）已关闭，因此你的磁盘处于未加密状态。
@@ -1318,11 +1318,11 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Disney+ 导出文件密码"
 MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ 的 GDPR 导出文件是一份受密码保护的电子表格，这是正常现象，并不是你的下载出了问题。输入密码即可立即导入你的 Disney+ 观看记录；留空则跳过此项，其他内容仍会照常导入。"
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="你准备好数据导出文件了吗？"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler 可以在一开始就导入社交媒体和平台存档 – 包括你与朋友、家人、地点、观点相关的完整历史。Ostler 在第一天了解得越多，第一天就越有用。你也可以稍后再添加，不用着急。
 
-Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
+请从各个平台（Twitter / X、Facebook、Instagram、LinkedIn 等）申请导出你的数据，下载 ZIP 文件，并放进“下载”文件夹。WhatsApp 无需导出：Ostler 会从这台 Mac 上的 WhatsApp Desktop 读取你的历史记录。
 
-Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
+Ostler 默认会查看 ~/Downloads。想用其他文件夹？请在下方选取。否则请跳过，稍后再导入。"
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="从此 Takeout 导入 Gmail 邮件吗？"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="直接从 Takeout 文件中读取 Gmail 内容。Google 不会知道 Ostler 的存在。"
@@ -1335,11 +1335,11 @@ MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="自定。在下一个屏幕上逐项选�
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="开启或关闭此数据来源。"
 
-MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
-MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="你的决定（Y = 是 / N = 否）"
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="第 9 条特殊类别数据同意（英国 GDPR）。此为数据处理的合法性依据所必需。"
 
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
-MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="在你转写的通话中识别说话人的声音吗？"
+MSG_PROMPT_CONSENT_VOICE_EU_HELP="说话人识别只在这台 Mac 上进行。Creative Machines 不会收到声纹。"
 
 # Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
 # decide whether public-data enrichment runs. Not a default-on setting."
@@ -1353,25 +1353,25 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creativ
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
-MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="查询你保存内容的公开信息吗？"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler 可以为它发现的内容补充公开的参考信息，例如一本书、一部电影、一张专辑或一个地点。为此，它会把这一项内容的名称发送给维基数据（Wikidata）、MusicBrainz 和 OpenLibrary 等公共参考服务，并将结果保存在这台 Mac 上。
 
-What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+离开你的 Mac 的内容：被查询内容的名称，仅此而已。不包括你的消息、联系人、文件，也不包括是谁提到了它。
 
-What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+对方服务能看到的内容：你的 IP 地址，以及请求来自 Ostler。查询直接从你的 Mac 发送给对方，不经过我们的服务器，因此无法在不让对方知道有人查询的情况下进行查询。
 
-If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+如果你选择“否”：不会进行任何查询，后台补充信息的任务也根本不会安装。其他一切功能完全照常。你的资料库将只保留你提供的内容，而不会加入公共目录提供的补充信息。
 
-You can say No now and change your mind later by re-running the installer."
+你现在可以选择“否”，以后想改变主意，可以重新运行安装程序。"
 
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="最后一件事：第三方数据如何处理"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="你从第三方导入的任何数据（Google Takeout、Meta 下载、LinkedIn 导出等）都保留在这台 Mac 上。Ostler 将其存储在你本地的知识图谱中，不会有任何内容离开你的设备。
 
-By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
+继续即表示你理解并同意，你本人全权负责在你的设备上处理和保管这些数据，就像对待硬盘中已有的电子邮件一样。
 
-Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
+法律说明：对于你导入这台 Mac 的记录，根据英国和欧盟法律，你是数据控制者和处理者（英国 GDPR 第 4(7) 条和第 4(8) 条）。Creative Machines 不会收到这些数据，也不是控制者。你出于个人和家庭目的进行的处理，属于英国/欧盟 GDPR 第 2(2)(c) 条的范围。
 
-Read more at docs.ostler.ai/privacy/third-party-data."
+详见 docs.ostler.ai/privacy/third-party-data。"
 
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
@@ -1381,13 +1381,13 @@ Read more at docs.ostler.ai/privacy/third-party-data."
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
 MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
-MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
-MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
-MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
-MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
-MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
-MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
-MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_INTRO="Ostler 专为一个人设计：在自己的 Mac 上，了解自己的生活。这就是全部的设计理念，也是你的数据从不离开这台设备的原因。"
+MSG_TERMS_PERSONAL_USE_BUSINESS="它并非为商业用途而设计。请不要将 Ostler 部署给员工使用，也不要在工作中用它收集同事、客户、病人或顾客的信息。如果某个组织这样做，该组织就要对其收集到信息的每一个人负责，而 Ostler 并非为承担这种责任而设计。"
+MSG_TERMS_PERSONAL_USE_RECORDER="录音的人是你，Ostler 只是工具。如果你所在地的法律要求在对话被录音前征得同意，那么取得同意是你的责任；我们无从得知，在你所在的地方某次具体的录音是否合法。"
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="我们请你不要做以下三件事："
+MSG_TERMS_PERSONAL_USE_ASK_1="未经父母或监护人同意，请勿录制儿童的声音。儿童无法自行表示同意，你自己的保证也不能代替他们的同意。"
+MSG_TERMS_PERSONAL_USE_ASK_2="请勿在人们期望享有真正隐私的场所录音：医生问诊、与律师会面、心理治疗、宗教告解、卫生间或更衣室。"
+MSG_TERMS_PERSONAL_USE_ASK_3="在你所在地法律不允许的情况下，请勿使用 Ostler 对任何人进行秘密录音。"
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
 # Legal: the "English version prevails" line (owner ruling 2026-10-24). install.sh prints it
 # before every legal/consent prompt, but ONLY when this line is itself translated
@@ -1395,23 +1395,23 @@ MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial us
 MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."
 # English prevails over any translation. Legal text stays English in every locale.
 MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
-MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler 仅供个人使用"
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler 仅授权你在自己的 Mac 上供个人使用。请勿将其部署给员工，或在工作中用它采集同事、客户或病人的内容。未经父母同意，请勿录制儿童的声音；请勿在人们期望享有真正隐私的场所录音，例如看医生、见律师或接受心理治疗时。点按“继续”即表示接受这些条款。
 
-Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
-MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
+语言。本条款以英文撰写，任何译文仅为方便阅读而提供。如译文与英文版本有任何不一致，以英文版本为准。"
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="没问题。尚未安装任何内容。"
 
-MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe."
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="将语音对话转为文字"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="简而言之：当你采集语音音频以进行转写时，取得法律所要求的任何同意是你的责任，而不是我们的。打字和信息收发不受影响。"
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler 可以把你采集的语音对话（通话和会议）转为可搜索的文字；这只涉及你选择转写的音频。"
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler 在采集音频的设备上完成转写，并立即删除音频。音频从不保留，也从不发送到任何地方，包括你自己的 Mac。但这并不免除这项义务：在当地法律要求的情况下，你仍需取得同意。"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="我们对你的要求："
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="在采集语音对话之前，取得你所在地法律要求的任何同意。"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="让在场的人清楚知道正在采集音频，例如一开始就说明，或一直开启可见的提示标志。"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="如有疑问，请保持语音转写关闭。无论是否开启，你的文字对话都能正常使用。"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="你的决定："
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] 我已了解，并会取得我所在地法律要求的任何同意。"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] 暂不开启，保持语音转写关闭。（你可以稍后在“设置”中开启。）"
 # ── Spoken-capture legal note, chosen by the Mac's REGION (not its language) ──
 # Composed by _ostler_spoken_capture_legal_note in install.sh as
 #   "Legal note: " + CORE + LOCAL + the region line(s) + RESPONSIBILITY,
@@ -1444,25 +1444,26 @@ MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Pri
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US="In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY="As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="将语音对话转为文字？"
+# NEEDS REVIEW: Consent/legal responsibility wording; a lawyer should check its legal force.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="简而言之：当你采集语音音频并将其转写时，取得法律要求的任何同意是你的责任。输入文字和发送消息不受影响。
 
-Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
+Ostler 可以将你采集的语音对话（通话和会议）转为可搜索的文本。这仅涉及你选择转写的音频。
 
-What we ask of you:
-• Get whatever consent your local law requires before you capture audio.
-• Make it clear audio is being captured – say so, or keep a visible indicator on.
-• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings."
+我们对你的要求：
+• 在采集音频之前，取得当地法律要求的任何同意。
+• 明确告知正在采集音频：说明这一点，或保持可见的指示标志开启。
+• 如有疑问，请保持关闭。无论是否开启，你的文字对话都能正常使用，之后也可以在“设置”中开启。"
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="语音转写将保持关闭。你可以稍后在“设置”中启用。"
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
 
-MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
-MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
-MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
-MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
+MSG_PROMPT_CONSENT_INSTALL_TITLE="准备好安装了吗？"
+MSG_PROMPT_CONSENT_INSTALL_HELP="请输入 INSTALL 以确认你接受这些条款。"
+MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="输入 INSTALL"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="安装 Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="取消"
+MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="请准确输入 INSTALL（不区分大小写）以确认，或点按“取消”返回。"
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="连接你的 iPhone 和 Apple Watch"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="Tailscale 会为这台 Mac 提供一个稳定的私有地址，你的 iPhone 和 Apple Watch 可以在任何地方访问它：全程加密，不公开暴露。"
@@ -1596,21 +1597,21 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="没有可读取的 WhatsApp 聊天。你�
 # so a failure names the sources that failed (v1.0.120 walk: a food timeout was
 # reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
 # tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
-MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
-MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_INGEST_SOURCES_FAILED="你的部分数据已读取，但尚未添加到你的图谱中：%s。Ostler 将在后台重试。详情：%s"
+MSG_HYDRATE_FOOD_DEFERRED="你的饮食和餐厅偏好将在设置完成后于后台添加。"
 MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
 MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
-MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
-MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
-MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
-MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
-MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
-MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
-MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
-MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
-MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
-MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
-MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="日历"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="照片"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="邮件联系人"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="浏览记录"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="书签"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="饮食和餐厅偏好"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="你最常联系的人"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="人物搜索"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="全部内容（无法读取导入文件夹）"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="一个或多个来源（Ostler 无法确定是哪些）"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="另一个来源（%s）"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="未安装 WhatsApp Desktop。请从 Mac App Store 安装，然后在“设置”中重新运行。"
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp 读取器尚未就绪。你可以稍后在“设置”中重新运行。"
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp 仍在后台加载。你的 wiki 会随之逐步充实，并显示当前进度。"
@@ -1914,7 +1915,7 @@ MSG_INFO_AUTOLOGIN_EXPLAIN="Ostler 是常开的 Hub，因此在断电或重启�
 存储密码会降低这台 Mac 的安全性。密码只是被打乱，并未加密，因此任何能使用这里管理员账户的人，或能取出磁盘在别处读取的人，都可以将其还原为你的密码。在你输入任何内容之前，你会先看到它的具体存储位置。
 
 如果你选择否，将不会存储任何内容，其他设置也不会改变。断电后你照常登录，Ostler 的服务会随你的登录会话启动。你之后可以在“系统设置”>“用户与群组”>“自动登录”中更改。"
-MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
+MSG_PROMPT_AUTOLOGIN_CONSENT="要在这台 Mac 上存储你的登录密码，以便重启后自动登录吗？[y = 是 / N = 否]"
 MSG_INFO_AUTOLOGIN_PROMPT_REASON="Ostler 会将此密码写入这台 Mac 上的文件 /etc/kcpassword。密码在其中以一种固定模式被打乱，这种模式在每台 Mac 上都相同且已公开，因此这不是加密，可以被还原。任何能使用这台 Mac 管理员账户的人，或能取出磁盘在别处读取的人，都可以将该文件还原为 %s 的登录密码。
 
 “文件保险箱”可以阻止这种情况，因为没有启动密码就完全无法读取磁盘。出于同样的原因，“文件保险箱”也会阻止自动登录，所以只有在“文件保险箱”关闭时，Ostler 才提供此选项。
@@ -1955,7 +1956,7 @@ MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="Ostler 在容器中运行你的维基和�
 MSG_INFO_ENGINE_ALREADY_PRESENT="这台 Mac 上已安装容器引擎。Ostler 将使用它，而不是安装自己的引擎，也不会管理或修改它。"
 
 # OS003 #233: model weight pins (install.sh OSTLER_MODEL_PINS).
-MSG_OK_MODEL_DIGEST_VERIFIED="%s verified against its pinned digest (%s)"
-MSG_FAIL_MODEL_DIGEST_MISMATCH="The installed %s is not the model this installer ships: found %s, expected %s (%s). The download source may have changed, so the install has stopped before using it. Contact support with this message."
-MSG_FAIL_MODEL_UNPINNED="%s has no pinned digest in this installer, so it cannot be verified and will not be used. This is an installer defect. Contact support with this message."
-MSG_FAIL_MODEL_DIGEST_UNREADABLE="Could not verify the downloaded %s against its pinned digest (%s). The model will not be used unverified. Re-run the installer; if this repeats, contact support with this message."
+MSG_OK_MODEL_DIGEST_VERIFIED="%s 已根据其固定摘要（%s）验证通过"
+MSG_FAIL_MODEL_DIGEST_MISMATCH="已安装的 %s 不是此安装程序附带的模型：找到 %s，预期为 %s（%s）。下载来源可能已更改，因此安装已在使用前停止。请联系支持团队并附上此信息。"
+MSG_FAIL_MODEL_UNPINNED="此安装程序中没有 %s 的固定摘要，因此无法验证，也不会使用它。这是安装程序的缺陷。请联系支持团队并附上此信息。"
+MSG_FAIL_MODEL_DIGEST_UNREADABLE="无法验证已下载的 %s 是否与其固定摘要（%s）一致。未经验证的模型将不会被使用。请重新运行安装程序；如果问题再次出现，请联系支持团队并附上此信息。"

@@ -12,9 +12,11 @@ written the record for a tickbox. It adds, to that same record in
 <posture>/consent.json:
 
     "display_language":    the installer language (OSTLER_LANG), e.g. "zh-Hans"
-    "display_review_ids":  sorted legal_reviews.tsv row ids of every line on the
-                           screen that was shown TRANSLATED; [] means every line
-                           was shown in English
+    "display_review_ids":  sorted legal_reviews.tsv row ids of every LEGAL line
+                           on the screen that was shown TRANSLATED
+    "display_plain_translated_ids": the plain-language lines shown translated
+                           (owner ruling 2026-11-04: no legal review needed);
+                           both [] means every line was shown in English
     "display_recorded_at": UTC timestamp
     "display_schema":      1
 
@@ -148,9 +150,22 @@ def catalogues(resources: Path, lang: str) -> dict[str, tuple[dict, dict]]:
     return {"install_sh": (en_sh, sh), "viewcopy": (en_vc, vc)}
 
 
-def review_ids(tickbox: str, lang: str, resources: Path) -> list[str]:
+# Owner ruling 2026-11-04: the plain-language consent copy is translated like
+# any other screen text; only the LEGAL wording (a key with a "legal" segment,
+# plus the terms-language line) needs a legal_reviews.tsv row. Must match
+# l10n/config.yaml legal_patterns / legal_keys; a test checks they agree.
+LEGAL_SEGMENT = re.compile(r"(^|[_/.])legal([_/.\s]|$)", re.I)
+LEGAL_KEYS = {"MSG_LEGAL_ENGLISH_PREVAILS", "MSG_TERMS_LANGUAGE"}
+
+
+def is_legal_key(key: str) -> bool:
+    return key in LEGAL_KEYS or bool(LEGAL_SEGMENT.search(key))
+
+
+def shown_translated(tickbox: str, lang: str, resources: Path) -> list[tuple[str, str, str]]:
+    """(catalogue, key, English) for every line of this surface shown TRANSLATED."""
     surface = SURFACES[tickbox]
-    ids = []
+    out = []
     for cat, (en, shown) in catalogues(resources, lang).items():
         prefixes = surface.get(cat, []) + PREVAILS.get(cat, [])
         for key, src in en.items():
@@ -158,8 +173,23 @@ def review_ids(tickbox: str, lang: str, resources: Path) -> list[str]:
                 continue
             v = shown.get(key)
             if v is not None and v != src:
-                ids.append(f"{lang}/{cat}::{key}@{h(src)}")
-    return sorted(ids)
+                out.append((cat, key, src))
+    return out
+
+
+def review_ids(tickbox: str, lang: str, resources: Path) -> list[str]:
+    """legal_reviews.tsv row ids of the LEGAL lines shown translated."""
+    return sorted(f"{lang}/{cat}::{key}@{h(src)}"
+                  for cat, key, src in shown_translated(tickbox, lang, resources)
+                  if is_legal_key(key))
+
+
+def plain_translated_ids(tickbox: str, lang: str, resources: Path) -> list[str]:
+    """The plain-language lines shown translated (no legal review needed), in
+    the same id shape, so the record still says exactly what was on screen."""
+    return sorted(f"{lang}/{cat}::{key}@{h(src)}"
+                  for cat, key, src in shown_translated(tickbox, lang, resources)
+                  if not is_legal_key(key))
 
 
 def _atomic_write(path: Path, payload: dict) -> None:
@@ -186,6 +216,7 @@ def record(posture: Path, tickbox: str, lang: str, resources: Path) -> dict:
         raise LookupError(f"no consent record for {tickbox!r} in {path}; consent_cli record must run first")
     rec["display_language"] = lang or "en-GB"
     rec["display_review_ids"] = review_ids(tickbox, lang, resources)
+    rec["display_plain_translated_ids"] = plain_translated_ids(tickbox, lang, resources)
     rec["display_recorded_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rec["display_schema"] = DISPLAY_SCHEMA
     _atomic_write(path, reg)
