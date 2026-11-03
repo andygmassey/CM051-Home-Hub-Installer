@@ -182,6 +182,19 @@ box_run() {
     fi
 }
 
+# box_lan_host -- the address a request FROM THE DRIVER should use to reach the box.
+# OSTLER_BOX_HOST is an ssh destination, and `${OSTLER_BOX_HOST##*@}` of an ssh
+# ALIAS (andy@macmini16) is a name only ~/.ssh/config can resolve: curl got no
+# answer and three security probes read CANNOT-RUN on the v1.0.121 walk. `ssh -G`
+# prints the hostname ssh itself would connect to. Override: OSTLER_PAIR_PROBE_HOST.
+box_lan_host() {
+    if [ -n "${OSTLER_PAIR_PROBE_HOST:-}" ]; then printf '%s\n' "$OSTLER_PAIR_PROBE_HOST"; return 0; fi
+    [ -n "${OSTLER_BOX_HOST:-}" ] || return 1
+    local h
+    h="$(ssh -G "$OSTLER_BOX_HOST" 2>/dev/null | awk '$1=="hostname"{print $2; exit}')"
+    printf '%s\n' "${h:-${OSTLER_BOX_HOST##*@}}"
+}
+
 box_reachable() {
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
         return 0
@@ -345,7 +358,9 @@ _probe_tick_state() {
 box_wait_ingest_quiet() {
     local label budget step state
     label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
-    budget="${OSTLER_PROBE_TICK_WAIT_S:-900}"
+    # 1800, not 900: a full fda-rerun tick on the 8.8k-person seed measured ~1150s on Mini16 (13:07 to 13:26Z,
+    # v1.0.121), so a 900s hold ended CANNOT-RUN with the tick still running (people_count_agreement).
+    budget="${OSTLER_PROBE_TICK_WAIT_S:-1800}"
     step="${OSTLER_PROBE_TICK_POLL_S:-15}"
     PROBE_TICK_WAITED=0
     while :; do

@@ -30,7 +30,8 @@
 #   <other>      set OSTLER_CONSERVATION_PROFILE.
 #
 # BUDGET. The collect has a hard wall-clock budget (OSTLER_CONSERVATION_COLLECT_BUDGET_S,
-# default 600). OS003 #420: on a large corpus it ran 2h and 45 min at 90% CPU and
+# default 1800: v1.0.122 measured the whole probe at 1196s on the 8.8k-person walk box, after
+# is_shown stopped copying the 110 MB wiki per call; 600 was CANNOT-RUN-BUDGET on v1.0.121). OS003 #420: on a large corpus it ran 2h and 45 min at 90% CPU and
 # was killed by hand. The budget is enforced ON THE BOX by a perl wrapper that puts
 # the collect in its own process group and TERM then KILLs that group at the deadline
 # (an ssh session has no pty, so killing the client would orphan the remote work).
@@ -57,7 +58,7 @@ DC_TABLE_OUT="${OSTLER_CONSERVATION_TABLE_OUT:-}"
 
 # Prints the facts JSON from the box. The lib is shipped as a heredoc so the
 # box needs nothing installed; its python3 is the system one (3.9 safe).
-DC_BUDGET_S="${OSTLER_CONSERVATION_COLLECT_BUDGET_S:-600}"
+DC_BUDGET_S="${OSTLER_CONSERVATION_COLLECT_BUDGET_S:-1800}"
 DC_BUDGET_RC=142
 # perl runs the collect as the leader of its own process group; on alarm it TERMs,
 # waits 2s, KILLs the whole group, reaps, and exits 142.

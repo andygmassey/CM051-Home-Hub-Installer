@@ -61,6 +61,7 @@ for n in $N1 $N2 $N3; do expect v117 $n 1; done
 echo "--- intended daemon: all three PASS ---"
 for n in $N1 $N2 $N3; do expect intended $n 0; done
 
+cp "$WORK/out.intended.$N1" "$WORK/keep.$N1"; cp "$WORK/out.intended.$N2" "$WORK/keep.$N2"
 echo "--- one defect each: only the owning probe goes red ---"
 expect stranger_prompted $N1 1; expect stranger_prompted $N2 0; expect stranger_prompted $N3 0
 expect tainted_sends     $N1 0; expect tainted_sends     $N2 1; expect tainted_sends     $N3 0
@@ -69,6 +70,15 @@ expect release_twice     $N2 1
 expect prompt_via_model  $N2 1
 expect cron_sends        $N1 0; expect cron_sends        $N3 1
 expect cron_announce     $N3 78
+
+echo "--- the stub's wire shapes: a daemon speaking /chat/completions needs the OpenAI shape served ---"
+# control for the v1.0.121 bug: with a stub that serves ONLY the Ollama shape no turn reaches the model,
+# and every probe must read CANNOT-RUN (78), never PASS and never a false FAIL.
+export OSTLER_STUB_WIRE=openai
+expect intended $N1 0; expect intended $N2 0; expect intended $N3 0
+export OSTLER_SENDSAFETY_STUB_SHAPES=ollama
+expect intended $N1 78; expect intended $N2 78; expect intended $N3 78
+unset OSTLER_SENDSAFETY_STUB_SHAPES OSTLER_STUB_WIRE
 
 echo "--- the sandbox config never reaches the Hub's listeners or a real channel ---"
 LIBP="$REPO/scripts/box_walk_probes/lib"
@@ -87,8 +97,8 @@ dirs="$(ls -d "${TMPDIR:-/tmp}"/ostler-sendsafety-* 2>/dev/null | wc -l | tr -d 
 [ "$dirs" -eq 0 ] && ok "no sandbox directory left" || bad "$dirs sandbox dir(s) left"
 
 echo "--- the verdict text names what was measured (not a bare PASS) ---"
-grep -q 'VERDICT: PASS -- every assertion held, with the control visible' "$WORK/out.intended.$N1" && ok "PASS carries its reason" || bad "PASS text"
-grep -q 'EXAMINED: [1-9]' "$WORK/out.intended.$N2" && ok "denominator printed and non-zero" || bad "no denominator"
+grep -q 'VERDICT: PASS -- every assertion held, with the control visible' "$WORK/keep.$N1" && ok "PASS carries its reason" || bad "PASS text"
+grep -q 'EXAMINED: [1-9]' "$WORK/keep.$N2" && ok "denominator printed and non-zero" || bad "no denominator"
 
 echo "---"
 echo "passed $pass failed $fail"

@@ -312,9 +312,37 @@ def load_wiki_corpus(wiki_dir):
     return " \n ".join(parts), n
 
 
+class _Corpus(object):
+    """The normalised wiki, padded ONCE, with its word set. v1.0.121: is_shown rebuilt
+    " " + corpus + " " (110 MB on the walk box) on every call, up to SHOWN_SAMPLE_CAP times per
+    group, and the collect sat at 100% CPU past its 600s budget (CANNOT-RUN-BUDGET). Same answers."""
+
+    def __init__(self, corpus):
+        self.padded = " " + corpus + " "
+        self.words = set(corpus.split(" "))
+
+
+_PREPARED = [None, None]
+
+
+def _prepared(corpus):
+    if isinstance(corpus, _Corpus):
+        return corpus
+    if _PREPARED[0] is not corpus:
+        _PREPARED[0], _PREPARED[1] = corpus, _Corpus(corpus)
+    return _PREPARED[1]
+
+
 def is_shown(text, corpus):
     t = _norm(text)
-    return bool(t) and (" " + t + " ") in (" " + corpus + " ")
+    if not t:
+        return False
+    c = _prepared(corpus)
+    # a phrase cannot be a whole-word substring if one of its words is not a word of the corpus
+    for w in t.split(" "):
+        if w not in c.words:
+            return False
+    return (" " + t + " ") in c.padded
 
 
 # ===========================================================================
@@ -704,9 +732,17 @@ def collect_doctor(facts, meta, hdr):
         k = r.get("source")
         if k is None:
             continue
+        # The Doctor counts each source in ITS OWN unit (whatsapp: 41,211 messages, imessage: messages,
+        # people: records). An unscoped fact would be compared against a people or chats row (v1.0.121:
+        # "whatsapp|people shown 41211 vs stored 314"), so a count in a unit other than contacts/people
+        # is filed under its unit and the unscoped item_count stays ABSENT = NOT-MEASURED, never INFLATED.
+        unit = r.get("item_unit")
         for f in ("item_count", "last_run_count"):
             if isinstance(r.get(f), int):
-                facts["doctor.%s.%s" % (k, f)] = r[f]
+                if f == "item_count" and unit and unit not in ("people", "contacts"):
+                    facts["doctor.%s.%s.%s" % (k, f, unit)] = r[f]
+                else:
+                    facts["doctor.%s.%s" % (k, f)] = r[f]
 
 
 def collect():
