@@ -647,6 +647,7 @@ test_ostler_import_exit_code_separates_misses_from_failures.sh	WIRED	.github/wor
 test_ostler_import_owner_name_and_exit_code.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_addresses_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_owner_data_is_never_capped_at_storage.py	WIRED	.github/workflows/owner-data-never-capped.yml
+test_owner_digest_about_check_accepts_the_owner_uri.py	WIRED	.github/workflows/context-digest-auth.yml
 test_owner_digest_counts_only_meetings_that_happened.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_preferences_count_above_the_floor.py	WIRED	.github/workflows/walk-record-gate.yml
@@ -1136,10 +1137,13 @@ gui/OstlerInstallerTests/SystemRequirementsGateTests.swift	WIRED	.github/workflo
 gui/OstlerInstallerTests/TerminationExitCodeReconcileTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/TypedInstallGateTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/WhatsAppLinkTests.swift	WIRED	.github/workflows/swift-tests.yml
+context-refresh/tests/test_about_you_excludes_other_peoples_facts.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_digest_cap_trims_lines_not_blocks.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_reads_derived_preferences.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_digest_size_cap_keeps_preferences.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_generate_pwg_context.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_owner_brief.py	WIRED	.github/workflows/context-digest-auth.yml
 scripts/tests/test_a_probes_self_test_must_drive_its_own_decision.sh	WIRED	.github/workflows/cut-manifest.yml

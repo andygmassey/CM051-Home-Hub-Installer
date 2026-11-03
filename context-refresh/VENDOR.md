@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `5fbc2c14117448033fd07f004cd93d0a6e82e5cc64c14c852ade2e49c2e9fed9` (post-graft, this repo, after item 13, derived preferences) |
+| Current SHA-256 | `f83ef1b20b54e9f9081bcc8d0bc1e399ecc8220eed8137a55f940081a321a0a5` (post-graft, this repo, after item 14, size cap keeps Preferences) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-31 (derived preferences in the Preferences section, v1.0.121 trial, item 13). Earlier: item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
+| Last divergence | 2026-11-02 (size cap trims lines not blocks and keeps Preferences, walk 121, item 14). Earlier: item 13 (2026-10-31, derived preferences) and item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -237,6 +237,19 @@ the kind of blanket claim that goes stale one item at a time:
    `context-refresh/tests/test_digest_reads_derived_preferences.py` (payload
    built by the vendored producer, RED pinned to the trial-tree SHA). A
    re-vendor from upstream drops it.
+
+14. **The size cap trims lines, and Preferences outlives Channel style**
+   (2026-11-02, walk 121). NOT upstream. Over the cap the digest dropped whole
+   blocks, and Preferences (carrying the derived "What you like" lines of item
+   13) went before the counts-only Channel style. `Channel style` is now the
+   LAST block, so it is the first dropped, and the cap shrinks a block a LINE
+   at a time (`_trim_calendar_one`: past events oldest first, then undated,
+   then upcoming furthest first, so the nearest upcoming event goes last)
+   before it drops any block whole. Trimmed blocks are said under "What is not
+   in this digest" ("Shortened to fit the size cap"), never silently.
+   Guarded by `context-refresh/tests/test_digest_size_cap_keeps_preferences.py`
+   and `test_digest_cap_trims_lines_not_blocks.py`. A re-vendor from upstream
+   drops it.
 
 ## Why vendored rather than shipped in the assistant release
 

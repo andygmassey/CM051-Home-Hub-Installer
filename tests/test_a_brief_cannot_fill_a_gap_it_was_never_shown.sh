@@ -328,10 +328,12 @@ fi
 # exactly the installs with the most to say. Green-while-blind, seasonally.
 
 if drive_or_cant "oversized-with-a-gap" "${WORK}/big.md"; then
-    # An oversized digest is cut in one of two honest ways: whole low-priority
-    # sections are dropped AND declared ("Left out to fit the size cap"), or,
-    # when nothing droppable is left, the tail is clipped and marked.
-    if grep -q "digest truncated to fit the prompt budget\|Left out to fit the size cap" "${WORK}/big.md"; then
+    # An oversized digest is cut in one of three honest ways: lines are trimmed
+    # and declared ("Shortened to fit the size cap", the cap trims a line at a
+    # time first), whole low-priority sections are dropped AND declared ("Left
+    # out to fit the size cap"), or, when nothing droppable is left, the tail
+    # is clipped and marked.
+    if grep -q "digest truncated to fit the prompt budget\|Left out to fit the size cap\|Shortened to fit the size cap" "${WORK}/big.md"; then
         if grep -q "COULD NOT BE READ" "${WORK}/big.md"; then
             ok "the gap declaration survives the MAX_CHARS clip on an oversized digest"
         else
