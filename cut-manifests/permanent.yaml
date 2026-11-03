@@ -1514,11 +1514,19 @@ entries:
   # probe on disk must be invoked by the cut; the promote scope decides it
   # never refuses a promote.
   - id: box-walk-chat-latency-baseline
-    title: "advisory: time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier"
+    title: "time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier; FAILS a long answer that arrives in one piece (#2416)"
     incident: "Andy: chat replies took a while, and Hub-side LLM latency was NOT INSTRUMENTED"
     proof:
       kind: box_walk_probe
       probe: "chat_latency_baseline"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, needs_you_now_birthdays_survive_fallback row).
+  - id: box-walk-needs-you-now-birthdays-survive-fallback
+    title: "advisory: with the Hub editor feed forced absent, the Front Page Needs-you-now still lists the nearest upcoming birthday"
+    incident: "CM044 fix/v107-needs-you-now-shared-source: Needs-you-now has a Hub-feed source and a SPARQL fallback; the shipped compiler container has no /editor mount, so the fallback path was never forced on a walk"
+    proof:
+      kind: box_walk_probe
+      probe: "needs_you_now_birthdays_survive_fallback"
 
   # ADVISORY (scripts/walk_promote_scope.tsv, data_conservation row): per
   # source, importer IN vs stores STORED vs wiki/Doctor SHOWN. Declared here
