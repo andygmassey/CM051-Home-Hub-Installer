@@ -1078,7 +1078,10 @@ def _meetings_section() -> list[str]:
     the brief exclusively via ``_calendar_by_owner_section`` below, which
     reads the CM041 owner + type provenance and fails closed on L3.
     """
-    data = _get_json("/api/v1/timeline?days=7")
+    # outbound=1: this text enters the assistant's context and channel replies
+    # leave the box, so the route applies the fail-closed L3 filter (default
+    # is the on-box Hub view, which sees every level).
+    data = _get_json("/api/v1/timeline?days=7&outbound=1")
     items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
         items = []

@@ -1640,6 +1640,17 @@ Tree `cm041/assistant_api`. Pin HELD.
 
 - `ical-server.py` `_query_operator_career_facts(outbound=False)`: selects each fact's `pwg:privacyLevel` and the operator node's; with `outbound=True` drops rows `pwg_privacy.is_l3` hides (most-restrictive; nothing parseable is hidden, as in the brief's `_get_person_facts`). `_select_current_employer` and `_current_employer_safe` pass `outbound` through.
 - `GET /api/v1/employer` (read by context-refresh `generate_pwg_context.py:885`) passes `outbound=True`. The Memory tab (`api_memory_list`) and `person_context` / `person_enrichment` / people-card overlays keep the default `False`: on-box Hub screens still show every level.
-- NOT covered, recorded in `tests/test_every_outbound_graph_reader_filters_l3.py` KNOWN_GAP: `_timeline_from_graph` (digest `/api/v1/timeline`) has no L3 filter.
+- Timeline: see the next section (closed in the same wave).
 - Proof: `tests/test_vendored_employer_outbound_l3.py` (mutant with the filter off: 5 fail, 2 pass).
 - Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.
+
+## 2026-11-03 v1.0.122 (fix122_timeline): `/api/v1/timeline?outbound=1` withholds L3
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_timeline_from_graph(outbound=False)`, `_timeline_conversations(outbound=False)`, `api_timeline(outbound=False)`: with `outbound=True` each meeting's own `pwg:privacyLevel` and EACH attendee's are read (one SPARQL row per meeting, levels GROUP_CONCATed; an attendee with no level is carried as "unknown", not skipped) and `pwg_privacy.is_l3` hides it (most-restrictive; a missing meeting level inherits the attendee's, never L1; unparseable or nothing parseable is hidden; one L3 attendee hides the meeting). Conversation rows are tested on their payload level (untagged hidden). The live-calendar strip is omitted outbound (no level exists to clear it by).
+- Route: `GET /api/v1/timeline?outbound=1` (also `true`/`yes`) sets it. No param = the on-box Hub Timeline, unchanged (every level). The flag is opt-in, so an on-box client is unaffected and an outbound consumer must ask.
+- Consumer: `context-refresh/bin/generate_pwg_context.py` `_meetings_section` now requests `?days=7&outbound=1` (CM051-native, no CM041 counterpart).
+- NOT covered: the digest's second source `_meeting_rows` reads `pwg:Meeting` directly and uses the digest's own `_is_withheld` (explicit L3 only; an untagged meeting is KEPT, and the attendee level is not read). Not changed here. Any other client of `/api/v1/timeline` (oa, Companion) that forwards it off the box must pass `outbound=1`: not audited.
+- Proof: `tests/test_vendored_timeline_outbound_l3.py`, `tests/test_digest_timeline_outbound_l3.py` (digest text, real generator, real SPARQL engine), `tests/test_every_outbound_graph_reader_filters_l3.py` (`_timeline_from_graph` now OUTBOUND, KNOWN_GAP empty).
+- Upstream: CM041 PR #244 (branch fix122/l3-outbound, test `assistant_api/tests/test_timeline_outbound_l3.py`). The vendored copy has `start`/`end`/`ascending`/`allDay` that CM041 main lacks, so the edit is hand-ported, not a re-vendor. Retire this section when a re-pin brings it in.

@@ -65,16 +65,12 @@ OUTBOUND = {
     (ICAL, "person_context"), (ICAL, "person_enrichment"), (ICAL, "person_timeline"),
     (ICAL, "commitments_list"),
     (ICAL, "_query_operator_career_facts"),
+    # /api/v1/timeline?outbound=1, read by the 7-day digest (generate_pwg_context.py _meetings_section)
+    (ICAL, "_timeline_from_graph"),
     (BRIEF, "_get_person_facts"), (BRIEF, "_get_meeting_history"),
     (BRIEF, "_get_last_conversation_id"), (BRIEF, "_get_outstanding_todos"),
 }
-KNOWN_GAP = {
-    (ICAL, "_timeline_from_graph"):
-        "feeds /api/v1/timeline, which context-refresh reads (generate_pwg_context.py:1081, "
-        "7-day digest); pwg:Meeting rows carry no L3 filter. Needs an outbound flag on the "
-        "route (the Hub Timeline is on-box) and the digest to pass it. NOT fixed in the "
-        "fix122_l3out PR",
-}
+KNOWN_GAP = {}
 ONBOX = {
     (ICAL, "_load_people_list_self_uris"): _ID, (ICAL, "_load_carded_uris"): _ID,
     (ICAL, "_forget_graph_left"): _ID, (ICAL, "_identifiers_shared_with_other_than"): _ID,

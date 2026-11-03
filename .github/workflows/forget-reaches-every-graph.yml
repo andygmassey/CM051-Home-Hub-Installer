@@ -54,6 +54,9 @@ on:
       - 'tests/test_every_outbound_graph_reader_filters_l3.py'
       - 'tests/test_vendored_brief_outbound_l3.py'
       - 'tests/test_vendored_employer_outbound_l3.py'
+      - 'tests/test_vendored_timeline_outbound_l3.py'
+      - 'tests/test_digest_timeline_outbound_l3.py'
+      - 'context-refresh/bin/generate_pwg_context.py'
       - 'vendor/**.py'
   push:
     branches: [main]
@@ -165,3 +168,8 @@ jobs:
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pytest tests/test_vendored_brief_outbound_l3.py tests/test_vendored_employer_outbound_l3.py -q
+      - name: The timeline route and the 7-day digest withhold L3 (real SPARQL engine)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest rdflib
+          python3 -m pytest tests/test_vendored_timeline_outbound_l3.py tests/test_digest_timeline_outbound_l3.py -q
