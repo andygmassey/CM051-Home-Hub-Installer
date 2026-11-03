@@ -18,7 +18,7 @@ import sys
 
 EX_PASS, EX_FAIL, EX_CANNOT = 0, 1, 78
 
-# "Adrian Harrold's birthday is in three days" -> "Adrian Harrold"
+# "Alice Example's birthday is in three days" -> "Alice Example"
 BDAY_TITLE = re.compile(r"^(.+?)['’]s birthday\b", re.I)
 
 
