@@ -9678,7 +9678,7 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
     a meeting with no level (own or inherited) is hidden, an unparseable level
     is hidden, and one L3 attendee hides the meeting. An attendee with no level
     is kept in the check as "unknown", never skipped. The default ``False``
-    keeps the on-box Hub Timeline seeing every level.
+    keeps the on-box hub timeline seeing every level.
     """
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc)
@@ -9903,7 +9903,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     assistant's context and so can leave the box: meetings and conversations
     pass the fail-closed L3 filter, and the live-calendar strip is omitted
     (those events carry no privacy level, so none can be cleared). The
-    default keeps the on-box Hub Timeline unchanged.
+    default keeps the on-box hub timeline unchanged.
     """
     items = []
 

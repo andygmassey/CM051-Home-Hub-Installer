@@ -4,7 +4,7 @@
 (``pwg_privacy.is_l3``) to each meeting: its own level and EACH attendee's,
 most-restrictive wins, a missing meeting level inherits the attendee's (never
 L1), unparseable or nothing-at-all -> hidden. The default (``outbound=False``)
-is the on-box Hub Timeline and must STILL see every level.
+is the on-box hub timeline and must STILL see every level.
 
 Runs the shipped SPARQL against a real engine (rdflib). Synthetic data only.
 """
@@ -71,14 +71,14 @@ _DAY = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d")
 
 # (summary, meeting level, [(attendee, attendee level), ...])
 FIXTURE = [
-    ("L1 control lunch", "L1", [("Ana Synth", "L1")]),
-    ("L3 secret meeting", "L3", [("Ana Synth", "L1")]),
-    ("L1 meeting with an L3 attendee", "L1", [("Ana Synth", "L1"), ("Bo Synth", "L3")]),
-    ("untagged meeting, L1 attendee", None, [("Ana Synth", "L1")]),
-    ("untagged meeting, untagged attendee", None, [("Cy Synth", None)]),
-    ("untagged meeting, L3 attendee", None, [("Bo Synth", "L3")]),
-    ("unparseable level, no owner level", "banana", [("Cy Synth", None)]),
-    ("L1 meeting, one untagged attendee", "L1", [("Ana Synth", "L1"), ("Cy Synth", None)]),
+    ("L1 control lunch", "L1", [("Ana Doe", "L1")]),
+    ("L3 secret meeting", "L3", [("Ana Doe", "L1")]),
+    ("L1 meeting with an L3 attendee", "L1", [("Ana Doe", "L1"), ("Ben Doe", "L3")]),
+    ("untagged meeting, L1 attendee", None, [("Ana Doe", "L1")]),
+    ("untagged meeting, untagged attendee", None, [("Carl Doe", None)]),
+    ("untagged meeting, L3 attendee", None, [("Ben Doe", "L3")]),
+    ("unparseable level, no owner level", "banana", [("Carl Doe", None)]),
+    ("L1 meeting, one untagged attendee", "L1", [("Ana Doe", "L1"), ("Carl Doe", None)]),
 ]
 VISIBLE = {
     "L1 control lunch",
@@ -184,9 +184,9 @@ class TimelineOutboundL3(unittest.TestCase):
     def test_conversations_outbound_fail_closed(self):
         import io
         pts = {"result": {"points": [
-            {"payload": {"occurred_at": _DAY, "contact_name": "Ana Synth", "channel": "L1chat", "privacy_level": "L1"}},
-            {"payload": {"occurred_at": _DAY, "contact_name": "Bo Synth", "channel": "L3chat", "privacy_level": "L3"}},
-            {"payload": {"occurred_at": _DAY, "contact_name": "Cy Synth", "channel": "untagged"}},
+            {"payload": {"occurred_at": _DAY, "contact_name": "Ana Doe", "channel": "L1chat", "privacy_level": "L1"}},
+            {"payload": {"occurred_at": _DAY, "contact_name": "Ben Doe", "channel": "L3chat", "privacy_level": "L3"}},
+            {"payload": {"occurred_at": _DAY, "contact_name": "Carl Doe", "channel": "untagged"}},
         ]}}
 
         class _R(io.BytesIO):

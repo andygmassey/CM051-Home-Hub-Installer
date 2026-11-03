@@ -321,6 +321,7 @@ test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_dietary_is_never_surfaced.py	WIRED	.github/workflows/derived-preferences.yml
 test_different_people_decision_blocks_remerge.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_digest_refreshes_when_the_interest_profile_lands.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_digest_timeline_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_discord_claims_an_extracted_package.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
 test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
@@ -395,6 +396,7 @@ test_every_knowledge_collection_has_a_reader_verdict.sh	WIRED	.github/workflows/
 test_every_launchagent_is_torn_down.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_every_marker_pattern_compiles.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_every_opening_starts_from_clean_memory.sh	WIRED	.github/workflows/walk-record-gate.yml
+test_every_outbound_graph_reader_filters_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_every_plistbuddy_read_is_guarded.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-collected.yml
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -1002,6 +1004,7 @@ test_vendor_only_survives_sync.sh	WIRED	.github/workflows/cut.yml
 test_vendor_pair_drift.py	WIRED	.github/workflows/vendor-integrity.yml
 test_vendor_src_placeholder_unset.sh	WIRED	.github/workflows/cut.yml
 test_vendor_symbol_resolution.py	WIRED	.github/workflows/cut.yml
+test_vendored_brief_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_cm041_revendor_07a22b4c_routes.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_vendored_cm059_frontpage_holds_back_consent_cards.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -1013,6 +1016,7 @@ test_vendored_derive_patterns.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_scroll_carries_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_employer_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows/derived-preferences.yml
@@ -1027,6 +1031,7 @@ test_vendored_stated_preferences_reach_the_derive_engine.py	WIRED	.github/workfl
 test_vendored_stated_transcripts_reach_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
+test_vendored_timeline_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_venvs_install_store_shim.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_verify_appcast_published.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_verify_ci_steps_are_maskless.sh	WIRED	.github/workflows/ci-maskless.yml

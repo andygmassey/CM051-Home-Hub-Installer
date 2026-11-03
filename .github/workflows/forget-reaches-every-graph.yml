@@ -166,7 +166,7 @@ jobs:
       - name: The brief's meeting, conversation and employer readers withhold L3
         if: always()
         run: |
-          python3 -m pip install --quiet pytest
+          python3 -m pip install --quiet pytest httpx
           python3 -m pytest tests/test_vendored_brief_outbound_l3.py tests/test_vendored_employer_outbound_l3.py -q
       - name: The timeline route and the 7-day digest withhold L3 (real SPARQL engine)
         if: always()
