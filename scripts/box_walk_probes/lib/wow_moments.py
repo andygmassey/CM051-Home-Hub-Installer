@@ -419,6 +419,11 @@ def brief_shape(text):
     return {"iso_date_leak": bool(re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", text or "")),
             "chat_echo": any(p in low for p in CHAT_ECHO_PHRASES)}
 _ITEM_SPLIT = re.compile(r"\s*(?:[,;:]|\band\b)\s*", re.I)
+# The brief's provenance tags ("From your messages", "From your Work calendar")
+# are section headings, printed once per section. Two messages sections print
+# the same tag twice, which is not the brief listing a thing twice (v1.0.122
+# walk). Narrow on purpose: only this exact tag shape is exempt.
+PROVENANCE_LINE = re.compile(r"^from your (?:messages|calendar|[a-z' ]* calendars?)$")
 
 
 def _norm_item(t):
@@ -437,6 +442,8 @@ def brief_repeats(text):
     seen_lines, seen_items, repeats = set(), set(), 0
     for line in (text or "").splitlines():
         n = _norm_item(line)
+        if PROVENANCE_LINE.match(n):
+            continue
         if len(n.split()) >= 2 and not NONE_WORDS.search(n):
             if n in seen_lines:
                 repeats += 1
@@ -673,7 +680,13 @@ def self_test():
             ("three birthday lines for one person",
              "Birthdays:\n- Jane Stewart, 2 Nov\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\n- Jane Stewart, 2 Nov", 2),
             ("one person twice on one line", "Birthdays this week: Jane Stewart, Tom Jones and Jane Stewart.", 1),
-            ("a clean brief", "Birthdays:\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\nNothing overdue.\nNothing overdue.", 0)):
+            ("a clean brief", "Birthdays:\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\nNothing overdue.\nNothing overdue.", 0),
+            ("the provenance tag under two sections",
+             "You promised: send the pack.\nFrom your messages\nWaiting on a reply from you: Jane Stewart.\nFrom your messages", 0),
+            ("a person named twice next to a repeated provenance tag (control)",
+             "Waiting on a reply from you: Jane Stewart.\nFrom your messages\nWaiting on a reply from you: Jane Stewart.\nFrom your messages", 1),
+            ("a line that starts like a tag but names a person is not exempt",
+             "From your messages Jane Stewart wrote twice\nFrom your messages Jane Stewart wrote twice", 1)):
         got = brief_repeats(txt)
         print("  %s  brief_repeats: %s (%d, want %d)" % ("ok   " if got == want else "FAIL ", label, got, want))
         ok &= got == want

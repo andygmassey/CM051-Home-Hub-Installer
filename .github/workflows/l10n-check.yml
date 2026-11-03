@@ -29,3 +29,12 @@ jobs:
       - name: every legal or consent prompt shows the English-prevails line when localised
         if: always()
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_legal_prevails_note_on_every_legal_prompt.py
+      - name: the consent record's legal/plain rule matches l10n/config.yaml and records locale plus every line's src_hash (owner ruling 2026-11-04)
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_display_legal_rule_matches_l10n.py
+      - name: a typed consent token (INSTALL / CANCEL) is shown verbatim in every locale
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_typed_consent_token_is_verbatim_in_every_locale.py
+      - name: every line drawn in the legal style (smaller and lighter) is classed legal (owner ruling 2026-11-04)
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_legal_style_lines_are_legal_keys.py

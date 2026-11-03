@@ -158,7 +158,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="As Ferramentas de Linha de Comando do Xcode são necessárias. O macOS vai pedir permissão para instalar – procure uma pequena janela cinza (se não a vir, pressione Cmd+Tab ou confira o Dock). Clique em Instalar. As ferramentas são baixadas em segundo plano enquanto você responde às perguntas abaixo."
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Ainda configurando as Ferramentas de Linha de Comando (%ss). Se uma pequena janela cinza do macOS estiver pedindo para instalar as ferramentas de desenvolvedor, clique em Instalar nela – esta etapa está esperando por isso. (Use Cmd+Tab ou confira o Dock se não a vir.)"
-MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog."
+MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="Ainda aguardando as ferramentas de desenvolvedor da Apple. Clique em Instalar ferramentas de desenvolvedor se você não vir a caixa de diálogo."
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Aguardando a conclusão da instalação das Ferramentas de Linha de Comando (quase lá)..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Execução a cada hora. A primeira execução busca os últimos 5 anos de e-mails."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Desativando o LaunchAgent antigo da ponte do iMessage (v1.0, máquina única)"
@@ -224,7 +224,7 @@ MSG_INFO_INSTALLING_COREUTILS_GTIMEOUT="Instalando GNU coreutils (para limites d
 MSG_INFO_INSTALLING_HOMEBREW="Instalando o Homebrew..."
 MSG_INFO_INSTALLING_KNOWLEDGE_SERVICE_FROM="Instalando o serviço Knowledge a partir de %s..."
 MSG_INFO_INSTALLING_OLLAMA="Instalando o Ollama..."
-MSG_INFO_INSTALLING_OLLAMA_PINNED="Installing Ollama %s (verified release)..."
+MSG_INFO_INSTALLING_OLLAMA_PINNED="Instalando o Ollama %s (versão verificada)..."
 MSG_INFO_INSTALLING_FDA_DEPENDENCIES="  Instalando as dependências do módulo de extração de dados..."
 MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV="  Instalando o leitor do Apple Mail em um venv dedicado..."
 MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV="  Instalando o ostler-knowledge no venv..."
@@ -277,13 +277,13 @@ MSG_INFO_OSTLER_ASSISTANT_USING_BUNDLED_BINARY="Usando o binário ostler-assista
 MSG_INFO_OSTLER_INSTALL_ROOT_BASH_INSTALL_SNIPPET="  OSTLER_INSTALL_ROOT=%s bash %s/INSTALL_SNIPPET.sh"
 MSG_INFO_OSTLER_INSTALL_ROOT_OSTLER_DIR_LOGS="  OSTLER_INSTALL_ROOT=%s OSTLER_DIR=%s LOGS_DIR=%s \\\\"
 MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV="  ostler-knowledge instalado no venv."
-MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      Ostler will show an extra consent screen before installing"
+MSG_INFO_OSTLER_WILL_SHOW_EXTRA_CONSENT_SCREEN="      O Ostler mostrará uma tela extra de consentimento antes de instalar"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_CM048="  Substitua o repositório de origem do mecanismo de memória de conversas pela variável de ambiente documentada em ./install.sh --help."
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_DOCTOR="  Substitua o repositório de origem com PWG_DOCTOR_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_HUB="  Substitua o repositório de origem com PWG_HUB_POWER_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_KNOWLEDGE="  Substitua o repositório de origem com PWG_KNOWLEDGE_REPO=<url> ./install.sh"
 MSG_INFO_OVERRIDE_SOURCE_REPO_WITH_PWG_PIPELINE="  Substitua o repositório de origem com PWG_PIPELINE_REPO=<url> ./install.sh"
-MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Persisting consent records and region..."
+MSG_INFO_PERSISTING_CONSENT_RECORDS_REGION="Salvando os registros de consentimento e a região..."
 MSG_INFO_PHASE_3_BATTERY_WATCHER_ARMED_PID="Monitor de bateria da Fase 3 ativado (PID %s)"
 MSG_INFO_PLEASE_WAIT_READING_CONTACTS="Lendo sua lista de contatos (bibliotecas grandes podem levar alguns minutos – não feche o instalador)..."
 MSG_INFO_POLICY_OVERRIDE_EDIT_OSTLER_POWER_CONF="Substituir política: edite ~/.ostler/power.conf (normal / aggressive / eco)"
@@ -308,15 +308,15 @@ MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reutilizando a instalação exis
 MSG_INFO_REUSING_EXISTING_HUB_POWER_INSTALL="Reutilizando a instalação existente do hub-power em %s"
 MSG_INFO_REUSING_EXISTING_EXTENSION_TOKEN="Reutilizando a chave existente da extensão de navegador em %s"
 MSG_INFO_CHROME_EXTENSION_NOT_IN_THIS_RELEASE="A extensão do Ostler para Chrome não faz parte desta versão."
-MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Email conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_EMAIL_SKIPPED_CONSENT="Conversas por e-mail: não configuradas, porque você não concordou que o Ostler leia as mensagens de outras pessoas."
 MSG_INFO_FEED_EMAIL_SKIPPED_NO_MAIL="Conversas por e-mail: não configuradas, porque o Apple Mail não está configurado neste Mac."
-MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Messages conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_IMESSAGE_SKIPPED_CONSENT="Conversas do Mensagens: não configuradas, porque você não concordou que o Ostler leia as mensagens de outras pessoas."
 MSG_INFO_FEED_IMESSAGE_SKIPPED_NO_DB="Conversas do Mensagens: não configuradas, porque não há histórico do Mensagens neste Mac."
 MSG_INFO_FEED_SPOKEN_SKIPPED_HOW="  Transcreva uma ligação com o Ostler e isto será ativado automaticamente."
 MSG_INFO_FEED_SPOKEN_SKIPPED_NO_TRANSCRIPTS="Conversas faladas: ainda não configuradas, porque não há transcrições para ler."
 MSG_WARN_FEED_SPOKEN_TRANSCRIPTS_REMOVED="Conversas faladas: desativadas, porque a pasta Transcripts foi removida desde a instalação do Ostler."
 MSG_INFO_FEED_SPOKEN_TRANSCRIPTS_REMOVED_HOW="  Recrie %s para reativar. O Ostler não vai recriá-la para você."
-MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="WhatsApp conversations: not set up, because you did not agree to Ostler reading other people's messages."
+MSG_INFO_FEED_WHATSAPP_SKIPPED_CONSENT="Conversas do WhatsApp: não configuradas, porque você não concordou que o Ostler leia as mensagens de outras pessoas."
 MSG_INFO_FEED_WHATSAPP_SKIPPED_OFF="Conversas do WhatsApp: não configuradas, porque o WhatsApp está desativado."
 MSG_INFO_CHROME_HISTORY_STILL_READ="  O Ostler ainda lê seu histórico do Chrome, então as páginas que você visitou são lembradas. A captura em tempo real enquanto você navega, por enquanto, só funciona no Safari."
 MSG_INFO_REUSING_EXISTING_JWT_SECRET="Reutilizando o JWT_SECRET existente em %s"
@@ -327,7 +327,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="Falta uma etapa manual: abra o Safari
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="Procurando exportações de dados do GDPR..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="Defina PWG_DOCTOR_REPO=<url> e execute novamente para instalar."
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="Defina PWG_HUB_POWER_REPO=<HR015 url> e execute novamente para instalar."
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Modelo de conversa ignorado. Baixe depois: %s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Iniciando o Colima (ambiente de execução Docker leve)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="Iniciando o Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="Iniciando o Ollama..."
@@ -418,8 +418,8 @@ MSG_WARN_ENGINE_SUPERVISOR_NOT_STAGED="Os arquivos do supervisor do ambiente de 
 MSG_WARN_OSTLER_DOCTOR_NOT_LOADED="Não foi possível iniciar o painel Doctor do Ostler, então http://localhost:8089 não vai responder. As páginas do próprio app que dependem dele – Pessoas, Linha do tempo, Governor, status dos canais – aparecerão como indisponíveis até que ele esteja em execução. Execute o instalador novamente para tentar de novo."
 MSG_WARN_STAY_AWAKE_AGENT_NOT_LOADED="Não foi possível agendar o auxiliar que mantém o Mac ativo. O Ostler continua funcionando, mas este Mac pode entrar em repouso durante tarefas longas em segundo plano, e elas serão retomadas quando ele despertar, em vez de terminar durante a noite."
 MSG_WARN_FDA_RE_RUN_NOT_SCHEDULED="Não foi possível agendar o auxiliar de atualização em segundo plano, então novas mensagens, e-mails e eventos do calendário não serão buscados automaticamente. Execute o instalador novamente para restaurá-lo."
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s not set up: Ostler has no record of your answer to the question that governs it, so it did not assume one."
-MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Re-run Ostler and choose to answer the questions again to turn it on. (consent record: %s)"
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED="%s não configurado: o Ostler não tem registro da sua resposta à pergunta que o controla, então não presumiu nenhuma."
+MSG_WARN_CONSENT_UNKNOWN_FEATURE_SKIPPED_WHY="  Execute o Ostler novamente e escolha responder às perguntas de novo para ativar. (registro de consentimento: %s)"
 MSG_WARN_MEETING_BRIEF_SENDER_NOT_LOADED="Não foi possível agendar o resumo diário, então você não receberá o resumo da manhã. Todo o resto funciona; execute o instalador novamente para restaurá-lo."
 MSG_WARN_MEMORY_HYGIENE_NOT_LOADED="Não foi possível agendar a limpeza da memória, então fatos obsoletos ou substituídos não terão o peso reduzido automaticamente. Todo o resto funciona; execute o instalador novamente para restaurá-la."
 MSG_WARN_EXPORT_SCAN_NOT_LOADED="Não foi possível iniciar o monitor da pasta Downloads, então os arquivos que você colocar em Downloads não serão importados automaticamente. Tudo o que já foi importado não é afetado, e você ainda pode adicionar arquivos de dentro do app. Execute o instalador novamente para restaurá-lo."
@@ -430,7 +430,7 @@ MSG_WARN_DEFERRED_DEVICE_REGISTRATION_NOT_LOADED="Não foi possível agendar o a
 MSG_OK_CONTAINER_ENGINE_ANSWERED="Ambiente de contêineres respondendo"
 MSG_OK_STALE_COLIMA_LAUNCHAGENT_REMOVED="Item de inicialização obsoleto do Colima, deixado por uma versão anterior, removido"
 MSG_OK_CONFIG_SAVED_ENV="Configuração salva em %s/.env"
-MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Consent records and region persisted to ~/.ostler/posture/"
+MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE="Registros de consentimento e região gravados em ~/.ostler/posture/"
 MSG_OK_AT_REST_EXCLUDED="Fora do Spotlight e do Time Machine (verificado): %s"
 MSG_WARN_AT_REST_NOT_EXCLUDED="%s NÃO está excluído do Time Machine nem do Spotlight: %s. Seu conteúdo, incluindo os segredos do Ostler, pode ser copiado para o disco de backup. O Doctor continuará mostrando este aviso até que seja corrigido."
 MSG_INFO_AT_REST_FOLDER_ABSENT="%s ainda não existe, então não há nada a excluir dos backups."
@@ -556,9 +556,9 @@ MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY="Mantendo a janela padrão de cinco anos de 
 MSG_OK_NOMIC_EMBED_TEXT_ALREADY_AVAILABLE="nomic-embed-text já disponível"
 MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama instalado"
-MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="An Ollama app is already installed in Applications. Ostler leaves it exactly as it is and runs its own copy of Ollama %s alongside it. If that app is open in the menu bar, quit it so Ostler can start its own."
-MSG_WARN_OLLAMA_PIN_DEFERRED="Could not update Ollama to %s this time, so Ostler is keeping the copy it already runs (%s). Your assistant keeps working. The update will be tried again the next time the installer runs. Details: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Not downloading %s this time: Ostler's tested copy of Ollama (%s) is not installed yet, and a different Ollama could fetch the wrong build. The next installer run downloads it."
+MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="Já há um app Ollama instalado em Aplicativos. O Ostler o mantém exatamente como está e executa sua própria cópia do Ollama %s ao lado dele. Se esse app estiver aberto na barra de menus, feche-o para que o Ostler possa iniciar a própria cópia."
+MSG_WARN_OLLAMA_PIN_DEFERRED="Não foi possível atualizar o Ollama para %s desta vez, então o Ostler vai manter a cópia que já executa (%s). Seu assistente continua funcionando. A atualização será tentada de novo na próxima vez que o instalador for executado. Detalhes: %s"
+MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="%s não será baixado desta vez: a cópia testada do Ollama do Ostler (%s) ainda não está instalada, e um Ollama diferente poderia buscar a versão errada. O download será feito na próxima execução do instalador."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama instalado (somente CLI – pode precisar de início manual após reiniciar)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama instalado (app para Mac)"
 MSG_OK_OLLAMA_RUNNING="Ollama em execução"
@@ -658,7 +658,7 @@ MSG_OK_USER_FACING_TREE_READY="Estrutura visível ao usuário pronta"
 MSG_OK_USING_OSTLER_FOLDER_LABEL_INSTEAD="Usando a pasta/etiqueta 'Ostler' no lugar."
 MSG_OK_VANE_HEALTHY_LOCAL_WEB_SEARCH="Vane funcionando bem (pesquisa local na web)"
 MSG_OK_VANE_RUNNING_HTTP_LOCALHOST_3000_TALKS="Vane em execução em http://localhost:3000 (conversa com seu Ollama local)"
-MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="WhatsApp connector will be enabled (consent recorded)"
+MSG_OK_WHATSAPP_CONNECTOR_WILL_ENABLED_CONSENT_RECORDED="O conector do WhatsApp será ativado (consentimento registrado)"
 MSG_OK_WIKI_RECOMPILE_CATCHUP_LOADED="LaunchAgent de atualização da wiki do primeiro dia carregado (reconstrói sua wiki a cada 30 minutos nas primeiras horas e depois para)"
 # ── Deferred whole-graph dedupe converge (v1.0.2) ──
 MSG_INFO_DEDUPE_STILL_MERGING="Ainda mesclando contatos duplicados – agendas grandes podem levar vários minutos (%ss decorridos)"
@@ -670,8 +670,8 @@ MSG_OK_DEDUPE_CATCHUP_LOADED="LaunchAgent de deduplicação de contatos em segun
 MSG_WARN_DEDUPE_CATCHUP_LOAD_FAILED="Não foi possível carregar o LaunchAgent de deduplicação de contatos em segundo plano. Os duplicados ainda serão mesclados pela manutenção diária; só vai demorar mais para se estabilizar."
 MSG_OK_ENRICH_AGENT_LOADED="LaunchAgent de enriquecimento em segundo plano carregado (completa detalhes de seus filmes, lugares, livros e links; roda em etapas ao longo do próximo dia, mais ou menos)"
 MSG_WARN_ENRICH_AGENT_LOAD_FAILED="Não foi possível carregar o LaunchAgent de enriquecimento em segundo plano. Suas preferências estão salvas e pesquisáveis; só ficarão sem os detalhes extras de referência (diretores, elenco, locais) até que ele rode."
-MSG_OK_DERIVE_AGENT_LOADED="\"What you like\" agent loaded (works out your tastes from your saved preferences on this Mac, every few hours; nothing leaves your Mac)"
-MSG_WARN_DERIVE_AGENT_LOAD_FAILED="\"What you like\" agent could not be loaded. Your preferences are saved and searchable; the What you like page will stay empty until it runs."
+MSG_OK_DERIVE_AGENT_LOADED="Agente \"O que você gosta\" carregado (descobre seus gostos a partir das preferências salvas neste Mac, a cada poucas horas; nada sai do seu Mac)"
+MSG_WARN_DERIVE_AGENT_LOAD_FAILED="Não foi possível carregar o agente \"O que você gosta\". Suas preferências estão salvas e podem ser pesquisadas; a página O que você gosta ficará vazia até que ele seja executado."
 MSG_OK_WIKI_RECOMPILE_LAUNCHAGENT_LOADED_LABEL_COM="LaunchAgent de recompilação da wiki carregado (label com.creativemachines.ostler.wiki-recompile)"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_BUNDLED_WITH_INSTALLER="Scripts de recompilação da wiki incluídos no instalador"
 MSG_OK_WIKI_RECOMPILE_SCRIPTS_CLONED_FROM="Scripts de recompilação da wiki clonados de %s"
@@ -725,8 +725,8 @@ MSG_WARN_COLIMA_FAILED_START_TRYING_DOCKER_DESKTOP="Falha ao iniciar o Colima. T
 MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="Não foi possível instalar o GNU coreutils; as etapas longas serão executadas sem limite de tempo (uma linha de progresso ainda mostrará que estão em andamento)."
 MSG_WARN_COLIMA_START_RETRY="O Colima não iniciou corretamente (o socket do Docker não estava pronto). Tentando novamente em %ss..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Causas comuns: a tag v%s ainda não foi publicada, a rede está offline,"
-MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
-MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Your consent was saved, but not which language it was shown in (details in ~/.ostler/posture/consent-cli-failures.log)."
+MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  stderr do consent_cli (primeiros 400 caracteres):"
+MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Seu consentimento foi salvo, mas não o idioma em que foi exibido (detalhes em ~/.ostler/posture/consent-cli-failures.log)."
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  O script de console não foi criado em %s; o pyproject.toml pode estar sem a entrada [project.scripts]."
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Continuando porque --allow-plaintext foi informado."
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Continuando a instalação. Execute \`ostler-fda\` novamente depois de diagnosticar o erro acima."
@@ -756,7 +756,7 @@ MSG_WARN_COULD_NOT_OBTAIN_WIKI_RECOMPILE_SCRIPTS="Não foi possível obter os sc
 MSG_WARN_COULD_NOT_OPEN_CHROME_WEB_STORE="Não foi possível abrir automaticamente a URL da Chrome Web Store: %s"
 MSG_WARN_COULD_NOT_PERSIST_REGION_JSON_CONTINUING="Não foi possível gravar o region.json (continuando; o Doctor vai avisar)"
 MSG_WARN_COULD_NOT_RECORD_RECOVERY_KEY_DELIVERY="Não foi possível registrar que a chave de recuperação foi entregue. O resumo desta execução continua correto, mas uma execução futura pode não perceber isso e avisar de novo – essa é a direção segura para essa falha."
-MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Your recovery key was not saved to Keychain. Write it down and keep it somewhere safe, away from this Mac."
+MSG_WARN_COULD_NOT_SAVE_KEYCHAIN_PLEASE_WRITE="Sua chave de recuperação não foi salva nas Chaves. Anote-a e guarde-a em um lugar seguro, longe deste Mac."
 MSG_WARN_COULD_NOT_START_OLLAMA_AUTOMATICALLY="Não foi possível iniciar o Ollama automaticamente."
 MSG_FAIL_OLLAMA_PORT_IN_USE="Outro programa já está usando a porta 11434, de que o Ostler precisa para a IA local. O Ostler não conseguiu iniciar a própria cópia, então a instalação parou aqui em vez de ficar pela metade.
 
@@ -886,8 +886,8 @@ MSG_WARN_ASSISTANT_SNIPPET_LAST_STDERR="Último trecho do stderr:"
 MSG_WARN_OSTLER_ASSISTANT_V_APPLE_SILICON_ONLY="O ostler-assistant v%s funciona apenas em Apple Silicon (detectado: %s)."
 MSG_WARN_OSTLER_IMPORT_USER_NAME_VERBOSE="  ostler-import %s --user-name \"%s\" --verbose"
 MSG_WARN_OSTLER_SECURITY_INSTALL_FAILED_CM048="  Não foi possível instalar a dependência de armazenamento criptografado no venv da memória de conversas; o enriquecimento de conversas não será executado."
-MSG_INFO_COACH_DB_READY="  Coaching database ready, encrypted: %s"
-MSG_WARN_COACH_DB_NOT_CREATED="  Could not prepare the encrypted coaching database (it will be created on the first coaching note): %s"
+MSG_INFO_COACH_DB_READY="  Banco de dados de coaching pronto, criptografado: %s"
+MSG_WARN_COACH_DB_NOT_CREATED="  Não foi possível preparar o banco de dados de coaching criptografado (ele será criado na primeira nota de coaching): %s"
 MSG_WARN_OSTLER_SECURITY_SOURCE_MISSING_CM048="  Fonte da dependência de armazenamento criptografado não encontrada em SCRIPT_DIR; o mecanismo de memória de conversas não pode ser carregado e o enriquecimento de conversas não será executado."
 MSG_WARN_OSTLER_WIKI_COMPILER_IMAGE_NOT_YET="  - imagem ostler-wiki-compiler ainda não disponível para download (registro não configurado)"
 MSG_WARN_OXIGRAPH_NOT_RESPONDING="Oxigraph não está respondendo"
@@ -1061,11 +1061,11 @@ MSG_FAIL_HOMEBREW_MISSING_AFTER_INSTALL="A instalação do Homebrew informou suc
 MSG_FAIL_HOMEBREW_NOT_ON_PATH="O Homebrew está instalado em /opt/homebrew/bin/brew, mas o comando 'brew' não está no PATH após a avaliação do shellenv. Abra um novo Terminal e execute o instalador novamente."
 MSG_FAIL_COLIMA_MISSING_AFTER_BREW="'brew install colima docker docker-compose' informou sucesso, mas o colima não está no PATH. Consulte %s para ver as falhas do Homebrew. Recuperação: abra o Terminal e execute 'brew install colima docker docker-compose' manualmente, depois execute o instalador novamente."
 MSG_FAIL_DOCKER_CLI_MISSING_AFTER_BREW="'brew install colima docker docker-compose' informou sucesso, mas a CLI do docker não está no PATH. Consulte %s. Recuperação: execute 'brew install docker' manualmente e depois execute o instalador novamente."
-MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="The Ollama install reported success but its binary is missing. Check %s, then re-run the installer."
-MSG_FAIL_OLLAMA_PIN_DOWNLOAD="Could not download Ollama %s. Check your internet connection, then re-run the installer. Details: %s"
-MSG_FAIL_OLLAMA_PIN_SHA256="The Ollama %s download did not match its recorded fingerprint, so it was not installed. This can mean the download was damaged or altered. Re-run the installer; if it happens again, contact support. Details: %s"
-MSG_FAIL_OLLAMA_PIN_UNPACK="Ollama %s downloaded but could not be unpacked. Check free disk space, then re-run the installer. Details: %s"
-MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="The local AI service is set to run %s instead of the copy of Ollama this installer verified (%s), so it would not stay on a tested version. The install has stopped. Re-run the installer; if this repeats, contact support. Details: %s"
+MSG_FAIL_OLLAMA_MISSING_AFTER_BREW="A instalação do Ollama informou sucesso, mas o binário não foi encontrado. Verifique %s e execute o instalador novamente."
+MSG_FAIL_OLLAMA_PIN_DOWNLOAD="Não foi possível baixar o Ollama %s. Verifique sua conexão com a internet e execute o instalador novamente. Detalhes: %s"
+MSG_FAIL_OLLAMA_PIN_SHA256="O download do Ollama %s não correspondeu à impressão digital registrada, então não foi instalado. Isso pode significar que o download foi danificado ou alterado. Execute o instalador novamente; se acontecer de novo, entre em contato com o suporte. Detalhes: %s"
+MSG_FAIL_OLLAMA_PIN_UNPACK="O Ollama %s foi baixado, mas não pôde ser descompactado. Verifique o espaço livre em disco e execute o instalador novamente. Detalhes: %s"
+MSG_FAIL_OLLAMA_AGENT_NOT_PINNED="O serviço de IA local está configurado para executar %s em vez da cópia do Ollama que este instalador verificou (%s), então ele não permaneceria em uma versão testada. A instalação foi interrompida. Execute o instalador novamente; se isso se repetir, entre em contato com o suporte. Detalhes: %s"
 MSG_FAIL_EMBED_HEALTHCHECK="O Ollama está em execução, mas o modelo de embedding não retornou nenhum vetor (HTTP diferente de 200 ou resultado vazio). O cartão Pessoas, a busca e a navegação ficariam vazios. Consulte %s. Recuperação: verifique se o app Ollama (não a fórmula do Homebrew) está instalado e em execução, depois execute o instalador novamente."
 MSG_FAIL_SQLCIPHER_MISSING_AFTER_BREW="'brew install sqlcipher' informou sucesso, mas o sqlcipher não está no PATH. Consulte %s. Recuperação: execute 'brew install sqlcipher' manualmente e depois execute o instalador novamente."
 MSG_FAIL_TAILSCALE_INSTALL_FAILED="'brew install --cask tailscale' não gerou /Applications/Tailscale.app. Consulte %s. Recuperação: baixe o Tailscale em https://tailscale.com/download/macos e arraste-o para /Applications. Depois, execute o instalador novamente."
@@ -1092,10 +1092,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Nome completo (ex.: Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="Como seu assistente deve chamar você?"
 MSG_PROMPT_USER_ID_HELP="Um nome curto que seu assistente usará para se dirigir a você (ex.: 'Andy', 'Andrew', 'Sra. Smith'). É o que aparece nos seus resumos da manhã e nas respostas do chat. Diferente do seu nome completo acima."
-MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
-MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
-MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
-MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
+MSG_WARN_OWNER_NAME_EMPTY="O nome não pode ficar vazio. Digite seu nome."
+MSG_WARN_OWNER_ID_EMPTY="Este campo não pode ficar vazio. Digite como seu assistente deve chamar você."
+MSG_FAIL_OWNER_NAME_EMPTY="Nenhum nome foi informado e não é possível perguntar de novo aqui. Execute o instalador novamente e digite seu nome quando solicitado."
+MSG_FAIL_OWNER_ID_EMPTY="Nenhuma resposta foi dada sobre como seu assistente deve chamar você, e não é possível perguntar de novo aqui. Execute o instalador novamente e digite um nome quando solicitado."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1123,8 +1123,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="aniversários"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="sugestões da Siri"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="um calendário que você assina"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="lembretes"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Incluir \"%s\" no seu resumo?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="Isto parece ser %s, e não compromissos, então foi deixado de fora. Ative se contiver planos reais."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="De quem é o calendário \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="Que tipo de calendário é \"%s\"?"
@@ -1160,8 +1160,8 @@ MSG_PROMPT_ASSISTANT_NAME_HELP_SHORT="Digite o nome que quiser: a sugestão é s
 MSG_PROMPT_CHANNEL_CHOICE_TITLE="Como seu assistente vai entrar em contato com você?"
 MSG_PROMPT_CHANNEL_CHOICE_HELP="Escolha os canais de mensagem que você quer que seu assistente use. Você pode mudar isso depois na seção Doctor do app."
 
-MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Enable WhatsApp messaging for your assistant?"
-MSG_PROMPT_WHATSAPP_CONSENT_HELP="WhatsApp Web is a third-party service. By enabling, you accept that your messages route through WhatsApp's own infrastructure before reaching your local Ostler instance, and that WhatsApp (Meta Platforms Ireland Ltd) may suspend, restrict, or terminate your WhatsApp account because of automated use. You can disable this later from Settings."
+MSG_PROMPT_WHATSAPP_CONSENT_TITLE="Ativar as mensagens do WhatsApp para o seu assistente?"
+MSG_PROMPT_WHATSAPP_CONSENT_HELP="O WhatsApp Web é um serviço de terceiros. Ao ativar, você aceita que suas mensagens passem pela infraestrutura do próprio WhatsApp antes de chegar à sua instância local do Ostler, e que o WhatsApp (Meta Platforms Ireland Ltd) pode suspender, restringir ou encerrar sua conta do WhatsApp por causa do uso automatizado. Você pode desativar isso depois em Ajustes."
 
 MSG_PROMPT_WHATSAPP_RECIPIENT_TITLE="Seu número de telefone do WhatsApp"
 # The example used to read "+44 7700 900123" – spaces – in the same sentence as
@@ -1279,7 +1279,7 @@ MSG_PROMPT_EMAIL_ALLOWED_TITLE="Quem pode enviar e-mails ao seu assistente?"
 MSG_PROMPT_EMAIL_ALLOWED_HELP="Seus próprios endereços de e-mail, separados por vírgula. %s só responde a e-mails de endereços desta lista; e-mails de qualquer outra pessoa são ignorados. É necessário pelo menos um endereço. Seu próprio endereço já vem preenchido: altere-o ou adicione outro."
 
 MSG_PROMPT_EMAIL_PASSWORD_TITLE="Senha (oculta)"
-MSG_PROMPT_EMAIL_PASSWORD_HELP="Password for your self-hosted IMAP/SMTP server. Stored locally in ~/.ostler/secrets/, not in your settings file, and never sent to Creative Machines. It is saved in plain text: the only thing protecting it is the file's permissions, which allow your macOS account and nobody else. Nothing encrypts it later. Use an app password rather than your main account password."
+MSG_PROMPT_EMAIL_PASSWORD_HELP="Senha do seu servidor IMAP/SMTP próprio. Armazenada localmente em ~/.ostler/secrets/, não no arquivo de ajustes, e nunca enviada à Creative Machines. Ela é salva em texto simples: a única proteção são as permissões do arquivo, que permitem apenas a sua conta do macOS. Nada a criptografa depois. Use uma senha de app em vez da senha principal da conta."
 MSG_PROMPT_EMAIL_PASSWORD_CONFIRM_TITLE="Confirmar senha"
 
 MSG_PROMPT_EMAIL_IMAP_FOLDER_TITLE="Qual pasta o assistente deve observar?"
@@ -1289,11 +1289,11 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Digite INBOX novamente para confirmar ou p
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX significa que o assistente vai ler todos os e-mails que você receber. Recomendamos fortemente usar um marcador/pasta dedicado."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Você já solicitou a exportação dos seus dados?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="O Ostler importa 18 exportações de plataformas. A lista completa, com links diretos para a página de solicitação de cada provedor, está em https://ostler.ai/docs/getting-started/data-exports/.
 
-Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+A maioria dos arquivos leva de 1 a 3 dias para chegar por e-mail. Quando os ZIPs chegarem, coloque-os na pasta Downloads e o Ostler os encontrará automaticamente.
 
-Skip any you do not use; you can always import more later."
+Pule as que você não usa; você sempre pode importar mais depois."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM criptografia em repouso?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, então seu disco não está criptografado em repouso.
@@ -1321,11 +1321,11 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_TITLE="Senha da exportação do Disney+"
 MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="O Disney+ entrega a exportação do GDPR como uma planilha protegida por senha, o que é normal e não indica problema com o seu download. Digite a senha para importar agora seu histórico de exibição do Disney+ ou deixe em branco para pular; todo o resto continua sendo importado."
 
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Você já tem exportações de dados prontas?"
-MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
+MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="O Ostler pode importar arquivos de redes sociais e plataformas – todo o seu histórico com amigos, família, lugares, opiniões – logo no início. Quanto mais o Ostler souber no primeiro dia, mais útil ele será no primeiro dia. Você também pode adicionar isso depois; sem pressa.
 
-Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
+Solicite a exportação dos seus dados em cada plataforma (Twitter / X, Facebook, Instagram, LinkedIn etc.), baixe os arquivos ZIP e coloque-os na pasta Downloads. O WhatsApp não precisa de exportação: o Ostler lê seu histórico do WhatsApp Desktop neste Mac.
 
-Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
+O Ostler procurará em ~/Downloads por padrão. Quer outra pasta? Escolha uma abaixo. Caso contrário, pule e importe depois."
 
 MSG_PROMPT_TAKEOUT_CONFIRM_TITLE="Importar mensagens do Gmail deste Takeout?"
 MSG_PROMPT_TAKEOUT_CONFIRM_HELP="Lê o conteúdo do Gmail diretamente do arquivo do Takeout. O Google nunca vê o Ostler."
@@ -1338,11 +1338,11 @@ MSG_PROMPT_FDA_PRESET_CHOICE_CUSTOMISE="Personalizar. Escolha cada fonte na pró
 
 MSG_PROMPT_FDA_SOURCE_TOGGLE_HELP="Ative ou desative esta fonte de dados."
 
-MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Your decision (Y / N)"
-MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Article 9 special-category consent (UK GDPR). Required for the lawful basis of processing."
+MSG_PROMPT_CONSENT_ARTICLE_9_TITLE="Sua decisão (Y = sim / N = não)"
+MSG_PROMPT_CONSENT_ARTICLE_9_HELP="Consentimento para categoria especial de dados do Artigo 9 (UK GDPR). Necessário para a base legal do tratamento."
 
-MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Recognise voices on the calls you capture?"
-MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creative Machines never receives the fingerprints."
+MSG_PROMPT_CONSENT_VOICE_EU_TITLE="Reconhecer vozes nas chamadas que você captura?"
+MSG_PROMPT_CONSENT_VOICE_EU_HELP="O reconhecimento de voz permanece neste Mac. A Creative Machines nunca recebe as impressões vocais."
 
 # Enrichment opt-in (Q_ENRICH). Andy, 2026-08-18: "users must EXPLICITLY
 # decide whether public-data enrichment runs. Not a default-on setting."
@@ -1356,25 +1356,25 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creativ
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
-MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Buscar fatos públicos sobre o que você salva?"
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="O Ostler pode acrescentar detalhes de referência públicos ao que encontra – um livro, um filme, um álbum, um lugar. Para isso, ele envia o NOME dessa coisa a serviços públicos de referência, como Wikidata, MusicBrainz e OpenLibrary, e guarda a resposta neste Mac.
 
-What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+O que sai do seu Mac: o nome da coisa que está sendo pesquisada. Nada além disso. Nem suas mensagens, nem seus contatos, nem seus arquivos, nem quem a mencionou.
 
-What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+O que o serviço do outro lado consegue ver: seu endereço IP e o fato de que a solicitação veio do Ostler. A busca vai direto do seu Mac para eles – nada passa pelos nossos servidores – então não há como perguntar sem que eles saibam que alguém perguntou.
 
-If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+Se você disser Não: nenhuma busca é feita e a tarefa de enriquecimento em segundo plano nem é instalada. Todo o resto funciona exatamente igual. Sua biblioteca simplesmente terá o que você mesmo colocou nela, e não o que um catálogo público acrescentaria.
 
-You can say No now and change your mind later by re-running the installer."
+Você pode dizer Não agora e mudar de ideia depois, executando o instalador novamente."
 
-MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="One last thing: how third-party data works"
-MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Any data you import from third parties (Google Takeout, Meta downloads, LinkedIn exports, etc.) stays on this Mac. Ostler stores it in your local knowledge graph; nothing leaves your device.
+MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="Uma última coisa: como funcionam os dados de terceiros"
+MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Todos os dados que você importar de terceiros (Google Takeout, downloads da Meta, exportações do LinkedIn etc.) permanecem neste Mac. O Ostler os armazena no seu grafo de conhecimento local; nada sai do seu dispositivo.
 
-By continuing you understand and agree that you are solely responsible for the processing and keeping of this data on your machine, just like the email messages already on your hard drive.
+Ao continuar, você entende e concorda que é o único responsável pelo tratamento e pela guarda desses dados na sua máquina, assim como já é pelas mensagens de e-mail que estão no seu disco rígido.
 
-Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c).
+Nota legal: Em relação aos registros que você importa para este Mac, você é o controlador e o operador dos dados segundo a lei do Reino Unido e da UE (UK GDPR, Artigo 4(7) e 4(8)). A Creative Machines nunca recebe esses dados e não é a controladora. O seu tratamento para fins pessoais e domésticos se enquadra no Artigo 2(2)(c) do GDPR do Reino Unido e da UE.
 
-Read more at docs.ostler.ai/privacy/third-party-data."
+Saiba mais em docs.ostler.ai/privacy/third-party-data."
 
 # Spoken-capture recording-consent acknowledgement (every region). Shown
 # in the Phase-2 consent batch. The HELP string is the substantive text
@@ -1384,13 +1384,13 @@ Read more at docs.ostler.ai/privacy/third-party-data."
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
 MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
-MSG_TERMS_PERSONAL_USE_INTRO="Ostler is built for one person, on their own Mac, to understand their own life. That is the whole design, and it is why your data never leaves this machine."
-MSG_TERMS_PERSONAL_USE_BUSINESS="It is not built for business use. Please do not deploy Ostler to staff, or use it in the course of your job to capture colleagues, clients, patients or customers. If an organisation does that, the organisation becomes responsible for everyone whose information it collects, and Ostler is not designed to carry that."
-MSG_TERMS_PERSONAL_USE_RECORDER="You are the one recording. Ostler is the tool. Where your local law requires consent before a conversation is recorded, obtaining it is yours to do, and we cannot know from here whether any particular recording is lawful where you are."
-MSG_TERMS_PERSONAL_USE_ASK_HEADING="Three things we ask you not to do:"
-MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardian agreeing. A child cannot give that agreement themselves, and your own assurance does not stand in for theirs."
-MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
-MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
+MSG_TERMS_PERSONAL_USE_INTRO="O Ostler foi criado para uma pessoa, no próprio Mac, entender a própria vida. Esse é todo o projeto, e é por isso que seus dados nunca saem desta máquina."
+MSG_TERMS_PERSONAL_USE_BUSINESS="Ele não foi criado para uso empresarial. Por favor, não implante o Ostler para funcionários nem o use no trabalho para captar informações de colegas, clientes, pacientes ou consumidores. Se uma organização faz isso, ela passa a ser responsável por todas as pessoas cujas informações coleta, e o Ostler não foi projetado para arcar com isso."
+MSG_TERMS_PERSONAL_USE_RECORDER="Quem grava é você. O Ostler é apenas a ferramenta. Onde a lei local exige consentimento antes de uma conversa ser gravada, obtê-lo é responsabilidade sua, e não temos como saber daqui se uma gravação específica é legal onde você está."
+MSG_TERMS_PERSONAL_USE_ASK_HEADING="Pedimos que você não faça três coisas:"
+MSG_TERMS_PERSONAL_USE_ASK_1="Não grave crianças sem a concordância de um dos pais ou de um responsável. Uma criança não pode dar essa concordância por conta própria, e a sua garantia pessoal não substitui a deles."
+MSG_TERMS_PERSONAL_USE_ASK_2="Não grave em lugares onde as pessoas esperam privacidade de verdade: uma consulta médica, uma reunião com advogado, uma sessão de terapia, uma confissão religiosa, um banheiro ou um provador."
+MSG_TERMS_PERSONAL_USE_ASK_3="Não use o Ostler para gravar ninguém às escondidas onde a lei do lugar em que você está não permitir."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
 # Legal: the "English version prevails" line (owner ruling 2026-10-24). install.sh prints it
 # before every legal/consent prompt, but ONLY when this line is itself translated
@@ -1398,23 +1398,25 @@ MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial us
 MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."
 # English prevails over any translation. Legal text stays English in every locale.
 MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
-MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
-MSG_PROMPT_TERMS_PERSONAL_USE_HELP="Ostler is licensed for your own personal use on your own Mac. Please do not deploy it to staff or use it at work to capture colleagues, clients or patients. Do not record children without a parent agreeing, and do not record in places where people expect real privacy such as a doctor, solicitor or therapy appointment. Press Continue to accept these terms.
+MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="O Ostler é para uso pessoal"
+# NEEDS REVIEW: Licence terms; 'record' rendered as transcrever, lawyer should confirm legal force.
+MSG_PROMPT_TERMS_PERSONAL_USE_HELP="O Ostler é licenciado para o seu uso pessoal, no seu próprio Mac. Não o implante para funcionários nem o use no trabalho para captar colegas, clientes ou pacientes. Não transcreva crianças sem o consentimento de um responsável e não transcreva em locais onde as pessoas esperam privacidade real, como em consultas médicas, com advogados ou terapia. Pressione Continuar para aceitar estes termos.
 
-Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
-MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
+Idioma. Estes termos foram escritos em inglês. Qualquer tradução é fornecida apenas por conveniência. Se uma tradução diferir da versão em inglês, prevalece a versão em inglês."
+MSG_INFO_TERMS_PERSONAL_USE_DECLINED="Tudo bem. Nada foi instalado."
 
-MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
-MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe."
-MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Make it clear to the people you are with that audio is being captured – for example, say so at the start, or keep a visible indicator on."
-MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Your text conversations work either way."
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
-MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
+MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Transformando conversas faladas em texto"
+MSG_CONSENT_SPOKEN_CAPTURE_INTRO="Resumindo: ao captar áudio falado para transcrevê-lo, obter o consentimento exigido por lei é responsabilidade sua, não nossa. Digitação e mensagens não são afetadas."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="O Ostler pode transformar conversas faladas que você captar – ligações e reuniões – em texto pesquisável; isso diz respeito apenas ao áudio que você escolhe transcrever."
+# NEEDS REVIEW: Consent/legal duty wording; needs legal review.
+MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="O Ostler transcreve o áudio captado no dispositivo que o captou e apaga o áudio imediatamente. Ele nunca é guardado nem enviado a lugar algum, inclusive ao seu próprio Mac. Isso não elimina esta obrigação: você ainda precisa de consentimento quando a lei local o exigir."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="O que pedimos a você:"
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtenha o consentimento que a lei local exigir antes de captar uma conversa falada."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_2="Deixe claro para as pessoas com quem você está que o áudio está sendo captado. Por exemplo, avise no início ou mantenha um indicador visível ativado."
+MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="Na dúvida, deixe a transcrição de voz desativada. Suas conversas por texto funcionam de qualquer forma."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Sua decisão:"
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] Entendi e vou obter o consentimento que a lei local exigir."
+MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Agora não: manter a transcrição de voz desativada. (Você pode ativá-la depois em Ajustes.)"
 # ── Spoken-capture legal note, chosen by the Mac's REGION (not its language) ──
 # Composed by _ostler_spoken_capture_legal_note in install.sh as
 #   "Legal note: " + CORE + LOCAL + the region line(s) + RESPONSIBILITY,
@@ -1447,25 +1449,26 @@ MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Pri
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US="In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
 MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY="As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
-MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Transformar conversas faladas em texto?"
+# NEEDS REVIEW: Restored the source's en dash in the second bullet. Consent text: a lawyer should check it.
+MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="Resumindo: quando você captura áudio falado para transcrevê-lo, obter qualquer consentimento exigido por lei é sua responsabilidade. Digitação e mensagens não são afetadas.
 
-Ostler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.
+O Ostler pode transformar conversas faladas que você captura – chamadas e reuniões – em texto pesquisável. Isso diz respeito apenas ao áudio que você escolhe transcrever.
 
-What we ask of you:
-• Get whatever consent your local law requires before you capture audio.
-• Make it clear audio is being captured – say so, or keep a visible indicator on.
-• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings."
+O que pedimos a você:
+• Obtenha o consentimento que a lei local exigir antes de capturar áudio.
+• Deixe claro que o áudio está sendo capturado – avise ou mantenha um indicador visível ativado.
+• Em caso de dúvida, deixe isso desativado. Suas conversas de texto funcionam de qualquer forma, e você pode ativar isso depois em Ajustes."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="A transcrição de voz continuará desativada. Você pode ativá-la depois em Ajustes."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
 
-MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
-MSG_PROMPT_CONSENT_INSTALL_HELP="Please type INSTALL to confirm you accept the terms."
-MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Type INSTALL"
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Install Ostler"
-MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancel"
-MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back."
+MSG_PROMPT_CONSENT_INSTALL_TITLE="Pronto para instalar?"
+MSG_PROMPT_CONSENT_INSTALL_HELP="Digite INSTALL para confirmar que você aceita os termos."
+MSG_PROMPT_CONSENT_INSTALL_TYPED_PLACEHOLDER="Digite INSTALL"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_PRIMARY="Instalar o Ostler"
+MSG_PROMPT_CONSENT_INSTALL_BUTTON_CANCEL="Cancelar"
+MSG_WARN_CONSENT_INSTALL_TYPED_MISMATCH="Digite INSTALL exatamente (maiúsculas e minúsculas não importam) para confirmar, ou clique em Cancelar para voltar."
 
 MSG_PROMPT_TAILSCALE_CONFIRM_TITLE="Conecte seu iPhone e seu Watch"
 MSG_PROMPT_TAILSCALE_CONFIRM_HELP="O Tailscale dá a este Mac um endereço privado estável que seu iPhone e seu Watch alcançam de qualquer lugar, com criptografia e sem exposição pública."
@@ -1599,21 +1602,21 @@ MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="Nenhuma conversa do WhatsApp para ler. Vo
 # so a failure names the sources that failed (v1.0.120 walk: a food timeout was
 # reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
 # tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
-MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
-MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Alguns dos seus dados foram lidos, mas ainda não foram adicionados ao seu grafo: %s. O Ostler tentará novamente em segundo plano. Detalhes: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Suas preferências de comida e restaurantes serão adicionadas em segundo plano após a configuração."
 MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
 MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
-MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
-MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
-MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
-MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
-MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
-MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
-MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
-MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
-MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
-MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
-MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendário"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Fotos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Contatos do Mail"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="histórico de navegação"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="favoritos"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="preferências de comida e restaurantes"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="com quem você mais troca mensagens"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="busca de pessoas"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="tudo (a pasta de importação não pôde ser lida)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="uma ou mais fontes (o Ostler não conseguiu identificar quais)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="outra fonte (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="O WhatsApp Desktop não está instalado. Instale-o pela Mac App Store e execute novamente em Ajustes."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="O leitor do WhatsApp ainda não está pronto. Você pode executar novamente depois em Ajustes."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="O WhatsApp ainda está sendo carregado em segundo plano. Sua wiki vai sendo preenchida aos poucos e mostra até onde chegou."
@@ -1917,7 +1920,7 @@ MSG_INFO_AUTOLOGIN_EXPLAIN="O Ostler é um hub sempre ligado, então, após uma 
 Armazená-la torna este Mac menos seguro. A senha é embaralhada, não criptografada, então qualquer pessoa que possa usar uma conta de administrador aqui, ou que consiga retirar o disco e lê-lo em outro lugar, pode transformá-la de volta na sua senha. Você verá exatamente onde ela fica armazenada antes de digitar qualquer coisa.
 
 Se você disser não, nada será armazenado e nada mais muda. Após uma queda de energia, você entra como de costume e os serviços do Ostler iniciam com a sua sessão. Você pode mudar isso depois em Ajustes do Sistema > Usuários e Grupos > Login automático."
-MSG_PROMPT_AUTOLOGIN_CONSENT="Store your login password on this Mac so it can sign itself in after a restart? [y/N]"
+MSG_PROMPT_AUTOLOGIN_CONSENT="Armazenar sua senha de login neste Mac para que ele entre na sessão sozinho após uma reinicialização? [y = sim / N = não]"
 MSG_INFO_AUTOLOGIN_PROMPT_REASON="O Ostler grava esta senha em um arquivo neste Mac, em /etc/kcpassword. Lá ela é embaralhada com um padrão fixo, igual em todos os Macs e documentado publicamente, então não é criptografia e pode ser desfeita. Qualquer pessoa que possa usar uma conta de administrador neste Mac, ou que consiga retirar o disco e lê-lo em outro lugar, pode transformar esse arquivo de volta na senha de login de %s.
 
 O FileVault impediria isso, pois o disco não pode ser lido sem a senha de inicialização. Pelo mesmo motivo, o FileVault também impede o login automático, e é por isso que o Ostler só oferece esta opção quando o FileVault está desativado.
@@ -1958,7 +1961,7 @@ MSG_INFO_ENGINE_OWNERSHIP_DISCLOSURE="O Ostler executa sua wiki e sua busca em c
 MSG_INFO_ENGINE_ALREADY_PRESENT="Já há um mecanismo de contêineres instalado neste Mac. O Ostler o usará em vez de instalar o seu próprio e não irá gerenciá-lo nem modificá-lo."
 
 # OS003 #233: model weight pins (install.sh OSTLER_MODEL_PINS).
-MSG_OK_MODEL_DIGEST_VERIFIED="%s verified against its pinned digest (%s)"
-MSG_FAIL_MODEL_DIGEST_MISMATCH="The installed %s is not the model this installer ships: found %s, expected %s (%s). The download source may have changed, so the install has stopped before using it. Contact support with this message."
-MSG_FAIL_MODEL_UNPINNED="%s has no pinned digest in this installer, so it cannot be verified and will not be used. This is an installer defect. Contact support with this message."
-MSG_FAIL_MODEL_DIGEST_UNREADABLE="Could not verify the downloaded %s against its pinned digest (%s). The model will not be used unverified. Re-run the installer; if this repeats, contact support with this message."
+MSG_OK_MODEL_DIGEST_VERIFIED="%s verificado com o digest fixado (%s)"
+MSG_FAIL_MODEL_DIGEST_MISMATCH="O %s instalado não é o modelo que este instalador fornece: encontrado %s, esperado %s (%s). A origem do download pode ter mudado, então a instalação foi interrompida antes de usá-lo. Entre em contato com o suporte com esta mensagem."
+MSG_FAIL_MODEL_UNPINNED="%s não tem digest fixado neste instalador, portanto não pode ser verificado e não será usado. Trata-se de um defeito do instalador. Entre em contato com o suporte com esta mensagem."
+MSG_FAIL_MODEL_DIGEST_UNREADABLE="Não foi possível verificar o %s baixado com o digest fixado (%s). O modelo não será usado sem verificação. Execute o instalador novamente; se isso se repetir, entre em contato com o suporte com esta mensagem."

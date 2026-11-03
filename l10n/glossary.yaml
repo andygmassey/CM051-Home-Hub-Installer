@@ -17,8 +17,10 @@ language_names:
   zh-HK: "Chinese, traditional script (HK SAR)"
   ar: "Arabic (modern standard)"
   zh-Hant: "Chinese, traditional script (Taiwan)"
+  en-US: "English (United States)"
 
 register:
+  en-US: "American English: change ONLY British spelling and vocabulary to US (colour->color, organise->organize, licence (noun)->license, cancelled->canceled, mobile->cell phone where it means a phone); keep every sentence, word order, tone and punctuation otherwise identical; leave a string unchanged when it has nothing British in it."
   de: "informal 'du' (as Apple does for consumer apps), capitalised only at sentence start ('du', 'dein')."
   fr: "formal 'vous'."
   es: "informal 'tú', neutral international Spanish (avoid Spain-only or Mexico-only slang)."

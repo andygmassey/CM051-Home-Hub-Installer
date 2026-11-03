@@ -1005,7 +1005,12 @@ def cmd_stale(cfg):
                     by[(c.id, lang)].add(k)
                     continue
                 e = pend.get(u.uid)
-                if (e and is_legal(u, cfg) and gate.ships(lang, u) and e.get("src_hash") == h(u.src)
+                # A translation parked while its key counted as legal is released
+                # once the key is no longer legal (owner ruling 2026-11-04: the
+                # plain-language consent copy is translated), on the same terms:
+                # made from the current English and passing the mechanical checks.
+                releasable = (is_legal(u, cfg) and gate.ships(lang, u)) or not is_legal(u, cfg)
+                if (e and releasable and e.get("src_hash") == h(u.src)
                         and (v is None or v == u.src) and e.get("text") and e["text"] != u.src):
                     bad = mech(u, e["text"], cfg)
                     if bad:

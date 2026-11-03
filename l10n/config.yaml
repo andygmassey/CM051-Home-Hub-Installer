@@ -53,8 +53,18 @@ keep_english:
 # Owner ruling 2026-10-24: "yes, localisation with English prevails." This replaces
 # the 2026-10-22 ruling (legal_english_only: true, every legal string English).
 legal_english_only: false
-legal_patterns: [consent, verbatim, "legal/", "article 9", 'article.9', '\bterms\b', '(^|_)terms(_|$)', waiver, refund, privacy_policy]
-legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS]
+# Owner ruling 2026-11-04 (Andy): the plain-language ("layman's") consent copy
+# IS translated, like any other screen text. Only the legal wording, shown
+# smaller and lighter on the consent screens where a regulation needs it
+# (the "Legal note" lines, the law-by-country lines, the responsibility line,
+# the formal licence line and the terms-language line), stays under the legal
+# rules below. So the patterns match the LEGAL segment of a key (is_legal
+# searches "<key> <developer comment>", so a segment ends at _ / . space or
+# the end), not the word "consent".
+legal_patterns: ['(^|[_/.])legal([_/.\s]|$)', verbatim]
+# Plus two plain-styled lines that cite a regulation or a licence (Archie,
+# 2026-11-04): they stay English like the small legal wording.
+legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS, MSG_TERMS_LANGUAGE, MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL, MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL]
 # The "English version prevails" line, one per catalogue the installer shows
 # legal wording from. Until EVERY one is reviewed for a language, every legal
 # key of that language stays English (the installer is one surface: install.sh
