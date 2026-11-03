@@ -37,4 +37,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: each instrument gap stays closed
-        run: python3 -I tests/test_cannotrun_instruments_v1_0_122.py -v
+        run: python3 tests/test_cannotrun_instruments_v1_0_122.py -v

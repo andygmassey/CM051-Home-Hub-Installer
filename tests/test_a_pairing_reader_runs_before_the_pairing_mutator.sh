@@ -54,7 +54,13 @@ for f in "$DIR"/*.sh; do
     # /auth/pair/init + register on :8443) -- or, the old way, a curl POST to
     # :8443/pair. Both shapes are matched so a probe that regressed to the
     # legacy route is still found as a mutator.
-    if [ "$(grep -cE "companion_pair_box_snippet|curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ]; then
+    #
+    # A probe that pairs and then REVOKES what it paired (companion_walk_unpair,
+    # e.g. gateway_never_serves_a_stored_secret since v1.0.122) leaves the
+    # pairing state as it found it, so it is not the mutator this test orders
+    # readers against. It still sorts ahead of the mutator in both collations.
+    if [ "$(grep -cE "companion_pair_box_snippet|curl[^|]*-X POST[^|]*8443/pair" "$f")" -gt 0 ] \
+        && [ "$(grep -cE "^[^#]*companion_walk_unpair" "$f")" -eq 0 ]; then
         MUTATORS="${MUTATORS} $(basename "$f" .sh)"
     fi
 done
