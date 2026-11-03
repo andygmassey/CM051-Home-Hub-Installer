@@ -63,7 +63,7 @@ def _run_step09(tmp_path: Path, level) -> int:
     (state / "00_raw_transcript.md").write_text("Alice: hello\nBob: hi\n")
     (state / "09_bundle.json").write_text(json.dumps({
         "overall_summary": "Synthetic.",
-        "topics": [{"name": "Garden Design", "points": ["roses"]}],
+        "topics": [{"name": "gardening", "points": ["roses"]}],
         "todos": [],
     }))
     classification = Classification.from_dict({
@@ -88,7 +88,7 @@ def _write_direct(tmp_path: Path, level) -> int:
     with patch("src.topic_writer.httpx.Client", _Counter):
         topic_writer.write_topics(
             conversation_id="conv-synth-1",
-            topics=[{"name": "Garden Design", "points": ["roses"]}],
+            topics=[{"name": "gardening", "points": ["roses"]}],
             settings=_settings(tmp_path),
             privacy_level=level,
         )
