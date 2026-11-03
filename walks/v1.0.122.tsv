@@ -72,7 +72,7 @@ instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
 # or people_count_agreement means something different in each case. A
 # reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can
 # find one and says so when it cannot.
-stores_provenance	wiped-by-shipped-uninstaller(/Users/andy/.ostler/bin/ostler-uninstall;colimadelete--data,datadiskabsent)
+stores_provenance	wiped-by-shipped-uninstaller(~/.ostler/bin/ostler-uninstall;colimadelete--data,datadiskabsent)
 #
 # grounding_seed answers the one question assistant_answers_grounded
 # begs and has never stated: was this box SEEDED before the probe
