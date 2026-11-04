@@ -1054,6 +1054,18 @@ if [[ -n "$CUT_VERSION" ]]; then
     # hit moves the record OUT of the repo, so there is nothing to commit; a
     # scan that cannot run does the same and says CANNOT-RUN. (walk #31,
     # 2026-10-18; see scripts/lib_walk_owner.sh.)
+    # ── NO HOME DIRECTORY IN ANY FIELD (v1.0.123, CM051 #3318) ──────────
+    # A home path names the account. Rewritten to ~ over the WHOLE record,
+    # then re-checked; a survivor refuses the record exactly as the owner
+    # scan below does. See scripts/lib_walk_record_paths.sh.
+    # shellcheck source=scripts/lib_walk_record_paths.sh
+    source "${REPO_ROOT}/scripts/lib_walk_record_paths.sh"
+    if ! walk_record_tildeize "$RECORD"; then
+        rm -f "$RECORD"
+        echo "  🔴 walk record DELETED: a home path could not be removed from it, and walks/ is public."
+        echo "  This walk is NOT recorded: CANNOT-RUN."
+        exit 2
+    fi
     # shellcheck source=scripts/lib_walk_owner.sh
     source "${REPO_ROOT}/scripts/lib_walk_owner.sh"
     _owner_rc=0
