@@ -1,7 +1,7 @@
 """Scam guard for extracted todos: a scammer's instruction is never a todo.
 
 Measured 2026-11-04 on a live Hub: the evening brief told the owner
-"Contact the Foreign Funds Administrator immediately to arrange payment."
+"contact the foreign funds administrator immediately to arrange payment."
 The todo had been extracted from an unsolicited advance-fee fraud email.
 Every todo this pipeline writes can reach the daily brief, the wiki todos
 wing and Apple Reminders, so the place to stop it is here, before any of
@@ -227,7 +227,7 @@ def owner_has_written(metadata: Optional[dict], transcript: str = "") -> bool:
     # Messages stager labels a carded handle by its Contacts name (chat.db
     # plus an AddressBook match) and an uncarded one by the raw handle, so
     # there a name IS a Contacts match. NOT WhatsApp, whose label can be the
-    # sender's self-chosen push name ("Sam Example" from a stranger), and not
+    # sender's self-chosen push name ("Sam Smith" from a stranger), and not
     # email, whose display name is the sender's own header. There the only
     # evidence is a card (``contact_card``, set by handle_resolver).
     source = str(
