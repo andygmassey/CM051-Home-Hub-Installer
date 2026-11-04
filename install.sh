@@ -24941,7 +24941,7 @@ fi
 # Gmail / Calendar features stay degraded until the customer re-runs
 # install.sh online.
 GWS_VERSION="0.22.5"
-progress "Installing Google Workspace CLI (gws v${GWS_VERSION})" "gws_install"
+progress "Setting up the calendar bridge" "gws_install"  # gws itself is NOT installed (privacy, v1.0.123 walk; see the guard below)
 
 
 GWS_BIN_DEST="/usr/local/bin/gws"
@@ -24966,8 +24966,8 @@ case "$(uname -m)" in
         ;;
 esac
 
-if [[ -z "$GWS_ARCH_LABEL" ]]; then
-    warn "$MSG_WARN_GWS_UNSUPPORTED_ARCHITECTURE_GMAIL_DEGRADED"
+if true; then  # PRIVACY (v1.0.123 walk): gws is NEVER installed. v1 has no Google connector, and an installed gws let ical-server reach Google every ~4 min with no consent. The download branches below are dead code, kept only so this edit is line-neutral. ical-server also gates every gws spawn on a Google account AND an accepted opt-in (CM041 #245).
+    if [[ -e "$GWS_BIN_DEST" ]]; then info "A Google Workspace CLI from an earlier install is at ${GWS_BIN_DEST}. Ostler leaves it in place and will not run it unless you opt in."; else ok "Google Workspace CLI not installed (no Google account connected)"; fi
 elif [[ -x "$GWS_BIN_DEST" ]] && "$GWS_BIN_DEST" --version 2>/dev/null | grep -q "$GWS_VERSION"; then
     # Idempotency: a prior install at the matching version stays put.
     ok "$(printf "$MSG_OK_GWS_ALREADY_INSTALLED_AT_VERSION" "$GWS_VERSION")"
@@ -28334,9 +28334,9 @@ echo "      this uninstall right now. Drag it to the Bin when you are done."
 echo "    - /Applications/Ostler/Ostler Uninstaller.app, ONLY if you launched"
 echo "      the uninstall from it (it cannot delete itself while running)."
 echo "      Drag the /Applications/Ostler folder to the Bin when you are done."
-echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"
-echo "      installed by Ostler, but a working standalone tool that is"
-echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"
+if [[ -e /usr/local/bin/gws ]]; then echo "    - /usr/local/bin/gws (the official Google Workspace CLI)"; fi
+if [[ -e /usr/local/bin/gws ]]; then echo "      from an earlier Ostler install, a working standalone tool that is"; fi
+if [[ -e /usr/local/bin/gws ]]; then echo "      not ours to delete. To remove: sudo rm -f /usr/local/bin/gws"; fi
 echo "    - Automatic login, if Ostler enabled it for you"
 echo "      The hub needs the Mac to reach a logged-in session after a"
 echo "      power cut, so the installer may have switched on automatic"
@@ -43678,21 +43678,21 @@ fi
 # Calendar.app's local cache, which already covers every account in System
 # Settings, and that is the path extract_all runs.
 #
-# NO gws SUBCOMMAND IS NAMED HERE ON PURPOSE. My first draft of this block told
-# the customer to run a specific one. It appeared NOWHERE ELSE in the tree: the
-# only occurrence of that string was the line I had just written. Naming a
-# command I had not verified would have been the same defect as the document
-# that does not exist, one line further down the same list. The tool's own
-# no-argument output is the source of truth for its interface, so that is what
-# the customer is sent to.
+# GMAIL VIA gws IS GONE, 2026-11-04 (privacy, v1.0.123 walk). This list used to
+# send the customer to sign in to Gmail through the gws tool. gws is no longer
+# installed (step gws_install is a no-op): v1 has no Google connector, and the
+# installed gws let ical-server reach Google every ~4 minutes with no consent.
+# Mail is read from Apple Mail's local store, the same as Calendar. An earlier
+# version of this block also explained why no gws subcommand was named; with
+# gws gone there is nothing left to name.
 echo "     - iMessage: nothing to do if you already use Messages on this Mac."
 echo "                 Ostler reads the messages already stored here."
 echo "     - Calendar: nothing to do. Ostler reads the calendars already in"
 echo "                 System Settings > Internet Accounts. No password needed."
-echo "     - Gmail:    needs a one-off Google sign-in through the gws tool"
-echo "                 installed at /usr/local/bin/gws. Until you do that,"
-echo "                 Gmail surfaces stay empty. Run gws with no arguments"
-echo "                 to see its sign-in command."
+echo "     - Mail:     nothing to do if your mail is in Apple Mail on this Mac."
+echo "                 Ostler reads the mail already stored here."
+# (two lines kept as comments so this hunk stays line-neutral; they held the
+#  Gmail-via-gws sign-in instruction removed above)
 echo "     - WhatsApp: link with the pair code Ostler shows you"
 echo ""
 # Primary user-facing URL: the wiki. This is the everything-Ostler
