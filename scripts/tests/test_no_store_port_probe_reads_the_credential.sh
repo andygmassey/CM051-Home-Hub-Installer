@@ -268,6 +268,10 @@ count() {   # $1 fixed string, $2 text -> how many lines contain it
 # transport is local (`bash -lc`), unless the caller exports a fake host to
 # exercise the ssh path.
 ARMS=""   # set by an arm to override OSTLER_PROBE_ARMS; empty = the default
+# Class 3 (S1). Empty CRED/KNOWN = class 3 off, so arms 1-17 measure what they
+# always did. SECOND "env" runs the "second identity" as this account (a test
+# cannot sudo); the fake decides refuse/serve, which is what is adjudicated.
+CRED=""; OWNERR=""; SECOND=""; KNOWN=""; MATCH=""
 # The wiki tailnet gate conf arm 1b reads the forgeable owner out of. Empty
 # points the probe at a path that does not exist, which is what every arm
 # except the wikigate ones wants: no client-authored pre-auth gate to satisfy.
@@ -276,6 +280,9 @@ run_probe() {
     local probe="$1" ctrl="$2" surfaces="$3" pwfile="$4" conf="$5"
     env -u OSTLER_BOX_HOST \
         OSTLER_PROBE_ARMS="${ARMS:-both}" \
+        OSTLER_PROBE_CRED_ROUTES="${CRED:-}" OSTLER_PROBE_OWNER_ROUTE="${OWNERR:-}" \
+        OSTLER_PROBE_SECOND_ID_CMD="${SECOND:-env}" \
+        OSTLER_PROBE_KNOWN_LISTENERS="${KNOWN:-}" OSTLER_PROBE_LISTENER_MATCH="${MATCH:-fake.py}" \
         OSTLER_PROBE_WIKI_GATE_CONF="${GATE:-$TMP/no-such-gate.conf}" \
         OSTLER_GATEWAY_PORT="$ctrl" \
         OSTLER_PROBE_MUST_NOT_LISTEN="" \
@@ -436,12 +443,17 @@ STUB
     out="$(PATH="$TMP/bin:$PATH" OSTLER_BOX_HOST=fakebox \
            OSTLER_GATEWAY_PORT="$CTRL" OSTLER_PROBE_MUST_NOT_LISTEN="" \
            OSTLER_PROBE_SURFACES="$HTTP:wiki:/query?query=ASK%7B%7D" \
+           OSTLER_PROBE_CRED_ROUTES="$HTTP:POST:/api/v1/auth/chat-token" OSTLER_PROBE_OWNER_ROUTE="" \
+           OSTLER_PROBE_SECOND_ID_CMD="env" OSTLER_PROBE_KNOWN_LISTENERS="$CTRL $HTTP" \
+           OSTLER_PROBE_LISTENER_MATCH="fake.py" \
            OSTLER_PROBE_WIKI_PASSWORD_FILE="$TMP/wiki_password" \
            OSTLER_PROBE_STORE_CURL_CONF="$TMP/store-curl.conf" \
            bash "$1" 2>&1)"; rc=$?; LAST_OUT="$out"
     stop_server
     [[ "$rc" -eq 0 ]] || return 1
     [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    # Class 3 ran under zsh too: the sweep saw the listeners (not blind).
+    [[ "$(count 'is on a known port' "$out")" -eq 1 ]] || return 1
     return 0
 }
 
@@ -611,6 +623,62 @@ arm_wikigate_no_owner_is_not_applicable() {   # 17
     return 0
 }
 
+# ── class 3 (red team v1.0.124 S1): credential routes + listener sweep ──────
+arm_cred_route_served_is_fail() {        # 18
+    local out rc
+    start_server bare "" ""
+    CRED="$HTTP:POST:/api/v1/pair/regenerate"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "(200,second-identity)" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_cred_route_refused_owner_served_is_pass() {   # 19
+    local out rc
+    start_server refuse "" ""
+    CRED="$HTTP:GET:/api/v1/pair/status"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_owner_locked_out_is_fail() {         # 20
+    local out rc
+    start_server refuse "" ""
+    CRED="$HTTP:GET:/x"; OWNERR="$HTTP:GET:/x"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; OWNERR=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count ",owner)" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_no_second_identity_is_cannot_run() { # 21
+    local out rc
+    start_server refuse "" ""
+    CRED="$HTTP:GET:/x"; SECOND="false"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; SECOND=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 78 ]] || return 1
+    [[ "$(count 'second-identity-unavailable' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_unknown_listener_is_fail() {         # 22 a deliberately open listener nobody declared
+    local out rc
+    start_server refuse "" ""
+    KNOWN="$CTRL"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; KNOWN=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${HTTP}(unknown-listener:" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_declared_listeners_is_pass() {       # 23 control for 22: the same box, port declared
+    local out rc
+    start_server refuse "" ""
+    KNOWN="$CTRL $HTTP"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; KNOWN=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'is on a known port' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+
 report() {   # $1 name, $2 rc of the arm
     if [[ "$2" -eq 0 ]]; then
         printf '  [pass] %s\n' "$1"; pass=$((pass + 1))
@@ -648,6 +716,12 @@ arm_wikigate_intact_is_pass "$PROBE";       report "14 the 8144-shaped gate inta
 arm_wikigate_credential_gone_is_fail "$PROBE"; report "15 the 8144 credential GONE, header alone serves -> FAIL naming the forged-identity read (#1618)" $?
 arm_wikigate_bare_arm_alone_cannot_see_it "$PROBE"; report "16 CONTROL: the same broken surface asked WITHOUT arm 1b produces no served-uncredentialled finding" $?
 arm_wikigate_no_owner_is_not_applicable "$PROBE"; report "17 no owner bound -> arm 1b declines out loud, never a silent pass" $?
+arm_cred_route_served_is_fail "$PROBE";     report "18 S1: a credential route served to a second identity -> FAIL" $?
+arm_cred_route_refused_owner_served_is_pass "$PROBE"; report "19 S1: credential route refused to a second identity -> PASS" $?
+arm_owner_locked_out_is_fail "$PROBE";      report "20 S1: the owner refused its own pair/status -> FAIL (lock-out)" $?
+arm_no_second_identity_is_cannot_run "$PROBE"; report "21 S1: no second identity available -> CANNOT-RUN, never a pass" $?
+arm_unknown_listener_is_fail "$PROBE";      report "22 S1: an undeclared listener -> FAIL naming it" $?
+arm_declared_listeners_is_pass "$PROBE";    report "23 S1 control: the same listener declared -> PASS" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so
@@ -683,6 +757,12 @@ run_mutant() {   # $1 name, $2 arm fn, $3 sed expression
 }
 
 echo "-- mutants, one per arm"
+# shellcheck disable=SC2016
+run_mutant M7-a-credential-route-served-to-a-second-identity-is-not-recorded arm_cred_route_served_is_fail \
+    's/^                    readable)     readable_list="${readable_list} ${p}${path}(${r% \*},second-identity)" ;;$/                    readable)     : ;;/'
+# shellcheck disable=SC2016
+run_mutant M8-an-unknown-listener-is-not-recorded arm_unknown_listener_is_fail \
+    's/^    listening_list="${listening_list}${unknown}"$/    : ;/'
 # shellcheck disable=SC2016
 run_mutant M1-arm1-stops-recording-a-bare-200 arm_bare_is_fail \
     's/^            readable)     readable_list="${readable_list} ${p}(${r1% \*})"; continue ;;$/            readable)     continue ;;/'
