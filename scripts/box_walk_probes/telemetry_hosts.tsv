@@ -1,0 +1,33 @@
+# TELEMETRY HOSTS. host<TAB>what it is<TAB>why it is listed
+#
+# Read by scripts/walk_net_sampler.sh. Each host is resolved ON THE BOX once a
+# minute during the walk, and an outbound sample row (host lsof or in-VM
+# conntrack) whose remote matches a contemporaneous resolution counts towards
+# `telemetry_hosts=<n>`. 0 is required.
+#
+# Exact hosts only: no wildcards, because the box resolves each row. A shared
+# CDN address can serve many tenants, so a match is "consistent with", not
+# proof; the report says so.
+#
+# Adding a row makes the walk stricter, never quieter.
+telemetry.qdrant.io	Qdrant usage telemetry	turned off in the compose file, CM051 #3319 (D1)
+analytics.brew.sh	Homebrew analytics (brew 7.x utils/analytics.rb)	HOMEBREW_NO_ANALYTICS=1, CM051 #3319 (D3)
+eu-central-1-1.aws.cloud2.influxdata.com	Homebrew analytics sink used by earlier brew 4.x releases	HOMEBREW_NO_ANALYTICS=1, CM051 #3319 (D3)
+fonts.googleapis.com	Google Fonts CSS, Hub web UI	fonts self-hosted, ostler-assistant #663 (D2)
+fonts.gstatic.com	Google Fonts files, Hub web UI	fonts self-hosted, ostler-assistant #663 (D2)
+www.google-analytics.com	analytics (google-analytics)	no product surface may use it
+region1.google-analytics.com	analytics, GA4 collection (google-analytics)	no product surface may use it
+ssl.google-analytics.com	analytics, legacy (google-analytics)	no product surface may use it
+analytics.google.com	analytics (google-analytics)	no product surface may use it
+www.googletagmanager.com	tag manager (googletagmanager)	no product surface may use it
+sentry.io	Sentry error reporting	no product surface may use it
+ingest.sentry.io	Sentry ingest	no product surface may use it
+ingest.us.sentry.io	Sentry ingest (US)	no product surface may use it
+ingest.de.sentry.io	Sentry ingest (EU)	no product surface may use it
+api.segment.io	Segment analytics	no product surface may use it
+api.mixpanel.com	Mixpanel analytics	no product surface may use it
+api2.amplitude.com	Amplitude analytics	no product surface may use it
+us.i.posthog.com	PostHog analytics (US); also the ChromaDB telemetry sink	no product surface may use it
+eu.i.posthog.com	PostHog analytics (EU)	no product surface may use it
+app.posthog.com	PostHog analytics (legacy)	no product surface may use it
+telemetry.nextjs.org	Next.js telemetry	no product surface may use it
