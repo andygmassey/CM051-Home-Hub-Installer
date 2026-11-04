@@ -22139,11 +22139,9 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
-  # Personal wiki -- the human-readable browse layer over
-  # the Oxigraph graph + Qdrant vectors. Compiled by wiki-compiler
-  # below into the shared wiki-docs volume; served by MkDocs Material.
-  # See CM044 (PWG Personal Wiki) for compiler internals.
-  #
+  # Personal wiki: the browse layer over the Oxigraph graph + Qdrant
+  # vectors, compiled by wiki-compiler into wiki-docs, served by MkDocs
+  # Material (CM044). wiki-built keeps every built site across recreates.
   # Volume paths fixed in the Gap 3 PR:
   #   - wiki-docs at /docs/docs (MkDocs's default docs_dir under
   #     the image's WORKDIR /docs). Was wiki_docs:/app/site, which
@@ -22153,7 +22151,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:a6fab0ed00b008ae58a86bd9f14a1d62347c701d51e795e3607e5b5fd385254e
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:31523c3f1eeb07513951ed3c1e48d515436b64f576a63691bd591761226aaa99
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22178,6 +22176,7 @@ services:
     volumes:
       - wiki-docs:/docs/docs:ro
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
+      - wiki-built:/site
     restart: unless-stopped
 
   # Wiki compiler -- runs on demand (compose profile "compile") to
@@ -22200,7 +22199,7 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ef145f42d5aa88470644e22a16fcecd19df0312d651681350321b1a96eecac57
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:0e5e8b9d1edc6fbc6133c700fe52259af6e7a129cb12aafc696c908c7cc9bf90
     container_name: ostler-wiki-compiler
     profiles: [compile]
     volumes:
@@ -22590,6 +22589,7 @@ volumes:
   oxigraph_data:
   redis_data:
   wiki-docs:
+  wiki-built:
   vane_data:
 DCEOF
 
@@ -29341,7 +29341,7 @@ else
     echo "    Docker and run:"
     echo "        cd ~/.ostler && docker compose down -v"
     echo "    If that directory is already gone, list them with:"
-    echo "        docker volume ls | grep -E 'qdrant_data|oxigraph_data|redis_data|wiki-docs|vane_data'"
+    echo "        docker volume ls | grep -E 'qdrant_data|oxigraph_data|redis_data|wiki-docs|wiki-built|vane_data'"
     echo "    and remove each with: docker volume rm <name>"
     echo ""
     echo "  Done. Ostler has been removed APART FROM the stores named above."

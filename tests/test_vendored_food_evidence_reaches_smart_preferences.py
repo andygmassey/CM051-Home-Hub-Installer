@@ -92,7 +92,7 @@ check(("food", "ingest_food") in fda._INGEST_DISPATCH, "arm 1: ingest_food is in
 seen = {}
 
 
-def fake_run(stage, ostler_dir, user):
+def fake_run(stage, ostler_dir, user, timeout_s=None):
     seen["files"] = sorted(p.name for p in Path(stage).iterdir())
     seen["calls"] = seen.get("calls", 0) + 1
     seen["staged_dir"] = Path(stage)
@@ -102,7 +102,7 @@ def fake_run(stage, ostler_dir, user):
 
 with mock.patch("ostler_fda.apple_music_refresh.run_cm019_ingest", fake_run):
     res = fda.ingest_food(FDA)
-check(res == {"status": "ok", "staged": 3} and seen["calls"] == 1, f"arm 1: one CM019 ingest call, 3 files staged (got {res})")
+check(res.get("status") == "ok" and res.get("staged") == 3 and seen["calls"] == 1, f"arm 1: one CM019 ingest call, 3 files staged (got {res})")
 check(seen["files"] == ["2026-10-22-19.mbox.txt", "apple_mail.json", "calendar_events.json"],
       "arm 1: only the claimed extracts are offered; reminders, notes and messages are not")
 check(all(p.parent in (FDA.resolve(), (TMP / "imports" / "email").resolve()) for p in seen["copy"].values()), "arm 1: staged by link, no 750 MB copy")
@@ -245,7 +245,7 @@ check(lookups("accepted") == (1, ["sichuan"]), "arm 5: accepted -> one request, 
 reach = {}
 
 
-def reach_run(stage, ostler_dir, user):
+def reach_run(stage, ostler_dir, user, timeout_s=None):
     reach["files"] = sorted(p.name for p in Path(stage).iterdir())
     return True
 
@@ -256,7 +256,7 @@ with contextlib.ExitStack() as stack:
         stack.enter_context(mock.patch.object(fda, fn, lambda d: {"status": "stubbed"}))
     stack.enter_context(mock.patch("ostler_fda.apple_music_refresh.run_cm019_ingest", reach_run))
     reach_res = fda.ingest_all(FDA)
-check(reach_res.get("food") == {"status": "ok", "staged": 3} and "calendar_events.json" in reach.get("files", []),
+check((reach_res.get("food") or {}).get("status") == "ok" and "calendar_events.json" in reach.get("files", []),
       f"arm 8: ingest_all reaches ingest_food and stages the food extracts (food={reach_res.get('food')}, files={reach.get('files')})")
 
 print(f"\n{PASS} passed, {FAIL} failed")

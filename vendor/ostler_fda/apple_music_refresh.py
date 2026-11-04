@@ -330,7 +330,8 @@ def save_state(ostler_dir: Path, state: dict) -> None:
 
 # ── the ingest ─────────────────────────────────────────────────────────────
 
-def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str) -> bool:
+def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str,
+                     timeout_s: Optional[float] = None) -> bool:
     """Hand ``directory`` to the CM019 preference ingest. True on success.
 
     Same command, same upsert, as ostler-import's preference leg. Missing
@@ -347,7 +348,7 @@ def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str) -> bool:
             [str(py), "-m", "services.ingest.src.cli", "ingest-dir", str(directory),
              "-u", user],
             cwd=str(cm019), env=env, stdin=subprocess.DEVNULL,
-            capture_output=True, timeout=INGEST_TIMEOUT_S, check=False,
+            capture_output=True, timeout=timeout_s or INGEST_TIMEOUT_S, check=False,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning("music-refresh: could not store (%s)", type(exc).__name__)

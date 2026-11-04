@@ -36,6 +36,7 @@ on:
       - 'tests/test_dedupe_merge_shared_phone_needs_same_name.py'
       - 'vendor/ostler_fda/phone_twins.py'
       - 'tests/test_provisional_phone_twins_merge.py'
+      - 'tests/test_people_index_keeps_the_contacts_card.py'
       - 'tests/test_email_named_twin_folds_into_the_card_holder.py'
       - 'tests/test_fda_tick_folds_a_post_install_email_twin.py'
       - 'tests/test_an_email_twin_fold_moves_both_people_counts.py'
@@ -117,6 +118,14 @@ jobs:
             exit 1
           fi
           python3 -m pytest tests/test_provisional_phone_twins_merge.py -v
+      # v1.0.123 (walk122 people_count_agreement, graph 11365 vs Qdrant 11265):
+      # the people sweep rewrote each point without the Contacts card, so 101
+      # carded people with sender-ID handles vanished from Qdrant's count.
+      - name: The people index keeps the Contacts card it mirrors
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pytest tests/test_people_index_keeps_the_contacts_card.py -v
       # v1.0.121 (v1.0.120 walk): an email-named Person written by the email
       # ingest (bare pwg:email, no hasIdentifier) is the card holding that
       # address. Folds into the ONE holder when its name is not human or is

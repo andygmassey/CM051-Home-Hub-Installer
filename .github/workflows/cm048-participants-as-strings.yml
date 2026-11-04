@@ -50,6 +50,10 @@ on:
       - 'tests/cm048_vendored_sweep/**'
       - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
@@ -104,6 +108,10 @@ on:
       - 'tests/cm048_vendored_sweep/**'
       - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
@@ -267,6 +275,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py -v
+      - name: A group chat's follow-up key counts every member, silent ones too (v1.0.122)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_group_followup_key_counts_silent_members.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_group_followup_key_counts_silent_members.py -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |
