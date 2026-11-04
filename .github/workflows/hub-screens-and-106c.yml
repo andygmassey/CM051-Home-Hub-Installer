@@ -33,6 +33,7 @@ on:
       - 'tests/test_no_special_category_topic_ever_becomes_a_card.py'
       - 'vendor/cm059_editor/compiler/render_frontpage.py'
       - 'tests/test_the_timeline_opens_on_today.py'
+      - 'tests/test_timeline_entries_carry_source.py'
       - 'tests/test_the_hub_app_can_record_card_feedback.py'
       - 'tests/test_editor_feedback_accepts_the_real_client_action_strings.py'
       - 'tests/test_the_front_page_cards_only_real_interests.py'
@@ -168,6 +169,11 @@ jobs:
       - name: The Timeline opens on today, pages both ways and names its rows
         if: always()
         run: python3 tests/test_the_timeline_opens_on_today.py
+      # #2565: every timeline item and entry names who wrote its title, and the
+      # walk probe exempts only what the API marks verbatim (contract test).
+      - name: Timeline entries carry source, and the walk probe keys on it
+        if: always()
+        run: python3 tests/test_timeline_entries_carry_source.py
       - name: The Hub app may record a Front Page card tap
         if: always()
         run: python3 tests/test_the_hub_app_can_record_card_feedback.py

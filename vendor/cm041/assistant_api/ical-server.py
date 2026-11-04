@@ -9657,6 +9657,15 @@ def api_meeting_upcoming(within_minutes=120):
     }
 
 
+# #2565: every /api/v1/timeline item and entry says who wrote its title, so a
+# client can tell the customer's verbatim calendar title (never rewritten,
+# decision 2026-10-01) from text Ostler composed. Entries also carry
+# title_verbatim, true only for the calendar source.
+TIMELINE_SOURCE_CALENDAR = "calendar"
+TIMELINE_SOURCE_OSTLER = "ostler"
+TIMELINE_SOURCE_UNKNOWN = "unknown"
+
+
 def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
                          ascending=False, outbound=False):
     """Historic timeline rows from the People Graph - one entry PER MEETING.
@@ -9755,6 +9764,10 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
             "summary": r.get("summary", ""),
             "participants": participants,
             "location": r.get("location", ""),
+            # #2565: pwg:meetingSummary is written verbatim from the calendar
+            # event title by both writers (meeting_syncer/syncer.py and
+            # ostler_fda/pwg_ingest.py ingest_calendar); nothing else writes it.
+            "source": TIMELINE_SOURCE_CALENDAR,
         })
     return out, None
 
@@ -9856,6 +9869,8 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None,
             "summary": _conversation_title(payload.get("channel"),
                                            participants),
             "participants": participants,
+            # #2565: this title is composed by Ostler (_conversation_title).
+            "source": TIMELINE_SOURCE_OSTLER,
         })
 
     # Truncate from the side nearest the window edge the client asked for:
@@ -9936,9 +9951,12 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                 "summary": e.get("summary", ""),
                 "location": e.get("location", ""),
                 "attendees": e.get("attendees", []),
+                # #2565: the customer's own calendar title, never rewritten.
+                "source": TIMELINE_SOURCE_CALENDAR,
             })
     except Exception as exc:
-        items.append({"kind": "calendar_error", "error": str(exc)})
+        items.append({"kind": "calendar_error", "error": str(exc),
+                      "source": TIMELINE_SOURCE_OSTLER})
 
     # Past (the main event): historic meetings/events from the graph, one row
     # per meeting, back `past_days` days. This is what makes the Timeline a
@@ -9961,7 +9979,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         past_days=past_days, limit=limit, start=window_start, end=window_end,
         ascending=forward, outbound=outbound)
     if past_err is not None:
-        items.append({"kind": "meeting_error", "error": past_err})
+        items.append({"kind": "meeting_error", "error": past_err,
+                      "source": TIMELINE_SOURCE_OSTLER})
     else:
         items.extend(past_rows)
 
@@ -9976,7 +9995,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         past_days=past_days, limit=limit, start=window_start, end=window_end,
         outbound=outbound)
     if conv_err is not None:
-        items.append({"kind": "conversation_error", "error": conv_err})
+        items.append({"kind": "conversation_error", "error": conv_err,
+                      "source": TIMELINE_SOURCE_OSTLER})
     else:
         items.extend(conv_rows)
 
@@ -10029,6 +10049,9 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                         attendee_names.append(nm)
                 elif isinstance(a, str):
                     attendee_names.append(a)
+        # #2565: who wrote the title. An item with no source is reported as
+        # "unknown", never guessed into either bucket, and never verbatim.
+        source = it.get("source") or TIMELINE_SOURCE_UNKNOWN
         entries.append({
             "type": entry_type,
             "timestamp": timestamp,
@@ -10037,6 +10060,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
             "title": it.get("summary") or "",
             "subtitle": it.get("location") or "",
             "attendees": attendee_names,
+            "source": source,
+            "title_verbatim": source == TIMELINE_SOURCE_CALENDAR,
         })
 
     return {
