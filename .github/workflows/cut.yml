@@ -874,6 +874,31 @@ jobs:
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
         run: bash scripts/provenance_gate.sh
 
+      # Vendor reconstruction, CM041 trees, STRICT (rows 2206/2212, v1.0.124).
+      # Until this step, NOTHING in the cut ran verify_vendor_fresh.sh: its only
+      # invocation was vendor-integrity.yml with VENDOR_FRESH_STRICT=0, where no
+      # source repo exists, so four of six cm041 patches stopped rebuilding their
+      # trees and no cut could see it. Here CM041 is cloned (full history: the
+      # pins are old) OUTSIDE the workspace, so no tree-wide gate below reads
+      # private source, and the gate runs STRICT over the cm041 trees: a vendored
+      # byte that pin + patch does not produce, or an unacknowledged upstream
+      # commit past a pin, is RED and stops the cut. A clone that fails is RED
+      # too (CANNOT-RUN), never a skipped step. The other trees' source repos are
+      # not on this runner; the verdict line says how many were NOT examined.
+      - name: Vendor reconstruction -- cm041 trees, strict (pin + patch == vendored tree)
+        env:
+          GH_TOKEN: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+              echo "CANNOT-RUN: no token to read andygmassey/CM041-People-Graph"; exit 2
+          fi
+          CM041="${RUNNER_TEMP}/cm041-source"
+          gh repo clone andygmassey/CM041-People-Graph "$CM041" -- --quiet
+          git -C "$CM041" rev-parse --verify --quiet origin/main >/dev/null
+          export CM041
+          VENDOR_FRESH_SCOPE=cm041/ VENDOR_FRESH_STRICT=1 bash scripts/verify_vendor_fresh.sh
+
       - name: Repo-side gates
         if: always()
         env:

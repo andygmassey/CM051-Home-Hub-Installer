@@ -1,8 +1,6 @@
-diff --git a/brief.py b/brief.py
-index bde60005..578cf6fc 100644
 --- a/brief.py
 +++ b/brief.py
-@@ -49,19 +49,6 @@ _PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+@@ -49,19 +49,6 @@
  if _PARENT_DIR not in sys.path:
      sys.path.insert(0, _PARENT_DIR)
  
@@ -22,7 +20,7 @@ index bde60005..578cf6fc 100644
  from meeting_syncer import config
  from meeting_syncer.calendar_client import fetch_events
  
-@@ -72,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
+@@ -72,6 +59,22 @@
  # with it.
  import pwg_privacy
  
@@ -45,7 +43,7 @@ index bde60005..578cf6fc 100644
  logger = logging.getLogger(__name__)
  logging.basicConfig(level=logging.INFO, format="%(message)s")
  
-@@ -186,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
+@@ -186,6 +189,12 @@
  
  
  def _sparql_query(oxigraph_url, sparql):
@@ -58,7 +56,39 @@ index bde60005..578cf6fc 100644
      resp = httpx.post(
          oxigraph_url.rstrip("/") + "/query",
          content=sparql,
-@@ -338,20 +347,16 @@ def _get_last_conversation_id(oxigraph_url, person_uri):
+@@ -304,19 +313,28 @@
+ def _get_meeting_history(oxigraph_url, person_uri):
+     """Get past meetings with this person, most recent first."""
+     sparql = """
+-    PREFIX pwg: <{}>
+-    SELECT ?summary ?date ?id WHERE {{
++    PREFIX pwg: <{0}>
++    SELECT ?summary ?date ?id ?mpriv ?ownerPriv WHERE {{
+       ?meeting a pwg:Meeting ;
+-               pwg:meetingAttendee <{}> ;
++               pwg:meetingAttendee <{1}> ;
+                pwg:meetingSummary ?summary .
+       OPTIONAL {{ ?meeting pwg:meetingDate ?date }}
+       OPTIONAL {{ ?meeting pwg:meetingId ?id }}
++      OPTIONAL {{ ?meeting pwg:privacyLevel ?mpriv }}
++      OPTIONAL {{ <{1}> pwg:privacyLevel ?ownerPriv }}
+     }}
+     ORDER BY DESC(?date)
+     """.format(PWG, person_uri)
+     result = _sparql_query(oxigraph_url, sparql)
+     meetings = []
+     for b in result.get("results", {}).get("bindings", []):
++        # Outbound (brief) path: same fail-closed L3 filter as
++        # _get_person_facts. The meeting's own level and the attendee's
++        # level are both read, most-restrictive wins, and a meeting with
++        # no parseable level on either axis is dropped.
++        if pwg_privacy.is_l3({"privacy_level": b.get("mpriv", {}).get("value")},
++                             owner_level=b.get("ownerPriv", {}).get("value")):
++            continue
+         meetings.append({
+             "summary": b["summary"]["value"],
+             "date": b.get("date", {}).get("value", ""),
+@@ -338,26 +356,48 @@
      in the graph from a contact-sync without any conversation having
      been ingested yet).
      """
@@ -68,13 +98,13 @@ index bde60005..578cf6fc 100644
 -    body = """
 +    sparql = """
 +    PREFIX pwg: <urn:ostler:>
-+    SELECT ?conv ?date WHERE {{
++    SELECT ?conv ?date ?fpriv WHERE {{
        ?fact <urn:ostler:about> <{person}> ;
              <urn:ostler:fromConversation> ?conv .
        OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
++      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}
 +    }}
 +    ORDER BY DESC(?date)
-+    LIMIT 1
      """.format(person=person_uri)
 -    sparql = (
 -        "PREFIX pwg: <urn:ostler:>\n"
@@ -85,9 +115,53 @@ index bde60005..578cf6fc 100644
      try:
          result = _sparql_query(oxigraph_url, sparql)
      except Exception as exc:
-@@ -381,11 +386,10 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
+         logger.warning("last-conversation query failed for %s: %s", person_uri, exc)
+         return ""
+-    bindings = result.get("results", {}).get("bindings", [])
++    # No LIMIT in the query: the L3 filter must run BEFORE the "most recent"
++    # pick, or an L3 fact's conversation would hide a visible one. Same
++    # fail-closed rule as _get_person_facts: the fact's level and the
++    # person's level, most-restrictive wins, nothing parseable -> dropped.
++    # The person's level is a separate read because the person node and the
++    # CM048 fact can sit in different graphs; a failed read leaves it
++    # unknown, which only ever hides more.
++    owner_level = None
++    try:
++        owner_rows = _sparql_query(
++            oxigraph_url,
++            "SELECT ?l WHERE {{ <{p}> <{pwg}privacyLevel> ?l }}".format(
++                p=person_uri, pwg=PWG))
++        levels = [r.get("l", {}).get("value") for r in
++                  owner_rows.get("results", {}).get("bindings", [])]
++        if any(pwg_privacy.parse_privacy_level(v) == "L3" for v in levels):
++            owner_level = "L3"
++        elif levels:
++            owner_level = levels[0]
++    except Exception as exc:
++        logger.warning("person-level query failed for %s: %s", person_uri, exc)
++    bindings = [
++        b for b in result.get("results", {}).get("bindings", [])
++        if not pwg_privacy.is_l3(
++            {"privacy_level": b.get("fpriv", {}).get("value")},
++            owner_level=owner_level)
++    ]
+     if not bindings:
+         return ""
+     conv_uri = bindings[0].get("conv", {}).get("value", "")
+@@ -380,12 +420,21 @@
+     Returns a list of dicts shaped for direct inclusion in the brief
      payload. Status filter is ``open`` so closed-out todos do not
      clutter the brief once v1.0.1 wires the closure pass.
++
++    L3 (most private) todos are excluded, and so is any todo whose
++    ``privacyLevel`` is not exactly L0, L1 or L2 (trim and case
++    insensitive): an unparseable or unexpected value fails closed, the
++    same as the commitments API. CM048's writer already skips L3
++    conversations and writes a plain "L0".."L3" literal; this filter is
++    belt and braces, because the brief is emailed. A todo with NO
++    ``privacyLevel`` (legacy, written before CM048 tagged todos) is KEPT
++    and behaves as it did before. The filter
++    is in the query so ``LIMIT`` applies to the rows that survive it.
      """
 -    # Same named-graph problem as the conversation query above: 0 rows as
 -    # shipped on a box holding 76 outstanding todos, which is why the brief's
@@ -97,13 +171,15 @@ index bde60005..578cf6fc 100644
 +    sparql = """
 +    PREFIX pwg: <urn:ostler:>
 +    SELECT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority
-+           ?status ?sourceDate ?createdAt WHERE {{
++           ?status ?sourceDate ?createdAt ?plevel WHERE {{
        ?todo a <urn:ostler:OutstandingTodo> ;
              <urn:ostler:aboutPerson> <{person}> ;
              <urn:ostler:todoText> ?text ;
-@@ -397,15 +401,10 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
+@@ -396,16 +445,13 @@
+       OPTIONAL {{ ?todo <urn:ostler:priority> ?priority }}
        OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
        OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
++      OPTIONAL {{ ?todo <urn:ostler:privacyLevel> ?plevel }}
        FILTER (?status = "open")
 -    """.format(person=person_uri)
 -    sparql = (
@@ -114,6 +190,7 @@ index bde60005..578cf6fc 100644
 -        + "\n}\nORDER BY DESC(?createdAt)\n"
 -        + "LIMIT {:d}".format(_MAX_TODOS_PER_ATTENDEE)
 -    )
++      FILTER (!BOUND(?plevel) || REGEX(STR(?plevel), "^[ \\t]*[Ll][0-2][ \\t]*$"))
 +    }}
 +    ORDER BY DESC(?createdAt)
 +    LIMIT {limit}
@@ -121,11 +198,9 @@ index bde60005..578cf6fc 100644
      try:
          result = _sparql_query(oxigraph_url, sparql)
      except Exception as exc:
-diff --git a/calendar_client.py b/calendar_client.py
-index 7f82965a..e40cd35a 100644
 --- a/calendar_client.py
 +++ b/calendar_client.py
-@@ -2,9 +2,24 @@ from __future__ import annotations
+@@ -2,9 +2,24 @@
  
  from typing import List, Optional
  
@@ -150,7 +225,7 @@ index 7f82965a..e40cd35a 100644
  def fetch_events(api_url, days=30, events_provider=None):
      """Fetch calendar events from the unified calendar API.
  
-@@ -20,7 +35,18 @@ def fetch_events(api_url, days=30, events_provider=None):
+@@ -20,7 +35,18 @@
          events = events_provider(days)
          return [e for e in events if e.get("attendees") and e.get("uid")]
      url = api_url.rstrip("/") + "/calendar"
@@ -170,11 +245,9 @@ index 7f82965a..e40cd35a 100644
      resp.raise_for_status()
      data = resp.json()
      events = data.get("events", [])
-diff --git a/config.py b/config.py
-index 85a25bd7..55fcaddd 100644
 --- a/config.py
 +++ b/config.py
-@@ -26,7 +26,10 @@ _config_dir = os.path.dirname(os.path.abspath(__file__))
+@@ -26,7 +26,10 @@
  _load_dotenv(os.path.join(_config_dir, ".env"))
  _load_dotenv(".env")
  
@@ -186,11 +259,9 @@ index 85a25bd7..55fcaddd 100644
  QDRANT_URL = os.environ.get("QDRANT_URL", "")
  QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
  OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
-diff --git a/syncer.py b/syncer.py
-index 620bb190..3d67d109 100644
 --- a/syncer.py
 +++ b/syncer.py
-@@ -252,7 +252,12 @@ class MeetingSyncer:
+@@ -252,7 +252,12 @@
                          points=[point.id],
                      )
              except Exception as e:
@@ -204,7 +275,7 @@ index 620bb190..3d67d109 100644
  
      # Local parts of attendee emails that indicate system/event accounts,
      # not humans. Used to skip creating phantom "person" nodes for event
-@@ -372,9 +377,11 @@ class MeetingSyncer:
+@@ -372,9 +377,11 @@
              return None
  
          if self._looks_non_human(name, email):
@@ -218,7 +289,7 @@ index 620bb190..3d67d109 100644
              )
              return None
  
-@@ -402,7 +409,9 @@ class MeetingSyncer:
+@@ -402,7 +409,9 @@
  
          # Create new person
          person_uri = self.resolver.create_person(identity, config.USER_ID)
@@ -229,7 +300,7 @@ index 620bb190..3d67d109 100644
          return person_uri
  
      def sync(self, days=30, dry_run=False):
-@@ -448,7 +457,6 @@ class MeetingSyncer:
+@@ -448,7 +457,6 @@
                  skipped += 1
                  continue
  
@@ -237,7 +308,7 @@ index 620bb190..3d67d109 100644
              meeting_date = _parse_event_datetime(event.get("start"))
              attendees = event.get("attendees", [])
  
-@@ -462,11 +470,14 @@ class MeetingSyncer:
+@@ -462,11 +470,14 @@
                  processed.add(uid)
                  continue
  
