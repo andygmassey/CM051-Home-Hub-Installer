@@ -1385,7 +1385,7 @@ Saiba mais em docs.ostler.ai/privacy/third-party-data."
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="Para que serve o Ostler"
 MSG_TERMS_PERSONAL_USE_INTRO="O Ostler foi concebido para uma só pessoa, no seu próprio Mac, para compreender a sua própria vida. Esse é todo o conceito, e é por isso que os seus dados nunca saem desta máquina."
 MSG_TERMS_PERSONAL_USE_BUSINESS="Não foi concebido para uso empresarial. Não instale o Ostler para funcionários, nem o utilize no exercício da sua profissão para captar colegas, clientes, doentes ou consumidores. Se uma organização o fizer, passa a ser responsável por todas as pessoas cujas informações recolhe, e o Ostler não foi concebido para suportar essa responsabilidade."
 MSG_TERMS_PERSONAL_USE_RECORDER="Quem transcreve é você. O Ostler é a ferramenta. Quando a lei local exige consentimento antes de uma conversa ser gravada, obtê-lo é da sua responsabilidade, e não temos forma de saber a partir daqui se uma determinada gravação é lícita onde se encontra."
@@ -1463,7 +1463,7 @@ O que lhe pedimos:
 • Em caso de dúvida, deixe esta opção desativada. As suas conversas de texto funcionam das duas formas e pode ativá-la mais tarde nas Definições."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="A transcrição de voz vai permanecer desativada. Pode ativá-la mais tarde nas Definições."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Pronto para instalar?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="Escreva INSTALL para confirmar que aceita os termos."

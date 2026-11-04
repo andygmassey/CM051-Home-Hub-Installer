@@ -1379,7 +1379,7 @@ MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="외부 서비스에서 가져오는 모든 
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="Ostler의 용도"
 MSG_TERMS_PERSONAL_USE_INTRO="Ostler는 한 사람이 자신의 Mac에서 자신의 삶을 이해하도록 만들어졌습니다. 이것이 설계의 전부이며, 데이터가 이 기기 밖으로 나가지 않는 이유입니다."
 MSG_TERMS_PERSONAL_USE_BUSINESS="업무용으로는 만들어지지 않았습니다. 직원에게 Ostler를 배포하거나, 업무 중에 동료, 고객, 환자, 거래처의 정보를 수집하는 데 사용하지 마세요. 조직이 그렇게 하면 그 조직이 수집한 모든 사람의 정보에 대한 책임을 지게 되며, Ostler는 그 책임을 감당하도록 설계되지 않았습니다."
 MSG_TERMS_PERSONAL_USE_RECORDER="녹음하는 주체는 사용자입니다. Ostler는 도구일 뿐입니다. 대화를 녹음하기 전에 현지 법률이 동의를 요구하는 경우, 동의를 받는 것은 사용자의 몫이며, 특정 녹음이 사용자가 계신 곳에서 적법한지는 저희가 알 수 없습니다."
@@ -1457,7 +1457,7 @@ Ostler는 캡처한 음성 대화(통화와 회의)를 검색 가능한 텍스�
 • 확실하지 않다면 이 기능을 꺼 두세요. 텍스트 대화는 어느 쪽이든 사용할 수 있으며, 나중에 설정에서 켤 수 있습니다."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="음성 텍스트 변환은 꺼진 상태로 유지됩니다. 나중에 설정에서 켤 수 있습니다."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="설치할 준비가 되셨나요?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="약관에 동의하시면 INSTALL을 입력해 확인해 주세요."

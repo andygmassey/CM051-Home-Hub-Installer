@@ -64,6 +64,14 @@ legal_english_only: false
 legal_patterns: ['(^|[_/.])legal([_/.\s]|$)', verbatim]
 # Plus two plain-styled lines that cite a regulation or a licence (Archie,
 # 2026-11-04): they stay English like the small legal wording.
+# Plain UI text the patterns above catch only because its developer comment
+# mentions a legal note shown beside it (owner, 2026-11-04: translate
+# everything except legally binding text). Each is translated and ships:
+#   MSG_TERMS_PERSONAL_USE_HEADING        the heading "What Ostler is for";
+#                                         the licence term under it stays legal
+#   MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF "Spoken transcription will stay off.
+#                                         You can enable it later in Settings."
+not_legal_keys: [MSG_TERMS_PERSONAL_USE_HEADING, MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF]
 legal_keys: [MSG_LEGAL_ENGLISH_PREVAILS, MSG_TERMS_LANGUAGE, MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL, MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL]
 # The "English version prevails" line, one per catalogue the installer shows
 # legal wording from. Until EVERY one is reviewed for a language, every legal

@@ -6,6 +6,12 @@
 
 import SwiftUI
 
+/// Customer copy, from the installer's catalogue (Resources/ViewCopy*.json,
+/// bundled into this app) in the Mac's language (InstallerLanguage).
+private func copy(_ key: String, _ fills: [String: String] = [:]) -> String {
+    ViewCopy.shared.string(for: "recovery_app." + key, fills: fills)
+}
+
 struct RecoveryRootView: View {
     @EnvironmentObject private var coordinator: RecoveryCoordinator
 
@@ -20,9 +26,8 @@ struct RecoveryRootView: View {
                 WorkingView()
             case .success:
                 ResultView(
-                    title: "You're unlocked",
-                    message: "Ostler can open your data again. "
-                        + "Quit and reopen the Ostler app to keep going.",
+                    title: copy("success_title"),
+                    message: copy("success_message"),
                     isSuccess: true
                 )
             case .failure:
@@ -38,20 +43,17 @@ struct RecoveryRootView: View {
 
     private var failureTitle: String {
         switch coordinator.failureReason {
-        case .wrongKey: return "That key wasn't accepted"
-        case .toolMissing, .couldNotStart: return "Couldn't check your key"
+        case .wrongKey: return copy("wrong_key_title")
+        case .toolMissing, .couldNotStart: return copy("tool_missing_title")
         }
     }
 
     private var failureMessage: String {
         switch coordinator.failureReason {
         case .wrongKey:
-            return "The most common reason is a small typo. Check each "
-                + "group of letters and numbers and try again."
+            return copy("wrong_key_message")
         case .toolMissing, .couldNotStart:
-            return "Ostler's recovery tool couldn't be found on this Mac. "
-                + "If you've just installed Ostler, try again in a minute. "
-                + "If this keeps happening, email hello@ostler.ai."
+            return copy("tool_missing_message", ["email": "hello@ostler.ai"])
         }
     }
 }
@@ -64,22 +66,16 @@ private struct EnterKeyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: .ostlerSpace4) {
-            Text("Recover Ostler")
+            Text(copy("heading"))
                 .font(.ostlerH2)
                 .foregroundColor(.ostlerInk)
 
-            Text(
-                "If Ostler has stopped opening your data, you can unlock it "
-                + "yourself with the recovery key you were shown when Ostler "
-                + "was set up. It's a code made of groups of four letters "
-                + "and numbers, like ABCD-EFGH-JKLM-NPQR. Type it in below, "
-                + "exactly as it was shown to you."
-            )
+            Text(copy("intro"))
             .font(.ostlerBody)
             .foregroundColor(.ostlerInkMuted)
             .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Recovery key", text: $coordinator.keyInput)
+            TextField(copy("key_placeholder"), text: $coordinator.keyInput)
                 .textFieldStyle(.plain)
                 .font(.ostlerMono)
                 .padding(.ostlerSpace3)
@@ -92,7 +88,7 @@ private struct EnterKeyView: View {
                 .focused($fieldFocused)
                 .onSubmit { coordinator.submit() }
 
-            Button("Unlock my data") { coordinator.submit() }
+            Button(copy("unlock_button")) { coordinator.submit() }
                 .buttonStyle(.ostlerPrimary)
                 .disabled(!coordinator.canSubmit)
                 .frame(maxWidth: .infinity)
@@ -112,7 +108,7 @@ private struct WorkingView: View {
             ProgressView()
                 .controlSize(.large)
                 .tint(.ostlerOxblood)
-            Text("Checking your recovery key…")
+            Text(copy("checking"))
                 .font(.ostlerBody)
                 .foregroundColor(.ostlerInkMuted)
         }
@@ -140,11 +136,11 @@ private struct ResultView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if isSuccess {
-                Button("Done") { NSApp.terminate(nil) }
+                Button(copy("done")) { NSApp.terminate(nil) }
                     .buttonStyle(.ostlerPrimary)
                     .frame(maxWidth: .infinity)
             } else {
-                Button("Try again") { coordinator.tryAgain() }
+                Button(copy("try_again")) { coordinator.tryAgain() }
                     .buttonStyle(.ostlerPrimary)
                     .frame(maxWidth: .infinity)
             }

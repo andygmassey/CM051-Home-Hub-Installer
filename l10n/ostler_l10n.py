@@ -744,6 +744,11 @@ def _pending_dir():
 
 
 def is_legal(u, cfg):
+    # A key a pattern catches only through its developer comment (the comment
+    # mentions the legal note shown NEXT to it) is not legal wording itself.
+    # Listed by name, with the reason in config.yaml, never by pattern.
+    if u.key in set(cfg.get("not_legal_keys", [])):
+        return False
     pats = [re.compile(p, re.I) for p in cfg.get("legal_patterns", [])]
     tpats = [re.compile(p, re.I) for p in cfg.get("legal_text_patterns", [])]
     return (u.key in set(cfg.get("legal_keys", []))

@@ -12,7 +12,7 @@ struct UninstallerApp: App {
     @StateObject private var coordinator = UninstallerCoordinator()
 
     var body: some Scene {
-        Window("Uninstall Ostler", id: "main") {
+        Window(ViewCopy.shared.string(for: "uninstaller.window_title"), id: "main") {
             UninstallerRootView()
                 .environmentObject(coordinator)
                 .frame(

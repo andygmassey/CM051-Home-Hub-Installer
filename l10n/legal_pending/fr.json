@@ -64,11 +64,6 @@
   "src_hash": "753246eaa2a6",
   "src": "Licence: %s – check upstream terms before commercial use."
  },
- "install_sh::MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF": {
-  "text": "La transcription orale restera désactivée. Vous pourrez l'activer plus tard dans Réglages.",
-  "src_hash": "40fb2092ab43",
-  "src": "Spoken transcription will stay off. You can enable it later in Settings."
- },
  "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
   "text": "      (RGPD du Royaume-Uni, article 9 : requis pour les catégories particulières de données).",
   "src_hash": "6592e60a90f7",
@@ -90,11 +85,6 @@
   "src_hash": "25ee357c8384",
   "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
   "origin": "agent draft 2026-10-24, unreviewed"
- },
- "install_sh::MSG_TERMS_PERSONAL_USE_HEADING": {
-  "text": "À quoi sert Ostler",
-  "src_hash": "920bde25f4bc",
-  "src": "What Ostler is for"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_LEGAL": {
   "text": "Ostler est concédé sous licence pour un usage personnel et non commercial par une personne physique. Creative Machines n'est ni responsable du traitement ni sous-traitant des informations que vous conservez sur votre Mac, n'en reçoit aucune, et ne garantit pas qu'un enregistrement ou une capture donnés soient licites dans votre juridiction.",

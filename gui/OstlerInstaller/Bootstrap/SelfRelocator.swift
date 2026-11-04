@@ -135,27 +135,25 @@ public final class SelfRelocator {
                 },
                 showRelocationPrompt: { _ in
                     let alert = NSAlert()
-                    alert.messageText = "Move Ostler Installer to your Applications folder?"
-                    alert.informativeText = """
-                        Ostler Installer should live in your Applications folder. \
-                        Would you like to move it now?
-                        """
+                    // Shown before the first screen, in the Mac's language
+                    // (InstallerLanguage resolves from the system list).
+                    let copy = { (k: String) in ViewCopy.shared.string(for: "relocator." + k) }
+                    alert.messageText = copy("move_title")
+                    alert.informativeText = copy("move_body")
                     alert.alertStyle = .informational
-                    alert.addButton(withTitle: "Move to Applications")
-                    alert.addButton(withTitle: "Don't Move")
+                    alert.addButton(withTitle: copy("move_button"))
+                    alert.addButton(withTitle: copy("dont_move_button"))
                     return alert.runModal() == .alertFirstButtonReturn
                         ? .moveToApplications : .dontMove
                 },
                 showReplaceExistingPrompt: {
                     let alert = NSAlert()
-                    alert.messageText = "An older Ostler Installer is already installed."
-                    alert.informativeText = """
-                        Replace it with this copy? The older copy will be moved \
-                        to the Trash.
-                        """
+                    let copy = { (k: String) in ViewCopy.shared.string(for: "relocator." + k) }
+                    alert.messageText = copy("replace_title")
+                    alert.informativeText = copy("replace_body")
                     alert.alertStyle = .warning
-                    alert.addButton(withTitle: "Replace")
-                    alert.addButton(withTitle: "Cancel")
+                    alert.addButton(withTitle: copy("replace_button"))
+                    alert.addButton(withTitle: copy("cancel_button"))
                     return alert.runModal() == .alertFirstButtonReturn
                         ? .replace : .cancel
                 },
@@ -164,7 +162,7 @@ public final class SelfRelocator {
                     alert.messageText = title
                     alert.informativeText = message
                     alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
+                    alert.addButton(withTitle: ViewCopy.shared.string(for: "relocator.ok_button"))
                     _ = alert.runModal()
                 },
                 relaunch: { newBundleURL, oldBundlePath in
@@ -283,7 +281,7 @@ public final class SelfRelocator {
                     try actions.remove(Self.targetURL)
                 } catch {
                     actions.showError(
-                        "Could not replace existing Ostler Installer",
+                        ViewCopy.shared.string(for: "relocator.replace_failed_title"),
                         error.localizedDescription
                     )
                     return
@@ -297,7 +295,7 @@ public final class SelfRelocator {
             try actions.copyItem(bundleURL, Self.targetURL)
         } catch {
             actions.showError(
-                "Could not move Ostler Installer",
+                ViewCopy.shared.string(for: "relocator.move_failed_title"),
                 error.localizedDescription
             )
             return

@@ -1384,7 +1384,7 @@ Más información en docs.ostler.ai/privacy/third-party-data."
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="Para qué sirve Ostler"
 MSG_TERMS_PERSONAL_USE_INTRO="Ostler está pensado para una sola persona, en su propio Mac, para entender su propia vida. Ese es todo el diseño, y por eso tus datos nunca salen de este equipo."
 MSG_TERMS_PERSONAL_USE_BUSINESS="No está pensado para uso empresarial. Por favor, no implantes Ostler entre empleados ni lo uses en tu trabajo para captar datos de compañeros, clientes, pacientes o usuarios. Si una organización lo hace, pasa a ser responsable de todas las personas cuya información recopila, y Ostler no está diseñado para asumir eso."
 MSG_TERMS_PERSONAL_USE_RECORDER="Tú eres quien graba. Ostler es la herramienta. Cuando la ley de tu país exija consentimiento antes de grabar una conversación, obtenerlo es cosa tuya, y desde aquí no podemos saber si una grabación concreta es legal donde estás."
@@ -1460,7 +1460,7 @@ Lo que te pedimos:
 • Si tienes dudas, déjalo desactivado. Tus conversaciones de texto funcionan igualmente y puedes activarlo más tarde en Ajustes."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="La transcripción de voz seguirá desactivada. Puedes activarla más tarde en Ajustes."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="¿Listo para instalar?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="Escribe INSTALL para confirmar que aceptas los términos."
