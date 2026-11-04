@@ -844,7 +844,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contact support to have security s
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Passphrases don't match. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 16 characters. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
@@ -1297,7 +1297,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQL
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 16 characters. We cannot recover it for you. Storing it in a password manager is recommended."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 

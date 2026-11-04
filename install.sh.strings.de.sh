@@ -855,7 +855,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Wende dich an den Support, um die 
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Die Passphrasen stimmen nicht überein. Versuche es erneut."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Einrichtung der Passphrase fehlgeschlagen. Ausgabe:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Leere Eingabe. Passphrase übersprungen."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Die Passphrase muss mindestens 12 Zeichen lang sein. Versuche es erneut."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Die Passphrase muss mindestens 16 Zeichen lang sein. Versuche es erneut."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Zum Verschlüsseln deiner Daten ist eine Passphrase erforderlich."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Das ist keine internationale Nummer. Beginne mit einem +, gefolgt von der Landesvorwahl und der restlichen Nummer, z. B. +447700900123. Versuche es erneut."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama antwortet nicht"
@@ -1311,7 +1311,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Die sensiblen Datenbanken von Ostler werden mit SQL
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Auch eine Wiederherstellungs-Passphrase festlegen? (empfohlen)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Passphrase wählen"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Diese Passphrase verschlüsselt deinen Wissensgraphen und entsperrt bei jedem Start die Hub-Oberfläche. Mindestens 12 Zeichen. Wir können sie nicht für dich wiederherstellen. Wir empfehlen, sie in einem Passwortmanager zu speichern."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Diese Passphrase verschlüsselt deinen Wissensgraphen und entsperrt bei jedem Start die Hub-Oberfläche. Mindestens 16 Zeichen. Wir können sie nicht für dich wiederherstellen. Wir empfehlen, sie in einem Passwortmanager zu speichern."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Passphrase bestätigen"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Gib dieselbe Passphrase zur Bestätigung erneut ein."
 

@@ -854,7 +854,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contacta con el soporte para confi
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Las frases de contraseña no coinciden. Inténtalo de nuevo."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Falló la configuración de la frase de contraseña. Salida:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Entrada vacía. Se omite la frase de contraseña."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La frase de contraseña debe tener al menos 12 caracteres. Inténtalo de nuevo."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La frase de contraseña debe tener al menos 16 caracteres. Inténtalo de nuevo."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Se necesita una frase de contraseña para cifrar tus datos."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Ese no es un número internacional. Empieza con + seguido del código de país y el resto del número, p. ej. +447700900123. Inténtalo de nuevo."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama no responde"
@@ -1311,7 +1311,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Las bases de datos sensibles de Ostler se cifran co
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="¿Quieres definir también una contraseña de recuperación? (recomendado)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Elige tu contraseña"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta contraseña cifra tu grafo de conocimiento y desbloquea la interfaz del Hub en cada inicio. Mínimo 12 caracteres. No podemos recuperarla por ti. Se recomienda guardarla en un gestor de contraseñas."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta contraseña cifra tu grafo de conocimiento y desbloquea la interfaz del Hub en cada inicio. Mínimo 16 caracteres. No podemos recuperarla por ti. Se recomienda guardarla en un gestor de contraseñas."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirma tu contraseña"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Vuelve a escribir la misma contraseña para confirmar."
 

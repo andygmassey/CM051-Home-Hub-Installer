@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Esta senha secreta criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. No mínimo 12 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas.",
-    "help_optic_id": "Esta senha criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. Mínimo de 12 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas.",
-    "help_password_or_watch": "Esta senha criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. Mínimo de 12 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas."
+    "help_touch_id": "Esta senha secreta criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. No mínimo 16 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas.",
+    "help_optic_id": "Esta senha criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. Mínimo de 16 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas.",
+    "help_password_or_watch": "Esta senha criptografa seu grafo de conhecimento e desbloqueia a interface do Hub a cada inicialização. Mínimo de 16 caracteres. Não podemos recuperá-la para você. Recomendamos guardá-la em um gerenciador de senhas."
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

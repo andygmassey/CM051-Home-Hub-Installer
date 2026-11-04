@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 12 个字符。我们无法为你找回。建议将其保存在密码管理器中。",
-    "help_optic_id": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 12 个字符。我们无法为你找回。建议将其保存在密码管理器中。",
-    "help_password_or_watch": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 12 个字符。我们无法为你找回。建议将其保存在密码管理器中。"
+    "help_touch_id": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 16 个字符。我们无法为你找回。建议将其保存在密码管理器中。",
+    "help_optic_id": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 16 个字符。我们无法为你找回。建议将其保存在密码管理器中。",
+    "help_password_or_watch": "此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 16 个字符。我们无法为你找回。建议将其保存在密码管理器中。"
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

@@ -851,7 +851,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="보안을 새로 설정하려면 �
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="암호가 일치하지 않습니다. 다시 시도하세요."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="암호 설정에 실패했습니다. 출력:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="입력이 비어 있습니다. 암호 설정을 건너뛰었습니다."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="암호는 12자 이상이어야 합니다. 다시 시도하세요."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="암호는 16자 이상이어야 합니다. 다시 시도하세요."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="데이터를 암호화하려면 암호가 필요합니다."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="국제 번호 형식이 아닙니다. 맨 앞에 +를 붙이고 국가 번호와 나머지 번호를 입력하세요(예: +447700900123). 다시 시도하세요."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama가 응답하지 않습니다"
@@ -1306,7 +1306,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostler의 민감한 데이터베이스는 다음 �
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="복구용 암호문도 설정하시겠습니까? (권장)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="암호문 선택"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="이 암호문은 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 12자 이상이어야 합니다. 분실하면 복구해 드릴 수 없습니다. 암호 관리자에 보관하는 것을 권장합니다."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="이 암호문은 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 16자 이상이어야 합니다. 분실하면 복구해 드릴 수 없습니다. 암호 관리자에 보관하는 것을 권장합니다."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="암호문 확인"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="확인을 위해 같은 암호문을 다시 입력하세요."
 
