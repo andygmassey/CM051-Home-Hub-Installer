@@ -965,6 +965,7 @@ test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gat
 test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_ttywalk_places_the_installer_app.sh	WIRED	.github/workflows/bash32-compat.yml
 test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_two_card_person_is_not_reminted_every_sync.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
