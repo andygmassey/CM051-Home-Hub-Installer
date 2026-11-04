@@ -210,3 +210,64 @@ new-file hunk in `ostler_fda.patch`, so a sync cannot restore it.
 
 Upstream: none. The file was vendor-only and exists in no HR015 commit, so
 nothing is owed upstream.
+
+## 2026-11-04: food reads each mbox once; fail-closed prune of consumed mboxes (v1.0.123)
+
+Regeneration REFUSED, measured 2026-11-04: `bash scripts/regenerate_divergence_patch.sh
+ostler_fda --write` printed "could not verify ostler_fda: source repo not found
+(/ostler_fda)" and "CANNOT RUN -- source repo for ostler_fda is not available".
+Same refusal shape as the entries above, so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- New constants `FOOD_STATE_REL`, `EMAIL_INGEST_LOG_REL`, `FOOD_TIMEOUT_BASE_S`,
+  `FOOD_TIMEOUT_PER_GB_S`, `FOOD_TIMEOUT_CAP_S`, `_HOURLY_MBOX`, `_EMAIL_LOG_LINE`,
+  `_MBOX_PATH`, `_INGESTED_OK`, and helpers `food_timeout_s`, `_mbox_key`,
+  `_load_food_state`, `_save_food_state`, `_consumed`,
+  `email_ingest_last_outcome`, `prune_consumed_mboxes`, directly above
+  `ingest_food`.
+- `ingest_food`: stages only mboxes not recorded as consumed (name + inode +
+  size + mtime_ns), passes a byte-scaled timeout to `run_cm019_ingest`, records
+  consumption and prunes only after an ok run, and returns `staged_bytes` and
+  `pruned` beside `status` and `staged`.
+
+`vendor/ostler_fda/apple_music_refresh.py` (vendor-only, VENDOR_ONLY.tsv):
+`run_cm019_ingest` takes an optional `timeout_s` (default unchanged, 900 s).
+
+Why: walk122 (Mini16 scale fixture), `~/.ostler/imports/email` held 12 GB and
+grew ~140 MB an hour with nothing removing it; the daily food step re-read all
+of it and timed out under load (fda-rerun exit 1). Tests:
+`tests/test_food_mbox_consumed_and_pruned.py`, wired in derived-preferences.yml.
+
+## 2026-11-04: the people index keeps the Contacts card it mirrors (v1.0.123)
+
+Regeneration REFUSED, measured 2026-11-04 (same refusal as the section above:
+"source repo for ostler_fda is not available"), so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- `_load_people_from_oxigraph`: collects each person's `icloud_contact_uid`
+  identifier (`card_by_uri`) and returns it as `icloud_uid`.
+- `ingest_people_to_qdrant`: the point payload carries `icloud_uid`; new
+  helpers `_PRIVACY_RANK`, `_privacy_rank`, `_merge_people_payload` above it.
+  The sweep reads the stored points first (`_qdrant_scroll_points`; None means
+  the read failed and the sweep returns error `could_not_read_existing` without
+  writing), and each upserted payload is the computed one laid over the stored
+  one: keys the sweep does not compute (icloud_uid, profile_photo_path,
+  created_at, updated_at, ...) are carried over, an empty computed value never
+  blanks a stored one, and privacy_level is the stricter of stored and computed
+  (unparseable ranks as L3).
+- `_qdrant_scroll_points`: a 404 on the first page (no such collection) returns
+  `[]` (nothing stored) instead of None (could not look), so a fresh install's
+  sweep is not refused before its first write.
+
+Why: walk v1.0.122 diag on Mini16, people_count_agreement FAILED by 100 (graph
+11365, Qdrant 11265). This sweep upserts at uuid5(person_uri), the same point
+id contact_syncer writes, and a Qdrant upsert replaces the payload, so the card
+contact_syncer stamped was erased: 2178 carded graph people, 1 carded point of
+11370. 101 of the 105 Qdrant-hidden people differed from the graph ONLY in
+has_card. Proof: `tests/test_people_index_keeps_the_contacts_card.py`, wired in
+dedupe-merge-rule-2.yml.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
+source this tree is cut from.

@@ -364,6 +364,14 @@ jobs:
           python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
           python3 tests/test_notion_obsidian_import_runs_end_to_end.py
 
+      # walk v1.0.122: one timed-out chunk upsert dropped a note chunk for good.
+      - name: a knowledge chunk upsert retries a transient store error
+        if: always()
+        run: |
+          set -e
+          python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
+          python3 tests/test_cm024k_upsert_chunk_retries_a_timeout.py
+
       # Consumer-half gap (2026-09-13): cli.py's _ai_adapters() excluded the
       # gateway's own sessions.db from the ONLY entrypoint production ever
       # invokes, so the customer's direct chats with their own assistant never

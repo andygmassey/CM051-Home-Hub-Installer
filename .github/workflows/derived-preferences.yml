@@ -68,6 +68,8 @@ on:
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
       - 'tests/test_vendored_food_evidence_reaches_smart_preferences.py'
+      - 'tests/test_food_mbox_consumed_and_pruned.py'
+      - 'vendor/ostler_fda/apple_music_refresh.py'
       - 'tests/test_dietary_is_never_surfaced.py'
       - 'vendor/cm059_editor/compiler/project_preferences.py'
       - 'vendor/cm059_editor/compiler/interest_profile.py'
@@ -183,6 +185,7 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
           python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
+          python3 tests/test_food_mbox_consumed_and_pruned.py
       - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
         # No reader row, derive code, editor/Front Page code or brief code reads the
         # category; the projector drops it; the scanner is proven red on a fake row.
