@@ -817,7 +817,9 @@ _second_id_ready() {   # reads _o and _x, set by the caller
 _listener_table() {
     # One branch per scope, never a command held in a variable: the box's
     # login shell is zsh, which does not word-split an unquoted \$L.
-    box_run "{ if sudo -n /usr/bin/true 2>/dev/null; then echo SCOPE all >&2; sudo -n /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN -Fpn; else echo SCOPE self >&2; /usr/sbin/lsof -nP -iTCP -sTCP:LISTEN -Fpn; fi; } 2>&1 | awk '/^SCOPE/{print; next} /^p/{p=substr(\$0,2)} /^n/{n=\$0; sub(/.*:/,\"\",n); print n, p}' | sort -u |
+    # lsof is /usr/sbin/lsof on macOS and /usr/bin/lsof on the Linux runner; a
+    # single path in a variable is safe under zsh (nothing to split).
+    box_run "L=/usr/sbin/lsof; [ -x \$L ] || L=\$(command -v lsof); { if sudo -n /usr/bin/true 2>/dev/null; then echo SCOPE all >&2; sudo -n \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; else echo SCOPE self >&2; \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; fi; } 2>&1 | awk '/^SCOPE/{print; next} /^p/{p=substr(\$0,2)} /^n/{n=\$0; sub(/.*:/,\"\",n); print n, p}' | sort -u |
       while read -r port pid; do [ \"\$port\" = SCOPE ] && { echo SCOPE \$pid; continue; }; printf '%s %s %s\n' \"\$port\" \"\$pid\" \"\$(ps -ww -o command= -p \"\$pid\")\"; done"
 }
 _class3() {

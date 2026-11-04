@@ -489,7 +489,7 @@
              "generated_at": ts,
 --- /dev/null
 +++ b/hub_contract.yaml
-@@ -0,0 +1,6845 @@
+@@ -0,0 +1,6851 @@
 +{
 + "auth_schemes": {
 +  "admin_token": {
@@ -511,6 +511,10 @@
 +  "none": {
 +   "header": null,
 +   "note": "no credential required"
++  },
++  "owner_peer": {
++   "header": null,
++   "note": "the caller's process must run as the Mac's owner and not be a relay (tailscaled, lima); read from the kernel by the Doctor (owner_peer.py, S1)"
 +  },
 +  "qdrant_api_key": {
 +   "header": "api-key: <QDRANT_API_KEY>",
@@ -603,7 +607,7 @@
 + "routes": [
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -698,7 +702,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -722,7 +726,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -891,7 +895,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -916,7 +920,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -1042,7 +1046,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1111,7 +1115,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -1130,7 +1134,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1228,7 +1232,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1251,7 +1255,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1281,7 +1285,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1302,7 +1306,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1325,7 +1329,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1355,7 +1359,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1376,7 +1380,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1399,7 +1403,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1429,7 +1433,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1608,7 +1612,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1627,7 +1631,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -1646,7 +1650,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -1665,7 +1669,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1692,7 +1696,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -1968,7 +1972,8 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer",
++    "device_bearer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2044,7 +2049,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": true,
@@ -2067,7 +2072,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2091,7 +2096,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2112,7 +2117,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2134,7 +2139,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2156,7 +2161,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2319,10 +2324,10 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
-+   "cross_site_refusal": false,
++   "cross_site_refusal": true,
 +   "id": "doctor GET /api/v1/whatsapp/pair",
 +   "listener": "doctor",
 +   "method": "GET",
@@ -2338,7 +2343,8 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer",
++    "device_bearer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2376,7 +2382,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2405,7 +2411,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2424,7 +2430,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2443,7 +2449,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2462,7 +2468,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2481,7 +2487,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2503,7 +2509,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2524,7 +2530,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2546,7 +2552,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2565,7 +2571,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2584,7 +2590,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2605,7 +2611,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2626,7 +2632,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2647,7 +2653,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
@@ -2666,7 +2672,7 @@
 +  },
 +  {
 +   "auth": [
-+    "none"
++    "owner_peer"
 +   ],
 +   "body_limit_bytes": null,
 +   "cross_site_refusal": false,
