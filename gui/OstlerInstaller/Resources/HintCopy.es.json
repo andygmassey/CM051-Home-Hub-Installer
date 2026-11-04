@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "Puente de calendario / Gmail",
-    "subtitle": "CLI de Google Workspace + envoltorio de iCloud",
-    "why": "Ostler se comunica con tu Gmail y Google Calendar mediante la CLI de Workspace de Google (gws), que se ejecuta en local en este Mac, y con iCloud mediante CalDAV con una contraseña específica de app. Nada sale del equipo; OAuth se realiza entre la CLI y Google.",
+    "title": "Puente del calendario de iCloud",
+    "subtitle": "Calendario de iCloud mediante CalDAV",
+    "why": "Ostler lee tu calendario de iCloud mediante CalDAV con una contraseña específica de app que creas en appleid.apple.com.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

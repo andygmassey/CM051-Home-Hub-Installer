@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "行事曆／Gmail 橋接",
-    "subtitle": "Google Workspace CLI 及 iCloud 封裝程式",
-    "why": "Ostler 透過在這部 Mac 上本機執行的 Google 官方 Workspace CLI（gws）連接你的 Gmail 和 Google 日曆，並以 App 專用密碼透過 CalDAV 連接 iCloud。沒有任何內容會離開這部電腦；OAuth 只在 CLI 與 Google 之間進行。",
+    "title": "iCloud 行事曆橋接",
+    "subtitle": "透過 CalDAV 存取 iCloud 行事曆",
+    "why": "Ostler 透過 CalDAV，使用你在 appleid.apple.com 建立的專用密碼讀取你的 iCloud 行事曆。",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
