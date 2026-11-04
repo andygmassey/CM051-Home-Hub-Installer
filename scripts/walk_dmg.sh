@@ -517,13 +517,17 @@ fi
 # ostler_fda source edit was silently ignored). The .pyc still stores its
 # source's hash at bytes 8-16; ARM 9 recomputes it for every .pyc that has a
 # .py and requires ostler_fda to be among them, or it is CANNOT-RUN.
+# The hash is only comparable under the interpreter that wrote it (candidate
+# 41770746721: /usr/bin/python3 3.9.6 read 2233 of 2233 untouched .pyc as STALE;
+# the bundled 3.11.15 reads 0). /usr/bin/python3 only LAUNCHES the gate;
+# --interpreter-in-root re-runs it under the DMG's own python3.NN, or it is CANNOT.
 echo "ARM 9  every seeded .pyc was compiled from the .py beside it"
 ARM9_PY=/usr/bin/python3
 if [ ! -x "$ARM9_PY" ]; then
-  say "CANNOT" "  no $ARM9_PY to recompute the source hashes -- not a pass"
+  say "CANNOT" "  no $ARM9_PY to launch the comparison -- not a pass"
 else
   arm9_rc=0
-  "$ARM9_PY" "$(dirname "$0")/verify_seeded_pyc_matches_source.py" "$MP" --require /ostler_fda/ || arm9_rc=$?
+  "$ARM9_PY" "$(dirname "$0")/verify_seeded_pyc_matches_source.py" "$MP" --require /ostler_fda/ --interpreter-in-root || arm9_rc=$?
   case "$arm9_rc" in
     0) say "PASS" "  every examined .pyc matches its .py" ;;
     1) say "FAIL" "  🔴 a shipped .py is not the code that runs (its .pyc was compiled from different bytes)" ;;
