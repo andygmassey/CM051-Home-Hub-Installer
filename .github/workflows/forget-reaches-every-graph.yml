@@ -56,6 +56,8 @@ on:
       - 'tests/test_vendored_employer_outbound_l3.py'
       - 'tests/test_vendored_timeline_outbound_l3.py'
       - 'tests/test_digest_timeline_outbound_l3.py'
+      - 'tests/test_vendored_gws_never_spawned_without_consent.py'
+      - 'vendor/cm041/assistant_api/tests/test_ical_server_wire_shape.py'
       - 'context-refresh/bin/generate_pwg_context.py'
       - 'vendor/**.py'
   push:
@@ -173,3 +175,8 @@ jobs:
         run: |
           python3 -m pip install --quiet pytest rdflib
           python3 -m pytest tests/test_vendored_timeline_outbound_l3.py tests/test_digest_timeline_outbound_l3.py -q
+      - name: No gws spawn without a Google account AND an accepted opt-in (boundary, real process, per-site mutants, consented control)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest tests/test_vendored_gws_never_spawned_without_consent.py -q

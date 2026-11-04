@@ -44,6 +44,9 @@ on:
       # The whole uninstaller, end to end, in a sandbox built from install.sh's
       # own layout, plus the install.sh-labels vs uninstaller-list cross-check.
       - 'tests/test_uninstall_leaves_no_ostler_behind.sh'
+      # Privacy (v1.0.123 walk): install.sh never installs or runs gws, and the
+      # uninstall note names gws only when one is present.
+      - 'tests/test_install_never_installs_gws.sh'
       - 'context-refresh/**'
       - 'assistant-agent/**'
       - 'wiki-recompile/**'
@@ -191,3 +194,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: The uninstaller leaves no Ostler behind, keeps the customer's data, every control red
         run: /bin/bash tests/test_uninstall_leaves_no_ostler_behind.sh
+      - name: install.sh never installs or runs gws (cold box, earlier gws, mutant red)
+        if: always()
+        run: /bin/bash tests/test_install_never_installs_gws.sh
