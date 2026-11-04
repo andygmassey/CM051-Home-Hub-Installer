@@ -1664,3 +1664,18 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "status_api_dates_are_sane"
+
+  # #2436 (ostler-assistant #644). ADVISORY (scripts/walk_promote_scope.tsv) for ONE
+  # cut: expires after the first cut that carries it, then BLOCKING.
+  - id: box-walk-core-memory-holds-no-prefetch-block
+    title: "advisory: no core_ memory on the box carries the daemon's graph-prefetch block"
+    incident: >-
+      #2436: the daemon appends a lookup block ([Looked up in the user's own
+      data ...), possibly carrying L3, to the user turn; consolidation could
+      store it as a core_ memory attributed to the user. ostler-assistant #644
+      strips it inside consolidation. Post-walk box check: every core entry from
+      GET /api/memory?category=core is read; a carried block is FAIL, zero core
+      entries is CANNOT-RUN.
+    proof:
+      kind: box_walk_probe
+      probe: "core_memory_holds_no_prefetch_block"
