@@ -1296,7 +1296,7 @@ Sla over wat je niet gebruikt; je kunt later altijd meer importeren."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTELD is?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
-Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. Ostler versleutelt de meest gevoelige databases hoe dan ook met een wachtzin, maar de rest van je gegevens is slechts zo goed beveiligd als de schijf zelf.
+Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
 
 FileVault wordt sterk aanbevolen. Je kunt het op elk moment aanzetten via Systeeminstellingen > Privacy en beveiliging > FileVault -- het versleutelt op de achtergrond, zonder opnieuw te installeren.
 

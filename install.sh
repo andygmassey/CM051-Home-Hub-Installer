@@ -9108,9 +9108,9 @@ else
     echo "    - service secrets and databases under ~/.ostler"
     echo ""
     echo "  Anyone who can boot from this drive, remove it, or reach an"
-    echo "  unlocked session can then read all of it. Ostler still encrypts"
-    echo "  its most sensitive databases with your passphrase, but the rest"
-    echo "  is only as protected as the disk itself."
+    echo "  unlocked session can then read all of it. Ostler's database"
+    echo "  encryption key is kept on this same disk, so with FileVault off"
+    echo "  it does not protect your data from anyone who has the disk."
     echo ""
     echo "  FileVault is strongly recommended. Turn it on any time in"
     echo "  System Settings > Privacy & Security > FileVault (it encrypts"
@@ -42966,9 +42966,9 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # but does not fail the install (on-LAN pairing still works).
             #
             # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
-            # raw-TCP tailscale-served. 8089 has its own device-pairing
-            # bearer auth, so a tailnet peer still cannot read anything
-            # without a paired token. The wiki on :8044 is still NEVER
+            # raw-TCP tailscale-served. Proxied paths need a paired bearer;
+            # Doctor credential routes refuse tailscaled (owner_peer.py, S1).
+            # The wiki on :8044 is still NEVER
             # raw-TCP served -- see the identity-gated HTTP path below,
             # which is the "`tailscale serve https` identity headers"
             # fix this comment used to defer.

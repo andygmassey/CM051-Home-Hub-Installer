@@ -1300,7 +1300,7 @@ Ignorez celles que vous n'utilisez pas ; vous pourrez toujours en importer d'aut
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au repos ?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
 
-Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. Ostler chiffre de toute façon ses bases de données les plus sensibles avec une phrase secrète, mais le reste de vos données n’est protégé que par le disque lui-même.
+Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
 
 FileVault est fortement recommandé. Vous pouvez l’activer à tout moment dans Réglages Système > Confidentialité et sécurité > FileVault : le chiffrement s’effectue en arrière-plan, sans réinstallation.
 
