@@ -118,7 +118,9 @@ if [[ ! -f "${REPO_ROOT}/vendor/legal/pyproject.toml" ]]; then
 fi
 echo "PASS: F3 (legal) postBuildScript + else-warn + string entry + vendor source present"
 
-# ── F4: gws install code path present + SHA256 pinning ──
+# ── F4: the gws step is present, and since 2026-11-04 it installs NOTHING ──
+# (privacy, v1.0.123 walk; executed proof: tests/test_install_never_installs_gws.sh).
+# The pins below survive as dead code only so that edit stayed line-neutral.
 assert_grep "f4-version-pinned" \
     'GWS_VERSION="0.22.5"' \
     "$INSTALL_SCRIPT"
@@ -132,13 +134,16 @@ assert_grep "f4-sha256-x86_64" \
     'GWS_SHA256_X86_64="51f9bd731404d4bba26c36e2e30dd68c56dccd1f834c01252cb0b14d6a6544b2"' \
     "$INSTALL_SCRIPT"
 assert_grep "f4-progress-step" \
-    'progress "Installing Google Workspace CLI' \
+    'progress "Setting up the calendar bridge" "gws_install"' \
+    "$INSTALL_SCRIPT"
+assert_grep "f4-gws-never-installed" \
+    'if true; then  # PRIVACY (v1.0.123 walk): gws is NEVER installed.' \
     "$INSTALL_SCRIPT"
 # Step id registered in canonical order so the GUI sidebar shows the phase.
 assert_grep "f4-step-id-canonical" \
     '"gws_install"' \
     "${REPO_ROOT}/gui/OstlerInstaller/Steps/StepCatalog.swift"
-echo "PASS: F4 (gws) install code path + SHA256 pinning + step id present"
+echo "PASS: F4 (gws) step present, never-installed guard present, step id present"
 
 # ── F5: ical-query.sh wrapper writer present ──
 assert_grep "f5-wrapper-path" \
