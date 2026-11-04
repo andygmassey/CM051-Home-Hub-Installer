@@ -18,20 +18,34 @@ trap 'rm -rf "$W"' EXIT
 cp "$DRV" "$W/main.swift"
 swiftc -O -swift-version 5 -o "$W/d" "$SRC" "$W/main.swift" >"$W/b.log" 2>&1 || { cat "$W/b.log" >&2; echo "CANNOT-RUN: compile failed" >&2; exit 2; }
 
-BLOCK='Warning: The following taps are not trusted and their formulae will not be loaded:
+BLOCK='Warning: The following taps are not trusted:
   examplecorp/faketap
 
-Run `brew tap-trust` to trust them. See https://docs.brew.sh/Tap-Trust for details.'
-printf '%s\n' "==> Fetching downloads for: jq" "$BLOCK" "==> Pouring jq--1.7.arm64.bottle.tar.gz" > "$W/in1"
-# Real error right after the warning, no Tap-Trust line: must survive.
-printf '%s\n' "Warning: The following taps are not trusted and their formulae will not be loaded:" "  examplecorp/faketap" "Error: jq: no bottle available!" > "$W/in2"
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap examplecorp/faketap
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust examplecorp/faketap
+For more information, see:
+  https://docs.brew.sh/Tap-Trust'
+# Block appears TWICE in one install; surrounding lines must come through byte-identical.
+printf '%s\n' "==> Installing docker" "$BLOCK" "==> Pouring docker.tar.gz" "$BLOCK" "==> Installing sqlcipher" > "$W/in1"
+printf '%s\n' "==> Installing docker" "==> Pouring docker.tar.gz" "==> Installing sqlcipher" > "$W/expect1"
+# Real error right after the warning, truncated block (no Tap-Trust line): must survive.
+printf '%s\n' "Warning: The following taps are not trusted:" "  examplecorp/faketap" "Error: jq: no bottle available!" > "$W/in2"
 
 p="$("$W/d" passthrough < "$W/in1")"
 grep -qF "Tap-Trust" <<<"$p" && grep -qF "examplecorp/faketap" <<<"$p" && ok "control: passthrough keeps the block" || bad "control broken: fixture block not present in passthrough"
 
 f="$("$W/d" filter < "$W/in1")"
 if grep -qiF "not trusted" <<<"$f" || grep -qF "Tap-Trust" <<<"$f" || grep -qF "examplecorp/faketap" <<<"$f"; then bad "warning block leaked: $f"; else ok "block removed"; fi
-grep -qF "==> Fetching downloads for: jq" <<<"$f" && grep -qF "==> Pouring" <<<"$f" && ok "surrounding lines kept" || bad "surrounding lines lost"
+[[ "$f" == "$(cat "$W/expect1")" ]] && ok "both occurrences removed, surrounding lines byte-identical" || bad "output differs from expected: $f"
 
 f2="$("$W/d" filter < "$W/in2")"
 grep -qF "Error: jq: no bottle available!" <<<"$f2" && ok "real error after a truncated block is kept" || bad "real error was swallowed"

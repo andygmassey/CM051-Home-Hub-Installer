@@ -298,12 +298,12 @@ struct OutputLineBuffer {
 ///
 /// Stateful because the block spans lines. It starts at the line naming
 /// "taps are not trusted" and runs through the line containing "Tap-Trust".
-/// Between those, only blank lines, indented lines and lines mentioning
-/// "tap" are swallowed; any other line ends the block and is KEPT, so a real
-/// error interleaved with the warning is never eaten. A block that never
+/// Between those, every line is swallowed except one starting "Error",
+/// "==>" or "Warning:", which ends the block and is KEPT, so a real error
+/// is never eaten. A block that never
 /// reaches its Tap-Trust line is also bounded by `maxBlockLines`.
 struct BrewTapWarningFilter {
-    static let maxBlockLines = 12
+    static let maxBlockLines = 30
     private var inBlock = false
     private var swallowed = 0
 
@@ -319,10 +319,12 @@ struct BrewTapWarningFilter {
             }
             return true
         }
-        let isBlockish = line.trimmingCharacters(in: .whitespaces).isEmpty
-            || line.hasPrefix(" ") || line.hasPrefix("\t")
-            || lower.contains("tap")
-        if !isBlockish || swallowed >= Self.maxBlockLines {
+        // Real block (Homebrew 5) is ~19 lines mixing indented, blank and
+        // flush-left prose; it ends at the Tap-Trust URL. Only a line that
+        // starts a new message ends it early, so a real error is kept.
+        let startsNewMessage = line.hasPrefix("Error") || line.hasPrefix("==>")
+            || line.hasPrefix("Warning:")
+        if startsNewMessage || swallowed >= Self.maxBlockLines {
             inBlock = false
             swallowed = 0
             return true
