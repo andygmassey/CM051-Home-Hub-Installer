@@ -171,6 +171,8 @@ on:
       - 'scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh'
       - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
       - 'scripts/lib_walk_owner.sh'
+      - 'tests/test_walk_record_carries_no_home_path.sh'
+      - 'scripts/lib_walk_record_paths.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
@@ -602,6 +604,10 @@ jobs:
       - name: The owner identity goes only to a declared owner target, and the record is scanned for it
         if: always()
         run: bash tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
+
+      - name: The walk record carries no home directory in any field (walks/ is public)
+        if: always()
+        run: bash tests/test_walk_record_carries_no_home_path.sh
 
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read
