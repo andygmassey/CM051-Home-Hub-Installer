@@ -359,12 +359,15 @@ control_hold() { # seconds a control connection is held: 2 x PERIOD unless overr
 # inside it.
 # ---------------------------------------------------------------------------
 fire_control() { # sampler phase [profile]
-    local s="$1" ph="$2" prof="${3:-}" hold start
+    local s="$1" ph="$2" prof="${3:-}" hold
     hold="$(control_hold)"
-    start="$(epoch)"
-    printf '%s\t%s\t%s\t%s\n' "$s" "$ph" "$start" "$(( start + hold ))" >> "${OUT}/controls.tsv"
+    # The window is stamped INSIDE the background job, when it actually runs:
+    # on a loaded box the spawn alone took 6 s in testing, longer than a
+    # 4 s hold stamped by the caller.
     if [ "$s" = host ]; then
         (
+            start="$(epoch)"
+            printf '%s\t%s\t%s\t%s\n' "$s" "$ph" "$start" "$(( start + hold ))" >> "${OUT}/controls.tsv"
             end=$(( start + hold ))
             while [ "$(epoch)" -lt "$end" ]; do
                 left=$(( end - $(epoch) )); [ "$left" -lt 1 ] && left=1
@@ -389,7 +392,11 @@ while [ \$(date +%s) -lt \$end ]; do
     esac
     sleep 1
 done
-" | vm_exec "${prof}" sh -s >> "${OUT}/control_vm.log" 2>&1 &
+" | (
+            start="$(epoch)"
+            printf '%s\t%s\t%s\t%s\n' "$s" "$ph" "$start" "$(( start + hold ))" >> "${OUT}/controls.tsv"
+            vm_exec "${prof}" sh -s
+        ) >> "${OUT}/control_vm.log" 2>&1 &
     fi
 }
 
@@ -438,7 +445,7 @@ cmd_stop() {
     else
         status vm never_up "the VM never came up during the window"
     fi
-    sleep $(( $(control_hold) + PERIOD + 1 ))
+    sleep $(( $(control_hold) * 2 + PERIOD + 1 ))
     : > "${OUT}/STOP"
     printf '%s\t%s\t%s\n' "$(epoch)" "$(utc)" "$(date '+%Y-%m-%d %H:%M:%S')" > "${OUT}/window_stop"
     local f pid n
@@ -468,7 +475,9 @@ control_seen() { # sampler -> prints "phase:seen" lines; rc 0 only if every phas
     [ -s "${OUT}/controls.tsv" ] || return 1
     while IFS="$(printf '\t')" read -r cs ph st en; do
         [ "$cs" = "$s" ] || continue
-        en=$(( en + PERIOD * 2 ))
+        # Slack: one more hold plus two periods, for spawn latency inside the
+        # control and for the sample that lands just after it closes.
+        en=$(( en + (en - st) + PERIOD * 2 ))
         if [ "$s" = host ]; then
             n="$(awk -F'\t' -v a="$st" -v b="$en" '$1 >= a && $1 <= b && $3 ~ /^nc/ && $9 == "80"' "${OUT}/host_outbound.tsv" 2>/dev/null | wc -l | tr -d ' ')"
         else

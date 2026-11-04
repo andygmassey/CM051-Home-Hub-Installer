@@ -67,7 +67,9 @@ EOF
 cat > "$H/nc" <<'EOF'
 #!/bin/sh
 if [ -n "${SHIM_NC_BROKEN_HOST:-}" ]; then echo "nc: connection refused" >&2; exit 1; fi
+echo "$(date +%s) host nc open" >> "$SHIM_STATE/nc.log"
 : > "$SHIM_STATE/host_nc_held"; cat >/dev/null; rm -f "$SHIM_STATE/host_nc_held"
+echo "$(date +%s) host nc closed" >> "$SHIM_STATE/nc.log"
 EOF
 cat > "$H/nettop" <<'EOF'
 #!/bin/sh
@@ -134,7 +136,9 @@ EOF
 cat > "$V/nc" <<'EOF'
 #!/bin/sh
 if [ -n "${SHIM_NC_BROKEN_VM:-}" ]; then echo "nc: connection refused" >&2; exit 1; fi
+echo "$(date +%s) vm nc open" >> "$SHIM_STATE/nc.log"
 : > "$SHIM_STATE/vm_nc_held"; cat >/dev/null; rm -f "$SHIM_STATE/vm_nc_held"
+echo "$(date +%s) vm nc closed" >> "$SHIM_STATE/nc.log"
 EOF
 chmod +x "$H"/* "$V"/*
 
@@ -175,6 +179,7 @@ run_case() {
     OUTD="${T}/out.${name}.${RANDOM}"
     OUTS="${OUTS} ${OUTD}"
     mkdir -p "$st"
+    ST="$st"
     case "$name" in
         E) printf 'p777\ncgws\nLwalker\nf7\nPTCP\nn192.168.1.20:52000->198.51.100.50:443\nTST=ESTABLISHED\n' > "$st/lsof_extra" ;;
         F) echo "2026-11-04 16:23:55.867 Df gws[34547:1a2b3] [com.example:net] starting" > "$st/log" ;;
@@ -182,7 +187,7 @@ run_case() {
         H) echo "tcp      6 100 ESTABLISHED src=172.17.0.2 dst=198.51.100.8 sport=42000 dport=443 src=198.51.100.8 dst=192.168.5.15 sport=443 dport=42000 [ASSURED] mark=0 use=1" > "$st/conntrack_extra" ;;
     esac
     local env_common
-    env_common="SHIM_FIX=${FIX} SHIM_STATE=${st} SHIM_VM=${V} NETSAMP_SUDO=${H}/sudo NETSAMP_LSOF=${H}/lsof NETSAMP_NETTOP=${H}/nettop NETSAMP_LOG=${H}/log NETSAMP_PGREP=${H}/pgrep NETSAMP_NC=${H}/nc NETSAMP_DSCACHEUTIL=${H}/dscacheutil NETSAMP_COLIMA=${H}/colima NETSAMP_TELEMETRY_LIST=${TELEMETRY} NETSAMP_CONTROL_HOLD=4"
+    env_common="SHIM_FIX=${FIX} SHIM_STATE=${st} SHIM_VM=${V} NETSAMP_SUDO=${H}/sudo NETSAMP_LSOF=${H}/lsof NETSAMP_NETTOP=${H}/nettop NETSAMP_LOG=${H}/log NETSAMP_PGREP=${H}/pgrep NETSAMP_NC=${H}/nc NETSAMP_DSCACHEUTIL=${H}/dscacheutil NETSAMP_COLIMA=${H}/colima NETSAMP_TELEMETRY_LIST=${TELEMETRY} NETSAMP_CONTROL_HOLD=8"
     # The VM comes up AFTER the sampler starts: the sampler must wait for it.
     env ${env_common} ${1+"$@"} "${sampler}" start --out "${OUTD}" --period 1 > "${OUTD}.start.log" 2>&1
     # Wait on conditions, not on the clock: a loaded CI runner can stall a
@@ -242,6 +247,10 @@ expect_case() {
     esac
     if [ "$e" -ne 0 ]; then
         printf '%s\n' "${REPORT}" | sed 's/^/      | /'
+        echo "      controls fired (sampler phase start end):"
+        sed 's/^/      | /' "${OUTD}/controls.tsv" 2>/dev/null
+        echo "      shim nc log:"
+        sed 's/^/      | /' "${ST}/nc.log" 2>/dev/null
     fi
     return $e
 }
