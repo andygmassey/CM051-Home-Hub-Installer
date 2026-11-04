@@ -362,6 +362,30 @@ _TIME_SENSITIVE_RE = re.compile(
 )
 
 
+# A business or marketing send: an opt-out instruction, or promotional
+# wording, in any language. A shop that texts from an ordinary mobile number
+# (not a short code or sender id, which identify_threads already drops) still
+# writes like this, and nothing in it is owed (2026-11-05: a brand sign-up SMS
+# from a shop was listed as "needing a reply"). Deliberately phrases a person
+# does not write to a friend; a bare "sale" or "offer" is not enough.
+_MARKETING_RE = re.compile(
+    r"\b(?:reply|text|send|txt)\s+stop\b|\bstop\s+to\s+(?:opt|unsub|end|cancel|quit)|"
+    r"\bopt[- ]?out\b|\bunsubscribe\b|\bpromo(?:tion(?:al)?)?\s*code\b|"
+    r"\bdiscount\s+code\b|\bcoupon\s+code\b|\b\d{1,2}\s?%\s?off\b|\bsale\s+ends\b|"
+    r"\blimited[- ]time\s+offer\b|\bshop\s+now\b|\bt&cs?\s+apply\b|"
+    r"退訂|退订|取消訂閱|取消订阅|回覆\s*stop|回复\s*stop|優惠碼|优惠码|折扣碼|折扣码|"
+    r"限時優惠|限时优惠|會員專享|会员专享|立即購買|立即购买|立即登記|立即登记|"
+    r"條款及細則|条款及细则|【廣告】|【广告】|\(廣告\)|\(广告\)|"
+    r"配信停止|\(광고\)|수신거부",
+    re.IGNORECASE,
+)
+
+
+def is_marketing(text: str) -> bool:
+    """True when a message reads as a business or marketing send."""
+    return bool(_MARKETING_RE.search(text or ""))
+
+
 def owed_verdict(thread: "Thread") -> tuple[str, str]:
     """Is a reply OWED on this thread? ``("yes"|"no"|"ambiguous", rule)``.
 
@@ -369,6 +393,7 @@ def owed_verdict(thread: "Thread") -> tuple[str, str]:
 
       * owner sent the last message      -> no  (ball in their court)
       * the last message only closes      -> no  (thanks, ok, emoji, tapback)
+      * a business or marketing send      -> no  (STOP / unsubscribe, promo)
       * a question or request at the owner -> yes
       * the owner's previous message promised an answer -> yes
       * a notice, broadcast or automated message -> no
@@ -388,6 +413,8 @@ def owed_verdict(thread: "Thread") -> tuple[str, str]:
         return "no", "no_text"
     if is_conversation_closer(text):
         return "no", "closer"
+    if is_marketing(text):
+        return "no", "marketing"
     if _REQUEST_RE.search(text):
         return "yes", "ask"
     # The owner's most recent message before the trailing inbound run.
@@ -738,6 +765,7 @@ __all__ = [
     "ReplyDebt",
     "expects_reply",
     "is_conversation_closer",
+    "is_marketing",
     "score_debt",
     "detect_thread",
     "detect",
