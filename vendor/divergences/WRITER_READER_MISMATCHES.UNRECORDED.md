@@ -1784,8 +1784,10 @@ Tree `doctor`, files `vendor/doctor/agent/web_ui.py` (new `_owner_refusal`, call
 
 ### What it does
 
-Admits a request only when its peer is a loopback connection held by a process running as the Doctor's own uid (the owner) that is not a relay (`tailscaled`, `limactl`, `gvproxy`, ...). The peer is read from the kernel: `lsof` on macOS, `/proc/net/tcp` on Linux. Anything unknown is refused with 403 and `refused_on` naming the reason. A second macOS account and a tailnet peer relayed onto loopback by userspace `tailscaled` were both able to fetch the pairing envelope, a device bearer and the extension key before this.
+Admits a request only when its peer is a loopback connection held by a process running as the Doctor's own uid (the owner) that is not a relay (`tailscaled`, `limactl`, `gvproxy`, ...). The peer is read from the kernel in process, with no fork (the Hub polls about once a second): libproc on macOS, `/proc/net/tcp` on Linux. Anything unknown is refused with 403 and `refused_on` naming the reason. A second macOS account and a tailnet peer relayed onto loopback by userspace `tailscaled` were both able to fetch the pairing envelope, a device bearer and the extension key before this.
+
+Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware (after `register_proxy_routes`): every native route is owner-only except the DOCTOR_PROXY_PATHS forwards (their own paired-bearer check), `_BEARER_OR_OWNER` (wiki/correct, suppress-suggestions: owner OR a paired bearer, for the iPhone) and `_PUBLIC` (hydration/status, non-PII counts). `scripts/gen_hub_contract.py` reads those sets, so the contract records `owner_peer` on 44 routes.
 
 ### What a future sync must preserve
 
-`_owner_refusal` on all five routes and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+`_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.

@@ -10,7 +10,7 @@
 # Four arms, all against the REAL code:
 #   A  verdict() matrix: owner, other uid, invisible peer, forwarder,
 #      non-loopback source, a lookup that throws, IPv4-mapped loopback.
-#   B  the REAL kernel lookup (lsof on macOS, /proc/net/tcp on Linux) finds
+#   B  the REAL kernel lookup (libproc on macOS, /proc/net/tcp on Linux) finds
 #      this process on a live loopback connection; control: a port with no
 #      connection finds nothing.
 #   C  the REAL Doctor over REAL HTTP, the caller a REAL curl process:
@@ -67,7 +67,7 @@ real_lookup = op._lookup
 cases = [
     ("owner, ordinary process",      ("127.0.0.1", 5000), op.Peer(1, ME, "curl"), None),
     ("second account",               ("127.0.0.1", 5000), op.Peer(2, ME + 1, "curl"), "peer-not-owner"),
-    ("invisible peer (other account under unprivileged lsof)", ("127.0.0.1", 5000), None, "peer-unknown"),
+    ("invisible peer (another account, unseen by an unprivileged kernel read)", ("127.0.0.1", 5000), None, "peer-unknown"),
     ("tailscaled relay, owner uid",  ("127.0.0.1", 5000), op.Peer(3, ME, "tailscaled"), "peer-is-forwarder"),
     ("lima host agent, owner uid",   ("127.0.0.1", 5000), op.Peer(3, ME, "limactl"), "peer-is-forwarder"),
     ("owner uid, process unnamed",   ("127.0.0.1", 5000), op.Peer(None, ME, None), "peer-unknown"),
@@ -80,7 +80,7 @@ for name, client, peer, want in cases:
     op._lookup = lambda h, c, s, _p=peer: _p
     got = op.verdict(client, ("127.0.0.1", 8089))
     (ok if got == want else bad)(f"{name}: want {want} got {got}")
-def boom(*a): raise RuntimeError("lsof exploded")
+def boom(*a): raise RuntimeError("kernel read exploded")
 op._lookup = boom
 got = op.verdict(("127.0.0.1", 5000), ("127.0.0.1", 8089))
 (ok if got == "peer-unknown" else bad)(f"a lookup that throws fails closed: got {got}")
@@ -102,12 +102,17 @@ cli.close(); acc.close(); srv.close()
 
 print("== C: the real Doctor, real HTTP, a real curl ==")
 STUB = free_port()
+GOOD_BEARER = secrets.token_hex(16)
 class H(BaseHTTPRequestHandler):
     def _j(self, st, p):
         b = json.dumps(p).encode(); self.send_response(st)
         self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b)))
         self.end_headers(); self.wfile.write(b)
     def do_POST(self):
+        if self.path == "/internal/validate-bearer":
+            n = int(self.headers.get("Content-Length") or 0)
+            ok_ = json.loads(self.rfile.read(n) or b"{}").get("bearer") == GOOD_BEARER
+            self.send_response(204 if ok_ else 401); self.send_header("Content-Length", "0"); self.end_headers(); return
         if self.path == "/api/pairing/initiate": self._j(200, {"pairing_code": secrets.token_hex(4)})
         elif self.path == "/api/pair": self._j(200, {"token": secrets.token_hex(16)})
         else: self._j(404, {})
@@ -119,6 +124,9 @@ os.environ.update({
     "OSTLER_CHAT_GATEWAY_PORT": str(STUB), "OSTLER_CHAT_ADMIN_TOKEN_FILE": adm,
     "OSTLER_EDITOR_HOME": os.environ["EDITOR_HOME"], "OSTLER_EDITOR_DIR": os.path.join(TMP, "editor"),
     "OSTLER_EXTENSION_TOKEN": "not-a-real-token-%d" % os.getpid(),
+    "DOCTOR_VALIDATOR_URL": "http://127.0.0.1:%d" % STUB,
+    "DOCTOR_PROXY_PATHS": "/api/v1/people",
+    "DOCTOR_GATEWAY_URL": "http://127.0.0.1:%d" % STUB,
 })
 import uvicorn, web_ui
 PORT = free_port()
@@ -145,9 +153,9 @@ ROUTES = [
     ("POST", "/api/v1/pair/regenerate", None),
     ("GET",  "/api/v1/whatsapp/pair", None),
 ]
-def curl(method, path, port):
+def curl(method, path, port, *extra):
     out = subprocess.run(["curl", "-s", "--noproxy", "*", "-m", "15", "-X", method,
-                          "-H", "Host: 127.0.0.1", "-H", "Sec-Fetch-Site: same-origin",
+                          "-H", "Host: 127.0.0.1", "-H", "Sec-Fetch-Site: same-origin", *extra,
                           "-w", "\n%{http_code}", f"http://127.0.0.1:{port}{path}"],
                          capture_output=True, text=True).stdout
     body, _, st = out.rpartition("\n"); return st, body
@@ -175,11 +183,62 @@ for m, p, secret in ROUTES:
     st, body = curl(m, p, RELAY)
     good = st == "403" and "peer-is-forwarder" in body
     (ok if good else bad)(f"tailnet relay {m} {p}: {st} {body[:80] if not good else 'peer-is-forwarder'}")
+st, _ = curl("GET", "/api/v1/hydration/status", RELAY)
+(ok if st != "403" else bad)(f"control: the public non-PII route through the relay still answers ({st})")
 st, _ = curl("GET", "/doctor/api/health", RELAY)
-(ok if st == "200" else bad)(f"control: a non-credential route through the relay still answers ({st})")
+(ok if st == "403" else bad)(f"the Doctor dashboard API through the relay is refused too ({st})")
 st, _ = curl("GET", "/api/v1/pair/status", PORT)
 (ok if st == "200" else bad)(f"control: the owner, direct, still gets pair/status ({st})")
 op.FORWARDERS = real_fw
+
+# Archie (b): the WHOLE Doctor-native surface, not only the five routes.
+SURFACE = [("GET", "/doctor"), ("GET", "/"), ("GET", "/api/v1/sources"), ("GET", "/api/v1/config"),
+           ("GET", "/doctor/api/diagnostics"), ("GET", "/api/v1/box-status"),
+           ("POST", "/api/v1/remote-access"), ("GET", "/pair-ios"), ("GET", "/no/such/route")]
+print("-- whole surface: second identity refused, owner not refused --")
+op.owner_uid = lambda: ME + 1
+for m, p in SURFACE:
+    st, body = curl(m, p, PORT)
+    good = st == "403" and "peer-not-owner" in body
+    (ok if good else bad)(f"second account {m} {p}: {st}")
+st, body = curl("GET", "/api/v1/hydration/status", PORT)
+(ok if st != "403" else bad)(f"public non-PII hydration/status is not owner-gated ({st})")
+st, body = curl("GET", "/api/v1/people", PORT)
+(ok if st != "403" and "peer-" not in body else bad)(f"a proxied path is left to its own bearer check, not the owner gate ({st})")
+st, body = curl("POST", "/api/v1/wiki/correct", PORT, "-H", "Content-Type: application/json", "-d", "{}")
+(ok if st == "403" else bad)(f"wiki/correct, second identity, no bearer: {st}")
+st, body = curl("POST", "/api/v1/wiki/correct", PORT, "-H", "Content-Type: application/json", "-d", "{}",
+                "-H", "Authorization: Bearer " + secrets.token_hex(16))
+(ok if st == "403" else bad)(f"wiki/correct, second identity, UNPAIRED bearer: {st}")
+st, body = curl("POST", "/api/v1/wiki/correct", PORT, "-H", "Content-Type: application/json", "-d", "{}",
+                "-H", "Authorization: Bearer " + GOOD_BEARER)
+(ok if st not in ("403", "401") else bad)(f"wiki/correct, the paired iPhone's bearer passes the gate ({st}; the handler validates the body)")
+op.owner_uid = real_owner
+for m, p in SURFACE[:-1]:
+    if m != "GET": continue
+    st, body = curl(m, p, PORT)
+    (ok if st != "403" else bad)(f"owner {m} {p}: {st}")
+
+# Archie (a): FAIL-CLOSED. The lookup returning nothing, raising, or (macOS)
+# the kernel interface being absent -> 403 on all five, never 200.
+print("-- fail-closed: the peer read fails --")
+def boom(*a): raise OSError("kernel read failed")
+for label, fn in (("lookup returns nothing", lambda *a: None), ("lookup raises", boom)):
+    op._lookup = fn
+    for m, p, secret in ROUTES:
+        st, body = curl(m, p, PORT)
+        (ok if st == "403" and "peer-unknown" in body else bad)(f"{label}: {m} {p}: {st}")
+    op._lookup = real_lookup
+if sys.platform == "darwin":
+    real_lib, op.LIBPROC = op.LIBPROC, "/nonexistent/libproc.dylib"
+    for m, p, secret in ROUTES:
+        st, body = curl(m, p, PORT)
+        (ok if st == "403" and "peer-unknown" in body else bad)(f"libproc absent: {m} {p}: {st}")
+    op.LIBPROC = real_lib
+else:
+    print("  [not run] libproc-absent arm is macOS-only (this host reads /proc)")
+st, _ = curl("GET", "/api/v1/pair/status", PORT)
+(ok if st == "200" else bad)(f"control: lookup restored, the owner gets pair/status again ({st})")
 
 relay.terminate(); server.should_exit = True
 print(f"RESULT: {PASS} passed, {FAIL} failed")

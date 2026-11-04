@@ -406,6 +406,10 @@ PROBE_ARMS="${OSTLER_PROBE_ARMS:-both}"
 CRED_ROUTES="${OSTLER_PROBE_CRED_ROUTES-8089:POST:/api/v1/auth/chat-token 8089:GET:/api/v1/extension/token 8089:GET:/api/v1/pair/status 8089:POST:/api/v1/pair/regenerate 8089:GET:/api/v1/whatsapp/pair}"
 OWNER_ROUTE="${OSTLER_PROBE_OWNER_ROUTE-8089:GET:/api/v1/pair/status}"
 SECOND_ID_CMD="${OSTLER_PROBE_SECOND_ID_CMD-sudo -n -u nobody}"
+# The non-sudo route (Archie, 2026-11-05): an ssh destination that logs in AS
+# A DIFFERENT ACCOUNT on the same box (a dedicated walk user). When set, 3a
+# runs there with no sudo at all, after proving its uid is not the owner's.
+SECOND_ID_HOST="${OSTLER_PROBE_SECOND_ID_HOST-}"
 KNOWN_LISTENERS="${OSTLER_PROBE_KNOWN_LISTENERS-3000 6333 6379 7878 8000 8044 8089 8090 8144 8443 11434 42617}"
 LISTENER_MATCH="${OSTLER_PROBE_LISTENER_MATCH-ostler}"
 
@@ -789,8 +793,24 @@ classify() {
 }
 
 # 3a: "<code> <rc>" for an uncredentialled request run as $SECOND_ID_CMD.
+_second_id_run() {   # $1 command, run as the second identity
+    if [ -n "$SECOND_ID_HOST" ]; then
+        OSTLER_BOX_HOST="$SECOND_ID_HOST" box_run "$1"
+    else
+        box_run "$SECOND_ID_CMD $1"
+    fi
+}
 _second_id_http() {   # $1 method, $2 url
-    box_run "$SECOND_ID_CMD /usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -X $1 '$2'; echo \" \$?\""
+    _second_id_run "/usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -X $1 '$2'; echo \" \$?\""
+}
+# The second identity must PROVABLY not be the owner: its uid differs from the
+# uid the owner's own box_run reports. Prints ok or a reason.
+_second_id_ready() {
+    _o="$(box_run 'id -u')"; _x="$(_second_id_run '/usr/bin/id -u')"
+    case "$_o:$_x" in
+        *[!0-9:]*|:*|*:) printf 'unavailable(%s)\n' "${SECOND_ID_HOST:-$SECOND_ID_CMD}" ;;
+        *) if [ "$_o" = "$_x" ]; then printf 'same-uid-as-owner(%s)\n' "$_x"; else printf 'ok\n'; fi ;;
+    esac
 }
 # 3b: "<port> <pid> <command line>" per TCP listener. sudo widens lsof to every
 # account (lsof is permission-scoped, see port_state); without it the sweep is
@@ -804,8 +824,9 @@ _listener_table() {
 _class3() {
     [ -n "$CRED_ROUTES$KNOWN_LISTENERS" ] || return 0
     if [ -n "$CRED_ROUTES" ]; then
-        if [ "$(box_run "$SECOND_ID_CMD /usr/bin/true && echo ok")" != ok ]; then
-            unmeasured_list="${unmeasured_list} credential-routes(second-identity-unavailable:${SECOND_ID_CMD})"
+        sid="$(_second_id_ready)"
+        if [ "$sid" != ok ]; then
+            unmeasured_list="${unmeasured_list} credential-routes(second-identity-${sid})"
         else
             for e in $CRED_ROUTES; do
                 p="${e%%:*}"; rest="${e#*:}"; m="${rest%%:*}"; path="${rest#*:}"

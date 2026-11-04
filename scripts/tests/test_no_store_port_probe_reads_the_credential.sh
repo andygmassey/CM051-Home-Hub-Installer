@@ -272,6 +272,15 @@ ARMS=""   # set by an arm to override OSTLER_PROBE_ARMS; empty = the default
 # always did. SECOND "env" runs the "second identity" as this account (a test
 # cannot sudo); the fake decides refuse/serve, which is what is adjudicated.
 CRED=""; OWNERR=""; SECOND=""; KNOWN=""; MATCH=""
+# A stand-in second identity: it reports a uid that is not ours to `id -u`
+# (the probe refuses a "second identity" with the owner's uid) and otherwise
+# runs the command as this account. The fake server decides refuse/serve.
+cat > "$TMP/asother" <<'STUB'
+#!/bin/bash
+if [ "$*" = "/usr/bin/id -u" ]; then echo 4242; exit 0; fi
+exec "$@"
+STUB
+chmod +x "$TMP/asother"
 # The wiki tailnet gate conf arm 1b reads the forgeable owner out of. Empty
 # points the probe at a path that does not exist, which is what every arm
 # except the wikigate ones wants: no client-authored pre-auth gate to satisfy.
@@ -281,7 +290,7 @@ run_probe() {
     env -u OSTLER_BOX_HOST \
         OSTLER_PROBE_ARMS="${ARMS:-both}" \
         OSTLER_PROBE_CRED_ROUTES="${CRED:-}" OSTLER_PROBE_OWNER_ROUTE="${OWNERR:-}" \
-        OSTLER_PROBE_SECOND_ID_CMD="${SECOND:-env}" \
+        OSTLER_PROBE_SECOND_ID_CMD="${SECOND:-$TMP/asother}" \
         OSTLER_PROBE_KNOWN_LISTENERS="${KNOWN:-}" OSTLER_PROBE_LISTENER_MATCH="${MATCH:-fake.py}" \
         OSTLER_PROBE_WIKI_GATE_CONF="${GATE:-$TMP/no-such-gate.conf}" \
         OSTLER_GATEWAY_PORT="$ctrl" \
@@ -444,7 +453,7 @@ STUB
            OSTLER_GATEWAY_PORT="$CTRL" OSTLER_PROBE_MUST_NOT_LISTEN="" \
            OSTLER_PROBE_SURFACES="$HTTP:wiki:/query?query=ASK%7B%7D" \
            OSTLER_PROBE_CRED_ROUTES="$HTTP:POST:/api/v1/auth/chat-token" OSTLER_PROBE_OWNER_ROUTE="" \
-           OSTLER_PROBE_SECOND_ID_CMD="env" OSTLER_PROBE_KNOWN_LISTENERS="$CTRL $HTTP" \
+           OSTLER_PROBE_SECOND_ID_CMD="$TMP/asother" OSTLER_PROBE_KNOWN_LISTENERS="$CTRL $HTTP" \
            OSTLER_PROBE_LISTENER_MATCH="fake.py" \
            OSTLER_PROBE_WIKI_PASSWORD_FILE="$TMP/wiki_password" \
            OSTLER_PROBE_STORE_CURL_CONF="$TMP/store-curl.conf" \
@@ -660,6 +669,37 @@ arm_no_second_identity_is_cannot_run() { # 21
     [[ "$(count 'second-identity-unavailable' "$out")" -eq 1 ]] || return 1
     return 0
 }
+arm_second_identity_same_uid_is_cannot_run() {   # 21b
+    local out rc
+    start_server refuse "" ""
+    CRED="$HTTP:GET:/x"; SECOND="env"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; SECOND=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 78 ]] || return 1
+    [[ "$(count 'same-uid-as-owner' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_second_identity_over_ssh_no_sudo() {   # 21c Archie (c): the non-sudo route
+    local out rc
+    mkdir -p "$TMP/sshbin"
+    # Stub ssh: the "walk user" account. Reports its own uid, runs the rest.
+    cat > "$TMP/sshbin/ssh" <<'STUB'
+#!/usr/bin/env bash
+cmd=""; for a in "$@"; do cmd="$a"; done
+[ "$cmd" = "/usr/bin/id -u" ] && { echo 4243; exit 0; }
+exec bash -c "$cmd"
+STUB
+    chmod +x "$TMP/sshbin/ssh"
+    start_server bare "" ""
+    CRED="$HTTP:GET:/x"; SECOND="false"
+    out="$(PATH="$TMP/sshbin:$PATH" OSTLER_PROBE_SECOND_ID_HOST=walkuser@fakebox run_probe "$1" "$CTRL" "" "" "")"; rc=$?
+    CRED=""; SECOND=""; LAST_OUT="$out"
+    stop_server
+    # SECOND=false would make the sudo route unavailable; the ssh route must be
+    # the one that ran, and it must see the bare 200.
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "(200,second-identity)" "$out")" -eq 1 ]] || return 1
+    return 0
+}
 arm_unknown_listener_is_fail() {         # 22 a deliberately open listener nobody declared
     local out rc
     start_server refuse "" ""
@@ -720,6 +760,8 @@ arm_cred_route_served_is_fail "$PROBE";     report "18 S1: a credential route se
 arm_cred_route_refused_owner_served_is_pass "$PROBE"; report "19 S1: credential route refused to a second identity -> PASS" $?
 arm_owner_locked_out_is_fail "$PROBE";      report "20 S1: the owner refused its own pair/status -> FAIL (lock-out)" $?
 arm_no_second_identity_is_cannot_run "$PROBE"; report "21 S1: no second identity available -> CANNOT-RUN, never a pass" $?
+arm_second_identity_same_uid_is_cannot_run "$PROBE"; report "21b S1: a \"second identity\" with the owner's uid -> CANNOT-RUN, never a pass" $?
+arm_second_identity_over_ssh_no_sudo "$PROBE"; report "21c S1: the non-sudo route (ssh as a walk user) runs 3a and catches a served route" $?
 arm_unknown_listener_is_fail "$PROBE";      report "22 S1: an undeclared listener -> FAIL naming it" $?
 arm_declared_listeners_is_pass "$PROBE";    report "23 S1 control: the same listener declared -> PASS" $?
 

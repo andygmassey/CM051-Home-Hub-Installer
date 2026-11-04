@@ -4513,6 +4513,68 @@ from proxy import register_proxy_routes
 _registered_proxy_paths = register_proxy_routes(app)
 
 
+# ── S1: EVERY Doctor-native route answers the Mac's owner only ────────
+#
+# Red team v1.0.124, Archie's (b): the Doctor binds 127.0.0.1 (see __main__),
+# but loopback is shared by every macOS account and `tailscale serve` relays
+# tailnet peers onto it. Pages like /doctor, /api/v1/sources, the import and
+# config routes show or change the owner's data, so the owner check that the
+# five credential routes carry is applied to the whole Doctor-native surface
+# here. Three exceptions, each with its own credential:
+#   * the DOCTOR_PROXY_PATHS forwards (proxy.py): a paired device bearer,
+#     validated by the gateway oracle, is what admits those;
+#   * _BEARER_OR_OWNER: Doctor-native routes the paired iPhone calls with its
+#     bearer (CM031 CorrectFactTool -> wiki/correct); owner OR a paired bearer;
+#   * OPTIONS: a CORS preflight carries and returns no data;
+#   * _PUBLIC: payloads that are non-PII by construction and are polled by
+#     callers that are not the owner's own process (the wiki compiler runs in
+#     the colima VM and reaches the host through a relay).
+# The lookup is in-process (owner_peer.py, libproc / /proc), never a fork: the
+# Hub WebView polls this server about once a second.
+_BEARER_OR_OWNER = frozenset({
+    "/api/v1/wiki/correct",
+    "/api/v1/people/{slug}/suppress-suggestions",
+})
+
+
+_PUBLIC = frozenset({
+    "/api/v1/hydration/status",   # per-phase counts, states, ETA; see #178 above
+})
+
+
+def _route_for(scope):
+    from starlette.routing import Match
+    for r in app.router.routes:
+        m, _ = r.matches(scope)
+        if m == Match.FULL:
+            return r
+    return None
+
+
+@app.middleware("http")
+async def _owner_gate(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    route = _route_for(request.scope)
+    endpoint = getattr(route, "endpoint", None)
+    if getattr(route, "path", None) in _PUBLIC:
+        return await call_next(request)
+    if endpoint is not None and getattr(endpoint, "__module__", "") == "proxy":
+        return await call_next(request)
+    refusal = await _owner_refusal(request)
+    if refusal is None:
+        return await call_next(request)
+    if route is not None and getattr(route, "path", None) in _BEARER_OR_OWNER:
+        try:
+            from proxy import _extract_bearer_token, _is_paired_bearer
+            token = _extract_bearer_token(request.headers)
+            if token and await _is_paired_bearer(token):
+                return await call_next(request)
+        except Exception:  # noqa: BLE001 - a check that cannot run has not passed
+            pass
+    return refusal
+
+
 def _config_section_order() -> tuple[str, ...]:
     """Section display order for the Configuration panel.
 

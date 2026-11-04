@@ -42,6 +42,22 @@ class CannotRun(Exception):
     pass
 
 
+def _doctor_auth(path, web_ui_text):
+    """S1: the Doctor's _owner_gate middleware gates every native route on the
+    kernel's view of the caller (owner_peer). _PUBLIC routes are open;
+    _BEARER_OR_OWNER routes also admit a paired device bearer."""
+    def _set(name):
+        m = re.search(name + r"\s*=\s*frozenset\(\{(.*?)\}\)", web_ui_text, re.S)
+        return set(re.findall(r'"([^"]+)"', m.group(1))) if m else set()
+    if "async def _owner_gate(" not in web_ui_text:
+        return ["none"]
+    if path in _set("_PUBLIC"):
+        return ["none"]
+    if path in _set("_BEARER_OR_OWNER"):
+        return ["owner_peer", "device_bearer"]
+    return ["owner_peer"]
+
+
 def read(rel, base=REPO):
     p = os.path.join(base, rel)
     if not os.path.isfile(p):
@@ -337,7 +353,7 @@ def extract_doctor(web_ui_text, proxy_text, install_text, ical_routes):
                     req, opt = sorted(set(req) | fq), sorted((set(opt) | fo) - fq - set(req))
                 out.append({
                     "method": verb, "path": path, "listener": "doctor", "ports": [8089],
-                    "auth": ["owner_peer"] if "_owner_refusal(" in src else ["none"], "cross_site_refusal": "_cross_site_refusal(" in src,
+                    "auth": _doctor_auth(path, web_ui_text), "cross_site_refusal": "_cross_site_refusal(" in src,
                     "body_limit_bytes": None, "line": fn.lineno,
                     "query_params": [], "response_fields": sorted(resp),
                     "request_required": req, "request_optional": opt,
@@ -563,6 +579,8 @@ AUTH_SCHEMES = {
     "admin_token": {"header": "Authorization: Bearer <machine admin token>", "note": "loopback admin surface"},
     "qdrant_api_key": {"header": "api-key: <QDRANT_API_KEY>", "note": "Qdrant native key, behind the :6333 store proxy"},
     "store_bearer": {"header": "Authorization: Bearer <OXIGRAPH_TOKEN>", "note": "checked by the :7878 store proxy"},
+    "owner_peer": {"header": None,
+                   "note": "the caller's process must run as the Mac's owner and not be a relay (tailscaled, lima); read from the kernel by the Doctor (owner_peer.py, S1)"},
     "handler_defined": {"header": None, "note": "enforced inside the handler; not statically classified by the generator"},
 }
 

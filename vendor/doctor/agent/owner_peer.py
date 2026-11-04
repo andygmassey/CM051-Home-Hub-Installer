@@ -20,7 +20,7 @@ process holds the client end. We ask it, and admit only a peer that:
   1. arrived on a loopback address (a LAN or kernel-mode tailnet source is
      refused outright);
   2. is a process WE CAN SEE holding the client end of this exact connection.
-     macOS lsof, run unprivileged, cannot see another account's processes,
+     macOS libproc, called unprivileged, cannot see another account's processes,
      and Linux /proc/net/tcp reports the socket's uid, so another account is
      either invisible or visibly not us. Invisible is refused: unknown is not
      the owner;
@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import ipaddress
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -60,8 +59,6 @@ OWNER_ONLY_DETAIL = "refused: this Hub credential route is only available to the
 # executable's base name, case-insensitively.
 FORWARDERS = frozenset({"tailscaled", "tailscale", "limactl", "gvproxy", "vpnkit", "socat"})
 
-LSOF = "/usr/sbin/lsof"
-LOOKUP_TIMEOUT_S = 5.0
 
 
 @dataclass(frozen=True)
@@ -88,34 +85,70 @@ def _is_loopback(host: Optional[str]) -> bool:
     return ip.is_loopback
 
 
+# macOS: read the kernel's socket table IN PROCESS through libproc. No fork:
+# the Hub WebView polls the Doctor about once a second and a fork per request
+# is the defect tests/test_the_doctor_status_poll_has_a_fork_budget.py exists
+# for (macOS SIGTERMs a daemon that forks like that). Offsets are
+# <sys/proc_info.h>, measured with offsetof() on the macOS 26 SDK; a layout
+# change makes the lookup find nothing, which is refused (fail closed), and
+# the test's own-connection arm goes red.
+LIBPROC = "/usr/lib/libproc.dylib"
+_PROC_PIDLISTFDS, _PROC_PIDFDSOCKETINFO, _PROC_PIDTBSDINFO = 1, 3, 3
+_PROX_FDTYPE_SOCKET, _SOCKINFO_TCP = 2, 2
+_SOCKET_FDINFO_SIZE, _OFF_KIND, _OFF_FPORT, _OFF_LPORT = 792, 256, 264, 268
+_BSDINFO_SIZE, _OFF_UID, _OFF_COMM = 136, 20, 48
+_libproc_handle = None
+
+
+def _libproc():
+    global _libproc_handle
+    if _libproc_handle is None or _libproc_handle[0] != LIBPROC:
+        import ctypes
+        _libproc_handle = (LIBPROC, ctypes.CDLL(LIBPROC, use_errno=True))
+    return _libproc_handle[1]
+
+
 def _peer_darwin(client_host: str, client_port: int, server_port: int) -> Optional[Peer]:
+    import ctypes
+    import socket as _s
+    import struct
     try:
-        r = subprocess.run(
-            [LSOF, "-nP", "+c", "0", "-a", f"-iTCP@{client_host}:{client_port}",
-             "-sTCP:ESTABLISHED", "-Fpcun"],
-            capture_output=True, text=True, timeout=LOOKUP_TIMEOUT_S,
-        )
-    except (OSError, subprocess.SubprocessError):
+        lp = _libproc()
+    except OSError:
         return None
-    # lsof exits 1 when it finds nothing; that is "no visible peer", parsed below.
-    pid = uid = cmd = None
-    want_suffix = f":{client_port}->"
-    want_remote = f":{server_port}"
-    for line in r.stdout.splitlines():
-        if not line:
+    n = lp.proc_listallpids(None, 0)
+    if n <= 0:
+        return None
+    pids = (ctypes.c_int * (n + 64))()
+    n = lp.proc_listallpids(pids, ctypes.sizeof(pids)) or 0
+    sockbuf = ctypes.create_string_buffer(_SOCKET_FDINFO_SIZE)
+    for pid in pids[:n]:
+        if pid <= 0:
             continue
-        tag, val = line[0], line[1:]
-        if tag == "p":
-            pid, uid, cmd = int(val), None, None
-        elif tag == "c":
-            cmd = val
-        elif tag == "u":
-            uid = int(val)
-        elif tag == "n" and "->" in val:
-            local, remote = val.split("->", 1)
-            # The CLIENT end: local is the client port, remote is our port.
-            if (local + "->").endswith(want_suffix) and remote.endswith(want_remote) and uid is not None:
-                return Peer(pid=pid, uid=uid, command=cmd)
+        size = lp.proc_pidinfo(pid, _PROC_PIDLISTFDS, 0, None, 0)
+        if size <= 0:
+            continue  # not ours to see (another account) or gone
+        fdbuf = ctypes.create_string_buffer(size + 8 * 32)
+        got = lp.proc_pidinfo(pid, _PROC_PIDLISTFDS, 0, fdbuf, len(fdbuf))
+        for k in range(0, max(got, 0) // 8):
+            fd, fdtype = struct.unpack_from("<iI", fdbuf.raw, k * 8)
+            if fdtype != _PROX_FDTYPE_SOCKET:
+                continue
+            if lp.proc_pidfdinfo(pid, fd, _PROC_PIDFDSOCKETINFO, sockbuf, _SOCKET_FDINFO_SIZE) != _SOCKET_FDINFO_SIZE:
+                continue
+            raw = sockbuf.raw
+            if struct.unpack_from("<i", raw, _OFF_KIND)[0] != _SOCKINFO_TCP:
+                continue
+            fport = _s.ntohs(struct.unpack_from("<i", raw, _OFF_FPORT)[0] & 0xFFFF)
+            lport = _s.ntohs(struct.unpack_from("<i", raw, _OFF_LPORT)[0] & 0xFFFF)
+            if lport != client_port or fport != server_port:
+                continue
+            bsd = ctypes.create_string_buffer(_BSDINFO_SIZE)
+            if lp.proc_pidinfo(pid, _PROC_PIDTBSDINFO, 0, bsd, _BSDINFO_SIZE) != _BSDINFO_SIZE:
+                return Peer(pid=pid, uid=-1, command=None)
+            uid = struct.unpack_from("<I", bsd.raw, _OFF_UID)[0]
+            comm = bsd.raw[_OFF_COMM:_OFF_COMM + 16].split(b"\0", 1)[0].decode("utf-8", "replace")
+            return Peer(pid=pid, uid=uid, command=comm or None)
     return None
 
 
