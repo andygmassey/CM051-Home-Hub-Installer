@@ -152,7 +152,7 @@ def make_chatstorage(path: Path, now: datetime) -> None:
                      [(1, _jid(UNSAVED_PHONE), PUSH_NAME)])
     mention = "@" + OWNER_PHONE.lstrip("+")
     msgs = [
-        (1, 1, 1, t - timedelta(hours=3), None, "Hi Sam"),
+        (1, 1, 1, t - timedelta(hours=3), None, "Morning"),
         (2, 1, 0, t, _jid(SAM_PHONE), "Can you do Thursday's call?"),
         (3, 2, 0, t, _jid(UNSAVED_PHONE), "Are you around this week?"),
         (4, 3, 0, t - timedelta(hours=1), _jid(RAJ_PHONE), "Can you send the photos?"),
