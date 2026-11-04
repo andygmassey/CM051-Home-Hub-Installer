@@ -165,7 +165,7 @@ bad() { FAILS=$((FAILS + 1));  echo "  FAIL  $*"; }
 wait_for() { # file min_lines: up to 90 s
     local i=0
     while [ "$i" -lt 90 ]; do
-        [ "$(wc -l < "$1" 2>/dev/null | tr -d ' ')" -ge "$2" ] 2>/dev/null && return 0
+        [ "$(wc -l 2>/dev/null < "$1" | tr -d ' ')" -ge "$2" ] 2>/dev/null && return 0
         sleep 1; i=$((i + 1))
     done
     echo "    wait_for: $1 never reached $2 line(s)"
@@ -290,5 +290,7 @@ mutant() { # label case old new
 
 echo
 echo "test_walk_net_sampler: ${PASSES} ok, ${FAILS} failed (of $((PASSES + FAILS)))"
-[ "${FAILS}" -eq 0 ] && [ "${PASSES}" -eq 14 ] || exit 1
+[ "${FAILS}" -eq 0 ] || exit 1
+# The denominator: 8 cases + 6 mutants. Fewer means something did not run.
+[ -n "${ONLY_CASES:-}" ] || [ "${PASSES}" -eq 14 ] || { echo "denominator: ${PASSES} of 14 ran"; exit 1; }
 exit 0
