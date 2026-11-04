@@ -10133,8 +10133,8 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
         fi
 
         # The SAME validator Phase 3.6 setup_passphrase() runs (16+ chars or 4+ words, not too simple). A bare 12-char gate here let 12 to 15 through, and encrypt_db then aborted 40 minutes later (F&F report ERR-99-INSTALL-ABORT-L18321).
-        # Passphrase via env, never argv (ps). If the validator cannot run, its 16-char floor applies and the reason is in the diag log.
-        _rp_why="$(RP_CHECK="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c 'import os; from ostler_security.passphrase import validate_passphrase_strength as v; ok, m = v(os.environ["RP_CHECK"]); print("" if ok else m)' 2>>"${OSTLER_DIAG_DIR}/passphrase-validator.log" || echo "__ostler_validator_unavailable__")"
+        # Passphrase via env, never argv (ps). If the validator cannot run, its 16-char floor applies and its stderr is in the install log.
+        _rp_why="$(RP_CHECK="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c 'import os; from ostler_security.passphrase import validate_passphrase_strength as v; ok, m = v(os.environ["RP_CHECK"]); print("" if ok else m)' || echo "__ostler_validator_unavailable__")"  # stderr left on the install log (the support email carries it)
         if [[ "$_rp_why" == "__ostler_validator_unavailable__" ]]; then _rp_why=""; if [[ ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi; elif [[ -n "$_rp_why" && ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi
         if [[ -n "$_rp_why" ]]; then
             warn "$_rp_why"  # i18n-exempt: localised TOO_SHORT, or the validator's own reason for a 16+ passphrase it rejects
