@@ -1746,3 +1746,11 @@ d962b74f (acknowledged in `hold_ack_shas`; vendored differs, see below).
   fake gws ran 6 times across 6 endpoints, 25 red; branch: 10 pass, in-suite
   mutant per call site caught, consented control spawns exactly once).
 - Upstream: CM041 #245 MERGED as d962b74f. Retire this section when a re-pin brings it in.
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.

@@ -404,3 +404,12 @@ Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py` (wired in
 
 UPSTREAM ROW: none owed. CM041 main (fe3290d) has no write-side RULE 2 guard
 in `contact_syncer/syncer.py` at all; it lives only in this tree.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.

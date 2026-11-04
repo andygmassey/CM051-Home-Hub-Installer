@@ -48,3 +48,12 @@ Tree `cm041/meeting_syncer`. Pin HELD.
 - Why: the brief is emailed; both readers fed it with no filter (audit scratch/p1_scoped.evidence.txt).
 - Proof: `tests/test_vendored_brief_outbound_l3.py` (stock brief.py: 8 fail, 1 pass; fixed: 9 pass).
 - UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.
