@@ -33,6 +33,11 @@
 #   C  a 16-char "too simple" passphrase is refused at the question too.
 #   D  validator cannot run (python is /usr/bin/false): its 16-char floor
 #      still applies, so 13 chars is refused, 17 accepted.
+#   E  re-run / upgrade with keychain.json on disk: no prompt, no validator
+#      call, the skip is taken, so an existing passphrase is never re-judged.
+#   F  unlock() with an existing 13-char passphrase (config minted with the
+#      validator bypassed; synthetic) still returns the key.
+#      OSTLER_TEST_VENDOR points F at another vendor tree (mutation runs).
 #
 # RED: `bash $0 <path-to-old-install.sh>` runs every arm against another copy.
 # On origin/main before this change, A and B fail (and C, D).
@@ -160,6 +165,59 @@ if [ "$c" = 'Lantern-orchid-47' ]; then pass "C: a 16-char too-simple passphrase
 out="$(run_gate /usr/bin/false 'Tulip-river9x' 'Lantern-orchid-47' 'Lantern-orchid-47')"
 c="$(captured "$out")"
 if [ "$c" = 'Lantern-orchid-47' ]; then pass "D: validator unavailable, 13 chars still refused, 17 accepted"; else fail "D: captured '${c}'"; fi
+
+# ── E: an EXISTING install is never re-validated on a re-run / upgrade ────
+# Cut the real Phase 2 security chain, from the "already configured" test to
+# its closing fi, and run it with a keychain.json on disk. A recording python
+# and a recording gui_read prove nothing is asked and nothing is validated.
+s=$(/usr/bin/grep -n -F 'if [[ -f "${SECURITY_CONFIG_DIR}/passkey.json" || -f "${SECURITY_CONFIG_DIR}/keychain.json" ]]; then' "$SRC" | head -1 | cut -d: -f1)
+[ -n "$s" ] || { echo "CANNOT-RUN: Phase 2 re-run check not found"; exit 2; }
+e=$(/usr/bin/awk -v s="$s" 'NR>s && /^fi$/ {print NR; exit}' "$SRC")
+/usr/bin/sed -n "${s},${e}p" "$SRC" > "$WORK/chain.sh"
+echo "chain block: lines ${s}-${e}"
+d="$WORK/rerun"; mkdir -p "$d/sec"
+echo '{"version": 2}' > "$d/sec/keychain.json"    # synthetic: an earlier install's config
+printf '#!/bin/bash\necho "PYTHON_CALLED" >> "%s/calls"\necho "Passphrase must be at least 16 characters"\n' "$d" > "$d/python"; chmod +x "$d/python"
+cat > "$d/run.sh" <<RUNEOF
+set -Eeuo pipefail
+_ostler_on_err() { echo "ABORTED_ERR99"; exit 99; }
+${TRAP_LINE}
+. "$STRINGS"
+warn() { echo "[warn] \$*"; }; ok() { :; }; info() { :; }
+fail_with_code() { echo "FAIL_WITH_CODE \$1"; exit 9; }
+gui_read() { echo "GUI_READ_CALLED" >> "$d/calls"; kill -TERM \$\$; }
+gui_emit() { :; }; gui_log() { :; }
+SECURITY_CONFIG_DIR="$d/sec"; HAS_SECURITY_MODULE=true; PASSKEY_PRIMED=false; SECURITY_PREEXISTED=false
+OSTLER_PYTHON="$d/python"; OSTLER_DIAG_DIR="$d"; ALLOW_PLAINTEXT=0; SCRIPT_DIR="$d"
+RP_PASS_ERROR=""; RP_CONFIRM_ERROR=""
+. "$WORK/chain.sh"
+echo "PASSKEY_PRIMED=\$PASSKEY_PRIMED SECURITY_PREEXISTED=\$SECURITY_PREEXISTED HAS_SECURITY_MODULE=\$HAS_SECURITY_MODULE"
+RUNEOF
+out="$(/bin/bash "$d/run.sh" 2>&1)"
+calls="$(cat "$d/calls" 2>/dev/null || true)"
+if [ -z "$calls" ]; then pass "E: re-run with keychain.json: no prompt, no validator call"; else fail "E: re-run touched the passphrase: $(echo "$calls" | tr '\n' ' ')"; fi
+if /usr/bin/grep -q -F 'PASSKEY_PRIMED=false SECURITY_PREEXISTED=true HAS_SECURITY_MODULE=false' <<<"$out"; then pass "E: re-run takes the skip, so Phase 3.6 setup_passphrase never runs"; else fail "E: re-run did not take the skip: $(tail -1 <<<"$out")"; fi
+
+# ── F: unlock() never re-validates an existing passphrase ────────────────
+# A config minted under a 13-char passphrase (validator bypassed via the
+# locked writer; synthetic) must still unlock with it. ostler-unlock, the
+# services and the Hub start go through unlock(); only setup_passphrase()
+# and change_passphrase()'s NEW passphrase validate (passphrase.py:298, :705).
+cat > "$WORK/f.py" <<'PYEOF'
+import sys
+from pathlib import Path
+from ostler_security import passphrase as p
+d = Path(sys.argv[1]); d.mkdir(parents=True, exist_ok=True); d.chmod(0o700)
+short = "Tulip-river9x"
+p._setup_passphrase_locked(short, d)
+try:
+    k = p.unlock(short, config_dir=d)
+    print("UNLOCK_OK", len(k))
+except Exception as e:
+    print("UNLOCK_REFUSED", type(e).__name__, e)
+PYEOF
+FOUT="$(PYTHONPATH="${OSTLER_TEST_VENDOR:-${REPO}/vendor}" "${PY}" "$WORK/f.py" "$WORK/fsec" 2>&1)"
+if /usr/bin/grep -q '^UNLOCK_OK 32$' <<<"$FOUT"; then pass "F: an existing 13-char passphrase still unlocks"; else fail "F: unlock refused an existing short passphrase: $FOUT"; fi
 
 echo "----"
 if [ "$FAILS" -eq 0 ]; then echo "RESULT: PASS"; exit 0; fi
