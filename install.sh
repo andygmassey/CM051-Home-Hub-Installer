@@ -1218,7 +1218,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: knowledge venv create failed"; return 0; }
         _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
             || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
-        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "pip==26.2.2" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             && _upg_log "knowledge installed into venv" || _upg_log "WARN: knowledge pip failed (non-fatal)"
         return 0
@@ -1254,7 +1254,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         "$_py" -m venv "${_dir}/.venv" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || { _upg_log "WARN: cm048 venv create failed"; return 0; }
         _ostler_wire_store_auth_pth "${_dir}/.venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
             || warn "store-auth .pth not wired into "${_dir}/.venv" -- that venv reaches the data stores with NO credential"
-        "${_dir}/.venv/bin/pip" install --quiet --upgrade pip >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
+        "${_dir}/.venv/bin/pip" install --quiet "pip==26.2.2" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 || true
         "${_dir}/.venv/bin/pip" install --quiet "$_sec" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
             || _upg_log "WARN: ostler_security install into cm048 venv failed"
         "${_dir}/.venv/bin/pip" install --quiet "$_dir" >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1 \
@@ -1341,7 +1341,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         fi
         _ostler_wire_store_auth_pth "$_venv" "${_UPG_OSTLER_DIR:-${HOME}/.ostler}" \
             || _upg_log "WARN: store-auth .pth not wired into ${_venv} -- that venv reaches the data stores with NO credential"
-        _upg_run_bounded 120 "${_venv}/bin/pip" install --quiet --upgrade pip || true
+        _upg_run_bounded 120 "${_venv}/bin/pip" install --quiet "pip==26.2.2" || true
         if _upg_run_bounded "${OSTLER_UPGRADE_PIP_SECONDS:-600}" "${_venv}/bin/pip" install --quiet -r "${_dir}/requirements.txt"; then
             _upg_log "cm019 requirements installed (pyyaml, rdflib, pyshacl and the rest)"
         else
@@ -4688,7 +4688,7 @@ _ostler_repair_venv_after_promote() {
     if [[ -d "${SCRIPT_DIR}/legal" && -f "${SCRIPT_DIR}/legal/pyproject.toml" ]]; then
         _ostler_pip_install_pkg "${venv_dir}/bin/pip" "${SCRIPT_DIR}/legal" --quiet 2>/dev/null || true
     fi
-    "${venv_dir}/bin/pip" install --quiet "sqlcipher3>=0.6.0,<0.7.0" 2>/dev/null || true
+    "${venv_dir}/bin/pip" install --quiet "sqlcipher3==0.6.4" 2>/dev/null || true
 
     # ── #805 REOPENED: THIS FUNCTION IS WHERE nameparser DIED ────────────
     #
@@ -24694,7 +24694,7 @@ if [[ "$CM048_SOURCE_OK" == true && -f "$CM048_DIR/pyproject.toml" ]]; then
         || warn "store-auth .pth not wired into "$CM048_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_CM048_PIPELINE_INTO_VENV"
-    "$CM048_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    "$CM048_VENV/bin/pip" install --quiet "pip==26.2.2" 2>/dev/null || true
 
     # ostler_security is a HARD dependency of CM048's pipeline -- src/
     # ingest.py imports ostler_security.database + ostler_security.posture
@@ -25224,7 +25224,7 @@ if [[ -d "$CM019_BUNDLE" && -f "$CM019_BUNDLE/requirements.txt" ]]; then
     fi
     _ostler_wire_store_auth_pth "$CM019_VENV" \
         || warn "store-auth .pth not wired into "$CM019_VENV" -- that venv reaches the data stores with NO credential"
-    "$CM019_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    "$CM019_VENV/bin/pip" install --quiet "pip==26.2.2" 2>/dev/null || true
     # Runs on EVERY install, so a bumped requirements.txt is actually installed.
     # It was inside the old guard, which is the second half of the same defect.
     if "$CM019_VENV/bin/pip" install --quiet -r "${CM019_DIR}/requirements.txt" 2>"${OSTLER_DIAG_DIR}/cm019-pip.log"; then
@@ -30213,7 +30213,7 @@ if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
         || warn "store-auth .pth not wired into "$KNOWLEDGE_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_KNOWLEDGE_INTO_VENV"
-    "$KNOWLEDGE_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    "$KNOWLEDGE_VENV/bin/pip" install --quiet "pip==26.2.2" 2>/dev/null || true
     if "$KNOWLEDGE_VENV/bin/pip" install --quiet "$KNOWLEDGE_DIR" 2>"${OSTLER_DIAG_DIR}/knowledge-pip.log"; then
         info "$MSG_INFO_OSTLER_KNOWLEDGE_INSTALLED_VENV"
     else
@@ -30465,7 +30465,7 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         || warn "store-auth .pth not wired into "$EMAIL_INGEST_VENV" -- that venv reaches the data stores with NO credential"
 
     info "$MSG_INFO_INSTALLING_OSTLER_FDA_INTO_VENV"
-    "$EMAIL_INGEST_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    "$EMAIL_INGEST_VENV/bin/pip" install --quiet "pip==26.2.2" 2>/dev/null || true
     # VIA THE HELPER, NOT A RAW `pip install`. This line used to be
     # `"$EMAIL_INGEST_VENV/bin/pip" install --quiet "$OSTLER_FDA_SRC"`, and
     # OSTLER_FDA_SRC is "${SCRIPT_DIR}/ostler_fda" on a productised install, i.e.
@@ -30751,7 +30751,7 @@ _install_conversation_feed() {
         "$PYTHON3_BIN" -m venv "$venv"
         _ostler_wire_store_auth_pth "$venv" \
             || warn "store-auth .pth not wired into "$venv" -- that venv reaches the data stores with NO credential"
-        "$venv/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        "$venv/bin/pip" install --quiet "pip==26.2.2" 2>/dev/null || true
         local pip_log="${OSTLER_DIAG_DIR}/${feed_key}-source-pip.log"
         local pip_ok=1
         if [[ "${#pip_args[@]}" -gt 0 ]]; then
@@ -30916,7 +30916,7 @@ _ostler_catchup_register_feed() {
 [[ "$CHANNEL_WHATSAPP_ENABLED" != true || "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" != true ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ "$CHANNEL_WHATSAPP_ENABLED" == true && "$CHANNEL_WHATSAPP_CONSENT_ACCEPTED" == true ]]; then
     progress "$MSG_PROGRESS_WHATSAPP_BUNDLE" "whatsapp_bundle"
-    _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml"
+    _install_conversation_feed whatsapp whatsapp_source "ostler_fda pyyaml==6.0.3"
     _ostler_catchup_register_feed whatsapp 62-whatsapp whatsapp_source.catchup:adapters
 else
     # SAY WHICH PRECONDITION FAILED. Before this else existed the step was
@@ -31030,7 +31030,7 @@ if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "unknown" ]]; 
 fi
 if [[ -d "${HOME}/Library/Mail" && "$_OSTLER_CONSENT_TP_EMAIL" == "accepted" ]]; then
     progress "$MSG_PROGRESS_EMAIL_BUNDLE" "email_bundle"
-    _install_conversation_feed email email_source "ostler_fda pyyaml"
+    _install_conversation_feed email email_source "ostler_fda pyyaml==6.0.3"
 else
     # Same silence, same fix. "Apple Mail is not set up on this Mac" is a
     # fact the customer may want to act on; "you declined" is a choice they
@@ -31052,7 +31052,7 @@ fi
 [[ ! -d "${USER_FACING_ROOT}/Transcripts" ]] && TOTAL_STEPS=$((TOTAL_STEPS - 1)) || true
 if [[ -d "${USER_FACING_ROOT}/Transcripts" ]]; then
     progress "$MSG_PROGRESS_SPOKEN_BUNDLE" "spoken_bundle"
-    _install_conversation_feed spoken spoken_source "pyyaml"
+    _install_conversation_feed spoken spoken_source "pyyaml==6.0.3"
 else
     # THE ROW A2 CONFIRMED. Only one precondition here (the Transcripts
     # directory), and its absence is the ordinary case on a fresh Mac --
@@ -31109,7 +31109,7 @@ if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "un
 fi
 if [[ -f "${HOME}/Library/Messages/chat.db" && "$_OSTLER_CONSENT_TP_IMSG" == "accepted" ]]; then
     progress "$MSG_PROGRESS_IMESSAGE_BUNDLE" "imessage_bundle"
-    _install_conversation_feed imessage services/imessage_source "pyyaml"
+    _install_conversation_feed imessage services/imessage_source "pyyaml==6.0.3"
     _ostler_catchup_register_feed imessage 60-imessage services.imessage_source.catchup:adapters
 else
     # Fourth of four. Same shape, same silence, same fix.
@@ -42493,7 +42493,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
             "$PYTHON3_BIN" -m venv "$_AICONV_VENV" >>"$_AICONV_LOG" 2>&1 || true
             _ostler_wire_store_auth_pth "$_AICONV_VENV" \
                 || warn "store-auth .pth not wired into "$_AICONV_VENV" -- that venv reaches the data stores with NO credential"
-            "$_AICONV_VENV/bin/pip" install --quiet --upgrade pip >>"$_AICONV_LOG" 2>&1 || true
+            "$_AICONV_VENV/bin/pip" install --quiet "pip==26.2.2" >>"$_AICONV_LOG" 2>&1 || true
             _ostler_pip_install_pkg "$_AICONV_VENV/bin/pip" "$_AICONV_SRC" --quiet >>"$_AICONV_LOG" 2>&1 || true
         fi
 

@@ -44,6 +44,12 @@ on:
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
       - 'tests/test_vendor_manifest_is_valid_toml.py'
+      # S4 (v1.0.124): every requirements file is == pinned. contact_syncer/ is
+      # outside vendor/**, so it and the box-side pin probe are watched here.
+      - 'tests/test_python_requirements_are_pinned.py'
+      - 'contact_syncer/requirements.txt'
+      - 'scripts/pin_python_requirements.py'
+      - 'scripts/box_walk_probes/lib/pip_pins_probe.py'
       # Watched because the step below RUNS it, plus the two files it READS
       # that nothing here watched yet. Its SUBJECT, vendor/VENDOR_MANIFEST.toml,
       # is already covered by the vendor/** glob at the top of this list, so it
@@ -212,6 +218,13 @@ jobs:
       # stayed green, so the format claim in the filename was asserted nowhere.
       - name: VENDOR_MANIFEST.toml is valid TOML
         run: python3 tests/test_vendor_manifest_is_valid_toml.py
+
+      # S4 (v1.0.124): Python deps were fetched unpinned at install and upgrade.
+      # Red on the pre-pin tree (61 findings), green after; carries its own mutants.
+      - name: Every requirements file is == pinned
+        run: |
+          python3 tests/test_python_requirements_are_pinned.py
+          python3 scripts/box_walk_probes/lib/pip_pins_probe.py --self-test
 
       # THE SAME FILE IS SHIPPED. gui/Makefile:1215 sets VENDOR_MANIFEST_SRC to
       # $SRC_ROOT/vendor/VENDOR_MANIFEST.toml and :1249 copies it into the .app as

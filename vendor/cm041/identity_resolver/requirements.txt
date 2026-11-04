@@ -26,6 +26,14 @@
 # the installed venv, the developer's machine, the box -- already had all
 # three from a sibling requirements file. A dependency list is only tested by
 # an environment that has nothing.
-httpx>=0.24,<1.0
-phonenumbers>=8.13
-rapidfuzz>=3.0,<4.0
+httpx==0.28.1  # was: >=0.24,<1.0
+phonenumbers==9.0.42  # was: >=8.13
+RapidFuzz==3.14.6  # was: >=3.0,<4.0
+
+# --- transitive closure (pip freeze), pinned ---
+anyio==4.16.0
+certifi==2026.10.23
+h11==0.16.0
+httpcore==1.0.9
+idna==3.20
+typing_extensions==4.16.0
