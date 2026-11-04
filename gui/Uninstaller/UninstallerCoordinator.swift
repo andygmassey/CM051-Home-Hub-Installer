@@ -63,25 +63,25 @@ final class UninstallerCoordinator: ObservableObject {
         if logLines.count > 500 { logLines.removeFirst(logLines.count - 500) }
     }
 
-    private static func phaseLabel(_ name: String) -> String {
+    /// Customer copy in the Mac's language (ViewCopy `uninstaller.*`).
+    private static func copy(_ key: String, _ fills: [String: String] = [:]) -> String {
+        ViewCopy.shared.string(for: "uninstaller." + key, fills: fills)
+    }
+
+    static func phaseLabel(_ name: String) -> String {
         switch name {
-        case "launchagents":     return "Removing background services"
-        case "remotecapture":    return "Removing RemoteCapture"
-        case "hub_app":          return "Removing the Ostler app"
-        case "safari_extension": return "Removing the Safari extension"
-        case "colima":           return "Checking the shared Docker VM"
-        case "knowledge_staging":return "Handling knowledge data"
-        case "user_content":     return "Applying your content choice"
-        default:                 return "Working"
+        case "launchagents", "remotecapture", "hub_app", "safari_extension",
+             "colima", "knowledge_staging", "user_content":
+            return copy("phase_" + name)
+        default:
+            return copy("working")
         }
     }
 
     func start() {
         guard screen != .running else { return }
         guard uninstallerPresent else {
-            failureMessage = "The Ostler uninstaller was not found at "
-                + uninstallScriptPath
-                + ". Ostler may already be uninstalled."
+            failureMessage = Self.copy("not_found_at", ["path": uninstallScriptPath])
             succeeded = false
             finished = true
             screen = .done
@@ -91,7 +91,7 @@ final class UninstallerCoordinator: ObservableObject {
         let flags = UninstallFlags.build(options)
         note("Running ostler-uninstall " + flags.joined(separator: " "))
         screen = .running
-        currentPhase = "Starting"
+        currentPhase = Self.copy("starting")
 
         let out = Pipe(); let err = Pipe()
         stdoutPipe = out; stderrPipe = err
@@ -128,7 +128,7 @@ final class UninstallerCoordinator: ObservableObject {
             try proc.run()
             process = proc
         } catch {
-            failureMessage = "Could not start the uninstaller: \(error.localizedDescription)"
+            failureMessage = Self.copy("failed_start", ["error": error.localizedDescription])
             succeeded = false
             finished = true
             screen = .done
@@ -184,9 +184,9 @@ final class UninstallerCoordinator: ObservableObject {
         } else {
             succeeded = false
             if exitCode == 3 {
-                failureMessage = "The uninstaller could not confirm consent and removed nothing."
+                failureMessage = Self.copy("failed_consent")
             } else {
-                failureMessage = "The uninstaller exited with code \(exitCode) before finishing."
+                failureMessage = Self.copy("failed_exit", ["code": String(exitCode)])
             }
         }
         finished = true

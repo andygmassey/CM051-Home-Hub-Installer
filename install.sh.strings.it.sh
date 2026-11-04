@@ -1384,7 +1384,7 @@ Per saperne di più: docs.ostler.ai/privacy/third-party-data."
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="A cosa serve Ostler"
 MSG_TERMS_PERSONAL_USE_INTRO="Ostler è progettato per una sola persona, sul suo Mac, per comprendere la propria vita. Questo è l'intero progetto, ed è il motivo per cui i tuoi dati non lasciano mai questo computer."
 MSG_TERMS_PERSONAL_USE_BUSINESS="Non è progettato per uso aziendale. Non distribuire Ostler ai dipendenti e non usarlo nel corso del tuo lavoro per acquisire dati di colleghi, clienti, pazienti o utenti. Se un'organizzazione lo fa, diventa responsabile di tutte le persone di cui raccoglie le informazioni, e Ostler non è progettato per sostenere questa responsabilità."
 MSG_TERMS_PERSONAL_USE_RECORDER="Sei tu a registrare. Ostler è solo lo strumento. Dove la legge locale richiede il consenso prima di registrare una conversazione, ottenerlo spetta a te, e noi non possiamo sapere da qui se una determinata registrazione sia lecita dove ti trovi."
@@ -1462,7 +1462,7 @@ Cosa ti chiediamo:
 • In caso di dubbio, lascia questa opzione disattivata. Le tue conversazioni testuali funzionano comunque e puoi attivarla più tardi in Impostazioni."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="La trascrizione del parlato resterà disattivata. Potrai attivarla più tardi in Impostazioni."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Pronto per l'installazione?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="Digita INSTALL per confermare di accettare i termini."

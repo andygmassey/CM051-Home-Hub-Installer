@@ -64,11 +64,6 @@
   "src_hash": "753246eaa2a6",
   "src": "Licence: %s – check upstream terms before commercial use."
  },
- "install_sh::MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF": {
-  "text": "سيبقى تحويل الكلام المنطوق إلى نص متوقفًا. يمكنك تفعيله لاحقًا من الإعدادات.",
-  "src_hash": "40fb2092ab43",
-  "src": "Spoken transcription will stay off. You can enable it later in Settings."
- },
  "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
   "text": "      (المادة 9 من UK GDPR - مطلوبة للبيانات ذات الفئة الخاصة).",
   "src_hash": "6592e60a90f7",
@@ -88,11 +83,6 @@
   "text": "اللغة. هذه الشروط مكتوبة بالإنجليزية. أي ترجمة مقدَّمة للتيسير فقط. إذا اختلفت الترجمة عن النسخة الإنجليزية، فالنسخة الإنجليزية هي المعتمدة.",
   "src_hash": "25ee357c8384",
   "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
- },
- "install_sh::MSG_TERMS_PERSONAL_USE_HEADING": {
-  "text": "الغرض من Ostler",
-  "src_hash": "920bde25f4bc",
-  "src": "What Ostler is for"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_LEGAL": {
   "text": "Ostler مرخّص للاستخدام الشخصي غير التجاري من قبل شخص طبيعي. وCreative Machines ليست متحكمة في البيانات ولا معالجة للمعلومات التي تحتفظ بها على جهاز Mac، ولا تتلقى شيئًا منها، ولا تقدم أي ضمان بأن أي تسجيل أو التقاط بعينه قانوني في نطاقك القضائي.",

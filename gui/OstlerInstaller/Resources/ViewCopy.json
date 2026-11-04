@@ -179,7 +179,10 @@
   },
 
   "log_drawer": {
-    "header_label": "LOG"
+    "header_label": "LOG",
+    "copy_log": "Copy log",
+    "copied": "Copied",
+    "copy_help": "Copy the whole log buffer to the clipboard"
   },
 
   "onboarding_question": {
@@ -422,5 +425,86 @@
   "legal": {
     "_meta": "owner ruling 2026-10-24: 'localisation with English prevails'. Shown under every legal/consent screen ONLY when this line is itself translated for the installer's language (ViewCopy.englishPrevailsNote). l10n/ostler_l10n.py ships a translation of it, and of any legal key, only once a native reviewer has passed it (l10n/legal_reviews.tsv).",
     "english_prevails": "This is a translation. If it differs from the English version, the English version prevails."
+  },
+
+  "relocator": {
+    "_meta": "Alerts before the installer's first screen (Bootstrap/SelfRelocator.swift), in the Mac's own language.",
+    "move_title": "Move Ostler Installer to your Applications folder?",
+    "move_body": "Ostler Installer should live in your Applications folder. Would you like to move it now?",
+    "move_button": "Move to Applications",
+    "dont_move_button": "Don't Move",
+    "replace_title": "An older Ostler Installer is already installed.",
+    "replace_body": "Replace it with this copy? The older copy will be moved to the Trash.",
+    "replace_button": "Replace",
+    "cancel_button": "Cancel",
+    "ok_button": "OK",
+    "replace_failed_title": "Could not replace existing Ostler Installer",
+    "move_failed_title": "Could not move Ostler Installer"
+  },
+
+  "uninstaller": {
+    "_meta": "The standalone Ostler Uninstaller app (gui/Uninstaller). Paths and commands stay exactly as written.",
+    "window_title": "Uninstall Ostler",
+    "heading": "Uninstall Ostler",
+    "intro": "This removes the Ostler app, its background services, its Docker data stores, and the Ostler folder in your home directory. Your generated content in Documents/Ostler is kept.",
+    "not_found": "The Ostler uninstaller was not found. Ostler may already be uninstalled.",
+    "not_found_at": "The Ostler uninstaller was not found at {path}. Ostler may already be uninstalled.",
+    "remove_colima": "Also delete the shared Docker VM (about 30 GB)",
+    "remove_colima_help": "Only if Ostler was the only thing using Docker on this Mac. This is the shared colima ‘default’ VM and may hold Docker data unrelated to Ostler.",
+    "purge_knowledge": "Also delete my imported knowledge data",
+    "purge_knowledge_help": "Wipes the knowledge-staging cache (imported notes and images). Left in place by default so a reinstall can reuse it.",
+    "cancel": "Cancel",
+    "uninstall_button": "Uninstall Ostler",
+    "running": "Uninstalling…",
+    "working": "Working",
+    "starting": "Starting",
+    "phase_launchagents": "Removing background services",
+    "phase_remotecapture": "Removing RemoteCapture",
+    "phase_hub_app": "Removing the Ostler app",
+    "phase_safari_extension": "Removing the Safari extension",
+    "phase_colima": "Checking the shared Docker VM",
+    "phase_knowledge_staging": "Handling knowledge data",
+    "phase_user_content": "Applying your content choice",
+    "failed_start": "Could not start the uninstaller: {error}",
+    "failed_consent": "The uninstaller could not confirm consent and removed nothing.",
+    "failed_exit": "The uninstaller exited with code {code} before finishing.",
+    "done_failed": "Uninstall did not finish",
+    "done_removed": "Ostler has been removed",
+    "done_stores_kept": "Ostler removed, but your data stores were NOT",
+    "row_stores": "Data stores",
+    "row_colima": "Shared colima VM",
+    "row_knowledge": "Knowledge data",
+    "stores_removed": "removed",
+    "stores_not_removed": "NOT removed. Start Docker and run: cd ~/.ostler && docker compose down -v",
+    "colima_removed": "deleted",
+    "colima_kept": "kept (still on disk)",
+    "colima_absent": "none present",
+    "colima_delete_failed": "delete failed. Remove manually with: colima delete default",
+    "colima_no_binary": "not deleted (colima not found)",
+    "colima_default": "kept",
+    "knowledge_preserved": "kept for a reinstall",
+    "knowledge_purged": "deleted",
+    "knowledge_absent": "none present",
+    "knowledge_preserve_failed": "removed (could not be set aside)",
+    "knowledge_default": "kept",
+    "quit": "Quit"
+  },
+
+  "recovery_app": {
+    "_meta": "The standalone Recover Ostler app (gui/Recovery). A frightened, non-technical reader: plain words.",
+    "window_title": "Recover Ostler",
+    "heading": "Recover Ostler",
+    "intro": "If Ostler has stopped opening your data, you can unlock it yourself with the recovery key you were shown when Ostler was set up. It's a code made of groups of four letters and numbers, like ABCD-EFGH-JKLM-NPQR. Type it in below, exactly as it was shown to you.",
+    "key_placeholder": "Recovery key",
+    "unlock_button": "Unlock my data",
+    "checking": "Checking your recovery key…",
+    "success_title": "You're unlocked",
+    "success_message": "Ostler can open your data again. Quit and reopen the Ostler app to keep going.",
+    "wrong_key_title": "That key wasn't accepted",
+    "wrong_key_message": "The most common reason is a small typo. Check each group of letters and numbers and try again.",
+    "tool_missing_title": "Couldn't check your key",
+    "tool_missing_message": "Ostler's recovery tool couldn't be found on this Mac. If you've just installed Ostler, try again in a minute. If this keeps happening, email {email}.",
+    "done": "Done",
+    "try_again": "Try again"
   }
 }

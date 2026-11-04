@@ -64,11 +64,6 @@
   "src_hash": "753246eaa2a6",
   "src": "Licence: %s – check upstream terms before commercial use."
  },
- "install_sh::MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF": {
-  "text": "口述轉錄會保持關閉。你日後可在「設定」中啟用。",
-  "src_hash": "40fb2092ab43",
-  "src": "Spoken transcription will stay off. You can enable it later in Settings."
- },
  "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
   "text": "      （英國 GDPR 第 9 條 - 處理特殊類別資料所必需）。",
   "src_hash": "6592e60a90f7",
@@ -88,11 +83,6 @@
   "text": "語言。本條款以英文撰寫。任何譯本僅供參考。如譯本與英文版本有任何差異,概以英文版本為準。",
   "src_hash": "25ee357c8384",
   "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
- },
- "install_sh::MSG_TERMS_PERSONAL_USE_HEADING": {
-  "text": "Ostler 的用途",
-  "src_hash": "920bde25f4bc",
-  "src": "What Ostler is for"
  },
  "install_sh::MSG_TERMS_PERSONAL_USE_LEGAL": {
   "text": "Ostler 授權予自然人作個人非商業用途。Creative Machines 並非你存放在 Mac 上的資料的資料控制者或處理者，不會接收這些資料，亦不保證任何特定的錄音或擷取在你所在的司法管轄區內合法。",

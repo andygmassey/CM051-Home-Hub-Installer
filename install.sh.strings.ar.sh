@@ -1387,7 +1387,7 @@ MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="تبقى أي بيانات تستوردها
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="الغرض من Ostler"
 MSG_TERMS_PERSONAL_USE_INTRO="صُمّم Ostler لشخص واحد، على جهاز Mac الخاص به، ليفهم حياته. هذا هو التصميم كله، ولهذا لا تغادر بياناتك هذا الجهاز أبدًا."
 MSG_TERMS_PERSONAL_USE_BUSINESS="لم يُصمَّم للاستخدام التجاري. يُرجى عدم نشر Ostler لدى الموظفين، أو استخدامه في سياق عملك لالتقاط بيانات الزملاء أو العملاء أو المرضى أو الزبائن. إذا فعلت مؤسسة ذلك، تصبح المؤسسة مسؤولة عن كل من تجمع معلوماته، وOstler غير مصمم لتحمّل ذلك."
 MSG_TERMS_PERSONAL_USE_RECORDER="أنت من يقوم بالتسجيل. Ostler مجرد أداة. وحيثما يشترط قانونك المحلي الحصول على موافقة قبل تسجيل محادثة، فإن الحصول عليها يقع عليك، ولا يمكننا أن نعرف من هنا ما إذا كان أي تسجيل بعينه قانونيًا في مكانك."
@@ -1465,7 +1465,7 @@ MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="باختصار: عندما تلتقط ص
 • إذا كنت في شك، فاترك هذا الخيار متوقفًا. تعمل محادثاتك النصية في الحالتين، ويمكنك تشغيله لاحقًا من الإعدادات."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="سيبقى تحويل الكلام المنطوق إلى نص متوقفًا. يمكنك تفعيله لاحقًا من الإعدادات."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="هل أنت جاهز للتثبيت؟"
 MSG_PROMPT_CONSENT_INSTALL_HELP="يُرجى كتابة INSTALL لتأكيد موافقتك على الشروط."
@@ -1848,7 +1848,7 @@ MSG_INFO_RECOVERY_KEY_REVEALED_COPY="نسخ إلى الحافظة"
 MSG_INFO_RECOVERY_KEY_REVEALED_SAVE_PDF="حفظ بصيغة PDF..."
 MSG_INFO_RECOVERY_KEY_REVEALED_PRINT="طباعة..."
 MSG_INFO_RECOVERY_KEY_REVEALED_CONTINUE="متابعة"
-MSG_INFO_RECOVERY_KEY_PDF_DEFAULT_FILENAME="Ostler Recovery Key.pdf"
+MSG_INFO_RECOVERY_KEY_PDF_DEFAULT_FILENAME="مفتاح استرداد Ostler.pdf"
 MSG_INFO_RECOVERY_KEY_PRINT_JOB_TITLE="مفتاح استرداد Ostler"
 MSG_OK_RECOVERY_KEY_COPIED_TO_CLIPBOARD="تم نسخ مفتاح الاسترداد إلى الحافظة"
 MSG_OK_RECOVERY_KEY_SAVED_AS_PDF="تم حفظ مفتاح الاسترداد في %s"

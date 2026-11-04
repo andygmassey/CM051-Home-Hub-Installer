@@ -34,7 +34,7 @@ struct LogDrawerView: View {
                     .foregroundStyle(Color.ostlerChassis.opacity(0.85))
                 Spacer()
                 Button(action: copyAllLogLines) {
-                    Label(copyConfirmActive ? "Copied" : "Copy log",
+                    Label(ViewCopy.shared.string(for: copyConfirmActive ? "log_drawer.copied" : "log_drawer.copy_log"),
                           systemImage: copyConfirmActive ? "checkmark" : "doc.on.doc")
                         .labelStyle(.titleAndIcon)
                         .font(.ostlerStrap)
@@ -44,7 +44,7 @@ struct LogDrawerView: View {
                 .controlSize(.mini)
                 .foregroundStyle(Color.ostlerChassis.opacity(copyConfirmActive ? 0.95 : 0.75))
                 .disabled(coordinator.logLines.isEmpty)
-                .help("Copy the whole log buffer to the clipboard")
+                .help(ViewCopy.shared.string(for: "log_drawer.copy_help"))
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
                 // F7 (Studio retest #2 2026-05-20): the Verbose toggle

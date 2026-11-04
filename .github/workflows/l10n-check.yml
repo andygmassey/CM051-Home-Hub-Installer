@@ -5,7 +5,7 @@ name: l10n-check
 #             validity (bash -n, JSON shape), keep-English lines, and no
 #             translation whose English changed since it was made (stale).
 #   NON-BLOCKING: the per-language coverage table printed by `check`.
-# A MISSING translation never fails this: every catalogue falls back to English.
+# A MISSING translation fails the completeness step (l10n/test_translation_complete.py).
 on:
   push:
     branches: [main]
@@ -24,6 +24,12 @@ jobs:
         run: python3 -I l10n/ostler_l10n.py self-test
       - name: translations are drop-in for their English
         run: python3 -I l10n/ostler_l10n.py check
+      # Coverage above never blocks; this does (L10N audit 2026-11-04). A
+      # non-legal key absent in a shipped language, or English prose left in
+      # a translation, fails, after the gate's two negative controls prove it can.
+      - name: every shipped language is complete (legal wording exempt)
+        if: always()
+        run: python3 -I l10n/test_translation_complete.py
       - name: a legal or consent translation ships only when reviewed, English prevailing (owner ruling 2026-10-24)
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_l10n_legal_ships_only_when_reviewed.py
       - name: every legal or consent prompt shows the English-prevails line when localised

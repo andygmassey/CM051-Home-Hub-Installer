@@ -19,7 +19,7 @@ struct RecoveryApp: App {
     @StateObject private var coordinator = RecoveryCoordinator()
 
     var body: some Scene {
-        Window("Recover Ostler", id: "main") {
+        Window(ViewCopy.shared.string(for: "recovery_app.window_title"), id: "main") {
             RecoveryRootView()
                 .environmentObject(coordinator)
                 .frame(

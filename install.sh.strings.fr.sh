@@ -1385,7 +1385,7 @@ En savoir plus sur docs.ostler.ai/privacy/third-party-data."
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="À quoi sert Ostler"
 MSG_TERMS_PERSONAL_USE_INTRO="Ostler est conçu pour une seule personne, sur son propre Mac, afin de comprendre sa propre vie. C’est toute sa conception, et c’est pourquoi vos données ne quittent jamais cette machine."
 MSG_TERMS_PERSONAL_USE_BUSINESS="Il n’est pas conçu pour un usage professionnel. Veuillez ne pas déployer Ostler auprès de votre personnel, ni l’utiliser dans le cadre de votre travail pour saisir des informations sur des collègues, des clients, des patients ou des usagers. Si une organisation le fait, elle devient responsable de toutes les personnes dont elle collecte les informations, et Ostler n’est pas conçu pour assumer cela."
 MSG_TERMS_PERSONAL_USE_RECORDER="C'est vous qui enregistrez. Ostler n'est qu'un outil. Lorsque la loi de votre pays exige un consentement avant qu'une conversation ne soit enregistrée, c'est à vous de l'obtenir, et nous ne pouvons pas savoir d'ici si un enregistrement donné est licite là où vous vous trouvez."
@@ -1461,7 +1461,7 @@ Ce que nous vous demandons :
 • En cas de doute, laissez cette option désactivée. Vos conversations écrites fonctionnent dans les deux cas, et vous pourrez l'activer plus tard dans les Réglages."
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="La transcription orale restera désactivée. Vous pourrez l'activer plus tard dans Réglages."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Prêt à installer ?"
 MSG_PROMPT_CONSENT_INSTALL_HELP="Saisissez INSTALL pour confirmer que vous acceptez les conditions."

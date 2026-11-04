@@ -1378,7 +1378,7 @@ MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="你從第三方匯入的任何資料（Goog
 # A LICENCE TERM, not an optional consent, which is why it acknowledges rather
 # than offering a decline that leaves a half-licensed install. Wording verbatim
 # from the versioned ConsentString so the Doctor can flag drift.
-MSG_TERMS_PERSONAL_USE_HEADING="What Ostler is for"
+MSG_TERMS_PERSONAL_USE_HEADING="Ostler 的用途"
 MSG_TERMS_PERSONAL_USE_INTRO="Ostler 專為一個人打造，在自己的 Mac 上了解自己的生活。這就是整體設計的核心，也是你的資料永遠不會離開這部電腦的原因。"
 MSG_TERMS_PERSONAL_USE_BUSINESS="它並非為商業用途設計。請勿把 Ostler 部署給員工使用，也不要在工作中用它擷取同事、客戶、病人或顧客的資料。如果機構這樣做，該機構就要對其收集資料的所有人負責，而 Ostler 並非為承擔這類責任而設計。"
 MSG_TERMS_PERSONAL_USE_RECORDER="錄音的人是你，Ostler 只是工具。如果你所在地的法律規定在對話錄音前須取得同意，取得同意是你的責任，而我們無從得知在你所在的地方，某次錄音是否合法。"
@@ -1454,7 +1454,7 @@ Ostler 可以將你擷取的語音對話（例如通話和會議）轉為可搜�
 • 如有疑問，請保持關閉。文字對話無論如何都能使用，你之後也可以在「設定」中開啟。"
 # install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
 # to this help text at the gui_read call, so the help carries no legal note itself.
-MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
+MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="口述轉錄會保持關閉。你日後可在「設定」中啟用。"
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="準備好安裝了嗎？"
 MSG_PROMPT_CONSENT_INSTALL_HELP="請輸入 INSTALL，確認你接受這些條款。"

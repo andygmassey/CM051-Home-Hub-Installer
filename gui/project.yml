@@ -1531,6 +1531,14 @@ targets:
       - path: Uninstaller
       - path: OstlerInstaller/ProgressProtocol.swift
       - path: OstlerInstaller/OutputLineBuffer.swift
+      # Customer copy in the Mac's language (L10N audit 2026-11-04): the
+      # installer's own catalogue loader, language resolver and ViewCopy*.json,
+      # so this app says what the installer says, in the same words.
+      - path: OstlerInstaller/Steps/ViewCopy.swift
+      - path: OstlerInstaller/Steps/InstallerLanguage.swift
+      - path: OstlerInstaller/Resources
+        includes: ["ViewCopy*.json"]
+        buildPhase: resources
       # The Ostler brand mark, the installer's own AppIcon set, so Finder shows
       # it in /Applications/Ostler (118 U4: it shipped with the blank icon).
       # Guarded by scripts/verify_payload_app_icons.py on the staged DMG.
@@ -1584,6 +1592,12 @@ targets:
     sources:
       - path: Recovery
       - path: OstlerInstaller/Theme/OstlerTheme.swift
+      # Customer copy in the Mac's language, as for the Uninstaller above.
+      - path: OstlerInstaller/Steps/ViewCopy.swift
+      - path: OstlerInstaller/Steps/InstallerLanguage.swift
+      - path: OstlerInstaller/Resources
+        includes: ["ViewCopy*.json"]
+        buildPhase: resources
       # The Ostler brand mark (118 U4), same set and guard as the Uninstaller.
       - path: OstlerInstaller/Assets.xcassets
     # NO `info:` BLOCK, AND THAT IS DELIBERATE. An `info:` block makes
