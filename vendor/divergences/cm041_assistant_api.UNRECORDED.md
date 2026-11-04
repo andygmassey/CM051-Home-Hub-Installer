@@ -1713,3 +1713,12 @@ printed "could not verify cm041/assistant_api: source repo not found ()" and
   `tests/test_nameless_filter_applies_to_the_hub_people_count.py` (18-digit case).
 - Upstream: CM041 `assistant_api/people_rules.py`. Retire this section when a
   re-pin brings it in.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.
