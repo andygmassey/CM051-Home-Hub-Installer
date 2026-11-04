@@ -31,6 +31,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
@@ -89,6 +93,10 @@ on:
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
       - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
@@ -203,6 +211,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_quality_gate.py -v
+      - name: A scammer's instruction is never a todo, and a reply debt is listed only when owed (CM048 #110, #111)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 19 ]; then
+            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py -v
       - name: A valid todo is never dropped for length (cut at a word boundary, full text in notes)
         if: always()
         run: |

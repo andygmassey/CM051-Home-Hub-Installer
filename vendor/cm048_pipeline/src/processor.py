@@ -1472,7 +1472,7 @@ def _step_enrich_inner(
         # rejected gist arm).
         try:
             _todos = _outstanding_todos.extract_outstanding_todos(
-                rendered, metadata
+                rendered, metadata, transcript=transcript
             )
             _outstanding_todos.write_sidecar(state_dir, _todos)
         except Exception as exc:  # pragma: no cover - defensive
@@ -1589,7 +1589,7 @@ def _step_enrich_inner(
         # extracting outstanding_todos here rather than during ingest.
         try:
             _todos = _outstanding_todos.extract_outstanding_todos(
-                rendered, metadata
+                rendered, metadata, transcript=transcript
             )
             _outstanding_todos.write_sidecar(state_dir, _todos)
         except Exception as exc:  # pragma: no cover - defensive
