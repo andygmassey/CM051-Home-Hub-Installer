@@ -832,6 +832,7 @@ source_repo      = "$HR015"
 source_path      = "email_source"
 pinned_sha       = "5d31073d9e28e9024cbb25b308809ef428a39944"
   divergence_patch = "vendor/divergences/email_source.patch"
+unrecorded_divergence = "vendor/divergences/email_source.UNRECORDED.md"  # 2026-11-05: reply-debt snapshot (reader.py headers/mailbox, pipeline.py writer); regeneration would rewrite unrelated patch lines
   # RECORDED 2026-10-18 (vendor drift reduction): the assistant-send filter and first-bundle window widening (reader.py, pipeline.py) now in this tree's divergence patch,
   # written by scripts/regenerate_divergence_patch.sh against the source AT pin 5d31073d; the tool
   # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer

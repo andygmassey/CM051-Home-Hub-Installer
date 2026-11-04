@@ -143,3 +143,16 @@ Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness
 `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`. Retire by landing the change upstream (andygmassey/conversation-memory, services/imessage_source) and re-pinning.
 
 Recorded in `imessage_source.patch` (its `reader.py` section), spliced the same way as the `ostler_fda` twin: since CM051 #2969 that patch, not this file, is the tree's record.
+
+## 2026-11-05: the WhatsApp feed writes the reply-debt snapshot (tree whatsapp_source)
+
+Tree `whatsapp_source`, file `pipeline.py`. New `reply_debt_snapshot_path`,
+`build_reply_debt_snapshot`, `write_reply_debt_snapshot`; `process_whatsapp` writes the
+snapshot FIRST (a new `snapshot_path` argument; beside `state_path` when that is
+moved). Per in-tier chat: an opaque chat id, group flag, the DM partner's JID, the
+last message's author JID, text (500 chars), time, direction, whether the owner wrote
+in the recent tail, and the operator's labels. Never a push name or group subject.
+An unreadable store is `status: unreadable`, never an empty list. Read by CM048
+`reply_debt_sources` (cm048_pipeline record, same date). Proof:
+`tests/test_reply_debt_whatsapp_email.py`. Owed upstream: HR015 whatsapp_source.
+Regeneration not used: the dry run would also record unrelated drift (catchup.py).

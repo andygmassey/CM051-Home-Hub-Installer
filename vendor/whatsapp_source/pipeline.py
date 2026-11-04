@@ -317,6 +317,169 @@ def _dispatch_to_cm048(
         return proc.returncode
 
 
+# --- Reply-debt snapshot (the WhatsApp leg of "waiting on a reply") ------
+#
+# Same design as the iMessage feed's snapshot (imessage_source.pipeline,
+# CM051 #30): this tick already reads ChatStorage.sqlite under the signed
+# assistant's grant, so it writes the one thing reply debt needs, the LAST
+# text message of each recent in-tier chat with its direction, into the
+# engine room. The Hub's /api/v1/reply-debt (CM048 reply_debt_sources) reads
+# it there and never opens a protected store itself.
+#
+# What is copied out, and what is NOT:
+#   * per chat: an opaque chat id, group or not, the DM partner's JID, the
+#     last message's author JID, text (capped), time and direction, and
+#     whether the owner wrote anything in the recent tail (scam evidence);
+#   * the operator's own labels and explicit privacy level for the chat, so
+#     the CM048 WhatsApp privacy ladder applies (family / partner -> L3);
+#   * NEVER a push name or a group subject: a name comes from the owner's
+#     Contacts card on the Hub side, or nowhere.
+# The file is 0600 in a 0700 directory, rewritten whole on every tick.
+REPLY_DEBT_SNAPSHOT_SCHEMA = 1
+REPLY_DEBT_LOOKBACK_DAYS = 30
+_REPLY_DEBT_TAIL = 20
+_SNAPSHOT_TEXT_LIMIT = 500
+_PRODUCER = "whatsapp_source (whatsapp-bundle tick)"
+
+
+def reply_debt_snapshot_path() -> Path:
+    """Must agree with CM048 ``reply_debt_sources.snapshot_path("whatsapp")``."""
+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_WHATSAPP_SNAPSHOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
+    return base / "state" / "reply_debt" / "whatsapp_threads.json"
+
+
+def _write_snapshot_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    fd, tmp = tempfile.mkstemp(prefix=".whatsapp_threads.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def build_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    contacts_path: Optional[Path] = None,
+    lookback_days: int = REPLY_DEBT_LOOKBACK_DAYS,
+    now_utc=None,
+) -> dict:
+    """Read the recent tail of every in-tier chat and return the snapshot.
+
+    Raises PermissionError / FileNotFoundError exactly as the reader does, so
+    the caller records WHY there is no data rather than an empty list.
+    """
+    from datetime import datetime, timezone
+
+    contact_labels = _load_label_map(contacts_path, "contacts", "contact_label")
+    contact_privacy = _load_label_map(contacts_path, "contacts", "privacy_level")
+    group_labels = _load_label_map(contacts_path, "groups", "group_label")
+    group_privacy = _load_label_map(contacts_path, "groups", "privacy_level")
+
+    threads = []
+    for conv in read_chats(
+        db_path=db_path,
+        since_days=lookback_days,
+        now_utc=now_utc,
+        max_messages_per_chat=_REPLY_DEBT_TAIL,
+    ):
+        last = conv.utterances[-1] if conv.utterances else None
+        if last is None or last.timestamp is None:
+            continue
+        if conv.is_group:
+            key = f"group:{conv.chat_id}"
+            labels = {"group_label": _label_lookup(group_labels, key),
+                      "privacy_level": _label_lookup(group_privacy, key)}
+        else:
+            jid = conv.chat.contact_jid
+            labels = {"contact_label": _label_lookup(contact_labels, jid),
+                      "privacy_level": _label_lookup(contact_privacy, jid)}
+        row = {
+            "chat_id": str(conv.chat_id),
+            "is_group": bool(conv.is_group),
+            "counterpart_jid": None if conv.is_group else conv.chat.contact_jid,
+            "owner_wrote": any(u.is_from_me for u in conv.utterances),
+            "last": {
+                "text": (last.text or "")[:_SNAPSHOT_TEXT_LIMIT],
+                "is_from_me": bool(last.is_from_me),
+                "author_jid": None if last.is_from_me else last.author_jid,
+                "timestamp": last.timestamp.isoformat(),
+            },
+        }
+        row.update({k: v for k, v in labels.items() if v})
+        threads.append(row)
+    return {
+        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "producer": _PRODUCER,
+        "lookback_days": lookback_days,
+        "threads": threads,
+    }
+
+
+def write_reply_debt_snapshot(
+    *,
+    db_path: Optional[Path] = None,
+    contacts_path: Optional[Path] = None,
+    out_path: Optional[Path] = None,
+    now_utc=None,
+) -> str:
+    """Write the reply-debt snapshot; return its status.
+
+    A store this process cannot read is RECORDED as ``status: "unreadable"``,
+    never written as an empty-but-ok list, so the Hub says "couldn't check"
+    rather than "nothing owed". No WhatsApp Desktop store at all is a true
+    zero (``absent``). Never raises: the snapshot must not stop ingest.
+    """
+    from datetime import datetime, timezone
+
+    out = out_path or reply_debt_snapshot_path()
+    try:
+        payload = build_reply_debt_snapshot(
+            db_path=db_path, contacts_path=contacts_path, now_utc=now_utc
+        )
+    except PermissionError as exc:
+        payload = {"status": "unreadable", "reason": str(exc)[:200]}
+    except FileNotFoundError:
+        payload = {"status": "absent", "threads": []}
+    except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
+        payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    if payload.get("status") != "ok":
+        payload.update(
+            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            producer=_PRODUCER,
+        )
+    try:
+        _write_snapshot_atomic(out, payload)
+    except OSError as exc:
+        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
+        return "write_failed"
+    if payload["status"] == "ok":
+        logger.info("reply-debt snapshot: %d chat(s) -> %s",
+                    len(payload.get("threads") or []), out)
+    else:
+        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
+    return payload["status"]
+# ------------------------------------------------------------------------
+
+
 def _latest_ts_iso(conv: WhatsAppConversation) -> str:
     ended = conv.ended_at
     return ended.isoformat().replace("+00:00", "Z") if ended else ""
@@ -343,6 +506,7 @@ def process_whatsapp(
     state_path: Optional[Path] = None,
     now_utc=None,
     dry_run: bool = False,
+    snapshot_path: Optional[Path] = None,
 ) -> dict:
     """Read WhatsApp chats (with bodies) and dispatch new/updated chats.
 
@@ -351,6 +515,17 @@ def process_whatsapp(
     """
     pwg_convo_cmd = pwg_convo_cmd or _resolve_pwg_convo_cmd()
     state_file = state_path or _state_path()
+    # Reply-debt snapshot FIRST: one cheap read of each chat's recent tail,
+    # before dispatch can spend the tick (same order as the iMessage feed).
+    # A caller that moved the state (tests, a second profile) gets the
+    # snapshot beside it, never in the real engine room.
+    if snapshot_path is None and state_path is not None:
+        snapshot_path = Path(state_path).parent / "reply_debt_whatsapp_threads.json"
+    if not dry_run:
+        write_reply_debt_snapshot(
+            db_path=db_path, contacts_path=contacts_path,
+            out_path=snapshot_path, now_utc=now_utc,
+        )
     state = _load_state(state_file)
     chat_state: dict[str, str] = state.setdefault("chats", {})
     # The read window (days) each chat was last dispatched with. The newest-

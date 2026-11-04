@@ -150,3 +150,26 @@ never closed. Proof: tests/test_group_followup_key_counts_silent_members.py (Rus
 reference vector for three members).
 
 Owed upstream: yes, CM048 `src/channel_adapter.py`.
+
+## 2026-11-05: reply debt reads WhatsApp and email (graft of CM048 #113)
+
+Tree `cm048_pipeline`. A graft of CM048 PR #113 (branch `feat/reply-debt-wa-email`,
+head ca47022 plus the `addressed_in_group` follow-up), open for review. The four files
+below are BYTE-IDENTICAL to that branch. Not at the pin and not in the patch.
+
+- new `src/reply_debt_sources.py`: reads the WhatsApp and email reply-debt snapshots
+  (`$OSTLER_DIR/state/reply_debt/{whatsapp,email}_threads.json`) and applies the
+  per-channel rules. Identity is Contacts-card evidence only: no push names, no
+  From display names.
+- `src/reply_debt_service.py`: reads all three channels, adds `sources`, `channels`
+  and `partial` to the payload.
+- `src/reply_debt.py`: a WhatsApp group message that @mentions the owner is a
+  personal ask (`Thread.addresses_owner`); `addressed_in_group` only when true.
+- `src/reply_debt_adapters.py`: unchanged from this tree (CM048 #113 upstreams it).
+
+Producers: `whatsapp_source/pipeline.py` and `email_source/pipeline.py` +
+`email_source/reader.py` (recorded in their own trees' records). Proof:
+`tests/test_reply_debt_whatsapp_email.py`, run by
+`.github/workflows/reply-debt-never-reads-protected-data.yml`.
+
+Retire: re-pin cm048_pipeline to the CM048 commit that merges #113.

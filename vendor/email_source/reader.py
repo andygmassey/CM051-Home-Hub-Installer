@@ -64,6 +64,14 @@ class EmailMessage:
     timestamp: Optional[datetime] = None
     body: str = ""
     source_path: Optional[Path] = None
+    # The few headers that say a message was not written personally (a
+    # list, a bulk send, an auto-reply, a spam verdict). Lower-cased names;
+    # only the ones in ``_ROBOT_HEADERS`` are kept. Read by the reply-debt
+    # snapshot, which must not count a newsletter as someone waiting.
+    headers: dict = field(default_factory=dict)
+    # The Apple Mail mailbox(es) the file sits in ("INBOX", "Junk"), from
+    # the ``.mbox`` folders on its path.
+    mailbox: str = ""
 
 
 def _decode(value: object) -> str:
@@ -94,6 +102,27 @@ def _decode(value: object) -> str:
         return " ".join(out)
     except Exception:  # pragma: no cover -- defensive
         return value
+
+
+_ROBOT_HEADERS = (
+    "list-id", "list-unsubscribe", "auto-submitted", "precedence",
+    "x-spam-flag", "x-spam-status", "x-autoreply", "x-auto-response-suppress",
+)
+
+
+def _robot_headers(msg: PyMessage) -> dict:
+    out: dict = {}
+    for name in _ROBOT_HEADERS:
+        value = msg.get(name)
+        if value is not None and str(value).strip():
+            out[name] = _decode(value).strip()[:200]
+    return out
+
+
+def _mailbox_of(path: Optional[Path]) -> str:
+    if path is None:
+        return ""
+    return "/".join(p[: -len(".mbox")] for p in Path(path).parts if p.endswith(".mbox"))
 
 
 def _strip_angles(value: Optional[str]) -> str:
@@ -252,6 +281,8 @@ def _parse_one(rfc822_bytes: bytes, source_path: Optional[Path]) -> Optional[Ema
         timestamp=timestamp,
         body=_extract_body(msg),
         source_path=source_path,
+        headers=_robot_headers(msg),
+        mailbox=_mailbox_of(source_path),
     )
 
 
