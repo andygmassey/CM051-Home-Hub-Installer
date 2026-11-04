@@ -1298,7 +1298,7 @@ Pule as que você não usa; você sempre pode importar mais depois."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM criptografia em repouso?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, então seu disco não está criptografado em repouso.
 
-O que isso significa se você continuar: tudo o que o Ostler armazena – todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos de serviços e bancos de dados em ~/.ostler – é gravado no disco SEM criptografia. Qualquer pessoa que consiga iniciar o Mac a partir desse disco, removê-lo ou acessar uma sessão desbloqueada pode ler tudo isso. O Ostler criptografa seus bancos de dados mais sensíveis com uma senha de qualquer forma, mas o restante dos seus dados fica protegido apenas até onde o próprio disco estiver.
+O que isso significa se você continuar: tudo o que o Ostler armazena – todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos de serviços e bancos de dados em ~/.ostler – é gravado no disco SEM criptografia. Qualquer pessoa que consiga iniciar o Mac a partir desse disco, removê-lo ou acessar uma sessão desbloqueada pode ler tudo isso. A chave com que o Ostler criptografa seus bancos de dados fica neste mesmo disco, então, sem o FileVault, ela não protege seus dados de quem tiver acesso ao disco.
 
 O FileVault é fortemente recomendado. Você pode ativá-lo a qualquer momento em Ajustes do Sistema > Privacidade e Segurança > FileVault – ele criptografa em segundo plano, sem precisar reinstalar.
 

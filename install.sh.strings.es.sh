@@ -1299,7 +1299,7 @@ Omite los que no uses; siempre puedes importar más después."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="¿Continuar con el disco SIN CIFRAR en reposo?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault está desactivado en este Mac, así que tu disco no está cifrado en reposo.
 
-Qué significa esto si continúas: todo lo que guarda Ostler (todo tu grafo personal: wiki, conversaciones y notas de conocimiento en ~/Documents/Ostler, además de los secretos de servicio y las bases de datos en ~/.ostler) se escribe en el disco SIN CIFRAR. Cualquiera que pueda arrancar desde esta unidad, extraerla o acceder a una sesión desbloqueada puede leerlo todo. Ostler cifra de todos modos sus bases de datos más sensibles con una contraseña, pero el resto de tus datos solo está tan protegido como el propio disco.
+Qué significa esto si continúas: todo lo que guarda Ostler (todo tu grafo personal: wiki, conversaciones y notas de conocimiento en ~/Documents/Ostler, además de los secretos de servicio y las bases de datos en ~/.ostler) se escribe en el disco SIN CIFRAR. Cualquiera que pueda arrancar desde esta unidad, extraerla o acceder a una sesión desbloqueada puede leerlo todo. La clave con la que Ostler cifra sus bases de datos se guarda en este mismo disco, así que sin FileVault no protege tus datos frente a quien tenga acceso al disco.
 
 Se recomienda encarecidamente activar FileVault. Puedes hacerlo en cualquier momento en Ajustes del Sistema > Privacidad y seguridad > FileVault. Cifra en segundo plano, sin reinstalar.
 

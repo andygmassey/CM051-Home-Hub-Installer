@@ -337,7 +337,7 @@ def extract_doctor(web_ui_text, proxy_text, install_text, ical_routes):
                     req, opt = sorted(set(req) | fq), sorted((set(opt) | fo) - fq - set(req))
                 out.append({
                     "method": verb, "path": path, "listener": "doctor", "ports": [8089],
-                    "auth": ["none"], "cross_site_refusal": "_cross_site_refusal(" in src,
+                    "auth": ["owner_peer"] if "_owner_refusal(" in src else ["none"], "cross_site_refusal": "_cross_site_refusal(" in src,
                     "body_limit_bytes": None, "line": fn.lineno,
                     "query_params": [], "response_fields": sorted(resp),
                     "request_required": req, "request_optional": opt,

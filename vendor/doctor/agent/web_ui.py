@@ -461,6 +461,33 @@ def _not_hub_local(request: Request) -> "JSONResponse | None":
     return None
 
 
+async def _owner_refusal(request: Request) -> "JSONResponse | None":
+    """S1 (red team v1.0.124): refuse any caller that is not the Mac's owner.
+
+    The browser-shaped guards below cannot see a second macOS account or a
+    tailnet peer relayed by tailscaled onto loopback. This asks the kernel
+    which process holds the client end of the connection; see owner_peer.py
+    for the four conditions and what stays out of scope. Fails CLOSED: a
+    guard that cannot import or cannot look has not passed.
+    """
+    try:
+        import owner_peer as _owner_peer
+    except Exception:  # noqa: BLE001
+        return JSONResponse(
+            {"error": "refused: the owner check could not run", "refused_on": "guard-unavailable"},
+            status_code=403,
+        )
+    import asyncio as _asyncio
+    reason = await _asyncio.to_thread(
+        _owner_peer.verdict, request.scope.get("client"), request.scope.get("server"),
+    )
+    if reason is None:
+        return None
+    return JSONResponse(
+        {"error": _owner_peer.OWNER_ONLY_DETAIL, "refused_on": reason}, status_code=403,
+    )
+
+
 def _cross_site_refusal(request: Request) -> "JSONResponse | None":
     """Return the 403 to send, or ``None`` when the caller may proceed.
 
@@ -4205,7 +4232,7 @@ async def api_chat_token(request: Request):
     read its block above for what stays open and why the shipped
     Companion forbids requiring a credential here.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -6924,12 +6951,16 @@ async def whatsapp_pair_page():
 
 
 @app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
-async def api_whatsapp_pair():
+async def api_whatsapp_pair(request: Request):
     """Return the current WhatsApp pair code and its state.
 
     Read fresh on every call rather than cached: the code is short-lived and a
-    cached copy would outlive the thing it describes.
+    cached copy would outlive the thing it describes. Owner-only (S1): the code
+    links a WhatsApp account to this Hub.
     """
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
     from whatsapp_pair import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
@@ -7199,7 +7230,7 @@ async def api_extension_token(request: Request):
     ``_render_extension_setup_page``), so the cross-site refusal costs the
     real consumer nothing and stops a drive-by page reading the ingest key.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -7224,7 +7255,8 @@ async def api_pair_status(request: Request):
     page the customer opened; the refusal below is what stops that. Its only
     caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
     """
-    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    refusal = (await _owner_refusal(request)
+               or _not_hub_local(request) or _cross_site_refusal(request))
     if refusal is not None:
         return refusal
 
@@ -7246,7 +7278,8 @@ async def api_pair_regenerate(request: Request):
     POST, and that case was the gap. One predicate, so the four credential
     routes cannot drift apart the way this one and the chat-token mint had.
     """
-    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    refusal = (await _owner_refusal(request)
+               or _not_hub_local(request) or _cross_site_refusal(request))
     if refusal is not None:
         return refusal
 

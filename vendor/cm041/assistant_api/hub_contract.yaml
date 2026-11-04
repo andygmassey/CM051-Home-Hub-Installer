@@ -206,7 +206,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -619,7 +619,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1135,7 +1135,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1154,7 +1154,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1827,10 +1827,10 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
-   "cross_site_refusal": false,
+   "cross_site_refusal": true,
    "id": "doctor GET /api/v1/whatsapp/pair",
    "listener": "doctor",
    "method": "GET",
