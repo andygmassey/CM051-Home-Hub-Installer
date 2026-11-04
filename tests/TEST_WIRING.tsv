@@ -512,6 +512,7 @@ test_install_gui_contract_negatives.py	WIRED	.github/workflows/install-gui-contr
 test_install_log_follows_promotion.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_install_log_reads_like_a_product.sh	WIRED	.github/workflows/install-log-hygiene.yml
 test_install_manifest_gate.sh	WIRED	.github/workflows/install-manifest-gate.yml
+test_install_never_installs_gws.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_install_refuses_below_the_macos_floor.sh	WIRED	.github/workflows/background-copy-honesty.yml
 test_install_repairs_merge_consistency_after_dedupe.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_install_sh_no_call_before_definition.sh	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -1033,6 +1034,7 @@ test_vendored_employer_outbound_l3.py	WIRED	.github/workflows/forget-reaches-eve
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_gws_never_spawned_without_consent.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_logs_carry_no_personal_values.py	WIRED	.github/workflows/no-pii-in-logs.yml

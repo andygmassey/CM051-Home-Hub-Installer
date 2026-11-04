@@ -1515,6 +1515,68 @@ GWS_ENV = {
 }
 
 
+# ── Google connector gate (privacy blocker, v1.0.123 walk) ─────────────────
+#
+# EVERY spawn of GWS_BIN goes through google_connector_allowed() first.
+# Before this gate the calendar, timeline, Gmail, recent-mail fallback and
+# /health paths ran gws unconditionally: on a box with NO Google account and
+# NO consent the meeting-brief sender's 600 s poll made gws open TLS to
+# Google about every 4 minutes (76 times in 5 h on the walk). No data was
+# read, but the box's IP and timing went to Google unasked.
+#
+# gws runs ONLY when BOTH hold:
+#   (a) a Google account is configured: gws's own credential file exists,
+#       checked on disk WITHOUT running gws (credentials.enc or
+#       credentials.json in ~/.config/gws, or the macOS fallback
+#       ~/Library/Application Support/gws; the HOME is GWS_ENV's, which is
+#       the HOME gws itself is started with);
+#   (b) the owner opted in: the consent registry ~/.ostler/posture/consent.json
+#       (ostler_security/consent.py's file, $OSTLER_HOME honoured) holds a
+#       record for the connector's tickbox whose decision is EXACTLY
+#       "accepted".
+# Anything else is "not connected": a missing file, an unreadable or
+# malformed registry, no record, "declined", or any other value. Fail closed.
+#
+# The v1 sources picker has NO Google connector, so nothing in the product
+# writes either tickbox: on a customer Hub this gate is always closed. An
+# operator who wants gws back writes the decision by hand.
+GOOGLE_CALENDAR_CONSENT_ID = "google_calendar_connector"
+GOOGLE_GMAIL_CONSENT_ID = "google_gmail_connector"
+_GWS_CREDENTIAL_FILES = ("credentials.enc", "credentials.json")
+
+
+class GoogleNotConnected(Exception):
+    """gws was not run: no Google account, or no explicit opt-in."""
+
+
+def _gws_credentials_present():
+    home = Path(GWS_ENV.get("HOME") or os.path.expanduser("~"))
+    for d in (home / ".config" / "gws",
+              home / "Library" / "Application Support" / "gws"):
+        for name in _GWS_CREDENTIAL_FILES:
+            try:
+                if (d / name).is_file() and (d / name).stat().st_size > 0:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def _connector_consent_accepted(tickbox_id):
+    base = Path(os.environ.get("OSTLER_HOME") or os.path.expanduser("~/.ostler"))
+    try:
+        data = json.loads((base / "posture" / "consent.json").read_text())
+        decision = data["records"][tickbox_id]["decision"]
+    except Exception:
+        return False
+    return decision == "accepted"
+
+
+def google_connector_allowed(tickbox_id):
+    """True only when a Google account is configured AND the owner accepted."""
+    return _gws_credentials_present() and _connector_consent_accepted(tickbox_id)
+
+
 def _parse_attendee(line):
     """Parse an ATTENDEE or ORGANIZER iCal line into a dict.
 
@@ -1550,7 +1612,13 @@ def _parse_attendee(line):
 
 
 def query_google_calendar(days):
-    """Query Google Calendar via gws CLI."""
+    """Query Google Calendar via gws CLI.
+
+    Raises GoogleNotConnected, WITHOUT spawning gws, unless
+    google_connector_allowed(GOOGLE_CALENDAR_CONSENT_ID).
+    """
+    if not google_connector_allowed(GOOGLE_CALENDAR_CONSENT_ID):
+        raise GoogleNotConnected("Google Calendar")
     events = []
     now = datetime.utcnow()
     end = now + timedelta(days=days)
@@ -1745,7 +1813,10 @@ def parse_ical_output(raw):
 
 
 def query_gmail(query="is:unread", max_results=10):
-    """Query Gmail via gws CLI."""
+    """Query Gmail via gws CLI. Never spawns gws unless the gate allows it."""
+    if not google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID):
+        return {"error": "Gmail not connected", "not_connected": ["Gmail"],
+                "count": 0}
     try:
         params = json.dumps({"userId": "me", "q": query, "maxResults": max_results})
         result = subprocess.run(
@@ -9312,6 +9383,8 @@ def build_calendar_response(days, now=None):
             all_events.extend(extra)
             sources.append("Google Calendar")
             extra_ok = True
+    except GoogleNotConnected:
+        not_connected.append("Google")  # no account or no opt-in: gws not run
     except Exception:
         pass  # optional extra
 
@@ -9407,7 +9480,13 @@ def fetch_recent_emails(hours=24, limit=20):
 
 
 def _fetch_recent_emails_gws(hours=24, limit=20):
-    """Fetch recent emails via gws CLI. Returns subjects/snippets only (no body)."""
+    """Fetch recent emails via gws CLI. Returns subjects/snippets only (no body).
+
+    Never spawns gws unless google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID).
+    """
+    if not google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID):
+        return {"emails": [], "count": 0, "hours": hours,
+                "not_connected": ["Gmail"], "error": "Gmail not connected"}
     query = f"newer_than:{hours}h"
     try:
         params = json.dumps({
@@ -11929,16 +12008,22 @@ def api_health_detailed():
         out["checks"]["ollama"] = {"ok": False, "error": str(exc)[:80]}
         out["status"] = "degraded"
 
-    # gws CLI
-    try:
-        r = subprocess.run(
-            [GWS_BIN, "--version"],
-            capture_output=True, text=True, timeout=3, env=GWS_ENV,
-        )
-        out["checks"]["gws"] = {"ok": r.returncode == 0}
-    except Exception as exc:
-        out["checks"]["gws"] = {"ok": False, "error": str(exc)[:80]}
-        out["status"] = "degraded"
+    # gws CLI. Probed ONLY when a Google connector is allowed: `gws --version`
+    # is a spawn too. Not connected is the normal customer state, so it is
+    # reported and does NOT degrade health.
+    if not (google_connector_allowed(GOOGLE_CALENDAR_CONSENT_ID)
+            or google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID)):
+        out["checks"]["gws"] = {"ok": False, "not_connected": True}
+    else:
+        try:
+            r = subprocess.run(
+                [GWS_BIN, "--version"],
+                capture_output=True, text=True, timeout=3, env=GWS_ENV,
+            )
+            out["checks"]["gws"] = {"ok": r.returncode == 0}
+        except Exception as exc:
+            out["checks"]["gws"] = {"ok": False, "error": str(exc)[:80]}
+            out["status"] = "degraded"
 
     # ical-query.sh
     out["checks"]["ical_script"] = {"ok": os.path.exists(ICAL_SCRIPT)}

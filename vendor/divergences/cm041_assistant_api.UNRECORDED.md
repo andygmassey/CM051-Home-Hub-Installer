@@ -1714,6 +1714,38 @@ printed "could not verify cm041/assistant_api: source repo not found ()" and
 - Upstream: CM041 `assistant_api/people_rules.py`. Retire this section when a
   re-pin brings it in.
 
+## 2026-11-04 v1.0.123 (walk123 privacy): no gws spawn without a Google account AND an accepted opt-in
+
+Tree `cm041/assistant_api`. Pin HELD. Graft of CM041 #245, MERGED upstream as
+d962b74f (acknowledged in `hold_ack_shas`; vendored differs, see below).
+
+- `ical-server.py`: new block after `GWS_ENV`: `GOOGLE_CALENDAR_CONSENT_ID`,
+  `GOOGLE_GMAIL_CONSENT_ID`, `GoogleNotConnected`, `_gws_credentials_present()`
+  (gws's own `credentials.enc`/`credentials.json`, non-empty, in
+  `~/.config/gws` or `~/Library/Application Support/gws`, under `GWS_ENV`'s
+  HOME, checked without running gws), `_connector_consent_accepted()`
+  (`$OSTLER_HOME|~/.ostler/posture/consent.json`, `records[id].decision`
+  exactly `"accepted"`, anything unreadable is False) and
+  `google_connector_allowed()` (both).
+- Every gws spawn is gated: `query_google_calendar` raises `GoogleNotConnected`;
+  `build_calendar_response` reports it as `not_connected: ["Google"]` (same
+  shape as iCloud's `ICAL_NOT_CONNECTED_RC`); `query_gmail` and
+  `_fetch_recent_emails_gws` return `not_connected: ["Gmail"]` (recent mail
+  then answers 503 "mail unavailable" when apple_mail.json is also unreadable,
+  as before); `/health?detailed=1` reports `checks.gws = {ok: false,
+  not_connected: true}` without running `gws --version` and without degrading.
+- Vendored-only shape (differs from upstream): the calendar/mail call sites are
+  `build_calendar_response` and `_fetch_recent_emails_gws` here, `calendar_payload`
+  and `fetch_recent_emails` upstream. Same gate text in both.
+- Why: walk v1.0.123, no Google connector, no consent: gws ran 76 times in 5h
+  (TLS to Google), via com.ostler.meeting-brief-sender's 600 s calendar poll.
+  Present since 65df3860 (2026-05-21).
+- Nothing in the product writes either tickbox (v1 picker has no Google
+  connector), so on a customer Hub the gate is always closed.
+- Proof: `tests/test_vendored_gws_never_spawned_without_consent.py` (main: the
+  fake gws ran 6 times across 6 endpoints, 25 red; branch: 10 pass, in-suite
+  mutant per call site caught, consented control spawns exactly once).
+- Upstream: CM041 #245 MERGED as d962b74f. Retire this section when a re-pin brings it in.
 ## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
 
 The divergence described above is now RECORDED in this tree's
