@@ -173,3 +173,10 @@ Producers: `whatsapp_source/pipeline.py` and `email_source/pipeline.py` +
 `.github/workflows/reply-debt-never-reads-protected-data.yml`.
 
 Retire: re-pin cm048_pipeline to the CM048 commit that merges #113.
+
+## 2026-11-05: a shop's marketing SMS is never a reply owed (graft of CM048 #114)
+
+Tree `cm048_pipeline`, file `src/reply_debt.py`, BYTE-IDENTICAL to CM048 main at
+ec837ea4 (the squash merge of #114). `owed_verdict` answers no (rule "marketing") for
+an opt-out instruction or promotional wording in EN / ZH / JA / KO. Retire: re-pin
+cm048_pipeline to ec837ea4 or later.
