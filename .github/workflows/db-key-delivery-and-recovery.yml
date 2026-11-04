@@ -79,6 +79,7 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py'
       - 'tests/test_audit_log_row_factory.py'
       - 'tests/test_the_recovery_key_never_reaches_install_log.sh'
+      - 'tests/test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh'
       # A suite this workflow RUNS but does not WATCH is dark on self-edit:
       # it could be narrowed, or gutted, in the very PR that narrows it.
       - 'scripts/box_walk_probes/probes/the_recovery_key_reached_the_customer.sh'
@@ -249,3 +250,13 @@ jobs:
         # and BSD awk (macOS runner, the shipping host) with a synthetic key,
         # stubbed `security`/`swift`. Exit 2 is CANNOT-RUN and fails the step.
         run: /bin/bash tests/test_the_recovery_key_never_reaches_install_log.sh
+
+      - name: encrypt_db failure text reaches the log, and Phase 2 refuses what setup_passphrase refuses
+        if: always()
+        # F&F report ERR-99-INSTALL-ABORT-L18321 (v1.0.118): the ERR trap
+        # aborted before SETUP_EXIT, so the python error never reached the log
+        # or the support email; and Phase 2 accepted 12-15 chars that
+        # validate_passphrase_strength refuses. Runs the REAL install.sh lines
+        # under /bin/bash 3.2 with the vendored validator. Exit 2 is CANNOT-RUN
+        # and fails the step.
+        run: /bin/bash tests/test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh

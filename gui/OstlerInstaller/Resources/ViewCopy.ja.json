@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除するために使います。12文字以上で設定してください。紛失した場合、当社では復元できません。パスワードマネージャに保存することをおすすめします。",
-    "help_optic_id": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。12文字以上で設定してください。紛失しても復元できません。パスワードマネージャに保管することをおすすめします。",
-    "help_password_or_watch": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。12文字以上で設定してください。紛失しても復元できません。パスワードマネージャに保管することをおすすめします。"
+    "help_touch_id": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除するために使います。16文字以上で設定してください。紛失した場合、当社では復元できません。パスワードマネージャに保存することをおすすめします。",
+    "help_optic_id": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。16文字以上で設定してください。紛失しても復元できません。パスワードマネージャに保管することをおすすめします。",
+    "help_password_or_watch": "このパスフレーズは、ナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。16文字以上で設定してください。紛失しても復元できません。パスワードマネージャに保管することをおすすめします。"
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

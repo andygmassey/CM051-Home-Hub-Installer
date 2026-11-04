@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "تشفّر عبارة المرور هذه الرسم البياني المعرفي الخاص بك وتفتح واجهة Hub عند كل بدء تشغيل. 12 حرفًا على الأقل. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور.",
-    "help_optic_id": "تُشفّر عبارة المرور هذه رسم المعرفة البياني الخاص بك وتفتح قفل واجهة Hub عند كل تشغيل. يجب ألا تقل عن 12 حرفًا. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور.",
-    "help_password_or_watch": "تُشفّر عبارة المرور هذه رسم المعرفة البياني الخاص بك وتفتح قفل واجهة Hub عند كل تشغيل. يجب ألا تقل عن 12 حرفًا. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور."
+    "help_touch_id": "تشفّر عبارة المرور هذه الرسم البياني المعرفي الخاص بك وتفتح واجهة Hub عند كل بدء تشغيل. 16 حرفًا على الأقل. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور.",
+    "help_optic_id": "تُشفّر عبارة المرور هذه رسم المعرفة البياني الخاص بك وتفتح قفل واجهة Hub عند كل تشغيل. يجب ألا تقل عن 16 حرفًا. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور.",
+    "help_password_or_watch": "تُشفّر عبارة المرور هذه رسم المعرفة البياني الخاص بك وتفتح قفل واجهة Hub عند كل تشغيل. يجب ألا تقل عن 16 حرفًا. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور."
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

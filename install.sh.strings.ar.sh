@@ -854,7 +854,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="تواصل مع الدعم لإع�
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="عبارتا المرور غير متطابقتين. حاول مرة أخرى."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="فشل إعداد عبارة المرور. المخرجات:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="الإدخال فارغ. تم تخطي عبارة المرور."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="يجب ألا تقل عبارة المرور عن 12 حرفاً. حاول مرة أخرى."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="يجب ألا تقل عبارة المرور عن 16 حرفاً. حاول مرة أخرى."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="عبارة المرور مطلوبة لتشفير بياناتك."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="هذا ليس رقماً دولياً. ابدأ بعلامة + ثم رمز الدولة وبقية الرقم، مثل +447700900123. حاول مرة أخرى."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama لا يستجيب"
@@ -1314,7 +1314,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="تُشفَّر قواعد بيانات Ostler ال�
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="هل تريد تعيين عبارة مرور للاسترداد أيضًا؟ (موصى به)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="اختر عبارة المرور"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="تشفّر عبارة المرور هذه الرسم المعرفي الخاص بك وتفتح واجهة Hub عند كل بدء تشغيل. 12 حرفًا على الأقل. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="تشفّر عبارة المرور هذه الرسم المعرفي الخاص بك وتفتح واجهة Hub عند كل بدء تشغيل. 16 حرفًا على الأقل. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="أكّد عبارة المرور"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="أعد إدخال عبارة المرور نفسها للتأكيد."
 

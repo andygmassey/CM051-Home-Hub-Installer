@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Deze wachtwoordzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 12 tekens. We kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren.",
-    "help_optic_id": "Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 12 tekens. Wij kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren.",
-    "help_password_or_watch": "Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 12 tekens. Wij kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren."
+    "help_touch_id": "Deze wachtwoordzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. We kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren.",
+    "help_optic_id": "Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. Wij kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren.",
+    "help_password_or_watch": "Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. Wij kunnen hem niet voor je herstellen. We raden aan om hem in een wachtwoordmanager te bewaren."
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

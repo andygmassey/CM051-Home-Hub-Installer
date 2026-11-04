@@ -854,7 +854,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contactez l'assistance pour faire 
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Les phrases secrètes ne correspondent pas. Réessayez."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Échec de la configuration de la phrase secrète. Sortie :"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Saisie vide. Phrase secrète ignorée."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La phrase secrète doit comporter au moins 12 caractères. Réessayez."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La phrase secrète doit comporter au moins 16 caractères. Réessayez."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Une phrase secrète est nécessaire pour chiffrer vos données."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Ce n'est pas un numéro international. Commencez par + suivi de l'indicatif du pays puis du reste du numéro, par exemple +447700900123. Réessayez."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama ne répond pas"
@@ -1312,7 +1312,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Les bases de données sensibles d’Ostler sont chi
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Définir aussi une phrase secrète de récupération ? (recommandé)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choisissez votre phrase secrète"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Cette phrase secrète chiffre votre graphe de connaissances et déverrouille l’interface du Hub à chaque démarrage. 12 caractères minimum. Nous ne pouvons pas la récupérer pour vous. Il est recommandé de la conserver dans un gestionnaire de mots de passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Cette phrase secrète chiffre votre graphe de connaissances et déverrouille l’interface du Hub à chaque démarrage. 16 caractères minimum. Nous ne pouvons pas la récupérer pour vous. Il est recommandé de la conserver dans un gestionnaire de mots de passe."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirmez votre phrase secrète"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Saisissez à nouveau la même phrase secrète pour confirmer."
 

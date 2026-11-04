@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 12자 이상이어야 합니다. 저희는 암호를 대신 복구해 드릴 수 없습니다. 암호 관리자에 저장해 두시기를 권장합니다.",
-    "help_optic_id": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI를 잠금 해제합니다. 12자 이상이어야 합니다. 암호는 복구해 드릴 수 없습니다. 비밀번호 관리자에 보관하는 것을 권장합니다.",
-    "help_password_or_watch": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI를 잠금 해제합니다. 12자 이상이어야 합니다. 암호는 복구해 드릴 수 없습니다. 비밀번호 관리자에 보관하는 것을 권장합니다."
+    "help_touch_id": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 16자 이상이어야 합니다. 저희는 암호를 대신 복구해 드릴 수 없습니다. 암호 관리자에 저장해 두시기를 권장합니다.",
+    "help_optic_id": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI를 잠금 해제합니다. 16자 이상이어야 합니다. 암호는 복구해 드릴 수 없습니다. 비밀번호 관리자에 보관하는 것을 권장합니다.",
+    "help_password_or_watch": "이 암호는 지식 그래프를 암호화하고 시작할 때마다 Hub UI를 잠금 해제합니다. 16자 이상이어야 합니다. 암호는 복구해 드릴 수 없습니다. 비밀번호 관리자에 보관하는 것을 권장합니다."
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

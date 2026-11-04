@@ -300,9 +300,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。長度至少 12 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。",
-    "help_optic_id": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。至少 12 個字元。我們無法為你找回密碼短語。建議將它儲存在密碼管理工具中。",
-    "help_password_or_watch": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。至少 12 個字元。我們無法為你找回密碼短語。建議將它儲存在密碼管理工具中。"
+    "help_touch_id": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。長度至少 16 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。",
+    "help_optic_id": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。至少 16 個字元。我們無法為你找回密碼短語。建議將它儲存在密碼管理工具中。",
+    "help_password_or_watch": "此密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub 介面。至少 16 個字元。我們無法為你找回密碼短語。建議將它儲存在密碼管理工具中。"
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

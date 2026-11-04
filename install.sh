@@ -10132,13 +10132,13 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
             continue
         fi
 
-        # Quick length sanity check here; full strength validation
-        # runs in Phase 3.6 once the venv is fully provisioned.
-        # 12-char minimum mirrors the lower bound of
-        # validate_passphrase_strength's diceware path.
-        if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
-            warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
-            RP_PASS_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+        # The SAME validator Phase 3.6 setup_passphrase() runs (16+ chars or 4+ words, not too simple). A bare 12-char gate here let 12 to 15 through, and encrypt_db then aborted 40 minutes later (F&F report ERR-99-INSTALL-ABORT-L18321).
+        # Passphrase via env, never argv (ps). If the validator cannot run, its 16-char floor applies and the reason is in the diag log.
+        _rp_why="$(RP_CHECK="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c 'import os; from ostler_security.passphrase import validate_passphrase_strength as v; ok, m = v(os.environ["RP_CHECK"]); print("" if ok else m)' 2>>"${OSTLER_DIAG_DIR}/passphrase-validator.log" || echo "__ostler_validator_unavailable__")"
+        if [[ "$_rp_why" == "__ostler_validator_unavailable__" ]]; then _rp_why=""; if [[ ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi; elif [[ -n "$_rp_why" && ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi
+        if [[ -n "$_rp_why" ]]; then
+            warn "$_rp_why"  # i18n-exempt: localised TOO_SHORT, or the validator's own reason for a 16+ passphrase it rejects
+            RP_PASS_ERROR="$_rp_why"
             unset RECOVERY_PASSPHRASE
             continue
         fi
@@ -19042,7 +19042,7 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
 if [[ "$PASSKEY_PRIMED" == true && "$HAS_SECURITY_MODULE" == true ]]; then
     # Pass passphrase via env var (not arg) to avoid leak in ps(1).
-    SETUP_OUTPUT=$(RECOVERY_PASSPHRASE_FOR_SETUP="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c "
+    _sp_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e; SETUP_OUTPUT=$(RECOVERY_PASSPHRASE_FOR_SETUP="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c "
 import os
 import sys
 from pathlib import Path
@@ -19108,7 +19108,7 @@ except Exception as e:
     print('ERROR=' + str(e), file=sys.stderr)
     sys.exit(1)
 " 2>&1)
-    SETUP_EXIT=$?
+    SETUP_EXIT=$?; eval "$_sp_saved_err_trap"; set -e  # trap disarmed around the capture: armed, a failure aborted (ERR-99) BEFORE this line and the error text below was never printed (F&F report, 29 Oct)
     unset RECOVERY_PASSPHRASE
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
