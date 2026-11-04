@@ -3793,7 +3793,7 @@
  ) -> PushDecision:
      """Run the writer-side gate for one todo.
  
-@@ -342,16 +888,74 @@
+@@ -350,16 +896,74 @@
              push_deadline=None,
          )
  
@@ -3874,7 +3874,7 @@
      )
  
  
-@@ -396,10 +1000,12 @@
+@@ -404,10 +1008,12 @@
      conn = sqlite3.connect(str(db_path), timeout=5.0)
      conn.execute("PRAGMA journal_mode=WAL;")
      conn.execute(_SCHEMA)
@@ -3890,7 +3890,7 @@
          if column not in cols:
              try:
                  conn.execute(f"ALTER TABLE reminders_map ADD COLUMN {column} TEXT")
-@@ -410,6 +1016,29 @@
+@@ -418,6 +1024,29 @@
      return conn
  
  
@@ -3920,7 +3920,7 @@
  def _resolve_row_id(
      conn: sqlite3.Connection,
      *,
-@@ -534,6 +1163,13 @@
+@@ -542,6 +1171,13 @@
      conn.commit()
  
  
@@ -3934,7 +3934,7 @@
  def _upsert_pending(
      conn: sqlite3.Connection,
      *,
-@@ -565,12 +1201,13 @@
+@@ -573,12 +1209,13 @@
      if existing is None:
          conn.execute(
              "INSERT INTO reminders_map "
@@ -3951,7 +3951,7 @@
              ),
          )
          conn.commit()
-@@ -580,11 +1217,12 @@
+@@ -588,11 +1225,12 @@
      conn.execute(
          "UPDATE reminders_map SET "
          "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
@@ -3966,7 +3966,7 @@
              user_id, session_id, todo_id,
          ),
      )
-@@ -642,6 +1280,13 @@
+@@ -650,6 +1288,13 @@
      if db_path is None:
          db_path = default_db_path()
  
@@ -3980,7 +3980,7 @@
      try:
          conn = _open_db(db_path)
      except (sqlite3.Error, OSError) as exc:
-@@ -660,12 +1305,13 @@
+@@ -668,12 +1313,13 @@
      try:
          out: list = []
          session_id = bundle.source_session_id
@@ -3998,7 +3998,7 @@
              todo_key = make_todo_key(bundle.conversation_id, todo.owner, todo.text)
              row_id = _resolve_row_id(
                  conn, user_id=user_id, session_id=session_id,
-@@ -674,6 +1320,25 @@
+@@ -682,6 +1328,25 @@
              if row_id != todo.id:
                  todo = _replace_status(todo, todo.status, new_id=row_id)
              seen_ids.add(todo.id)
@@ -4024,7 +4024,7 @@
              decision = decide_push(
                  todo,
                  bundle,
-@@ -701,6 +1366,27 @@
+@@ -709,6 +1374,27 @@
                  out.append(todo)
                  continue
  
@@ -4052,7 +4052,7 @@
              current_status = _upsert_pending(
                  conn,
                  user_id=user_id,
-@@ -739,16 +1425,21 @@
+@@ -747,16 +1433,21 @@
                  # 'pending' or anything else: writer leaves the
                  # status as supplied.
                  out.append(todo)
@@ -4083,7 +4083,7 @@
          return tuple(out)
      finally:
          conn.close()
-@@ -780,7 +1471,7 @@
+@@ -788,7 +1479,7 @@
      "STATUS_PERMISSION_DENIED",
      "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
      "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",

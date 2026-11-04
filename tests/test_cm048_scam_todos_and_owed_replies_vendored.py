@@ -119,3 +119,24 @@ def test_owed_verdict_per_rule(thread, want):
     assert owed_verdict(thread) == want
     listed = detect([thread], now=NOW, min_score=0.0)
     assert bool(listed) == (want[0] != "no")
+
+
+def _chat(subtype, other):
+    b = _bundle("Pay the plumber the deposit")
+    return ConversationBundle(
+        conversation_id=f"{subtype}-synthetic", source_kind="channel", source_subtype=subtype,
+        source_session_id="s", channel="im", participants=("user", other),
+        started_at=b.started_at, ended_at="", summary=b.summary, transcript="synthetic",
+        todos=b.todos, privacy_level="L1")
+
+
+@pytest.mark.parametrize("subtype, other, kept", [
+    ("imessage", "Sam Example", True),       # Messages names a handle from Contacts
+    ("whatsapp", "Sam Example", False),      # a push name proves nothing (CM048 #111)
+    ("imessage", "+44 7700 900123", False),  # an unsaved number
+])
+def test_a_chat_payment_reminder_needs_a_contacts_match(subtype, other, kept):
+    b = _chat(subtype, other)
+    d = reminders_push.decide_push(b.todos[0], b, demo_mode=False, user_id="user",
+                                   summary_path=Path("/tmp/synthetic/summary.md"))
+    assert (d.skip_reason != reminders_push.SKIP_REASON_SCAM) == kept, d

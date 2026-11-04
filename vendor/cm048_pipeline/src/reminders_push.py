@@ -848,6 +848,14 @@ def decide_push(
         )
 
     meta = dict(getattr(bundle, "extra_metadata", None) or {})
+    # The bundle's own channel and participants are the evidence the guard
+    # reads for "has the owner corresponded with them".
+    meta.setdefault("channel", getattr(bundle, "channel", "") or "")
+    meta.setdefault("source", getattr(bundle, "source_subtype", "") or "")
+    meta.setdefault("participants", [
+        {"display": p, "role": "user" if str(p).lower() in ("user", "me") else "other"}
+        for p in (getattr(bundle, "participants", None) or ())
+    ])
     if scam_guard.todo_withheld_reason(
         text, meta, transcript=getattr(bundle, "transcript", "") or ""
     ):

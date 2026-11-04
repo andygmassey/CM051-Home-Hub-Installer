@@ -216,11 +216,45 @@ def owner_has_written(metadata: Optional[dict], transcript: str = "") -> bool:
         else:
             others.append(p)
     if others and all(
-        p.get("person_uri") or p.get("contact_id") or p.get("resolved") is True
+        p.get("contact_card") is True
+        or p.get("person_uri")
+        or p.get("contact_id")
+        or p.get("resolved") is True
         for p in others
     ):
         return True
+    # Only for a source whose labels come from the owner's own Contacts: the
+    # Messages stager labels a carded handle by its Contacts name (chat.db
+    # plus an AddressBook match) and an uncarded one by the raw handle, so
+    # there a name IS a Contacts match. NOT WhatsApp, whose label can be the
+    # sender's self-chosen push name ("Sam Example" from a stranger), and not
+    # email, whose display name is the sender's own header. There the only
+    # evidence is a card (``contact_card``, set by handle_resolver).
+    source = str(
+        metadata.get("source") or metadata.get("source_subtype") or ""
+    ).strip().lower()
+    if source in _CONTACTS_LABELLED_SOURCES and others and all(
+        _is_contact_name(str(p.get("display") or p.get("id") or "")) for p in others
+    ):
+        return True
     return False
+
+
+_CONTACTS_LABELLED_SOURCES = frozenset({"imessage", "sms"})
+_NOT_A_PERSON_LABEL = frozenset({"user", "me", "owner", "other", "unknown", ""})
+
+
+def _is_contact_name(label: str) -> bool:
+    """A resolved Contacts name, not a raw handle: no "@", fewer than half
+    of its characters digits, and not a placeholder label."""
+    t = label.strip()
+    if t.lower().startswith("other:"):
+        t = t[len("other:"):]
+    if t.lower() in _NOT_A_PERSON_LABEL or "@" in t:
+        return False
+    digits = sum(c.isdigit() for c in t)
+    letters = sum(c.isalpha() for c in t)
+    return letters > 0 and digits * 2 < len(t.replace(" ", ""))
 
 
 def todo_withheld_reason(
