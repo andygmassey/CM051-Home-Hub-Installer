@@ -6275,3 +6275,8 @@ open_issues:
     verdict_119: 'NOT-ARTEFACT, owner oa/CM051 contract maintainer (hub_contract_clients.json); NON-BLOCKING, kept so the register stays whole (Archie 2026-10-29)'
     title: 'gen_hub_contract.py lists every gateway route on 8443, but 8443 serves only a frozen allowlist'
     gate: 'NOT BLOCKING for v1.0.109 (Archie, 2026-10-19). Registered so the cut checklist stays the register: #2998 went red on "1 OPEN issue(s) are not in the checklist: [3003]". CODE: scripts/gen_hub_contract.py gives every gateway route ports [8000, companion_port], but since v1.0.108 the 8443 listener serves only ostler-assistant FROZEN_COMPANION_ALLOWLIST. No shipped client chooses its base port from the contract, so nothing a customer does changes. FIX SHAPE: read the allowlist from the lib.rs the generator already parses and add 8443 only for matching routes. Lands with or after the #2988 re-pin (v1.0.110).'
+
+  - issue: 3309
+    repo: CM051
+    title: 'cut-manifest gate never reads verdict_NNN or a row''s expiry: the one-cut rule is human-enforced only'
+    gate: 'NOT BLOCKING (Archie 2026-11-04): gate gap, not an artefact defect; item 5 one-cut expiry enforced by hand until fixed; close needs the RED demo in the issue.'
