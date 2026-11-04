@@ -123,6 +123,11 @@ class Thread:
     # surfaces then say "someone not in your contacts", never the raw digits.
     counterpart_resolved: Optional[bool] = None
     counterpart_kind: str = ""
+    # A group message that names the owner (a WhatsApp @mention of one of the
+    # owner's own numbers). Such a message asks the owner personally, so it
+    # is judged like a 1:1 message and its AUTHOR is the person waiting. Every
+    # other group message stays excluded (``detect``).
+    addresses_owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,8 @@ class ReplyDebt:
     owner_promised: bool = False
     # The ask is time-bound ("today", "by Friday").
     time_sensitive: bool = False
+    # A group message that @mentioned the owner (see Thread.addresses_owner).
+    addressed_in_group: bool = False
 
     @property
     def waiting_human(self) -> str:
@@ -171,7 +178,7 @@ class ReplyDebt:
         return f"{n} month{'s' if n != 1 else ''}"
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "thread_id": self.thread_id,
             "channel": self.channel,
             "person_name": self.person_name,
@@ -191,6 +198,12 @@ class ReplyDebt:
             "owner_promised": self.owner_promised,
             "time_sensitive": self.time_sensitive,
         }
+        # Only when true, so the payload every existing consumer is tested
+        # against (tests/fixtures/reply_debt_p13_payload.json, mirrored in
+        # ostler-assistant) is unchanged for 1:1 debts.
+        if self.addressed_in_group:
+            out["addressed_in_group"] = True
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +520,8 @@ def detect_thread(
         relationship_strength=thread.relationship_strength,
         hours_waiting=hours,
         expects=expects,
-        is_group=thread.is_group,
+        # A message that names the owner is a personal ask, not banter.
+        is_group=thread.is_group and not thread.addresses_owner,
     )
 
     person = thread.counterpart_name or last.sender or "Unknown"
@@ -529,6 +543,7 @@ def detect_thread(
         owed=owed,
         owner_promised=(rule == "owner_promised"),
         time_sensitive=bool(_TIME_SENSITIVE_RE.search(last.text or "")),
+        addressed_in_group=thread.is_group and thread.addresses_owner,
     )
 
 
@@ -549,7 +564,9 @@ def detect(
     """
     out: list[ReplyDebt] = []
     for thread in threads:
-        if thread.is_group and not include_group:
+        # A group message that @mentions the owner is a personal ask and is
+        # always considered; any other group message only on request.
+        if thread.is_group and not thread.addresses_owner and not include_group:
             continue
         debt = detect_thread(thread, now=now, threshold_hours=threshold_hours)
         if debt is None:
@@ -566,8 +583,14 @@ def detect(
 # ---------------------------------------------------------------------------
 
 # Channels whose thread is keyed by a raw handle (a phone number, an address,
-# a short code or a sender id) rather than by a name.
+# a short code or a sender id) rather than by a name. An email thread from the
+# email snapshot (``reply_debt_sources``) needs no entry: its handle is the From
+# ADDRESS (never a real name, so it is looked up in Contacts below) and its
+# counterpart_name is empty, because a From display name is self-asserted.
 _HANDLE_CHANNELS = frozenset({"imessage", "sms", "whatsapp"})
+
+# A WhatsApp sender whose number the app does not expose ("<id>@lid").
+WHATSAPP_HIDDEN_NUMBER_PREFIX = "whatsapp-hidden:"
 
 
 def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread], dict]:
@@ -593,7 +616,7 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
     kept: list[Thread] = []
     excluded = {"owner": 0, "not_a_person": 0}
     for t in threads:
-        if t.is_group:
+        if t.is_group and not t.addresses_owner:
             kept.append(t)
             continue
         last = t.messages[-1] if t.messages else None
@@ -601,6 +624,13 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
         if last is not None and not last.is_from_owner and last.sender not in ("", "me"):
             sender = last.sender
         handle = sender or t.counterpart_name or ""
+        if t.channel == "whatsapp" and handle.startswith(WHATSAPP_HIDDEN_NUMBER_PREFIX):
+            # A WhatsApp member whose number the app hides (a "@lid" id): a
+            # real person no Contacts card can match. Never named, never
+            # printed; the push name the app shows is NOT evidence.
+            kept.append(replace(t, counterpart_name=hi.unresolved_label(hi.KIND_PHONE),
+                                counterpart_resolved=False, counterpart_kind=hi.KIND_PHONE))
+            continue
         res = directory.resolve(handle)
         if res.is_owner or (
             t.counterpart_name and t.counterpart_name != handle
@@ -634,6 +664,8 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
 # Daily-brief surface (text block the brief generator can embed)
 # ---------------------------------------------------------------------------
 
+
+_CHANNEL_LABEL = {"imessage": "iMessage", "whatsapp": "WhatsApp", "email": "email"}
 
 # Unsaved handles waiting longer than this (14 days) are not in the brief.
 UNSAVED_MAX_WAITING_HOURS = 14 * 24
@@ -675,9 +707,7 @@ def render_brief_block(
     for d in top:
         if d.resolved is False:
             continue
-        chan = d.channel.replace("imessage", "iMessage").replace(
-            "whatsapp", "WhatsApp"
-        )
+        chan = _CHANNEL_LABEL.get(d.channel, d.channel)
         lines.append(
             f"  - {d.person_name} ({chan})  -  waiting {d.waiting_human}"
         )

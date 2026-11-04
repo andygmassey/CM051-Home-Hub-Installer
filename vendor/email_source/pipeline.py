@@ -469,6 +469,164 @@ def _widen_first_window(state, messages, threads, mail_dir, since_days, user_add
     return messages, threads
 
 
+# --- Reply-debt snapshot (the email leg of "waiting on a reply") ---------
+#
+# Same design as the iMessage feed's snapshot (imessage_source.pipeline,
+# CM051 #30): this tick already reads the Apple Mail tree, so it writes the
+# one thing reply debt needs, the LAST message of each recent thread with the
+# facts the email rules use, into the engine room. The Hub's
+# /api/v1/reply-debt (CM048 reply_debt_sources) reads it there and never
+# opens ~/Library/Mail itself.
+#
+# Copied out per thread: a hashed thread id, the subject (capped; the scam
+# guard reads it), the last message's From / To / Cc ADDRESSES, its text
+# (capped; CM048 strips the quoted part), time, direction, the list / bulk /
+# auto-reply / spam headers, its mailbox, whether the owner wrote in the
+# thread, and the operator's explicit privacy level. NEVER a From display
+# name: a name comes from the owner's Contacts card on the Hub side.
+# The file is 0600 in a 0700 directory, rewritten whole on every tick.
+REPLY_DEBT_SNAPSHOT_SCHEMA = 1
+# Reply debt looks back further than the daytime ingest clamp (2 days), so
+# the tick reads this window for the snapshot when its own is narrower.
+REPLY_DEBT_LOOKBACK_DAYS = 14
+_SNAPSHOT_TEXT_LIMIT = 1500
+_PRODUCER = "email_source (email-bundle tick)"
+
+
+def reply_debt_snapshot_path() -> Path:
+    """Must agree with CM048 ``reply_debt_sources.snapshot_path("email")``."""
+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_EMAIL_SNAPSHOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    root = (os.environ.get("OSTLER_DIR") or "").strip()
+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
+    return base / "state" / "reply_debt" / "email_threads.json"
+
+
+def _write_snapshot_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    fd, tmp = tempfile.mkstemp(prefix=".email_threads.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=1)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def build_reply_debt_snapshot(
+    messages: list,
+    *,
+    user_address: str = "",
+    privacy_map: Optional[dict] = None,
+    lookback_days: int = REPLY_DEBT_LOOKBACK_DAYS,
+) -> dict:
+    """Return the snapshot dict for already-read messages."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    owner = (user_address or "").strip().lower()
+    threads = []
+    for thread in thread_messages(messages, min_thread_messages=1):
+        dated = [m for m in thread.messages if m.timestamp is not None]
+        if not dated:
+            continue
+        last = max(dated, key=lambda m: m.timestamp)
+        row = {
+            "thread_id": hashlib.sha256(thread.thread_id.encode("utf-8")).hexdigest()[:16],
+            "subject": (thread.subject or "")[:200],
+            "headers": dict(last.headers or {}),
+            "mailbox": last.mailbox or "",
+            "owner_wrote": bool(owner) and any(m.from_address == owner for m in thread.messages),
+            "last": {
+                "from_address": last.from_address,
+                "to": [a for _, a in last.to_addresses],
+                "cc": [a for _, a in last.cc_addresses],
+                "text": (last.body or "")[:_SNAPSHOT_TEXT_LIMIT],
+                "is_from_me": bool(owner) and last.from_address == owner,
+                "timestamp": last.timestamp.isoformat(),
+            },
+        }
+        level = _level_for_addresses(thread.participant_addresses, privacy_map or {}, owner)
+        if level:
+            row["privacy_level"] = level
+        threads.append(row)
+    return {
+        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "producer": _PRODUCER,
+        "lookback_days": lookback_days,
+        "owner_addresses": [owner] if owner else [],
+        "threads": threads,
+    }
+
+
+def write_reply_debt_snapshot(
+    *,
+    messages: Optional[list] = None,
+    error: Optional[BaseException] = None,
+    user_address: str = "",
+    privacy_map: Optional[dict] = None,
+    out_path: Optional[Path] = None,
+) -> str:
+    """Write the reply-debt snapshot from ``messages``, or record ``error``
+    (the read that failed) so the Hub says "couldn't check", never "nothing
+    owed". No Mail tree at all is a true zero (``absent``). Never raises."""
+    from datetime import datetime, timezone
+
+    out = out_path or reply_debt_snapshot_path()
+    if isinstance(error, PermissionError):
+        payload = {"status": "unreadable", "reason": str(error)[:200]}
+    elif isinstance(error, FileNotFoundError):
+        payload = {"status": "absent", "threads": []}
+    elif error is not None:
+        payload = {"status": "error", "reason": f"{type(error).__name__}: {str(error)[:200]}"}
+    else:
+        try:
+            payload = build_reply_debt_snapshot(
+                messages or [], user_address=user_address, privacy_map=privacy_map
+            )
+        except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
+            payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    if payload.get("status") != "ok":
+        payload.update(
+            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            producer=_PRODUCER,
+        )
+    try:
+        _write_snapshot_atomic(out, payload)
+    except OSError as exc:
+        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
+        return "write_failed"
+    if payload["status"] == "ok":
+        logger.info("reply-debt snapshot: %d thread(s) -> %s",
+                    len(payload.get("threads") or []), out)
+    else:
+        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
+    return payload["status"]
+
+
+def _reply_debt_messages(messages, *, mail_dir, since_days, user_address):
+    """The messages the snapshot covers: the tick's own read when its window
+    is at least the reply-debt window, else one wider read."""
+    if not since_days or since_days >= REPLY_DEBT_LOOKBACK_DAYS:
+        return messages
+    return read_messages(mail_dir=mail_dir, since_days=REPLY_DEBT_LOOKBACK_DAYS,
+                         user_address=user_address)
+# ------------------------------------------------------------------------
+
+
 def process_email(
     *,
     mail_dir: Optional[Path] = None,
@@ -480,6 +638,7 @@ def process_email(
     pwg_convo_cmd: Optional[list[str]] = None,
     state_path: Optional[Path] = None,
     dry_run: bool = False,
+    snapshot_path: Optional[Path] = None,
 ) -> dict:
     """Read Apple Mail, thread, and dispatch new/updated threads to CM048.
 
@@ -510,8 +669,31 @@ def process_email(
     privacy_map = _load_privacy_map(contacts_path)
     name_for_address = _name_resolver(contacts)
 
-    messages = read_messages(mail_dir=mail_dir, since_days=since_days,
-                             user_address=user_address)
+    # A caller that moved the state (tests, a second profile) gets the
+    # snapshot beside it, never in the real engine room.
+    if snapshot_path is None and state_path is not None:
+        snapshot_path = Path(state_path).parent / "reply_debt_email_threads.json"
+    try:
+        messages = read_messages(mail_dir=mail_dir, since_days=since_days,
+                                 user_address=user_address)
+    except (PermissionError, FileNotFoundError) as exc:
+        if not dry_run:
+            write_reply_debt_snapshot(error=exc, out_path=snapshot_path)
+        raise
+    # Reply-debt snapshot FIRST, before seeding and enrichment can spend the
+    # tick (same order as the iMessage feed).
+    if not dry_run:
+        try:
+            debt_messages = _reply_debt_messages(
+                messages, mail_dir=mail_dir, since_days=since_days,
+                user_address=user_address,
+            )
+            write_reply_debt_snapshot(
+                messages=debt_messages, user_address=user_address,
+                privacy_map=privacy_map, out_path=snapshot_path,
+            )
+        except Exception as exc:  # noqa: BLE001 -- recorded, never stops ingest
+            write_reply_debt_snapshot(error=exc, out_path=snapshot_path)
     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
     if not dry_run:
         messages, threads = _widen_first_window(
