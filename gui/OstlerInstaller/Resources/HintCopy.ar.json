@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "جسر التقويم / Gmail",
-    "subtitle": "Google وiCloud",
-    "why": "يتواصل Ostler مع Gmail وGoogle Calendar باستخدام تسجيل دخولك إلى Google على هذا الـ Mac، ومع iCloud عبر CalDAV باستخدام كلمة مرور خاصة بالتطبيق. لا شيء يغادر الجهاز، ويتم تسجيل الدخول بين هذا الـ Mac وGoogle.",
+    "title": "جسر تقويم iCloud",
+    "subtitle": "تقويم iCloud عبر CalDAV",
+    "why": "يقرأ Ostler تقويم iCloud الخاص بك عبر CalDAV باستخدام كلمة مرور خاصة بالتطبيق تنشئها على appleid.apple.com.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

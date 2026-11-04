@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "Kalender-/Gmail-Anbindung",
-    "subtitle": "Google + iCloud",
-    "why": "Ostler kommuniziert mit deinem Gmail und Google Kalender über deine Google-Anmeldung auf diesem Mac und mit iCloud über CalDAV mit einem app-spezifischen Passwort. Nichts verlässt den Mac; die Anmeldung läuft zwischen diesem Mac und Google.",
+    "title": "iCloud-Kalender-Anbindung",
+    "subtitle": "iCloud-Kalender über CalDAV",
+    "why": "Ostler liest deinen iCloud-Kalender über CalDAV mit einem app-spezifischen Passwort, das du auf appleid.apple.com erstellst.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

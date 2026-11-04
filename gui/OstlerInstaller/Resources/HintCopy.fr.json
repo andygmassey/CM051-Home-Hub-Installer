@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "Passerelle Calendrier / Gmail",
-    "subtitle": "Google + iCloud",
-    "why": "Ostler communique avec votre Gmail et votre Google Agenda grâce à votre connexion Google sur ce Mac, et avec iCloud via CalDAV à l'aide d'un mot de passe d'app. Rien ne quitte la machine ; la connexion se fait entre ce Mac et Google.",
+    "title": "Passerelle du calendrier iCloud",
+    "subtitle": "Calendrier iCloud via CalDAV",
+    "why": "Ostler lit votre calendrier iCloud via CalDAV à l'aide d'un mot de passe d'app que vous créez sur appleid.apple.com.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

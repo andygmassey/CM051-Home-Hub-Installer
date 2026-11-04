@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "Calendar / Gmail bridge",
-    "subtitle": "Google + iCloud",
-    "why": "Ostler talks to your Gmail and Google Calendar using your Google sign-in on this Mac, and to iCloud over CalDAV with an app-specific password. Nothing leaves the machine; sign-in happens between this Mac and Google.",
+    "title": "iCloud calendar bridge",
+    "subtitle": "iCloud calendar over CalDAV",
+    "why": "Ostler reads your iCloud calendar over CalDAV with an app-specific password you create at appleid.apple.com.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
