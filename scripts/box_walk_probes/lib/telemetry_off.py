@@ -31,8 +31,9 @@ import time
 EX_PASS, EX_FAIL, EX_CANNOT = 0, 1, 78
 FORBIDDEN = (
     "telemetry.qdrant.io",
-    "eu.i.posthog.com", "us.i.posthog.com", "app.posthog.com",
-    "www.google-analytics.com", "eu-central-1-1.aws.cloud2.influxdata.com",
+    # Homebrew's own analytics endpoint: INFLUX_HOST = "https://analytics.brew.sh" in
+    # Library/Homebrew/utils/analytics.rb at brew tag 7.0.9 (the tag install.sh pins).
+    "analytics.brew.sh",
     "fonts.googleapis.com", "fonts.gstatic.com",
 )
 LSOF = "lsof -nP -iTCP -sTCP:ESTABLISHED"

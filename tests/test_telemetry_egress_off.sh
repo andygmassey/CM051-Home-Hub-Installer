@@ -69,6 +69,9 @@ mut qdrant-telemetry-false 's/QDRANT__TELEMETRY_DISABLED: "true"/QDRANT__TELEMET
 mut brew-export-removed 's/; export HOMEBREW_NO_ANALYTICS=1//' check_brew
 mut brew-export-wrong-value 's/export HOMEBREW_NO_ANALYTICS=1/export HOMEBREW_NO_ANALYTICS=0/' check_brew
 
+# the Homebrew host is the one brew 7.0.9 source names, and the probe watches it
+/usr/bin/grep -q '"analytics.brew.sh"' "$REPO/scripts/box_walk_probes/lib/telemetry_off.py" && ok "probe watches analytics.brew.sh" || bad "probe does not watch analytics.brew.sh"
+
 # probe
 P="$REPO/scripts/box_walk_probes"
 bash "$P/probes/third_party_telemetry_off.sh" --self-test >"$W/st" 2>&1; rc=$?
