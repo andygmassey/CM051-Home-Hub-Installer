@@ -240,16 +240,27 @@
     <string>OSTLER_LOGS/ostler-assistant.err</string>
 
     <!--
-        Interactive process type because the daemon serves
-        websocket gateway traffic the user is interactively
-        producing (iMessage replies, dashboard clicks). Adaptive
-        is the closest match for "responsive but not realtime";
-        but Background is what the existing wiki-recompile uses
-        and is the conservative pick for a v0.1 always-on agent
-        that is mostly idle. Open question for the operator:
-        flip to Adaptive if iMessage latency feels sluggish.
+        Interactive, NOT Background. This daemon is the process that
+        answers every Hub screen: the gateway on :8443 serves the app's
+        pages, its same-origin fonts, the /wiki/s/ proxy and the
+        /api/v1/people and /api/v1/timeline proxies, plus chat.
+
+        It shipped as Background (v0.1, "mostly idle"). Background puts
+        the whole process under launchd's background resource limits, so
+        during first-run ingest (load 8 to 19 on the v1.0.123 walk) the
+        Hub starved: wiki not loaded in 45 s, Timeline and People
+        screenshots timing out at 30 s waiting for fonts, a blank person
+        page. All passed at idle. Measured with a synthetic LaunchAgent
+        under the same CPU load (walkdriver bench/firstrun_load, arm 1):
+        Background p50 4 s / p95 21 s (one run never answered in 60 s),
+        Interactive p50 46 ms / p95 75 ms.
+
+        The heavy work is NOT here: ingest ticks, the wiki compile and
+        the editor run as their own Background jobs, and model calls
+        run in Ollama. Test: tests/test_no_heavy_job_bypasses_the_chat_yield.sh
+        class C.
     -->
     <key>ProcessType</key>
-    <string>Background</string>
+    <string>Interactive</string>
 </dict>
 </plist>
