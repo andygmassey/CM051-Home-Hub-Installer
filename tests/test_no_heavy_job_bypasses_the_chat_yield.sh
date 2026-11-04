@@ -98,6 +98,43 @@ else
     no "enrich runs at full user QoS (no ProcessType Background in its plist)"
 fi
 
+# ---------------------------------------------------------------------
+# Class C (v1.0.124): the jobs that ANSWER the Hub screens are never
+# backgrounded, and the in-VM compile yields to the serving containers.
+# The v1.0.123 walk: under first-run ingest (load 8 to 19) the wiki missed
+# 45 s and Timeline/People missed 30 s, all fine at idle. The daemon (gateway
+# :8443: pages, fonts, /wiki/s/, people/timeline proxies) shipped as
+# ProcessType Background; ical-server (people/timeline) had none (Standard).
+# ---------------------------------------------------------------------
+echo
+echo "== Class C: the Hub-serving jobs run Interactive; the compile yields =="
+DAEMON_PLIST="assistant-agent/launchd/com.creativemachines.ostler.assistant.plist"
+plist_pt() { sed -n '/<key>ProcessType<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}'; }
+ical_block() { awk '/^ICALPLISTEOF$/{f=0} f{print} /<<ICALPLISTEOF$/{f=1}' "$1"; }
+compiler_weight() { awk '/^  wiki-compiler:$/{f=1;next} f&&/^  [a-z-]+:$/{f=0} f&&/^    cpu_shares:/{print $2}' "$1"; }
+judge_c() {  # $1 daemon plist, $2 install.sh; prints FAIL lines, rc 1 on any
+    local bad=0 d i w
+    d="$(plist_pt < "$1")"; i="$(ical_block "$2" | plist_pt)"; w="$(compiler_weight "$2")"
+    [ "$d" = Interactive ] || { echo "daemon ProcessType='${d}'"; bad=1; }
+    [ "$i" = Interactive ] || { echo "ical-server ProcessType='${i}'"; bad=1; }
+    { [ -n "$w" ] && [ "$w" -lt 1024 ]; } 2>/dev/null || { echo "wiki-compiler cpu_shares='${w}'"; bad=1; }
+    return $bad
+}
+if [ -f "$DAEMON_PLIST" ] && out="$(judge_c "$DAEMON_PLIST" "$INSTALL")"; then
+    ok "daemon + ical-server ProcessType Interactive; wiki-compiler cpu_shares $(compiler_weight "$INSTALL") < 1024"
+else
+    no "a Hub-serving job is backgrounded or the compile is at full weight" "${out:-no daemon plist at $DAEMON_PLIST}"
+fi
+# NEGATIVE CONTROLS: each of the three shipped shapes, re-introduced on a copy,
+# must read as a failure, or the green above proves nothing.
+_t="$(mktemp -d)"; trap 'rm -rf "$_t"' EXIT
+sed 's#<string>Interactive</string>#<string>Background</string>#' "$DAEMON_PLIST" > "$_t/d.plist"
+judge_c "$_t/d.plist" "$INSTALL" >/dev/null && no "CONTROL: a Background daemon plist read as Interactive" || ok "NEGATIVE CONTROL: the v1.0.123 Background daemon plist reads as a failure"
+awk '/^ICALPLISTEOF$/{f=0} f&&/<key>ProcessType<\/key>/{getline; next} {print} /<<ICALPLISTEOF$/{f=1}' "$INSTALL" > "$_t/i.sh"
+judge_c "$DAEMON_PLIST" "$_t/i.sh" >/dev/null && no "CONTROL: an ical-server plist with no ProcessType read as Interactive" || ok "NEGATIVE CONTROL: an ical-server plist with no ProcessType reads as a failure"
+grep -v '^    cpu_shares: 256$' "$INSTALL" > "$_t/w.sh"
+judge_c "$DAEMON_PLIST" "$_t/w.sh" >/dev/null && no "CONTROL: a full-weight wiki-compiler read as yielding" || ok "NEGATIVE CONTROL: a wiki-compiler with no cpu_shares reads as a failure"
+
 echo
 echo "-------------------------------------------------------------"
 printf 'heavy-job coverage: %d passed, %d failed\n' "$PASS" "$FAIL"

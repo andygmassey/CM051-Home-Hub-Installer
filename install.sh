@@ -22202,6 +22202,8 @@ services:
     image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:0e5e8b9d1edc6fbc6133c700fe52259af6e7a129cb12aafc696c908c7cc9bf90
     container_name: ostler-wiki-compiler
     profiles: [compile]
+    # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
+    cpu_shares: 256
     volumes:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
@@ -22218,9 +22220,7 @@ services:
       #     ai-conversations   -> 0
       #     AI_CONVERSATIONS   -> 0
       #     CONTROL: wiki-compiler -> 5 in the SAME span, so the zero is
-      #     real absence and not a false read of the wrong region. My first
-      #     attempt got the heredoc end marker wrong and read 12,000 lines
-      #     instead of 456; the control is what showed the range was wrong.
+      #     real absence and not a false read of the wrong region.
       #
       # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
       # compiler/pages/ai_conversation_pages.py falls back to expanduser of
@@ -29834,13 +29834,10 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              flow. -->
         <key>USER_PHONE</key>
         <string>${USER_PHONE}</string>
-        <!-- ASSISTANT_NAME / ASSISTANT_EMAIL / ASSISTANT_PHONE (F7, walk #16):
-             the assistant's OWN identity, so people_list can drop the
-             Contacts card Andy made for it ("Marvin"). The match is by
-             EMAIL or PHONE, never by name alone (a friend can share the
-             name). ASSISTANT_NAME is chosen in onboarding; the assistant's
-             own email/phone are optional and EMPTY unless the installer
-             scope carries them, in which case the card is NOT hidden. -->
+        <!-- ASSISTANT_NAME / _EMAIL / _PHONE (F7, walk #16): the assistant's OWN
+             identity, so people_list can drop the Contacts card made for it. Matched by
+             EMAIL or PHONE, never by name alone (a friend can share the name); the
+             email/phone are optional, and EMPTY (the card is then NOT hidden). -->
         <key>ASSISTANT_NAME</key>
         <string>${ASSISTANT_NAME:-}</string>
         <key>ASSISTANT_EMAIL</key>
@@ -29920,6 +29917,9 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <key>OSTLER_DB_KEY_FILE</key>
         <string>${SECURITY_CONFIG_DIR}/db_key</string>
     </dict>
+    <!-- Interactive: this job answers the Hub People and Timeline screens. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
 </dict>
 </plist>
 ICALPLISTEOF
