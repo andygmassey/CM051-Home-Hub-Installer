@@ -886,6 +886,9 @@ jobs:
       # too (CANNOT-RUN), never a skipped step. The other trees' source repos are
       # not on this runner; the verdict line says how many were NOT examined.
       - name: Vendor reconstruction -- cm041 trees, strict (pin + patch == vendored tree)
+        # always(): an earlier red must not SKIP this step; a skipped gate says
+        # nothing (ci-maskless). The job still fails on that earlier red.
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
         run: |
