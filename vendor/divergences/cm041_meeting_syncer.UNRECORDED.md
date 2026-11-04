@@ -47,4 +47,4 @@ Tree `cm041/meeting_syncer`. Pin HELD.
 - `brief.py` `_get_last_conversation_id`: selects the fact's `urn:ostler:privacyLevel` and reads the person's `pwg:privacyLevel` in a second query, drops what `pwg_privacy.is_l3` hides (most-restrictive, nothing parseable -> hidden) IN PYTHON, then takes the newest. The `LIMIT 1` is removed so an L3 fact cannot mask a visible one. The vendored query is the plain default-graph form (the allow-list scope is applied by `_sparql_query`'s caller path); upstream's wraps the same body in `read_across_graphs`.
 - Why: the brief is emailed; both readers fed it with no filter (audit scratch/p1_scoped.evidence.txt).
 - Proof: `tests/test_vendored_brief_outbound_l3.py` (stock brief.py: 8 fail, 1 pass; fixed: 9 pass).
-- Upstream: CM041 PR for the same change (branch fix122/l3-outbound). Retire this section when a re-pin brings it in.
+- UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)
