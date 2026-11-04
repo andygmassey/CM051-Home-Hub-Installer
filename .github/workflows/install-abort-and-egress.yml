@@ -144,6 +144,10 @@ jobs:
         if: always()
         run: /bin/bash tests/test_egress_verdict_claims_only_what_it_checked.sh
 
+      - name: Qdrant telemetry and Homebrew analytics stay off (v1.0.124 audit D1, D3)
+        if: always()
+        run: /bin/bash tests/test_telemetry_egress_off.sh
+
       # The published proof. Every other step here asks whether the software
       # behaved; this one asks whether the INSTRUMENT can still fail, over five
       # readings whose correct verdicts are known in advance -- two of which
