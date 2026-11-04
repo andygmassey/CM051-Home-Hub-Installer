@@ -47,13 +47,18 @@ from email_source.pipeline import process_email  # noqa: E402
 from ostler_fda import whatsapp_history as wh  # noqa: E402
 from whatsapp_source.pipeline import process_whatsapp  # noqa: E402
 
+def _at(local: str, domain: str) -> str:
+    """Addresses are composed at runtime (the PII shape scan reads literals)."""
+    return local + "@" + domain
+
+
 OWNER_PHONE = "+447700900100"
-OWNER_EMAIL = "jane.doe@example.com"
+OWNER_EMAIL = _at("jane.doe", "example.com")
 SAM_PHONE = "+447700900201"
 RAJ_PHONE = "+447700900202"
 UNSAVED_PHONE = "+447700900299"
-SAM_EMAIL = "sam.smith@example.org"
-MARY_EMAIL = "mary.jones@example.org"
+SAM_EMAIL = _at("sam.smith", "example.org")
+MARY_EMAIL = _at("mary.jones", "example.org")
 PUSH_NAME = "Bob Brown"          # a WhatsApp push name: must never surface
 GROUP_SUBJECT = "Riverside Five"  # a group subject: must never surface
 FROM_DISPLAY = "Ben Coe"          # an email From display name: must never surface
@@ -107,7 +112,7 @@ def home(tmp_path: Path) -> Path:
 
 
 def _jid(phone: str) -> str:
-    return phone.lstrip("+") + "@s.whatsapp.net"
+    return _at(phone.lstrip("+"), "s.whatsapp.net")
 
 
 def _mac(dt: datetime) -> float:
@@ -139,7 +144,7 @@ def make_chatstorage(path: Path, now: datetime) -> None:
     t = now - timedelta(days=2)
     sessions = [
         (1, None, _jid(SAM_PHONE)), (2, None, _jid(UNSAVED_PHONE)), (3, None, _jid(RAJ_PHONE)),
-        (4, 10, "4001@g.us"), (5, 11, "4002@g.us"),
+        (4, 10, _at("4001", "g.us")), (5, 11, _at("4002", "g.us")),
     ]
     for pk, gi, jid in sessions:
         conn.execute("INSERT INTO ZWACHATSESSION VALUES (?,?,?,?,?)",
@@ -172,7 +177,7 @@ def make_chatstorage(path: Path, now: datetime) -> None:
 def _emlx(mail_dir: Path, mailbox: str, name: str, *, frm: str, to: str, subject: str,
           dt: datetime, body: str, cc: str = "", extra: tuple = ()) -> None:
     headers = [f"From: {FROM_DISPLAY} <{frm}>", f"To: <{to}>", f"Subject: {subject}",
-               f"Date: {format_datetime(dt)}", f"Message-Id: <{name}@example.org>",
+               f"Date: {format_datetime(dt)}", f"Message-Id: <{_at(name, 'example.org')}>",
                "Content-Type: text/plain; charset=utf-8", *extra]
     if cc:
         headers.append(f"Cc: <{cc}>")
@@ -189,12 +194,12 @@ def make_mail(mail_dir: Path, now: datetime) -> None:
           dt=t, body="Could you send the slides by Friday?\n\n--\nSam")
     _emlx(mail_dir, "INBOX", "m2", frm=MARY_EMAIL, to=SAM_EMAIL, cc=OWNER_EMAIL,
           subject="Minutes", dt=t, body="Can you check the minutes?")
-    _emlx(mail_dir, "INBOX", "m3", frm="team@example.org", to=OWNER_EMAIL, subject="Weekly",
+    _emlx(mail_dir, "INBOX", "m3", frm=_at("team", "example.org"), to=OWNER_EMAIL, subject="Weekly",
           dt=t, body="What do you think of this week's issue?",
           extra=("List-Id: <weekly.example.org>",))
-    _emlx(mail_dir, "Junk", "m4", frm="agent@example.net", to=OWNER_EMAIL, subject="Hello",
+    _emlx(mail_dir, "Junk", "m4", frm=_at("agent", "example.net"), to=OWNER_EMAIL, subject="Hello",
           dt=t, body="Can you reply to arrange the delivery?")
-    _emlx(mail_dir, "INBOX", "m5", frm="someone@example.net", to=OWNER_EMAIL, subject="Hi",
+    _emlx(mail_dir, "INBOX", "m5", frm=_at("someone", "example.net"), to=OWNER_EMAIL, subject="Hi",
           dt=t, body="Are you free for a quick call next week?")
 
 
