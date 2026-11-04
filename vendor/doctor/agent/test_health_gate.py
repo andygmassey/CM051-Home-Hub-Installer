@@ -34,6 +34,18 @@ import web_ui  # noqa: E402
 _ENV_VAR = "OSTLER_TEST_DISABLE_HEALTH"
 _HEALTH_URL = "/doctor/api/health"
 
+# S1: the Doctor routes are owner-only by kernel peer uid. TestClient has no
+# real socket peer, so the owner check fails closed; stand the caller in as the
+# owner (same seam as tests/test_the_hub_reads_the_doctor_like_the_app.py).
+import owner_peer  # noqa: E402
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _caller_is_the_owner(monkeypatch):
+    monkeypatch.setattr(owner_peer, "verdict", lambda client, server: None)
+
+
 client = TestClient(web_ui.app)
 
 
