@@ -1716,8 +1716,8 @@ printed "could not verify cm041/assistant_api: source repo not found ()" and
 
 ## 2026-11-04 v1.0.123 (walk123 privacy): no gws spawn without a Google account AND an accepted opt-in
 
-Tree `cm041/assistant_api`. Pin HELD. Graft of CM041 #245 (open at the time of
-this graft; its squash sha joins `hold_ack_shas` when it merges).
+Tree `cm041/assistant_api`. Pin HELD. Graft of CM041 #245, MERGED upstream as
+d962b74f (acknowledged in `hold_ack_shas`; vendored differs, see below).
 
 - `ical-server.py`: new block after `GWS_ENV`: `GOOGLE_CALENDAR_CONSENT_ID`,
   `GOOGLE_GMAIL_CONSENT_ID`, `GoogleNotConnected`, `_gws_credentials_present()`
@@ -1745,4 +1745,4 @@ this graft; its squash sha joins `hold_ack_shas` when it merges).
 - Proof: `tests/test_vendored_gws_never_spawned_without_consent.py` (main: the
   fake gws ran 6 times across 6 endpoints, 25 red; branch: 10 pass, in-suite
   mutant per call site caught, consented control spawns exactly once).
-- Upstream: CM041 #245. Retire this section when a re-pin brings it in.
+- Upstream: CM041 #245 MERGED as d962b74f. Retire this section when a re-pin brings it in.

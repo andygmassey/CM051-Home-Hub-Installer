@@ -6443,6 +6443,7 @@
     "count",
     "error",
     "messages",
+    "not_connected",
     "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -6469,6 +6470,7 @@
     "count",
     "error",
     "messages",
+    "not_connected",
     "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
