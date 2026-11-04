@@ -36,6 +36,9 @@ on:
       - 'scripts/publish_release.sh'
       - 'scripts/post_walk_qa.sh'
       - 'scripts/box_walk_probes/**'
+      # The walk's host and in-VM network samplers, and their test.
+      - 'scripts/walk_net_sampler.sh'
+      - 'tests/test_walk_net_sampler.sh'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
       # broken_probe visibility in the scoped adjudication, and its guard.
@@ -590,6 +593,14 @@ jobs:
       - name: The walk never enables WhatsApp and declares its owner
         if: always()
         run: bash scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh
+
+      # v1.0.124: the walk's network samplers. Host lsof and in-VM conntrack,
+      # each with a held nc control that must be SEEN or the sampler reports
+      # CANNOT-RUN; gws_spawn_count and telemetry_hosts must be 0. Six code
+      # mutants inside the test each turn their case red.
+      - name: The walk's network samplers see their controls, gws and telemetry
+        if: always()
+        run: /bin/bash tests/test_walk_net_sampler.sh
 
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()
