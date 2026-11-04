@@ -20,7 +20,7 @@ from src import outstanding_todos, reminders_push, scam_guard  # noqa: E402
 from src.conversation_writer import ConversationBundle, ConversationSummary, Todo  # noqa: E402
 from src.reply_debt import Message, Thread, detect, owed_verdict  # noqa: E402
 
-SCAM = "Contact the Foreign Funds Administrator immediately to arrange payment."
+SCAM = "contact the foreign funds administrator immediately to arrange payment."
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,7 @@ def _meta(**extra):
     m = {"conversation_id": "2030-11-04_email_synthetic", "date": "2030-11-04",
          "channel": "email", "subject": "Following up",
          "participants": [{"id": "user", "display": "Operator", "role": "user"},
-                          {"id": "other:funds-office", "display": "Funds Office", "role": "other"}]}
+                          {"id": "other:funds-office", "display": "funds office", "role": "other"}]}
     m.update(extra)
     return m
 
@@ -79,7 +79,7 @@ def _bundle(text, extra=None, transcript="received:\nHello."):
     return ConversationBundle(
         conversation_id="email-synthetic-1", source_kind="channel", source_subtype="email",
         source_session_id="Mail::synthetic-1", channel="email",
-        participants=("user", "Sam Example"), started_at=started, ended_at="",
+        participants=("user", "Sam Smith"), started_at=started, ended_at="",
         summary=ConversationSummary(overall="Synthetic.", topics=()), transcript=transcript,
         todos=(Todo(id="t1", text=text, owner="user"),), privacy_level="L1",
         extra_metadata=extra or {})
@@ -102,7 +102,7 @@ def _t(text, owner=False, hours=48, prior=()):
     msgs.append(Message(sender="x", text=text, timestamp=NOW - timedelta(hours=hours),
                         is_from_owner=owner))
     return Thread(thread_id="t", channel="imessage", messages=tuple(msgs),
-                  counterpart_name="Alex Example")
+                  counterpart_name="Alex Doe")
 
 
 @pytest.mark.parametrize("thread, want", [
@@ -131,8 +131,8 @@ def _chat(subtype, other):
 
 
 @pytest.mark.parametrize("subtype, other, kept", [
-    ("imessage", "Sam Example", True),       # Messages names a handle from Contacts
-    ("whatsapp", "Sam Example", False),      # a push name proves nothing (CM048 #111)
+    ("imessage", "Sam Smith", True),       # Messages names a handle from Contacts
+    ("whatsapp", "Sam Smith", False),      # a push name proves nothing (CM048 #111)
     ("imessage", "+44 7700 900123", False),  # an unsaved number
 ])
 def test_a_chat_payment_reminder_needs_a_contacts_match(subtype, other, kept):
