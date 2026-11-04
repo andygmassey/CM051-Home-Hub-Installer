@@ -26,7 +26,7 @@
 # and die silently with no DONE marker. The ERR trap itself
 # (_ostler_on_err) is registered later, once the real gui helpers are
 # sourced. See CX-454 (task #454).
-set -Eeuo pipefail
+set -Eeuo pipefail; export HOMEBREW_NO_ANALYTICS=1  # privacy: no Homebrew analytics from any brew call below
 
 # -- .pyc redirect: never write bytecode into a signed bundle --------
 # WHY, MEASURED on the shipped v1.0.45 artefact, 2026-08-26 (ORM):
@@ -22010,11 +22010,11 @@ services:
     # was WRONG and was the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So
     # when store-auth is default-OFF the installer REMOVES the API_KEY line
     # from this block after generating the compose (see "empty-api-key
-    # quirk" below), leaving QDRANT__LOG_LEVEL as the sole entry so the
+    # quirk" below), leaving the telemetry-off + LOG_LEVEL entries so the
     # block stays valid YAML and Qdrant runs keyless -- matching the pinned
-    # vendored clients that send no api key. That keyless default is
-    # precisely why no port of this container may be published.
+    # vendored clients that send no api key (keyless: no port may be published).
     environment:
+      QDRANT__TELEMETRY_DISABLED: "true"  # privacy: stops the hourly report to telemetry.qdrant.io
       QDRANT__LOG_LEVEL: "INFO"
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     volumes:

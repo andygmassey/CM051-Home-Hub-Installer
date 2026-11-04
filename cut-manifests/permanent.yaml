@@ -1656,6 +1656,15 @@ entries:
       kind: box_walk_probe
       probe: "image_pulls_match_pins"
 
+  - id: box-walk-third-party-telemetry-off
+    title: "box-walk probe must PASS: third_party_telemetry_off"
+    incident: >-
+      v1.0.124 egress audit D1+D2+D3: Qdrant telemetry, Homebrew analytics and
+      Google Fonts must not be reached from the installed Hub. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "third_party_telemetry_off"
+
   - id: box-walk-status-api-dates-are-sane
     title: "box-walk probe must PASS: status_api_dates_are_sane"
     incident: >-
