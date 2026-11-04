@@ -1713,3 +1713,24 @@ printed "could not verify cm041/assistant_api: source repo not found ()" and
   `tests/test_nameless_filter_applies_to_the_hub_people_count.py` (18-digit case).
 - Upstream: CM041 `assistant_api/people_rules.py`. Retire this section when a
   re-pin brings it in.
+
+## 2026-11-04: #2565, timeline titles carry `source` and `title_verbatim`
+
+Location and shape only. `vendor/cm041/assistant_api/ical-server.py`:
+
+- three module constants above `_timeline_from_graph`
+  (`TIMELINE_SOURCE_CALENDAR`, `TIMELINE_SOURCE_OSTLER`, `TIMELINE_SOURCE_UNKNOWN`);
+- `_timeline_from_graph`: one added key, `source`, on each returned row;
+- `_timeline_conversations`: one added key, `source`, on each returned row;
+- `api_timeline`: `source` on each live-calendar item and on each of the three
+  error sentinels; each `entries[]` element gains `source` and `title_verbatim`.
+
+No existing key changes value and no row is added or removed. Pinned by
+`tests/test_timeline_entries_carry_source.py` (12 checks, 4 of them red against
+the pre-#2565 producer).
+
+Why not regenerated in the same PR: another PR is changing this same file
+for a privacy fix. Per the release lead (2026-11-04), that PR merges first,
+then this branch is rebased onto it and `scripts/regenerate_divergence_patch.sh
+cm041/assistant_api --write` is run LAST, so the patch records both edits at
+once. Upstream (CM041 `assistant_api/ical-server.py`) still owes the same change.
