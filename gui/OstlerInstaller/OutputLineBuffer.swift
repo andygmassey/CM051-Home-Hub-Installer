@@ -286,3 +286,52 @@ struct OutputLineBuffer {
         return String(decoding: u[start...], as: UTF8.self)
     }
 }
+
+// MARK: - Homebrew untrusted-tap warning
+
+/// Homebrew prints a multi-line "taps are not trusted" warning block that
+/// links to docs.brew.sh/Tap-Trust. It is not an Ostler failure and no
+/// customer action helps, but it landed in the customer-visible log and the
+/// support email and read as an error. This drops that one block from the
+/// in-app buffers ONLY. The full text still reaches ~/.ostler/logs/install.log
+/// (install.sh tees every byte there) which is the diagnostics file.
+///
+/// Stateful because the block spans lines. It starts at the line naming
+/// "taps are not trusted" and runs through the line containing "Tap-Trust".
+/// Between those, only blank lines, indented lines and lines mentioning
+/// "tap" are swallowed; any other line ends the block and is KEPT, so a real
+/// error interleaved with the warning is never eaten. A block that never
+/// reaches its Tap-Trust line is also bounded by `maxBlockLines`.
+struct BrewTapWarningFilter {
+    static let maxBlockLines = 12
+    private var inBlock = false
+    private var swallowed = 0
+
+    /// Returns true when the line should be shown/kept.
+    mutating func keep(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        if !inBlock {
+            if lower.contains("taps are not trusted") || lower.contains("tap is not trusted") {
+                inBlock = true
+                swallowed = 1
+                if lower.contains("tap-trust") { inBlock = false }
+                return false
+            }
+            return true
+        }
+        let isBlockish = line.trimmingCharacters(in: .whitespaces).isEmpty
+            || line.hasPrefix(" ") || line.hasPrefix("\t")
+            || lower.contains("tap")
+        if !isBlockish || swallowed >= Self.maxBlockLines {
+            inBlock = false
+            swallowed = 0
+            return true
+        }
+        swallowed += 1
+        if lower.contains("tap-trust") {
+            inBlock = false
+            swallowed = 0
+        }
+        return false
+    }
+}
