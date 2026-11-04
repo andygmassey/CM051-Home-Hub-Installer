@@ -63,6 +63,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import ostler_paths
+from . import scam_guard
 
 if TYPE_CHECKING:  # avoid a circular import at runtime
     from .conversation_writer import ConversationBundle, Todo
@@ -112,6 +113,10 @@ SKIP_REASON_NON_HUMAN = "non_human_sender"
 FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
+# Junk / spam / fraud mail, a fraud-worded todo, or a payment todo for
+# someone the owner has never written to (scam_guard.py). Reminders has no
+# room for a caveat, so these never reach it.
+SKIP_REASON_SCAM = "possible_scam"
 # A pending (not yet pushed) row whose todo is absent from a later run of
 # the SAME conversation: the conversation was updated and re-extracted,
 # and this todo is no longer in it (or is now worded differently enough
@@ -837,6 +842,18 @@ def decide_push(
         return PushDecision(
             eligible=False,
             skip_reason=SKIP_REASON_EMPTY_TEXT,
+            push_title="",
+            push_notes="",
+            push_deadline=None,
+        )
+
+    meta = dict(getattr(bundle, "extra_metadata", None) or {})
+    if scam_guard.todo_withheld_reason(
+        text, meta, transcript=getattr(bundle, "transcript", "") or ""
+    ):
+        return PushDecision(
+            eligible=False,
+            skip_reason=SKIP_REASON_SCAM,
             push_title="",
             push_notes="",
             push_deadline=None,

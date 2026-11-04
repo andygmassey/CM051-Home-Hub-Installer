@@ -143,6 +143,13 @@ class ReplyDebt:
     score: float
     resolved: Optional[bool] = None
     handle_kind: str = ""
+    # Whether a reply is OWED (see owed_verdict): "yes" or "ambiguous". A
+    # "no" thread is never a debt and never reaches this class.
+    owed: str = "yes"
+    # The owner's own last message promised an answer that has not come.
+    owner_promised: bool = False
+    # The ask is time-bound ("today", "by Friday").
+    time_sensitive: bool = False
 
     @property
     def waiting_human(self) -> str:
@@ -180,6 +187,9 @@ class ReplyDebt:
             "score": round(self.score, 4),
             "resolved": self.resolved,
             "handle_kind": self.handle_kind,
+            "owed": self.owed,
+            "owner_promised": self.owner_promised,
+            "time_sensitive": self.time_sensitive,
         }
 
 
@@ -312,6 +322,74 @@ def expects_reply(text: str) -> bool:
     return words >= 6
 
 
+# A notice, a broadcast or an automated message: nothing is asked of the
+# owner personally. A request pattern overrides.
+_FYI_RE = re.compile(
+    r"\bfyi\b|just letting you know|just to let you know|heads up|"
+    r"no need to (?:reply|respond)|no reply needed|for your information|"
+    r"forwarded message|do[- ]not[- ]reply|unsubscribe|verification code|"
+    r"your code is|one[- ]time (?:code|password)|your order|has been delivered|"
+    r"has shipped|this is an automated",
+    re.IGNORECASE,
+)
+
+# The owner's own message promising an answer ("I'll get back to you").
+_OWNER_PROMISE_RE = re.compile(
+    r"\b(?:i'?ll|i will|will|let me)\s+(?:get back to you|check|find out|"
+    r"let you know|come back to you|confirm|send (?:it|them|you)|look into it|"
+    r"have a look|think about it)",
+    re.IGNORECASE,
+)
+
+_TIME_SENSITIVE_RE = re.compile(
+    r"\b(?:today|tonight|tomorrow|this (?:morning|afternoon|evening)|asap|"
+    r"urgent(?:ly)?|by (?:monday|tuesday|wednesday|thursday|friday|saturday|"
+    r"sunday|the end of)|deadline|right away|in an hour)\b",
+    re.IGNORECASE,
+)
+
+
+def owed_verdict(thread: "Thread") -> tuple[str, str]:
+    """Is a reply OWED on this thread? ``("yes"|"no"|"ambiguous", rule)``.
+
+    Deterministic, on the trailing inbound message(s), cheapest signal first:
+
+      * owner sent the last message      -> no  (ball in their court)
+      * the last message only closes      -> no  (thanks, ok, emoji, tapback)
+      * a question or request at the owner -> yes
+      * the owner's previous message promised an answer -> yes
+      * a notice, broadcast or automated message -> no
+      * a short statement (< 6 words)     -> no
+      * anything else                     -> ambiguous (the brief may ask the
+        tier model, one YES/NO per thread; with no model it is not listed)
+
+    Group chats are excluded before this is asked (``detect``).
+    """
+    if not thread.messages:
+        return "no", "empty"
+    last = thread.messages[-1]
+    if last.is_from_owner:
+        return "no", "owner_spoke_last"
+    text = (last.text or "").strip()
+    if not text:
+        return "no", "no_text"
+    if is_conversation_closer(text):
+        return "no", "closer"
+    if _REQUEST_RE.search(text):
+        return "yes", "ask"
+    # The owner's most recent message before the trailing inbound run.
+    for m in reversed(thread.messages[:-1]):
+        if m.is_from_owner:
+            if _OWNER_PROMISE_RE.search(m.text or ""):
+                return "yes", "owner_promised"
+            break
+    if _FYI_RE.search(text):
+        return "no", "fyi_or_automated"
+    if len(text.split()) < 6:
+        return "no", "short_statement"
+    return "ambiguous", "statement"
+
+
 def _ensure_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
@@ -412,12 +490,19 @@ def detect_thread(
     if is_conversation_closer(last.text):
         return None  # a thanks / ok / emoji / tapback needs no reply
 
+    # A thread is a debt only when a reply is actually OWED. An FYI, a
+    # notice or a short statement that asks nothing is not, however long it
+    # has sat (2026-11-04 evening brief: six threads listed, none owed).
+    owed, rule = owed_verdict(thread)
+    if owed == "no":
+        return None
+
     waiting_since = _ensure_aware(last.timestamp)
     hours = (now - waiting_since).total_seconds() / 3600.0
     if hours < threshold_hours:
         return None  # still mid-conversation
 
-    expects = expects_reply(last.text)
+    expects = owed == "yes"
     score = score_debt(
         relationship_strength=thread.relationship_strength,
         hours_waiting=hours,
@@ -441,6 +526,9 @@ def detect_thread(
         score=score,
         resolved=thread.counterpart_resolved,
         handle_kind=thread.counterpart_kind,
+        owed=owed,
+        owner_promised=(rule == "owner_promised"),
+        time_sensitive=bool(_TIME_SENSITIVE_RE.search(last.text or "")),
     )
 
 
