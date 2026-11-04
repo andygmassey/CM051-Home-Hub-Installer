@@ -279,7 +279,7 @@ END {
         line = lines[k]; src = ""; dst = ""; dport = ""; st = "-"; proto = "-"
         if (method == "ss") {
             nf = split(line, f, /[ \t]+/)
-            # ss -tnpH: State Recv-Q Send-Q Local Peer [users]
+            # ss -tnpH columns: state, recv-q, send-q, local, peer, users
             if (nf < 5) continue
             st = f[1]; proto = "tcp"; src = f[4]; dst = f[5]
             dport = dst; sub(/^.*:/, "", dport); sub(/:[^:]*$/, "", dst); sub(/:[^:]*$/, "", src)

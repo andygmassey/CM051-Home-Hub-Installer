@@ -80,7 +80,7 @@ exit 1
 EOF
 cat > "$H/log" <<'EOF'
 #!/bin/sh
-echo "Timestamp               Ty Process[PID:TID]"
+echo "timestamp               ty process[pid:tid]"
 [ -r "$SHIM_STATE/log" ] && cat "$SHIM_STATE/log"
 exit 0
 EOF

@@ -15,11 +15,11 @@ analytics.brew.sh	Homebrew analytics (brew 7.x utils/analytics.rb)	HOMEBREW_NO_A
 eu-central-1-1.aws.cloud2.influxdata.com	Homebrew analytics sink used by earlier brew 4.x releases	HOMEBREW_NO_ANALYTICS=1, CM051 #3319 (D3)
 fonts.googleapis.com	Google Fonts CSS, Hub web UI	fonts self-hosted, ostler-assistant #663 (D2)
 fonts.gstatic.com	Google Fonts files, Hub web UI	fonts self-hosted, ostler-assistant #663 (D2)
-www.google-analytics.com	Google Analytics	no product surface may use it
-region1.google-analytics.com	Google Analytics (GA4 collection)	no product surface may use it
-ssl.google-analytics.com	Google Analytics (legacy)	no product surface may use it
-analytics.google.com	Google Analytics	no product surface may use it
-www.googletagmanager.com	Google Tag Manager	no product surface may use it
+www.google-analytics.com	analytics (google-analytics)	no product surface may use it
+region1.google-analytics.com	analytics, GA4 collection (google-analytics)	no product surface may use it
+ssl.google-analytics.com	analytics, legacy (google-analytics)	no product surface may use it
+analytics.google.com	analytics (google-analytics)	no product surface may use it
+www.googletagmanager.com	tag manager (googletagmanager)	no product surface may use it
 sentry.io	Sentry error reporting	no product surface may use it
 ingest.sentry.io	Sentry ingest	no product surface may use it
 ingest.us.sentry.io	Sentry ingest (US)	no product surface may use it
