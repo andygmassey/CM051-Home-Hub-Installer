@@ -36,6 +36,8 @@ upstream ranges and turn the gate red. Pin upstream, or re-run
 - `pip install <bundled dir>` sites (ostler_security, legal, ostler_fda, cm021,
   cm024_knowledge, cm048_pipeline, cm052_ai_conversations) resolve their own
   pyproject.toml ranges; their transitive deps are not pinned by this change.
-- 3 pins (filelock 4.2.8, soupsieve 4.0.1, typing-inspection 0.4.5) were
-  uploaded to PyPI after the v1.0.123 tag; a v1.0.123 install may have held the
-  previous release.
+- Pins were checked against `pip freeze` of the four Ostler venvs on Mini16
+  after the v1.0.123 walk (read-only). typing-inspection (0.4.4) and soupsieve
+  (4.0) take the box versions. filelock 4.2.8 (ostler_security file) has no box
+  venv to compare with, and was uploaded after the 123 tag; the 123 version is
+  unknown.
