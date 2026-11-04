@@ -156,8 +156,8 @@
   "gws_install": {
     "id": "gws_install",
     "title": "日历 / Gmail 桥接",
-    "subtitle": "Google Workspace CLI + iCloud 封装",
-    "why": "Ostler 通过在这台 Mac 上本地运行的 Google 官方 Workspace CLI（gws）连接你的 Gmail 和 Google 日历，并通过 CalDAV 使用专用密码连接 iCloud。任何内容都不会离开这台设备；OAuth 授权只在 CLI 与 Google 之间进行。",
+    "subtitle": "Google + iCloud",
+    "why": "Ostler 通过你在这台 Mac 上的 Google 登录连接你的 Gmail 和 Google 日历，并通过 CalDAV 使用专用密码连接 iCloud。任何内容都不会离开这台设备；登录只在这台 Mac 与 Google 之间进行。",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

@@ -156,8 +156,8 @@
   "gws_install": {
     "id": "gws_install",
     "title": "Agenda-/Gmail-koppeling",
-    "subtitle": "Google Workspace CLI + iCloud-wrapper",
-    "why": "Ostler communiceert met je Gmail en Google Agenda via Googles eigen Workspace CLI (gws), die lokaal op deze Mac draait, en met iCloud via CalDAV met een appspecifiek wachtwoord. Er verlaat niets de computer; OAuth verloopt tussen de CLI en Google.",
+    "subtitle": "Google + iCloud",
+    "why": "Ostler communiceert met je Gmail en Google Agenda via je Google-aanmelding op deze Mac, en met iCloud via CalDAV met een appspecifiek wachtwoord. Er verlaat niets de computer; het aanmelden verloopt tussen deze Mac en Google.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

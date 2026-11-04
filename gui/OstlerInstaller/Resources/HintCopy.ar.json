@@ -156,8 +156,8 @@
   "gws_install": {
     "id": "gws_install",
     "title": "جسر التقويم / Gmail",
-    "subtitle": "أداة Google Workspace CLI وطبقة iCloud",
-    "why": "يتواصل Ostler مع Gmail وGoogle Calendar عبر أداة Google Workspace CLI (gws) الرسمية من Google العاملة محليًا على هذا الـ Mac، ومع iCloud عبر CalDAV باستخدام كلمة مرور خاصة بالتطبيق. لا شيء يغادر الجهاز، وتتم مصادقة OAuth بين الأداة وGoogle.",
+    "subtitle": "Google وiCloud",
+    "why": "يتواصل Ostler مع Gmail وGoogle Calendar باستخدام تسجيل دخولك إلى Google على هذا الـ Mac، ومع iCloud عبر CalDAV باستخدام كلمة مرور خاصة بالتطبيق. لا شيء يغادر الجهاز، ويتم تسجيل الدخول بين هذا الـ Mac وGoogle.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,
