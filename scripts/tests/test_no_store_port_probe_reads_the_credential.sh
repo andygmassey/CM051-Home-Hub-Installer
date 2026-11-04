@@ -640,6 +640,7 @@ arm_cred_route_served_is_fail() {        # 18
     stop_server
     [[ "$rc" -eq 1 ]] || return 1
     [[ "$(count "(200,second-identity)" "$out")" -eq 1 ]] || return 1
+    [[ "$(count "second-identity uid 4242 (ok)" "$out")" -eq 1 ]] || return 1
     return 0
 }
 arm_cred_route_refused_owner_served_is_pass() {   # 19
@@ -675,7 +676,9 @@ arm_second_identity_same_uid_is_cannot_run() {   # 21b
     CRED="$HTTP:GET:/x"; SECOND="env"; out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; SECOND=""; LAST_OUT="$out"
     stop_server
     [[ "$rc" -eq 78 ]] || return 1
-    [[ "$(count 'same-uid-as-owner' "$out")" -eq 1 ]] || return 1
+    [[ "$(count 'credential-routes(second-identity-same-uid-as-owner' "$out")" -eq 1 ]] || return 1
+    # Archie: both uids are RECORDED, so the reader can see why.
+    [[ "$(count "owner uid $(id -u), second-identity uid $(id -u)" "$out")" -eq 1 ]] || return 1
     return 0
 }
 arm_second_identity_over_ssh_no_sudo() {   # 21c Archie (c): the non-sudo route

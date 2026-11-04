@@ -805,8 +805,7 @@ _second_id_http() {   # $1 method, $2 url
 }
 # The second identity must PROVABLY not be the owner: its uid differs from the
 # uid the owner's own box_run reports. Prints ok or a reason.
-_second_id_ready() {
-    _o="$(box_run 'id -u')"; _x="$(_second_id_run '/usr/bin/id -u')"
+_second_id_ready() {   # reads _o and _x, set by the caller
     case "$_o:$_x" in
         *[!0-9:]*|:*|*:) printf 'unavailable(%s)\n' "${SECOND_ID_HOST:-$SECOND_ID_CMD}" ;;
         *) if [ "$_o" = "$_x" ]; then printf 'same-uid-as-owner(%s)\n' "$_x"; else printf 'ok\n'; fi ;;
@@ -824,7 +823,9 @@ _listener_table() {
 _class3() {
     [ -n "$CRED_ROUTES$KNOWN_LISTENERS" ] || return 0
     if [ -n "$CRED_ROUTES" ]; then
+        _o="$(box_run 'id -u')"; _x="$(_second_id_run '/usr/bin/id -u')"
         sid="$(_second_id_ready)"
+        probe_note "second identity via ${SECOND_ID_HOST:-$SECOND_ID_CMD}: owner uid ${_o:-unread}, second-identity uid ${_x:-unread} (${sid})"
         if [ "$sid" != ok ]; then
             unmeasured_list="${unmeasured_list} credential-routes(second-identity-${sid})"
         else
