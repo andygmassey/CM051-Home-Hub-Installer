@@ -4121,7 +4121,7 @@ open_issues:
     verdict_119: 'RE-EXEMPT for v1.0.119 (Archie 2026-10-29), expires v1.0.121 (renumbered from v1.0.120: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope)'
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible. the cm041 divergence patch no longer reconstructs the vendored tree (fails at ical-server.py:496 at pin 688463bb; 15 files diverge); ORM confirms below that the cut''s vendor-freshness step does not depend on it. CORRECTION to the row text (YES): FALSE CLAIM (stale): "one hunk in one file" and "patch applies rc 0". At current pin 688463bb the patch does not apply, so the tree cannot be reconstructed and the freshness gate would red (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: the cm041 divergence patch no longer reconstructs the vendored tree; vendor-freshness does not depend on it (ORM, 121)'
-    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). Cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
+    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
     title: 'vendor/cm041/assistant_api differs from its own pin plus patch, so its register entry is untrue'
     gate: >-
       MEASURED 2026-09-19, AND THIS ROW HAS BEEN INVISIBLE TO EVERY MACHINE READER SINCE IT WAS
@@ -4380,7 +4380,7 @@ open_issues:
     verdict_119: 'RE-EXEMPT for v1.0.119 (Archie 2026-10-29), expires v1.0.121 (renumbered from v1.0.120: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope)'
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible. same patch as 2206: no longer reconstructs the vendored tree; see 2206 (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: the cm041 divergence patch no longer reconstructs the vendored tree; vendor-freshness does not depend on it (ORM, 121)'
-    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). Cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
+    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
     title: "The divergence patch APPLIES CLEANLY and does not reconstruct the tree, so a re-pin deletes shipped work"
     gate: >-
       🔴 THIS ROW IS NOT BLOCKING AS OF 2026-09-19. Four of its five limbs are closed and the fifth
@@ -5904,7 +5904,7 @@ open_issues:
     verdict_119: 'RE-EXEMPT-119, expires v1.0.121 (renumbered from v1.0.120: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope) | all consolidation callers pass raw content at oa 610b0c5c | fix ostler-ai/ostler-assistant #644, in hub 0.5.31 (Archie 2026-10-29)'
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible. no caller passes the prefetch block into consolidation at 5327396c (ws.rs:1141, orchestrator/mod.rs:4140); oa #644 (the in-consolidation strip) is OPEN and goes to the first update. CORRECTION to the row text (PARTLY (no caller passes the prefetch block; no strip or test inside consolidation)): FALSE CLAIM: "fix ostler-assistant #644, in hub 0.5.31": #644 is OPEN and not in 5327396c. "Raw content" holds at 5327396c, not only 610b0c5c (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: no caller passes the prefetch block into consolidation at 5327396c (ws.rs:1141, orchestrator/mod.rs:4140), so nothing reachable; oa #644 still OPEN'
-    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). Cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
+    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
     title: 'Daemon graph prefetch: check consolidation cannot turn the injected lookup block into a core_ memory attributed to the user'
     gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. WHAT CLOSES IT: a test that the [Looked up in the user''s own data] block is never consolidated as something the user said, and a post-walk box check of core_ memories.'
   - issue: 2463
@@ -6254,7 +6254,7 @@ open_issues:
     verdict_119: 'RE-EXEMPT for v1.0.119 (Archie 2026-10-29), expires v1.0.121 (renumbered from v1.0.120: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope)'
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: an API field no screen renders; the probe''s #2565 exemption (event titles) is unchanged'
-    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). Cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
+    verdict_123: 'KNOWN-ISSUE-123 PENDING ANDY (Archie + Aesop agree in writing 2026-11-04). cites Andy 02 Nov 23:40 HKT overnight authority (122); extension to 123 pending Andy''s confirmation. If he says no, BLOCKING.'
     title: 'Timeline entries carry no source field, so a client cannot tell a verbatim calendar title from Ostler-written text'
     gate: 'NOT BLOCKING for v1.0.107. Registered in the same action as the filing. GET /api/v1/timeline entries carry attendees, subtitle, timestamp, title and type, and items carry date, kind, location, participants and summary, with no source. The walk probe hub_screens_customer_read (CM051 #2561) exempts verbatim customer titles from its no-em-dash check by kind == event until this lands (TODO(#2565) at that line). CLOSES ON: every entry and item carries a non-empty source plus a verbatim-title flag, a timeline API test asserting it, and the probe exemption switched to the source field.'
 
