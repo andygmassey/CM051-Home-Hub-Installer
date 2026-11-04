@@ -1664,3 +1664,17 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "status_api_dates_are_sane"
+  - id: box-walk-installed-venvs-match-pinned-requirements
+    title: each installed Python venv holds exactly the versions the shipped requirements files pin
+    incident: >-
+      Red-team S4, v1.0.124. Every requirements file installed unpinned at
+      install and at every upgrade (0 == pins in 9 files), so a compromised
+      or typosquatted release inside a >= range would run as the owner on
+      every install after its publication. v1.0.124 pins all nine files with
+      a full transitive freeze; the source gate proves the files, this probe
+      proves the INSTALL (pip freeze of the pipeline, consumer, cm019 and
+      doctor venvs against the pinned files: drift, missing, or extra
+      packages). Hashes are v1.0.125. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "installed_venvs_match_pinned_requirements"

@@ -12,29 +12,29 @@
 # entire torch/transformers/sklearn/nltk stack is gone. See vectorizer.py.
 
 # Config + settings (config.py, enrich models)
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
+pydantic==2.14.2  # was: >=2.5.0
+pydantic-settings==2.16.2  # was: >=2.1.0
 
 # CLI framework (cli.py). Upstream relied on this resolving transitively;
 # we list it explicitly since nothing else here pulls it in.
-click>=8.1.0
+click==8.5.0  # was: >=8.1.0
 
 # HTTP: Ollama embed (vectorizer), Oxigraph + Qdrant loaders, RML mapper
-httpx>=0.25.0
+httpx==0.28.1  # was: >=0.25.0
 
 # Async file IO -- imported eagerly by ~20 parsers via parsers/__init__.py,
 # so it is a hard import-time dependency of the ingest package.
-aiofiles>=23.2.0
+aiofiles==25.1.0  # was: >=23.2.0
 
 # HTML parsing for the eBay / YouTube / Pinterest parsers. Those parsers call
 # BeautifulSoup(content, "lxml"), so the lxml backend is required, not optional.
-beautifulsoup4>=4.12.0
-lxml>=6.1.0
+beautifulsoup4==4.15.0  # was: >=4.12.0
+lxml==6.1.3  # was: >=6.1.0
 
 # Excel parsing for Disney+ GDPR exports (parsers/disney.py). msoffcrypto-tool
 # handles password-protected workbooks.
-openpyxl>=3.1.0
-msoffcrypto-tool>=5.0.0
+openpyxl==3.1.5  # was: >=3.1.0
+msoffcrypto-tool==6.1.0  # was: >=5.0.0
 
 # Enrichment service (services/enrich): normalisation + canonical-entity
 # lookups. The lookup clients MAY call PUBLIC item-metadata APIs (Wikidata,
@@ -43,21 +43,21 @@ msoffcrypto-tool>=5.0.0
 # is about the item, never the user. Keyed clients (TMDB/YouTube/Foursquare/
 # Google Places) no-op without their API key. These are the only deps enrich
 # adds on top of the ingest set (httpx/bs4/pydantic/click are shared); NO torch.
-aiohttp>=3.9.0
-aiolimiter>=1.1.0
+aiohttp==3.14.5  # was: >=3.9.0
+aiolimiter==1.3.0  # was: >=1.1.0
 
 # Preference derivation (services/enrich/src/derive, the "What you like"
 # producer). config.py reads its dimension/reader registry from YAML at import
 # time, and the writer SHACL-validates every derived node before it swaps the
 # named graph, which needs rdflib + pyshacl. All three are pure Python; no
 # model, no network. Floors match upstream services/enrich/requirements.txt.
-pyyaml>=6.0
-rdflib>=7.0.0
-pyshacl>=0.25.0
+PyYAML==6.0.3  # was: >=6.0
+rdflib==7.6.0  # was: >=7.0.0
+pyshacl==0.40.2  # was: >=0.25.0
 
 # Security floor: msoffcrypto-tool pulls in cryptography; keep the Snyk-pinned
 # minimum that still applies to the surviving dependency tree.
-cryptography>=46.0.5
+cryptography==50.0.2  # was: >=46.0.5
 
 # DROPPED versus upstream services/ingest/requirements.txt, with reasons:
 #   fastapi, uvicorn[standard], python-jose[cryptography]
@@ -79,3 +79,35 @@ cryptography>=46.0.5
 #   requests, urllib3, setuptools, wheel, zipp, filelock
 #       -> Snyk floor pins for the removed ML/transitive tree; no longer
 #          reachable, so not carried over.
+
+# --- transitive closure (pip freeze), pinned ---
+aiohappyeyeballs==2.7.1
+aiosignal==1.4.0
+annotated-types==0.8.0
+anyio==4.16.0
+attrs==26.1.0
+certifi==2026.10.23
+cffi==2.1.1
+et_xmlfile==2.0.0
+frozenlist==1.8.0
+h11==0.16.0
+html5rdf==1.2.1
+httpcore==1.0.9
+idna==3.20
+importlib_metadata==10.1.0
+multidict==7.2.1
+olefile==0.47
+owlrl==7.6.2
+packaging==26.3
+prettytable==3.18.0
+propcache==0.5.4
+pycparser==3.12
+pydantic_core==2.50.2
+pyparsing==3.3.3
+python-dotenv==1.2.4
+soupsieve==4.0.1
+typing_extensions==4.16.0
+typing-inspection==0.4.5
+wcwidth==0.9.4
+yarl==1.25.1
+zipp==4.1.2

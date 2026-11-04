@@ -2,4 +2,10 @@
 # Runtime uses only the Python standard library (urllib, csv, json) - no deps,
 # so it runs anywhere the daemon's bundled Python runs.
 # Dev/test only:
-pytest>=7.0
+pytest==9.2.0  # was: >=7.0
+
+# --- transitive closure (pip freeze), pinned ---
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+Pygments==2.21.0
