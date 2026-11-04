@@ -388,3 +388,12 @@ Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py`
 UPSTREAM ROW: none owed today. CM041 main (fe3290d) Tier 1 has no RULE 2
 trust filter, so its LIMIT 1 lookup cannot hide an acceptable holder behind
 a declined one. Owed only if CM041 takes the RULE 2 Tier-1 guard.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.
