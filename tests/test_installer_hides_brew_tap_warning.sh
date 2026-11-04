@@ -44,7 +44,11 @@ p="$("$W/d" passthrough < "$W/in1")"
 grep -qF "Tap-Trust" <<<"$p" && grep -qF "examplecorp/faketap" <<<"$p" && ok "control: passthrough keeps the block" || bad "control broken: fixture block not present in passthrough"
 
 f="$("$W/d" filter < "$W/in1")"
-if grep -qiF "not trusted" <<<"$f" || grep -qF "Tap-Trust" <<<"$f" || grep -qF "examplecorp/faketap" <<<"$f"; then bad "warning block leaked: $f"; else ok "block removed"; fi
+leak=0
+grep -qiF "not trusted" <<<"$f" && leak=1
+grep -qF "Tap-Trust" <<<"$f" && leak=1
+grep -qF "examplecorp/faketap" <<<"$f" && leak=1
+if [[ $leak -eq 1 ]]; then bad "warning block leaked: $f"; else ok "block removed"; fi
 [[ "$f" == "$(cat "$W/expect1")" ]] && ok "both occurrences removed, surrounding lines byte-identical" || bad "output differs from expected: $f"
 
 f2="$("$W/d" filter < "$W/in2")"
@@ -53,5 +57,6 @@ grep -qF "Error: jq: no bottle available!" <<<"$f2" && ok "real error after a tr
 # Wiring: the coordinator's raw-log path must call the filter.
 grep -q "brewTapFilter.keep(msg)" "$COORD" && ok "InstallerCoordinator calls the filter" || bad "UNWIRED: coordinator does not call BrewTapWarningFilter"
 # Diagnostics file stays complete: install.sh must not strip it.
-if grep -n "tap-trust\|taps are not trusted" "${ROOT}/install.sh" | grep -qi "grep -v\|sed"; then bad "install.sh strips the warning from the diagnostics log"; else ok "install.sh leaves the warning in install.log"; fi
+tapl="$(grep -n "tap-trust\|taps are not trusted" "${ROOT}/install.sh")"
+if grep -qi "grep -v\|sed" <<<"$tapl"; then bad "install.sh strips the warning from the diagnostics log"; else ok "install.sh leaves the warning in install.log"; fi
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
