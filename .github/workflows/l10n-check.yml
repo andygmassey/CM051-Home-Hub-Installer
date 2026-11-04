@@ -41,6 +41,9 @@ jobs:
       - name: a typed consent token (INSTALL / CANCEL) is shown verbatim in every locale
         if: always()
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_typed_consent_token_is_verbatim_in_every_locale.py
+      - name: the consent copy promises no cloud routing (none exists) in any locale, and the terms link is ostler.ai/terms (v1.0.124)
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_promises_no_cloud_routing.py
       - name: every line drawn in the legal style (smaller and lighter) is classed legal (owner ruling 2026-11-04)
         if: always()
         run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_legal_style_lines_are_legal_keys.py

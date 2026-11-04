@@ -245,6 +245,7 @@ test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_display_legal_rule_matches_l10n.py	WIRED	.github/workflows/l10n-check.yml
 test_consent_display_record.py	WIRED	.github/workflows/consent-registry.yml
+test_consent_promises_no_cloud_routing.py	WIRED	.github/workflows/l10n-check.yml
 test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
