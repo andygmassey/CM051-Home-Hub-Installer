@@ -2,20 +2,22 @@
 # F&F 2026-11-05 item 4. `ollama pull` reports a percent PER LAYER; the old
 # wrapper emitted it as the step bar, so the bar reset per layer and sat at 100%
 # whenever a small layer finished while the big one ran on. The aggregator
-# (awk_src in _gui_ollama_pull, install.sh) must give ONE overall bar: summed bytes,
+# (ollama_pull_progress in lib/progress_emitter.sh) must give ONE overall bar: summed bytes,
 # capped at 99 until success, monotonic, one line per change.
-# Usage: tests/test_model_pull_progress_is_one_overall_bar.sh [install.sh]
+# Usage: tests/test_model_pull_progress_is_one_overall_bar.sh [lib/progress_emitter.sh]
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SH="${1:-${HERE}/../install.sh}"
+LIB="${1:-${HERE}/../lib/progress_emitter.sh}"
 FIX="${HERE}/fixtures/ollama_pull_multilayer.stream"
-[ -f "$SH" ] && [ -f "$FIX" ] || { echo "CANNOT-RUN: install.sh or fixture missing"; exit 2; }
-AWKSRC="$(awk '/^    local awk_src=\x27$/{f=1;next} f&&/^    \x27$/{exit} f{print}' "$SH")"
-[ -n "$AWKSRC" ] || { echo "CANNOT-RUN: local awk_src not found in $SH"; exit 2; }
+[ -f "$LIB" ] && [ -f "$FIX" ] || { echo "CANNOT-RUN: lib or fixture missing"; exit 2; }
+# the REAL function, sourced from the shipped helper
+# shellcheck disable=SC1090
+. "$LIB" 2>/dev/null
+type ollama_pull_progress >/dev/null 2>&1 || { echo "CANNOT-RUN: ollama_pull_progress not defined by $LIB"; exit 2; }
 FAIL=0
 bad() { echo "  [FAIL] $1"; FAIL=$((FAIL+1)); }
 ok()  { echo "  [PASS] $1"; }
-run() { tr '\n' '\r' < "$FIX" | tr '\r' '\n' | awk -v idx="$1" -v n="$2" "$AWKSRC"; }
+run() { tr '\n' '\r' < "$FIX" | tr '\r' '\n' | ollama_pull_progress "$1" "$2"; }
 
 out1="$(run 1 1)"
 [ -n "$out1" ] || { echo "CANNOT-RUN: aggregator produced no output on the fixture"; exit 2; }
@@ -36,4 +38,25 @@ mn="$(printf '%s\n' $out2 | sort -n | head -1)"; mx2="$(printf '%s\n' $out2 | so
 { [ "$mn" -ge 50 ] && [ "$mx2" -le 99 ]; } && ok "model 2 of 2 stays within 50..99 (${mn}..${mx2})" || bad "model 2 of 2 range ${mn}..${mx2}"
 run 1 2 | grep -q 'Model 1 of 2' && ok "log text names 'Model 1 of 2'" || bad "no 'Model 1 of N' text"
 run 1 1 | grep -q 'Model ' && bad "single model should not say 'Model 1 of 1'" || ok "single model has no 'Model' prefix"
+
+# END TO END through the REAL _gui_ollama_pull (lifted from install.sh) with a stub
+# engine that replays the fixture: 100 appears only AFTER a successful exit.
+INS="${HERE}/../install.sh"
+W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f&&/^}$/{exit}' "$INS" > "$W/fn.sh"
+[ -s "$W/fn.sh" ] || { echo "CANNOT-RUN: could not lift _gui_ollama_pull"; exit 2; }
+grep -q 'ollama_pull_progress "\$idx" "\$n"' "$W/fn.sh" && ok "_gui_ollama_pull calls the aggregator (wired)" || bad "_gui_ollama_pull does not call ollama_pull_progress (unwired)"
+printf '#!/bin/sh\ncat "%s"\nexit "${STUB_RC:-0}"\n' "$FIX" > "$W/ollama"; chmod +x "$W/ollama"
+e2e() { # $1 = stub rc
+  ( set +u; . "$LIB" 2>/dev/null; . "$W/fn.sh"
+    export OSTLER_GUI=1 OLLAMA_APP_BIN="$W/ollama" STUB_RC="$1"
+    gui_emit() { shift; printf '%s\n' "$*"; }; gui_log() { :; }
+    OSTLER_PULL_IDX=0; OSTLER_PULL_N=1; _gui_ollama_pull modelx ai_models; echo "rc=$?" ) 2>/dev/null
+}
+okout="$(e2e 0)"; badout="$(e2e 1)"
+last="$(printf '%s\n' "$okout" | grep 'pct=' | tail -1)"
+[ "$last" = "step=ai_models pct=100" ] && ok "success: bar ends at 100 only after rc 0" || bad "success run ended '$last'"
+printf '%s\n' "$okout" | grep 'pct=' | sed '$d' | grep -q 'pct=100' && bad "100 emitted before success" || ok "no 100 before the exit status"
+printf '%s\n' "$badout" | grep -q 'pct=100' && bad "failed pull still reached 100" || ok "failed pull (rc 1) never reaches 100"
+printf '%s\n' "$badout" | grep -q '^rc=1' && ok "failure rc preserved" || bad "rc not preserved"
 echo "fail=$FAIL"; [ "$FAIL" -eq 0 ]
