@@ -102,6 +102,7 @@
 
   "footer": {
     "cancel_button": "Cancel",
+    "finish_pair_later_button": "Finish and pair later",
     "reveal_in_finder_button": "Reveal in Finder",
     "done_button": "Done",
     "quit_button": "Quit",

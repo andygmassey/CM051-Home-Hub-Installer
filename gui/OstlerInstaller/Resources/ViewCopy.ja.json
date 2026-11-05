@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "キャンセル",
+    "finish_pair_later_button": "完了して後でペアリング",
     "reveal_in_finder_button": "Finderで表示",
     "done_button": "完了",
     "quit_button": "終了",

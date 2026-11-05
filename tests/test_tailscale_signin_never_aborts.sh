@@ -38,6 +38,7 @@ cat > "$WORK/bin/tailscale" <<STUB
 case "\$FAKE_MODE" in
   hang)  sleep 300 ;;
   fail)  for a in "\$@"; do [[ "\$a" == up ]] && { echo "To authenticate, visit: https://login.tailscale.com/a/xyz"; sleep 300; }; done; echo "NeedsLogin" ; exit 1 ;;
+  skip)  for a in "\$@"; do [[ "\$a" == up ]] && { : > "\$SKIPFILE"; sleep 300; }; done; exit 1 ;;
   empty) for a in "\$@"; do [[ "\$a" == up ]] && sleep 300; done; exit 0 ;;
 esac
 STUB
@@ -50,7 +51,7 @@ run_case() {
     cat > "$WORK/h-$name.sh" <<H
 set -Eeuo pipefail
 trap 'echo "ERRTRAP rc=\$? line=\$LINENO" >&2; exit 97' ERR
-export PATH="$WORK/bin:\$PATH" FAKE_MODE=$mode OSTLER_TS_URL_WAIT=2 OSTLER_TS_SIGNIN_WAIT=4 OSTLER_TS_CALL_TIMEOUT=1
+export PATH="$WORK/bin:\$PATH" FAKE_MODE=$mode OSTLER_TS_URL_WAIT=2 OSTLER_TS_SIGNIN_WAIT=${SIGNIN_WAIT:-4} SKIPFILE="$WORK/st-$name/.signin_skip" OSTLER_TS_CALL_TIMEOUT=1
 info(){ :; }; warn(){ :; }
 TS_CLI="$WORK/bin/tailscale"; TS_SOCK="$WORK/sock"; TS_STATE_DIR="$WORK/st-$name"; mkdir -p "\$TS_STATE_DIR"
 LOGS_DIR="$WORK"; OSTLER_TAILSCALE_IP=""
@@ -75,9 +76,17 @@ H
 
 check() { # <name> <mode> <region> [unbound]  -> 0 if the block completed cleanly
     run_case "$@"; local rc=$?
+    pkill -f -- "$WORK/bin/tailscale" 2>/dev/null   # orphaned fakes from the previous case
     grep -q REGION_COMPLETED "$WORK/out-$1" && [[ $rc -eq 0 ]]
 }
 
+# Skip arm (#3344): the GUI writes .signin_skip during the URL poll; the bounded wait must
+# end within a tick (60s window, must finish well under it) and not be cleared before the loop.
+SIGNIN_WAIT=60; t0=$SECONDS
+check skip skip "$WORK/region.full.sh" || fail "skip: block did not complete: $(tr '\n' ' ' < "$WORK/out-skip" | cut -c1-200)"
+[[ $((SECONDS - t0)) -lt 30 ]] || fail "skip: sentinel written but the wait ran $((SECONDS - t0))s of a 60s window"
+echo "PASS: skip: .signin_skip written during the URL poll ended the wait in $((SECONDS - t0))s"
+SIGNIN_WAIT=4
 for spec in "hang:hang:0" "fail:fail:0" "empty:empty:0" "unbound:fail:1"; do
     IFS=: read -r n m u <<< "$spec"
     check "$n" "$m" "$WORK/region.full.sh" "$u" || fail "$n: sign-in block did not complete under -Eeuo: $(tr '\n' ' ' < "$WORK/out-$n" | cut -c1-200)"
@@ -95,4 +104,9 @@ if grep -q '_ts_saved_opts=' "$WORK/region.full.sh"; then
     mutant noguard 's/set +eu  # restored.*$/:/' unbound fail 1
     mutant nobound 's/_ts_bounded "\${OSTLER_TS_CALL_TIMEOUT:-8}" //g' hang hang
 fi
+# Skip mutant: dropping the in-loop sentinel check must turn the skip arm red.
+sed 's/if \[\[ -f "\$TS_SKIP_SENTINEL" \]\]; then/if false; then/' "$WORK/region.full.sh" > "$WORK/mut-noskip.sh"
+cmp -s "$WORK/mut-noskip.sh" "$WORK/region.full.sh" && fail "mutant noskip did not apply"
+SIGNIN_WAIT=60; t0=$SECONDS; check mnoskip skip "$WORK/mut-noskip.sh"; [[ $((SECONDS - t0)) -ge 30 ]] || fail "mutant noskip SURVIVED"
+SIGNIN_WAIT=4; echo "PASS: mutant noskip killed (wait ran the full window)"
 echo "ALL PASS"

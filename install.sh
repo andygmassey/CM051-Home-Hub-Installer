@@ -34326,16 +34326,16 @@ OSTLER_TS_WRAPPER
     # back the fixes -- a daemon-readiness gate (so a doomed sign-in wait
     # is never entered), and a hardened browser open (the bare `open`
     # from this subprocess silently did nothing on the fresh Mac).
-    # _ts_bounded SECS cmd...: stdout of cmd, killed after SECS, never fails. A wedged tailscale CLI must not hang the sign-in wait.
+    # _ts_bounded SECS cmd...: stdout of cmd (+stderr if _TS_B_ERR), killed after SECS, never fails. A wedged tailscale CLI must not hang the sign-in wait.
     _ts_bounded() {
         local _s="$1" _o _p _i=0; shift; _o="$(mktemp 2>/dev/null)" || return 0
-        "$@" >"$_o" </dev/null & _p=$!
+        "$@" >"$_o" 2>"$_o.e" </dev/null & _p=$!
         while [[ $_i -lt $((_s * 5)) ]] && kill -0 "$_p" 2>/dev/null; do sleep 0.2; _i=$((_i + 1)); done
-        kill "$_p" 2>/dev/null || true; wait "$_p" 2>/dev/null || true; cat "$_o" 2>/dev/null || true; rm -f "$_o"; return 0
+        kill "$_p" 2>/dev/null || true; wait "$_p" 2>/dev/null || true; cat "$_o" ${_TS_B_ERR:+"$_o.e"} 2>/dev/null || true; rm -f "$_o" "$_o.e"; return 0
     }
     _ts_daemon_up() {
         local _out
-        _out="$(_ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" status 2>&1)"
+        _out="$(_TS_B_ERR=1 _ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" status)"
         [[ "$_out" != *"failed to connect"* ]]
     }
 
@@ -42841,7 +42841,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
         _ts_saved_opts="$-"; _ts_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +eu  # restored after the block; -E -e -u would abort the install here
         # Timeout, skip or any tailscale error is non-fatal: the message says remote access can be set up later from Settings.
         # tests/test_tailscale_signin_never_aborts.sh runs this block under -Eeuo with a hung, failing and empty tailscale.
-        TS_SIGNIN_ATTEMPTED=0
+        TS_SIGNIN_ATTEMPTED=0; rm -f "${TS_STATE_DIR}/.signin_skip" 2>/dev/null || true  # F&F: clear a stale skip once, at entry
         if _ts_daemon_up; then
             TS_SIGNIN_ATTEMPTED=1
             # ── Browser auth: `tailscale up` prints a login URL ─────
@@ -42930,7 +42930,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # and the URL is re-shown on each tick so it never scrolls
             # out of reach.
             TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
-            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+            # (not cleared here: the GUI may have written it during the URL poll above)
             info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
             TS_T0=$SECONDS; TS_WAIT=0
             TS_NEXT_TICK=30

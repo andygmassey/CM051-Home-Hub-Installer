@@ -876,11 +876,20 @@ private struct FooterView: View {
             // slot on the right.
             if coordinator.pendingPrompt?.id != "consent_install" && coordinator.finished == nil {
                 Button(ViewCopy.shared.string(for: "footer.cancel_button")) {
-                    coordinator.cancel()
-                    NSApp.terminate(nil)
+                    // F&F item 6: at the pairing step Cancel finishes without
+                    // pairing instead of discarding the install.
+                    if coordinator.requestCancel() == .terminate {
+                        NSApp.terminate(nil)
+                    }
                 }
                 .buttonStyle(.ostlerGhost)
                 .keyboardShortcut(.cancelAction)
+                if LateStepPolicy.isPairingStep(coordinator.currentStepId) {
+                    Button(ViewCopy.shared.string(for: "footer.finish_pair_later_button")) {
+                        coordinator.requestCancel()
+                    }
+                    .buttonStyle(.ostlerPrimary)
+                }
             }
 
             Spacer()
