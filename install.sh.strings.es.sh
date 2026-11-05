@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="En el primer inicio, Ostler RemoteCapture pedirá
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler guarda tu wiki personal y las transcripciones de tus conversaciones en Documentos/Ostler, en este Mac. Son tuyas y permanecen en este equipo. Para escribirlas, Ostler necesita acceso a tu carpeta Documentos, así que macOS puede pedirlo durante la configuración y de nuevo más tarde hoy, cuando Ostler organice tu wiki por primera vez. La solicitud puede aparecer como procedente de python3.11, el ayudante incluido que Ostler usa para escribir tus archivos. Haz clic en Aceptar cuando aparezca. Si no la ves o la rechazas, puedes activarlo en cualquier momento en Ajustes del Sistema, en Privacidad y seguridad, después en Archivos y carpetas, y a partir de entonces se escribirán tu wiki y las transcripciones de tus conversaciones."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Motor de memoria de conversaciones instalado en venv."
 MSG_INFO_HUB_APP_VERIFYING="Verificando Ostler.app en %s"
 MSG_INFO_HUB_APP_STAGING="Copiando Ostler.app a /Applications desde %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="Se detectaron exportaciones 
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="La importación de exportaciones del RGPD estará disponible cuando se lance el flujo."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Se van a analizar Descargas, Escritorio y Documentos en busca de exportaciones de IA (Google Takeout, descargas de Meta, LinkedIn, etc.) que hayas guardado. macOS mostrará tres solicitudes de acceso a carpetas: permite cada una. Tarda unos 5-10 segundos en total. Durante el análisis no se mueve ni se copia nada; solo comprobamos lo que hay."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS puede pedirte permiso para leer tu Calendario. Permítelo para que Ostler pueda crear la parte de reuniones y eventos de tu grafo de conocimiento. (Los datos del Calendario se quedan en este equipo.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Comprobando el acceso a Descargas. Si macOS lo pide, haz clic en Aceptar."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Comprobando el acceso a Escritorio. Si macOS lo pide, haz clic en Aceptar."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Comprobando el acceso a Documentos. Si macOS lo pide, haz clic en Aceptar."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Acceso total al disco concedido. Preparando la siguiente solicitud de macOS (automatización de Mensajes)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1290,13 +1290,13 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Escribe INBOX de nuevo para confirmar, o p
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX significa que el asistente leerá todos los correos que recibas. Recomendamos encarecidamente usar en su lugar una etiqueta o carpeta dedicada."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="¿Has solicitado la exportación de tus datos?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
+MSG_PROMPT_EXPORTS_ACK_HELP="Servicios como Google, Meta, Spotify y LinkedIn te permiten solicitar una copia de tus propios datos, y Ostler puede importarla. Si todavía no has pedido la tuya, puedes omitir este paso y añadirlas más tarde, cuando quieras.
 
-Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
+Ostler importa 18 exportaciones de plataformas. La lista completa, con enlaces directos a la página de solicitud de cada proveedor, está en https://ostler.ai/docs/getting-started/data-exports/.
 
-Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+La mayoría de los archivos tardan de 1 a 3 días en llegar por correo electrónico. Cuando lleguen los ZIP, déjalos en tu carpeta Descargas y Ostler los encontrará automáticamente.
 
-Skip any you do not use; you can always import more later."
+Omite los que no uses; siempre puedes importar más después."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="¿Continuar con el disco SIN CIFRAR en reposo?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault está desactivado en este Mac, así que tu disco no está cifrado en reposo.

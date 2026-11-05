@@ -33,5 +33,19 @@ for loc in en-GB en-US; do
   case "$d" in *"click Allow"*) echo "FAIL ${loc}: Documents pre-prompt names a button macOS does not draw (Allow)"; FAIL=$((FAIL+1));; esac
   N=$((N+1))
 done
+# Every other installer locale must carry its OWN translation of the new
+# explainer and the folder lines (owner ruling: everything but legal is translated).
+en="${ROOT}/install.sh.strings.en-GB.sh"
+enfirst="$(val "$en" MSG_PROMPT_EXPORTS_ACK_HELP)"; enfirst="${enfirst%%$'\n'*}"
+enfold="$(val "$en" MSG_INFO_FOLDER_PREWARM_DOWNLOADS)"
+for f in "${ROOT}"/install.sh.strings.*.sh; do
+  loc="${f##*strings.}"; loc="${loc%.sh}"
+  case "$loc" in en-GB|en-US) continue;; esac
+  h="$(val "$f" MSG_PROMPT_EXPORTS_ACK_HELP)"; first="${h%%$'\n'*}"
+  case "$first" in *Spotify*LinkedIn*) ;; *) echo "FAIL ${loc}: exports help does not open with the translated explainer"; FAIL=$((FAIL+1));; esac
+  [ "$first" != "$enfirst" ] || { echo "FAIL ${loc}: exports explainer is still English"; FAIL=$((FAIL+1)); }
+  [ "$(val "$f" MSG_INFO_FOLDER_PREWARM_DOWNLOADS)" != "$enfold" ] || { echo "FAIL ${loc}: folder pre-warm line is still English"; FAIL=$((FAIL+1)); }
+  N=$((N+2))
+done
 echo "checks=${N} fail=${FAIL}"
 [ "$FAIL" -eq 0 ]
