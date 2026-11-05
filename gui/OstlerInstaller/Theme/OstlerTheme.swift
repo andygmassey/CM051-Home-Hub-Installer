@@ -225,6 +225,18 @@ struct OstlerSectionHead: View {
 /// Primary CTA. Oxblood pill, white text, display weight.
 struct OstlerPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        OstlerPrimaryButtonBody(configuration: configuration)
+    }
+}
+
+/// F&F item 5: a custom ButtonStyle is NOT dimmed by `.disabled(true)`; the
+/// recovery-key Continue looked live while doing nothing ("felt frozen"). The
+/// body reads `isEnabled` and draws the disabled look itself.
+private struct OstlerPrimaryButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
         configuration.label
             .font(.custom(Font.OstlerFontName.displaySemi, size: 14, relativeTo: .body))
             .foregroundStyle(Color.white)
@@ -236,8 +248,17 @@ struct OstlerPrimaryButtonStyle: ButtonStyle {
                           ? Color.ostlerOxbloodHover
                           : Color.ostlerOxblood)
             )
-            .opacity(configuration.isPressed ? 0.95 : 1.0)
+            .opacity(OstlerButtonLook.opacity(isEnabled: isEnabled, isPressed: configuration.isPressed))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+/// Pure so a test can assert a disabled primary button is visibly different.
+enum OstlerButtonLook {
+    static let disabledOpacity: Double = 0.35
+    static func opacity(isEnabled: Bool, isPressed: Bool) -> Double {
+        if !isEnabled { return disabledOpacity }
+        return isPressed ? 0.95 : 1.0
     }
 }
 

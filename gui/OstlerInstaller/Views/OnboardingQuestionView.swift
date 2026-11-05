@@ -665,10 +665,17 @@ struct OnboardingQuestionView: View {
             if q.prompt.id == "fda_preset" {
                 fdaPresetSegmented(q)
             } else {
+                // F&F item 3: never render an empty picker. `options` falls
+                // back to the known list for this prompt id, and the selection
+                // is always one of them (ChoiceResolver).
+                let options = ChoiceResolver.choices(
+                    promptId: q.prompt.id, choices: q.prompt.choices,
+                    defaultValue: q.prompt.defaultValue)
                 Picker("", selection: q.isReview
-                       ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
-                       : $choiceValue) {
-                    ForEach(q.prompt.choices, id: \.self) { choice in
+                       ? .constant(resolvedChoice(q, current: q.priorAnswer))
+                       : Binding(get: { resolvedChoice(q, current: choiceValue) },
+                                 set: { choiceValue = $0 })) {
+                    ForEach(options, id: \.self) { choice in
                         Text(choiceLabel(promptId: q.prompt.id, value: choice))
                             .tag(choice)
                     }
@@ -962,12 +969,22 @@ struct OnboardingQuestionView: View {
         folderValue = ""
     }
 
+    /// F&F item 3: the picker's value, always one of the rendered options.
+    private func resolvedChoice(_ q: DisplayedQuestion, current: String?) -> String {
+        let options = ChoiceResolver.choices(
+            promptId: q.prompt.id, choices: q.prompt.choices,
+            defaultValue: q.prompt.defaultValue)
+        return ChoiceResolver.selection(
+            promptId: q.prompt.id, current: current, options: options,
+            defaultValue: q.prompt.defaultValue)
+    }
+
     private func currentAnswer(_ q: DisplayedQuestion) -> String {
         switch q.prompt.kind {
         case .text:        return textValue
         case .secret:      return secretValue
         case .yesno:       return yesnoValue ? "y" : "n"
-        case .choice:      return choiceValue
+        case .choice:      return resolvedChoice(q, current: choiceValue)
         case .acknowledge:
             // Acknowledgement carries the default value back to
             // install.sh as the "answer". Most install.sh callers

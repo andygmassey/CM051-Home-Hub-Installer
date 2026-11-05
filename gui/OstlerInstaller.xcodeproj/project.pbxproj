@@ -135,6 +135,7 @@
 		AB72031B6A0A751953456892 /* ViewCopy.pt-PT.json in Resources */ = {isa = PBXBuildFile; fileRef = 6B988E841EC084AE06A7A6A0 /* ViewCopy.pt-PT.json */; };
 		AC25C69E00C98EB58C4793C2 /* RecoveryKeySurvivesFailedInstallTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7903EF5EC6060503BE8F8B51 /* RecoveryKeySurvivesFailedInstallTests.swift */; };
 		ADBBDF0DAD4432CA6B0113AC /* SidebarPhaseAdvanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */; };
+		AEB65E71DB46C6B7169311F6 /* ChoiceResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 592BD6E9E22F2AE81A7CDD20 /* ChoiceResolverTests.swift */; };
 		AECCC4627720C3A83293725E /* ViewCopy.pt-BR.json in Resources */ = {isa = PBXBuildFile; fileRef = 32FBC0AF72BD31D8907E1D87 /* ViewCopy.pt-BR.json */; };
 		B2A650CE2A82D1AD0B8CD3E6 /* ViewCopy.es.json in Resources */ = {isa = PBXBuildFile; fileRef = 878BF558FC195DF7E7A67CCF /* ViewCopy.es.json */; };
 		B47EF10939303FF3037C1E98 /* RecoveryKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F621D4A35F7B3084D218EE9D /* RecoveryKeyView.swift */; };
@@ -155,6 +156,7 @@
 		CB2293C379460603FCB46E99 /* InstallerLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */; };
 		CB38667F41A4BC45C5B47258 /* TypedInstallGateTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */; };
 		CFC7650A113BEFBFDCF512C5 /* CaffeinateTerminationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */; };
+		D0EFAADBC574395E48CD86FF /* ChoiceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986E98B8756CAFB0276CDC2F /* ChoiceResolver.swift */; };
 		D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */; };
 		D332D6613EB2B64A6CD3F16E /* LogDrawerFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411CD9CA29EB6C5DE703956F /* LogDrawerFormatTests.swift */; };
 		D387536C382D818490141312 /* ICON_HASHES.txt in Resources */ = {isa = PBXBuildFile; fileRef = 18D9D6CCBEB829F2E872A349 /* ICON_HASHES.txt */; };
@@ -266,6 +268,7 @@
 		588E76A6DCB1EFE24634CB7B /* Ostler Uninstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ostler Uninstaller.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		58B578E0EB7E75E94715663D /* SidebarPhaseAdvanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPhaseAdvanceTests.swift; sourceTree = "<group>"; };
 		59004E0EEBFBD192430CB5F7 /* FingerprintStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintStateTests.swift; sourceTree = "<group>"; };
+		592BD6E9E22F2AE81A7CDD20 /* ChoiceResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoiceResolverTests.swift; sourceTree = "<group>"; };
 		597E42EDE0E55239E92BBFF0 /* PermissionsPrewarmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmer.swift; sourceTree = "<group>"; };
 		5BD159481AED14E0F2873891 /* OstlerInstaller.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OstlerInstaller.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D722F8B887182BE26B4B847 /* StepStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepStatusGlyph.swift; sourceTree = "<group>"; };
@@ -308,6 +311,7 @@
 		919D01DA21E65C7EBA26F7FA /* AutoQuitAndKeepInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoQuitAndKeepInstallerTests.swift; sourceTree = "<group>"; };
 		9350CE92BB5F9EDFF37F2705 /* ViewCopy.ko.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.ko.json; sourceTree = "<group>"; };
 		9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkifyHelpTextTests.swift; sourceTree = "<group>"; };
+		986E98B8756CAFB0276CDC2F /* ChoiceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoiceResolver.swift; sourceTree = "<group>"; };
 		9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */ = {isa = PBXFileReference; path = "AppIconSource-ink.svg"; sourceTree = "<group>"; };
 		9AC575EA46C9207C8BC7DE22 /* OfflineGraceCacheReadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineGraceCacheReadTests.swift; sourceTree = "<group>"; };
 		9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseMismatchUXTests.swift; sourceTree = "<group>"; };
@@ -466,6 +470,7 @@
 				919D01DA21E65C7EBA26F7FA /* AutoQuitAndKeepInstallerTests.swift */,
 				FA2DD4BFA9AD7B98DECA06C0 /* BiometricProbeTests.swift */,
 				0DBB1F8EC328CB51F5752584 /* CaffeinateTerminationTests.swift */,
+				592BD6E9E22F2AE81A7CDD20 /* ChoiceResolverTests.swift */,
 				FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */,
 				3B3A82C28A40E6D64666C5A3 /* DeviceRegistrationClientTests.swift */,
 				4A4EFAAB976720F4BA6A416E /* EmailSupportMailtoTest.swift */,
@@ -520,6 +525,7 @@
 		B589DDE9F721ED2F0990EB0E /* Steps */ = {
 			isa = PBXGroup;
 			children = (
+				986E98B8756CAFB0276CDC2F /* ChoiceResolver.swift */,
 				BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */,
 				08A68D9D961170201BC0E5A7 /* StepCatalog.swift */,
 				AA415C1B21A151B849E39CE1 /* ViewCopy.swift */,
@@ -1592,6 +1598,7 @@
 				83883A656ED24A60576FD5A0 /* AuthorizationHelper.swift in Sources */,
 				E226C9DC1BEE0A306BF9822F /* BiometricProbe.swift in Sources */,
 				CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */,
+				D0EFAADBC574395E48CD86FF /* ChoiceResolver.swift in Sources */,
 				F19AE79E344ACE0E6AF84DFF /* ContentView.swift in Sources */,
 				9C3E96E7F3BD676C8BFF552B /* DeviceLimitReachedView.swift in Sources */,
 				92D0810458C9C7ADF1CE4583 /* DeviceRegistration.swift in Sources */,
@@ -1641,6 +1648,7 @@
 				5DC7A9A8DF64004EE1102DC8 /* AutoQuitAndKeepInstallerTests.swift in Sources */,
 				A2AF7698B580747649FC9363 /* BiometricProbeTests.swift in Sources */,
 				CFC7650A113BEFBFDCF512C5 /* CaffeinateTerminationTests.swift in Sources */,
+				AEB65E71DB46C6B7169311F6 /* ChoiceResolverTests.swift in Sources */,
 				297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */,
 				41521CE6B6E9C954EB5B352E /* DeviceRegistrationClientTests.swift in Sources */,
 				1D6CF8A897FD36AB98603A37 /* EmailSupportMailtoTest.swift in Sources */,
