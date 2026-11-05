@@ -37,6 +37,8 @@ on:
       # it BROKEN and skipped it, and nothing else in the suite could see a
       # wrong function name. Listed so editing the test re-runs the test.
       - 'tests/test_no_probe_shadows_the_dispatcher.sh'
+      # C4 of people_seed_and_retrieval: gws not_connected is not a dead store.
+      - 'tests/test_people_seed_dep_health_ignores_not_connected.sh'
       - '.github/workflows/every-probe-is-collected.yml'
   push:
     branches: [main]
@@ -95,3 +97,10 @@ jobs:
         # would otherwise SKIP this step, and a skipped test reports nothing.
         if: always()
         run: /bin/bash tests/test_no_probe_shadows_the_dispatcher.sh
+
+      - name: people_seed C4 ignores a not-connected gws and still fails a dead store
+        # Real judge_dep_health extracted from the probe; red control (oxigraph
+        # ok:false) and a mutant that ignores every ok:false.
+        # if: always() -- ci-maskless (#1695).
+        if: always()
+        run: /bin/bash tests/test_people_seed_dep_health_ignores_not_connected.sh
