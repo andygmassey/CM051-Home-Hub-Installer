@@ -70,6 +70,7 @@ on:
       # The standalone apps speak the Mac's language (L10N audit 2026-11-04).
       - 'tests/test_standalone_apps_speak_the_mac_language.sh'
       - 'tests/test_the_consent_button_is_not_below_the_fold.py'
+      - 'tests/test_cancel_at_the_pairing_step_finishes_the_install.py'
       # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
       # the view itself is covered. This line covers the OTHER direction: a PR
       # that edits only the guard. Without it the guard could be weakened or
@@ -97,6 +98,7 @@ on:
       # The standalone apps speak the Mac's language (L10N audit 2026-11-04).
       - 'tests/test_standalone_apps_speak_the_mac_language.sh'
       - 'tests/test_the_consent_button_is_not_below_the_fold.py'
+      - 'tests/test_cancel_at_the_pairing_step_finishes_the_install.py'
       # #944's guard reads InstallCompleteView.swift, which IS under gui/, so
       # the view itself is covered. This line covers the OTHER direction: a PR
       # that edits only the guard. Without it the guard could be weakened or

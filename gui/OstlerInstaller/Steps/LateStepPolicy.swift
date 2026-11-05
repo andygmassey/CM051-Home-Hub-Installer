@@ -15,9 +15,9 @@
 //
 // Policy: at a pairing step, Cancel and the new "Finish and pair later" button
 // both write the sentinel. install.sh then continues to the end, prints "set up
-// later from Settings", and the install completes WITHOUT pairing. Pairing is
-// done afterwards from the success screen QR / Doctor. Pure Foundation so it is
-// unit-testable.
+// later from Settings", and the install completes WITHOUT pairing. The phone link is
+// made afterwards from the success screen QR / Doctor. Only Foundation is used,
+// so it is unit-testable.
 
 import Foundation
 

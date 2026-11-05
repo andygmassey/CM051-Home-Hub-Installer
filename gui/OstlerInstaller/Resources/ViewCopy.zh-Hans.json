@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "取消",
+    "finish_pair_later_button": "完成并稍后配对",
     "reveal_in_finder_button": "在访达中显示",
     "done_button": "完成",
     "quit_button": "退出",
