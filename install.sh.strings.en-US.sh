@@ -847,7 +847,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contact support to have security s
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Passphrases don't match. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 16 characters. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
@@ -1288,7 +1288,7 @@ Skip any you do not use; you can always import more later."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
 
 FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
 
@@ -1300,7 +1300,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQL
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 16 characters. We cannot recover it for you. Storing it in a password manager is recommended."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 

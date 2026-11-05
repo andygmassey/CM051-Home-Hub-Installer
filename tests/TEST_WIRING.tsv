@@ -223,6 +223,7 @@ test_cm048_reminder_title_has_no_iso_date.py	WIRED	.github/workflows/cm048-parti
 test_cm048_reminder_title_quality_gate.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_reminders_sidecar_never_reaches_the_body.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_resume_after_dispatcher_failure.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
+test_cm048_scam_todos_and_owed_replies_vendored.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_cm048_single_speaker_capture_is_a_memo.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_third_party_facts_keep_their_subject.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -245,6 +246,7 @@ test_consent_a7_a8.sh	WIRED	.github/workflows/consent-contract.yml
 test_consent_decisions_survive_a_reuse_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_display_legal_rule_matches_l10n.py	WIRED	.github/workflows/l10n-check.yml
 test_consent_display_record.py	WIRED	.github/workflows/consent-registry.yml
+test_consent_promises_no_cloud_routing.py	WIRED	.github/workflows/l10n-check.yml
 test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
@@ -332,6 +334,7 @@ test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
 test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
 test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_doctor_credential_routes_owner_only.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_minors_registry_row.py	WIRED	.github/workflows/minors-registry-row.yml
@@ -374,6 +377,7 @@ test_email_named_twin_folds_into_the_card_holder.py	WIRED	.github/workflows/dedu
 test_email_only_people_get_a_provisional_name.py	WIRED	.github/workflows/privacy-spine.yml
 test_email_password_never_in_config.sh	WIRED	.github/workflows/email-channel.yml
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_engine_supervisor_judges_the_ports_not_colima_list.sh	WIRED	.github/workflows/vendor-integrity.yml
@@ -523,6 +527,7 @@ test_installer_app_bundle_contents.sh	WIRED	.github/workflows/install-gui-contra
 test_installer_app_pyc_is_seeded.sh	WIRED	.github/workflows/installer-app-pyc-seeded.yml
 test_installer_authenticates_to_qdrant.sh	WIRED	.github/workflows/venv-store-shim.yml
 test_installer_doc_links_resolve.py	WIRED	.github/workflows/installer-doc-links.yml
+test_installer_hides_brew_tap_warning.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_installs_every_pipeline_requirements_file.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
@@ -763,6 +768,7 @@ test_repin_wiki_images_refuses_a_typed_sha.sh	WIRED	.github/workflows/cut-freshn
 test_reply_debt_names_people_p13.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_reply_debt_never_opens_protected_data.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_reply_debt_probe_names_the_missed_debt.py	WIRED	.github/workflows/wow-moment-probes.yml
+test_reply_debt_whatsapp_email.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
 test_reset_says_when_it_did_not_uninstall.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_resolver_robustness.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_resource_tier_governor.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -842,6 +848,7 @@ test_tailscale_signin_is_at_the_end.sh	WIRED	.github/workflows/wiki-tailnet-gate
 test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_signin_reaps_up.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_telemetry_egress_off.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_consent_button_is_not_below_the_fold.py	WIRED	.github/workflows/swift-tests.yml
@@ -958,6 +965,7 @@ test_ttywalk_exports_the_cm019_bundle.sh	WIRED	.github/workflows/walk-record-gat
 test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_lang_leg.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_ttywalk_licence_preflight_is_cannot_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_ttywalk_places_the_installer_app.sh	WIRED	.github/workflows/bash32-compat.yml
 test_ttywalk_reset_cold_no_foreign_ollama.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh	WIRED	.github/workflows/reset-uninstall-honesty.yml
 test_two_card_person_is_not_reminted_every_sync.py	WIRED	.github/workflows/rule-2-holds-on-the-write.yml
@@ -1067,12 +1075,14 @@ test_walk_driver_takes_owner_from_a_local_file.sh	WIRED	.github/workflows/walk-r
 test_walk_driver_takes_ports_from_the_declared_field.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_harness_faults_are_cannot_run.sh	WIRED	.github/workflows/walk-harness-faults.yml
 test_walk_lang_answers_cover_computed_prompts.py	WIRED	.github/workflows/walk-record-gate.yml
+test_walk_net_sampler.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_owner_identity_only_on_a_declared_owner_target.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_probes_122a.sh	WIRED	.github/workflows/walk-probes-122a.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
+test_walk_record_carries_no_home_path.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -1224,6 +1234,7 @@ scripts/tests/test_verify_cut_manifest.py	WIRED	.github/workflows/cut-manifest.y
 scripts/tests/test_verify_stapling_gate.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 scripts/tests/test_verify_test_wiring_gate.sh	WIRED	.github/workflows/new-tests-must-be-wired.yml
 scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.github/workflows/walk-record-gate.yml
+scripts/tests/test_walk_probe_core_memory_prefetch.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_probes_l3_and_maps.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml

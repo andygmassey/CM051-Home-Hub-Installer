@@ -31,9 +31,16 @@ txt = open(os.path.join(BASE, "console_only_probes.tsv")).read()
 pd = os.path.join(BASE, "probes")
 p, names = problems(txt, pd)
 fails = list(p)
-for need in ("app_signature_survives_first_run", "assistant_sends_over_whatsapp_and_email", "todos_reach_reminders"):
+for need in ("assistant_sends_over_whatsapp_and_email", "todos_reach_reminders"):
     if need not in names:
         fails.append("missing row " + need)
+# v1.0.123 (Archie): ttywalk.sh now places OstlerInstaller.app at /Applications
+# from the on-box DMG, so this probe measures over ssh and must NOT be exempt.
+# An exemption here would let its CANNOT-RUN pass the launch directive's
+# "only TCC/GUI CANNOT-RUNs" bar again.
+for gone in ("app_signature_survives_first_run",):
+    if gone in names:
+        fails.append("row must not be console-only any more: " + gone)
 print("rows:", len(names))
 mp, _ = problems(txt + "no_such_probe\tgui\twhy\n", pd)
 if not any("no_such_probe" in x for x in mp):

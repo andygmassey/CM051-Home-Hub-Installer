@@ -854,7 +854,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contactez l'assistance pour faire 
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Les phrases secrètes ne correspondent pas. Réessayez."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Échec de la configuration de la phrase secrète. Sortie :"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Saisie vide. Phrase secrète ignorée."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La phrase secrète doit comporter au moins 12 caractères. Réessayez."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La phrase secrète doit comporter au moins 16 caractères. Réessayez."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Une phrase secrète est nécessaire pour chiffrer vos données."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Ce n'est pas un numéro international. Commencez par + suivi de l'indicatif du pays puis du reste du numéro, par exemple +447700900123. Réessayez."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama ne répond pas"
@@ -1300,7 +1300,7 @@ Ignorez celles que vous n'utilisez pas ; vous pourrez toujours en importer d'aut
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au repos ?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
 
-Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. Ostler chiffre de toute façon ses bases de données les plus sensibles avec une phrase secrète, mais le reste de vos données n’est protégé que par le disque lui-même.
+Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
 
 FileVault est fortement recommandé. Vous pouvez l’activer à tout moment dans Réglages Système > Confidentialité et sécurité > FileVault : le chiffrement s’effectue en arrière-plan, sans réinstallation.
 
@@ -1312,7 +1312,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Les bases de données sensibles d’Ostler sont chi
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Définir aussi une phrase secrète de récupération ? (recommandé)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choisissez votre phrase secrète"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Cette phrase secrète chiffre votre graphe de connaissances et déverrouille l’interface du Hub à chaque démarrage. 12 caractères minimum. Nous ne pouvons pas la récupérer pour vous. Il est recommandé de la conserver dans un gestionnaire de mots de passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Cette phrase secrète chiffre votre graphe de connaissances et déverrouille l’interface du Hub à chaque démarrage. 16 caractères minimum. Nous ne pouvons pas la récupérer pour vous. Il est recommandé de la conserver dans un gestionnaire de mots de passe."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirmez votre phrase secrète"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Saisissez à nouveau la même phrase secrète pour confirmer."
 

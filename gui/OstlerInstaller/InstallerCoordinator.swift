@@ -2611,7 +2611,9 @@ final class InstallerCoordinator: ObservableObject {
     /// Append raw sub-tool output to its own bounded buffer. Level is
     /// "raw" rather than "info" so a reader can tell narration from tool
     /// output without reparsing the text.
+    private var brewTapFilter = BrewTapWarningFilter()
     private func appendRawLog(msg: String) {
+        if !brewTapFilter.keep(msg) { return }
         rawLogLines.append(LogLine(level: "raw", text: msg, timestamp: Date()))
         if rawLogLines.count > Self.rawLogLineCap {
             rawLogLines.removeFirst(rawLogLines.count - Self.rawLogLineCap)

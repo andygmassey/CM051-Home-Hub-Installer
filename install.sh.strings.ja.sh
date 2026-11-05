@@ -852,7 +852,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="サポートにご連絡のうえ�
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="パスフレーズが一致しません。もう一度お試しください。"
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="パスフレーズの設定に失敗しました。出力:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="入力が空です。パスフレーズをスキップしました。"
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="パスフレーズは12文字以上にしてください。もう一度お試しください。"
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="パスフレーズは16文字以上にしてください。もう一度お試しください。"
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="データを暗号化するには、パスフレーズが必要です。"
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="国際番号ではありません。先頭に + を付け、続けて国番号と残りの番号を入力してください (例: +447700900123)。もう一度お試しください。"
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollamaが応答しません"
@@ -1298,7 +1298,7 @@ MSG_PROMPT_EXPORTS_ACK_HELP="Ostlerは18のプラットフォームのエクス�
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="ディスクを暗号化しないまま続けますか?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="このMacではFileVaultがオフのため、ディスクは保存時に暗号化されていません。
 
-続行した場合の影響:Ostlerが保存するすべてのデータ(~/Documents/Ostler 内の個人グラフ全体(Wiki、会話、ナレッジノート)、および ~/.ostler 内のサービスのシークレットとデータベース)が、暗号化されずにディスクへ書き込まれます。このドライブから起動できる人、ドライブを取り外せる人、ロック解除されたセッションにアクセスできる人は、そのすべてを読み取れます。Ostlerは最も機密性の高いデータベースをパスフレーズで常に暗号化しますが、それ以外のデータはディスク自体と同程度にしか保護されません。
+続行した場合の影響:Ostlerが保存するすべてのデータ(~/Documents/Ostler 内の個人グラフ全体(Wiki、会話、ナレッジノート)、および ~/.ostler 内のサービスのシークレットとデータベース)が、暗号化されずにディスクへ書き込まれます。このドライブから起動できる人、ドライブを取り外せる人、ロック解除されたセッションにアクセスできる人は、そのすべてを読み取れます。Ostlerがデータベースの暗号化に使う鍵は同じディスク上に保存されているため、FileVaultがオフの状態では、ディスクを手にした人からデータを守ることはできません。
 
 FileVaultの使用を強くおすすめします。「システム設定」>「プライバシーとセキュリティ」>「FileVault」でいつでもオンにでき、再インストールせずにバックグラウンドで暗号化されます。
 
@@ -1310,7 +1310,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostlerの機密性の高いデータベースは、
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="リカバリ用のパスフレーズも設定しますか?(推奨)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="パスフレーズを選択"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="このパスフレーズはナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。12文字以上で入力してください。パスフレーズを復元することはできません。パスワードマネージャに保管することをおすすめします。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="このパスフレーズはナレッジグラフを暗号化し、起動のたびにHub UIのロックを解除します。16文字以上で入力してください。パスフレーズを復元することはできません。パスワードマネージャに保管することをおすすめします。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="パスフレーズを確認"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="確認のため、同じパスフレーズをもう一度入力してください。"
 

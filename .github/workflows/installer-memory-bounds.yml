@@ -37,6 +37,8 @@ on:
       # v1042-D002 residual: the bound held and the diagnostic was lost anyway.
       - 'tests/test_installer_output_keeps_the_tail.sh'
       - 'tests/helpers/output_buffer_tail_driver.swift'
+      - 'tests/test_installer_hides_brew_tap_warning.sh'
+      - 'tests/helpers/brew_tap_filter_driver.swift'
       - '.github/workflows/installer-memory-bounds.yml'
   push:
     branches: [main]
@@ -72,6 +74,10 @@ jobs:
       - name: An over-long or unterminated line keeps its tail
         if: always()
         run: /bin/bash tests/test_installer_output_keeps_the_tail.sh
+
+      - name: Homebrew untrusted-tap warning is hidden from the in-app log
+        if: always()
+        run: /bin/bash tests/test_installer_hides_brew_tap_warning.sh
 
       - name: MemoryCeiling compiles standalone
         if: always()

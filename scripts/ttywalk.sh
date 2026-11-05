@@ -1287,6 +1287,30 @@ fi
        staging rather than the product. CANNOT-RUN."
 say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)"
 
+# ── THE INSTALLER APP AT THE CUSTOMER PATH (artefact walks only) ─────
+# app_signature_survives_first_run reads /Applications/OstlerInstaller.app,
+# which an ssh walk never put there, so it was CANNOT-RUN on every thin walk.
+# The DMG goes to ~/Downloads on the box (where a customer's lands), is hashed
+# THERE against the one this walk mounted, and the app is copied out of it.
+# A failure leaves NO app and is announced, never fatal: the probe then reads
+# CANNOT-RUN about the right thing. See scripts/lib_walk_place_installer_app.sh.
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "INSTALLER APP: placed at /Applications from the DMG on the box"
+    # shellcheck source=scripts/lib_walk_place_installer_app.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_place_installer_app.sh"
+    _wpa_sha="$(shasum -a 256 "$FROM_DMG" | awk '{print $1}')"
+    _wpa_name="$(basename "$FROM_DMG")"
+    if [[ -n "$_wpa_sha" ]] && scp -q -o ConnectTimeout=10 -o BatchMode=yes "$FROM_DMG" "${HOST}:Downloads/${_wpa_name}"; then
+        if walk_place_installer_app_script | "${SSH[@]}" "WPA_DMG=\"\$HOME/Downloads/${_wpa_name}\" WPA_SHA='${_wpa_sha}' /bin/sh -s"; then
+            say "installer app: PLACED (app_signature_survives_first_run will measure it)"
+        else
+            say "installer app: NOT PLACED (see the place: line above); app_signature_survives_first_run will read CANNOT-RUN, never a pass"
+        fi
+    else
+        say "installer app: NOT PLACED (could not hash or copy ${_wpa_name} to the box); app_signature_survives_first_run will read CANNOT-RUN"
+    fi
+fi
+
 "${SSH[@]}" "set -u
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh

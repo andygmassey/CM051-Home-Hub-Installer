@@ -26,7 +26,7 @@
 # and die silently with no DONE marker. The ERR trap itself
 # (_ostler_on_err) is registered later, once the real gui helpers are
 # sourced. See CX-454 (task #454).
-set -Eeuo pipefail
+set -Eeuo pipefail; export HOMEBREW_NO_ANALYTICS=1  # privacy: no Homebrew analytics from any brew call below
 
 # -- .pyc redirect: never write bytecode into a signed bundle --------
 # WHY, MEASURED on the shipped v1.0.45 artefact, 2026-08-26 (ORM):
@@ -9108,9 +9108,9 @@ else
     echo "    - service secrets and databases under ~/.ostler"
     echo ""
     echo "  Anyone who can boot from this drive, remove it, or reach an"
-    echo "  unlocked session can then read all of it. Ostler still encrypts"
-    echo "  its most sensitive databases with your passphrase, but the rest"
-    echo "  is only as protected as the disk itself."
+    echo "  unlocked session can then read all of it. Ostler's database"
+    echo "  encryption key is kept on this same disk, so with FileVault off"
+    echo "  it does not protect your data from anyone who has the disk."
     echo ""
     echo "  FileVault is strongly recommended. Turn it on any time in"
     echo "  System Settings > Privacy & Security > FileVault (it encrypts"
@@ -10132,13 +10132,13 @@ elif [[ "$HAS_SECURITY_MODULE" == true ]]; then
             continue
         fi
 
-        # Quick length sanity check here; full strength validation
-        # runs in Phase 3.6 once the venv is fully provisioned.
-        # 12-char minimum mirrors the lower bound of
-        # validate_passphrase_strength's diceware path.
-        if [[ ${#RECOVERY_PASSPHRASE} -lt 12 ]]; then
-            warn "$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
-            RP_PASS_ERROR="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"
+        # The SAME validator Phase 3.6 setup_passphrase() runs (16+ chars or 4+ words, not too simple). A bare 12-char gate here let 12 to 15 through, and encrypt_db then aborted 40 minutes later (F&F report ERR-99-INSTALL-ABORT-L18321).
+        # Passphrase via env, never argv (ps). If the validator cannot run, its 16-char floor applies and its stderr is in the install log.
+        _rp_why="$(RP_CHECK="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c 'import os; from ostler_security.passphrase import validate_passphrase_strength as v; ok, m = v(os.environ["RP_CHECK"]); print("" if ok else m)' || echo "__ostler_validator_unavailable__")"  # stderr left on the install log (the support email carries it)
+        if [[ "$_rp_why" == "__ostler_validator_unavailable__" ]]; then _rp_why=""; if [[ ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi; elif [[ -n "$_rp_why" && ${#RECOVERY_PASSPHRASE} -lt 16 ]]; then _rp_why="$MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT"; fi
+        if [[ -n "$_rp_why" ]]; then
+            warn "$_rp_why"  # i18n-exempt: localised TOO_SHORT, or the validator's own reason for a 16+ passphrase it rejects
+            RP_PASS_ERROR="$_rp_why"
             unset RECOVERY_PASSPHRASE
             continue
         fi
@@ -13390,9 +13390,9 @@ echo "      your search index, and your assistant's memory."
 echo ""
 echo "    - Nothing leaves your Mac. Not to us, not to a cloud, not to"
 echo "      a third party – except in the specific cases listed in our"
-echo "      Privacy Policy at ostler.ai/privacy (mainly: optional cloud"
-echo "      routing for non-personal questions, software update checks,"
-echo "      public metadata enrichment)."
+echo "      Privacy Policy at ostler.ai/privacy (mainly:"
+echo "      software update checks and public metadata"
+echo "      enrichment)."
 echo ""
 echo "  Read more at docs.ostler.ai/privacy/third-party-data."
 echo ""
@@ -13749,7 +13749,7 @@ echo -e "  ${BOLD}By continuing, you confirm:${NC}"
 echo "    1. You are 18 or older"
 echo "    2. You understand what Ostler stores and how"
 echo "    3. You will keep your passphrase and recovery key safe"
-echo "    4. You accept the terms at creativemachines.ai/ostler/terms"
+echo "    4. You accept the terms at ostler.ai/terms"
 echo ""
 
 # 2026-05-22 Phase 2 UX sweep: install consent is the typed-input
@@ -19042,7 +19042,7 @@ info "$MSG_INFO_INSTALLING_SECURITY_PYTHON_DEPENDENCIES"
 # See artefacts/2026-04-29/SILENT_FALLBACK_AUDIT_2026-04-29.md F1.
 if [[ "$PASSKEY_PRIMED" == true && "$HAS_SECURITY_MODULE" == true ]]; then
     # Pass passphrase via env var (not arg) to avoid leak in ps(1).
-    SETUP_OUTPUT=$(RECOVERY_PASSPHRASE_FOR_SETUP="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c "
+    _sp_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +e; SETUP_OUTPUT=$(RECOVERY_PASSPHRASE_FOR_SETUP="$RECOVERY_PASSPHRASE" "$OSTLER_PYTHON" -c "
 import os
 import sys
 from pathlib import Path
@@ -19108,7 +19108,7 @@ except Exception as e:
     print('ERROR=' + str(e), file=sys.stderr)
     sys.exit(1)
 " 2>&1)
-    SETUP_EXIT=$?
+    SETUP_EXIT=$?; eval "$_sp_saved_err_trap"; set -e  # trap disarmed around the capture: armed, a failure aborted (ERR-99) BEFORE this line and the error text below was never printed (F&F report, 29 Oct)
     unset RECOVERY_PASSPHRASE
 
     if [[ $SETUP_EXIT -ne 0 ]]; then
@@ -22010,11 +22010,11 @@ services:
     # was WRONG and was the ERR-99-INSTALL-ABORT-L9858 box-walk failure. So
     # when store-auth is default-OFF the installer REMOVES the API_KEY line
     # from this block after generating the compose (see "empty-api-key
-    # quirk" below), leaving QDRANT__LOG_LEVEL as the sole entry so the
+    # quirk" below), leaving the telemetry-off + LOG_LEVEL entries so the
     # block stays valid YAML and Qdrant runs keyless -- matching the pinned
-    # vendored clients that send no api key. That keyless default is
-    # precisely why no port of this container may be published.
+    # vendored clients that send no api key (keyless: no port may be published).
     environment:
+      QDRANT__TELEMETRY_DISABLED: "true"  # privacy: stops the hourly report to telemetry.qdrant.io
       QDRANT__LOG_LEVEL: "INFO"
       QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY:-}"
     volumes:
@@ -22151,7 +22151,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:31523c3f1eeb07513951ed3c1e48d515436b64f576a63691bd591761226aaa99
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:13ea95c4dec00b190888ed8d0e9b7b16ceb4628150bcebed38113a52cac9e110
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22199,9 +22199,11 @@ services:
   #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
   #     against the same content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:0e5e8b9d1edc6fbc6133c700fe52259af6e7a129cb12aafc696c908c7cc9bf90
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:fa9f4f639587d9403f04c0ced67d8d2fe52cf1c37fcf14faafc5a13b2f4f415b
     container_name: ostler-wiki-compiler
     profiles: [compile]
+    # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
+    cpu_shares: 256
     volumes:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
@@ -22218,9 +22220,7 @@ services:
       #     ai-conversations   -> 0
       #     AI_CONVERSATIONS   -> 0
       #     CONTROL: wiki-compiler -> 5 in the SAME span, so the zero is
-      #     real absence and not a false read of the wrong region. My first
-      #     attempt got the heredoc end marker wrong and read 12,000 lines
-      #     instead of 456; the control is what showed the range was wrong.
+      #     real absence and not a false read of the wrong region.
       #
       # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
       # compiler/pages/ai_conversation_pages.py falls back to expanduser of
@@ -29834,13 +29834,10 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              flow. -->
         <key>USER_PHONE</key>
         <string>${USER_PHONE}</string>
-        <!-- ASSISTANT_NAME / ASSISTANT_EMAIL / ASSISTANT_PHONE (F7, walk #16):
-             the assistant's OWN identity, so people_list can drop the
-             Contacts card Andy made for it ("Marvin"). The match is by
-             EMAIL or PHONE, never by name alone (a friend can share the
-             name). ASSISTANT_NAME is chosen in onboarding; the assistant's
-             own email/phone are optional and EMPTY unless the installer
-             scope carries them, in which case the card is NOT hidden. -->
+        <!-- ASSISTANT_NAME / _EMAIL / _PHONE (F7, walk #16): the assistant's OWN
+             identity, so people_list can drop the Contacts card made for it. Matched by
+             EMAIL or PHONE, never by name alone (a friend can share the name); the
+             email/phone are optional, and EMPTY (the card is then NOT hidden). -->
         <key>ASSISTANT_NAME</key>
         <string>${ASSISTANT_NAME:-}</string>
         <key>ASSISTANT_EMAIL</key>
@@ -29920,6 +29917,9 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
         <key>OSTLER_DB_KEY_FILE</key>
         <string>${SECURITY_CONFIG_DIR}/db_key</string>
     </dict>
+    <!-- Interactive: this job answers the Hub People and Timeline screens. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
 </dict>
 </plist>
 ICALPLISTEOF
@@ -42966,9 +42966,9 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # but does not fail the install (on-LAN pairing still works).
             #
             # v1.0.10 security lockdown: ONLY 8089 (the Doctor API) is
-            # raw-TCP tailscale-served. 8089 has its own device-pairing
-            # bearer auth, so a tailnet peer still cannot read anything
-            # without a paired token. The wiki on :8044 is still NEVER
+            # raw-TCP tailscale-served. Proxied paths need a paired bearer;
+            # Doctor credential routes refuse tailscaled (owner_peer.py, S1).
+            # The wiki on :8044 is still NEVER
             # raw-TCP served -- see the identity-gated HTTP path below,
             # which is the "`tailscale serve https` identity headers"
             # fix this comment used to defer.

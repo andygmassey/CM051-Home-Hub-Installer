@@ -29,6 +29,7 @@ on:
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
@@ -61,6 +62,7 @@ on:
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
@@ -174,6 +176,10 @@ jobs:
       - name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants
         if: always()
         run: /bin/bash scripts/tests/test_walk_probes_l3_and_maps.sh
+
+      - name: Core memory holds no prefetch block (#2436) probe, RED/GREEN/blind + mutant
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_probe_core_memory_prefetch.sh
 
       - name: Probe self-tests never reach the box
         if: always()

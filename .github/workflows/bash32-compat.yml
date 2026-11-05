@@ -170,3 +170,10 @@ jobs:
           /bin/bash -n tests/test_whatsapp_ingest_err_trap.sh
           /bin/bash -n tests/test_hydrate_graph_food_deferred.sh
           echo "OK: parses under the shell the cut actually uses"
+
+      # The artefact walk places OstlerInstaller.app at /Applications from the
+      # DMG on the box, so app_signature_survives_first_run measures on a thin
+      # walk (v1.0.123, Archie). macOS only: it builds real DMGs with hdiutil.
+      - name: The artefact walk places the installer app (stale app removed first)
+        if: always()
+        run: /bin/bash tests/test_ttywalk_places_the_installer_app.sh

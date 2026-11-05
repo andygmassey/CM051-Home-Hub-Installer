@@ -850,7 +850,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="請聯絡支援團隊重新設定�
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="通行密語不一致。請再試一次。"
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="通行密語設定失敗。輸出內容："
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="輸入為空。已略過通行密語。"
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="通行密語至少須有 12 個字元。請再試一次。"
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="通行密語至少須有 16 個字元。請再試一次。"
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="需要通行密語才能加密你的資料。"
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="這不是國際電話號碼。請以 + 開頭，後接國碼及其餘號碼，例如 +447700900123。請再試一次。"
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama 沒有回應"
@@ -1293,7 +1293,7 @@ MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可匯入 18 個平台的匯出資料。完�
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟未加密的情況下繼續嗎？"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未加密。
 
-如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務金鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 無論如何都會用密碼短語加密最敏感的資料庫，但其餘資料的保護程度只取決於磁碟本身。
+如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務金鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的金鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。
 
 強烈建議開啟 FileVault。你隨時可以在「系統設定」>「隱私權與安全性」> FileVault 中開啟，它會在背景加密，無需重新安裝。
 
@@ -1305,7 +1305,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 的敏感資料庫會使用 SQLCipher 加密
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="也設定復原密碼短語嗎？（建議）"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="選擇你的密碼短語"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="這個密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub UI。至少 12 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="這個密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub UI。至少 16 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="確認你的密碼短語"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="請再次輸入相同的密碼短語以確認。"
 

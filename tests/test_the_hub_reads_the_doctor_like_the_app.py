@@ -33,6 +33,12 @@ except Exception as exc:  # noqa: BLE001
     print(f"CANNOT-RUN: the shipped Doctor did not import ({exc}). NOTHING was examined.")
     sys.exit(2)
 
+# S1 (red team v1.0.124): every Doctor-native route now also asks the kernel
+# whether the caller is the Mac's owner. TestClient has no real socket, so this
+# test (about BROWSER headers) stands the caller in as the owner;
+# tests/test_doctor_credential_routes_owner_only.sh tests the owner check itself.
+import owner_peer  # noqa: E402
+owner_peer.verdict = lambda client, server: None
 client = TestClient(web_ui.app, base_url="http://127.0.0.1:8089")
 fails = 0
 

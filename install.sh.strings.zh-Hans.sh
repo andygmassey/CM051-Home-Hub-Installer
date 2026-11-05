@@ -852,7 +852,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="请联系支持人员重新设置�
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="两次输入的密码短语不一致，请重试。"
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="密码短语设置失败。输出："
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="输入为空。已跳过密码短语。"
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="密码短语至少需要 12 个字符，请重试。"
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="密码短语至少需要 16 个字符，请重试。"
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="需要设置密码短语才能加密你的数据。"
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="这不是国际号码。请以 + 开头，后接国家或地区代码和其余号码，例如 +447700900123。请重试。"
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama 无响应"
@@ -1295,7 +1295,7 @@ MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可导入 18 个平台的导出数据。完�
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="在磁盘静态数据【未加密】的情况下继续吗？"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="这台 Mac 上的“文件保险箱”（FileVault）已关闭，因此你的磁盘处于未加密状态。
 
-如果继续，这意味着：Ostler 存储的所有内容，包括 ~/Documents/Ostler 下你的整个个人图谱（维基、对话、知识笔记），以及 ~/.ostler 下的服务密钥和数据库，都会以未加密的方式写入磁盘。任何人只要能从这块磁盘启动、把它取出，或者使用一个未锁定的会话，就能读取全部内容。无论如何，Ostler 都会用口令加密其最敏感的数据库，但其余数据的安全程度仅取决于磁盘本身。
+如果继续，这意味着：Ostler 存储的所有内容，包括 ~/Documents/Ostler 下你的整个个人图谱（维基、对话、知识笔记），以及 ~/.ostler 下的服务密钥和数据库，都会以未加密的方式写入磁盘。任何人只要能从这块磁盘启动、把它取出，或者使用一个未锁定的会话，就能读取全部内容。Ostler 用来加密数据库的密钥就保存在同一块磁盘上，因此在 FileVault 关闭时，它无法防止能接触到磁盘的人读取你的数据。
 
 强烈建议开启“文件保险箱”。你可以随时在“系统设置”>“隐私与安全性”>“文件保险箱”中开启，它会在后台加密，无需重新安装。
 
@@ -1307,7 +1307,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 的敏感数据库使用 SQLCipher 加密，
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="同时设置恢复口令吗？（推荐）"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="选择你的口令"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 12 个字符。我们无法为你找回口令。建议将其保存在密码管理器中。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 16 个字符。我们无法为你找回口令。建议将其保存在密码管理器中。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="确认你的口令"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="请再次输入相同的口令以确认。"
 

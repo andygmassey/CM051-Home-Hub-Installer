@@ -855,7 +855,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contatta l'assistenza per configur
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Le passphrase non corrispondono. Riprova."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Configurazione della passphrase non riuscita. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Input vuoto. Passphrase saltata."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La passphrase deve contenere almeno 12 caratteri. Riprova."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="La passphrase deve contenere almeno 16 caratteri. Riprova."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Per cifrare i tuoi dati è necessaria una passphrase."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Non è un numero internazionale. Usa un + iniziale, poi il prefisso del paese e il resto del numero, ad es. +447700900123. Riprova."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama non risponde"
@@ -1299,7 +1299,7 @@ Salta quelli che non usi; puoi sempre importarne altri più tardi."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuare con il disco NON cifrato a riposo?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault è DISATTIVATO su questo Mac, quindi il disco non è cifrato a riposo.
 
-Cosa significa se continui: tutto ciò che Ostler memorizza, cioè l'intero grafo personale (wiki, conversazioni, note di conoscenza) in ~/Documents/Ostler, più i segreti dei servizi e i database in ~/.ostler, viene scritto su disco NON cifrato. Chiunque possa avviare il Mac da questa unità, rimuoverla o accedere a una sessione sbloccata può leggere tutto. Ostler cifra comunque i suoi database più sensibili con una passphrase, ma il resto dei tuoi dati è protetto solo quanto il disco stesso.
+Cosa significa se continui: tutto ciò che Ostler memorizza, cioè l'intero grafo personale (wiki, conversazioni, note di conoscenza) in ~/Documents/Ostler, più i segreti dei servizi e i database in ~/.ostler, viene scritto su disco NON cifrato. Chiunque possa avviare il Mac da questa unità, rimuoverla o accedere a una sessione sbloccata può leggere tutto. La chiave con cui Ostler cifra i suoi database è salvata su questo stesso disco, quindi senza FileVault non protegge i tuoi dati da chi ha accesso al disco.
 
 FileVault è vivamente consigliato. Puoi attivarlo in qualsiasi momento in Impostazioni di Sistema > Privacy e sicurezza > FileVault: cifra in background senza bisogno di reinstallare.
 
@@ -1311,7 +1311,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="I database sensibili di Ostler sono cifrati con SQL
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Impostare anche una passphrase di recupero? (consigliato)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Scegli la tua passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Questa passphrase cifra il tuo grafo di conoscenza e sblocca l'interfaccia dell'Hub a ogni avvio. Almeno 12 caratteri. Non possiamo recuperarla per te. Si consiglia di conservarla in un gestore di password."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Questa passphrase cifra il tuo grafo di conoscenza e sblocca l'interfaccia dell'Hub a ogni avvio. Almeno 16 caratteri. Non possiamo recuperarla per te. Si consiglia di conservarla in un gestore di password."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Conferma la tua passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Inserisci di nuovo la stessa passphrase per confermare."
 
