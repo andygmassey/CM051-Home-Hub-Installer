@@ -1415,6 +1415,28 @@ final class InstallerCoordinator: ObservableObject {
         }
     }
 
+    /// F&F item 6: the single entry point for the footer's Cancel and the
+    /// "Finish and pair later" button. At a pairing step it asks install.sh to
+    /// skip the sign-in wait and carry on to the end; it never terminates the
+    /// subprocess there. Elsewhere it is the old cancel(). The caller quits the
+    /// app only for `.terminate`.
+    @discardableResult
+    func requestCancel(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> LateStepPolicy.CancelAction {
+        let action = LateStepPolicy.cancelAction(stepId: currentStepId)
+        switch action {
+        case .terminate:
+            cancel()
+        case .finishWithoutPairing:
+            let wrote = LateStepPolicy.writeSkipSentinel(home: home)
+            appendLog(level: "info", msg: wrote
+                ? "Finishing without pairing; pairing can be done later from Settings or Doctor."
+                : "Could not write the pair-later marker; the install continues and will time out the sign-in wait on its own.")
+        }
+        return action
+    }
+
     func cancel() {
         guard let process = process, process.isRunning else { return }
         process.terminate()

@@ -42843,7 +42843,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
         # observed on the .136 relaunch (daemon down, yet it still entered
         # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
         # is not reachable, skip cleanly with the "set up later" message.
-        TS_SIGNIN_ATTEMPTED=0
+        TS_SIGNIN_ATTEMPTED=0; rm -f "${TS_STATE_DIR}/.signin_skip" 2>/dev/null || true  # F&F: clear a stale skip once, at entry
         if _ts_daemon_up; then
             TS_SIGNIN_ATTEMPTED=1
             # ── Browser auth: `tailscale up` prints a login URL ─────
@@ -42932,7 +42932,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # and the URL is re-shown on each tick so it never scrolls
             # out of reach.
             TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
-            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+            # (not cleared here: the GUI may have written it during the URL poll above)
             info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
             TS_WAIT=0
             TS_NEXT_TICK=30

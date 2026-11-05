@@ -139,6 +139,10 @@ jobs:
         # only previous detector was a human on a box walk.
         if: always()
         run: python3 tests/test_the_consent_button_is_not_below_the_fold.py
+
+      - name: Cancel at the pairing step finishes the install instead of discarding it (F&F 2026-11-05)
+        if: always()
+        run: python3 tests/test_cancel_at_the_pairing_step_finishes_the_install.py
       # #944. The GUI rendered "Open your Wiki" unconditionally, so on a box
       # where the wiki's first compile had not finished the installer sent the
       # customer to a page that would not load, with a sign-in hint for a
