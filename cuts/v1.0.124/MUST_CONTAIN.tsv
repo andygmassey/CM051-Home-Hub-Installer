@@ -1,0 +1,261 @@
+# MUST_CONTAIN.tsv -- the BOM for v1.0.124.
+#
+# CARRIED VERBATIM from cuts/v1.0.123/MUST_CONTAIN.tsv (OS003 main 3ecfb504) by ORM 2026-11-05, the way v1.0.123
+# was carried from v1.0.122 (3ecfb504, OS003 #450). Every carried row is the v1.0.123 row as written, landed state included.
+# New v1.0.124 rows follow at the end (bin/bom_add.sh), one per change, with merge SHAs read from the PR API.
+
+# MUST_CONTAIN.tsv -- the BOM for v1.0.123.
+#
+# CARRIED VERBATIM from cuts/v1.0.122/MUST_CONTAIN.tsv (OS003 main 21c9d40f) by ORM 2026-11-04, the way v1.0.122
+# was carried from v1.0.121 (15a4e4e4). Every carried row is the v1.0.122 row as written, landed state included.
+# New v1.0.123 rows follow at the end (bin/bom_add.sh), one per change, capability ids from OS003 #449 plus three new rows.
+
+# MUST_CONTAIN.tsv -- the BOM for v1.0.122.
+#
+# CARRIED VERBATIM from cuts/v1.0.121/MUST_CONTAIN.tsv (OS003 main b95ffa5d) by ORM 2026-11-02 so the
+# CM051 #3272 capability rows (release lead ruling 2026-11-02: they guard v1.0.122 onward and are NOT vendored
+# into v1.0.121) have a BOM to land in. Every carried row is the v1.0.121 row as written, landed state included.
+# Rows appended below the carried file are new for 122 and were added with bin/bom_add.sh.
+#
+# ---- v1.0.121 file follows ----
+# MUST_CONTAIN.tsv -- the BOM for v1.0.121.
+#
+# CARRIED VERBATIM from cuts/v1.0.120/MUST_CONTAIN.tsv (OS003 main 7c985c05) by ORM 2026-10-30, so the
+# hub-v0.5.31 rows have a BOM to land in. v1.0.120 was tagged (d17c4223) and its walk FAILED; v1.0.121
+# is the next cut. Every carried row is the v1.0.120 row as written, landed state included; the cut
+# freeze re-measures landed against cut/v1.0.121. Rows appended below the carried file are new for 121
+# and were added with bin/bom_add.sh. Other v1.0.121 rows (CM051 installer fixes) are added by their
+# owners as they land.
+#
+# ---- v1.0.120 file follows ----
+# MUST_CONTAIN.tsv -- the BOM for v1.0.120.
+#
+# CARRIED VERBATIM from cuts/v1.0.119/MUST_CONTAIN.tsv (OS003 main 69a5630b) by ORM 2026-10-29 on the
+# release lead's ruling: v1.0.120 is v1.0.119 relabelled after a cut-machinery failure (the v1.0.119 tag
+# was refused at cut.yml preflight step 22 on a wiki-image provenance marker); no new scope. The only
+# CM051 change in v1.0.120 is that marker re-key plus the version bump, neither of which is shipped
+# behaviour, so no row is added. Every row below is the v1.0.119 row as written, landed state included
+# (ancestry of cut/v1.0.120, which is the v1.0.119 tag plus those two commits).
+#
+# ---- v1.0.119 file follows ----
+# MUST_CONTAIN.tsv -- the BOM for v1.0.119.
+#
+# Opened 2026-10-24 by Aesop's builder on Archie's instruction, from OS003 main (eefeb5d).
+# No v1.0.119 artefact exists yet, so landed=no on every row is correct.
+#
+# ===========================================================================
+# WHAT THIS FILE DOES NOT YET CARRY (the cut-freeze step's job, not done here)
+# ===========================================================================
+# It does NOT carry the v1.0.116 rows (OS003 main) or the v1.0.117 rows. The
+# v1.0.117 BOM never reached OS003 main: it exists only on OPEN PR #411
+# (head 1ca2b8f, 13 rows, and the 15 manifest rows those rows name are on the
+# same unmerged branch). The v1.0.117 cut vendored it from that branch
+# (CM051 cuts/BOM_PIN on tag v1.0.117 cites 1ca2b8f). Carry-forward needs
+# re-citation to the v1.0.119 pins, so it is left to ORM at freeze.
+#
+# ===========================================================================
+# CAPABILITY GUARDS
+# ===========================================================================
+# When opened, capability_id=none on every row: no manifest row on main named
+# any of these PRs. 2026-10-24: the P13, ingest-contract, W11 and Smart Prefs
+# rows now name probes added by OS003 #414 (each pattern taken from the PR's
+# own code; 0 in the v1.0.117 tag tree and DMG). THOSE IDS DANGLE UNTIL #414
+# MERGES, so #414 merges first. The two Smart Prefs ids are required=warn
+# (PENDING: not yet vendored into CM051). Every other row stays none: no probe
+# is invented here.
+#
+# ===========================================================================
+# REFS
+# ===========================================================================
+# CM051 refs are squash merges on CM051 main. Four CM051 merges (#3133,
+# #3114, #3112, #3100) were already in v1.0.117 as cut-branch picks; their
+# rows cite the main merge and name the pick.
+# Upstream refs (CM044, CM048, ostler-assistant, personal-world-graph) are
+# merges on that repo's main. Each row says how it reaches the DMG and
+# whether that has happened: a CM044 fix needs the wiki image rebuild plus a
+# CM051 re-pin; an oa fix needs a hub re-pin; the PWG Smart Prefs rows reach
+# the DMG only through the CM051 #3116 stack (OPEN at writing).
+#
+# NOT LISTED, not merged at writing: CM051 #3149, #3151, #3116; CM044 #400;
+# PWG #439 (T0i). Each is added by bin/bom_add.sh as it lands.
+#
+# ===========================================================================
+# OFF-DMG, recorded here and deliberately NOT rows
+# ===========================================================================
+# A row must reach landed=yes in the DMG or gates/verify_must_contain.sh reds
+# the cut, and these never enter the DMG. There is no off-DMG convention in
+# bin/bom_add.sh or the gate, so they are recorded as comments.
+#
+#   iOS (CM031, ships via TestFlight):
+#     #339 c3833441  P13 hide short codes up to 8 digits, show phone-only people
+#     #343 21b1009a  re-pairing an already-paired iPhone no longer fails and wipes data
+#     #345 fae4f7f8  I14 relaunch unlock (paired app reopens its database, no paywall)
+#     #347 533b06ba  old-Hub database removed 30 days after the move; Siri phrases
+#       #339, #343, #345 and #347 are all ancestors of 533b06ba, the head of
+#       TestFlight 2026102404 (the v1.0.117 F&F send), so all four were already
+#       in that build.
+#     #349 7459643c  I18 Timeline icons, unknown types as Other, All day rows
+#     #350 7de445bf  test-only (4 failing tests on main fixed)
+#     #351 447661ab  I19 warm each tab's data after launch, unlock and pairing
+#   Site (OS001):
+#     #387 a1e7f230  buy surfaces warn when the device will not run Ostler
+#   Worker / emails (CM050):
+#     #80 f533bd53  branded invitation email
+#     #81 7267f1c8  checkout F&F free path, promotion codes, $0 sessions licensed
+#     #82 d6b54c62  licence email branded like the invite
+#     #83 606ec2eb  licence session_id 1-hour fetch window + re-send flow
+#     #84 d1350700  customer emails and /licence brand fonts, logo, copy
+#     #85 ad1758d1  POST /feedback for testers, D1 0012
+#     #86 40514e78  invite email says what the Hub runs on
+#
+what	repo	ref	landed	capability_id	verify	ticket
+cm019 vendored tree: per-item privacy gate grafted; L0/L1/L3, an unknown level and minors never go online	CM051	d6fd93f3	yes	none	TBD	CM051 #3138
+S6: no wiki pii_scan value reaches install.log or the background compile log	CM051	287192de	yes	none	TBD	CM051 #3135
+cm019 vendored tree: an explicit L0 survives ingest ('level or default' read 0 as unset)	CM051	1ffeef75	yes	none	TBD	CM051 #3139
+W4: walk --reset is a verified cold wipe (uninstaller, every job, VM + data disk, refuses on leftovers). Walk harness: ships in the repo, not the DMG	CM051	7260d828	yes	none	TBD	CM051 #3137
+five BLOCKING Smart Preferences walk probes. Walk harness: ships in the repo, not the DMG	CM051	c466c573	yes	none	TBD	CM051 #3118
+ostler_fda re-vendored to HR015 fd10f28	CM051	db359809	yes	none	TBD	CM051 #3126
+walks/v1.0.117.tsv console walk record (FAILED; 0 F&F blockers). Repo record, not in the DMG	CM051	61e24081	yes	none	TBD	CM051 #3140
+W6: a find error during the wiki page count is could-not-count, never zero pages	CM051	21b760bc	yes	none	TBD	CM051 #3134
+P13 people: a short code is up to 8 digits with no country code	CM051	9ad8624f	yes	p13_short_code_up_to_8_digits	TBD	CM051 #3143
+P13 people: a number-named person is the Contacts person who holds that number	CM051	6097d776	yes	none	TBD	CM051 #3144
+three BLOCKING send-safety walk probes for oa #626 (S4) and #627 (C1). Walk harness: ships in the repo, not the DMG	CM051	40b21c88	yes	none	TBD	CM051 #3128
+Doctor vendored tree: HR015 #975, #979 wizard residue, #978 evernote grafted	CM051	4142c16e	yes	none	TBD	CM051 #3127
+P13 reply-debt and wiki: name people, never the owner, never digits (graft of CM048 #104 and CM044 #394/#395 into the vendored trees)	CM051	d259d18e	yes	p13_reply_debt_names_counterparts	TBD	CM051 #3142
+P16 people: a shared phone joins two named people only when their names match	CM051	05a02ba1	yes	none	TBD	CM051 #3146
+P13 reply-debt: the two surviving mutants killed, CM051 side (port of CM048 #105)	CM051	55abf329	yes	none	TBD	CM051 #3145
+P16b people: kinship words on a shared phone never fold two people	CM051	eda08e81	yes	none	TBD	CM051 #3147
+vendor: cm041 re-vendored to CM041 main f2ef7891 and cm048 to f6b75bea (f6b75bea is 2 commits BEHIND CM048 #105's merge, so CM048 #104/#105 arrive via the #3142/#3145 grafts, not this re-vendor)	CM051	3f8b886d	yes	none	TBD	CM051 #3111
+CI: meeting-brief-real-hub pins pyoxigraph==0.5.12. CI only, not in the DMG. Already in v1.0.117 as cut pick 9915654c	CM051	c95aaa12	yes	none	TBD	CM051 #3133
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3208 (fa99e26b, wiki 0.1.62); not required for v1.0.119. Row kept as written: wiki images re-pinned to v0.1.59 (CM044 ced30d49). Already in v1.0.117 as cut pick a3dd9e1d; superseded at 119 by any later wiki re-pin	CM051	a9525849	yes	none	TBD	CM051 #3114
+Q32 calendar set-aside: one switch label that means yes. Already in v1.0.117 as cut pick da7e22ef	CM051	6029fffc	yes	none	TBD	CM051 #3112
+listener watchdog: bounded capture, strike gaps logged, probe budget from shipped config. Already in v1.0.117 as cut picks 0806810c/29840e06	CM051	b33e0bff	yes	none	TBD	CM051 #3100
+P13 reply-debt: name people from Contacts, never the owner, never a short code. Reaches the DMG via the CM051 #3142 graft	CM048	d74a4640	yes	cm048_pinned_aed03798	TBD	CM048 #104
+P13 reply-debt: two surviving mutants killed (test only). Reaches CM051 via #3145	CM048	1dfd71ed	yes	cm048_pinned_aed03798	TBD	CM048 #105
+P13 wiki: Recently active lists people, never the owner's number or a short code. In the DMG only after a wiki image rebuild + CM051 re-pin (the #3142 graft covers the vendored side)	CM044	54b1b5ea	yes	none	TBD	CM044 #394
+P13 wiki: a short code is up to 8 digits with no country code. Needs the wiki image rebuild + CM051 re-pin	CM044	c3c31056	yes	none	TBD	CM044 #395
+W11 wiki: Front Page phone slack in the iOS app. NOT DELIVERED until the wiki image rebuild + CM051 re-pin	CM044	1805017e	yes	w11_wiki_css_stamp	TBD	CM044 #396
+S15 pii: owner aliases come from the owner config, never from literals. Needs the wiki image rebuild + CM051 re-pin	CM044	32372b18	yes	none	TBD	CM044 #399
+fixtures: enrichment contract cast name renamed off an operator-inventory hit. Test/fixture only, nothing customer-facing	CM044	a9d7b60b	yes	none	TBD	CM044 #397
+tests: operator-inventory identifiers in the test tree replaced with approved cast. Test only, nothing customer-facing	CM044	e923b778	yes	none	TBD	CM044 #398
+P13 brief: replies owed name people, never print a number. Reaches the DMG only via a hub re-pin past this merge (not yet done)	ostler-assistant	082d8864	yes	none	TBD	oa #634
+S19 derive: fictional restaurant names in the cuisine few-shot examples. Smart Prefs: reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	be1d2f78	yes	none	TBD	PWG #441
+Smart Prefs derive: thematic rollup (port of #413 Chunk 9), hierarchy false-zero, QID-pass privacy gate. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	7cb78275	yes	smart_prefs_thematic_rollup_vendored	TBD	PWG #438
+Smart Prefs derive: sensitive terms (Art. 9, diet, minors) stored, never surfaced, plus ratchet. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	52eb6130	yes	smart_prefs_sensitive_never_read_vendored	TBD	PWG #433
+Smart Prefs ingest: extra.about_minor produced from the owner's minors registry. Reaches the DMG only via the CM051 #3116 stack (OPEN)	personal-world-graph	93c7f2a9	yes	none	TBD	PWG #434
+P13 wiki: install.sh passes the owner's own phone to the wiki compiler (WIKI_OPERATOR_PHONES), so the owner is never listed as someone else	CM051	d259d18e	yes	p13_wiki_gets_operator_phones	TBD	CM051 #3142
+Ingest contract: Apple Music artist and real play time (also Uber event time, honest bookmark/iMessage time, one registry harness)	CM051	e79c3e4f	yes	ingest_apple_music_real_play_time	TBD	CM051 #3123
+Ingest contract: Uber points carry the trip/order time as observed_at	CM051	e79c3e4f	yes	ingest_uber_event_time	TBD	CM051 #3123
+W11 wiki: Front Page Recently active stacks at phone width. NOT DELIVERED until the wiki image rebuild + CM051 re-pin	CM044	1805017e	yes	w11_recently_active_stacks	TBD	CM044 #396
+CM044 #406: wiki-site removes failed build dirs, prunes newest-N, byte cap, /docs quiescence (squash 23356c01 on CM044 main; hotfix-shipped in 118 as 0.1.59.1). Rides the 119 wiki rebuild from CM044 main	CM044	23356c01	yes	wiki_site_image_v0_1_60	TBD	CM044 #406
+# RETIRED for v1.0.121 (ORM 2026-11-02, Archie ruling): superseded_by CM051 #3270 (5fcff25a, Hub re-pin hub-v0.5.32 row); superseded_at 2026-11-02; not required for v1.0.121. Row kept as written: Hub re-pin hub-v0.5.30 (oa 610b0c5c: #642 security re-land, #643 daemon reports 0.5.30): daemon 63527d1e, hub app 633fd851, signed A/B n=10 drops=0 vs 0.5.29. Stacked on CM051 #3192 (hub-v0.5.29); squash ce642fe7 on CM051 main (freeze pass 2026-10-28)	CM051	ce642fe7	yes	hub_daemon_0_5_30_pinned_runs	TBD	CM051 #3193
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3208 (fa99e26b, wiki 0.1.62); not required for v1.0.119. Row kept as written: Wiki re-pin 0.1.60 = CM044 main 23356c01 (#406 + W9/W11/W12/S15-S17)	CM051	db13a4e1	yes	wiki_images_v0_1_60	TBD	CM051 #3188
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3207 (c5db294f, RemoteCapture 0.1.10); not required for v1.0.119. Row kept as written: RemoteCapture re-pin 0.1.9 (CM042 #37 app icon), drops the 0.1.7 known-red	CM051	d2e0628b	yes	remotecapture_pinned_at_v019	TBD	CM051 #3191
+# RETIRED for v1.0.119 (ORM 2026-10-29, Archie ruling): superseded by CM051 #3193 (ce642fe7, hub-v0.5.30); not required for v1.0.119. Row kept as written: Hub re-pin hub-v0.5.29 (oa 9c6c2b55), A/B 80/80 vs 80/80 0 drops; superseded in the pins by 0.5.30 (#3193) but its oa fixes ride 0.5.30 by ancestry	CM051	75c8b9f2	yes	hub_daemon_0_5_30_pinned_runs	TBD	CM051 #3192
+Installer stops advertising the dead install.tar.gz URL as a working default. MERGED, squash 2ec4d600	CM051	2ec4d600	yes	install_sh_does_not_advertise_dead_tarball_url	TBD	CM051 #3170
+Vendor CM048 #106 graft: reminder title quality gate, human notes, 30-day staleness. MERGED, squash 4aba40a0	CM051	4aba40a0	yes	cm048_reminder_title_quality_gate	TBD	CM051 #3169
+Vendor CM019: trend, say-vs-do contradiction, time-of-day context (PWG #429). MERGED, squash a948a19d	CM051	a948a19d	yes	cm019_food_evidence_parser_registered	TBD	CM051 #3130
+Vendor CM019: representative-first CLI wiring (PWG #431). MERGED, squash e594448d	CM051	e594448d	yes	cm019_enrich_representative_first_cli	TBD	CM051 #3120
+l10n: legal and consent translations ship once reviewed, English prevailing; consent log records language + review ids. MERGED, squash 9be9e49d	CM051	9be9e49d	yes	install_sh_legal_prevails_note_when_localised	TBD	CM051 #3156
+# RETIRED for v1.0.121 (ORM 2026-11-02, Archie ruling): superseded_by CM044 #412 (e5450694, Wiki re-pin 0.1.63 row; CM051 re-pin aeb1f3a3 via #3266, on 5fcff25a); superseded_at 2026-11-02; not required for v1.0.121. Row kept as written: Wiki re-pin 0.1.62 = CM044 main fbeb1859 (#409 row 2551 freshness downloads_exports; #410 one org count; #411 no raw URL on Knowledge/Reply Debt/Places); replaces 0.1.61, never shipped. MERGED, squash fa99e26b	CM051	fa99e26b	yes	wiki_images_v0_1_62	TBD	CM051 #3208
+RemoteCapture re-pin 0.1.10 (CM042 #39 jurisdiction checks device region before GPS, stricter regime wins, row 1001)	CM051	c5db294f	yes	remotecapture_pinned_at_v0110	TBD	CM051 #3207
+install.sh pulls models with the pinned Ollama binary, never a bare ollama on PATH (ERR-13 on a clean Mac) (MERGED, squash f5bcf241)	CM051	f5bcf241	yes	install_sh_pulls_with_pinned_ollama	TBD	CM051 #3206
+The runtime-ready scan ignores tests/ (no MISSING pytest) (MERGED, squash c7c7d8dc)	CM051	c7c7d8dc	yes	runtime_ready_scan_skips_tests	TBD	CM051 #3204
+No GDPR Art. 9 topic becomes a card, API row or derived preference (row 2471) (MERGED, squash ed28c420)	CM051	ed28c420	yes	assistant_api_filters_art9_topics	TBD	CM051 #3201
+People writers read the stored record before upsert, never overwrite with partial data (row 963) (MERGED, squash 04ea4314)	CM051	04ea4314	yes	contact_syncer_reads_existing_before_upsert	TBD	CM051 #3199
+A source that read messages is not no_data (iMessage, Email) (MERGED, squash a4295260)	CM051	a4295260	yes	imessage_hydrate_counts_messages_read	TBD	CM051 #3212
+install.sh loads fda-rerun when its plist is present but the job is not loaded (MERGED, squash 9a0e15d3)	CM051	9a0e15d3	yes	install_loads_fda_rerun_when_plist_present_unloaded	TBD	CM051 #3210
+Final verdict_119 batch; console item for row 1001 (MERGED, squash 00d8c2e0)	CM051	00d8c2e0	yes	console_walk_checklist_has_rc_jurisdiction_item	TBD	CM051 #3214
+Installer version 1.0.119 (11900); WALKS rows 112..118 (MERGED, squash 14a78104)	CM051	14a78104	yes	installer_version_is_1_0_119	TBD	CM051 #3216
+cuts/v1.0.119/cut.env (cut record; proven by the rollforward pin test and preflight, not shipped content) (MERGED, squash 106ad1f3; capability none by design)	CM051	106ad1f3	yes	none	TBD	CM051 #3215
+cut-manifests/v1.0.119.yaml (cut register; proven by check-manifest at build, not shipped content) (MERGED, squash d33e7ff9; capability none by design)	CM051	d33e7ff9	yes	none	TBD	CM051 #3197
+hub-power restarts com.ostler.ollama, not ai.ollama (MERGED, squash 7b27f91a)	CM051	7b27f91a	yes	hub_power_restarts_ostler_ollama_label	TBD	CM051 #3209
+The merge journal records each exact-identifier key as kind plus keyed hash, never a raw value (MERGED, squash 477b5e3e)	CM051	477b5e3e	yes	merge_journal_records_keyed_identifier_hashes	TBD	CM051 #3217
+install.sh writes owner_language from the installer language so the first brief is in it (MERGED, squash 4fc61eb1)	CM051	4fc61eb1	yes	install_sh_writes_owner_language	TBD	CM051 #3218
+oa #645: every on-screen Hub web string goes through the catalogue, consent screens catalogued, pt-PT locale. Reaches the DMG in the Hub app via the hub-v0.5.31 re-pin (5327396c) LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor 0f192a4e019d 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	0f192a4e019db2af2fe6bf054368e38d01763552	yes	oa_web_consent_screens_catalogued	TBD	oa #645
+oa #647: Hub web translations, 13 locales. Reaches the DMG via the hub-v0.5.31 re-pin LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor 605ec7fc4dc2 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	605ec7fc4dc247003512409fad44161643ee59ab	yes	oa_web_translations_13_locales	TBD	oa #647
+oa #648: person-timeline replies say meeting transcripts, not recorded meetings. In the pinned daemon (fetched by install.sh), via the hub-v0.5.31 re-pin LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor f001ac00b220 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	f001ac00b220a176224f59a8a210dd2640e315aa	yes	hub_daemon_0_5_31_pinned_runs	TBD	oa #648
+oa #650: first-run popup carries one text-only sentence that the owner can tune Ostler in the Governor (the disclosure 0.5.30 dropped). Reaches the DMG via the hub-v0.5.31 re-pin LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor c656573d5778 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	c656573d5778097d2a6b52b3483e001b1077e2a2	yes	oa_firstrun_popup_governor_sentence	TBD	oa #650
+oa #651: Hub web formats counts, dates and times in the Hub UI locale, not the OS locale. Reaches the DMG via the hub-v0.5.31 re-pin LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor 89d662728e3e 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	89d662728e3ecdc9e4e2cf246ad77d2a9abc5cde	yes	oa_web_counts_follow_ui_locale	TBD	oa #651
+# RETIRED for v1.0.121 (ORM 2026-11-02, Archie ruling): superseded_by CM051 #3270 (5fcff25a, Hub re-pin hub-v0.5.32 row); superseded_at 2026-11-02; not required for v1.0.121. Row kept as written: Hub re-pin hub-v0.5.31 (oa 5327396c: #645 #647 #648 #650 #651 #652): daemon 083f8a00, hub app d157dd5a, signed A/B n=10 80/80 vs 80/80 drops=0 vs 0.5.30; squash a03122e5 on CM051 main (#3243, merged 2026-10-30)	CM051	a03122e5d664d6f60bd8d2edf2701fb04e60d8f0	yes	hub_daemon_0_5_31_pinned_runs	TBD	CM051 #3243
+Wiki re-pin 0.1.63 = CM044 e5450694 (#412 wiki header carries the current oxblood O marque). Site a6fab0ed, compiler ef145f42 (release-images run 41036143364). Rides v1.0.121 integration PR 2; ref is CM044 e5450694 until the CM051 re-pin squash lands LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor e5450694 e5450694 rc 0 on a full CM044 clone; wiki 0.1.63 images carry source_revision e5450694 (CM051 scripts/wiki_image_provenance.tsv, run 41036143364)	CM044	e5450694babdb76afd09de2291bafe9291c87156	yes	wiki_images_v0_1_63_oxblood_marque	TBD	CM044 #412
+oa #655: care pre-check, a cue matcher before the model, all tools refused at execution on a STRONG turn (execution refusal NOT INSTRUMENTED on hardware), guaranteed helpline line. In the pinned daemon (fetched by install.sh), via the hub-v0.5.32 re-pin. Below the pre-registered bar, Andy waiver (PREREGISTERED_BAR_v2_WAIVER1.md, sha 8e2c6dbc) LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor 33427cd6a0df 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	33427cd6a0df9d19b8df334e64d2adf858092dc2	yes	hub_daemon_0_5_32_carries_care_precheck	TBD	oa #655
+oa #656: care pre-check ON in every language (ar and it included), and the installer AGENTS.md regional helpline line parsed (case fix), so the regional line replaces the generic one. In the pinned daemon, via the hub-v0.5.32 re-pin. Care pre-check below pre-registered bar, Andy waiver (PREREGISTERED_BAR_v2_WAIVER1.md, sha 8e2c6dbc) LANDED (ORM 2026-11-02, Archie ruling): git merge-base --is-ancestor 67abc61c147d 2fa6ad83 rc 0 on a full (non-shallow) ostler-assistant clone; 2fa6ad83 = hub-v0.5.32, the pinned daemon	ostler-assistant	67abc61c147d11fa8181e721be8008efa2a70331	yes	hub_daemon_0_5_32_pinned_runs	TBD	oa #656
+# RETIRED for v1.0.122 (Aesop 2026-11-03, Archie ruling): superseded_by CM051 #3288 (head fa4311aa, Hub re-pin hub-v0.5.33 row; landed via integration #3292, merge 839a64bb); superseded_at 2026-11-03; not required for v1.0.122. Row kept as written: Hub re-pin hub-v0.5.32 (oa 2fa6ad83: #655 #656 #657): daemon 12101ded, hub app 1501812c, signed A/B n=10 80/80 vs 80/80 drops=0 vs 0.5.31; squash 5fcff25a on CM051 main (#3270, merged 2026-11-02) | CM051 | 5fcff25a59cdcfa22cd4a49eb1290868f5f77fb1 | yes | hub_daemon_0_5_32_pinned_runs | TBD | CM051 #3270
+CM051 #3272: the installer pins the light (Aqua) appearance in applicationWillFinishLaunching, so macOS Dark Mode no longer renders text fields white on cream. In v1.0.121 (cut/v1.0.121 on CM051 main c6759438); guards v1.0.122 onward LANDED (ORM 2026-11-02, release lead ruling): git merge-base --is-ancestor c6759438 origin/main rc 0 on CM051	CM051	c6759438e394dcba520136919b5f6724b7b26477	yes	installer_pins_light_appearance	TBD	CM051 #3272
+CM051 #3272: Cancel on the consent screen asks before it ends the install. In v1.0.121 (CM051 main c6759438); guards v1.0.122 onward LANDED (ORM 2026-11-02, release lead ruling): git merge-base --is-ancestor c6759438 origin/main rc 0 on CM051	CM051	c6759438e394dcba520136919b5f6724b7b26477	yes	consent_cancel_asks_first	TBD	CM051 #3272
+CM051 #3288: hub re-pin hub-v0.5.33 (oa 06f2eb80): install.sh pins daemon sha 65669dde, gui/Makefile DAEMON_VERSION 0.5.33. Squash e2fff64e	CM051	e2fff64e	yes	hub_daemon_0_5_33_pinned_in_installer	TBD	CM051 #3288
+CM051 #3288: Makefile pin so the cut downloads hub 0.5.33 daemon and hub app (e2fff64e)	CM051	e2fff64e	yes	hub_daemon_0_5_33_pinned_in_dmg_build	TBD	CM051 #3288
+# RETIRED for v1.0.122 (Aesop 2026-11-03, Archie ruling): superseded_by the row below citing e76aa1cb; superseded_at 2026-11-03; ref 37fa6921 is the merge commit of PR #3278 into integration/v1.0.122, so `git show 37fa6921 -- install.sh` is an empty combined diff and CM051 scripts/verify_bom_rows_are_in_the_pin.sh (839a64bb) scored the row UNMEASURABLE (touches install.sh but added no keyable line). Row kept as written: CM051 #3278: derive tick reads a signed-tick conversations mirror, not ~/Documents (37fa6921) | CM051 | 37fa6921 | yes | derive_tick_reads_conversations_mirror | TBD | CM051 #3278
+# RETIRED for v1.0.122 (Aesop 2026-11-03, Archie ruling): superseded_by the row below citing 2f7bd318; superseded_at 2026-11-03; ref 37fa6921 is the merge commit of PR #3278 into integration/v1.0.122, so `git show 37fa6921 -- install.sh` is an empty combined diff and CM051 scripts/verify_bom_rows_are_in_the_pin.sh (839a64bb) scored the row UNMEASURABLE (touches install.sh but added no keyable line). Row kept as written: CM051 #3278: lib/ostler-conversations-mirror.sh privacy-filtered (L0-L2) helper ships and is sourced each tick (37fa6921) | CM051 | 37fa6921 | yes | conversations_mirror_helper_ships | TBD | CM051 #3278
+CM051 #3278: derive tick reads a signed-tick conversations mirror, not ~/Documents (e76aa1cb, non-merge commit of #3278; its install.sh diff adds the OSTLER_CONVERSATIONS_DIR plist line the gate keys on)	CM051	e76aa1cb	yes	derive_tick_reads_conversations_mirror	TBD	CM051 #3278
+CM051 #3278: lib/ostler-conversations-mirror.sh privacy-filtered (L0-L2) helper ships and is sourced each tick (2f7bd318, non-merge commit of #3278; its install.sh diff adds the warn line for a failed helper copy the gate keys on)	CM051	2f7bd318	yes	conversations_mirror_helper_ships	TBD	CM051 #3278
+CM051 #3276: Verification/Order service senders hidden from People (bdc572c3)	CM051	bdc572c3	yes	people_rules_drops_verification_order_senders	TBD	CM051 #3276
+CM051 #3279: digest size cap keeps Preferences (6d44129c)	CM051	6d44129c	yes	digest_keeps_preferences_section	TBD	CM051 #3279
+CM051 #3290: digest meeting rows apply the fail-closed outbound L3 rule (388763a3)	CM051	388763a3	yes	digest_meeting_rows_fail_closed_l3	TBD	CM051 #3290
+CM051 #3290: /api/v1/employer outbound path filters L3 (vendored ical-server, brief.py) (388763a3)	CM051	388763a3	yes	outbound_employer_facts_filter_l3	TBD	CM051 #3290
+CM051 #3289: derived dislikes served alongside the capped list (vendored derived_preferences) (798ed5ea)	CM051	798ed5ea	yes	derived_dislikes_served_alongside_cap	TBD	CM051 #3289
+CM051 #3291: topic write fails closed on L3/unknown privacy level (vendored CM048 #109) (ecbeaf09)	CM051	ecbeaf09	yes	topic_write_fails_closed_on_l3	TBD	CM051 #3291
+CM051 #3295: the walk's brief-repeat judge treats the provenance tag line as a heading, not a repeat (squash 04f1cfd7 on CM051 main; LANDED: merge-base --is-ancestor 04f1cfd7 origin/main rc 0, control 9bf81cc0 rc 1)	CM051	04f1cfd7	yes	brief_provenance_tag_is_not_a_repeat	TBD	CM051 #3295
+CM051 #3296: plain consent copy translated in every locale, legal wording stays English (squash 387b5667 on CM051 main; LANDED: is-ancestor origin/main rc 0)	CM051	387b5667	yes	consent_plain_copy_translated_legal_stays_english	TBD	CM051 #3296
+CM051 #3300: Hub people rule 5, a bare digit run over 15 digits is an id, never a name (squash bb4a6e65 = CM051 main; LANDED: is-ancestor origin/main rc 0)	CM051	bb4a6e65	yes	people_overlong_digit_id_is_nameless	TBD	CM051 #3300
+CM051 #3299: food reads each mbox once and prunes only consumed mboxes (feef61a3, non-merge commit of #3299 that adds prune_consumed_mboxes; rides integration #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor feef61a3 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	feef61a3	yes	food_reads_each_mbox_once_and_prunes_consumed	TBD	CM051 #3299
+CM051 #3301: walk_dmg.sh ARM 9, every seeded .pyc compiled from the .py beside it (dfb843ac, non-merge commit of #3301; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor dfb843ac 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	dfb843ac	yes	walk_dmg_arm9_seeded_pyc_matches_source	TBD	CM051 #3301
+CM051 #3302: install.sh pins wiki-site v0.1.64 digest 31523c3f (f6a19305, non-merge commit of #3302; its install.sh diff adds the digest lines; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor f6a19305 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	f6a19305	yes	wiki_site_image_v0_1_64	TBD	CM051 #3302
+CM051 #3302: install.sh pins wiki-compiler v0.1.64 digest 0e5e8b9d (f6a19305, non-merge commit of #3302; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor f6a19305 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	f6a19305	yes	wiki_compiler_image_v0_1_64	TBD	CM051 #3302
+CM051 #3302: compose mounts the wiki-built named volume at /site so a recreate serves the previous build (737fa306, non-merge commit of #3302; its install.sh diff adds the volume lines; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor 737fa306 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	737fa306	yes	wiki_built_volume_keeps_sites_across_recreate	TBD	CM051 #3302
+CM044 #415: wiki-site withholds a month that lost a day or page or failed its rebuild, unpublishes removed months (merge 4963d8f4, ancestor of v0.1.64 8aa90549 per compare API ahead 1 behind 0). Reaches the DMG only via the CM051 #3302 re-pin, NOT on CM051 main yet LANDED (ORM 2026-11-04): CM051 main 5acb8901 (#3308 merged, #3302 inside) pins the v0.1.64 digests built from CM044 8aa90549, which contains this commit	CM044	4963d8f41c50c2f6498df139b9f70dc3159b9123	yes	wiki_site_unpublishes_removed_conversation_months	TBD	CM044 #415
+CM044 #416: Reply Debt snippet is one line of words (merge 8aa90549 = tag v0.1.64). Reaches the DMG only via the CM051 #3302 re-pin, NOT on CM051 main yet LANDED (ORM 2026-11-04): CM051 main 5acb8901 (#3308 merged, #3302 inside) pins the v0.1.64 digests built from CM044 8aa90549, which contains this commit	CM044	8aa905496cba8318fa927aee69cd18ded9c0c842	yes	wiki_reply_debt_snippet_is_words	TBD	CM044 #416
+CM051 #3303: vendored knowledge store retries a chunk upsert on a transient error (c46651fc, sole commit of #3303; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor c46651fc 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	c46651fc	yes	knowledge_chunk_upsert_retries_transient_error	TBD	CM051 #3303
+CM051 #3304: the people sweep keeps stored fields it does not compute and the stricter level (0d28e9e1, non-merge commit of #3304 that adds _merge_people_payload; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor 0d28e9e1 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	0d28e9e1	yes	people_sweep_keeps_stored_fields_and_stricter_level	TBD	CM051 #3304
+CM051 #3306: a group chat's follow-up key counts every member, silent ones too (a0b1bf8e, sole commit of #3306; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor a0b1bf8e 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	a0b1bf8e	yes	followup_key_counts_silent_group_members	TBD	CM051 #3306
+CM051 #3307: probe followup_keys judges only rows from an iMessage chat (3f032518, sole commit of #3307; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor 3f032518 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	3f032518	yes	probe_followup_keys_chat_keyed_denominator	TBD	CM051 #3307
+Installer version 1.0.123 (12300), four stamp sites (CM051 cut-prep/v1.0.123 34da5011; NOT on main, enters the pin only when the cut branch is cut) LANDED (ORM 2026-11-04): SHA kept, not cherry-picked: cut/v1.0.123 is built on cut-prep/v1.0.123, so git merge-base --is-ancestor 34da5011 <CM051 pin 5502a2a5> rc 0 and <cut head> rc 0 (control: vs main 5acb8901 rc 1)	CM051	34da5011	yes	installer_version_is_1_0_123	TBD	CM051 cut-prep/v1.0.123
+CM051 #3298: walk record (walks/v1.0.122.tsv), not in the artefact (squash 722077ff on CM051 main)	CM051	722077ff	yes	none	TBD	CM051 #3298
+CM051 #3305: REGISTRY_PIN sync; checked by tests/test_rollforward_registry_pin.sh and cut.yml's 'Vendored rollforward gate matches its OS003 pin' step (12a31226, sole commit of #3305; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor 12a31226 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	12a31226	yes	none	TBD	CM051 #3305
+CM051 #3304: the people sweep carries each person's Contacts card (icloud_uid) onto their point (d903973b, non-merge commit of #3304 that adds card_by_uri.setdefault; rides #3308, NOT on main yet) LANDED (ORM 2026-11-04): git merge-base --is-ancestor d903973b 5acb8901 rc 0 on CM051 (5acb8901 = main, #3308 merged)	CM051	d903973b	yes	people_index_keeps_contacts_card	TBD	CM051 #3304
+CM051 #3317: the cut runs the cm041 vendor reconstruction gate STRICT; pin + patch rebuilds every cm041 tree; regenerator honours hold_ack (squash d1c32b1c = CM051 main; LANDED: is-ancestor origin/main rc 0, control d1c32b1c vs 87d0a1cc rc 1)	CM051	d1c32b1c82f79978a32719763f877d65723665c1	yes	vendor_cm041_reconstruction_gate_in_cut	TBD	CM051 #3317
+CM051 #3315: vendored ical-server never spawns gws without a Google account AND an accepted opt-in (squash 87d0a1cc on CM051 main; LANDED: is-ancestor origin/main rc 0)	CM051	87d0a1cc6e9da43a0cf07147ffd45f8bf5af8ba0	yes	gws_never_spawned_without_consent	TBD	CM051 #3315
+CM051 #3315: install.sh never installs gws; step gws_install is a no-op (squash 87d0a1cc on CM051 main; LANDED: is-ancestor origin/main rc 0)	CM051	87d0a1cc6e9da43a0cf07147ffd45f8bf5af8ba0	yes	install_sh_never_installs_gws	TBD	CM051 #3315
+CM041 #245: never spawn gws without a Google account AND an accepted opt-in (merge d962b74f = CM041 main). Reaches the DMG only as the CM051 #3315 vendored ical-server gate; LANDED via 87d0a1cc on CM051 main (pattern def google_connector_allowed( in vendor/cm041/assistant_api/ical-server.py: 87d0a1cc 1, 8dbad004 0)	CM041	d962b74f9b579bff8ee27434eff05569ed0ba296	yes	gws_never_spawned_without_consent	TBD	CM041 #245
+CM051 #3314: installer l10n gaps closed; Uninstaller, Recovery and move-to-Applications speak the Mac's language (squash 8dbad004 on CM051 main; LANDED: is-ancestor origin/main rc 0)	CM051	8dbad00473150a54d324569eb0ad93fecbdabbc4	yes	installer_l10n_gaps_closed_1104	TBD	CM051 #3314
+CM044 #417: wiki l10n gaps closed in 13 languages; shared-interests note leaves the renderer (squash f135ff32, ancestor of v0.1.66 af5fd51a). Reaches the DMG via the CM051 #3326 v0.1.66 re-pin. LANDED (ORM 2026-11-05): f4854e44 (#3326) is-ancestor CM051 main 8573d957 rc 0 and pins the v0.1.66 digests built from af5fd51a, which contains this commit (is-ancestor rc 0; control af5fd51a vs 8aa90549 rc 1)	CM044	f135ff322b988e669db96f6a5c6cb7865e96a627	yes	wiki_shared_interests_note_localised	TBD	CM044 #417
+CM044 #418: timeline summary prose and subjects read clean (squash 77cbeae2, ancestor of v0.1.66 af5fd51a). Reaches the DMG via the CM051 #3326 v0.1.66 re-pin. LANDED (ORM 2026-11-05): f4854e44 (#3326) is-ancestor CM051 main 8573d957 rc 0 and pins the v0.1.66 digests built from af5fd51a, which contains this commit (is-ancestor rc 0; control af5fd51a vs 8aa90549 rc 1)	CM044	77cbeae267035599dc35b1d824806c9046d66dd8	yes	wiki_timeline_summary_prose_clean	TBD	CM044 #418
+CM044 #418: front-page counts re-stamped with their list (squash 77cbeae2, ancestor of v0.1.66 af5fd51a). Reaches the DMG via the CM051 #3326 v0.1.66 re-pin. LANDED (ORM 2026-11-05): f4854e44 (#3326) is-ancestor CM051 main 8573d957 rc 0 and pins the v0.1.66 digests built from af5fd51a, which contains this commit (is-ancestor rc 0; control af5fd51a vs 8aa90549 rc 1)	CM044	77cbeae267035599dc35b1d824806c9046d66dd8	yes	wiki_front_page_counts_restamped	TBD	CM044 #418
+CM044 #419: By channel counts only known channels, rest is Other (squash c7a628de ancestor of v0.1.66 af5fd51a). Reaches the DMG via the CM051 #3326 v0.1.66 re-pin. LANDED (ORM 2026-11-05): f4854e44 (#3326) is-ancestor CM051 main 8573d957 rc 0 and pins the v0.1.66 digests built from af5fd51a, which contains this commit (is-ancestor rc 0; control af5fd51a vs 8aa90549 rc 1)	CM044	c7a628dee344f878b92efc622328c7572f5f02d6	yes	wiki_by_channel_counts_known_channels_only	TBD	CM044 #419
+CM044 #419: People count is the rows on the page (squash c7a628de ancestor of v0.1.66 af5fd51a). Reaches the DMG via the CM051 #3326 v0.1.66 re-pin. LANDED (ORM 2026-11-05): f4854e44 (#3326) is-ancestor CM051 main 8573d957 rc 0 and pins the v0.1.66 digests built from af5fd51a, which contains this commit (is-ancestor rc 0; control af5fd51a vs 8aa90549 rc 1)	CM044	c7a628dee344f878b92efc622328c7572f5f02d6	yes	wiki_people_count_is_rows_on_page	TBD	CM044 #419
+oa #662: daily brief in the owner's language; Hub web gaps closed (squash c523978f on oa main). Reaches the DMG only via the hub re-pin (TBD_HUB_REPIN in cut-prep cut.env), NOT pinned yet LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	c523978f1e9eb2d432eed9d444b8adeac5c74e29	yes	hub_brief_in_owner_language	TBD	oa #662
+oa #663: Hub web UI fonts self-hosted, no third-party font host (squash 26acbdf2 = oa main). Reaches the DMG only via the hub re-pin, NOT pinned yet LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	26acbdf258472e2901b1979ebf36a7f79c7060cb	yes	hub_web_fonts_self_hosted	TBD	oa #663
+oa #663: Hub web ThemeContext no longer loads Google Fonts (squash 26acbdf2). Hub re-pin, NOT pinned yet LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	26acbdf258472e2901b1979ebf36a7f79c7060cb	yes	hub_web_no_google_fonts_loader	TBD	oa #663
+oa #663: gateway-served SPA HTML carries a CSP (squash 26acbdf2). Hub re-pin, NOT pinned yet LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	26acbdf258472e2901b1979ebf36a7f79c7060cb	yes	hub_gateway_html_csp	TBD	oa #663
+Installer version 1.0.124 (12400), four stamp sites (CM051 cut-prep/v1.0.124 f94f90e7, local branch, not pushed; NOT on main, control is-ancestor vs origin/main rc 1). Enters the pin only when the cut branch is cut LANDED (ORM 2026-11-05): git merge-base --is-ancestor f94f90e7 d9fa2f3f rc 0 (the cut pin; cut-prep/v1.0.124 pushed as CM051 #3337)	CM051	f94f90e7d4f0a62c8deeef78f7d8d5df314a4c98	yes	installer_version_is_1_0_124	TBD	CM051 cut-prep/v1.0.124
+CM051 #3319: Qdrant telemetry disabled in the generated compose (f8d853d4, non-merge commit of #3319 that adds QDRANT__TELEMETRY_DISABLED; rode integration #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	f8d853d483c8ddcb5e702a7a7cbe052c3f2efabd	yes	third_party_telemetry_off	TBD	CM051 #3319
+CM051 #3319: install.sh exports HOMEBREW_NO_ANALYTICS=1 (f8d853d4; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	f8d853d483c8ddcb5e702a7a7cbe052c3f2efabd	yes	homebrew_analytics_off	TBD	CM051 #3319
+CM051 #3316: every timeline entry names who wrote its title (squash 04215694 on CM051 main) LANDED: is-ancestor 8573d957 rc 0	CM051	042156940a4d3305b9d25393195c71e3d3bcce02	yes	timeline_entries_carry_source	TBD	CM051 #3316
+CM051 #3322: vendored CM048 48cab63a withholds payment-scam todos (3af6bbc4, non-merge commit of #3322 that adds scam_guard.py; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	3af6bbc4b3adbaafd62dd234dc9a0b5209c106e6	yes	cm048_todos_withhold_payment_scams	TBD	CM051 #3322
+CM051 #3321: Phase 2 passphrase gate runs the setup validator; encrypt_db failure text reaches the log (62cf8acb; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	62cf8acb768f4b576601501d1d7576fe6f630982	yes	install_passphrase_gate_matches_setup_validator	TBD	CM051 #3321
+CM051 #3328: install.sh consent text no longer promises cloud routing (473ec30d, sole commit of #3328; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	473ec30dcb3412800cd8f233803c7da79e3775b4	yes	consent_promises_no_cloud_routing	TBD	CM051 #3328
+CM051 #3328: vendored consent strings drop the cloud-routing clause (473ec30d; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	473ec30dcb3412800cd8f233803c7da79e3775b4	yes	consent_strings_no_cloud_routing	TBD	CM051 #3328
+CM051 #3324: installer hides the Homebrew untrusted-tap warning (28d63298; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	28d63298a905f20b0dcae605ba6c69c85994bec7	yes	installer_hides_brew_tap_warning	TBD	CM051 #3324
+CM051 #3326: install.sh pins wiki-site v0.1.66 digest 13ea95c4 (f4854e44, sole commit of #3326; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	f4854e44afd5c7345a4406be5441433ed7b093a3	yes	wiki_site_image_v0_1_66	TBD	CM051 #3326
+CM051 #3326: install.sh pins wiki-compiler v0.1.66 digest fa9f4f63 (f4854e44; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	f4854e44afd5c7345a4406be5441433ed7b093a3	yes	wiki_compiler_image_v0_1_66	TBD	CM051 #3326
+CM051 #3329: reply debt reads WhatsApp and email snapshots (a72bd1f4, non-merge commit of #3329 that adds reply_debt_sources.py; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	a72bd1f48abf413abce79991586d1af8f059800f	yes	reply_debt_reads_whatsapp_and_email	TBD	CM051 #3329
+CM051 #3334: vendored CM048 #114, a marketing send is never owed (05373e74; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	05373e74463461485f0d4afefe163f6792fecd6b	yes	reply_debt_marketing_send_not_owed	TBD	CM051 #3334
+CM051 #3334: vendored CM059 #39, the editor hands the owed list to the wiki (05373e74; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	05373e74463461485f0d4afefe163f6792fecd6b	yes	editor_hands_owed_list_to_wiki	TBD	CM051 #3334
+CM051 #3331: S1 Doctor credential routes answer the owner only (5ec0d751; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	5ec0d75123884446a62da6f2804310800517bfc2	yes	doctor_credential_routes_owner_only	TBD	CM051 #3331
+CM051 #3331: S1 Doctor owner_peer resolves the connection's peer uid (5ec0d751; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	5ec0d75123884446a62da6f2804310800517bfc2	yes	doctor_owner_peer_check	TBD	CM051 #3331
+CM051 #3332: daemon LaunchAgent ProcessType Interactive, compile cpu_shares 256 (d4e2955b, sole commit of #3332; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	d4e2955bfa96012e3578766f449f202cc214a5b9	yes	assistant_daemon_process_type_interactive	TBD	CM051 #3332
+CM051 #3333: walk host + in-VM network samplers (harness, not in the artefact; head 70878fd5; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	70878fd5592807443c89ad2748271a91b7052614	yes	none	TBD	CM051 #3333
+CM051 #3330: walk probe core_memory_holds_no_prefetch_block (harness, not in the artefact; head 08dcc09e; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	08dcc09e79ec24ca35074be7e748bdaa1fd255b1	yes	none	TBD	CM051 #3330
+CM051 #3323: ttywalk places OstlerInstaller.app from the on-box DMG (harness, not in the artefact; head 2069829b; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	2069829b86087757776556f75c6800237bfdda3d	yes	none	TBD	CM051 #3323
+CM051 #3320: walk record carries no home directory (record, not in the artefact; head 780f79e1; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	780f79e1765f1f7ff64a846953c342ca005ce5e1	yes	none	TBD	CM051 #3320
+CM051 #3318: walk record walks/v1.0.123 cold EN thin walk FAILED (record, not in the artefact; head b64f2385; rode #3335) LANDED (ORM 2026-11-05): git merge-base --is-ancestor <sha> 8573d957 rc 0 on CM051 (8573d957 = main, #3335 merged; control 8573d957 vs 04215694 rc 1)	CM051	b64f2385dba33d931e2a9010e126ced6c76b236a	yes	none	TBD	CM051 #3318
+CM044 #420: wiki-site core rebuild and sanitiser at nice 19 (squash bb0ef733, ancestor of v0.1.66 af5fd51a). LANDED (ORM 2026-11-05): via CM051 #3326 f4854e44, is-ancestor 8573d957 rc 0, pinning v0.1.66 digests built from af5fd51a	CM044	bb0ef7335881b1f4040746c3758f813140facf6c	yes	wiki_site_core_build_niced	TBD	CM044 #420
+CM044 #421: Reply Debt wing renders the Hub shared owed list (squash af5fd51a = tag v0.1.66). LANDED (ORM 2026-11-05): via CM051 #3326 f4854e44, is-ancestor 8573d957 rc 0	CM044	af5fd51ad8d261350ebb649b04ab9020473de760	yes	wiki_reply_debt_renders_hubs_owed_list	TBD	CM044 #421
+oa #644: graph-prefetch block stripped before memory consolidation, row 2436 (merge 812aa4bcffffac9fe0408442f28e073858ea03da, pattern from 131f9df1). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	812aa4bcffffac9fe0408442f28e073858ea03da	yes	brief_prefetch_block_stripped_before_consolidation	TBD	oa #644
+oa #664: brief withholds payment fraud, lists only replies owed (merge f3d14ca46df15feadf4058a5953748b87972d53e, pattern from 073eec07). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	f3d14ca46df15feadf4058a5953748b87972d53e	yes	brief_withholds_payment_fraud	TBD	oa #664
+oa #668: brief reply heading names its channels, carries closed #665 (merge 76278678562e8bc6ed771135c61752df949615d4, pattern from 5221bbe5). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	76278678562e8bc6ed771135c61752df949615d4	yes	brief_reply_heading_names_channels	TBD	oa #668
+oa #668: what they asked, as a redacted paraphrase, supersedes #666 (merge 76278678562e8bc6ed771135c61752df949615d4, pattern from e9e84974). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	76278678562e8bc6ed771135c61752df949615d4	yes	brief_what_they_asked_redacted_paraphrase	TBD	oa #668
+oa #669: product questions answered from local facts (merge 80e21d74af50275a41e18ef02ae79d7406018d7c, pattern from 5d838e86). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	80e21d74af50275a41e18ef02ae79d7406018d7c	yes	chat_product_questions_answered_locally	TBD	oa #669
+oa #669: citations never show a raw identifier (merge 80e21d74af50275a41e18ef02ae79d7406018d7c, pattern from 5d838e86). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	80e21d74af50275a41e18ef02ae79d7406018d7c	yes	citation_hides_raw_identifiers	TBD	oa #669
+oa #670: workspace version 0.5.34 (version stamp only; the daemon version is guarded at the CM051 hub re-pin, not by a source pattern). Rides hub-v0.5.34 (built from 5ce5d1c2); NOT landed until the CM051 hub re-pin LANDED (ORM 2026-11-05): hub-v0.5.34 = oa 5ce5d1c2 contains this sha (GitHub compare <sha>...5ce5d1c2 status ahead; control 5ce5d1c2...06f2eb80 behind), pinned by CM051 #3336 in the cut pin d9fa2f3f (cut-prep/v1.0.124)	ostler-assistant	5ce5d1c2c200dda7877c35900e25e03ac4f1b052	yes	none	TBD	oa #670
