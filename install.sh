@@ -361,7 +361,7 @@ _ks_bounded() {
 _install_derive_preferences_agent() {
     local label="com.ostler.derive-preferences"
     local plist="${HOME}/Library/LaunchAgents/${label}.plist"
-    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"
+    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"; local tick_s="${OSTLER_DERIVE_TICK_S:-1800}"
     local wrapper="${OSTLER_DIR}/bin/ostler-derive-preferences-tick"
     local cm019_dir="${OSTLER_DIR}/services/cm019"
     local derive_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -622,7 +622,7 @@ _install_derive_preferences_agent() {
         <key>OSTLER_DERIVE_PERIOD_S</key><string>${interval_s}</string>
     </dict>
     <key>StartInterval</key>
-    <integer>${OSTLER_DERIVE_TICK_S:-1800}</integer>
+    <integer>${tick_s}</integer>
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
