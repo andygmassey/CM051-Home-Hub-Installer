@@ -71,6 +71,7 @@ from pathlib import Path
 from typing import Any
 
 from .participants import normalise_participants
+from . import bulk_classifier as _bulk_classifier
 from . import scam_guard as _scam_guard
 
 logger = logging.getLogger(__name__)
@@ -684,6 +685,19 @@ def extract_outstanding_todos(
     participants = list(normalise_participants(metadata.get("participants")))
 
     if not conversation_id:
+        return []
+
+    # A commitment is the user's own words. Inbound bulk, marketing,
+    # newsletter, job-alert and transactional mail ("click to confirm your
+    # place on the waitlist") is never one: the extractor reads a sales CTA
+    # as an action item owned by "You". The processor stamps
+    # ``non_relational`` before enrichment; classify again here so a caller
+    # that did not (resume, backfill, tests) cannot slip it through.
+    if metadata.get("non_relational") or _bulk_classifier.is_non_relational(metadata):
+        logger.info(
+            "outstanding_todos: %s is bulk/automated mail, no commitments",
+            conversation_id,
+        )
         return []
 
     others = [

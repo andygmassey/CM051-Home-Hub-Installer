@@ -205,6 +205,7 @@ test_cm041_conversation_path_safety_vendored.py	WIRED	.github/workflows/walk6-pe
 test_cm041_conversation_process_privacy_passthrough_vendored.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_deceased_excluded_from_proactive_surfaces.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm048_bulk_mail_no_commitment_vendored.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_handle_resolver.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -904,6 +905,7 @@ test_the_preference_projection_runs_before_the_compile_that_reads_it.sh	WIRED	.g
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
+test_the_recovery_key_checkbox_is_pinned_and_continue_looks_disabled.py	WIRED	.github/workflows/swift-tests.yml
 test_the_recovery_key_is_disclosed_where_it_is_minted.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_the_recovery_key_never_reaches_install_log.sh	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_replay_reads_the_box_the_probes_read.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -1121,6 +1123,7 @@ gui/OstlerInstallerTests/AdminPromptFinderPreAnnounceTests.swift	WIRED	.github/w
 gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/ChoiceResolverTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
