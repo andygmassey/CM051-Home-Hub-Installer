@@ -185,7 +185,7 @@ def reply_cap():
     which can never reach past the cap."""
     v = os.environ.get("OSTLER_REPLY_MAX_ITEMS", "").strip()
     if v.isdigit() and int(v) > 0:
-        return int(v), "oa catchup.rs"
+        return int(v), os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs")
     return None, "NOT INSTRUMENTED"
 
 
@@ -214,28 +214,24 @@ def _owed_state(d):
 
 
 def plan_morning_replies(debts, cap):
-    """Which hub rows the brief must name, which it may leave out, and why.
-
-    Rows are taken in the hub's own order (CM048 ranks them most-pressing first).
-    -> {"cap", "must": [rows], "drops": [(row, reason)], "owed", "ambiguous"}
-    With no cap the legacy top 3 owed rows are graded and nothing is counted."""
+    """Which hub rows are owed, which are not graded, and why. The daemon's own ranking
+    (importance, then age) is NOT re-implemented: which N of the owed rows are shown is
+    not graded, only how many and that each is owed.
+    -> {"cap", "owed": [rows], "ambiguous": [rows], "not_owed": [rows], "drops": [(row, reason)]}"""
     rows = [d for d in debts if isinstance(d, dict)]
-    must, drops, owed, amb = [], [], 0, 0
+    owed, amb, not_owed, drops = [], [], [], []
     for d in rows:
         st, why = _owed_state(d)
-        if st == "dropped":
-            drops.append((d, why))
+        if st == "owed":
+            owed.append(d)
         elif st == "ambiguous":
-            amb += 1
+            amb.append(d)
             drops.append((d, why))
         else:
-            owed += 1
-            limit = cap if cap else GRADED_MAX
-            if len(must) < limit:
-                must.append(d)
-            else:
-                drops.append((d, "cap_rank_%d" % owed))
-    return {"cap": cap, "must": must, "drops": drops, "owed": owed, "ambiguous": amb}
+            drops.append((d, why))
+            if why == "not_owed":
+                not_owed.append(d)
+    return {"cap": cap, "owed": owed, "ambiguous": amb, "not_owed": not_owed, "drops": drops}
 
 
 def _named_morning(text, row, all_rows):
@@ -258,21 +254,57 @@ def more_seen(text):
     return [int(n) for n in _MORE_RE.findall(text or "")]
 
 
+_LISTED_RE = re.compile(r"^\s*[-*\u2022]\s*(.+?)\s*(?:\(waiting|,\s*\d+\s*(?:minute|hour|day|week)s?\b)", re.I | re.M)
+
+
+def listed_who(text):
+    """The name part of each list line that says how long someone has waited."""
+    return [m.group(1).strip() for m in _LISTED_RE.finditer(text or "")]
+
+
 def grade_morning_replies(debts, text, cap):
-    """The reply-naming arm of the morning brief, as counts and flags only."""
+    """The reply-naming arm of the morning brief, as counts and flags only.
+
+    owed <= cap: every owed row is named. owed > cap: exactly cap owed rows are named
+    (which ones is the daemon's ranking and is not graded), and no row the hub says is
+    not owed, and no invented name, is listed. Without a cap: the legacy top 3 owed
+    rows, no count check."""
     plan = plan_morning_replies(debts, cap)
     all_rows = [d for d in debts if isinstance(d, dict)]
-    must = plan["must"]
-    named = [_named_morning(text, d, all_rows) for d in must]
-    out = {"reply_graded": len(must), "reply_named": named,
-           "reply_missed": [debt_evidence(d) for d, ok in zip(must, named) if not ok],
-           "reply_cap": cap, "reply_cap_source": "oa catchup.rs" if cap else "NOT INSTRUMENTED",
-           "reply_owed": plan["owed"], "reply_ambiguous": plan["ambiguous"],
+    owed, amb = plan["owed"], plan["ambiguous"]
+    named_of = lambda rows: [_named_morning(text, d, all_rows) for d in rows]
+    wrong, missed = 0, []
+    if not cap:
+        must = owed[:GRADED_MAX]
+        rn = named_of(must)
+        missed = [debt_evidence(d) for d, ok in zip(must, rn) if not ok]
+        expect = None
+    elif len(owed) + len(amb) <= cap:
+        # every owed row is shown; an ambiguous one may or may not be, and is not required
+        rn = named_of(owed)
+        missed = [debt_evidence(d) for d, ok in zip(owed, rn) if not ok]
+        expect = (len(owed), len(owed) + len(amb))
+    else:
+        lo = cap if len(owed) >= cap else len(owed)
+        hi = cap
+        have = sum(named_of(owed + amb))
+        rn = [i < have for i in range(lo)] + [False] * max(0, have - hi)
+        expect = (lo, hi)
+    if cap:
+        # a hub row that is not owed must not be listed; neither may a name that is no hub row
+        wrong += sum(named_of(plan["not_owed"]))
+        known = owed + amb
+        for who in listed_who(text):
+            if not any(_named_morning(who, d, all_rows) for d in known + plan["not_owed"]):
+                wrong += 1
+    out = {"reply_graded": len(rn), "reply_named": rn, "reply_missed": missed,
+           "reply_cap": cap, "reply_cap_source": os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs") if cap else "NOT INSTRUMENTED",
+           "reply_owed": len(owed), "reply_ambiguous": len(amb), "reply_wrong_names": wrong,
            "reply_drops": [dict(debt_evidence(d), reason=why) for d, why in plan["drops"]],
            "reply_more_seen": more_seen(text)}
     if cap:
-        out["reply_more_low"] = max(0, plan["owed"] - cap)
-        out["reply_more_high"] = max(0, plan["owed"] + plan["ambiguous"] - cap)
+        out["reply_more_low"] = max(0, len(owed) - cap)
+        out["reply_more_high"] = max(0, len(owed) + len(amb) - cap)
     return out
 
 
@@ -735,9 +767,11 @@ def judge_morning(c):
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
     if "reply_drops" in c:
-        lines.append("  note   reply rows graded: top %s of the hub's owed rows (cap %s: %s); owed %s, ambiguous %s"
-                     % (c.get("reply_graded"), c.get("reply_cap"), c.get("reply_cap_source"),
-                        c.get("reply_owed"), c.get("reply_ambiguous")))
+        lines.append("  note   reply arm: cap %s (%s); the hub says owed %s, ambiguous %s; which rows are shown is not graded"
+                     % (c.get("reply_cap"), c.get("reply_cap_source"), c.get("reply_owed"), c.get("reply_ambiguous")))
+        if c.get("reply_cap"):
+            check("the brief lists nobody the hub says is not owed, and no invented name (%s wrong)" % c.get("reply_wrong_names"),
+                  not c.get("reply_wrong_names"))
         for d in c.get("reply_drops") or []:
             lines.append("  note   reply row NOT graded: reason=%s shape=%s resolved=%s age_h=%s"
                          % (d.get("reason"), d.get("shape"), d.get("resolved"), d.get("age_hours")))
