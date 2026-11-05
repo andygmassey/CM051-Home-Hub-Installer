@@ -2510,6 +2510,15 @@ step()  {
 # path keeps ollama's native progress bar byte-for-byte. ollama's exit
 # status is preserved through the pipe via a temp file (PIPESTATUS is not
 # reliable across the process-substitution boundary).
+# F&F 2026-11-05 item 4: ONE overall bar per pull (awk program: local awk_src in _gui_ollama_pull). `ollama pull` prints a
+# percentage PER LAYER, so the old per-line percent reset to 0 for each layer and
+# sat at "100%" whenever a small layer finished while the big one ran on (20+
+# minutes of a full bar). This reads the same stream but sums completed and total
+# BYTES across every layer seen, caps at 99 until the pull reports success, never
+# goes backwards, and prints only when the overall percent changes. POSIX awk only
+# (macOS awk, gawk and mawk all run it: tests/test_model_pull_progress_is_one_overall_bar.sh).
+# awk -v args: idx n = "Model idx of n" (n>1) and the step-bar slice for this model.
+# Output lines: PCT<TAB>step-bar-percent<TAB>log text.
 _gui_ollama_pull() {
     local model="$1"
     local step="${2:-ai_models}"
@@ -2517,26 +2526,57 @@ _gui_ollama_pull() {
         "$OLLAMA_APP_BIN" pull "$model"  # NEW-119: the PINNED engine; a clean Mac has no ollama on PATH (rc 127)
         return
     fi
-    local rc_file line pct last=-1 clean
+    # POSIX awk aggregator (see the F&F item 4 note above); inside the function so a lifted copy is self-contained.
+    local awk_src='
+    function bytes(num, unit,   m) { m = 1; if (unit == "KB") m = 1e3; else if (unit == "MB") m = 1e6; else if (unit == "GB") m = 1e9; else if (unit == "TB") m = 1e12; return num * m }
+    {
+        line = $0
+        gsub(/\033\[[0-9;?]*[a-zA-Z]/, "", line)
+        if (!match(line, /pulling [0-9a-f]+:/)) next
+        id = substr(line, RSTART + 8, RLENGTH - 9)
+        rest = substr(line, RSTART + RLENGTH)
+        if (match(rest, /[0-9.]+ ?[KMGT]?B\/[0-9.]+ ?[KMGT]?B/)) {
+            pair = substr(rest, RSTART, RLENGTH)
+            split(pair, ab, "/")
+            split(ab[1], x, " "); split(ab[2], y, " ")
+            if (x[2] == "") { match(ab[1], /[KMGT]?B$/); x[2] = substr(ab[1], RSTART); x[1] = substr(ab[1], 1, RSTART - 1) }
+            if (y[2] == "") { match(ab[2], /[KMGT]?B$/); y[2] = substr(ab[2], RSTART); y[1] = substr(ab[2], 1, RSTART - 1) }
+            done[id] = bytes(x[1] + 0, x[2]); tot[id] = bytes(y[1] + 0, y[2])
+        } else if (rest ~ /100%/ && match(rest, /[0-9.]+ ?[KMGT]?B/)) {
+            sz = substr(rest, RSTART, RLENGTH)
+            if (match(sz, /[KMGT]?B$/)) { u = substr(sz, RSTART); v = substr(sz, 1, RSTART - 1); tot[id] = bytes(v + 0, u); done[id] = tot[id] }
+        } else next
+        sd = 0; st = 0
+        for (k in tot) { sd += done[k]; st += tot[k] }
+        if (st <= 0) next
+        p = int(100 * sd / st)
+        if (p > 99) p = 99
+        if (p < last) p = last
+        if (p == last) next
+        last = p
+        rate = ""; if (match(rest, /[0-9.]+ ?[KMGT]?B\/s/)) rate = substr(rest, RSTART, RLENGTH)
+        label = (n > 1) ? sprintf("Model %d of %d: ", idx, n) : ""
+        bar = int(((idx - 1) * 100 + p) / n)
+        printf "PCT\t%d\t%s%d%%  %.1f GB of %.1f GB  %s\n", bar, label, p, sd / 1e9, st / 1e9, rate
+    }
+    BEGIN { last = -1 }
+    '
+    local rc_file tag bar msg idx="${OSTLER_PULL_IDX:-1}" n="${OSTLER_PULL_N:-1}"
     rc_file="$(mktemp -t ostler-ollama-pull)"
-    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
-    # plain `read` sees each progress update whether ollama writes CR
-    # (tty-style) or LF (pipe-style) frames.
-    while IFS= read -r line; do
-        [[ "$line" == *%* ]] || continue
-        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
-        pct="${BASH_REMATCH[1]}"
-        (( pct > 100 )) && pct=100
-        (( pct == last )) && continue
-        last="$pct"
-        gui_emit PCT "step=$step" "pct=$pct"
-        # Strip ANSI escapes + non-printables so the log line is clean.
-        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
-        [[ -n "$clean" ]] && gui_log info "$clean"
-    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
+    # `tr \r \n` splits ollama's carriage-return redraws into lines so the
+    # aggregator sees each progress update whether ollama writes CR or LF frames.
+    while IFS=$'\t' read -r tag bar msg; do
+        [[ "$tag" == PCT ]] || continue
+        gui_emit PCT "step=$step" "pct=$bar"
+        [[ -n "$msg" ]] && gui_log info "$msg"
+    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' | awk -v idx="$idx" -v n="$n" "$awk_src" )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
     local rc
     rc="$(cat "$rc_file" 2>/dev/null)"
     rm -f "$rc_file"
+    # 100% only once ollama reports success: this model's slice is complete.
+    if [[ "${rc:-1}" == "0" ]]; then
+        gui_emit PCT "step=$step" "pct=$(( idx * 100 / n ))"
+    fi
     return "${rc:-1}"
 }
 
@@ -4237,14 +4277,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9696) captures the path BY
+    # _ostler_write_store_curl_config (defined :9736) captures the path BY
     # VALUE and never re-reads it:
-    #     :9697   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9742   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9751 and :17678, both of which run
+    #     :9737   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9782   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9791 and :17718, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :4223 above has just deleted
-    # that tree and :4227 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :4263 above has just deleted
+    # that tree and :4267 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -4259,13 +4299,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18473, where the note reads
+    # WhatsApp Web session path did it again at :18513, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18490 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18530 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4274,13 +4314,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7021 against a definition at :9696. Top-level
+    # writer's own definition: :7061 against a definition at :9736. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9751, :17678) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9791, :17718) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20687 / :20865 / :21022 / :21467 path. There the
+    # :20727 / :20905 / :21062 / :21507 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -24237,6 +24277,9 @@ if "$OLLAMA_APP_BIN" list 2>/dev/null | grep -q "nomic-embed-text"; then  # NEW-
     ostler_note_existing_model nomic-embed-text
 else
     info "$MSG_INFO_PULLING_NOMIC_EMBED_TEXT_274_MB"
+    OSTLER_PULL_IDX=1; OSTLER_PULL_N=1  # "Model 1 of N": N is 2 when the assistant model is also to be pulled
+    _pull_have="$("$OLLAMA_APP_BIN" list 2>/dev/null || true)"
+    [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" && "$_pull_have" != *"${AI_MODEL}"* ]] && OSTLER_PULL_N=2
     _pull_rc=0; ollama_pull_with_retry nomic-embed-text || _pull_rc=$?
     case "$_pull_rc" in
         0) ok "$MSG_OK_EMBEDDING_MODEL_READY"
@@ -24317,6 +24360,7 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
                 ;;
         esac
         info "$(printf "$MSG_INFO_PULLING_THIS_MAY_TAKE_FEW_MINUTES" "${AI_MODEL}" "${AI_MODEL_SIZE}")"
+        if [[ "${OSTLER_PULL_N:-1}" == 2 ]]; then OSTLER_PULL_IDX=2; else OSTLER_PULL_IDX=1; OSTLER_PULL_N=1; fi
         _pull_rc=0; ollama_pull_with_retry "$AI_MODEL" || _pull_rc=$?
         case "$_pull_rc" in
             0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
