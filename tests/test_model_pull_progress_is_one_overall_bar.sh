@@ -47,13 +47,18 @@ awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f&&/^}$/{exit}' "$INS" > "$W/fn.sh
 [ -s "$W/fn.sh" ] || { echo "CANNOT-RUN: could not lift _gui_ollama_pull"; exit 2; }
 grep -q 'ollama_pull_progress "\$idx" "\$n"' "$W/fn.sh" && ok "_gui_ollama_pull calls the aggregator (wired)" || bad "_gui_ollama_pull does not call ollama_pull_progress (unwired)"
 printf '#!/bin/sh\ncat "%s"\nexit "${STUB_RC:-0}"\n' "$FIX" > "$W/ollama"; chmod +x "$W/ollama"
+# install.sh is macOS-only and calls BSD `mktemp -t <prefix>`; GNU mktemp (Linux CI) refuses a
+# -t prefix with no XXX, the rc file is then empty and a SUCCESSFUL pull reads as rc 1. Shim it
+# to the BSD meaning (same shim as test_a_retried_model_pull_emits_no_fatal_done.sh).
+printf '#!/bin/sh\nif [ "${1:-}" = "-t" ]; then exec /usr/bin/mktemp "${TMPDIR:-/tmp}/${2:-tmp}.XXXXXX"; fi\nexec /usr/bin/mktemp "$@"\n' > "$W/mktemp"; chmod +x "$W/mktemp"
 e2e() { # $1 = stub rc
-  ( set +u; . "$LIB" 2>/dev/null; . "$W/fn.sh"
+  ( set +u; PATH="$W:$PATH"; . "$LIB" 2>/dev/null; . "$W/fn.sh"
     export OSTLER_GUI=1 OLLAMA_APP_BIN="$W/ollama" STUB_RC="$1"
     gui_emit() { shift; printf '%s\n' "$*"; }; gui_log() { :; }
     OSTLER_PULL_IDX=0; OSTLER_PULL_N=1; _gui_ollama_pull modelx ai_models; echo "rc=$?" ) 2>/dev/null
 }
 okout="$(e2e 0)"; badout="$(e2e 1)"
+printf '%s\n' "$okout" | grep -q '^rc=0' && ok "success run returns rc 0" || bad "success run did not return rc 0 (harness)"
 last="$(printf '%s\n' "$okout" | grep 'pct=' | tail -1)"
 [ "$last" = "step=ai_models pct=100" ] && ok "success: bar ends at 100 only after rc 0" || bad "success run ended '$last'"
 printf '%s\n' "$okout" | grep 'pct=' | sed '$d' | grep -q 'pct=100' && bad "100 emitted before success" || ok "no 100 before the exit status"
