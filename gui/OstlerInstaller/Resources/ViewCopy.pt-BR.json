@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "Cancelar",
+    "finish_pair_later_button": "Concluir e parear depois",
     "reveal_in_finder_button": "Mostrar no Finder",
     "done_button": "Concluir",
     "quit_button": "Sair",

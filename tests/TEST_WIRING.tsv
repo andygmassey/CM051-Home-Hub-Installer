@@ -171,6 +171,7 @@ test_calendar_attendee_resolve_before_create.py	WIRED	.github/workflows/privacy-
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_calendar_review_is_one_screen.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_set_aside_classification.py	WIRED	.github/workflows/install-gui-contract.yml
+test_cancel_at_the_pairing_step_finishes_the_install.py	WIRED	.github/workflows/swift-tests.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -1137,6 +1138,7 @@ gui/OstlerInstallerTests/FullDiskAccessProbeTests.swift	WIRED	.github/workflows/
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallFailedBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallerLanguageTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/LateStepCancelTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryDropzoneTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryShortIdHeuristicTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicensePersistenceTests.swift	WIRED	.github/workflows/swift-tests.yml
