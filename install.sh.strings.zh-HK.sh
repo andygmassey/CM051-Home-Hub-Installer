@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 mac
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話記錄儲存在這部 Mac 的「文稿」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文稿」資料夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內置輔助程式。每當出現時，請按「允許」。如果你錯過或拒絕了，可隨時在「系統設定」的「私隱與安全性」中，選擇「檔案和資料夾」開啟，之後你的維基和對話記錄便會繼續寫入。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  對話記憶引擎已安裝在 venv 中。"
 MSG_INFO_HUB_APP_VERIFYING="正在驗證位於 %s 的 Ostler.app"
 MSG_INFO_HUB_APP_STAGING="正在從 %s 將 Ostler.app 放置到 /Applications"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="已偵測到 GDPR 匯出檔�
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="流程推出後，即可匯入 GDPR 匯出檔案。"
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="即將掃描「下載項目」、「桌面」和「文件」資料夾，尋找你可能已儲存的 AI 匯出檔案（Google Takeout、Meta 下載檔案、LinkedIn 等）。macOS 會顯示三次資料夾取用提示，請逐一允許。整個過程約需 5 至 10 秒。掃描期間不會移動或複製任何內容，我們只會檢查有哪些檔案。"
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS 可能會要求取得讀取「日曆」的權限。請允許，讓 Ostler 建立你知識圖譜中的會議和活動部分。（日曆資料只會留在這部 Mac 上。）"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS 正在要求「下載項目」的權限。請按「好」。"
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS 正在要求「桌面」的權限。請按「好」。"
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS 正在要求「文件」的權限。請按「好」。"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="已授予「全磁碟取用權」。正在準備下一個 macOS 提示（「訊息」自動化）⋯⋯"
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1285,11 +1285,13 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="再次輸入 INBOX 以確認，或按「�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX 表示助理會讀取你收到的每一封電郵。我們強烈建議改用專用的標籤或資料夾。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="你已經申請資料匯出了嗎？"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可匯入 18 個平台的匯出資料。完整清單及各供應商申請頁面的直接連結,請見 https://ostler.ai/docs/getting-started/data-exports/。
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
 
-大部分封存檔需要 1 至 3 天才會透過電郵送達。收到 ZIP 檔後,請放入「下載項目」檔案夾,Ostler 會自動找到。
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
-不使用的可以略過;日後隨時可以匯入更多。"
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟靜態資料「未加密」的情況下繼續嗎？"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未進行靜態加密。

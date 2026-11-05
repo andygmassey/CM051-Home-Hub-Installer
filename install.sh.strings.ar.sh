@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler Remo
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="يحفظ Ostler ويكيك الشخصي وسجلات محادثاتك ضمن Documents/Ostler على هذا الـ Mac. هي ملكك وتبقى على هذا الجهاز. ولكتابتها يحتاج Ostler إلى الوصول إلى مجلد المستندات، لذا قد يطلب macOS ذلك أثناء الإعداد، ومرة أخرى لاحقًا اليوم عندما ينظّم Ostler ويكيك للمرة الأولى. قد يظهر الطلب وكأنه صادر من python3.11، وهي الأداة المضمّنة التي يستخدمها Ostler لكتابة ملفاتك. يُرجى النقر على السماح كلما ظهر. وإن فاتك أو رفضته، يمكنك تفعيله في أي وقت من إعدادات النظام، ضمن الخصوصية والأمن، ثم الملفات والمجلدات، وستُكتب ويكيك وسجلات محادثاتك من ذلك الحين فصاعدًا."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  تم تثبيت محرك ذاكرة المحادثات في venv."
 MSG_INFO_HUB_APP_VERIFYING="جارٍ التحقق من Ostler.app في %s"
 MSG_INFO_HUB_APP_STAGING="جارٍ نقل Ostler.app إلى /Applications من %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="تم اكتشاف صادرا
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="سيتوفر استيراد صادرات GDPR عند إطلاق المسار."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="سنفحص الآن مجلدات التنزيلات وسطح المكتب والمستندات بحثًا عن صادرات الذكاء الاصطناعي (Google Takeout وتنزيلات Meta وLinkedIn وغيرها) التي ربما حفظتها. سيعرض macOS ثلاث رسائل للوصول إلى المجلدات – يُرجى السماح بكل واحدة منها. يستغرق ذلك نحو 5-10 ثوانٍ في المجموع. لا يتم نقل أو نسخ أي شيء أثناء الفحص، نكتفي بالتحقق مما هو موجود."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="قد يطلب macOS إذنًا لقراءة التقويم. اسمح بذلك ليتمكن Ostler من بناء جزء الاجتماعات والفعاليات في الرسم المعرفي الخاص بك. (تبقى بيانات التقويم على هذا الجهاز.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="يطلب macOS إذنًا للوصول إلى التنزيلات. انقر على موافق."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="يطلب macOS إذنًا للوصول إلى سطح المكتب. انقر على موافق."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="يطلب macOS إذنًا للوصول إلى المستندات. انقر على موافق."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="تم منح صلاحية الوصول الكامل إلى القرص. جارٍ تجهيز رسالة macOS التالية (أتمتة الرسائل)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1292,11 +1292,13 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="اكتب INBOX مرة أخرى للتأك�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="يعني INBOX أن المساعد سيقرأ كل بريد إلكتروني تتلقاه. نوصي بشدة باستخدام تسمية/مجلد مخصص بدلًا من ذلك."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="هل طلبت تصدير بياناتك؟"
-MSG_PROMPT_EXPORTS_ACK_HELP="يستورد Ostler بيانات 18 منصة. القائمة الكاملة، مع روابط مباشرة لصفحة الطلب لدى كل مزوّد، على https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
 
-تستغرق معظم الأرشيفات من يوم إلى 3 أيام لتصل بالبريد الإلكتروني. عند وصول ملفات ZIP، ضعها في مجلد التنزيلات وسيعثر عليها Ostler تلقائيًا.
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
-تخطَّ ما لا تستخدمه، ويمكنك دائمًا استيراد المزيد لاحقًا."
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="المتابعة مع قرص غير مشفّر أثناء التخزين؟"
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.

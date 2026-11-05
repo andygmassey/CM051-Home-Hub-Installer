@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler는 개인 위키와 대화 기록을 이 Mac의 Documents/Ostler에 저장합니다. 이 파일은 사용자의 것이며 이 기기에만 보관됩니다. 파일을 쓰려면 Ostler가 문서 폴더에 접근해야 하므로 설정 중에 macOS가 허용을 요청할 수 있으며, 오늘 나중에 Ostler가 위키를 처음 정리할 때 다시 요청할 수 있습니다. 요청은 Ostler가 파일을 쓰는 데 사용하는 번들 도우미인 python3.11에서 온 것으로 표시될 수 있습니다. 요청이 나타나면 항상 허용을 클릭해 주세요. 놓치거나 허용하지 않은 경우에도 시스템 설정의 개인정보 보호 및 보안, 파일 및 폴더에서 언제든 켤 수 있으며, 그 후부터 위키와 대화 기록이 저장됩니다."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  대화 메모리 엔진이 venv에 설치되었습니다."
 MSG_INFO_HUB_APP_VERIFYING="%s의 Ostler.app 확인 중"
 MSG_INFO_HUB_APP_STAGING="%s에서 Ostler.app을 /Applications로 준비하는 중"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR 내보내기 파일이 
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR 내보내기 가져오기는 파이프라인이 출시되면 사용할 수 있습니다."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="저장해 두셨을 수 있는 AI 내보내기 파일(Google Takeout, Meta 다운로드, LinkedIn 등)을 찾기 위해 다운로드, 데스크탑, 문서 폴더를 검색하려고 합니다. macOS에서 폴더 접근 요청이 세 번 표시되며, 각각 허용해 주세요. 총 5~10초 정도 걸립니다. 검색 중에는 아무것도 이동하거나 복사하지 않으며, 어떤 파일이 있는지만 확인합니다."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS에서 캘린더 읽기 권한을 요청할 수 있습니다. Ostler가 지식 그래프의 회의 및 일정 부분을 만들 수 있도록 허용해 주세요. (캘린더 데이터는 이 Mac에만 있습니다.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS에서 다운로드 폴더 접근 권한을 요청하고 있습니다. 승인을 클릭하세요."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS에서 데스크탑 폴더 접근 권한을 요청하고 있습니다. 승인을 클릭하세요."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS에서 문서 폴더 접근 권한을 요청하고 있습니다. 승인을 클릭하세요."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="전체 디스크 접근 권한이 허용되었습니다. 다음 macOS 요청(메시지 자동화)을 준비하는 중..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1285,11 +1285,13 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="확인하려면 INBOX를 다시 입력하�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX를 선택하면 어시스턴트가 받는 모든 이메일을 읽게 됩니다. 대신 전용 레이블/폴더를 사용하길 강력히 권장합니다."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="데이터 내보내기를 요청하셨나요?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler는 18개 플랫폼의 내보내기 파일을 가져올 수 있습니다. 각 제공업체의 요청 페이지로 바로 연결되는 전체 목록은 https://ostler.ai/docs/getting-started/data-exports/ 에서 확인할 수 있습니다.
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
 
-대부분의 아카이브는 이메일로 도착하기까지 1~3일이 걸립니다. ZIP 파일이 도착하면 다운로드 폴더에 넣어 두세요. Ostler가 자동으로 찾습니다.
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
-사용하지 않는 항목은 건너뛰세요. 나중에 언제든 더 가져올 수 있습니다."
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="저장된 디스크를 암호화하지 않은 상태로 계속하시겠습니까?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="이 Mac에서는 FileVault가 꺼져 있어 저장된 디스크가 암호화되어 있지 않습니다.

@@ -99,7 +99,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="初回起動時に、Ostler RemoteCaptureはmacOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostlerは、あなたの個人用ウィキと会話の記録を、このMacの「書類」内のOstlerフォルダ(Documents/Ostler)に保存します。これらはあなたのものであり、このMacの外には出ません。書き込むには「書類」フォルダへのアクセスが必要なため、セットアップ中と、今日このあとOstlerが初めてウィキを整理するときに、macOSが許可を求めることがあります。要求は、Ostlerがファイルの書き込みに使う同梱ヘルパーのpython3.11からのものとして表示される場合があります。表示されたら、その都度「許可」をクリックしてください。見逃した場合や許可しなかった場合でも、システム設定の「プライバシーとセキュリティ」、「ファイルとフォルダ」からいつでもオンにでき、以降はウィキと会話の記録が書き込まれます。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  会話メモリエンジンをvenvにインストールしました。"
 MSG_INFO_HUB_APP_VERIFYING="%s にあるOstler.appを検証中"
 MSG_INFO_HUB_APP_STAGING="%s からOstler.appを/Applicationsへ配置中"
@@ -144,9 +144,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR エクスポートを�
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR エクスポートのインポートは、パイプラインの提供開始後に利用できます。"
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="ダウンロード、デスクトップ、書類フォルダ内に保存されている可能性のある AI エクスポート（Google Takeout、Meta のダウンロード、LinkedIn など）をスキャンします。macOS からフォルダへのアクセス確認が3回表示されますので、それぞれ許可してください。所要時間は合計で5～10秒ほどです。スキャン中にファイルが移動またはコピーされることはなく、何があるかを確認するだけです。"
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS からカレンダーの読み取り許可を求められる場合があります。Ostler があなたのナレッジグラフの会議や予定の部分を作成できるよう、許可してください。（カレンダーのデータはこの Mac の外に出ません。）"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS がダウンロードフォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS がデスクトップフォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS が書類フォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="フルディスクアクセスが許可されました。次の macOS の確認（メッセージのオートメーション）を準備しています..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1289,11 +1289,13 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="確認のためもう一度INBOXと入力�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOXを指定すると、アシスタントは受信するすべてのメールを読み込みます。代わりに専用のラベル/フォルダを強くおすすめします。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="データのエクスポートはリクエストしましたか?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostlerは18のプラットフォームのエクスポートを読み込めます。各プロバイダのリクエストページへの直接リンクを含む全一覧は、https://ostler.ai/docs/getting-started/data-exports/ にあります。
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
 
-ほとんどのアーカイブは、メールで届くまで1〜3日かかります。ZIPが届いたら「ダウンロード」フォルダに入れてください。Ostlerが自動的に見つけます。
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
-使わないものはスキップしてかまいません。後からいつでも追加で読み込めます。"
+Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
+
+Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="ディスクを暗号化しないまま続けますか?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="このMacではFileVaultがオフのため、ディスクは保存時に暗号化されていません。
