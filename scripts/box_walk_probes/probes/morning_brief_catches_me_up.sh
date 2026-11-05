@@ -35,7 +35,20 @@ run_probe() {
         || probe_cannot_run "could not stage wow_moments.py on the box"
     cap="$(mktemp)"
     # The Hub venv's python has tomllib; /usr/bin/python3 is the fallback.
-    box_run "PY=\$HOME/.ostler/.venv/bin/python3; [ -x \$PY ] || PY=python3; \$PY ${remote}/wow_moments.py morning-box; rm -rf ${remote}" > "${cap}" 2>/dev/null
+    # REPLY_MAX_ITEMS is READ from the oa source this driver holds, never typed here
+    # (OSTLER_OA_CATCHUP_RS names a file; else the oa checkout's OSTLER_OA_REF, default
+    # origin/main). Unreadable means the box side says NOT INSTRUMENTED and grades its
+    # legacy top 3 rather than guess.
+    local oa_repo oa_src reply_cap_env
+    oa_repo="${OSTLER_OA_REPO:-${HOME}/Developer/orm/ostler-assistant}"
+    if [ -n "${OSTLER_OA_CATCHUP_RS:-}" ] && [ -r "${OSTLER_OA_CATCHUP_RS}" ]; then
+        oa_src="$(cat "${OSTLER_OA_CATCHUP_RS}")"
+    else
+        oa_src="$(git -C "${oa_repo}" show "${OSTLER_OA_REF:-origin/main}:crates/zeroclaw-runtime/src/brief/catchup.rs" 2>/dev/null)" || oa_src=""
+    fi
+    reply_cap_env="$(printf '%s\n' "${oa_src}" | sed -n 's/^[[:space:]]*\(pub\(([a-z]*)\)\{0,1\}[[:space:]]\{1,\}\)\{0,1\}const[[:space:]]\{1,\}REPLY_MAX_ITEMS[[:space:]]*:[[:space:]]*usize[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\);.*/\3/p' | head -1)"
+    case "${reply_cap_env}" in ''|*[!0-9]*) reply_cap_env="" ;; esac
+    box_run "PY=\$HOME/.ostler/.venv/bin/python3; [ -x \$PY ] || PY=python3; OSTLER_REPLY_MAX_ITEMS='${reply_cap_env}' \$PY ${remote}/wow_moments.py morning-box; rm -rf ${remote}" > "${cap}" 2>/dev/null
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side half returned no capture"; }
     out="$(python3 "${_HERE}/lib/wow_moments.py" judge-morning "${cap}")"; rc=$?

@@ -163,6 +163,119 @@ def grade_reply_debts(debts):
     return names, len(rows) - len(resolved)
 
 
+# --------------------------------------------------------------------------
+# morning brief: who the brief MUST name (oa #671 caps the list at
+# REPLY_MAX_ITEMS and counts the rest as "and N more in the app")
+# --------------------------------------------------------------------------
+
+_CAP_RE = re.compile(r"^(?:pub(?:\([a-z]+\))?\s+)?const\s+REPLY_MAX_ITEMS\s*:\s*usize\s*=\s*(\d+)\s*;", re.M)
+_MORE_RE = re.compile(r"\band (\d+) more\b", re.I)
+
+
+def reply_cap_from_source(text):
+    """REPLY_MAX_ITEMS out of oa's brief/catchup.rs source text, or None."""
+    m = _CAP_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def reply_cap():
+    """(cap, source). The cap is READ, never typed here: OSTLER_REPLY_MAX_ITEMS
+    (the probe wrapper forwards what it read from the oa source it was given),
+    else (None, "NOT INSTRUMENTED") and the arm falls back to its legacy top 3,
+    which can never reach past the cap."""
+    v = os.environ.get("OSTLER_REPLY_MAX_ITEMS", "").strip()
+    if v.isdigit() and int(v) > 0:
+        return int(v), "oa catchup.rs"
+    return None, "NOT INSTRUMENTED"
+
+
+def _owed_state(d):
+    """-> (state, reason). state in owed | dropped | ambiguous. The hub's own verdict
+    (CM048 reply_debt `owed`: yes / no / ambiguous); a row with no verdict cannot be
+    classified here: graded as owed, as before."""
+    if d.get("resolved") is False:
+        return "dropped", "unsaved_number"
+    if _withheld(d.get("privacy_level")):
+        return "dropped", "withheld_privacy"
+    if d.get("deceased") or d.get("suggestions_suppressed"):
+        return "dropped", "suppressed_person"
+    if not d.get("person_name"):
+        return "dropped", "nameless"
+    v = str(d.get("owed") or "").strip().lower()
+    if v == "yes" or d.get("owner_promised") is True:
+        return "owed", "owed"
+    if v == "no":
+        return "dropped", "not_owed"
+    if v == "ambiguous":
+        return "ambiguous", "no_judge"
+    # An older Hub sends no verdict at all: graded as before (the old arm did), so a
+    # missing field can never quietly shrink the graded set.
+    return "owed", "no_hub_verdict_assumed_owed"
+
+
+def plan_morning_replies(debts, cap):
+    """Which hub rows the brief must name, which it may leave out, and why.
+
+    Rows are taken in the hub's own order (CM048 ranks them most-pressing first).
+    -> {"cap", "must": [rows], "drops": [(row, reason)], "owed", "ambiguous"}
+    With no cap the legacy top 3 owed rows are graded and nothing is counted."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    must, drops, owed, amb = [], [], 0, 0
+    for d in rows:
+        st, why = _owed_state(d)
+        if st == "dropped":
+            drops.append((d, why))
+        elif st == "ambiguous":
+            amb += 1
+            drops.append((d, why))
+        else:
+            owed += 1
+            limit = cap if cap else GRADED_MAX
+            if len(must) < limit:
+                must.append(d)
+            else:
+                drops.append((d, "cap_rank_%d" % owed))
+    return {"cap": cap, "must": must, "drops": drops, "owed": owed, "ambiguous": amb}
+
+
+def _named_morning(text, row, all_rows):
+    """Full name as before, or the first name alone when no other hub reply-debt row
+    shares that first name (a unique first name is how a person is named in prose)."""
+    name = row.get("person_name") or ""
+    if _named(text, name):
+        return True
+    first = (re.split(r"\s+", name.strip()) or [""])[0].lower()
+    if len(first) < 2:
+        return False
+    others = [(o.get("person_name") or "").strip().lower() for o in all_rows if o is not row]
+    if any(re.split(r"\s+", o)[0] == first for o in others if o):
+        return False
+    return bool(re.search(r"(?<![\w])" + re.escape(first) + r"(?![\w])", text.lower()))
+
+
+def more_seen(text):
+    """Every N in an "and N more" line of the brief."""
+    return [int(n) for n in _MORE_RE.findall(text or "")]
+
+
+def grade_morning_replies(debts, text, cap):
+    """The reply-naming arm of the morning brief, as counts and flags only."""
+    plan = plan_morning_replies(debts, cap)
+    all_rows = [d for d in debts if isinstance(d, dict)]
+    must = plan["must"]
+    named = [_named_morning(text, d, all_rows) for d in must]
+    out = {"reply_graded": len(must), "reply_named": named,
+           "reply_missed": [debt_evidence(d) for d, ok in zip(must, named) if not ok],
+           "reply_cap": cap, "reply_cap_source": "oa catchup.rs" if cap else "NOT INSTRUMENTED",
+           "reply_owed": plan["owed"], "reply_ambiguous": plan["ambiguous"],
+           "reply_drops": [dict(debt_evidence(d), reason=why) for d, why in plan["drops"]],
+           "reply_more_seen": more_seen(text)}
+    if cap:
+        out["reply_more_low"] = max(0, plan["owed"] - cap)
+        out["reply_more_high"] = max(0, plan["owed"] + plan["ambiguous"] - cap)
+    return out
+
+
 _WINDOW_RE = re.compile(r"^UNSAVED_MAX_WAITING_HOURS\s*=\s*(\d+)(?:\s*\*\s*(\d+))?(?:\s*\*\s*(\d+))?\s*(?:#.*)?$", re.M)
 
 
@@ -540,7 +653,7 @@ def box_morning(wait_s=600):
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
         reply_debts = (rd or {}).get("debts") or []
-        reply_names, _unsaved = grade_reply_debts(reply_debts)
+        cap, _cap_src = reply_cap()
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -576,9 +689,7 @@ def box_morning(wait_s=600):
         out["brief_text_path"], out["brief_text_sha256"], out["brief_text_export_error"] = p, h, err
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
-        out["reply_graded"] = len(reply_names)
-        out["reply_named"] = [_named(text, n) for n in reply_names]
-        out["reply_missed"] = missed_debts(reply_debts, out["reply_named"])
+        out.update(grade_morning_replies(reply_debts, text, cap))
         out["reply_source"] = "ok" if rd is not None else "unavailable"
         out["meetings_graded"] = len(meetings)
         out["meetings_named"] = [all(w in text.lower() for w in re.findall(r"[\w']{3,}", m.lower())[:4])
@@ -623,6 +734,19 @@ def judge_morning(c):
               all(rn))
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
+    if "reply_drops" in c:
+        lines.append("  note   reply rows graded: top %s of the hub's owed rows (cap %s: %s); owed %s, ambiguous %s"
+                     % (c.get("reply_graded"), c.get("reply_cap"), c.get("reply_cap_source"),
+                        c.get("reply_owed"), c.get("reply_ambiguous")))
+        for d in c.get("reply_drops") or []:
+            lines.append("  note   reply row NOT graded: reason=%s shape=%s resolved=%s age_h=%s"
+                         % (d.get("reason"), d.get("shape"), d.get("resolved"), d.get("age_hours")))
+        if c.get("reply_cap") and "reply_more_low" in c:
+            lo, hi, seen = c["reply_more_low"], c["reply_more_high"], c.get("reply_more_seen") or []
+            if hi > 0:
+                check('the brief\'s "and N more" equals the owed rows past the shown top %d (expected %s, brief says %s)'
+                      % (c["reply_cap"], lo if lo == hi else "%d to %d" % (lo, hi), seen or "no count"),
+                      any(lo <= n <= hi for n in seen))
     mn = c.get("meetings_named") or []
     if c.get("meetings_graded", 0):
         check("the brief names today's meetings (%d of %d)" % (sum(mn), len(mn)), all(mn))
