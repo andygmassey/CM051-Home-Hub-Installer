@@ -25,8 +25,8 @@
 # along, because these keys were unqualified.
 version	v1.0.124
 version_source	measured(CFBundleShortVersionString, matches argument)
-artefact_sha256	d2c7a13c71d2f39e2e4985a068cec9df20d2b918bf7186b94ab34222cfd35cb3
-artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.124.dmg on the walked box; presence, not proof of mount)
+artefact_sha256	18c9b8aad1f0442c95018f75cd5823b7a8d417d873929f7cd44deb3943611ce1
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller.dmg on the walked box at 2026-11-05T12:22:32Z, the tag release asset ttywalk staged, mounted and placed; matches release SHA256SUMS) -- CORRECTED by hand per Archie: the writer hashed a stale candidate DMG (d2c7a13c) picked by filename at post_walk_qa.sh:692-706
 walked_at	2026-11-05T20:52:16Z
 box_fp	f0a5e4fd0536754c
 walk_kind	thin
