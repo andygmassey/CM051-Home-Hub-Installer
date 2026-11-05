@@ -225,6 +225,8 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # so a dropped cp line would ship an installer that never reads older
     # history, with no error anywhere. The needle is the cp line's own form.
     "lib/ostler_catchup.py": ['${SRCROOT}/../lib/ostler_catchup.py'],
+    # Seeds [weather] home_location; a dropped cp line ships a brief with no weather.
+    "lib/ostler-weather-home.sh": ['${SRCROOT}/../lib/ostler-weather-home.sh'],
     # 2026-10-24: records the language and reviewed-translation ids each consent
     # screen was shown with (install.sh _consent_cli_record). A dropped cp line
     # would log "display-language record failed" on every consent, so the

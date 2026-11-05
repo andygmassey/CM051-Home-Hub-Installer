@@ -110,6 +110,10 @@ What the assistant can send: `web_search_tool` is in the egress gate's tool list
 unasked only when every word of the query is a word the owner typed this turn;
 an empty query, a non-owner turn or a forwarded message is denied.
 
+Weather in the daily brief: the installer seeds `[weather] home_location` with a
+CITY NAME taken from the Mac's timezone (never GPS, never an IP lookup), and the
+assistant sends only that name to `wttr.in` (a customer-set value is kept).
+
 Not covered by the above: Vane's own browser UI (reached on `:3000` behind the
 credential) fetches a weather lookup, an IP-location lookup and favicons from
 the owner's browser when the owner opens it. That is the browser, not the
