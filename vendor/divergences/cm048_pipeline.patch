@@ -2211,7 +2211,7 @@
          # Backup BEFORE touching anything. shutil.copytree
 --- a/src/outstanding_todos.py
 +++ b/src/outstanding_todos.py
-@@ -167,10 +167,61 @@
+@@ -168,10 +168,61 @@
  # Match a markdown table. The Action items section can appear in any of
  # the work / coaching / one-on-one variants; the heading is always
  # "## Action items" per _conventions.md and the variant prompts.
@@ -2274,7 +2274,7 @@
  # Match the next H2 heading after Action items so we know where the
  # table ends. Anchoring to "^## " avoids accidentally matching ###
  # subsection headings inside the table content.
-@@ -224,7 +275,10 @@
+@@ -225,7 +276,10 @@
      header_cells = _split_row(header_line)
      if not header_cells:
          return []
@@ -2286,7 +2286,7 @@
  
      rows: list[dict[str, str]] = []
      for line in body_lines:
-@@ -330,9 +384,22 @@
+@@ -331,9 +385,22 @@
  
  
  _PRIORITY_TOKENS = {
@@ -2312,7 +2312,7 @@
  }
  
  
-@@ -343,7 +410,9 @@
+@@ -344,7 +411,9 @@
          return None
      v = cell.strip().lower()
      for bucket, tokens in _PRIORITY_TOKENS.items():
@@ -2323,7 +2323,7 @@
              return bucket
      return None
  
-@@ -464,9 +533,11 @@
+@@ -465,9 +534,11 @@
  
      text = cell.strip().lower()
  
@@ -2337,7 +2337,7 @@
          return (base + timedelta(days=1)).isoformat()
  
      n_days = _IN_N_DAYS_RE.search(text)
-@@ -517,11 +588,21 @@
+@@ -518,11 +589,21 @@
      "wrapped up", "taken care of", "sorted out",
      "has been done", "has been sent", "was sent", "was completed",
      "no longer needed", "no longer required",
