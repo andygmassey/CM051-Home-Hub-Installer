@@ -2,9 +2,9 @@
 # v1.0.124 PREP (ORM, 5 Nov 2026): CARRIED from cut-manifests/v1.0.123.yaml (cut/v1.0.123 copy, byte-equal to main's).
 # Version key only changed; every verdict_123 kept as written. The 4 rows Andy ruled '123 only, fix in 124' (issues
 # 2206 2212 2436 2565) carry verdict_124: BLOCKING at v1.0.124, each naming its fix (2206 2212: CM051 #3317 d1c32b1c,
-# MERGED; 2565: CM051 #3316, OPEN; 2436: ostler-ai/ostler-assistant #644 via the 124 hub re-pin, OPEN). The 124 walk
+# MERGED; 2565: CM051 #3316 04215694, MERGED; 2436: ostler-ai/ostler-assistant #644 812aa4bc, MERGED, in hub-v0.5.34 via CM051 #3336). The 124 walk
 # measures each: pass = RETIRE, fail = FAIL. Issues 1774 1634 1163 (verdict_123 KNOWN-ISSUE-123, usage_journal_producers)
-# carry NO verdict_124 here: they await Archie. No other row re-adjudicated here.
+# carry Archie's verdict_124 verbatim (KNOWN-ISSUE-124, 2026-11-05). No other row re-adjudicated here.
 # ============================================================================
 # cut-manifests/v1.0.123.yaml
 # v1.0.123 PREP (ORM, 4 Nov 2026): CARRIED from cut-manifests/v1.0.122.yaml AS CUT (tag v1.0.122 = cut/v1.0.122 cf7b5d0b,
@@ -5919,7 +5919,7 @@ open_issues:
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible. no caller passes the prefetch block into consolidation at 5327396c (ws.rs:1141, orchestrator/mod.rs:4140); oa #644 (the in-consolidation strip) is OPEN and goes to the first update. CORRECTION to the row text (PARTLY (no caller passes the prefetch block; no strip or test inside consolidation)): FALSE CLAIM: "fix ostler-assistant #644, in hub 0.5.31": #644 is OPEN and not in 5327396c. "Raw content" holds at 5327396c, not only 610b0c5c (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: no caller passes the prefetch block into consolidation at 5327396c (ws.rs:1141, orchestrator/mod.rs:4140), so nothing reachable; oa #644 still OPEN'
     verdict_123: 'KNOWN-ISSUE-123, Andy 2026-11-04, 123 only, fix in 124'
-    verdict_124: 'BLOCKING at v1.0.124 (Andy 2026-11-04: 123 only, fix in 124). FIX: ostler-ai/ostler-assistant #644 via the 124 hub re-pin (TBD). Measured by the 124 walk: pass = RETIRE, fail = FAIL.'
+    verdict_124: 'BLOCKING at v1.0.124 (Andy 2026-11-04: 123 only, fix in 124). FIX: ostler-ai/ostler-assistant #644 812aa4bc (MERGED), in hub-v0.5.34 (oa 5ce5d1c2) via CM051 #3336. Measured by the 124 walk: pass = RETIRE, fail = FAIL.'
     title: 'Daemon graph prefetch: check consolidation cannot turn the injected lookup block into a core_ memory attributed to the user'
     gate: 'NOT BLOCKING for v1.0.103 (Archie, review of ostler-ai/ostler-assistant#428); owed to v1.0.104. Registered in the same action as the filing. WHAT CLOSES IT: a test that the [Looked up in the user''s own data] block is never consolidated as something the user said, and a post-walk box check of core_ memories.'
   - issue: 2463
@@ -6270,7 +6270,7 @@ open_issues:
     verdict_121: 'RE-EXEMPT-121 for one cut, expires v1.0.122. INTERNAL, not customer-visible (Archie 2026-10-30)'
     verdict_122: 'RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: an API field no screen renders; the probe''s #2565 exemption (event titles) is unchanged'
     verdict_123: 'KNOWN-ISSUE-123, Andy 2026-11-04, 123 only, fix in 124'
-    verdict_124: 'BLOCKING at v1.0.124 (Andy 2026-11-04: 123 only, fix in 124). FIX: CM051 #3316 (merge sha TBD). Measured by the 124 walk: pass = RETIRE, fail = FAIL.'
+    verdict_124: 'BLOCKING at v1.0.124 (Andy 2026-11-04: 123 only, fix in 124). FIX: CM051 #3316 04215694 (MERGED). Measured by the 124 walk: pass = RETIRE, fail = FAIL.'
     title: 'Timeline entries carry no source field, so a client cannot tell a verbatim calendar title from Ostler-written text'
     gate: 'NOT BLOCKING for v1.0.107. Registered in the same action as the filing. GET /api/v1/timeline entries carry attendees, subtitle, timestamp, title and type, and items carry date, kind, location, participants and summary, with no source. The walk probe hub_screens_customer_read (CM051 #2561) exempts verbatim customer titles from its no-em-dash check by kind == event until this lands (TODO(#2565) at that line). CLOSES ON: every entry and item carries a non-empty source plus a verbatim-title flag, a timeline API test asserting it, and the probe exemption switched to the source field.'
 
