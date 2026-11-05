@@ -5670,7 +5670,7 @@ if [[ -n "${_ostler_modelfit_candidate}" ]]; then
     # shellcheck source=lib/ostler-model-fit.sh
     source "${_ostler_modelfit_candidate}"
 fi
-unset _ostler_modelfit_candidate
+unset _ostler_modelfit_candidate; if [[ -f "${SCRIPT_DIR}/lib/ostler-weather-home.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-weather-home.sh"; fi
 
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
@@ -18064,7 +18064,7 @@ else
     rm -f "$EMAIL_PASSWORD_FILE"
 fi
 
-umask_orig=$(umask)
+umask_orig=$(umask); _OSTLER_WEATHER_HOME=""; if declare -F ostler_weather_home_resolve >/dev/null; then _OSTLER_WEATHER_HOME="$(ostler_weather_home_resolve "$ASSISTANT_CONFIG")"; fi
 umask 0077
 {
     cat <<'TOMLPREAMBLE'
@@ -18638,7 +18638,7 @@ TOMLPREAMBLE
     # config.web_search.vane_url, and reqwest's RequestBuilder already takes
     # basic auth from a URL's userinfo automatically (see MEASURED note
     # below) -- `[tools.web_search]` -> `[web_search]` is the whole fix.
-    echo "[web_search]"
+    if declare -F ostler_weather_emit_block >/dev/null; then ostler_weather_emit_block "$_OSTLER_WEATHER_HOME"; fi; echo "[web_search]"
     echo "provider = \"vane\""
     # reqwest takes basic auth from the URL's userinfo. MEASURED against the
     # pinned nginx with the shipped server block, proxy disabled so the result

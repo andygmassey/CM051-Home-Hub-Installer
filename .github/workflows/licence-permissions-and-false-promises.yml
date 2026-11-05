@@ -133,6 +133,12 @@ jobs:
         if: always()
         run: bash tests/test_whatsapp_channel_block.sh
 
+      - name: The brief weather line is seeded (home_location from the Mac timezone)
+        if: always()
+        run: |
+          bash tests/test_weather_home_location.sh
+          bash tests/test_weather_home_location_mutant.sh
+
       - name: The WhatsApp link step is on the first screen after install
         if: always()
         run: bash tests/test_connect_whatsapp_is_on_the_first_screen.sh
