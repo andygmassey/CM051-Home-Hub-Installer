@@ -77,6 +77,7 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_doctor_credential_routes_owner_only.sh'
       - 'tests/test_every_conversation_produces_all_four_artefacts.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
@@ -611,6 +612,13 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # S1 (red team v1.0.124): the five credential routes answer only the
+      # Mac's owner. A second account and a tailnet peer relayed by tailscaled
+      # are refused by the kernel's view of the peer process; the owner still
+      # gets every credential. Exit 2 is CANNOT-RUN.
+      - name: Credential routes answer the owner only (second account and tailnet refused)
+        if: always()
+        run: bash tests/test_doctor_credential_routes_owner_only.sh
       # Status-honesty sweep I1 (walk #28, privacy). The installer said three
       # folders were excluded from Time Machine after `tmutil addexclusion ...
       # 2>/dev/null || true`. Runs the real install.sh helper and call site

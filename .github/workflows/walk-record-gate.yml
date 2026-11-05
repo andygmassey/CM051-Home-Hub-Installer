@@ -36,6 +36,9 @@ on:
       - 'scripts/publish_release.sh'
       - 'scripts/post_walk_qa.sh'
       - 'scripts/box_walk_probes/**'
+      # The walk's host and in-VM network samplers, and their test.
+      - 'scripts/walk_net_sampler.sh'
+      - 'tests/test_walk_net_sampler.sh'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
       # broken_probe visibility in the scoped adjudication, and its guard.
@@ -171,6 +174,8 @@ on:
       - 'scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh'
       - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
       - 'scripts/lib_walk_owner.sh'
+      - 'tests/test_walk_record_carries_no_home_path.sh'
+      - 'scripts/lib_walk_record_paths.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
@@ -591,6 +596,14 @@ jobs:
         if: always()
         run: bash scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh
 
+      # v1.0.124: the walk's network samplers. Host lsof and in-VM conntrack,
+      # each with a held nc control that must be SEEN or the sampler reports
+      # CANNOT-RUN; gws_spawn_count and telemetry_hosts must be 0. Six code
+      # mutants inside the test each turn their case red.
+      - name: The walk's network samplers see their controls, gws and telemetry
+        if: always()
+        run: /bin/bash tests/test_walk_net_sampler.sh
+
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()
         run: bash tests/test_walk_driver_takes_owner_from_a_local_file.sh
@@ -602,6 +615,10 @@ jobs:
       - name: The owner identity goes only to a declared owner target, and the record is scanned for it
         if: always()
         run: bash tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
+
+      - name: The walk record carries no home directory in any field (walks/ is public)
+        if: always()
+        run: bash tests/test_walk_record_carries_no_home_path.sh
 
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read

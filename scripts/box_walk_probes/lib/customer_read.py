@@ -497,6 +497,32 @@ DECLARED = [
 ]
 
 
+TIMELINE_API_PATH = "/api/v1/timeline?days=7&past_days=730&limit=500"
+
+
+def timeline_api_sources(body):
+    """#2565: reduce a GET /api/v1/timeline body to [{title, source,
+    title_verbatim}] per entry. Nothing else is kept."""
+    out = []
+    for e in (body or {}).get("entries") or []:
+        if isinstance(e, dict):
+            out.append({"title": e.get("title") or "", "source": e.get("source"),
+                        "title_verbatim": e.get("title_verbatim")})
+    return out
+
+
+def verbatim_timeline_titles(entries):
+    """#2565: the titles the timeline API itself marks as the customer's own
+    words (source "calendar" AND title_verbatim true), longest first. An entry
+    with no source, or any other source, is Ostler's to answer for: never
+    exempt. No entries at all (an old daemon, an unreadable API) exempts
+    nothing, so a verbatim dash then counts rather than a guess passing."""
+    return sorted({e.get("title") or "" for e in (entries or [])
+                   if isinstance(e, dict) and e.get("source") == "calendar"
+                   and e.get("title_verbatim") is True and e.get("title")},
+                  key=len, reverse=True)
+
+
 def judge(f, declared=None):
     declared = DECLARED if declared is None else declared
     out = []
@@ -568,11 +594,12 @@ def judge(f, declared=None):
     # "event" (a verbatim calendar item, as the API returned it) is exempt, and
     # only on the Timeline screen. Every other dash on that screen (a placeholder,
     # a label, a separator) and every dash anywhere else still counts.
-    # TODO(#2565): key this on the entry's source field once the timeline API
-    # carries one, instead of on kind == "event".
-    exempt = sorted({r.get("title") or "" for r in (f.get("timeline_rows") or [])
-                     if r.get("kind") == "event" and EM_DASH in (r.get("title") or "")},
-                    key=len, reverse=True)
+    # #2565: keyed on the timeline API's own `source` / `title_verbatim`, read
+    # by collect() from GET /api/v1/timeline, not on the row kind. kind ==
+    # "event" was a proxy: it exempted ANY event-kind title, whoever wrote it,
+    # and could not exempt a verbatim title shown on a meeting row.
+    exempt = [t for t in verbatim_timeline_titles(f.get("timeline_api_entries"))
+              if EM_DASH in t]
 
     def ostler_dashes(where, t):
         if where == "hub timeline":
@@ -1461,6 +1488,15 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             if name == "timeline":
                 f["timeline_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-timeline-row]')).map(e => ({kind: e.getAttribute('data-timeline-kind') || '', title: e.getAttribute('data-timeline-title') || ''}))")
                 f["timeline_titles"] = [r["title"] for r in f["timeline_rows"]]
+                # #2565: who wrote each title, from the API the screen renders.
+                try:
+                    treq = urllib.request.Request(base + TIMELINE_API_PATH,
+                                                  headers={"Authorization": "Bearer " + token})
+                    with _local_urlopen(treq, timeout=60) as tr:
+                        f["timeline_api_entries"] = timeline_api_sources(json.loads(tr.read()))
+                except Exception as exc:
+                    f["timeline_api_entries"] = None
+                    f["timeline_api_error"] = "timeline API unreadable: {}".format(type(exc).__name__)
             if name == "home":
                 f["needs_now_app"] = page.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             if name == "people":
@@ -1792,6 +1828,12 @@ def _good():
                           {"kind": "meeting", "title": "Lunch with John Doe"},
                           {"kind": "event", "title": "Offsite \u2014 day one"},
                           {"kind": "event", "title": "Check in https://example.com/checkin"}],
+        # #2565: what GET /api/v1/timeline says wrote each title.
+        "timeline_api_entries": [
+            {"title": "WhatsApp with Jane Doe", "source": "ostler", "title_verbatim": False},
+            {"title": "Lunch with John Doe", "source": "calendar", "title_verbatim": True},
+            {"title": "Offsite \u2014 day one", "source": "calendar", "title_verbatim": True},
+            {"title": "Check in https://example.com/checkin", "source": "calendar", "title_verbatim": True}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
         "duplicate_review_phones": [],
         "wiki": {"nav_links": ["System/Declining/", "System/New-discoveries/", "System/Monthly-volume/"],
@@ -1932,11 +1974,21 @@ MUTANTS = [
     ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
     ("an email subject line as a People name (review of #2768)",
      _app(["people_api"], {"name": "re: lunch on friday", "email": ""})),
+    # #2565: the exemption follows the API's source, not the row kind.
+    ("a dashed EVENT-kind title the API says Ostler wrote is not exempt (#2565)",
+     lambda f: (f["timeline_rows"].append({"kind": "event", "title": "Recap \u2014 notes"}),
+                f["timeline_api_entries"].append({"title": "Recap \u2014 notes", "source": "ostler",
+                                                  "title_verbatim": False}),
+                f["screens"]["timeline"].__setitem__("text", f["screens"]["timeline"]["text"] + "Recap \u2014 notes\n"))),
+    ("a verbatim-flagged title with NO source is not exempt (#2565)",
+     lambda f: f.__setitem__("timeline_api_entries", [dict(e, source=None) for e in f["timeline_api_entries"]])),
+    ("the timeline API unread: no title is exempt (#2565)",
+     lambda f: f.__setitem__("timeline_api_entries", None)),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24, 1, 1, 1]))
 
 
 def _proxy_bypass_self_test():

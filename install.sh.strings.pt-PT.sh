@@ -854,7 +854,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contacte o suporte para configurar
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="As frases-passe não coincidem. Tente novamente."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="A configuração da frase-passe falhou. Saída:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Entrada vazia. Frase-passe ignorada."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="A frase-passe deve ter pelo menos 12 carateres. Tente novamente."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="A frase-passe deve ter pelo menos 16 carateres. Tente novamente."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="É necessária uma frase-passe para encriptar os seus dados."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Isso não é um número internacional. Use um + inicial, seguido do indicativo do país e do resto do número, por exemplo +447700900123. Tente novamente."
 MSG_WARN_OLLAMA_NOT_RESPONDING="O Ollama não responde"
@@ -1300,7 +1300,7 @@ Ignore as que não utiliza; pode sempre importar mais tarde."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM CIFRAGEM em repouso?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, pelo que o disco não está cifrado em repouso.
 
-O que isto significa se continuar: tudo o que o Ostler guarda -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos e bases de dados de serviços em ~/.ostler -- é gravado no disco SEM CIFRAGEM. Quem conseguir arrancar a partir deste disco, retirá-lo ou aceder a uma sessão desbloqueada pode ler tudo. O Ostler cifra sempre as suas bases de dados mais sensíveis com uma frase de acesso, mas o resto dos seus dados fica tão protegido quanto o próprio disco.
+O que isto significa se continuar: tudo o que o Ostler guarda -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos e bases de dados de serviços em ~/.ostler -- é gravado no disco SEM CIFRAGEM. Quem conseguir arrancar a partir deste disco, retirá-lo ou aceder a uma sessão desbloqueada pode ler tudo. A chave com que o Ostler cifra as suas bases de dados fica guardada neste mesmo disco, por isso, sem o FileVault, não protege os seus dados de quem tiver acesso ao disco.
 
 O FileVault é vivamente recomendado. Pode ativá-lo a qualquer momento em Definições do Sistema > Privacidade e segurança > FileVault -- cifra em segundo plano, sem reinstalar.
 
@@ -1312,7 +1312,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="As bases de dados sensíveis do Ostler são cifrada
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Definir também uma frase de acesso de recuperação? (recomendado)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Escolha a sua frase-passe"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta frase-passe cifra o seu grafo de conhecimento e desbloqueia a interface do Hub em cada arranque. Mínimo de 12 caracteres. Não a conseguimos recuperar por si. Recomendamos guardá-la num gestor de palavras-passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta frase-passe cifra o seu grafo de conhecimento e desbloqueia a interface do Hub em cada arranque. Mínimo de 16 caracteres. Não a conseguimos recuperar por si. Recomendamos guardá-la num gestor de palavras-passe."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirme a sua frase-passe"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Introduza novamente a mesma frase-passe para confirmar."
 

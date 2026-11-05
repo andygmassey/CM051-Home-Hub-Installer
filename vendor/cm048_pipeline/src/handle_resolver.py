@@ -195,6 +195,20 @@ def build_directory(oxigraph_url: Optional[str] = None, env=None):
     return hi.HandleDirectory(rows, owner, cc, hi.owner_names_from_env(env)), ""
 
 
+def _handle_is_carded(value: str, phone: Dict[str, str], email: Dict[str, str]) -> bool:
+    """The whole value is one phone or email handle with a contact card."""
+    v = (value or "").strip()
+    if v.lower().startswith("other:"):
+        v = v[len("other:"):]
+    if not v:
+        return False
+    if _EMAIL_RUN.fullmatch(v):
+        return v.lower() in email
+    if _PHONE_RUN.fullmatch(v):
+        return _canon_phone(v) in phone
+    return False
+
+
 def resolve_text(text, phone: Dict[str, str], email: Dict[str, str]):
     """Replace every carded phone/email handle in ``text`` with the contact's
     name. Unknown handles are untouched. Idempotent (a name is not a handle)."""
@@ -246,6 +260,14 @@ def resolve(
                 # new name-slugged folder and break attribution. The extraction
                 # LLM reads display + transcript, so the fact text still gets
                 # the name. (Archie review of #87.)
+                # A handle that maps to a carded contact is a CONTACTS MATCH:
+                # the evidence scam_guard needs before a payment todo from
+                # this person may stand. Set only on a match, never cleared.
+                if any(
+                    _handle_is_carded(str(entry.get(k) or ""), phone, email)
+                    for k in ("id", "handle", "display")
+                ):
+                    entry["contact_card"] = True
                 if entry.get("display"):
                     entry["display"] = resolve_text(entry["display"], phone, email)
                 resolved_parts.append(entry)

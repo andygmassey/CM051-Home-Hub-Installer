@@ -1,8 +1,6 @@
-diff --git a/__init__.py b/__init__.py
-index 35e00dd6..efc3886b 100644
 --- a/__init__.py
 +++ b/__init__.py
-@@ -21,6 +21,7 @@ Bumping wording text:
+@@ -21,6 +21,7 @@
  from .consent_strings import (
      ARTICLE_9_EU_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT,
@@ -10,7 +8,7 @@ index 35e00dd6..efc3886b 100644
      SPOKEN_CAPTURE_RECORDING_CONSENT,
      THIRD_PARTY_DATA_NOTICE,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT,
-@@ -30,6 +31,7 @@ from .consent_strings import (
+@@ -30,6 +31,7 @@
  __all__ = [
      "ARTICLE_9_EU_CONSENT",
      "EU_VOICE_SPEAKER_ID_CONSENT",
@@ -18,11 +16,25 @@ index 35e00dd6..efc3886b 100644
      "SPOKEN_CAPTURE_RECORDING_CONSENT",
      "THIRD_PARTY_DATA_NOTICE",
      "WHATSAPP_UNOFFICIAL_RISK_CONSENT",
-diff --git a/consent_strings.py b/consent_strings.py
-index 8aeb4bcb..eecf93b0 100644
 --- a/consent_strings.py
 +++ b/consent_strings.py
-@@ -91,7 +91,7 @@ You can change your mind any time. You can:
+@@ -67,7 +67,7 @@
+ # wording here is the canonical text the SHA-256 is computed over.
+ ARTICLE_9_EU_CONSENT = ConsentString(
+     tickbox_id="article_9_special_category_consent",
+-    version="v1.1-2026-07-15",
++    version="v1.2-2026-11-05",
+     text="""One last thing – what Ostler will look at on your Mac
+ 
+ Ostler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.
+@@ -85,13 +85,13 @@
+ 
+ We do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.
+ 
+-The categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
++The categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: software update checks and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
+ 
+ You can change your mind any time. You can:
  
  - turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source
  - delete everything Ostler has stored using "Reset Ostler" in the menu
@@ -31,10 +43,30 @@ index 8aeb4bcb..eecf93b0 100644
  
  Withdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.
  
-@@ -247,3 +247,79 @@ What we ask of you:
+@@ -162,7 +162,7 @@
+ # rm -rf ~/.ostler/, mirroring Article 9 decline.
+ THIRD_PARTY_DATA_NOTICE = ConsentString(
+     tickbox_id="third_party_data_personal_records",
+-    version="v1.0-2026-05-12",
++    version="v1.1-2026-11-05",
+     text="""About the data on your Mac that's not just yours
+ 
+ Ostler reads parts of your life that contain information about other people – emails they sent you, messages they wrote, faces in your photos, contact details, calendar attendees. This is normal. It's your inbox, your contacts, your life as it actually exists.
+@@ -173,7 +173,7 @@
+ 
+ - You are keeping these records for yourself, like a private address book, a personal diary, or a journal. Ostler is the tool that helps you organise and search what you already have. You decide what to keep and what to delete.
+ - Specific requests to be removed. If anyone you have records of asks you to be removed, you can delete that person from Ostler entirely (Settings → People → Delete a person). The deletion removes their data from your wiki, your graph, your search index, and your assistant's memory.
+-- Nothing leaves your Mac. Not to us, not to a cloud, not to a third party – except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, public metadata enrichment).
++- Nothing leaves your Mac. Not to us, not to a cloud, not to a third party – except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: software update checks and public metadata enrichment).
+ 
+ [ ] I understand. Continue.
+ [ ] Read more.   (links to docs.ostler.ai/privacy/third-party-data)
+@@ -245,5 +245,81 @@
+ [ ] Not now – keep spoken transcription off. (You can turn it on later in Settings.)
+ 
  Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
- """,
- )
++""",
++)
 +
 +
 +# The spoken-capture LEGAL NOTE is chosen by the Mac's region (CM051,
@@ -109,5 +141,5 @@ index 8aeb4bcb..eecf93b0 100644
 +[ ] I understand. I am using Ostler for myself, personally.
 +
 +Legal note: Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction.
-+""",
-+)
+ """,
+ )

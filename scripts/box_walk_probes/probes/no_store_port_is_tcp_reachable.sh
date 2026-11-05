@@ -393,6 +393,26 @@ SURFACES="${OSTLER_PROBE_SURFACES-6333:store:/collections 7878:store:/query?quer
 # reader has to infer from a missing-file line. Anything else is CANNOT-RUN.
 PROBE_ARMS="${OSTLER_PROBE_ARMS:-both}"
 
+# CLASS 3 (red team v1.0.124 S1). The Doctor on 8089 handed a pairing token, a
+# device bearer and the extension key to ANY local account: the #550 sweep
+# covered the stores and never the Doctor. Two checks close the class:
+#   3a  each credential route, asked by a SECOND IDENTITY with no credential,
+#       must be refused (401/403) or not served; the owner must still get
+#       pair/status (GET only: the owner arm never mints or rotates).
+#   3b  every TCP listener whose process command line names Ostler must be on
+#       a port in KNOWN_LISTENERS, so a new service cannot slip past unswept.
+# Second identity: `sudo -n -u nobody`, a real non-owner uid that every Mac
+# has, so no account is created or left behind. Unavailable = CANNOT-RUN.
+CRED_ROUTES="${OSTLER_PROBE_CRED_ROUTES-8089:POST:/api/v1/auth/chat-token 8089:GET:/api/v1/extension/token 8089:GET:/api/v1/pair/status 8089:POST:/api/v1/pair/regenerate 8089:GET:/api/v1/whatsapp/pair}"
+OWNER_ROUTE="${OSTLER_PROBE_OWNER_ROUTE-8089:GET:/api/v1/pair/status}"
+SECOND_ID_CMD="${OSTLER_PROBE_SECOND_ID_CMD-sudo -n -u nobody}"
+# The non-sudo route (Archie, 2026-11-05): an ssh destination that logs in AS
+# A DIFFERENT ACCOUNT on the same box (a dedicated walk user). When set, 3a
+# runs there with no sudo at all, after proving its uid is not the owner's.
+SECOND_ID_HOST="${OSTLER_PROBE_SECOND_ID_HOST-}"
+KNOWN_LISTENERS="${OSTLER_PROBE_KNOWN_LISTENERS-3000 6333 6379 7878 8000 8044 8089 8090 8144 8443 11434 42617}"
+LISTENER_MATCH="${OSTLER_PROBE_LISTENER_MATCH-ostler}"
+
 # 6379 is redis, not HTTP, so it cannot be asked with curl. It is listed here
 # because the PROPERTY is identical -- an uncredentialled client must be refused
 # -- and adjudicated by its own sensor below. Naming the property once and
@@ -772,6 +792,85 @@ classify() {
     printf 'PASS\n'
 }
 
+# 3a: "<code> <rc>" for an uncredentialled request run as $SECOND_ID_CMD.
+_second_id_run() {   # $1 command, run as the second identity
+    if [ -n "$SECOND_ID_HOST" ]; then
+        OSTLER_BOX_HOST="$SECOND_ID_HOST" box_run "$1"
+    else
+        box_run "$SECOND_ID_CMD $1"
+    fi
+}
+_second_id_http() {   # $1 method, $2 url
+    _second_id_run "/usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -X $1 '$2'; echo \" \$?\""
+}
+# The second identity must PROVABLY not be the owner: its uid differs from the
+# uid the owner's own box_run reports. Prints ok or a reason.
+_second_id_ready() {   # reads _o and _x, set by the caller
+    case "$_o:$_x" in
+        *[!0-9:]*|:*|*:) printf 'unavailable(%s)\n' "${SECOND_ID_HOST:-$SECOND_ID_CMD}" ;;
+        *) if [ "$_o" = "$_x" ]; then printf 'same-uid-as-owner(%s)\n' "$_x"; else printf 'ok\n'; fi ;;
+    esac
+}
+# 3b: "<port> <pid> <command line>" per TCP listener. sudo widens lsof to every
+# account (lsof is permission-scoped, see port_state); without it the sweep is
+# the owner's own processes, and the first line says which.
+_listener_table() {
+    # One branch per scope, never a command held in a variable: the box's
+    # login shell is zsh, which does not word-split an unquoted \$L.
+    # lsof is /usr/sbin/lsof on macOS and /usr/bin/lsof on the Linux runner; a
+    # single path in a variable is safe under zsh (nothing to split).
+    box_run "L=/usr/sbin/lsof; [ -x \$L ] || L=\$(command -v lsof); { if sudo -n /usr/bin/true 2>/dev/null; then echo SCOPE all >&2; sudo -n \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; else echo SCOPE self >&2; \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; fi; } 2>&1 | awk '/^SCOPE/{print; next} /^p/{p=substr(\$0,2)} /^n/{n=\$0; sub(/.*:/,\"\",n); print n, p}' | sort -u |
+      while read -r port pid; do [ \"\$port\" = SCOPE ] && { echo SCOPE \$pid; continue; }; printf '%s %s %s\n' \"\$port\" \"\$pid\" \"\$(ps -ww -o command= -p \"\$pid\")\"; done"
+}
+_class3() {
+    [ -n "$CRED_ROUTES$KNOWN_LISTENERS" ] || return 0
+    if [ -n "$CRED_ROUTES" ]; then
+        _o="$(box_run 'id -u')"; _x="$(_second_id_run '/usr/bin/id -u')"
+        sid="$(_second_id_ready)"
+        probe_note "second identity via ${SECOND_ID_HOST:-$SECOND_ID_CMD}: owner uid ${_o:-unread}, second-identity uid ${_x:-unread} (${sid})"
+        if [ "$sid" != ok ]; then
+            unmeasured_list="${unmeasured_list} credential-routes(second-identity-${sid})"
+        else
+            for e in $CRED_ROUTES; do
+                p="${e%%:*}"; rest="${e#*:}"; m="${rest%%:*}"; path="${rest#*:}"
+                n_checked=$((n_checked + 1))
+                r="$(_second_id_http "$m" "http://127.0.0.1:${p}${path}")"
+                case "$(_verdict_for_http ${r})" in
+                    readable)     readable_list="${readable_list} ${p}${path}(${r% *},second-identity)" ;;
+                    unmeasurable) unmeasured_list="${unmeasured_list} ${p}${path}(second-identity:${r:-no-reading})" ;;
+                    *)            refused_list="${refused_list} ${p}${path}" ;;
+                esac
+            done
+            if [ -n "$OWNER_ROUTE" ] && [ "$PROBE_ARMS" = both ]; then
+                p="${OWNER_ROUTE%%:*}"; rest="${OWNER_ROUTE#*:}"; m="${rest%%:*}"; path="${rest#*:}"
+                r="$(box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 6 -X $m 'http://127.0.0.1:${p}${path}'; echo \" \$?\"")"
+                case "$(_verdict_for_http ${r})" in
+                    readable) served_list="${served_list} ${p}${path}(owner)" ;;
+                    refused)  locked_list="${locked_list} ${p}${path}(${r% *},owner)" ;;
+                    *)        unmeasured_list="${unmeasured_list} ${p}${path}(owner:${r:-no-reading})" ;;
+                esac
+            fi
+        fi
+    fi
+    [ -n "$KNOWN_LISTENERS" ] || return 0
+    tbl="$(_listener_table)"
+    scope="$(printf '%s\n' "$tbl" | awk '/^SCOPE /{print $2; exit}')"
+    # Positive control: the sweep must SEE the control port, or it is blind.
+    if ! printf '%s\n' "$tbl" | awk -v c="$CONTROL_PORT" '$1==c{f=1} END{exit !f}'; then
+        unmeasured_list="${unmeasured_list} listener-sweep(blind:control-${CONTROL_PORT}-not-listed,scope-${scope:-none})"
+        return 0
+    fi
+    n_checked=$((n_checked + 1))
+    unknown="$(printf '%s\n' "$tbl" | awk -v known=" $KNOWN_LISTENERS " -v pat="$LISTENER_MATCH" '
+        $1=="SCOPE"{next}
+        { cmd=$0; sub(/^[^ ]+ [^ ]+ /,"",cmd); if (tolower(cmd) !~ tolower(pat)) next
+          if ($1+0 >= 49152 && cmd ~ /(limactl|gvproxy|ssh)/) next
+          if (index(known, " " $1 " ")) next
+          split(cmd, a, " "); n=a[1]; sub(/.*\//,"",n); printf " %s(unknown-listener:%s)", $1, n }' | sort -u | tr -d '\n')"
+    listening_list="${listening_list}${unknown}"
+    probe_note "listener sweep (scope ${scope}): every TCP listener whose command line matches '${LISTENER_MATCH}' is on a known port${unknown:+ EXCEPT${unknown}}"
+}
+
 run_probe() {
     n_checked=0; listening_list=""; readable_list=""; locked_list=""; unmeasured_list=""; served_list=""; refused_list=""; notserving_list=""; forged_list=""
 
@@ -877,6 +976,8 @@ run_probe() {
             *)        unmeasured_list="${unmeasured_list} ${p}(with-credential:${r2:-no-reading})" ;;
         esac
     done
+
+    _class3
 
     probe_examined "$n_checked" "store/UI surfaces, arms=${PROBE_ARMS} (control ${CONTROL_PORT} confirmed open)${forged_list:+; arm 1b also asked the client-authored pre-auth gate on:${forged_list}}"
 

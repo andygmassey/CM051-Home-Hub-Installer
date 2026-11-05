@@ -853,7 +853,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Neem contact op met support om de 
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="De wachtwoordzinnen komen niet overeen. Probeer het opnieuw."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Instellen van de wachtwoordzin mislukt. Uitvoer:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Lege invoer. Wachtwoordzin overgeslagen."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="De wachtwoordzin moet uit minstens 12 tekens bestaan. Probeer het opnieuw."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="De wachtwoordzin moet uit minstens 16 tekens bestaan. Probeer het opnieuw."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="Een wachtwoordzin is nodig om je gegevens te versleutelen."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="Dat is geen internationaal nummer. Begin met een + gevolgd door de landcode en de rest van het nummer, bijvoorbeeld +447700900123. Probeer het opnieuw."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama reageert niet"
@@ -1296,7 +1296,7 @@ Sla over wat je niet gebruikt; je kunt later altijd meer importeren."
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTELD is?"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
-Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. Ostler versleutelt de meest gevoelige databases hoe dan ook met een wachtzin, maar de rest van je gegevens is slechts zo goed beveiligd als de schijf zelf.
+Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
 
 FileVault wordt sterk aanbevolen. Je kunt het op elk moment aanzetten via Systeeminstellingen > Privacy en beveiliging > FileVault -- het versleutelt op de achtergrond, zonder opnieuw te installeren.
 
@@ -1308,7 +1308,7 @@ MSG_PROMPT_PASSKEY_ACK_HELP="De gevoelige databases van Ostler worden versleutel
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Ook een herstelwachtzin instellen? (aanbevolen)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Kies je wachtzin"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 12 tekens. Wij kunnen hem niet voor je herstellen. We raden aan hem in een wachtwoordmanager te bewaren."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. Wij kunnen hem niet voor je herstellen. We raden aan hem in een wachtwoordmanager te bewaren."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Bevestig je wachtzin"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Voer dezelfde wachtzin nogmaals in ter bevestiging."
 

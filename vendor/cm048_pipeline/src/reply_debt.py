@@ -123,6 +123,11 @@ class Thread:
     # surfaces then say "someone not in your contacts", never the raw digits.
     counterpart_resolved: Optional[bool] = None
     counterpart_kind: str = ""
+    # A group message that names the owner (a WhatsApp @mention of one of the
+    # owner's own numbers). Such a message asks the owner personally, so it
+    # is judged like a 1:1 message and its AUTHOR is the person waiting. Every
+    # other group message stays excluded (``detect``).
+    addresses_owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,15 @@ class ReplyDebt:
     score: float
     resolved: Optional[bool] = None
     handle_kind: str = ""
+    # Whether a reply is OWED (see owed_verdict): "yes" or "ambiguous". A
+    # "no" thread is never a debt and never reaches this class.
+    owed: str = "yes"
+    # The owner's own last message promised an answer that has not come.
+    owner_promised: bool = False
+    # The ask is time-bound ("today", "by Friday").
+    time_sensitive: bool = False
+    # A group message that @mentioned the owner (see Thread.addresses_owner).
+    addressed_in_group: bool = False
 
     @property
     def waiting_human(self) -> str:
@@ -164,7 +178,7 @@ class ReplyDebt:
         return f"{n} month{'s' if n != 1 else ''}"
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "thread_id": self.thread_id,
             "channel": self.channel,
             "person_name": self.person_name,
@@ -180,7 +194,16 @@ class ReplyDebt:
             "score": round(self.score, 4),
             "resolved": self.resolved,
             "handle_kind": self.handle_kind,
+            "owed": self.owed,
+            "owner_promised": self.owner_promised,
+            "time_sensitive": self.time_sensitive,
         }
+        # Only when true, so the payload every existing consumer is tested
+        # against (tests/fixtures/reply_debt_p13_payload.json, mirrored in
+        # ostler-assistant) is unchanged for 1:1 debts.
+        if self.addressed_in_group:
+            out["addressed_in_group"] = True
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +335,101 @@ def expects_reply(text: str) -> bool:
     return words >= 6
 
 
+# A notice, a broadcast or an automated message: nothing is asked of the
+# owner personally. A request pattern overrides.
+_FYI_RE = re.compile(
+    r"\bfyi\b|just letting you know|just to let you know|heads up|"
+    r"no need to (?:reply|respond)|no reply needed|for your information|"
+    r"forwarded message|do[- ]not[- ]reply|unsubscribe|verification code|"
+    r"your code is|one[- ]time (?:code|password)|your order|has been delivered|"
+    r"has shipped|this is an automated",
+    re.IGNORECASE,
+)
+
+# The owner's own message promising an answer ("I'll get back to you").
+_OWNER_PROMISE_RE = re.compile(
+    r"\b(?:i'?ll|i will|will|let me)\s+(?:get back to you|check|find out|"
+    r"let you know|come back to you|confirm|send (?:it|them|you)|look into it|"
+    r"have a look|think about it)",
+    re.IGNORECASE,
+)
+
+_TIME_SENSITIVE_RE = re.compile(
+    r"\b(?:today|tonight|tomorrow|this (?:morning|afternoon|evening)|asap|"
+    r"urgent(?:ly)?|by (?:monday|tuesday|wednesday|thursday|friday|saturday|"
+    r"sunday|the end of)|deadline|right away|in an hour)\b",
+    re.IGNORECASE,
+)
+
+
+# A business or marketing send: an opt-out instruction, or promotional
+# wording, in any language. A shop that texts from an ordinary mobile number
+# (not a short code or sender id, which identify_threads already drops) still
+# writes like this, and nothing in it is owed (2026-11-05: a brand sign-up SMS
+# from a shop was listed as "needing a reply"). Deliberately phrases a person
+# does not write to a friend; a bare "sale" or "offer" is not enough.
+_MARKETING_RE = re.compile(
+    r"\b(?:reply|text|send|txt)\s+stop\b|\bstop\s+to\s+(?:opt|unsub|end|cancel|quit)|"
+    r"\bopt[- ]?out\b|\bunsubscribe\b|\bpromo(?:tion(?:al)?)?\s*code\b|"
+    r"\bdiscount\s+code\b|\bcoupon\s+code\b|\b\d{1,2}\s?%\s?off\b|\bsale\s+ends\b|"
+    r"\blimited[- ]time\s+offer\b|\bshop\s+now\b|\bt&cs?\s+apply\b|"
+    r"退訂|退订|取消訂閱|取消订阅|回覆\s*stop|回复\s*stop|優惠碼|优惠码|折扣碼|折扣码|"
+    r"限時優惠|限时优惠|會員專享|会员专享|立即購買|立即购买|立即登記|立即登记|"
+    r"條款及細則|条款及细则|【廣告】|【广告】|\(廣告\)|\(广告\)|"
+    r"配信停止|\(광고\)|수신거부",
+    re.IGNORECASE,
+)
+
+
+def is_marketing(text: str) -> bool:
+    """True when a message reads as a business or marketing send."""
+    return bool(_MARKETING_RE.search(text or ""))
+
+
+def owed_verdict(thread: "Thread") -> tuple[str, str]:
+    """Is a reply OWED on this thread? ``("yes"|"no"|"ambiguous", rule)``.
+
+    Deterministic, on the trailing inbound message(s), cheapest signal first:
+
+      * owner sent the last message      -> no  (ball in their court)
+      * the last message only closes      -> no  (thanks, ok, emoji, tapback)
+      * a business or marketing send      -> no  (STOP / unsubscribe, promo)
+      * a question or request at the owner -> yes
+      * the owner's previous message promised an answer -> yes
+      * a notice, broadcast or automated message -> no
+      * a short statement (< 6 words)     -> no
+      * anything else                     -> ambiguous (the brief may ask the
+        tier model, one YES/NO per thread; with no model it is not listed)
+
+    Group chats are excluded before this is asked (``detect``).
+    """
+    if not thread.messages:
+        return "no", "empty"
+    last = thread.messages[-1]
+    if last.is_from_owner:
+        return "no", "owner_spoke_last"
+    text = (last.text or "").strip()
+    if not text:
+        return "no", "no_text"
+    if is_conversation_closer(text):
+        return "no", "closer"
+    if is_marketing(text):
+        return "no", "marketing"
+    if _REQUEST_RE.search(text):
+        return "yes", "ask"
+    # The owner's most recent message before the trailing inbound run.
+    for m in reversed(thread.messages[:-1]):
+        if m.is_from_owner:
+            if _OWNER_PROMISE_RE.search(m.text or ""):
+                return "yes", "owner_promised"
+            break
+    if _FYI_RE.search(text):
+        return "no", "fyi_or_automated"
+    if len(text.split()) < 6:
+        return "no", "short_statement"
+    return "ambiguous", "statement"
+
+
 def _ensure_aware(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
@@ -412,17 +530,25 @@ def detect_thread(
     if is_conversation_closer(last.text):
         return None  # a thanks / ok / emoji / tapback needs no reply
 
+    # A thread is a debt only when a reply is actually OWED. An FYI, a
+    # notice or a short statement that asks nothing is not, however long it
+    # has sat (2026-11-04 evening brief: six threads listed, none owed).
+    owed, rule = owed_verdict(thread)
+    if owed == "no":
+        return None
+
     waiting_since = _ensure_aware(last.timestamp)
     hours = (now - waiting_since).total_seconds() / 3600.0
     if hours < threshold_hours:
         return None  # still mid-conversation
 
-    expects = expects_reply(last.text)
+    expects = owed == "yes"
     score = score_debt(
         relationship_strength=thread.relationship_strength,
         hours_waiting=hours,
         expects=expects,
-        is_group=thread.is_group,
+        # A message that names the owner is a personal ask, not banter.
+        is_group=thread.is_group and not thread.addresses_owner,
     )
 
     person = thread.counterpart_name or last.sender or "Unknown"
@@ -441,6 +567,10 @@ def detect_thread(
         score=score,
         resolved=thread.counterpart_resolved,
         handle_kind=thread.counterpart_kind,
+        owed=owed,
+        owner_promised=(rule == "owner_promised"),
+        time_sensitive=bool(_TIME_SENSITIVE_RE.search(last.text or "")),
+        addressed_in_group=thread.is_group and thread.addresses_owner,
     )
 
 
@@ -461,7 +591,9 @@ def detect(
     """
     out: list[ReplyDebt] = []
     for thread in threads:
-        if thread.is_group and not include_group:
+        # A group message that @mentions the owner is a personal ask and is
+        # always considered; any other group message only on request.
+        if thread.is_group and not thread.addresses_owner and not include_group:
             continue
         debt = detect_thread(thread, now=now, threshold_hours=threshold_hours)
         if debt is None:
@@ -478,8 +610,14 @@ def detect(
 # ---------------------------------------------------------------------------
 
 # Channels whose thread is keyed by a raw handle (a phone number, an address,
-# a short code or a sender id) rather than by a name.
+# a short code or a sender id) rather than by a name. An email thread from the
+# email snapshot (``reply_debt_sources``) needs no entry: its handle is the From
+# ADDRESS (never a real name, so it is looked up in Contacts below) and its
+# counterpart_name is empty, because a From display name is self-asserted.
 _HANDLE_CHANNELS = frozenset({"imessage", "sms", "whatsapp"})
+
+# A WhatsApp sender whose number the app does not expose ("<id>@lid").
+WHATSAPP_HIDDEN_NUMBER_PREFIX = "whatsapp-hidden:"
 
 
 def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread], dict]:
@@ -505,7 +643,7 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
     kept: list[Thread] = []
     excluded = {"owner": 0, "not_a_person": 0}
     for t in threads:
-        if t.is_group:
+        if t.is_group and not t.addresses_owner:
             kept.append(t)
             continue
         last = t.messages[-1] if t.messages else None
@@ -513,6 +651,13 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
         if last is not None and not last.is_from_owner and last.sender not in ("", "me"):
             sender = last.sender
         handle = sender or t.counterpart_name or ""
+        if t.channel == "whatsapp" and handle.startswith(WHATSAPP_HIDDEN_NUMBER_PREFIX):
+            # A WhatsApp member whose number the app hides (a "@lid" id): a
+            # real person no Contacts card can match. Never named, never
+            # printed; the push name the app shows is NOT evidence.
+            kept.append(replace(t, counterpart_name=hi.unresolved_label(hi.KIND_PHONE),
+                                counterpart_resolved=False, counterpart_kind=hi.KIND_PHONE))
+            continue
         res = directory.resolve(handle)
         if res.is_owner or (
             t.counterpart_name and t.counterpart_name != handle
@@ -546,6 +691,8 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
 # Daily-brief surface (text block the brief generator can embed)
 # ---------------------------------------------------------------------------
 
+
+_CHANNEL_LABEL = {"imessage": "iMessage", "whatsapp": "WhatsApp", "email": "email"}
 
 # Unsaved handles waiting longer than this (14 days) are not in the brief.
 UNSAVED_MAX_WAITING_HOURS = 14 * 24
@@ -587,9 +734,7 @@ def render_brief_block(
     for d in top:
         if d.resolved is False:
             continue
-        chan = d.channel.replace("imessage", "iMessage").replace(
-            "whatsapp", "WhatsApp"
-        )
+        chan = _CHANNEL_LABEL.get(d.channel, d.channel)
         lines.append(
             f"  - {d.person_name} ({chan})  -  waiting {d.waiting_human}"
         )
@@ -620,6 +765,7 @@ __all__ = [
     "ReplyDebt",
     "expects_reply",
     "is_conversation_closer",
+    "is_marketing",
     "score_debt",
     "detect_thread",
     "detect",
