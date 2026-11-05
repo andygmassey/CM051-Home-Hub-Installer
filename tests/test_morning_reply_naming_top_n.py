@@ -105,7 +105,7 @@ check("a missing count FAILs when owed rows are past the cap", rc == w.EX_FAIL, 
 with_no = OWED7[:5] + [row("Liz Stewart", owed="no")]
 out, rc, _ = run(with_no, brief_of(NAMES[:4] + ["Liz Stewart"]))
 check("a row the hub says is NOT owed, listed in the brief: FAIL", rc == w.EX_FAIL and "not owed, and no invented name (1 wrong)" in out, out)
-out, rc, _ = run(OWED7, brief_of(NAMES[:4] + ["Ana Invented"], 2))
+out, rc, _ = run(OWED7, brief_of(NAMES[:4] + ["Raj Patel"], 2))
 check("an invented name listed: FAIL", rc == w.EX_FAIL and "(1 wrong)" in out, out)
 
 # 5. owed <= N: every owed row named; the red control stays
