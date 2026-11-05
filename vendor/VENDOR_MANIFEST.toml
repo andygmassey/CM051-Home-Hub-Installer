@@ -433,8 +433,6 @@ vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
 source_path      = "."
   pinned_sha = "ec837ea40e6a87c6e2b0825775685b5a0aa7522e"
-  hold_ack_shas            = "ada911032fa7978d157a068445b5a7b9f3e3ced5 ec837ea40e6a87c6e2b0825775685b5a0aa7522e"
-  hold_ack_reason          = "2026-11-05 (ORM, v1.0.124 candidate check-freshness RED STALE:+2, run 41956843371): ada91103 is the squash merge of CM048 #113 (reply debt reads WhatsApp and email) and ec837ea4 of CM048 #114 (a shop's marketing SMS is never a reply owed). BOTH ALREADY GRAFTED into this tree, by CM051 #3329 and #3334 (via integration #3335 8573d957), recorded in vendor/divergences/cm048_pipeline.UNRECORDED.md (sections 2026-11-05). MEASURED on the cut pin: every non-blank added line of each commit's vendored files is present in the vendored tree, ada91103 818 of 818 (4 files), ec837ea4 24 of 24 (1 file); CONTROL, the same measure on the pre-graft tree (main 04215694): 220 of 818 and 2 of 24, so the measure can say no. Pinned by tests/test_reply_debt_whatsapp_email.py and tests/test_cm048_scam_todos_and_owed_replies_vendored.py. SCOPE: these two shas only. Retire on a re-pin to ec837ea4 or later."
 shipping_bugfixes_grafted = true
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
   # RETIRED 2026-10-18 (vendor drift reduction): unrecorded_divergence pointer and
