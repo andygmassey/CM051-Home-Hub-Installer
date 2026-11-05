@@ -903,7 +903,7 @@ note             = "4-artefact spoken/voice-note conversation feed (CM042 captur
 
 [[tree]]
 name             = "cm059_editor"
-expires = "2026-10-31"
+expires = "2026-12-04"
 owner = "archie"
 vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
