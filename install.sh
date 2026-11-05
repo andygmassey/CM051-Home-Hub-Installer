@@ -34326,16 +34326,16 @@ OSTLER_TS_WRAPPER
     # back the fixes -- a daemon-readiness gate (so a doomed sign-in wait
     # is never entered), and a hardened browser open (the bare `open`
     # from this subprocess silently did nothing on the fresh Mac).
-    #
-    # _ts_daemon_up: true when tailscaled is actually reachable on our
-    # socket. `tailscale status` prints "failed to connect to local
-    # Tailscale service" (to stderr) when the daemon is down; any other
-    # outcome -- including the logged-out state -- means it is up. This
-    # is the exact signal the .136 relaunch log showed when the wait was
-    # entered with no daemon.
+    # _ts_bounded SECS cmd...: stdout of cmd (+stderr if _TS_B_ERR), killed after SECS, never fails. A wedged tailscale CLI must not hang the sign-in wait.
+    _ts_bounded() {
+        local _s="$1" _o _p _i=0; shift; _o="$(mktemp 2>/dev/null)" || return 0
+        "$@" >"$_o" 2>"$_o.e" </dev/null & _p=$!
+        while [[ $_i -lt $((_s * 5)) ]] && kill -0 "$_p" 2>/dev/null; do sleep 0.2; _i=$((_i + 1)); done
+        kill "$_p" 2>/dev/null || true; wait "$_p" 2>/dev/null || true; cat "$_o" ${_TS_B_ERR:+"$_o.e"} 2>/dev/null || true; rm -f "$_o" "$_o.e"; return 0
+    }
     _ts_daemon_up() {
         local _out
-        _out="$("$TS_CLI" --socket="$TS_SOCK" status 2>&1 || true)"
+        _out="$(_TS_B_ERR=1 _ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" status)"
         [[ "$_out" != *"failed to connect"* ]]
     }
 
@@ -42836,13 +42836,11 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
     fi
     __OSTLER_STEP_ID="tailscale_signin"
     gui_step_begin "tailscale_signin" "$MSG_STEP_TAILSCALE_SIGNIN" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
-        # #644 idempotency gate (the worst defect): only run the sign-in
-        # flow if tailscaled is ACTUALLY up. With no daemon, `tailscale
-        # up` cannot mint a login URL and `tailscale ip` never returns,
-        # so the wait below can only ever full-timeout -- the 382s hang
-        # observed on the .136 relaunch (daemon down, yet it still entered
-        # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
-        # is not reachable, skip cleanly with the "set up later" message.
+        # #644 gate: sign-in runs only if tailscaled is ACTUALLY up (no daemon: `up` mints no URL, the wait can only time out).
+        # NEVER ABORT: any tailscale/open failure, hang or unbound var in this block must finish the install unpaired (v1.0.124 tester abort).
+        _ts_saved_opts="$-"; _ts_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +eu  # restored after the block; -E -e -u would abort the install here
+        # Timeout, skip or any tailscale error is non-fatal: the message says remote access can be set up later from Settings.
+        # tests/test_tailscale_signin_never_aborts.sh runs this block under -Eeuo with a hung, failing and empty tailscale.
         TS_SIGNIN_ATTEMPTED=0; rm -f "${TS_STATE_DIR}/.signin_skip" 2>/dev/null || true  # F&F: clear a stale skip once, at entry
         if _ts_daemon_up; then
             TS_SIGNIN_ATTEMPTED=1
@@ -42880,7 +42878,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                 [[ -n "$TS_URL" ]] && break
                 # Already-authenticated installs print no URL; stop once
                 # an IP exists.
-                [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+                [[ -n "$(_ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
                 sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
             done
             if [[ -n "$TS_URL" ]]; then
@@ -42934,10 +42932,10 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
             # (not cleared here: the GUI may have written it during the URL poll above)
             info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-            TS_WAIT=0
+            TS_T0=$SECONDS; TS_WAIT=0
             TS_NEXT_TICK=30
             while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt ${OSTLER_TS_SIGNIN_WAIT:-180} ]]; do
-                OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
+                OSTLER_TAILSCALE_IP=$(_ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
                 [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
                 if [[ -f "$TS_SKIP_SENTINEL" ]]; then
                     rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
@@ -42946,7 +42944,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                     break
                 fi
                 sleep 3
-                TS_WAIT=$((TS_WAIT + 3))
+                TS_WAIT=$((SECONDS - TS_T0))
                 if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
                     info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
                     [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
@@ -43221,7 +43219,9 @@ if ports:
             # a user Skip, the "set up later" message already covered it.
             warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
             warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
+            info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"  # unpaired: pair later from the app
         fi
+        eval "$_ts_saved_err_trap"; case "$_ts_saved_opts" in *e*) set -e ;; esac; case "$_ts_saved_opts" in *u*) set -u ;; esac
 fi
 
 # ── Final assistant-daemon restart (FDA inheritance) ───────────────
