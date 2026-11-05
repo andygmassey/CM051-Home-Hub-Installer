@@ -361,7 +361,7 @@ _ks_bounded() {
 _install_derive_preferences_agent() {
     local label="com.ostler.derive-preferences"
     local plist="${HOME}/Library/LaunchAgents/${label}.plist"
-    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"
+    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"; local tick_s="${OSTLER_DERIVE_TICK_S:-1800}"
     local wrapper="${OSTLER_DIR}/bin/ostler-derive-preferences-tick"
     local cm019_dir="${OSTLER_DIR}/services/cm019"
     local derive_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -379,25 +379,16 @@ _install_derive_preferences_agent() {
 	# the runner writes and the next tick tries again.
 	#
 	# EVERY EXIT LEAVES A RECORD. The runner writes state/derived-preferences.json
-	# for every outcome it reaches. A tick that never reaches it (deferred on load,
-	# yielded to a busy ingest slot, no venv, cannot enter the tree) writes the
-	# same file itself, marked "writer": "tick", with outcome deferred, yielded or
-	# cannot_start, the reason, the time and how many ticks in a row have had no
-	# pass. It carries the last COMPLETED pass forward (last_run_at, the node
-	# count), so the Doctor keeps the count and the walk probe's "did a pass run
-	# after the kick" read (a change in last_run_at) is not fooled by a deferral.
-	# v1.0.120, cold 16GB box: eight "deferred (load)" lines over 8.5h, no status
-	# file at all, and "What you like" degraded with no reason anywhere.
+	# for every outcome it reaches; a tick that never reaches it (deferred, yielded,
+	# no venv) writes the same file itself with "writer": "tick", the outcome, the
+	# reason and the no-pass streak, carrying the last COMPLETED pass forward
+	# (last_run_at, node count) so the Doctor and the walk probe are not fooled.
 	#
-	# THE CEILING. A box that is always busy must not starve this for ever. After
-	# OSTLER_DERIVE_DEFER_CEILING (3) ticks in a row with no pass, or
-	# OSTLER_DERIVE_DEFER_CEILING_S (12h) since the last completed pass (since the
-	# streak began when none ever completed), the load deferral is overridden and
-	# the pass runs under `taskpolicy -b`. An import that just finished
-	# (state/derive-preferences.after-import, written by ostler-import) overrides
-	# it once too. NEVER overridden: an operator Pause, and the ingest slot, which
-	# is the consistency guard (a derive must not read a graph an ingest is half
-	# way through writing). The tier lib itself is unchanged.
+	# THE CEILING: 3 no-pass ticks or 12h override the load deferral, never a Pause.
+	# CADENCE: launchd ticks every 30 min; until a pass WRITES nodes (or 6 passes
+	# ran) every tick may pass, then one per 6h. A first pass under first-run load
+	# is often empty. State: state/derive-preferences.cadence (kept over reboot and
+	# upgrade); state/derive-preferences.kick (installer) bypasses once.
 	set -uo pipefail
 
 	OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
@@ -567,6 +558,14 @@ _install_derive_preferences_agent() {
 	    _state_write 0 0
 	}
 
+	CAD="${STATE_DIR}/derive-preferences.cadence"; KICK="${STATE_DIR}/derive-preferences.kick"; PERIOD="$(_num "${OSTLER_DERIVE_PERIOD_S:-0}")"
+	CAD_N="$(_num "$(_kv attempts "$CAD")")"; CAD_AT="$(_num "$(_kv last_pass_epoch "$CAD")")"; CAD_OK="$(_kv settled "$CAD")"
+	if [[ -f "$KICK" ]]; then rm -f "$KICK"
+	elif [[ "$PERIOD" -gt 0 && "$CAD_AT" -gt 0 ]]; then
+	    _wait="$(_num "${OSTLER_DERIVE_RETRY_S:-1800}")"; [[ "$CAD_OK" == 1 ]] && _wait="$PERIOD"
+	    [[ $((NOW - CAD_AT)) -ge $((_wait - 120)) ]] || { log "cadence: next pass due in ~$((_wait - NOW + CAD_AT))s"; exit 0; }
+	fi
+	_cadence_after() { local n=$((CAD_N + 1)) s=0; [[ "$(_jf outcome)" == written || "$CAD_OK" == 1 || "$n" -ge "$(_num "${OSTLER_DERIVE_RETRY_MAX:-6}")" ]] && s=1; printf 'attempts=%s\nlast_pass_epoch=%s\nsettled=%s\n' "$n" "$NOW" "$s" >"$CAD.tmp" && mv -f "$CAD.tmp" "$CAD"; }
 	log "tick start"
 	_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
 	if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
@@ -581,7 +580,7 @@ _install_derive_preferences_agent() {
 	    _rc=0
 	    "${CMD[@]}" >>"$LOG_FILE" 2>&1 || _rc=$?
 	fi
-	_after_pass "$_rc"
+	_after_pass "$_rc"; _cadence_after
 	if [[ "$_rc" -eq 0 ]]; then
 	    log "tick finished: written (see state/derived-preferences.json)"
 	else
@@ -620,9 +619,10 @@ _install_derive_preferences_agent() {
         <key>QDRANT_URL</key>
         <string>${QDRANT_URL:-http://localhost:6333}</string>
         <key>QDRANT_COLLECTION</key><string>preferences</string>
+        <key>OSTLER_DERIVE_PERIOD_S</key><string>${interval_s}</string>
     </dict>
     <key>StartInterval</key>
-    <integer>${interval_s}</integer>
+    <integer>${tick_s}</integer>
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
@@ -654,7 +654,7 @@ DERIVEPLIST
         # exits 0 on failure), and through _ks_bounded: a penalty-boxed job must
         # never block the installer. An empty first pass is harmless (the writer
         # keeps a proven-empty graph); the import kicks it again once it has data.
-        _ks_bounded "gui/$(id -u)/${label}"
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null; : > "${OSTLER_DIR}/state/derive-preferences.kick" 2>/dev/null; _ks_bounded "gui/$(id -u)/${label}"
     else
         warn "$MSG_WARN_DERIVE_AGENT_LOAD_FAILED"
     fi
