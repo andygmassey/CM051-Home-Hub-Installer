@@ -317,6 +317,10 @@ jobs:
         if: always()
         run: bash tests/test_model_pull_uses_the_pinned_ollama.sh
 
+      - name: model pull shows one overall bar, never 100 before success (F&F 2026-11-05)
+        if: always()
+        run: bash tests/test_model_pull_progress_is_one_overall_bar.sh
+
       - name: no shipped script calls a bare ollama (NEW-119 guard)
         if: always()
         run: bash tests/test_no_shipped_script_calls_a_bare_ollama.sh

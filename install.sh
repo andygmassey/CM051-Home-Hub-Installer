@@ -2517,26 +2517,26 @@ _gui_ollama_pull() {
         "$OLLAMA_APP_BIN" pull "$model"  # NEW-119: the PINNED engine; a clean Mac has no ollama on PATH (rc 127)
         return
     fi
-    local rc_file line pct last=-1 clean
+    local rc_file tag bar msg idx n
     rc_file="$(mktemp -t ostler-ollama-pull)"
-    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
-    # plain `read` sees each progress update whether ollama writes CR
-    # (tty-style) or LF (pipe-style) frames.
-    while IFS= read -r line; do
-        [[ "$line" == *%* ]] || continue
-        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
-        pct="${BASH_REMATCH[1]}"
-        (( pct > 100 )) && pct=100
-        (( pct == last )) && continue
-        last="$pct"
-        gui_emit PCT "step=$step" "pct=$pct"
-        # Strip ANSI escapes + non-printables so the log line is clean.
-        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
-        [[ -n "$clean" ]] && gui_log info "$clean"
-    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
+    # F&F 2026-11-05 item 4: `ollama pull` prints a percent PER LAYER, so the old per-line percent
+    # reset for each layer and sat at "100%" while the big layer ran on (20+ minutes of a full bar).
+    # The aggregator reads the same stream and emits one overall percent, capped at 99 until the
+    # pull exits 0. "Model i of N": OSTLER_PULL_N is set once at §3.9; idx counts distinct models.
+    # tests/test_model_pull_progress_is_one_overall_bar.sh runs the real aggregator on a fixture.
+    # F&F item 4: the stream goes through ollama_pull_progress (lib/progress_emitter.sh), which
+    # sums bytes over every layer into ONE overall bar. `tr \r \n` splits ollama's CR redraws.
+    [[ "$model" == "${_OSTLER_PULL_LAST:-}" ]] || OSTLER_PULL_IDX=$(( ${OSTLER_PULL_IDX:-0} + 1 )); _OSTLER_PULL_LAST="$model"
+    idx="${OSTLER_PULL_IDX:-1}"; n="${OSTLER_PULL_N:-1}"; (( idx > n )) && n=$idx
+    while IFS=$'\t' read -r tag bar msg; do
+        [[ "$tag" == PCT ]] || continue
+        gui_emit PCT "step=$step" "pct=$bar"
+        [[ -n "$msg" ]] && gui_log info "$msg"
+    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' | ollama_pull_progress "$idx" "$n" )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
     local rc
     rc="$(cat "$rc_file" 2>/dev/null)"
     rm -f "$rc_file"
+    if [[ "${rc:-1}" == "0" ]]; then gui_emit PCT "step=$step" "pct=$(( idx * 100 / n ))"; fi  # 100 only after ollama reports success
     return "${rc:-1}"
 }
 
@@ -24227,7 +24227,7 @@ fi
 # ── 3.9 AI models ─────────────────────────────────────────────────
 
 progress "Downloading AI models (this is the big one)" "ai_models"
-
+_pl="$("$OLLAMA_APP_BIN" list 2>/dev/null || true)"; OSTLER_PULL_IDX=0; OSTLER_PULL_N=0; [[ "$_pl" == *nomic-embed-text* ]] || OSTLER_PULL_N=$((OSTLER_PULL_N + 1)); [[ "${PULL_MODEL:-}" == [nN] || "$_pl" == *"${AI_MODEL:-}"* ]] || OSTLER_PULL_N=$((OSTLER_PULL_N + 1))  # "Model i of N" for the bar
 # OS003 #233, as amended on #2972: the pin is checked on what we PULL. A model
 # already on disk and serving is kept as it is (ostler_note_existing_model
 # records how it compares, for the walk); a model we pull now must match its
