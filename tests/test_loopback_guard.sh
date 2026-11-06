@@ -170,6 +170,11 @@ cmp -s "$LIB" "$D/ostler/lib/ostler-loopback-guard.sh" && ok "upgrade: payload l
 echo "$(id -u)" > "$D/guard/owner_uid"; cp "$LIB" "$D/guard/ostler-loopback-guard.sh"; run "$D" "$LIB" ostler_lg_apply >/dev/null; touch "$D/guard.plist"
 run "$D" "$LIB" "ostler_lg_upgrade_check '$D/ostler' '$LIB'" >/dev/null && [ ! -e "$D/ostler/state/loopback_guard_needs_admin" ] \
   && ok "upgrade: active guard -> marker cleared" || bad "upgrade ok path"
+sed -i.bak "s/^checked_at=.*/checked_at=$(( $(date +%s) - 7200 ))/" "$D/guard/status"
+run "$D" "$LIB" "ostler_lg_upgrade_check '$D/ostler' '$LIB'" >/dev/null && [ ! -e "$D/ostler/state/loopback_guard_needs_admin" ] \
+  && ok "upgrade: an ok status 2 h old (Mac slept) is NOT a missing guard, no false admin prompt" || bad "upgrade stale-ok"
+r="$(run "$D" "$LIB" ostler_lg_check)"; case "$r" in status_stale*) ok "install/Doctor check: the same 2 h old status IS stale ($r)" ;; *) bad "strict check on 2h status: $r" ;; esac
+run "$D" "$LIB" ostler_lg_apply >/dev/null
 echo "# changed" >> "$D/guard/ostler-loopback-guard.sh"
 run "$D" "$LIB" "ostler_lg_upgrade_check '$D/ostler' '$LIB'" >/dev/null; grep -q '^reason=guard_outdated' "$D/ostler/state/loopback_guard_needs_admin" \
   && ok "upgrade: root copy differs from payload -> guard_outdated" || bad "upgrade outdated: $(cat "$D/ostler/state/loopback_guard_needs_admin" 2>&1)"

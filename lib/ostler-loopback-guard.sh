@@ -148,6 +148,10 @@ _lg_notify_owner() {   # $1 owner uid, $2 text. Best effort, never fatal.
 # ── apply (root; the daemon's entry point) ────────────────────────────────
 ostler_lg_apply() {
     local owner range first last rules_n info tok boot prev st reason="" pf_on=no selftest_out
+    # Bound the daemon's own log (one line per 300 s tick): keep the newest half.
+    if [ -f "${LG_DIR}/guard.log" ] && [ "$(wc -c < "${LG_DIR}/guard.log")" -gt 262144 ]; then
+        tail -c 131072 "${LG_DIR}/guard.log" > "${LG_DIR}/guard.log.tmp" && cat "${LG_DIR}/guard.log.tmp" > "${LG_DIR}/guard.log"; rm -f "${LG_DIR}/guard.log.tmp"
+    fi
     owner="$(cat "${LG_DIR}/owner_uid" 2>/dev/null)"
     prev="$(ostler_lg_status_field verdict 2>/dev/null)"
     boot="$("$LG_SYSCTL" -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p')"
@@ -270,13 +274,13 @@ ostler_lg_remove() {   # root. Prints each step; rc 1 if any rule is left behind
 
 # ── owner half (sourced by install.sh; no root) ───────────────────────────
 # rc 0 only for a FRESH ok verdict with the daemon plist installed.
-ostler_lg_check() {
-    local v at now
+ostler_lg_check() {   # $1 max status age in seconds (default LG_STATUS_MAX_AGE)
+    local v at now max="${1:-$LG_STATUS_MAX_AGE}"
     [ -f "$LG_PLIST" ] || { echo "daemon_not_installed"; return 1; }
     v="$(ostler_lg_status_field verdict)" || { echo "no_status"; return 1; }
     at="$(ostler_lg_status_field checked_at)"; now="$(_lg_now)"
     _lg_is_uint "$at" || { echo "status_unreadable"; return 1; }
-    [ $((now - at)) -le "$LG_STATUS_MAX_AGE" ] || { echo "status_stale($((now - at))s)"; return 1; }
+    [ $((now - at)) -le "$max" ] || { echo "status_stale($((now - at))s)"; return 1; }
     [ "$v" = ok ] || { echo "$(ostler_lg_status_field reason)"; return 1; }
     [ "$(ostler_lg_status_field owner_uid)" = "$(id -u)" ] || { echo "guard_owner_is_another_account"; return 1; }
     echo ok
@@ -297,7 +301,11 @@ ostler_lg_upgrade_check() {   # $1 ~/.ostler dir, $2 payload copy of this file (
     mkdir -p "${odir}/state" "${odir}/lib"
     [ -z "$payload" ] || [ ! -r "$payload" ] || cp -f "$payload" "${odir}/lib/ostler-loopback-guard.sh"
     ostler_lg_tighten_ollama_dir || echo "loopback-guard: could not chmod 0700 ~/.ollama"
-    why="$(ostler_lg_check)"
+    # 3 days, not 15 minutes: a Mac that slept through the daemon's ticks has a
+    # stale status that is not a missing guard, and a false "needs admin" would
+    # put an unnecessary password prompt in front of the owner. Doctor applies
+    # the strict age.
+    why="$(ostler_lg_check 259200)"
     if [ "$why" = ok ] && [ -n "$payload" ] && [ -r "$payload" ] && ! cmp -s "$payload" "${LG_DIR}/ostler-loopback-guard.sh"; then
         why="guard_outdated"
     fi
