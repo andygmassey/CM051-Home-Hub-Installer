@@ -50,7 +50,8 @@
 # Tool paths are overridable for tests (PATH shims cannot replace an absolute
 # path): NETSAMP_SUDO, NETSAMP_LSOF, NETSAMP_NETTOP, NETSAMP_LOG, NETSAMP_PGREP,
 # NETSAMP_NC, NETSAMP_CONTROL_HOLD, NETSAMP_DSCACHEUTIL, NETSAMP_COLIMA, NETSAMP_LIMACTL,
-# NETSAMP_COLIMA_PROFILE, NETSAMP_CONTROL_HOST, NETSAMP_TELEMETRY_LIST.
+# NETSAMP_COLIMA_PROFILE, NETSAMP_CONTROL_HOST, NETSAMP_TELEMETRY_LIST,
+# NETSAMP_VM_DNS_WAIT_S (180), NETSAMP_VM_DNS_POLL_S (2).
 #
 # /bin/bash 3.2 and BSD userland on the box; GNU userland and mawk in CI.
 # British English; " -- " not em dashes.
@@ -387,7 +388,35 @@ fire_control() { # sampler phase [profile]
             done
         ) >> "${OUT}/control_host.log" 2>&1 &
     else
-        printf '%s\n' "
+        # DNS FIRST (v1.0.125 walk: the start control fired at vm_up and socat logged
+        # "getaddrinfo(example.com) Temporary failure in name resolution" because the
+        # VM's resolver was not up yet, so the control was never held and the VM
+        # sampler read CANNOT-RUN). Wait, bounded and logged, for CONTROL_HOST to
+        # resolve INSIDE the VM, and only then stamp the window and fire. If it never
+        # resolves, no window is stamped and the log names the waited time.
+        local dns_wait dns_poll
+        dns_wait="${NETSAMP_VM_DNS_WAIT_S:-180}"; dns_poll="${NETSAMP_VM_DNS_POLL_S:-2}"
+        case "${dns_wait}" in ""|*[!0-9]*) dns_wait=180 ;; esac
+        case "${dns_poll}" in ""|*[!0-9]*|0) dns_poll=2 ;; esac
+        (
+            dout="$(printf '%s\n' "
+if command -v getent >/dev/null 2>&1; then r='getent hosts ${CONTROL_HOST}'
+elif command -v nslookup >/dev/null 2>&1; then r='nslookup ${CONTROL_HOST}'
+else echo '#dns unchecked (no getent or nslookup in the VM)'; exit 0; fi
+w=0
+while :; do
+    if \$r >/dev/null 2>&1; then echo \"#dns ready after \${w}s\"; exit 0; fi
+    [ \$w -ge ${dns_wait} ] && { echo \"#dns never resolved ${CONTROL_HOST} inside the VM after \${w}s (NETSAMP_VM_DNS_WAIT_S=${dns_wait})\"; exit 4; }
+    sleep ${dns_poll}; w=\$(( w + ${dns_poll} ))
+done
+" | vm_exec "${prof}" sh -s 2>&1)"; drc=$?
+            printf '%s\n' "${dout}"
+            if [ "${drc}" -ne 0 ]; then
+                status vm control_dns "${ph}: ${dout:-dns check exited ${drc} with no output}"
+                exit 0
+            fi
+            status vm control_dns "${ph}: ${dout}"
+            printf '%s\n' "
 end=\$(( \$(date +%s) + ${hold} ))
 if command -v socat >/dev/null 2>&1; then t=socat
 elif command -v nc >/dev/null 2>&1; then t=nc
@@ -412,6 +441,7 @@ done
             start="$(epoch)"
             printf '%s\t%s\t%s\t%s\n' "$s" "$ph" "$start" "$(( start + hold ))" >> "${OUT}/controls.tsv"
             vm_exec "${prof}" sh -s
+        )
         ) >> "${OUT}/control_vm.log" 2>&1 &
     fi
 }
@@ -423,6 +453,17 @@ cmd_start() {
     mkdir -p "${OUT}" || { echo "cannot create ${OUT}" >&2; exit 2; }
     if [ -e "${OUT}/host.pid" ] || [ -e "${OUT}/vm.pid" ]; then
         echo "walk_net_sampler: ${OUT} already holds a run (pid files present). Use a new --out." >&2
+        exit 2
+    fi
+    # THE HOST LIST TRAVELS WITH THE SAMPLER, OR THE SAMPLER DOES NOT START.
+    # v1.0.125: the sampler was copied to the box without its sidecar
+    # box_walk_probes/telemetry_hosts.tsv; every in-walk resolution logged
+    # telemetry_list_unreadable and telemetry_hosts=0 was only recoverable by a
+    # post-walk re-resolution. Refuse at start, naming the path and both fixes,
+    # so a bare copy fails before the walk rather than silently during it.
+    if [ ! -r "${TELEMETRY_LIST}" ] || ! grep -q '^[^#[:space:]]' "${TELEMETRY_LIST}" 2>/dev/null; then
+        echo "walk_net_sampler: CANNOT-RUN: the telemetry host list is unreadable or empty at ${TELEMETRY_LIST}." >&2
+        echo "  Copy scripts/box_walk_probes/telemetry_hosts.tsv to box_walk_probes/ beside this script, or set NETSAMP_TELEMETRY_LIST. Nothing was started." >&2
         exit 2
     fi
     rm -f "${OUT}/STOP"
@@ -547,6 +588,8 @@ cmd_report() {
         vm_v=CANNOT-RUN; cr=1
         [ "$vok" -gt 0 ] || echo "  reason: no readable VM sample"
     fi
+    grep '^#dns never' "${OUT}/control_vm.log" 2>/dev/null | sed 's/^#/  reason: no VM control fired: /'
+    grep -m1 '^#dns ready' "${OUT}/control_vm.log" 2>/dev/null | sed 's/^#/  vm control /'
     grep -m1 '^#tool' "${OUT}/control_vm.log" 2>/dev/null | sed 's/^#tool /  vm control tool: /'
     echo "vm_sampler=${vm_v}"
 

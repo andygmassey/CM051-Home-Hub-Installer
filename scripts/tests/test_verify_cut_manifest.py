@@ -3053,3 +3053,71 @@ def test_box_walk_probe_phase1_summary_silent_without_box_rows(fake_cm051, fake_
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert "OSTLER_PHASE1_VERDICTS" not in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# walk126 row l: the pin is read from the CUT UNDER TEST, not the checkout.
+# v1.0.125: post_walk_qa ran this gate from main, whose gui/Makefile pinned
+# 0.5.34, while the walked tag (and the box) ran 0.5.36; the row FAILED on
+# main's pin. A checkout holding the tag must read the tag's pin.
+# ---------------------------------------------------------------------------
+
+def _git(cwd, *a):
+    subprocess.run(["git", "-C", str(cwd), *a], check=True, capture_output=True,
+                   env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                            GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com"))
+
+
+def _repo_with_tag_ahead_of_tree(tmp_path):
+    cm051 = tmp_path / "cm051"
+    cm051.mkdir()
+    _git(cm051, "init", "-q")
+    _write_daemon_pin_makefile(cm051, "0.4.40")
+    _git(cm051, "add", "-A"); _git(cm051, "commit", "-q", "-m", "tag pin")
+    _git(cm051, "tag", "v1.0.999")
+    _write_daemon_pin_makefile(cm051, "0.4.39")          # the checkout (main) is BEHIND the tag
+    _git(cm051, "commit", "-q", "-am", "main pin")
+    return cm051
+
+
+def test_freshness_reads_the_pin_from_the_tag_under_test(tmp_path, monkeypatch):
+    monkeypatch.delenv("OSTLER_CUT_MANIFEST_PIN_REF", raising=False)
+    cm051 = _repo_with_tag_ahead_of_tree(tmp_path)
+    mod = _load_module()
+    ref = mod._pin_ref_for(cm051, "v1.0.999")
+    assert ref == "v1.0.999"
+    fake = _FakeGh(tag_sha="d" * 40, head_sha="d" * 40, tag="hub-v0.4.40")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app", "pin_ref": ref})
+    assert result.status == "PASS", result.detail
+    assert "v0.4.40" in result.detail and "pin read at v1.0.999" in result.detail
+    # and the gate asked GitHub for the TAG's pin, never the checkout's
+    assert any("hub-v0.4.40" in c for c in fake.calls)
+    assert not any("hub-v0.4.39" in c for c in fake.calls)
+
+
+def test_freshness_control_no_ref_reads_the_working_tree_and_says_so(tmp_path, monkeypatch):
+    # The defect's own shape, kept as a control: with no ref the checkout's pin is read.
+    monkeypatch.delenv("OSTLER_CUT_MANIFEST_PIN_REF", raising=False)
+    cm051 = _repo_with_tag_ahead_of_tree(tmp_path)
+    mod = _load_module()
+    assert mod._pin_ref_for(cm051, "v1.0.404") is None          # a tag this checkout lacks
+    assert mod._pin_ref_for(cm051, None) is None
+    fake = _FakeGh(tag_sha="d" * 40, head_sha="d" * 40, tag="hub-v0.4.39")
+    fake.install(mod)
+    result = mod.check_pinned_artefact_freshness(
+        _daemon_entry(), {"cm051_dir": cm051, "app_path": tmp_path / "no-app", "pin_ref": None})
+    assert result.status == "PASS", result.detail
+    assert "pin read from the working tree" in result.detail
+
+
+def test_pin_ref_env_override_and_an_unreadable_ref_is_not_silently_main(tmp_path, monkeypatch):
+    cm051 = _repo_with_tag_ahead_of_tree(tmp_path)
+    mod = _load_module()
+    monkeypatch.setenv("OSTLER_CUT_MANIFEST_PIN_REF", "v1.0.999")
+    assert mod._pin_ref_for(cm051, "v1.0.404") == "v1.0.999"
+    v, err = mod._extract_pinned_version(cm051, {"file": "gui/Makefile.absent",
+                                                 "pattern": r"DAEMON_VERSION\s*[?:]?=\s*(\d+\.\d+\.\d+)"},
+                                         ref="v1.0.999")
+    assert v is None and "at v1.0.999" in err
