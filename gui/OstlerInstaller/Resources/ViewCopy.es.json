@@ -241,6 +241,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Escribe INSTALL",
     "consent_install_typed_mismatch": "Escribe INSTALL exactamente (no importan las mayúsculas) para confirmar, o haz clic en Cancelar para volver.",
+    "yesno_switch_on_to_continue": "Actívalo para continuar. Para detenerte, usa Salir.",
     "preinstall_status_caption": "ESTADO"
   },
   "assistant_name_suggestions": {

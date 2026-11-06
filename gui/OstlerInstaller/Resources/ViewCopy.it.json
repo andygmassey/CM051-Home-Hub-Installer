@@ -241,6 +241,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Digita INSTALL",
     "consent_install_typed_mismatch": "Digita INSTALL esattamente come indicato (maiuscole e minuscole non contano) per confermare, oppure fai clic su Annulla per tornare indietro.",
+    "yesno_switch_on_to_continue": "Attiva questa opzione per continuare. Per fermarti, usa Esci.",
     "preinstall_status_caption": "STATO"
   },
   "assistant_name_suggestions": {

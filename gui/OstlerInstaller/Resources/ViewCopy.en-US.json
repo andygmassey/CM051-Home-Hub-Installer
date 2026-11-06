@@ -238,6 +238,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Type INSTALL",
     "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
+    "yesno_switch_on_to_continue": "Turn this on to continue. To stop, use Quit.",
     "preinstall_status_caption": "STATUS"
   },
   "assistant_name_suggestions": {
