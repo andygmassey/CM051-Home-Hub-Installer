@@ -1252,7 +1252,7 @@ let yesnoPromptsWhereNoEndsInstall: Set<String> = [
     "consent_third_party",
 ]
 
-/// Whether Continue is enabled on a yes/no prompt with the switch at `isOn`.
+/// True when the yes/no prompt's Continue is enabled with the switch at `isOn`.
 func yesnoContinueEnabled(promptId: String, isOn: Bool) -> Bool {
     return isOn || !yesnoPromptsWhereNoEndsInstall.contains(promptId)
 }
