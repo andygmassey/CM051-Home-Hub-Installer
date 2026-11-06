@@ -115,7 +115,7 @@ def _box(tmp: pathlib.Path, mp: Patch):
     raws = [{"subject": s, "category": "music", "strength": "0.8",
              "source": "linkedin", "observed_at": "2026-05-01T00:00:00",
              "created_at": None, "polarity": "like"}
-            for s in ("Radiohead", "Aphex Twin", "Portishead")]
+            for s in ("Jazz", "Cycling", "Pottery")]
     art = ea.build_artefact(ip.compile_profile(raws, now=NOW), now=NOW)
     art_path = tmp / "interest_profile.json"
     art_path.write_text(json.dumps(art), encoding="utf-8")
