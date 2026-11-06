@@ -55,55 +55,6 @@
              with urllib.request.urlopen(req, timeout=10) as resp:
                  return 200 <= resp.status < 300
          except Exception:
---- a/emit_frontpage.py
-+++ b/emit_frontpage.py
-@@ -159,6 +159,37 @@
-     return path
- 
- 
-+REPLY_DEBT_NAME = "reply_debt.json"
-+
-+
-+def write_reply_debt_list(signals: dict | None, now: datetime,
-+                          out_dir: str | None = None) -> str:
-+    """Save the Hub's owed list beside the feed for the wiki's Reply Debt wing.
-+
-+    2026-11-05: the wiki listed a shop's SMS as needing a reply because it
-+    built its own looser list. The wiki compiler runs in a container that
-+    cannot reach the loopback API, so this tick, which already fetched
-+    /api/v1/reply-debt for the "Needs you now" card, hands the SAME payload
-+    over as a file. A fetch that returned nothing is written as
-+    ``status: unavailable`` (never an empty list), so the wing says "couldn't
-+    check" rather than "all caught up". Returns the status written; never
-+    raises (a hand-off failure must not cost the Front Page)."""
-+    payload = (signals or {}).get("reply_debt") if isinstance(signals, dict) else None
-+    if isinstance(payload, dict):
-+        doc = {"schema": 1, "status": "ok", "fetched_at": now.isoformat(),
-+               "payload": payload}
-+    else:
-+        doc = {"schema": 1, "status": "unavailable", "fetched_at": now.isoformat(),
-+               "reason": "reply_debt_fetch_failed"}
-+    try:
-+        _atomic_write(os.path.join(out_dir or editor_dir(), REPLY_DEBT_NAME),
-+                      json.dumps(doc, indent=1, ensure_ascii=False))
-+    except OSError as exc:
-+        print(f"front-page: reply-debt hand-off not written ({exc})", file=sys.stderr)
-+        return "write_failed"
-+    return doc["status"]
-+
-+
- def _obtain_profile(oxigraph_url: str | None, from_artefact: bool) -> dict:
-     if from_artefact:
-         art_path = os.path.expanduser(os.environ.get(
-@@ -207,6 +238,8 @@
-     ledger = cl.load_ledger(led_path)
-     signals = read_signals()
-     demo = bool(os.environ.get("OSTLER_DEMO_MODE"))
-+    if not demo:
-+        write_reply_debt_list(signals, now)
-     # Pro entitlement (entitlement.py): None = enforcement off (default until
-     # the daemon-side sidecar writer ships), else a fail-closed boolean.
-     entitled = ent.front_page_entitled(now)
 --- a/frontpage.py
 +++ b/frontpage.py
 @@ -355,8 +355,136 @@
