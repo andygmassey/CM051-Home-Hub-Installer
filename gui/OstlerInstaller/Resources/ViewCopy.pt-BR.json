@@ -241,6 +241,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Digite INSTALL",
     "consent_install_typed_mismatch": "Digite INSTALL exatamente (maiúsculas e minúsculas não importam) para confirmar ou clique em Cancelar para voltar.",
+    "yesno_switch_on_to_continue": "Ative esta opção para continuar. Para parar, use Sair.",
     "preinstall_status_caption": "STATUS"
   },
   "assistant_name_suggestions": {
