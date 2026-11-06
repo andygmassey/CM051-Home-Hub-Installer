@@ -172,10 +172,10 @@ jobs:
         if: always()
         run: /bin/bash tests/test_upgrade_repairs_the_fda_venv.sh
 
-      # The container VM is sized from host RAM (v1.0.126 a1) and an upgrade
-      # resizes only a VM Ostler owns (a2). On the 125 walk the wiki compile
-      # was OOM-killed inside the fixed 4 GiB VM. Behavioural against stub
-      # colima/docker/curl/launchctl, with a mutant that must go red.
-      - name: the VM is sized from host RAM and only Ostler's VM is resized (126 a1, a2)
+      # The container VM is sized from host RAM at install (v1.0.126 a1), and
+      # the upgrade block still never touches colima. On the 125 walk the wiki
+      # compile was OOM-killed inside the fixed 4 GiB VM. Behavioural against
+      # stub colima/docker, with a mutant that must go red.
+      - name: the VM is sized from host RAM and the upgrade leaves colima alone (126 a1)
         if: always()
         run: /bin/bash tests/test_vm_size_from_host_ram.sh

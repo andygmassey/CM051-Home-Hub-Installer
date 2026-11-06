@@ -1609,7 +1609,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             mv "$_UPG_APP_OLD" "$_UPG_APP" 2>/dev/null || true
             _upg_die 23 "failed to move .new daemon into place"
         fi
-        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"; _upg_vm_lib="$(_upg_payload_dir services/vm)/ostler-vm-size.sh"; if [[ -f "$_upg_vm_lib" ]] && . "$_upg_vm_lib"; then ostler_vm_upgrade_prepare _upg_log; else _upg_log "ERROR: payload carries no services/vm/ostler-vm-size.sh; the container VM is NOT resized"; fi  # (4c) VM resize, daemon still booted out: lib/ostler-vm-size.sh
+        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"
 
         # (5) Re-render plists (generic env preserve + token fallback) + bootstrap.
         _upg_rerender_plists
@@ -1618,7 +1618,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             exit "$_prc"   # 30/31 logged; the Hub health-check will roll back
         fi
 
-        _upg_vm_rc=0; if declare -f ostler_vm_upgrade_verify >/dev/null; then ostler_vm_upgrade_verify _upg_log "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" || _upg_vm_rc=$?; fi; [[ $_upg_vm_rc -ne 1 ]] || _upg_die 26 "ERR-UPG-VM-RESIZE-STORES-DOWN: qdrant/oxigraph did not come back after the VM resize, even at the old size"  # (5b) the daemon started the VM; (6) refresh vendored trees (best-effort; Invariant 4)
+        # (6) Refresh vendored service code trees (best-effort; Invariant 4).
         _upg_refresh_doctor
         _upg_refresh_knowledge
         _upg_refresh_cm048
