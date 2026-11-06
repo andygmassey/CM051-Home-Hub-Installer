@@ -1294,6 +1294,15 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
 # THERE against the one this walk mounted, and the app is copied out of it.
 # A failure leaves NO app and is announced, never fatal: the probe then reads
 # CANNOT-RUN about the right thing. See scripts/lib_walk_place_installer_app.sh.
+# THE DMG THIS WALK STAGED, recorded on the box for post_walk_qa.sh. Before
+# this, the record hashed whatever file in ~/Downloads was NAMED for the
+# version, and on the v1.0.124 walk that was a stale build of the same
+# version while the walk had staged OstlerInstaller.dmg: the wrong build was
+# bound to the record as measured. Empty unless the scp below succeeds; the
+# config block writes ~/.walk-dmg from these, or removes it, on EVERY walk,
+# so a repo walk never inherits the previous walk's marker.
+_wdm_name=""
+_wdm_sha=""
 if [[ "$STAGE_KIND" == "artefact" ]]; then
     rule "INSTALLER APP: placed at /Applications from the DMG on the box"
     # shellcheck source=scripts/lib_walk_place_installer_app.sh
@@ -1301,6 +1310,8 @@ if [[ "$STAGE_KIND" == "artefact" ]]; then
     _wpa_sha="$(shasum -a 256 "$FROM_DMG" | awk '{print $1}')"
     _wpa_name="$(basename "$FROM_DMG")"
     if [[ -n "$_wpa_sha" ]] && scp -q -o ConnectTimeout=10 -o BatchMode=yes "$FROM_DMG" "${HOST}:Downloads/${_wpa_name}"; then
+        _wdm_name="$_wpa_name"
+        _wdm_sha="$_wpa_sha"
         if walk_place_installer_app_script | "${SSH[@]}" "WPA_DMG=\"\$HOME/Downloads/${_wpa_name}\" WPA_SHA='${_wpa_sha}' /bin/sh -s"; then
             say "installer app: PLACED (app_signature_survives_first_run will measure it)"
         else
@@ -1315,6 +1326,13 @@ fi
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh
     printf '%s\n' \"${ARTEFACT_VERSION:-}\" > ~/.walk-artefact-version
+    # WHICH DMG this walk staged: version, path on the box, sha256, one
+    # tab-separated line. post_walk_qa.sh re-hashes that path and binds the
+    # record to it only on equality. Removed when nothing was staged.
+    rm -f ~/.walk-dmg
+    if [ -n '${_wdm_sha}' ]; then
+        printf '%s\t%s\t%s\n' '${ARTEFACT_VERSION:-}' \"\$HOME/Downloads/${_wdm_name}\" '${_wdm_sha}' > ~/.walk-dmg
+    fi
     # STORE PROVENANCE. The reset step writes the run file; consuming it here
     # (rather than reading it in place) means a walk with no --reset cannot
     # inherit the previous walk answer and present it as this one.
@@ -1342,6 +1360,7 @@ fi
     echo 'walk config written:'
     echo \"  log:        \$(cat ~/.walk-log)\"
     echo \"  install.sh: \$(cat ~/.walk-installsh)\"
+    echo \"  dmg:        \$(if [ -s ~/.walk-dmg ]; then cut -f2,3 ~/.walk-dmg; else echo '(none staged)'; fi)\"
     echo \"  artefact:   \$(cat ~/.walk-artefact-version 2>/dev/null | sed 's/^\$/(repo walk -- none)/')\"
     echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
