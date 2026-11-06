@@ -309,9 +309,19 @@ from diagnostic_copy import (
     WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
     WIKI_COMPILE_KILL_UNREADABLE_TITLE,
     WIKI_SUMMARIES_KILLED_TITLE_FMT,
+    STORE_LABELS,
+    STORE_RESTARTED_DETAIL_FMT,
+    STORE_RESTARTED_FIX,
+    STORE_RESTARTED_FIX_COMMAND,
+    STORE_RESTARTED_OOM_TITLE_FMT,
+    STORE_RESTARTED_TITLE_FMT,
+    STORE_RESTART_UNCHECKED_DETAIL_FMT,
+    STORE_RESTART_UNCHECKED_TITLE,
 )
 from status_collector import (
+    STORE_RESTART_WINDOW_S,
     WIKI_URL,
+    collect_store_restarts,
     read_wiki_compile_kills,
     detect_ostler_prefix,
     is_native_deployment,
@@ -958,6 +968,51 @@ def _wiki_compile_kill_findings() -> list[dict]:
             ),
             "fix": WIKI_COMPILE_KILLED_FIX,
             "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    return out
+
+
+def check_store_restarts(snapshot: Any) -> list[dict]:
+    """A data store killed and restarted in the last day is a CRITICAL.
+
+    v1.0.126, from the 125 box: the OOM killer took oxigraph, Docker restarted
+    it, and every probe answered. One row per restarted store; "not enough
+    memory" only when an OOM kill of THAT store is on record. Docker that
+    cannot be asked is a warning, never silence.
+    """
+    from datetime import datetime, timezone
+    try:
+        rows, err = collect_store_restarts()
+    except Exception as exc:  # noqa: BLE001
+        rows, err = [], f"{type(exc).__name__}"
+    if err:
+        return [{
+            "severity": "warning",
+            "title": STORE_RESTART_UNCHECKED_TITLE,
+            "detail": STORE_RESTART_UNCHECKED_DETAIL_FMT.format(reason=err),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        }]
+    now = datetime.now(tz=timezone.utc)
+    out: list[dict] = []
+    for r in rows:
+        if r.restart_count <= 0 and not r.oom:
+            continue
+        if r.started_at is None or (now - r.started_at).total_seconds() > STORE_RESTART_WINDOW_S:
+            continue
+        when = r.started_at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+        fmt = STORE_RESTARTED_OOM_TITLE_FMT if r.oom else STORE_RESTARTED_TITLE_FMT
+        out.append({
+            "severity": "critical",
+            "title": fmt.format(time=when),
+            "detail": STORE_RESTARTED_DETAIL_FMT.format(
+                store=STORE_LABELS.get(r.name, r.name)),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
             "risk": "low",
             "category": "runtime",
         })
@@ -3108,6 +3163,7 @@ ALL_RULES = [
     check_qdrant_health,
     check_oxigraph_health,
     check_wiki_health,
+    check_store_restarts,
     check_engine_supervisor_present,
     check_listener_watchdog,
     check_redis_health,

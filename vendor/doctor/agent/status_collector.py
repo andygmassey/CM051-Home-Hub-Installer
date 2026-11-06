@@ -1006,3 +1006,79 @@ def read_wiki_compile_kills(state_dir: str | None = None) -> list[WikiCompileKil
         out.append(WikiCompileKill(phase, rc, cause, at))
     out.sort(key=lambda k: k.at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return out
+
+
+# ---------------------------------------------------------------------------
+# A data store that was KILLED and restarted (v1.0.126, from the 125 box)
+# ---------------------------------------------------------------------------
+#
+# Measured by ORM on the 125 box: the kernel OOM killer took the OXIGRAPH
+# store at about 10:24Z; `restart: unless-stopped` brought it back, every
+# probe answered, and nothing said the knowledge graph had gone down. Docker
+# CLEARS State.OOMKilled when it restarts a container, so the oom EVENT from
+# `docker events` is the evidence that survives the restart; RestartCount and
+# StartedAt say when. Read-only: two docker calls, no logs, no content.
+
+STORE_CONTAINERS = ("ostler-qdrant", "ostler-oxigraph", "ostler-redis")
+STORE_RESTART_WINDOW_S = 24 * 3600
+
+
+@dataclass
+class StoreRestart:
+    name: str
+    restart_count: int
+    started_at: datetime | None
+    oom: bool
+
+
+def collect_store_restarts(now: datetime | None = None) -> tuple[list[StoreRestart], str | None]:
+    """Every store container that has been restarted, and whether an OOM
+    kill of THAT container is on record (State.OOMKilled, or a docker `oom`
+    event in the last day). Returns (rows, error); error is set only when
+    docker could not be asked at all, so "could not look" never reads as
+    "nothing restarted"."""
+    now = now or datetime.now(tz=timezone.utc)
+    docker = os.environ.get("OSTLER_DOCTOR_DOCKER_BIN") or _docker_bin()
+    try:
+        r = subprocess.run(
+            [docker, "inspect", "-f",
+             "{{.Name}}\t{{.RestartCount}}\t{{.State.OOMKilled}}\t{{.State.StartedAt}}",
+             *STORE_CONTAINERS],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        return [], "Docker not installed"
+    except subprocess.TimeoutExpired:
+        return [], "docker inspect timed out"
+    rows: list[StoreRestart] = []
+    for line in (r.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        try:
+            count = int(parts[1])
+        except ValueError:
+            continue
+        started = None
+        try:
+            started = datetime.fromisoformat(parts[3].strip()[:26].rstrip("Z").split(".")[0] + "+00:00")
+        except ValueError:
+            started = None
+        rows.append(StoreRestart(parts[0].lstrip("/"), count, started,
+                                 parts[2].strip().lower() == "true"))
+    if not rows:
+        return [], f"docker inspect returned no store containers (exit {r.returncode})"
+    since = int(now.timestamp()) - STORE_RESTART_WINDOW_S
+    try:
+        ev = subprocess.run(
+            [docker, "events", "--since", str(since), "--until", str(int(now.timestamp())),
+             "--filter", "event=oom", "--format", "{{.Actor.Attributes.name}}\t{{.Time}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        oom_names = {l.split("\t", 1)[0].strip() for l in (ev.stdout or "").splitlines() if l.strip()}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        oom_names = set()
+    for row in rows:
+        if row.name in oom_names:
+            row.oom = True
+    return rows, None

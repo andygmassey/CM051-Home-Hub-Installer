@@ -27,13 +27,23 @@
 
 # ── THE TABLE ─────────────────────────────────────────────────────────
 # One row per host-RAM band, highest band first:
-#   min_host_gib  vm_memory_gib  vm_cpus
+#   min_host_gib  vm_memory_gib  vm_cpus  wiki_compiler_mib  wiki_site_mib
 # The last row (min 0) is the floor. CPUs are proportionate to memory, then
 # clamped so the host keeps half its cores (never below 2).
-OSTLER_VM_SIZE_TABLE="32 10 5
-24 8 4
-16 6 3
-0 4 2"
+#
+# The two last columns are docker cgroup memory limits (compose mem_limit)
+# for the wiki containers. On the 125 box the kernel made 9 global OOM kills
+# in the 4 GiB VM: 7 compiler pythons at 838-960 MB, 1 mkdocs, and the
+# OXIGRAPH store. With a cgroup limit the compiler is killed inside its own
+# cgroup (memcg OOM) and never reaches the global OOM killer that took the
+# store. The site's mkdocs build RSS is NOT MEASURED; its limit is generous
+# so a big wiki is not memcg-killed in a restart loop (ORM row c retunes).
+# Whatever the limits leave is the stores' (qdrant, oxigraph, redis),
+# which carry no cap and a negative oom_score_adj in the compose file.
+OSTLER_VM_SIZE_TABLE="32 10 5 4096 2048
+24 8 4 3072 1536
+16 6 3 2048 1024
+0 4 2 1536 1024"
 OSTLER_VM_DISK_GIB=30
 
 # ── host detection ────────────────────────────────────────────────────
@@ -57,15 +67,15 @@ ostler_vm_host_cpus() {
     printf '%s\n' "$_n"
 }
 
-# ostler_vm_size_for <ram_gib|""> <ncpu|""> -> "MEM CPU" on stdout.
+# ostler_vm_size_for <ram_gib|""> <ncpu|""> -> "MEM CPU COMPILER_MIB SITE_MIB".
 ostler_vm_size_for() {
-    local _ram="$1" _ncpu="$2" _row _min _mem _cpu _cpu_r _cap
-    _mem=4; _cpu=2
+    local _ram="$1" _ncpu="$2" _row _min _mem _cpu _cpu_r _cap _cm _sm _cm_r _sm_r
+    _mem=4; _cpu=2; _cm=1536; _sm=1024
     case "$_ram" in ''|*[!0-9]*) _ram="" ;; esac
     if [ -n "$_ram" ]; then
-        while read -r _min _row _cpu_r; do
+        while read -r _min _row _cpu_r _cm_r _sm_r; do
             [ -n "$_min" ] || continue
-            if [ "$_ram" -ge "$_min" ]; then _mem="$_row"; _cpu="$_cpu_r"; break; fi
+            if [ "$_ram" -ge "$_min" ]; then _mem="$_row"; _cpu="$_cpu_r"; _cm="$_cm_r"; _sm="$_sm_r"; break; fi
         done <<EOF
 $OSTLER_VM_SIZE_TABLE
 EOF
@@ -75,7 +85,7 @@ EOF
         _cap=$(( _ncpu / 2 )); [ "$_cap" -ge 2 ] || _cap=2
         [ "$_cpu" -le "$_cap" ] || _cpu="$_cap"
     fi
-    printf '%s %s\n' "$_mem" "$_cpu"
+    printf '%s %s %s %s\n' "$_mem" "$_cpu" "$_cm" "$_sm"
 }
 
 # Sets OSTLER_VM_MEM_GIB, OSTLER_VM_CPUS and OSTLER_VM_SIZE_LINE (one log line
@@ -85,8 +95,9 @@ ostler_vm_size_resolve() {
     _ram="$(ostler_vm_host_ram_gib)"
     _ncpu="$(ostler_vm_host_cpus)"
     _sz="$(ostler_vm_size_for "$_ram" "$_ncpu")"
-    OSTLER_VM_MEM_GIB="${_sz%% *}"
-    OSTLER_VM_CPUS="${_sz##* }"
+    set -- $_sz
+    OSTLER_VM_MEM_GIB="$1"; OSTLER_VM_CPUS="$2"
+    OSTLER_WIKI_COMPILER_MEM_MIB="$3"; OSTLER_WIKI_SITE_MEM_MIB="$4"
     if [ -n "$_ram" ]; then
         OSTLER_VM_SIZE_LINE="container VM size: ${OSTLER_VM_MEM_GIB} GiB memory, ${OSTLER_VM_CPUS} CPUs, ${OSTLER_VM_DISK_GIB} GiB disk (host ${_ram} GiB RAM, ${_ncpu:-unknown} CPUs; lib/ostler-vm-size.sh table)"
     else
@@ -123,5 +134,28 @@ ostler_vm_mark_owned() {
     mkdir -p "${_m%/*}" 2>/dev/null || return 0
     printf 'owner=ostler\ncreated_at=%s\nreason=%s\n' \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${1:-created by the Ostler installer}" > "$_m" 2>/dev/null || true
+    return 0
+}
+
+# Write the wiki containers' memory limits for THIS host's table row into the
+# compose .env (docker compose reads it from the project dir on every call:
+# install, the refresh tick, the daemon). Replaces any earlier value, keeps
+# every other key and the file mode. Sets OSTLER_VM_LIMITS_LINE for the log.
+# Always returns 0; a write failure leaves the compose defaults (the floor
+# row) in force and says so in the line.
+ostler_vm_write_container_limits() {
+    local _env="$1" _tmp
+    ostler_vm_size_resolve
+    OSTLER_VM_LIMITS_LINE="wiki container memory limits: compiler ${OSTLER_WIKI_COMPILER_MEM_MIB}m, site ${OSTLER_WIKI_SITE_MEM_MIB}m (VM ${OSTLER_VM_MEM_GIB} GiB; stores uncapped)"
+    [ -n "$_env" ] || return 0
+    _tmp="${_env}.ostler-vm-tmp"
+    if { [ -f "$_env" ] && grep -vE '^OSTLER_WIKI_(COMPILER|SITE)_MEM_LIMIT=' "$_env" > "$_tmp" 2>/dev/null || : > "$_tmp"; } \
+        && printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=%sm\nOSTLER_WIKI_SITE_MEM_LIMIT=%sm\n' \
+            "$OSTLER_WIKI_COMPILER_MEM_MIB" "$OSTLER_WIKI_SITE_MEM_MIB" >> "$_tmp" \
+        && chmod 600 "$_tmp" && mv -f "$_tmp" "$_env"; then
+        return 0
+    fi
+    rm -f "$_tmp" 2>/dev/null || true
+    OSTLER_VM_LIMITS_LINE="${OSTLER_VM_LIMITS_LINE}; COULD NOT WRITE ${_env}, so the compose floor defaults apply"
     return 0
 }

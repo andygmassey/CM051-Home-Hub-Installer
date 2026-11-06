@@ -149,6 +149,52 @@ fi
 grep -qF 'cp "${SRCROOT}/../lib/ostler-vm-size.sh"' "$PROJECT_YML" && grep -qF -- '- $(SRCROOT)/../lib/ostler-vm-size.sh' "$PROJECT_YML" \
     && ok "arm 5: the DMG bundle phase copies lib/ostler-vm-size.sh and declares it" \
     || bad "arm 5: project.yml does not bundle lib/ostler-vm-size.sh (fresh installs would get the old 4 GiB)"
+# ── arm 6: container memory limits (125 box: 9 OOM kills incl. OXIGRAPH) ──
+# The compiler and wiki-site get a cgroup memory limit sized from the same
+# table, so a runaway compile is killed INSIDE its own cgroup and never reaches
+# the global OOM killer; the stores get a negative oom_score_adj so that, if a
+# global OOM still happens, the kernel picks the wiki first.
+CMP="$TMP/compose.yml"
+awk '/cat > "\$\{OSTLER_DIR\}\/docker-compose.yml" <<.DCEOF.$/{f=1; next} /^DCEOF$/{f=0} f' "$INSTALL_SH" > "$CMP"
+svc() { awk -v s="  $1:" '$0==s{f=1; next} f && /^  [a-z][a-z0-9-]*:$/{exit} f' "$CMP"; }
+if [ ! -s "$CMP" ] || ! svc oxigraph | grep -q 'container_name: ostler-oxigraph'; then
+    bad "arm 6 premise: could not extract the compose heredoc and its oxigraph service"
+else
+    svc wiki-compiler | grep -qE '^    mem_limit: "\$\{OSTLER_WIKI_COMPILER_MEM_LIMIT:-1536m\}"( +#.*)?$' \
+        && svc wiki-compiler | grep -qE '^    oom_score_adj: [1-9][0-9]*( +#.*)?$' \
+        && ok "arm 6: wiki-compiler has a sized mem_limit (floor 1536m) and a positive oom_score_adj" \
+        || bad "arm 6: wiki-compiler has no sized mem_limit / positive oom_score_adj: a compile can still take a store down"
+    svc wiki-site | grep -qE '^    mem_limit: "\$\{OSTLER_WIKI_SITE_MEM_LIMIT:-1024m\}"( +#.*)?$' \
+        && svc wiki-site | grep -qE '^    oom_score_adj: [1-9][0-9]*( +#.*)?$' \
+        && ok "arm 6: wiki-site (mkdocs, killed once on 125) has a sized mem_limit and a positive oom_score_adj" \
+        || bad "arm 6: wiki-site has no sized mem_limit / positive oom_score_adj"
+    for st in qdrant oxigraph redis; do
+        svc "$st" | grep -qE '^    oom_score_adj: -[1-9][0-9]*( +#.*)?$' && ! svc "$st" | grep -q 'mem_limit' \
+            && ok "arm 6: store $st keeps priority: negative oom_score_adj, no memory cap" \
+            || bad "arm 6: store $st has no negative oom_score_adj (or was capped)"
+    done
+    grep -qE 'ostler_vm_write_container_limits "\$\{OSTLER_DIR\}/\.env".*; cat > "\$\{OSTLER_DIR\}/docker-compose.yml" <<.DCEOF.$' "$INSTALL_SH" \
+        && ok "arm 6: install.sh writes the limits into the compose .env on the line that writes the compose file" \
+        || bad "arm 6: install.sh does not write the limits into the compose .env before the compose file"
+    E="$TMP/env6"; printf 'JWT_SECRET=x\nOSTLER_WIKI_COMPILER_MEM_LIMIT=9m\n' > "$E"; chmod 600 "$E"
+    got="$( . "$LIB"; OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)) OSTLER_VM_HOST_NCPU=8; export OSTLER_VM_HOST_RAM_BYTES OSTLER_VM_HOST_NCPU
+            ostler_vm_write_container_limits "$E" >/dev/null 2>&1; echo "rc=$?" )"
+    if [ "$got" = "rc=0" ] && grep -qx 'OSTLER_WIKI_COMPILER_MEM_LIMIT=2048m' "$E" && grep -qx 'OSTLER_WIKI_SITE_MEM_LIMIT=1024m' "$E" \
+       && grep -qx 'JWT_SECRET=x' "$E" && [ "$(grep -c '^OSTLER_WIKI_COMPILER_MEM_LIMIT=' "$E")" = 1 ] \
+       && [ "$(stat -f '%Lp' "$E" 2>/dev/null || stat -c '%a' "$E")" = 600 ]; then
+        ok "arm 6: 16 GB host (6 GiB VM) -> compiler 2048m, site 1024m in .env; stale value replaced, other keys and mode 600 kept"
+    else bad "arm 6: .env limits wrong ($got): $(tr '\n' ';' < "$E")"; fi
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=2048m\nOSTLER_WIKI_SITE_MEM_LIMIT=1024m\n' > "$TMP/.env"
+        cfg="$(cd "$TMP" && docker compose -f "$CMP" --profile compile config 2>&1)"  # read-only; real HOME so the CLI finds its compose plugin
+        if grep -q 'mem_limit: "2147483648"' <<< "$cfg" && grep -q 'oom_score_adj: -500' <<< "$cfg"; then
+            ok "arm 6: docker compose config accepts the file and resolves the compiler limit to 2 GiB"
+        else bad "arm 6: docker compose config: $(grep -iE 'error|mem_limit|oom' <<< "$cfg" | head -3 | tr '\n' ';')"; fi
+    else
+        echo "  note CANNOT-RUN: no docker compose CLI here, so compose config was not validated (counted neither pass nor fail)"
+    fi
+fi
+
 /bin/bash -n "$LIB" && ok "lib parses under /bin/bash ($(/bin/bash -c 'echo $BASH_VERSION'))" || bad "lib does not parse under /bin/bash"
 
 echo "=== ${PASS} passed / ${FAIL} failed ==="

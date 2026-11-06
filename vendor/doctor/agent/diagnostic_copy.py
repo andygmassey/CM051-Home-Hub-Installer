@@ -267,6 +267,30 @@ WIKI_COMPILE_KILL_UNREADABLE_DETAIL = (
 )
 WIKI_COMPILE_KILL_TIME_FMT = "%H:%M on %-d %b"
 
+# ── a data store that was KILLED and restarted (v1.0.126, from the 125 box)
+STORE_RESTARTED_OOM_TITLE_FMT = "Your memory store restarted at {time}: not enough memory"
+STORE_RESTARTED_TITLE_FMT = "Your memory store restarted at {time}"
+STORE_RESTARTED_DETAIL_FMT = (
+    "Part of what Ostler remembers ({store}) stopped and started again. "
+    "While it was down, nothing could be saved to it or read from it. It is "
+    "running again now and your data is kept on this Mac."
+)
+STORE_RESTARTED_FIX = (
+    "Close apps you are not using. If this happens again, contact Ostler "
+    "support."
+)
+STORE_RESTARTED_FIX_COMMAND = "/opt/homebrew/bin/docker ps --filter name=ostler-"
+STORE_RESTART_UNCHECKED_TITLE = "Ostler could not check whether your memory store restarted"
+STORE_RESTART_UNCHECKED_DETAIL_FMT = (
+    "The container runtime could not be asked ({reason}), so a restart of "
+    "your memory store would not show here."
+)
+STORE_LABELS = {
+    "ostler-qdrant": "the search index",
+    "ostler-oxigraph": "the knowledge graph",
+    "ostler-redis": "the short-term cache",
+}
+
 # ── the container-engine supervisor's own report ─────────────────────
 #
 # Measured 2026-08-23 on the walk box: the engine was INSTALLED and STOPPED,

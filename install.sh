@@ -21966,7 +21966,7 @@ mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversatio
 mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
     || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
 
-cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
+if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi; cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
     image: ghcr.io/creativemachines-ai/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1, mirrored at the same digest from docker.io/qdrant/qdrant
@@ -22036,6 +22036,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph@sha256:dd52e0da758fcbbd5dc5249ce818bac26122611e8315a67200f2982d8563a2a5  # 0.4.6
@@ -22060,6 +22061,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # ── Store front proxy (v1.0.10 security lockdown) ────────────────
   # Loopback nginx that fronts the two HTTP data stores (Qdrant REST
@@ -22138,6 +22140,7 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # Personal wiki: the browse layer over the Oxigraph graph + Qdrant
   # vectors, compiled by wiki-compiler into wiki-docs, served by MkDocs
@@ -22178,32 +22181,29 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
       - wiki-built:/site
     restart: unless-stopped
+    mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1024m}"  # lib/ostler-vm-size.sh table, via the compose .env
+    oom_score_adj: 500
 
-  # Wiki compiler -- runs on demand (compose profile "compile") to
-  # rebuild the wiki from current Oxigraph + Qdrant state. Invoked
-  # at install time by Phase 3.16 and on a recurring schedule by the
-  # wiki-recompile LaunchAgent (separate piece). Reads the data
-  # volumes read-only so a buggy compiler can never clobber the
-  # source of truth.
-  #
-  # Volume paths fixed in the Gap 3 PR:
-  #   - wiki-docs at /wiki (matches the compiler image's
-  #     WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output,
-  #     which the compiler image never wrote to.
-  #   - Obsidian vault target at /wiki/obsidian, bind-mounted from
-  #     the user-facing zone (~/Documents/Ostler/Wiki/ by default).
-  #     OSTLER_WIKI_DIR overrides the host path for operators who
-  #     want the vault on a different volume.
-  #   - _images/ at /wiki/obsidian/_images:ro so the post-processor's
-  #     rewritten ../_images/<slug>/file.jpg srcs (see
-  #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
-  #     against the same content the wiki-site mounts.
+  # Wiki compiler -- runs on demand (compose profile "compile") to rebuild the wiki from
+  # current Oxigraph + Qdrant state. Invoked at install time by Phase 3.16 and on a
+  # recurring schedule by the wiki-recompile LaunchAgent (separate piece). Reads the data
+  # volumes read-only so a buggy compiler can never clobber the source of truth. Volume
+  # paths fixed in the Gap 3 PR: - wiki-docs at /wiki (matches the compiler image's
+  # WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output, which the compiler image
+  # never wrote to. - Obsidian vault target at /wiki/obsidian, bind-mounted from the user-
+  # facing zone (~/Documents/Ostler/Wiki/ by default). OSTLER_WIKI_DIR overrides the host
+  # path for operators who want the vault on a different volume. - _images/ at
+  # /wiki/obsidian/_images:ro so the post-processor's rewritten ../_images/<slug>/file.jpg
+  # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
+  # content the wiki-site mounts.
   wiki-compiler:
     image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:fa9f4f639587d9403f04c0ced67d8d2fe52cf1c37fcf14faafc5a13b2f4f415b
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
     cpu_shares: 256
+    mem_limit: "${OSTLER_WIKI_COMPILER_MEM_LIMIT:-1536m}"  # killed in its OWN cgroup, never a store (125: 9 OOM kills)
+    oom_score_adj: 500
     volumes:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian

@@ -153,6 +153,7 @@ on:
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_a_killed_wiki_compile_is_a_doctor_red.py'
+      - 'tests/test_a_store_oom_restart_is_a_doctor_red.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
@@ -734,6 +735,12 @@ jobs:
       - name: A killed wiki compile is a Doctor RED
         if: always()
         run: python3 ./tests/test_a_killed_wiki_compile_is_a_doctor_red.py
+
+      # 125 box: the OOM killer took the oxigraph STORE and Docker restarted it
+      # silently. A store restart (oom event / OOMKilled / RestartCount) is RED.
+      - name: A store OOM-killed and restarted is a Doctor RED
+        if: always()
+        run: python3 ./tests/test_a_store_oom_restart_is_a_doctor_red.py
 
       # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
       #

@@ -1803,3 +1803,7 @@ Tree `doctor`. Pin NOT moved. Files:
 ### What a future sync must preserve
 
 All three, and the marker contract with the tick (path, `phase`, `exit`, `cause`, `at` in UTC). Guarded by `tests/test_a_killed_wiki_compile_is_a_doctor_red.py` (workflow `vendor-integrity.yml`), which runs the real tick into the real rule: 11 of its checks fail on the pre-change tree. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a store OOM-killed and restarted is a RED row (v1.0.126, from the 125 box) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. `agent/status_collector.py` appends `STORE_CONTAINERS`, `STORE_RESTART_WINDOW_S`, dataclass `StoreRestart` and `collect_store_restarts()` (one `docker inspect` of the three store containers for RestartCount / State.OOMKilled / StartedAt, one `docker events --filter event=oom` for the last day; `OSTLER_DOCTOR_DOCKER_BIN` overrides the binary for tests). `agent/diagnostic_rules.py` adds `check_store_restarts` (registered in `ALL_RULES` after `check_wiki_health`) and its imports. `agent/diagnostic_copy.py` adds the `STORE_RESTARTED_*`, `STORE_RESTART_UNCHECKED_*` strings and `STORE_LABELS` after `WIKI_COMPILE_KILL_TIME_FMT`. Guarded by `tests/test_a_store_oom_restart_is_a_doctor_red.py` (vendor-integrity.yml): 6 of its 7 checks fail on the pre-change tree. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
