@@ -136,7 +136,7 @@ chmod 755 "$STUBS"/*
 
 new_box() {  # name mem cpu disk containers(\n-separated) marker(0/1)
     local b="$TMP/$1"
-    mkdir -p "$b/home" "$b/colima/default" "$b/state"
+    mkdir -p "$b/hm" "$b/colima/default" "$b/state"
     printf 'cpu: %s\ndisk: %s\nmemory: %s\narch: host\nruntime: docker\n' "$3" "$4" "$2" > "$b/colima/default/colima.yaml"
     printf '%b' "$5" > "$b/containers"
     : > "$b/vm_exists"; : > "$b/log"
@@ -145,8 +145,8 @@ new_box() {  # name mem cpu disk containers(\n-separated) marker(0/1)
 }
 in_box() {  # box cmd... ; runs a lib function in an isolated environment
     local b="$1"; shift
-    ( export HOME="$b/home" COLIMA_HOME="$b/colima" OSTLER_STATE_DIR="$b/state" \
-             OSTLER_DIR="$b/home/.ostler" PATH="$STUBS:/usr/bin:/bin" \
+    ( export HOME="$b/hm" COLIMA_HOME="$b/colima" OSTLER_STATE_DIR="$b/state" \
+             OSTLER_DIR="$b/hm/.ostler" PATH="$STUBS:/usr/bin:/bin" \
              OSTLER_VM_COLIMA="$STUBS/colima" OSTLER_VM_DOCKER="$STUBS/docker" \
              STUB_LOG="$b/log" STUB_VM_EXISTS="$b/vm_exists" STUB_CONTAINERS="$b/containers" \
              OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)) OSTLER_VM_HOST_NCPU=8 \

@@ -198,7 +198,7 @@ def reds(found: list[dict]) -> list[str]:
 
 
 def uptime_dmesg(uptime: float, oom_at: float | None) -> str:
-    s = f"{uptime:.2f} {uptime * 3:.2f}\n[    0.000000] Booting Linux\n"
+    s = f"{uptime:.2f} {uptime * 3:.2f}\n[    0.000000] kernel boot\n"
     if oom_at is not None:
         s += OOM_LINES.format(t=oom_at)
     return s
