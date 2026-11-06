@@ -885,10 +885,12 @@ _class3() {
 # connection refused by the kernel (no guard in the path), is READABLE. The
 # owner must still be served on each, or the guard locked the owner out.
 _ollama_guard_ports() {   # 11434 plus every runner listener in the 3b table
-    printf '%s\n' "$tbl" | awk -v fixed="$OLLAMA_GUARD_PORT" '
+    # Same LISTENER_MATCH as 3b: the runners are Ostler's (they live under
+    # ~/.ostler/runtime), so a non-Ostler Ollama on the box is not graded here.
+    printf '%s\n' "$tbl" | awk -v fixed="$OLLAMA_GUARD_PORT" -v pat="$LISTENER_MATCH" '
         BEGIN{print fixed " /api/version"}
         $1=="SCOPE"{next}
-        { cmd=$0; sub(/^[^ ]+ [^ ]+ /,"",cmd)
+        { cmd=$0; sub(/^[^ ]+ [^ ]+ /,"",cmd); if (tolower(cmd) !~ tolower(pat)) next
           if (tolower(cmd) ~ /(llama-server|ollama[^ ]* runner)/ && $1 != fixed) print $1 " /health" }' | sort -u
 }
 _class3c() {
