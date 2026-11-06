@@ -39,6 +39,7 @@ declare_src() {
         ostler_hygiene) echo vendor/cm041/ostler_hygiene ;;
         context-refresh) echo context-refresh ;;
         care) echo care ;;
+        vm) echo lib/ostler-vm-size.sh ;;
         *) echo "" ;;
     esac
 }

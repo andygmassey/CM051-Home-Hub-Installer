@@ -300,9 +300,19 @@ from diagnostic_copy import (
     WIKI_UNREACHABLE_FIX,
     WIKI_UNREACHABLE_FIX_COMMAND,
     WIKI_UNREACHABLE_TITLE,
+    WIKI_COMPILE_KILLED_DETAIL,
+    WIKI_COMPILE_KILLED_FIX,
+    WIKI_COMPILE_KILLED_FIX_COMMAND,
+    WIKI_COMPILE_KILLED_OOM_DETAIL,
+    WIKI_COMPILE_KILLED_TITLE_FMT,
+    WIKI_COMPILE_KILL_TIME_FMT,
+    WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+    WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+    WIKI_SUMMARIES_KILLED_TITLE_FMT,
 )
 from status_collector import (
     WIKI_URL,
+    read_wiki_compile_kills,
     detect_ostler_prefix,
     is_native_deployment,
     is_ostler_container,
@@ -572,6 +582,11 @@ def check_wiki_health(snapshot: Any) -> list[dict]:
             "risk": "low",
             "category": "runtime",
         })
+
+    # A compile that was KILLED (v1.0.126, from the 125 walk): RED, read
+    # before the port probe for the same reason as the stall above. The wiki
+    # answering is exactly what made this one invisible.
+    findings.extend(_wiki_compile_kill_findings())
 
     wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
     if not wiki_svc:
@@ -898,6 +913,55 @@ def check_listener_watchdog(snapshot: Any) -> list[dict]:
                 "category": "runtime",
             })
     return findings
+
+
+def _wiki_compile_kill_findings() -> list[dict]:
+    """One CRITICAL finding per wiki-compile phase whose last run was killed.
+
+    wiki-recompile-tick.sh writes the marker when a compile dies on a signal
+    and removes it when one finishes, so a present marker means the wiki IS
+    stale right now. Never raises: a reader failure becomes a warning that
+    says it could not check, never silence and never a fabricated cause.
+    """
+    out: list[dict] = []
+    try:
+        kills = read_wiki_compile_kills()
+    except Exception:  # noqa: BLE001
+        log.warning("wiki compile-kill markers could not be read", exc_info=True)
+        kills = []
+    for k in kills:
+        if k.unreadable:
+            out.append({
+                "severity": "warning",
+                "title": WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+                "detail": WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+                "fix": WIKI_COMPILE_KILLED_FIX,
+                "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+            continue
+        when = (
+            k.at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+            if k.at is not None else "an unknown time"
+        )
+        titles = (
+            WIKI_SUMMARIES_KILLED_TITLE_FMT if k.phase == "summaries"
+            else WIKI_COMPILE_KILLED_TITLE_FMT
+        )
+        out.append({
+            "severity": "critical",
+            "title": titles.get(k.cause, titles["unknown"]).format(time=when),
+            "detail": (
+                WIKI_COMPILE_KILLED_OOM_DETAIL if k.cause == "oom"
+                else WIKI_COMPILE_KILLED_DETAIL
+            ),
+            "fix": WIKI_COMPILE_KILLED_FIX,
+            "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    return out
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes

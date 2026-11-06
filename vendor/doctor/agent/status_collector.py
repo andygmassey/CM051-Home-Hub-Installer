@@ -937,3 +937,72 @@ def collect_hydrate_markers() -> list[HydrateMarkerInfo]:
             detail=fields.get("detail", ""),
         ))
     return out
+
+
+# ---------------------------------------------------------------------------
+# A wiki compile that was KILLED (v1.0.126, from the 125 walk)
+# ---------------------------------------------------------------------------
+#
+# On the 125 walk the wiki compiler was killed by the kernel inside the
+# container VM (out of memory), the refresh tick logged it as a timeout, and
+# the wiki silently stopped updating. wiki-recompile-tick.sh now writes
+# state/wiki-recompile/compile-killed.<phase>.json when a compile dies on a
+# signal, and removes it when a compile of that phase finishes. This reads
+# them. Shape, not content: phase, exit code, cause and a timestamp; nothing
+# from the wiki itself.
+
+WIKI_COMPILE_KILL_PHASES = ("baseline", "summaries")
+WIKI_COMPILE_KILL_CAUSES = ("oom", "timeout", "killed")
+
+
+@dataclass
+class WikiCompileKill:
+    phase: str
+    exit_code: int | None
+    cause: str            # one of WIKI_COMPILE_KILL_CAUSES, or "unknown"
+    at: datetime | None   # UTC; None when the marker's time is unreadable
+    unreadable: bool = False   # the marker exists but could not be parsed
+
+
+def read_wiki_compile_kills(state_dir: str | None = None) -> list[WikiCompileKill]:
+    """Every phase whose last compile was killed, newest first.
+
+    A marker that exists but cannot be parsed is returned with
+    unreadable=True rather than dropped: "the wiki may be stale and we
+    cannot say why" is a finding, and silence there would be the exact
+    failure this exists to end. An unknown cause is kept as "unknown",
+    never mapped onto a known one.
+    """
+    base = state_dir or os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    out: list[WikiCompileKill] = []
+    for phase in WIKI_COMPILE_KILL_PHASES:
+        path = Path(base) / "wiki-recompile" / f"compile-killed.{phase}.json"
+        try:
+            if not path.exists():
+                continue
+            data = json.loads(path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("marker is not an object")
+        except Exception:  # noqa: BLE001
+            logger.warning("wiki compile-kill marker unreadable: %s", path.name)
+            out.append(WikiCompileKill(phase, None, "unknown", None, True))
+            continue
+        cause = str(data.get("cause", ""))
+        if cause not in WIKI_COMPILE_KILL_CAUSES:
+            cause = "unknown"
+        try:
+            rc = int(data.get("exit"))
+        except (TypeError, ValueError):
+            rc = None
+        at = None
+        try:
+            at = datetime.fromisoformat(str(data.get("at", "")).replace("Z", "+00:00"))
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+        except ValueError:
+            at = None
+        out.append(WikiCompileKill(phase, rc, cause, at))
+    out.sort(key=lambda k: k.at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return out

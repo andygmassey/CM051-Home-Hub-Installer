@@ -1609,7 +1609,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             mv "$_UPG_APP_OLD" "$_UPG_APP" 2>/dev/null || true
             _upg_die 23 "failed to move .new daemon into place"
         fi
-        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"
+        _upg_log "daemon swapped; previous kept at ${_UPG_APP_OLD} (rollback anchor)"; _upg_vm_lib="$(_upg_payload_dir services/vm)/ostler-vm-size.sh"; if [[ -f "$_upg_vm_lib" ]] && . "$_upg_vm_lib"; then ostler_vm_upgrade_prepare _upg_log; else _upg_log "ERROR: payload carries no services/vm/ostler-vm-size.sh; the container VM is NOT resized"; fi  # (4c) VM resize, daemon still booted out: lib/ostler-vm-size.sh
 
         # (5) Re-render plists (generic env preserve + token fallback) + bootstrap.
         _upg_rerender_plists
@@ -1618,7 +1618,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
             exit "$_prc"   # 30/31 logged; the Hub health-check will roll back
         fi
 
-        # (6) Refresh vendored service code trees (best-effort; Invariant 4).
+        _upg_vm_rc=0; if declare -f ostler_vm_upgrade_verify >/dev/null; then ostler_vm_upgrade_verify _upg_log "${_UPG_DOMAIN}/${_UPG_ASSISTANT_LABEL}" || _upg_vm_rc=$?; fi; [[ $_upg_vm_rc -ne 1 ]] || _upg_die 26 "ERR-UPG-VM-RESIZE-STORES-DOWN: qdrant/oxigraph did not come back after the VM resize, even at the old size"  # (5b) the daemon started the VM; (6) refresh vendored trees (best-effort; Invariant 4)
         _upg_refresh_doctor
         _upg_refresh_knowledge
         _upg_refresh_cm048
@@ -15045,41 +15045,41 @@ else
         if ! docker info &>/dev/null 2>&1; then
             info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
 
-            # CX-80 (task #509, v1.0.1): the lima hostagent that
-            # backs Colima discovers + forwards the guest's Docker
-            # socket port asynchronously after `colima start` returns.
-            # On a cold first boot the hostagent port-discovery can
-            # race: `colima start` either exits non-zero ("error at
-            # instance: failed to get the host agent ... no forwarded
-            # port") OR exits 0 but leaves ${HOME}/.colima/default/
-            # docker.sock unforwarded, so the very next `docker info`
-            # cannot reach the daemon. The DMG #46 Studio retest hit
-            # exactly this: containers never came up and :8044 wiki
-            # was unreachable. The old single-shot `colima start ||
-            # fallback` had no retry, so one transient port-discovery
-            # miss dropped the customer straight to the Docker Desktop
-            # fallback (or a hard fail) even though a plain retry
-            # recovers it 100% of the time in practice.
+            # CX-80 (task #509, v1.0.1): the lima hostagent that backs Colima
+            # forwards the guest's Docker socket asynchronously after `colima
+            # start` returns. On a cold first boot that can race: `colima start`
+            # exits non-zero ("failed to get the host agent ... no forwarded
+            # port") OR exits 0 with ${HOME}/.colima/default/docker.sock not yet
+            # forwarded, so the next `docker info` cannot reach the daemon (DMG
+            # #46 Studio retest: no containers, :8044 wiki unreachable). The old
+            # single-shot `colima start || fallback` dropped the customer to the
+            # Docker Desktop fallback on one transient miss, although a plain
+            # retry recovers it. So: up to COLIMA_START_MAX_ATTEMPTS starts with
+            # a short backoff, `colima stop` between attempts to clear the
+            # half-started instance, then the Docker Desktop fallback / hard
+            # fail. Readiness is the `docker info` wait loop further below.
             #
-            # Self-heal: try up to COLIMA_START_MAX_ATTEMPTS times with
-            # a short backoff. Between attempts run `colima stop` to
-            # clear the half-started instance so the next `colima
-            # start` begins from a clean state rather than tripping on
-            # "instance already running but socket not forwarded". Log
-            # each attempt. Only after the bounded retries are
-            # exhausted do we fall through to the Docker Desktop
-            # fallback / hard fail. Readiness is the `docker info`
-            # wait loop further below; here we just need ONE clean
-            # start that leaves the socket reachable.
+            # v1.0.126 VM SIZE: the VM got a fixed 2 CPUs / 4 GiB on every Mac,
+            # and on the 125 walk the wiki compile was OOM-killed inside it
+            # (dmesg global_oom) and the wiki silently stopped refreshing. The
+            # size now comes from host RAM via ONE table, lib/ostler-vm-size.sh,
+            # and the chosen size is logged. A start that CREATES the VM marks
+            # it Ostler's, which is what lets an upgrade resize it later (the
+            # shared-VM rule: never resize a VM Ostler does not own; see the
+            # uninstaller's colima block).
+            _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
+            if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; fi  # i18n-exempt
+            _ostler_vm_existed=0; if ostler_vm_default_exists; then _ostler_vm_existed=1; fi
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
-                # Allocate enough resources for 3 containers.
-                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                # Sized by lib/ostler-vm-size.sh (see above), not a fixed 4 GiB.
+                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>/dev/null \
                     && docker info &>/dev/null 2>&1; then
-                    colima_started=1
+                    colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
                     break
                 fi
                 if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then
@@ -28800,7 +28800,7 @@ rm -rf "${HOME}/.ostler/state/conversations_mirror" 2>/dev/null || true
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"
 # Ostler runs its Docker stores inside the SHARED colima `default` profile:
-# install.sh starts it with `colima start --cpu 2 --memory 4 --disk 30`, with
+# install.sh starts it with `colima start` sized by lib/ostler-vm-size.sh, with
 # NO --profile, so it is the `default` instance that every other Docker-on-Mac
 # user of this account shares. `docker compose down -v` above removed our
 # CONTAINERS and named VOLUMES; it did NOT remove that ~30GB Linux VM.
