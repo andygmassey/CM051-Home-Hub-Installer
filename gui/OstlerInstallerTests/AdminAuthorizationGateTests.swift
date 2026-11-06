@@ -370,15 +370,7 @@ final class AdminAuthorizationGateTests: XCTestCase {
         // shell must contain the brew-dir chown + user-local-bin
         // chown commands, AND it must NOT contain the deprecated
         // touch-based timestamp seed.
-        let innerShell =
-            "/usr/bin/sudo -v ; " +
-            "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
-            "/bin/mkdir -p /opt/homebrew ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
-            "/bin/chmod 755 /opt/homebrew ; " +
-            "/bin/mkdir -p /usr/local/bin ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
-            "/bin/chmod 755 /usr/local/bin"
+        let innerShell = buildAdminInnerShell(resourcePath: "/Applications/OstlerInstaller.app/Contents/Resources")
 
         // Required Option B fragments.
         XCTAssertTrue(
@@ -487,5 +479,22 @@ final class AdminAuthorizationGateTests: XCTestCase {
             source.contains("executeAndReturnError"),
             "CX-6: AuthorizationHelper must use NSAppleScript.executeAndReturnError(_:) to receive the AppleScript error dictionary on cancel/failure."
         )
+    }
+
+    /// v1.0.126 loopback guard: the admin shell installs it from the bundle,
+    /// with the resource path quoted, for the console user's uid.
+    func testAdminInnerShellInstallsTheLoopbackGuardFromTheBundle() {
+        let shell = buildAdminInnerShell(resourcePath: "/Volumes/Ostler Installer/OstlerInstaller.app/Contents/Resources")
+        let lib = "'/Volumes/Ostler Installer/OstlerInstaller.app/Contents/Resources/lib/ostler-loopback-guard.sh'"
+        XCTAssertTrue(shell.contains("/bin/bash " + lib + " install-root $(/usr/bin/id -u $ORIG_USER) " + lib),
+                      "the admin shell must run the bundled guard's install-root for the console user")
+        XCTAssertTrue(shell.hasPrefix("/usr/bin/sudo -v ; "), "the existing Option B work still runs first")
+    }
+
+    /// A path that cannot be single-quoted is never run as root; install.sh
+    /// then fails closed on the missing guard instead.
+    func testAdminInnerShellOmitsTheGuardForAnUnquotablePath() {
+        XCTAssertFalse(buildAdminInnerShell(resourcePath: "/tmp/it's/Resources").contains("loopback-guard"))
+        XCTAssertFalse(buildAdminInnerShell(resourcePath: nil).contains("loopback-guard"))
     }
 }

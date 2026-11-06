@@ -164,7 +164,7 @@ ostler_lg_apply() {
         # A reference survives other tools' `pfctl -d`/-X of theirs.
         info="$("$LG_PFCTL" -s info 2>/dev/null)"
         tok="$(sed -n "s/^boot=${boot:-none} token=//p" "${LG_DIR}/pf.token" 2>/dev/null)"
-        if [ -z "$tok" ] || ! printf '%s\n' "$info" | grep -q 'Status: Enabled'; then
+        if [ -z "$tok" ] || ! grep -q 'Status: Enabled' <<<"$info"; then
             tok="$("$LG_PFCTL" -E 2>&1 | sed -n 's/.*[Tt]oken *: *\([0-9][0-9]*\).*/\1/p' | tail -1)"
             if [ -n "$tok" ]; then printf 'boot=%s token=%s\n' "${boot:-none}" "$tok" > "${LG_DIR}/pf.token"; else reason="pf_enable_failed"; fi
         fi
@@ -176,7 +176,7 @@ ostler_lg_apply() {
         rules_n="$("$LG_PFCTL" -a "$LG_ANCHOR" -s rules 2>/dev/null | grep -c -E '^(pass|block) ')"
         [ "$rules_n" = "$LG_RULE_COUNT" ] || reason="anchor_rules_mismatch(${rules_n:-0}/${LG_RULE_COUNT})"
     fi
-    "$LG_PFCTL" -s info 2>/dev/null | grep -q 'Status: Enabled' && pf_on=yes
+    info="$("$LG_PFCTL" -s info 2>/dev/null)"; grep -q 'Status: Enabled' <<<"$info" && pf_on=yes
     [ -n "$reason" ] || [ "$pf_on" = yes ] || reason="pf_not_enabled"
     selftest_out=""
     if [ -z "$reason" ]; then
@@ -306,6 +306,29 @@ ostler_lg_upgrade_check() {   # $1 ~/.ostler dir, $2 payload copy of this file (
         "$why" "$(_lg_now)" "$odir" "$(id -u)" "$odir" > "$marker"
     echo "loopback-guard: NEEDS ADMIN (${why}); recorded ${marker} for the Hub to ask once"
     return 1
+}
+
+# install.sh step (owner context; uses install.sh's fail_with_code/ok/warn).
+# FAILS CLOSED: the install stops unless a FRESH ok verdict exists. Under
+# OSTLER_GUI=1 the root half already ran inside the installer's one admin
+# shell (AuthorizationHelper.swift); on the CLI path install.sh holds sudo.
+ostler_lg_install_step() {   # $1 path of this lib
+    local lib="$1" why saved_trap had_e=0
+    saved_trap="$(trap -p ERR)"; trap - ERR; case $- in *e*) had_e=1 ;; esac; set +e
+    ostler_lg_tighten_ollama_dir || warn "could not make ~/.ollama owner-only (chmod 0700)"  # i18n-exempt
+    mkdir -p "${OSTLER_DIR}/lib" && cp -f "$lib" "${OSTLER_DIR}/lib/ostler-loopback-guard.sh"
+    why="$(ostler_lg_check)"
+    if [ "$why" != ok ] && [ "${OSTLER_GUI:-0}" != 1 ] && "$LG_SUDO" -n /usr/bin/true 2>/dev/null; then
+        "$LG_SUDO" -n /bin/bash "$lib" install-root "$(id -u)" "$lib" >> "${INSTALL_LOG:-/dev/null}" 2>&1
+        why="$(ostler_lg_check)"
+    fi
+    { echo "loopback_guard=${why}"; cat "${LG_DIR}/status" 2>/dev/null | sed 's/^/loopback_guard_status: /'; } >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null
+    [ "$had_e" = 1 ] && set -e; eval "${saved_trap:-:}"
+    if [ "$why" = ok ]; then
+        ok "Local AI engine is private to this account: other accounts on this Mac are refused"  # i18n-exempt
+        return 0
+    fi
+    fail_with_code "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE" "$(printf "$MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE" "$why" "${INSTALL_LOG:-}")"
 }
 
 # ── CLI ───────────────────────────────────────────────────────────────────

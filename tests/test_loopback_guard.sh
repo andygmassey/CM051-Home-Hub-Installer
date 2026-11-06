@@ -200,12 +200,57 @@ touch "$D/pf/fail_load"; run "$D" "$LIB" ostler_lg_apply >/dev/null; run "$D" "$
 # 11. ~/.ollama tightened
 mkdir -p "$T/home/.ollama"; chmod 0755 "$T/home/.ollama"
 run "$T/happy" "$LIB" "ostler_lg_tighten_ollama_dir '$T/home/.ollama'"
-[ "$(stat -f %Lp "$T/home/.ollama")" = 700 ] && ok "~/.ollama tightened to 0700" || bad "ollama dir mode $(stat -f %Lp "$T/home/.ollama")"
+[ "$(stat -f %Lp "$T/home/.ollama")" = 700 ] && ok "the .ollama dir tightened to 0700" || bad "ollama dir mode $(stat -f %Lp "$T/home/.ollama")"
 
 # 12. rules refuse bad input
 for a in "0 49152 65535" "501 80 65535" "501 60000 50000" "x 1 2"; do
   /bin/bash "$LIB" rules $a >/dev/null 2>&1; [ $? = 2 ] || bad "rules accepted '$a'"
 done; ok "rules refuse root owner, low range, inverted range, non-numeric"
+
+# 13. install.sh step FAILS CLOSED (GUI mode, no guard), and passes on a fresh ok
+D="$T/step"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/home"
+step_env() { cat <<EOS
+fail_with_code() { echo "FAIL_WITH_CODE \$1 :: \$2"; exit 9; }
+ok() { echo "OK \$*"; }; warn() { echo "WARN \$*"; }
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="guard not active (%s). Details: %s"
+OSTLER_DIR='$D/ostler'; INSTALL_LOG='$D/install.log'; OSTLER_GUI=1; HOME='$D/home'
+set -Eeuo pipefail; trap 'echo ERR_TRAP_FIRED' ERR
+EOS
+}
+out="$(run "$D" "$LIB" "$(step_env); ostler_lg_install_step '$LIB'; echo AFTER")"; rc=$?
+[ $rc = 9 ] && grep -q 'FAIL_WITH_CODE ERR-08-LOOPBACK-GUARD-NOT-ACTIVE :: guard not active (daemon_not_installed)' \
+  <<<"$out" && ! grep -q -e AFTER -e ERR_TRAP_FIRED \
+  <<<"$out" && ok "install step: no guard under OSTLER_GUI=1 -> ERR-08-LOOPBACK-GUARD-NOT-ACTIVE, install stops" || bad "install step fail-closed: rc=$rc out=$out"
+cmp -s "$LIB" "$D/ostler/lib/ostler-loopback-guard.sh" && ok "install step: lib staged into ~/.ostler/lib for upgrade + Hub fix" || bad "install step lib copy"
+echo "$(id -u)" > "$D/guard/owner_uid"; run "$D" "$LIB" ostler_lg_apply >/dev/null; touch "$D/guard.plist"
+out="$(run "$D" "$LIB" "$(step_env); ostler_lg_install_step '$LIB'; echo AFTER")"; rc=$?
+[ $rc = 0 ] && grep -q '^OK Local AI engine is private' <<<"$out" && grep -q AFTER <<<"$out" && ! grep -q ERR_TRAP_FIRED \
+  <<<"$out" && grep -q '^loopback_guard=ok' "$D/install.log" && ok "install step: fresh ok -> continues, ERR trap restored and silent, logged" || bad "install step ok: rc=$rc out=$out"
+
+# 13b. MUTANT: the step warns instead of failing closed -> 13 must go red
+sed 's/^    fail_with_code "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/    warn "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/' "$LIB" > "$T/mut_step.sh"
+if cmp -s "$T/mut_step.sh" "$LIB"; then bad "mutant warn_not_fail DID NOT APPLY"; else
+  D="$T/stepm"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/home"
+  out="$(run "$D" "$T/mut_step.sh" "$(step_env | sed "s|$T/step|$D|g"); ostler_lg_install_step '$T/mut_step.sh'; echo AFTER")"
+  grep -q AFTER <<<"$out" && ok "mutant warn_not_fail is visible: install continued (the fail-closed check above would go red)" || bad "mutant warn_not_fail: $out"
+fi
+
+# 14. WIRING (static): every consumer of the guard is present where it must run.
+I="${HERE}/install.sh"
+pin="$(grep -n 'fail_with_code "ERR-07-OLLAMA-AGENT-NOT-PINNED"' "$I" | head -1 | cut -d: -f1)"
+stp="$(grep -n 'ostler_lg_install_step "\$_lg_lib"' "$I" | head -1 | cut -d: -f1)"
+rot="$(grep -n '^# ── 3.3b Ollama log rotation' "$I" | head -1 | cut -d: -f1)"
+[ -n "$pin" ] && [ -n "$stp" ] && [ -n "$rot" ] && [ "$pin" -lt "$stp" ] && [ "$stp" -lt "$rot" ] \
+  && ok "install.sh runs the guard step after Ollama is pinned and before log rotation (:$stp)" || bad "install step placement pin=$pin step=$stp rot=$rot"
+ue="$(awk '/<<.UNINSTALLEOF.$/{a=NR} /^UNINSTALLEOF$/{if(a&&!b)b=NR} END{print a, b}' "$I")"
+ur="$(grep -n 'sudo /bin/bash "\$_lg_root" remove' "$I" | head -1 | cut -d: -f1)"
+[ -n "$ur" ] && [ "$ur" -gt "${ue% *}" ] && [ "$ur" -lt "${ue#* }" ] && ok "the uninstaller (inside its heredoc) removes the guard" || bad "uninstall wiring ur=$ur heredoc=$ue"
+grep -q 'ostler_lg_upgrade_check "\$_UPG_OSTLER_DIR"' "$I" && ok "OSTLER_UPGRADE_MODE records needs-admin (never prompts)" || bad "upgrade wiring"
+AH="${HERE}/gui/OstlerInstaller/Auth/AuthorizationHelper.swift"
+grep -q '/lib/ostler-loopback-guard.sh' "$AH" && grep -q '" install-root $(/usr/bin/id -u $ORIG_USER) "' "$AH" && grep -q 'let innerShell = buildAdminInnerShell(resourcePath: Bundle.main.resourcePath)' "$AH" && ok "the GUI admin shell installs the guard" || bad "GUI wiring"
+grep -q 'lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"' "${HERE}/gui/project.yml" && ok "the lib is bundled into the .app" || bad "bundling"
+n="$(grep -l '^MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE=' "${HERE}"/install.sh.strings.*.sh | wc -l | tr -d ' ')"; t="$(ls "${HERE}"/install.sh.strings.*.sh | wc -l | tr -d ' ')"
+[ "$n" = "$t" ] && [ "$t" -gt 0 ] && ok "fail message present in all ${t} catalogues" || bad "fail message in ${n}/${t} catalogues"
 
 echo "loopback-guard: ${PASS} pass, ${FAIL} fail"
 [ "$FAIL" = 0 ]
