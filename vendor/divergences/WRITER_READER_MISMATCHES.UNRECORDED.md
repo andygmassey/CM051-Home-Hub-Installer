@@ -1791,3 +1791,19 @@ Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware
 ### What a future sync must preserve
 
 `_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## 2026-11-06: the People search row (v1.0.126, item h) -- `doctor`
+
+Tree `doctor`. Pin NOT moved; regeneration is forbidden for this tree (manifest
+`regenerate_forbidden`). Files: `vendor/doctor/agent/web_ui.py` (import
+`render_people_index_status`, call it beside `render_derived_preferences_status`,
+placeholder `{people_index_section}` after `{derived_preferences_section}`) and the
+new vendor-only `vendor/doctor/agent/people_index_status.py` (VENDOR_ONLY.tsv row).
+
+The row reads `state/people-index.json`, written by the vendored ostler_fda people
+sweep, and says "Making N people searchable" (amber) while people still have no
+search vector, "All N people are searchable" (green) at zero, and goes red only when
+the end-of-pass backlog grew on each of the last three passes. Guarded by
+`tests/test_people_index_embeds_only_what_changed.py` (workflow
+`dedupe-merge-rule-2.yml`), which also asserts the import, call and placeholder.
+Owed upstream: none until the writer itself is lifted into HR015 ostler_fda.

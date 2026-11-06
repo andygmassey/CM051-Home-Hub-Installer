@@ -271,3 +271,36 @@ dedupe-merge-rule-2.yml.
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
 source this tree is cut from.
+
+## 2026-11-06: the people index embeds only who is new or changed (v1.0.126, item h)
+
+Regeneration not attempted, for the reason recorded in the sections above (the
+source has advanced past the pin, and HR015's `ingest_people_to_qdrant` is a
+different, older implementation), so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- New `PEOPLE_EMBED_HASH_KEY` ("embed_text_sha256"), `PEOPLE_INDEX_CHUNK` (200,
+  env-overridable), `_embed_text_hash`, `_people_payload` (the payload block moved
+  out of the loop unchanged), `_qdrant_set_payloads` (POST
+  `/collections/{c}/points/payload`, the call vendored CM041 browsing_enrich already
+  makes), and the backlog record helpers `_people_index_state_path`,
+  `_people_index_record`, `_people_index_finish` (state/people-index.json, or
+  `OSTLER_PEOPLE_INDEX_STATE`).
+- `ingest_people_to_qdrant`: reads the stored points FIRST; a person whose stored
+  hash equals the hash of the text it would embed is not embedded (its payload is
+  still merged and written, payload only, when a non-embedded field moved). New
+  people (no point) are embedded before changed ones (hash absent or different), in
+  chunks that land as they go. `sent` keeps its meaning for install.sh: people
+  whose point is current after the pass. New result keys: `embedded`,
+  `already_current`, `payload_refreshed`, `backlog`. Deleted people: the PRUNE is
+  unchanged; it now projects from every person in the graph rather than from the
+  upserted points, the same set as before.
+
+Why: v1.0.125 walk, the people without a vector grew 240 -> 1789 in 4200 s on a
+first-run box because every hourly pass re-embedded every person. Proof:
+`tests/test_people_index_embeds_only_what_changed.py`, wired in
+dedupe-merge-rule-2.yml.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
+source this tree is cut from.
