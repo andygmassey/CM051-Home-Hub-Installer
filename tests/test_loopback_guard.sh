@@ -77,7 +77,7 @@ EOF
 #!/bin/bash
 case "$2" in
   net.inet.ip.portrange.first) echo 49152 ;; net.inet.ip.portrange.last) echo 65535 ;;
-  kern.boottime) echo "{ sec = 1762400000, usec = 0 } Thu Nov  6 00:00:00 2026" ;;
+  kern.boottime) echo "{ sec = 1762400000, usec = 0 }" ;;
 esac
 EOF
     printf '#!/bin/bash\necho "launchctl $*" >> "%s/pf/calls"\nexit 0\n' "$d" > "$d/bin/launchctl"
@@ -198,9 +198,9 @@ touch "$D/pf/fail_load"; run "$D" "$LIB" ostler_lg_apply >/dev/null; run "$D" "$
 [ "$(grep -c 'launchctl asuser 501 /usr/bin/osascript' "$D/pf/calls")" = 1 ] && ok "owner notified once on ok->fail" || bad "notify count $(grep -c asuser "$D/pf/calls")"
 
 # 11. ~/.ollama tightened
-mkdir -p "$T/home/.ollama"; chmod 0755 "$T/home/.ollama"
-run "$T/happy" "$LIB" "ostler_lg_tighten_ollama_dir '$T/home/.ollama'"
-[ "$(stat -f %Lp "$T/home/.ollama")" = 700 ] && ok "the .ollama dir tightened to 0700" || bad "ollama dir mode $(stat -f %Lp "$T/home/.ollama")"
+mkdir -p "$T/hm/.ollama"; chmod 0755 "$T/hm/.ollama"
+run "$T/happy" "$LIB" "ostler_lg_tighten_ollama_dir '$T/hm/.ollama'"
+[ "$(stat -f %Lp "$T/hm/.ollama")" = 700 ] && ok "the .ollama dir tightened to 0700" || bad "ollama dir mode $(stat -f %Lp "$T/hm/.ollama")"
 
 # 12. rules refuse bad input
 for a in "0 49152 65535" "501 80 65535" "501 60000 50000" "x 1 2"; do
@@ -208,12 +208,12 @@ for a in "0 49152 65535" "501 80 65535" "501 60000 50000" "x 1 2"; do
 done; ok "rules refuse root owner, low range, inverted range, non-numeric"
 
 # 13. install.sh step FAILS CLOSED (GUI mode, no guard), and passes on a fresh ok
-D="$T/step"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/home"
+D="$T/step"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/hm"
 step_env() { cat <<EOS
 fail_with_code() { echo "FAIL_WITH_CODE \$1 :: \$2"; exit 9; }
 ok() { echo "OK \$*"; }; warn() { echo "WARN \$*"; }
 MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="guard not active (%s). Details: %s"
-OSTLER_DIR='$D/ostler'; INSTALL_LOG='$D/install.log'; OSTLER_GUI=1; HOME='$D/home'
+OSTLER_DIR='$D/ostler'; INSTALL_LOG='$D/install.log'; OSTLER_GUI=1; HOME='$D/hm'
 set -Eeuo pipefail; trap 'echo ERR_TRAP_FIRED' ERR
 EOS
 }
@@ -230,7 +230,7 @@ out="$(run "$D" "$LIB" "$(step_env); ostler_lg_install_step '$LIB'; echo AFTER")
 # 13b. MUTANT: the step warns instead of failing closed -> 13 must go red
 sed 's/^    fail_with_code "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/    warn "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/' "$LIB" > "$T/mut_step.sh"
 if cmp -s "$T/mut_step.sh" "$LIB"; then bad "mutant warn_not_fail DID NOT APPLY"; else
-  D="$T/stepm"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/home"
+  D="$T/stepm"; mkstubs "$D"; mkdir -p "$D/ostler" "$D/hm"
   out="$(run "$D" "$T/mut_step.sh" "$(step_env | sed "s|$T/step|$D|g"); ostler_lg_install_step '$T/mut_step.sh'; echo AFTER")"
   grep -q AFTER <<<"$out" && ok "mutant warn_not_fail is visible: install continued (the fail-closed check above would go red)" || bad "mutant warn_not_fail: $out"
 fi
