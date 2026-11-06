@@ -1298,6 +1298,7 @@ stage-payload: download-python
 	CONTEXT_REFRESH_SRC="$$SRC_ROOT/context-refresh"; \
 	UNINSTALL_SRC="$$SRC_ROOT/uninstall"; \
 	CARE_SRC="$$SRC_ROOT/care"; \
+	VM_SIZE_SRC="$$SRC_ROOT/lib/ostler-vm-size.sh"; \
 	: ; \
 	: "$(VERSION) is the plist-derived marketing version (Makefile:120). It is" ; \
 	: "the right key here ONLY because gates/verify_version_stamp_matches_cut.sh" ; \
@@ -1332,6 +1333,7 @@ stage-payload: download-python
 	[ -f "$$CONTEXT_REFRESH_SRC/INSTALL_SNIPPET.sh" ] || MISSING="$$MISSING context-refresh/INSTALL_SNIPPET.sh"; \
 	[ -f "$$UNINSTALL_SRC/stop_orphan_ticks.sh" ] || MISSING="$$MISSING uninstall/stop_orphan_ticks.sh"; \
 	[ -f "$$CARE_SRC/write_agents_md.sh" ] || MISSING="$$MISSING care/write_agents_md.sh"; \
+	[ -f "$$VM_SIZE_SRC" ] || MISSING="$$MISSING lib/ostler-vm-size.sh"; \
 	[ -f "$$CUT_BOM_SRC" ] || MISSING="$$MISSING cuts/v$(VERSION)/MUST_CONTAIN.tsv"; \
 	[ -f "$$VENDOR_MANIFEST_SRC" ] || MISSING="$$MISSING vendor/VENDOR_MANIFEST.toml"; \
 	if [ -n "$$MISSING" ]; then \
@@ -1363,10 +1365,11 @@ stage-payload: download-python
 	cp -R "$$CONTEXT_REFRESH_SRC" "$$PAYLOAD/services/context-refresh"; \
 	cp -R "$$UNINSTALL_SRC" "$$PAYLOAD/services/uninstall"; \
 	cp -R "$$CARE_SRC" "$$PAYLOAD/services/care"; \
+	mkdir -p "$$PAYLOAD/services/vm"; cp "$$VM_SIZE_SRC" "$$PAYLOAD/services/vm/ostler-vm-size.sh"; \
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv services/uninstall/stop_orphan_ticks.sh; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv services/uninstall/stop_orphan_ticks.sh services/vm/ostler-vm-size.sh; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \
