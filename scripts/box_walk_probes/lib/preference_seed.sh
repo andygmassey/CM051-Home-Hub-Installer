@@ -24,9 +24,22 @@
 # the walk a fixture whose absence is distinguishable from its failure.
 #
 # WHAT IT RUNS. OS003 gates/seed/load_preference_seed.py, the preference seed
-# oracle of record. It ingests two synthetic export files through the
-# INSTALLER'S OWN preference leg and then COUNTS THE ROWS BACK OUT OF THE
-# GRAPH. It never reads the ingest's exit code as a verdict, because
+# loader of record, over the fixture THIS HARNESS CARRIES
+# (scripts/box_walk_probes/fixtures/preference_seed/preferences/). It ingests
+# two synthetic export files through the INSTALLER'S OWN preference leg and
+# then COUNTS THE ROWS BACK OUT OF THE GRAPH.
+#
+# WHY THE FIXTURE IS CARRIED HERE, MEASURED (v1.0.124 and v1.0.125 walks):
+# the OS003 fixture seeded its clearing row as 8 Spotify PLAYS. Since CM051
+# #2921 (a play is not a like) the ingest aggregates plays to a
+# pwg:NeutralPreference, and the loader counts pwg:LikePreference only, so both
+# walks read "created 2, filtered 7, triples 2" and a graph post-count of 1:
+# the seed exited 1 and every preference probe lost its subject. The filter is
+# right; the fixture was stale. Its second row (0.1732) had also stopped being
+# screened when the compiler floor moved from 0.28 to 0.10. The fixture the
+# walk ships is the one the product's own code is tested against, here, by
+# tests/test_the_preference_seed_lands_both_rows.py, which runs the vendored
+# ingest and compiler over these exact files. It never reads the ingest's exit code as a verdict, because
 # services/ingest/src/loaders/oxigraph_loader.py returns False on a refused
 # INSERT and its caller neither raises nor propagates: a lost write and a
 # clean run exit identically.
@@ -93,7 +106,10 @@
 #
 # ENV
 #   OSTLER_SEED_DIR            path to the OS003 gates/seed directory, shared
-#                              with grounding_seed.sh.
+#                              with grounding_seed.sh. Only its loader is used.
+#   OSTLER_PREF_SEED_FIXTURE_DIR  the directory holding preferences/ (fixture
+#                              plus exports/). Default: this harness's own
+#                              fixtures/preference_seed.
 #   OSTLER_PREF_SEED_SKIP=1    do not seed at all. Prints that it was skipped.
 #   OSTLER_PREF_SEED_KEEP=1    leave the synthetic rows on the box afterwards.
 #   OSTLER_PREF_COMPILE_SKIP=1 seed and assert the screen, but do not trigger
@@ -167,11 +183,10 @@ _ps_loader_is_current() {
 _ps_find_seed_dir() {
     PREFERENCE_SEED_DIR=""
     PREFERENCE_SEED_STALE=""
+    # The LOADER comes from OS003; the fixture and its exports come from this
+    # harness (_ps_fixture_root), so only the loader is required here.
     _ps_ok() {
-        [ -f "$1/load_preference_seed.py" ] \
-            && [ -f "$1/preferences/preference_fixture.json" ] \
-            && [ -f "$1/preferences/exports/StreamingHistory0.json" ] \
-            && [ -f "$1/preferences/exports/personalization.js" ]
+        [ -f "$1/load_preference_seed.py" ]
     }
     if [ -n "${OSTLER_SEED_DIR:-}" ]; then
         if _ps_ok "${OSTLER_SEED_DIR}"; then
@@ -360,15 +375,57 @@ done
 }
 
 # ---------------------------------------------------------------------------
-# Ship the seed to the box and run it. $1 = seed dir, $2... = loader arguments.
+# THE FIXTURE THIS HARNESS CARRIES. Prints the directory that holds
+# preferences/ (preference_fixture.json plus exports/). Overridable only so the
+# wiring tests can hand in a stub fixture; a walk uses the default.
+# ---------------------------------------------------------------------------
+_ps_fixture_root() {
+    if [ -n "${OSTLER_PREF_SEED_FIXTURE_DIR:-}" ]; then
+        printf '%s\n' "${OSTLER_PREF_SEED_FIXTURE_DIR}"
+        return 0
+    fi
+    printf '%s\n' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../fixtures/preference_seed" 2>/dev/null && pwd)"
+}
+
+# Build the directory the loader runs from: the OS003 loader ($1) beside THIS
+# harness's preferences/ tree, the layout the loader reads (HERE/preferences/).
+# Prints the new directory. The caller removes it.
+_ps_compose_seed() {
+    _ps_fx="$(_ps_fixture_root)"
+    if [ -z "${_ps_fx}" ] || [ ! -f "${_ps_fx}/preferences/preference_fixture.json" ] \
+        || [ ! -d "${_ps_fx}/preferences/exports" ]; then
+        printf 'no preference fixture under %s/preferences\n' "${_ps_fx:-<unresolved>}" >&2
+        return 2
+    fi
+    _ps_cd="$(mktemp -d "${TMPDIR:-/tmp}/ostler-pref-seed-compose.XXXXXX")" || return 2
+    if ! /bin/cp "$1/load_preference_seed.py" "${_ps_cd}/" \
+        || ! /bin/cp -R "${_ps_fx}/preferences" "${_ps_cd}/preferences"; then
+        rm -rf "${_ps_cd}"
+        return 2
+    fi
+    printf '%s\n' "${_ps_cd}"
+}
+
+# ---------------------------------------------------------------------------
+# Ship the seed to the box and run it. $1 = OS003 seed dir (its loader is the
+# one used), $2... = loader arguments.
 #
-# FOUR files travel, not two: the loader, the fixture, and both export files,
-# which must land in the preferences/exports/ shape the loader reads. One
+# EVERY file of the composed seed travels: the loader, the fixture, and each
+# export file, landing in the preferences/exports/ shape the loader reads. One
 # base64 JSON blob on stdin, for the same reasons grounding_seed.sh gives: no
 # second credential path, and no dependence on whether this box's base64
 # spells its decode flag -d or -D.
 # ---------------------------------------------------------------------------
 _ps_run_loader() {
+    _ps_seed_src="$1"; shift
+    _ps_dir="$(_ps_compose_seed "${_ps_seed_src}")" || return 2
+    _ps_run_loader_in "${_ps_dir}" "$@"
+    _ps_lrc=$?
+    rm -rf "${_ps_dir}"
+    return ${_ps_lrc}
+}
+
+_ps_run_loader_in() {
     _ps_dir="$1"; shift
     # ONE DIGEST IMPLEMENTATION, NOT TWO. The expected digest is computed by
     # the loader's own --digest over the artefact bundle, so this step cannot
@@ -386,12 +443,10 @@ _ps_run_loader() {
     _ps_payload="$(python3 - "${_ps_dir}" <<'PY'
 import base64, json, os, sys
 root = sys.argv[1]
-names = [
-    "load_preference_seed.py",
-    "preferences/preference_fixture.json",
-    "preferences/exports/StreamingHistory0.json",
-    "preferences/exports/personalization.js",
-]
+names = ["load_preference_seed.py"]
+for base, _dirs, fnames in os.walk(os.path.join(root, "preferences")):
+    for f in sorted(fnames):
+        names.append(os.path.relpath(os.path.join(base, f), root))
 files = {}
 for name in names:
     with open(os.path.join(root, name), encoding="utf-8") as fh:
@@ -438,7 +493,7 @@ exit $rc
 # (~/.ostler/services/cm059-editor/compiler) under the interpreter the
 # installer resolved for it, and reads two numbers off the profile:
 #
-#   interests                  >= 1    something cleared the 0.28 floor
+#   interests                  >= 1    something cleared the floor
 #   suppressed_low_confidence  >= 1    something was screened by it
 #
 # BOTH ARMS OR NEITHER. A profile with interests and no suppressions cannot
@@ -473,7 +528,10 @@ s = p[\"stats\"]
 print(\"PROFILE interests=%d suppressed=%d dislikes=%d domains=%d raw_rows=%d\" % (
     s[\"interests\"], s[\"suppressed_low_confidence\"], s[\"dislikes\"],
     s[\"domains\"], s[\"raw_rows\"]))
-print(\"FLOOR min_confidence=0.28\")
+import inspect
+_cp = getattr(ip, \"compile_profile\", None)
+_fl = inspect.signature(_cp).parameters.get(\"min_confidence\") if _cp else None
+print(\"FLOOR min_confidence=%s\" % (_fl.default if _fl is not None else \"unread\"))
 for b in p[\"domains\"]:
     for it in b[\"interests\"]:
         print(\"KEPT domain=%s confidence=%.4f subject=%s\" % (b[\"domain\"], it[\"confidence\"], it[\"subject\"]))
@@ -490,10 +548,10 @@ for b in p[\"domains\"]:
 # Six small pieces, each measured on the box and each printing named lines
 # that the step reads back, so no outcome is inferred from an exit code alone.
 #
-# THE SUBJECT AND THE FLOOR COME FROM THE FIXTURE, the oracle of record:
+# THE SUBJECT AND THE FLOOR COME FROM THE FIXTURE this harness carries:
 # expect_rows[clears_floor=true].subject and compiler.min_confidence in
-# OS003 gates/seed/preferences/preference_fixture.json. Nothing here spells
-# the subject or the floor a second time.
+# fixtures/preference_seed/preferences/preference_fixture.json. Nothing here
+# spells the subject or the floor a second time.
 # ---------------------------------------------------------------------------
 PREFERENCE_SEED_SUBJECT=""
 PREFERENCE_SEED_FLOOR=""
@@ -504,7 +562,7 @@ _PS_LABEL="com.creativemachines.ostler.editor-frontpage"
 _ps_fixture_target() {
     PREFERENCE_SEED_SUBJECT=""
     PREFERENCE_SEED_FLOOR=""
-    _ps_ft="$(python3 - "${PREFERENCE_SEED_DIR}/preferences/preference_fixture.json" <<'PY'
+    _ps_ft="$(python3 - "$(_ps_fixture_root)/preferences/preference_fixture.json" <<'PY'
 import json, sys
 try:
     fx = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -801,7 +859,7 @@ _ps_compile_and_serve() {
         PREFERENCE_SEED_STATE="uncompiled"
         printf '  CANNOT-RUN: the fixture names no clears_floor subject or no\n'
         printf '  compiler.min_confidence, so there is nothing to look for in the API.\n'
-        printf '    %s/preferences/preference_fixture.json\n\n' "${PREFERENCE_SEED_DIR}"
+        printf '    %s/preferences/preference_fixture.json\n\n' "$(_ps_fixture_root)"
         return 1
     fi
     printf '  looking for : %s\n' "${PREFERENCE_SEED_SUBJECT}"
@@ -1064,16 +1122,16 @@ preference_seed_apply() {
 
     _ps_bad=0
     if [ "${_ps_interests}" -lt 1 ]; then
-        printf '  FINDING: interests=%s. Nothing cleared the 0.28 confidence floor,\n' "${_ps_interests}"
-        printf '  and the seed put a row there on purpose (measured 0.2991, a margin\n'
-        printf '  of +0.0191). Either the write route dropped it after the read-back,\n'
+        printf '  FINDING: interests=%s. Nothing cleared the confidence floor (FLOOR\n' "${_ps_interests}"
+        printf '  line above), and the seed put a row there on purpose (measured_confidence\n'
+        printf '  in the fixture). Either the write route dropped it after the read-back,\n'
         printf '  or a trust constant moved. Read the KEPT lines above before calling\n'
         printf '  this a walk failure.\n'
         _ps_bad=1
     fi
     if [ "${_ps_suppressed}" -lt 1 ]; then
         printf '  FINDING: suppressed=%s. NOTHING was screened by the floor, and the\n' "${_ps_suppressed}"
-        printf '  seed put a row below it on purpose (measured 0.1732). A screen that\n'
+        printf '  seed put a row below it on purpose (measured_confidence in the fixture). A screen that\n'
         printf '  never screens cannot be told from an absent screen, so this arm is\n'
         printf '  as load-bearing as the one above it.\n'
         _ps_bad=1
