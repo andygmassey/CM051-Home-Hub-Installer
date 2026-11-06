@@ -226,6 +226,47 @@ WIKI_REFRESH_STALLED_FIX_COMMAND = (
     "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 )
 
+# ── a wiki compile that was KILLED (v1.0.126, from the 125 walk) ─────
+#
+# The compiler was killed inside the container VM for lack of memory and the
+# wiki silently stopped updating. {time} is the customer's local time.
+WIKI_COMPILE_KILLED_TITLE_FMT = {
+    "oom": "Your wiki stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki stopped updating at {time}: the update took too long",
+    "killed": "Your wiki stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki stopped updating at {time}",
+}
+WIKI_SUMMARIES_KILLED_TITLE_FMT = {
+    "oom": "Your wiki's summaries stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki's summaries stopped updating at {time}: the update took too long",
+    "killed": "Your wiki's summaries stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki's summaries stopped updating at {time}",
+}
+WIKI_COMPILE_KILLED_DETAIL = (
+    "Your wiki still opens, but it shows what it had at that time, and "
+    "nothing newer will appear until an update finishes. Your data is not "
+    "affected."
+)
+WIKI_COMPILE_KILLED_OOM_DETAIL = (
+    "The space your wiki is built in ran out of memory and the update was "
+    "stopped. Your wiki still opens, but it shows what it had at that time, "
+    "and nothing newer will appear until an update finishes. Your data is "
+    "not affected."
+)
+WIKI_COMPILE_KILLED_FIX = (
+    "Close apps you are not using, then start the wiki update again. If "
+    "this keeps happening, contact Ostler support."
+)
+WIKI_COMPILE_KILLED_FIX_COMMAND = (
+    "launchctl kickstart gui/$(id -u)/com.creativemachines.ostler.wiki-recompile"
+)
+WIKI_COMPILE_KILL_UNREADABLE_TITLE = "Ostler could not check when your wiki last updated"
+WIKI_COMPILE_KILL_UNREADABLE_DETAIL = (
+    "A record of a stopped wiki update exists but could not be read, so "
+    "your wiki may be out of date. Starting the update again replaces it."
+)
+WIKI_COMPILE_KILL_TIME_FMT = "%H:%M on %-d %b"
+
 # ── the container-engine supervisor's own report ─────────────────────
 #
 # Measured 2026-08-23 on the walk box: the engine was INSTALLED and STOPPED,

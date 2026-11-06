@@ -152,6 +152,9 @@ on:
       # matching path entry means editing this file does not trigger
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
+      - 'tests/test_a_killed_wiki_compile_is_a_doctor_red.py'
+      - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
       - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
       - 'bin/ostler-engine-supervisor.sh'
@@ -724,6 +727,13 @@ jobs:
       - name: A dead wiki announces itself
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
+
+      # v1.0.125 walk: the wiki compile was OOM-killed inside the VM and the
+      # wiki silently stopped updating. The REAL tick (stub docker + colima)
+      # writes the marker and the REAL Doctor rule turns it into a RED.
+      - name: A killed wiki compile is a Doctor RED
+        if: always()
+        run: python3 ./tests/test_a_killed_wiki_compile_is_a_doctor_red.py
 
       # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
       #

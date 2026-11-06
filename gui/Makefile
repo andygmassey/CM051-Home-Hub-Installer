@@ -1365,7 +1365,7 @@ stage-payload: download-python
 	cp -R "$$CONTEXT_REFRESH_SRC" "$$PAYLOAD/services/context-refresh"; \
 	cp -R "$$UNINSTALL_SRC" "$$PAYLOAD/services/uninstall"; \
 	cp -R "$$CARE_SRC" "$$PAYLOAD/services/care"; \
-	mkdir -p "$$PAYLOAD/services/vm"; cp "$$VM_SIZE_SRC" "$$PAYLOAD/services/vm/ostler-vm-size.sh"; \
+	mkdir -p "$$PAYLOAD/services/vm"; cp "$$VM_SIZE_SRC" "$$PAYLOAD/services/vm"; \
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
