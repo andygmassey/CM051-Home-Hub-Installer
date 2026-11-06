@@ -2139,23 +2139,58 @@ def _matches_source_path(filename: str, patterns: list[str]) -> Optional[str]:
     return None
 
 
-def _extract_pinned_version(cm051_dir: Path, source: dict) -> tuple[Optional[str], str]:
+def _pin_ref_for(cm051_dir: Path, version: Optional[str]) -> Optional[str]:
+    """The git ref the pins are read from: the CUT UNDER TEST, not the checkout.
+
+    v1.0.125 walk: post_walk_qa runs this gate from a main checkout, and main's
+    gui/Makefile pinned daemon 0.5.34 while the tag being walked (and the box)
+    ran 0.5.36, so permanent-daemon-freshness FAILED on main's pin, a verdict
+    about an artefact nobody was testing. OSTLER_CUT_MANIFEST_PIN_REF names a ref
+    explicitly; otherwise the --version tag, when this checkout holds it. None
+    means the working tree (a pre-tag run, where the tree IS the cut)."""
+    explicit = os.environ.get("OSTLER_CUT_MANIFEST_PIN_REF", "").strip()
+    cand = explicit or (version or "").strip()
+    if not cand:
+        return None
+    try:
+        p = subprocess.run(["git", "-C", str(cm051_dir), "rev-parse", "--verify", "--quiet",
+                            f"{cand}^{{commit}}"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return cand if p.returncode == 0 else None
+
+
+def _extract_pinned_version(cm051_dir: Path, source: dict,
+                            ref: Optional[str] = None) -> tuple[Optional[str], str]:
     """Extract the pinned version from `pinned_version_source`.
 
     Returns (version_or_None, error). Supports one shape today:
       { file: str, pattern: str-with-one-capture-group }
+    With `ref`, the file is read at that git ref (the cut under test), never
+    the working tree.
     """
     file_rel = source.get("file")
     pattern = source.get("pattern")
     if not file_rel or not pattern:
         return None, "pinned_version_source needs file + pattern"
     p = cm051_dir / file_rel
-    if not p.is_file():
+    if ref:
+        try:
+            g = subprocess.run(["git", "-C", str(cm051_dir), "show", f"{ref}:{file_rel}"],
+                               capture_output=True, text=True, timeout=GIT_SHOW_TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return None, f"reading {file_rel} at {ref}: {type(e).__name__}"
+        if g.returncode != 0:
+            return None, f"reading {file_rel} at {ref}: {g.stderr.strip()[:200]}"
+        text = g.stdout
+        p = Path(f"{ref}:{file_rel}")
+    elif not p.is_file():
         return None, f"pin source file not found: {p}"
-    try:
-        text = p.read_text(encoding="utf-8", errors="replace")
-    except (PermissionError, OSError) as e:
-        return None, f"reading {p}: {e}"
+    else:
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except (PermissionError, OSError) as e:
+            return None, f"reading {p}: {e}"
     m = re.search(pattern, text)
     if m is None:
         return None, f"pattern {pattern!r} did not match in {p}"
@@ -2537,7 +2572,8 @@ def check_verify_build_info_sidecar_present(entry: dict, ctx: dict) -> Result:
                       "FAIL", f"tag_format must contain '{{version}}': {tag_format!r}",
                       entry.get("source_pr", ""))
 
-    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source)
+    _pin_ref = ctx.get("pin_ref")
+    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source, ref=_pin_ref)
     if verr:
         return Result(entry["id"], entry["title"], "verify_build_info_sidecar_present",
                       "FAIL", f"resolving pinned version: {verr}",
@@ -2646,7 +2682,11 @@ def check_pinned_artefact_freshness(entry: dict, ctx: dict) -> Result:
                       "source_paths must not be empty (which files compile into this artefact?)",
                       entry.get("source_pr", ""))
 
-    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source)
+    _pin_ref = ctx.get("pin_ref")
+    version, verr = _extract_pinned_version(ctx["cm051_dir"], pin_source, ref=_pin_ref)
+    # Name where the pin came from in every verdict line: a pin read from a
+    # checkout that is not the cut under test is a different question.
+    artefact = f"{artefact} [pin read at {_pin_ref}]" if _pin_ref else f"{artefact} [pin read from the working tree]"
     if verr:
         return Result(entry["id"], entry["title"], "pinned_artefact_freshness", "FAIL",
                       f"resolving pinned version: {verr}", entry.get("source_pr", ""))
@@ -3230,6 +3270,7 @@ def main() -> int:
     ctx = {
         "app_path": app_path,
         "cm051_dir": cm051_dir,
+        "pin_ref": _pin_ref_for(cm051_dir, args.version),
         "extra_paths": {},
         "require_runtime_proofs": bool(args.require_runtime_proofs),
     }
