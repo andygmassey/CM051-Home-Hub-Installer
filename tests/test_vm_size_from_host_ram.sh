@@ -97,6 +97,47 @@ else
     ok "arm 2 MUTANT: the old fixed '--memory 4' line put back is caught"
 fi
 
+# ── arm 2b: the REAL install.sh start block, executed ────────────────
+# Extracted from install.sh (the sizing lines through the end of the start
+# loop) and run under `set -Eeuo pipefail` with an armed ERR trap, as the
+# installer runs it, against a stub colima/docker. Proves the block sizes
+# the start, logs the size, and marks ONLY a VM it created.
+BLK="$TMP/start_block.sh"
+awk '/_ostler_vm_lib="\$\{SCRIPT_DIR\}\/lib\/ostler-vm-size.sh"/{f=1} f{print} f && /^            done$/{exit}' "$INSTALL_SH" > "$BLK"
+if ! grep -q 'colima start --cpu' "$BLK" || ! grep -q '^            done$' "$BLK"; then
+    bad "arm 2b premise: could not extract the colima start block from install.sh"
+else
+    run_block() {  # vm_existed(0/1) -> prints the stub log
+        local d="$TMP/blk$1"; mkdir -p "$d/bin" "$d/lib" "$d/state"
+        cp "$LIB" "$d/lib/ostler-vm-size.sh"
+        cat > "$d/bin/colima" <<STUB
+#!/bin/bash
+echo "colima \$*" >> "$d/log"
+if [ "\$1" = list ]; then echo 'PROFILE STATUS'; [ "$1" = 1 ] && echo 'default Stopped'; fi
+exit 0
+STUB
+        printf '#!/bin/bash\necho "docker $*" >> "%s/log"\nexit 0\n' "$d" > "$d/bin/docker"
+        chmod 755 "$d/bin/colima" "$d/bin/docker"
+        ( set -Eeuo pipefail; trap 'echo "ERR TRAP FIRED at $LINENO" >> "'"$d"'/log"; exit 99' ERR
+          export PATH="$d/bin:/usr/bin:/bin" OSTLER_STATE_DIR="$d/state" OSTLER_VM_COLIMA="$d/bin/colima" \
+                 OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)) OSTLER_VM_HOST_NCPU=8
+          SCRIPT_DIR="$d"; MSG_INFO_COLIMA_START_ATTEMPT='attempt %s of %s'; MSG_WARN_COLIMA_START_RETRY='retry in %s'
+          info() { echo "INFO $*" >> "$d/log"; }; warn() { echo "WARN $*" >> "$d/log"; }
+          . "$BLK"
+          echo "started=$colima_started" >> "$d/log" ) || echo "BLOCK EXIT $?" >> "$d/log"
+        [ -f "$d/state/colima-vm-owner" ] && echo "MARKER WRITTEN" >> "$d/log"
+        cat "$d/log"
+    }
+    out0="$(run_block 0)"; out1="$(run_block 1)"
+    if grep -q 'colima start --cpu 3 --memory 6 --disk 30' <<< "$out0" && grep -q 'INFO container VM size: 6 GiB memory, 3 CPUs' <<< "$out0" \
+       && grep -q 'started=1' <<< "$out0" && grep -q 'MARKER WRITTEN' <<< "$out0" && ! grep -q 'ERR TRAP\|BLOCK EXIT' <<< "$out0"; then
+        ok "arm 2b: the real block, under set -Eeuo pipefail + ERR trap: 16 GB host starts colima at 6 GiB / 3 CPUs, logs it, marks the VM it created"
+    else bad "arm 2b: real block on a fresh Mac: $(tr '\n' ';' <<< "$out0")"; fi
+    if grep -q 'colima start --cpu 3 --memory 6' <<< "$out1" && ! grep -q 'MARKER WRITTEN' <<< "$out1" && ! grep -q 'ERR TRAP\|BLOCK EXIT' <<< "$out1"; then
+        ok "arm 2b control: a VM that existed before the start is NOT marked as Ostler's"
+    else bad "arm 2b control: pre-existing VM: $(tr '\n' ';' <<< "$out1")"; fi
+fi
+
 # ── arm 3: upgrade, behavioural ──────────────────────────────────────
 STUBS="$TMP/stubs"; mkdir -p "$STUBS"
 cat > "$STUBS/colima" <<EOF
