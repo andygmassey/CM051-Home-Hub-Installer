@@ -214,6 +214,11 @@ MARKER = os.path.join(OSTLER, "state", "smartprefs-walk-seed.json")
 LOG = os.path.join(OSTLER, "logs", "derive-preferences.log")
 PLIST = os.path.join(HOME, "Library", "LaunchAgents", AGENT_LABEL + ".plist")
 LAUNCHCTL = os.environ.get("OSTLER_SMARTPREFS_LAUNCHCTL", "/bin/launchctl")
+# The derive tick's own one-shot cadence bypass (install.sh _install_derive_preferences_agent, CM051 #3350):
+# a tick that finds this file removes it and runs a pass even inside the 30 min retry / 6 h settled cadence.
+# v1.0.125: the walk kicked with kickstart alone, every kick logged "cadence: next pass due in ~17000s" and
+# exited without a pass or a status write, so four probes read "no pass finished after the kick".
+KICK_MARK = os.path.join(OSTLER, "state", "derive-preferences.kick")
 
 
 def _read(path):
@@ -307,8 +312,16 @@ def fixture_presence():
     return out
 
 
-def _kick():
+def _kick(force=False):
+    """kickstart -k the derive agent. force=True first writes the tick's own cadence-bypass mark, the same
+    one the installer writes, so the kick runs a pass instead of logging "next pass due"."""
     uid = os.getuid()
+    if force:
+        try:
+            os.makedirs(os.path.dirname(KICK_MARK), exist_ok=True)
+            open(KICK_MARK, "w").close()
+        except OSError as e:
+            return 126, "cadence-bypass mark not written: %s" % e
     try:
         p = subprocess.run([LAUNCHCTL, "kickstart", "-k", "gui/%d/%s" % (uid, AGENT_LABEL)],
                            capture_output=True, text=True, timeout=30)
@@ -341,19 +354,38 @@ def _derive_wait(prev, budget):
         time.sleep(poll)
 
 
-def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.time, nap=time.sleep):
+def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.time, nap=time.sleep, since=None,
+                       now_iso=None):
     """Kick the derive agent and wait for a pass, RE-KICKING while its tick only deferred or
     yielded. v1.0.121: one kick and one 240s wait; the tick yielded to the busy hourly ingest slot
     (com.ostler.fda-rerun, 900s+), nothing re-asked, and four probes read CANNOT-RUN. A tick that
     wrote deferred/yielded has EXITED, so kickstart -k cannot kill a pass in flight; any other
-    outcome, or the total budget, ends the loop and the probe reads what is there."""
+    outcome, or the total budget, ends the loop and the probe reads what is there.
+
+    since (the kick's UTC ISO time) adds one rule, for a product whose tick stamps its status "ts":
+    a status NOT written since the kick means no tick has reported yet (a pass in flight: the first
+    pass on the v1.0.125 box took 36 min), so the loop keeps WAITING, without a kick that would kill
+    it, until the total budget; and a deferred/yielded status older than the kick is not re-kicked.
+    The total budget still ends it, and the probe then reads CANNOT-RUN, never PASS."""
     kick = kick or _kick
     wait = wait or _derive_wait
+    now_iso = now_iso or (lambda: _iso(0))
     end = clock() + total
+
+    def fresh(st):
+        return bool(since) and bool(st.get("ts")) and str(st.get("ts")) >= since
+
     ran, st = wait(prev, budget)
-    while not ran and st.get("outcome") in ("deferred", "yielded") and clock() < end:
-        nap(30)
-        if kick()[0] != 0:
+    while not ran and clock() < end:
+        if st.get("outcome") in ("deferred", "yielded") and (not since or not st.get("ts") or fresh(st)):
+            nap(float(os.environ.get("OSTLER_SMARTPREFS_REKICK_PAUSE_S", "30")))
+            if kick()[0] != 0:
+                break
+            if since:
+                since = now_iso()
+        elif since and st.get("ts") and not fresh(st):
+            pass      # no tick has reported since the kick: keep waiting, do not kill a pass in flight
+        else:
             break
         ran, st = wait(prev, min(budget, max(1.0, end - clock())))
     return ran, st
@@ -395,18 +427,28 @@ def seed_main():
         print(json.dumps(out)); return 0
     out["presence"] = fixture_presence()
     prev = _status().get("last_run_at")
-    rc, kout = _kick()
+    kicked_at = _iso(0)
+    rc, kout = _kick(force=True)
     out["kick"] = {"rc": rc, "out": kout}
     ran, st = (False, _status())
+    # TOTAL 1800 = the product's own first-run retry period (OSTLER_DERIVE_RETRY_S, CM051 #3350): a pass the
+    # product would itself retry inside 30 min is waited for; nothing longer. Measured passes on the v1.0.125
+    # box: 3 s (empty), 36 min (first real pass, first-run load), 3 min 48 s (steady).
+    total = float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_TOTAL_S", "1800"))
+    t0 = time.time()
     if rc == 0:
         ran, st = _derive_until_pass(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")),
-                                     float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_TOTAL_S", "900")))
-    out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200]}
+                                     total, kick=lambda: _kick(force=True), since=kicked_at)
+    mark_left = os.path.exists(KICK_MARK)
+    out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200],
+                     "waited_s": int(time.time() - t0), "total_s": int(total), "kick_mark_consumed": not mark_left}
     out["state"] = "seeded"
     try:
         os.makedirs(os.path.dirname(MARKER), exist_ok=True)
         with open(MARKER, "w") as fh:
-            json.dump({"seeded_at": _iso(0), "ran_after_seed": ran, "outcome": st.get("outcome"), "kick_rc": rc}, fh)
+            json.dump({"seeded_at": _iso(0), "ran_after_seed": ran, "outcome": st.get("outcome"), "kick_rc": rc,
+                       "waited_s": out["derive"]["waited_s"], "total_s": out["derive"]["total_s"],
+                       "kick_mark_left": mark_left}, fh)
     except OSError as e:
         out["why"] = "marker not written: %s" % e
     print(json.dumps(out))
@@ -463,6 +505,12 @@ def forget_main():
     res["named_graph_delete"] = _oxi_update(
         "DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } %s }" % _FIXTURE_FILTER)[0]
     res["brief_job_deleted"] = _forget_brief_job()
+    if _marker().get("kick_mark_left"):
+        try:
+            os.remove(KICK_MARK)      # the seed's own bypass mark, never consumed: do not leave it to a later tick
+            res["kick_mark_removed"] = True
+        except OSError:
+            pass
     try:
         os.remove(MARKER)
     except OSError:
@@ -556,6 +604,7 @@ def box_served_main():
     m = _marker()
     f = {"fixture": fixture_presence(),
          "seed": {"marker": bool(m), "ran_after_seed": bool(m.get("ran_after_seed")), "outcome": m.get("outcome"),
+                  "waited_s": m.get("waited_s"), "total_s": m.get("total_s"), "kick_mark_left": m.get("kick_mark_left"),
                   "seed_state_env": os.environ.get("OSTLER_SMARTPREFS_SEED_STATE", "")},
          "engine_can_run": imp["rc"] == 0 and scheduled, "engine_why": "" if imp["rc"] == 0 and scheduled else
          ("not scheduled" if not scheduled else "import failed: %s" % imp["err"])}
@@ -735,9 +784,14 @@ def _gate(f):
         if not f.get("engine_can_run"):
             return [("a derive pass ran after the seed", "FAIL",
                      "the derive engine cannot run on this box (%s); see derived_preferences_runs" % f.get("engine_why"))]
+        waited = ""
+        if sd.get("waited_s") is not None:
+            waited = " within %ss of a %ss budget (OSTLER_SMARTPREFS_DERIVE_TOTAL_S)%s" % (
+                sd.get("waited_s"), sd.get("total_s"),
+                "; the cadence-bypass mark was never consumed, so no tick ran" if sd.get("kick_mark_left") else "")
         return [("a derive pass ran after the seed", "CANNOT",
-                 "the engine can start but no pass finished after the kick (outcome %s); deferred or busy, not a verdict"
-                 % sd.get("outcome"))]
+                 "the engine can start but no pass finished after the kick%s (outcome %s); deferred or busy, not a verdict"
+                 % (waited, sd.get("outcome")))]
     r = f.get("route") or {}
     if r.get("status") is None:
         return [("the Hub route answers", "CANNOT", "route unmeasured: %s" % r.get("error", "no reading"))]

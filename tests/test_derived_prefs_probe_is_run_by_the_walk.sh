@@ -38,9 +38,12 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if mode == "absent":
             self.send_response(404); self.end_headers(); return
-        body = json.dumps({"items": [{"dimension": "media.film.genre", "label": "science fiction",
-                                      "strength": 0.7, "confidence": 0.8, "because": ["Synthetic Film"]}],
-                           "degraded": False}).encode()
+        H.n = getattr(H, "n", 0) + 1
+        # "empty": 200 with nothing derived yet; "late": nothing on the first two reads, then served
+        items = [] if mode == "empty" or (mode == "late" and H.n <= 2) else \
+            [{"dimension": "media.film.genre", "label": "science fiction",
+              "strength": 0.7, "confidence": 0.8, "because": ["Synthetic Film"]}]
+        body = json.dumps({"items": items, "degraded": False}).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PYEOF
@@ -54,6 +57,7 @@ walk() {  # $1 = mode (absent|serves), $2 = digest text; sets OUT, RC
     sleep 1
     printf '## Preferences and things to keep in mind\n%s\n' "$2" > "$CTX"
     OUT="$(HOME="$H" OSTLER_HUB_URL="http://127.0.0.1:${port}" OSTLER_DERIVED_WAIT_S=0 \
+        OSTLER_DERIVED_FIRST_PASS_WAIT_S="${FIRST_PASS_WAIT:-0}" \
         OSTLER_BOX_HOST= bash "$RUNNER" --only "$PROBE" --read-only 2>&1)"; RC=$?
 }
 line() { /usr/bin/grep -E "$1" <<< "$OUT" | head -1; }
@@ -81,5 +85,17 @@ else
     bad "S3: expected ok digest, CANNOT tool, no FAIL: $(line 'digest:') / $(line 'tool:')"
 fi
 
-echo "  $pass passed, $fail failed (real run_box_walk.sh, 4 states, fake Hub)"
+# walk126: the first derive pass on a first-run box can take 36 min. While NO pass has completed
+# (no status file under this scratch HOME), an answering-but-empty route is waited on up to
+# OSTLER_DERIVED_FIRST_PASS_WAIT_S, then reads CANNOT-RUN, never PASS. Once a pass has completed, empty FAILs.
+FIRST_PASS_WAIT=12 walk late "- loves science fiction films"
+if /usr/bin/grep -qE '^ +ok +route:' <<< "$OUT"; then ok "S5: a route that serves on the 3rd read, inside the first-pass budget -> route ok"; else bad "S5: late route not waited for: $(line 'route:')"; fi
+FIRST_PASS_WAIT=6 walk empty "- likes jazz"
+if /usr/bin/grep -qE '^ +CANNOT +route:.*no derive pass has completed' <<< "$OUT" && ! /usr/bin/grep -qE '^ +(ok|FAIL) +route:' <<< "$OUT"; then ok "S6: empty route, no pass yet, budget spent -> CANNOT-RUN with the wait named, never PASS"; else bad "S6: expected CANNOT route: $(line 'route:')"; fi
+mkdir -p "$H/.ostler/state"; printf '{"last_run_at": "2026-01-01T00:00:00Z", "outcome": "written"}\n' > "$H/.ostler/state/derived-preferences.json"
+FIRST_PASS_WAIT=6 walk empty "- likes jazz"
+if /usr/bin/grep -qE '^ +FAIL +route:' <<< "$OUT"; then ok "S7: empty route after a COMPLETED pass -> FAIL (route), not excused as timing"; else bad "S7: expected FAIL route: $(line 'route:')"; fi
+rm -f "$H/.ostler/state/derived-preferences.json"
+
+echo "  $pass passed, $fail failed (real run_box_walk.sh, 7 states, fake Hub)"
 [ "$fail" -eq 0 ]
