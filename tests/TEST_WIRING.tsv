@@ -1125,6 +1125,7 @@ gui/OstlerInstallerTests/AutoQuitAndKeepInstallerTests.swift	WIRED	.github/workf
 gui/OstlerInstallerTests/BiometricProbeTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/CaffeinateTerminationTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ChoiceResolverTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/ConsentContinueGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceLimitReachedViewSnapshotTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
