@@ -111,7 +111,7 @@ ostler_lg_ephemeral_range() {   # prints "first last"
 # ── the assistant's own macOS account ─────────────────────────────────────
 # The assistant's separate iMessage/WhatsApp identity runs in its OWN macOS
 # account (the founder bridge: vendor/imessage_bridge/bin/bridge.py, run as
-# that account, writing /Users/Shared/imessage-bridge/inbox.jsonl). It is
+# that account, writing imessage-bridge/inbox.jsonl in the Shared folder). It is
 # ours, so its uid is allowed explicitly. Configured by name, in
 # OSTLER_ASSISTANT_MAC_USER (environment, or that line in the owner's
 # ~/.ostler/.env), and resolved to a uid ONLY at install, inside the install's
