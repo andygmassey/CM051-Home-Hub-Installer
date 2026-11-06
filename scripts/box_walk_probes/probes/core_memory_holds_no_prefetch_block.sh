@@ -7,6 +7,8 @@
 # ZERO core entries is CANNOT-RUN, never PASS: nothing was consolidated, so nothing was examined.
 # Runs after the assistant_* chat probes by name (C sort: "c" after "a"); consolidation is written asynchronously, so
 # entries from the opening probes are on disk by then. Details and NOT INSTRUMENTED: lib/core_memory_prefetch.py.
+# The core read is POLLED until an entry exists, bounded by OSTLER_CORE_MEMORY_WAIT_S (default 300, every
+# OSTLER_CORE_MEMORY_POLL_S=15): a zero after the budget is CANNOT-RUN with the waited time, never PASS.
 #
 # READ-ONLY: writes nothing to the box beyond its own temp driver, removed on the same call. Prints no secret.
 set -u

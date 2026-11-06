@@ -12,6 +12,8 @@ trap cleanup EXIT
 export HOME="${T}/home"; mkdir -p "${HOME}"
 export NO_PROXY=127.0.0.1,localhost; unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY
 unset OSTLER_BOX_HOST
+# No wait unless an arm asks for one: the zero-entry arms must not sit out the 300 s default.
+export OSTLER_CORE_MEMORY_WAIT_S=0 OSTLER_CORE_MEMORY_POLL_S=1
 FAILS=0; N=0
 ok() { N=$((N+1)); if [ "$2" = "$3" ]; then echo "  ok   $1 (rc=$3)"; else echo "  FAIL $1: want rc=$2 got rc=$3"; FAILS=$((FAILS+1)); fi; }
 has() { N=$((N+1)); if printf '%s' "$2" | /usr/bin/grep -q -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1: output lacks '$3'"; FAILS=$((FAILS+1)); fi; }
@@ -27,6 +29,7 @@ CORE = [{"key": "core_a1", "category": "core", "content": "User moved to a new f
 if MODE == "leak":
     CORE.append({"key": "core_c3", "category": "core", "content": "User asked about a friend." + BLOCK})
 DAILY = [{"key": "daily_x", "category": "daily", "content": "Talked about the flat."}]
+CORE_READS = [0]
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _send(self, obj, code=200):
@@ -43,6 +46,10 @@ class H(BaseHTTPRequestHandler):
         cat = urllib.parse.parse_qs(u.query).get("category", [""])[0]
         if MODE == "empty":
             return self._send({"entries": []})
+        if MODE == "late" and cat == "core":
+            # consolidation lands on the THIRD core read: what a single read on a first-run box missed
+            CORE_READS[0] += 1
+            return self._send({"entries": CORE if CORE_READS[0] >= 3 else []})
         if MODE == "nofilter":
             return self._send({"entries": CORE + DAILY})
         return self._send({"entries": CORE if cat == "core" else DAILY if cat == "daily" else CORE + DAILY})
@@ -72,6 +79,12 @@ lacks "FAIL never prints the memory content" "${OUT}" "ZZ-CANARY-2436"
 run_mem empty;    ok "zero core entries -> CANNOT-RUN, never PASS" 78 "${RC}"
 run_mem unauth;   ok "gateway refuses the token -> CANNOT-RUN" 78 "${RC}"; has "CANNOT names the HTTP status" "${OUT}" "HTTP 401"
 run_mem nofilter; ok "category filter ignored -> CANNOT-RUN" 78 "${RC}"
+echo "== the core read is polled on a budget (v1.0.124/125: one read, 0 core, CANNOT-RUN on a first-run box)"
+OSTLER_CORE_MEMORY_WAIT_S=10 run_mem late; ok "core entries that land on the 3rd poll, inside the budget -> PASS" 0 "${RC}"
+has "and they were examined" "${OUT}" "EXAMINED: 2 core_"
+OSTLER_CORE_MEMORY_WAIT_S=0 run_mem late; ok "MUST-FAIL: the same late box with no budget -> CANNOT-RUN, not PASS" 78 "${RC}"
+OSTLER_CORE_MEMORY_WAIT_S=2 run_mem empty; ok "zero core entries after the budget is spent -> CANNOT-RUN, never PASS" 78 "${RC}"
+has "the CANNOT names the poll count and the waited time" "${OUT}" "polled [0-9]* times over [0-9]*s of a 2s budget"
 env OSTLER_PROBE_TOKEN_PATH="${T}/secrets/missing" bash "${P}/probes/core_memory_holds_no_prefetch_block.sh" >/dev/null 2>&1
 ok "token file missing -> CANNOT-RUN" 78 $?
 bash "${P}/probes/core_memory_holds_no_prefetch_block.sh" --self-test >/dev/null 2>&1; ok "--self-test is red (runner demands 1)" 1 $?
