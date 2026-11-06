@@ -164,7 +164,7 @@ else
         && svc wiki-compiler | grep -qE '^    oom_score_adj: [1-9][0-9]*( +#.*)?$' \
         && ok "arm 6: wiki-compiler has a sized mem_limit (floor 1536m) and a positive oom_score_adj" \
         || bad "arm 6: wiki-compiler has no sized mem_limit / positive oom_score_adj: a compile can still take a store down"
-    svc wiki-site | grep -qE '^    mem_limit: "\$\{OSTLER_WIKI_SITE_MEM_LIMIT:-1024m\}"( +#.*)?$' \
+    svc wiki-site | grep -qE '^    mem_limit: "\$\{OSTLER_WIKI_SITE_MEM_LIMIT:-1536m\}"( +#.*)?$' \
         && svc wiki-site | grep -qE '^    oom_score_adj: [1-9][0-9]*( +#.*)?$' \
         && ok "arm 6: wiki-site (mkdocs, killed once on 125) has a sized mem_limit and a positive oom_score_adj" \
         || bad "arm 6: wiki-site has no sized mem_limit / positive oom_score_adj"
@@ -182,10 +182,10 @@ else
     E="$TMP/env6"; printf 'JWT_SECRET=x\nOSTLER_WIKI_COMPILER_MEM_LIMIT=9m\n' > "$E"; chmod 600 "$E"
     got="$( . "$LIB"; OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)) OSTLER_VM_HOST_NCPU=8; export OSTLER_VM_HOST_RAM_BYTES OSTLER_VM_HOST_NCPU
             ostler_vm_write_container_limits "$E" >/dev/null 2>&1; echo "rc=$?" )"
-    if [ "$got" = "rc=0" ] && grep -qx 'OSTLER_WIKI_COMPILER_MEM_LIMIT=2048m' "$E" && grep -qx 'OSTLER_WIKI_SITE_MEM_LIMIT=1024m' "$E" \
+    if [ "$got" = "rc=0" ] && grep -qx 'OSTLER_WIKI_COMPILER_MEM_LIMIT=1536m' "$E" && grep -qx 'OSTLER_WIKI_SITE_MEM_LIMIT=1536m' "$E" \
        && grep -qx 'JWT_SECRET=x' "$E" && [ "$(grep -c '^OSTLER_WIKI_COMPILER_MEM_LIMIT=' "$E")" = 1 ] \
        && [ "$(stat -f '%Lp' "$E" 2>/dev/null || stat -c '%a' "$E")" = 600 ]; then
-        ok "arm 6: 16 GB host (6 GiB VM) -> compiler 2048m, site 1024m in .env; stale value replaced, other keys and mode 600 kept"
+        ok "arm 6: 16 GB host (6 GiB VM) -> compiler 1536m, site 1536m in .env; stale value replaced, other keys and mode 600 kept"
     else bad "arm 6: .env limits wrong ($got): $(tr '\n' ';' < "$E")"; fi
     # A .env that cannot be READ must be left alone: grep exit 2 is not
     # "no other keys", and treating it so replaced the whole compose .env
@@ -200,10 +200,10 @@ else
         ok "arm 6: an unreadable .env is left byte-identical (rc 0, the log line says it could not be read)"
     else bad "arm 6: an unreadable .env was rewritten or the refusal was not logged: [$line] now: $(tr '\n' ';' < "$E2")"; fi
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-        printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=2048m\nOSTLER_WIKI_SITE_MEM_LIMIT=1024m\n' > "$TMP/.env"
+        printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=1536m\nOSTLER_WIKI_SITE_MEM_LIMIT=1536m\n' > "$TMP/.env"
         cfg="$(cd "$TMP" && docker compose -f "$CMP" --profile compile config 2>&1)"  # read-only; real HOME so the CLI finds its compose plugin
-        if grep -q 'mem_limit: "2147483648"' <<< "$cfg" && grep -q 'oom_score_adj: -500' <<< "$cfg"; then
-            ok "arm 6: docker compose config accepts the file and resolves the compiler limit to 2 GiB"
+        if grep -q 'mem_limit: "1610612736"' <<< "$cfg" && grep -q 'oom_score_adj: -500' <<< "$cfg"; then
+            ok "arm 6: docker compose config accepts the file and resolves the limits to 1.5 GiB"
         else bad "arm 6: docker compose config: $(grep -iE 'error|mem_limit|oom' <<< "$cfg" | head -3 | tr '\n' ';')"; fi
     else
         echo "  note CANNOT-RUN: no docker compose CLI here, so compose config was not validated (counted neither pass nor fail)"

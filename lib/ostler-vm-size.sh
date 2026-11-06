@@ -36,14 +36,18 @@
 # in the 4 GiB VM: 7 compiler pythons at 838-960 MB, 1 mkdocs, and the
 # OXIGRAPH store. With a cgroup limit the compiler is killed inside its own
 # cgroup (memcg OOM) and never reaches the global OOM killer that took the
-# store. The site's mkdocs build RSS is NOT MEASURED; its limit is generous
-# so a big wiki is not memcg-killed in a restart loop (ORM row c retunes).
+# store. ORM measured (walk125/compile_rss/TABLE.tsv, real RSS, NOT docker
+# stats, which under-reads 64-96 MiB against a real 173-811): compiler about
+# 60 MiB + 22 KiB/page (173 / 550 / 841 MiB at 5k / 20k / 36k pages), and
+# wiki-site mkdocs up to 958 MiB on a real book, so both floors are 1536m.
+# 16 GB row fits its 6 GiB VM: compiler 1536 + site 1536 + oxigraph ~955 +
+# qdrant ~812 + vane ~276 + VM base ~400 = 5515 MiB of 6144.
 # Whatever the limits leave is the stores' (qdrant, oxigraph, redis),
 # which carry no cap and a negative oom_score_adj in the compose file.
 OSTLER_VM_SIZE_TABLE="32 10 5 4096 2048
 24 8 4 3072 1536
-16 6 3 2048 1024
-0 4 2 1536 1024"
+16 6 3 1536 1536
+0 4 2 1536 1536"
 OSTLER_VM_DISK_GIB=30
 
 # ── host detection ────────────────────────────────────────────────────
@@ -70,7 +74,7 @@ ostler_vm_host_cpus() {
 # ostler_vm_size_for <ram_gib|""> <ncpu|""> -> "MEM CPU COMPILER_MIB SITE_MIB".
 ostler_vm_size_for() {
     local _ram="$1" _ncpu="$2" _row _min _mem _cpu _cpu_r _cap _cm _sm _cm_r _sm_r
-    _mem=4; _cpu=2; _cm=1536; _sm=1024
+    _mem=4; _cpu=2; _cm=1536; _sm=1536
     case "$_ram" in ''|*[!0-9]*) _ram="" ;; esac
     if [ -n "$_ram" ]; then
         while read -r _min _row _cpu_r _cm_r _sm_r; do

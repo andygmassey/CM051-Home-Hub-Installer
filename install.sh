@@ -22181,7 +22181,7 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
       - wiki-built:/site
     restart: unless-stopped
-    mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1024m}"  # lib/ostler-vm-size.sh table, via the compose .env
+    mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1536m}"  # lib/ostler-vm-size.sh table, via the compose .env
     oom_score_adj: 500
 
   # Wiki compiler -- runs on demand (compose profile "compile") to rebuild the wiki from
