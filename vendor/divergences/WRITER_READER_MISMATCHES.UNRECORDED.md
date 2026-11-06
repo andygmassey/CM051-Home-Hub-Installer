@@ -1791,3 +1791,15 @@ Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware
 ### What a future sync must preserve
 
 `_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a killed wiki compile is a RED row (v1.0.126 b1/b2, from the 125 walk) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. Files:
+
+- `agent/status_collector.py`, appended at the end: `WIKI_COMPILE_KILL_PHASES`, `WIKI_COMPILE_KILL_CAUSES`, dataclass `WikiCompileKill`, and `read_wiki_compile_kills()`, which reads `state/wiki-recompile/compile-killed.<phase>.json` (written by CM051 `wiki-recompile/bin/wiki-recompile-tick.sh` when a compile exits 137/143). An unparseable marker is returned with `unreadable=True`; an unknown cause stays `"unknown"`.
+- `agent/diagnostic_rules.py`: nine new copy imports and `read_wiki_compile_kills` imported from status_collector; new `_wiki_compile_kill_findings()` placed just above `_WIKI_STALL_MIN_TICKS`; `check_wiki_health` calls it right after the refresh-stall block and before the port probe. One CRITICAL finding per killed phase, a WARNING ("could not check") for an unreadable marker.
+- `agent/diagnostic_copy.py`: a new block after `WIKI_REFRESH_STALLED_FIX_COMMAND`: `WIKI_COMPILE_KILLED_TITLE_FMT` / `WIKI_SUMMARIES_KILLED_TITLE_FMT` (dicts keyed by cause: oom, timeout, killed, unknown; the oom title is "Your wiki stopped updating at {time}: not enough memory"), the two details, fix, fix command (kickstart of `com.creativemachines.ostler.wiki-recompile`), the unreadable title and detail, and `WIKI_COMPILE_KILL_TIME_FMT`.
+
+### What a future sync must preserve
+
+All three, and the marker contract with the tick (path, `phase`, `exit`, `cause`, `at` in UTC). Guarded by `tests/test_a_killed_wiki_compile_is_a_doctor_red.py` (workflow `vendor-integrity.yml`), which runs the real tick into the real rule: 11 of its checks fail on the pre-change tree. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
