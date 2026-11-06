@@ -311,7 +311,9 @@ sandbox_body() {
     sed -e "s#/Applications#${F}/Applications#g" \
         -e "s#/usr/local/bin#${F}/usr/local/bin#g" \
         -e "s#/opt/homebrew/bin#${F}/opt/homebrew/bin#g" \
-        -e "s#/etc/kcpassword#${F}/etc/kcpassword#g" "$1" > "$3"
+        -e "s#/etc/kcpassword#${F}/etc/kcpassword#g" \
+        -e "s#/Library/Application Support/Ostler#${F}/Library/Application Support/Ostler#g" \
+        -e "s#/Library/LaunchDaemons#${F}/Library/LaunchDaemons#g" "$1" > "$3"
     local left
     left="$(grep -v '^[[:space:]]*#' "$3" | sed "s#${F}/[^ \"]*##g" \
             | grep -oE '(^|[ "=(:])/(Applications|usr/local|opt/homebrew|etc|Library|System|private|var|Users)[^ "]*' | head -3)"
