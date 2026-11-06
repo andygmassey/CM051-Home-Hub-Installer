@@ -149,8 +149,21 @@ ostler_vm_write_container_limits() {
     OSTLER_VM_LIMITS_LINE="wiki container memory limits: compiler ${OSTLER_WIKI_COMPILER_MEM_MIB}m, site ${OSTLER_WIKI_SITE_MEM_MIB}m (VM ${OSTLER_VM_MEM_GIB} GiB; stores uncapped)"
     [ -n "$_env" ] || return 0
     _tmp="${_env}.ostler-vm-tmp"
-    if { [ -f "$_env" ] && grep -vE '^OSTLER_WIKI_(COMPILER|SITE)_MEM_LIMIT=' "$_env" > "$_tmp" 2>/dev/null || : > "$_tmp"; } \
-        && printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=%sm\nOSTLER_WIKI_SITE_MEM_LIMIT=%sm\n' \
+    # Copy every OTHER key. grep exit 1 means "no other lines", exit 2 means
+    # the file could not be read: that must REFUSE, never become an empty
+    # copy that replaces JWT_SECRET and the rest (Archie, #3364).
+    local _g=0
+    if [ -e "$_env" ]; then
+        grep -vE '^OSTLER_WIKI_(COMPILER|SITE)_MEM_LIMIT=' "$_env" > "$_tmp" 2>/dev/null || _g=$?
+        if [ "$_g" -gt 1 ]; then
+            rm -f "$_tmp" 2>/dev/null || true
+            OSTLER_VM_LIMITS_LINE="${OSTLER_VM_LIMITS_LINE}; COULD NOT READ ${_env} (grep exit ${_g}), so it was left untouched and the compose floor defaults apply"
+            return 0
+        fi
+    else
+        : > "$_tmp" || { OSTLER_VM_LIMITS_LINE="${OSTLER_VM_LIMITS_LINE}; COULD NOT WRITE ${_env}, so the compose floor defaults apply"; return 0; }
+    fi
+    if printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=%sm\nOSTLER_WIKI_SITE_MEM_LIMIT=%sm\n' \
             "$OSTLER_WIKI_COMPILER_MEM_MIB" "$OSTLER_WIKI_SITE_MEM_MIB" >> "$_tmp" \
         && chmod 600 "$_tmp" && mv -f "$_tmp" "$_env"; then
         return 0

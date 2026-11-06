@@ -21965,8 +21965,8 @@ mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversatio
 # operator who sets it without moving them will mount an empty tree.
 mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
     || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
-
-if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi; cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
+if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi
+cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
     image: ghcr.io/creativemachines-ai/qdrant@sha256:d774e7bb65744454984c6021637a0da89271f30df15e48601a9fafc926d26b1f  # v1.12.1, mirrored at the same digest from docker.io/qdrant/qdrant

@@ -8,7 +8,7 @@ The wiki compiler's python was killed by the kernel inside the container VM
 exited 137. wiki-recompile-tick.sh logged EVERY 137/143 as "exceeded the
 timeout and was killed by the watchdog", skipped the publish, and exited.
 Nothing a customer could see said anything: the wiki kept serving old pages
-and simply stopped updating. Andy refused 125 for launch over it.
+and simply stopped updating.
 
 WHAT THIS RUNS, END TO END
 --------------------------

@@ -322,7 +322,9 @@ from status_collector import (
     STORE_RESTART_WINDOW_S,
     WIKI_URL,
     collect_store_restarts,
+    read_store_restart_state,
     read_wiki_compile_kills,
+    write_store_restart_state,
     detect_ostler_prefix,
     is_native_deployment,
     is_ostler_container,
@@ -975,47 +977,76 @@ def _wiki_compile_kill_findings() -> list[dict]:
 
 
 def check_store_restarts(snapshot: Any) -> list[dict]:
-    """A data store killed and restarted in the last day is a CRITICAL.
+    """A data store that NEWLY restarted in the last day is a CRITICAL.
 
     v1.0.126, from the 125 box: the OOM killer took oxigraph, Docker restarted
-    it, and every probe answered. One row per restarted store; "not enough
-    memory" only when an OOM kill of THAT store is on record. Docker that
-    cannot be asked is a warning, never silence.
+    it, and every probe answered. Evidence of a new restart is an oom event
+    (or State.OOMKilled) for THAT store, or its RestartCount rising past the
+    count recorded on the previous look. A fresh StartedAt alone is what
+    every reboot looks like and is NOT evidence (Archie, #3364). The first
+    look only records a baseline. A store docker could not report on gets a
+    "could not check" warning, never silence.
     """
     from datetime import datetime, timezone
     try:
         rows, err = collect_store_restarts()
     except Exception as exc:  # noqa: BLE001
         rows, err = [], f"{type(exc).__name__}"
-    if err:
-        return [{
+    def _unchecked(reason: str) -> dict:
+        return {
             "severity": "warning",
             "title": STORE_RESTART_UNCHECKED_TITLE,
-            "detail": STORE_RESTART_UNCHECKED_DETAIL_FMT.format(reason=err),
+            "detail": STORE_RESTART_UNCHECKED_DETAIL_FMT.format(reason=reason),
             "fix": STORE_RESTARTED_FIX,
             "fix_command": STORE_RESTARTED_FIX_COMMAND,
             "risk": "low",
             "category": "runtime",
-        }]
+        }
+    if err:
+        return [_unchecked(err)]
     now = datetime.now(tz=timezone.utc)
+    state = read_store_restart_state()
+    new_state = dict(state)
     out: list[dict] = []
     for r in rows:
-        if r.restart_count <= 0 and not r.oom:
+        label = STORE_LABELS.get(r.name, r.name)
+        if r.restart_count < 0:
+            out.append(_unchecked(f"{label} was not in docker's answer"))
             continue
-        if r.started_at is None or (now - r.started_at).total_seconds() > STORE_RESTART_WINDOW_S:
+        prev = state.get(r.name) if isinstance(state.get(r.name), dict) else {}
+        prev_count = prev.get("count") if isinstance(prev.get("count"), int) else None
+        rec = {"count": r.restart_count}
+        detected_at = prev.get("detected_at")
+        oom = bool(prev.get("oom"))
+        if r.oom or (prev_count is not None and r.restart_count > prev_count):
+            when_dt = r.started_at or now
+            detected_at = when_dt.isoformat()
+            oom = r.oom
+        if detected_at:
+            rec["detected_at"] = detected_at
+            rec["oom"] = oom
+        new_state[r.name] = rec
+        if not detected_at:
             continue
-        when = r.started_at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
-        fmt = STORE_RESTARTED_OOM_TITLE_FMT if r.oom else STORE_RESTARTED_TITLE_FMT
+        try:
+            at = datetime.fromisoformat(detected_at)
+        except ValueError:
+            continue
+        if (now - at).total_seconds() > STORE_RESTART_WINDOW_S:
+            continue
+        when = at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+        fmt = STORE_RESTARTED_OOM_TITLE_FMT if oom else STORE_RESTARTED_TITLE_FMT
         out.append({
             "severity": "critical",
             "title": fmt.format(time=when),
-            "detail": STORE_RESTARTED_DETAIL_FMT.format(
-                store=STORE_LABELS.get(r.name, r.name)),
+            "detail": STORE_RESTARTED_DETAIL_FMT.format(store=label),
             "fix": STORE_RESTARTED_FIX,
             "fix_command": STORE_RESTARTED_FIX_COMMAND,
             "risk": "low",
             "category": "runtime",
         })
+    if new_state != state:
+        write_store_restart_state(new_state)
     return out
 
 

@@ -155,7 +155,7 @@ grep -qF 'cp "${SRCROOT}/../lib/ostler-vm-size.sh"' "$PROJECT_YML" && grep -qF -
 # the global OOM killer; the stores get a negative oom_score_adj so that, if a
 # global OOM still happens, the kernel picks the wiki first.
 CMP="$TMP/compose.yml"
-awk '/cat > "\$\{OSTLER_DIR\}\/docker-compose.yml" <<.DCEOF.$/{f=1; next} /^DCEOF$/{f=0} f' "$INSTALL_SH" > "$CMP"
+awk '/^cat > "\$\{OSTLER_DIR\}\/docker-compose.yml" <<.DCEOF.$/{f=1; next} /^DCEOF$/{f=0} f' "$INSTALL_SH" > "$CMP"
 svc() { awk -v s="  $1:" '$0==s{f=1; next} f && /^  [a-z][a-z0-9-]*:$/{exit} f' "$CMP"; }
 if [ ! -s "$CMP" ] || ! svc oxigraph | grep -q 'container_name: ostler-oxigraph'; then
     bad "arm 6 premise: could not extract the compose heredoc and its oxigraph service"
@@ -173,9 +173,12 @@ else
             && ok "arm 6: store $st keeps priority: negative oom_score_adj, no memory cap" \
             || bad "arm 6: store $st has no negative oom_score_adj (or was capped)"
     done
-    grep -qE 'ostler_vm_write_container_limits "\$\{OSTLER_DIR\}/\.env".*; cat > "\$\{OSTLER_DIR\}/docker-compose.yml" <<.DCEOF.$' "$INSTALL_SH" \
-        && ok "arm 6: install.sh writes the limits into the compose .env on the line that writes the compose file" \
-        || bad "arm 6: install.sh does not write the limits into the compose .env before the compose file"
+    # The call sits on the line BEFORE the heredoc, never on the heredoc line
+    # itself (editor-feed-gate and install-sh-behaviour parse that line).
+    awk '/^cat > "\$\{OSTLER_DIR\}\/docker-compose.yml" <<.DCEOF.$/{print prev; found=1} {prev=$0} END{exit found?0:1}' "$INSTALL_SH" \
+        | grep -qE '^if \[\[ -f .*ostler_vm_write_container_limits "\$\{OSTLER_DIR\}/\.env".*; fi$' \
+        && ok "arm 6: install.sh writes the limits into the compose .env on the line before the bare compose heredoc" \
+        || bad "arm 6: the limits are not written on the line before a bare compose heredoc line"
     E="$TMP/env6"; printf 'JWT_SECRET=x\nOSTLER_WIKI_COMPILER_MEM_LIMIT=9m\n' > "$E"; chmod 600 "$E"
     got="$( . "$LIB"; OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)) OSTLER_VM_HOST_NCPU=8; export OSTLER_VM_HOST_RAM_BYTES OSTLER_VM_HOST_NCPU
             ostler_vm_write_container_limits "$E" >/dev/null 2>&1; echo "rc=$?" )"
@@ -184,6 +187,18 @@ else
        && [ "$(stat -f '%Lp' "$E" 2>/dev/null || stat -c '%a' "$E")" = 600 ]; then
         ok "arm 6: 16 GB host (6 GiB VM) -> compiler 2048m, site 1024m in .env; stale value replaced, other keys and mode 600 kept"
     else bad "arm 6: .env limits wrong ($got): $(tr '\n' ';' < "$E")"; fi
+    # A .env that cannot be READ must be left alone: grep exit 2 is not
+    # "no other keys", and treating it so replaced the whole compose .env
+    # (JWT_SECRET, USER_FIRST_NAME, ...) with two lines (Archie, #3364).
+    E2="$TMP/env6b"; printf 'JWT_SECRET=keepme\nOSTLER_LANG=en-GB\n' > "$E2"; chmod 000 "$E2"
+    line="$( . "$LIB"; OSTLER_VM_HOST_RAM_BYTES=$((16 * GIB)); export OSTLER_VM_HOST_RAM_BYTES
+             ostler_vm_write_container_limits "$E2" >/dev/null 2>&1; echo "rc=$? $OSTLER_VM_LIMITS_LINE" )"
+    chmod 600 "$E2"
+    if [ "$(id -u)" = 0 ]; then
+        echo "  note CANNOT-RUN: running as root, chmod 000 does not make the .env unreadable"
+    elif [ "$(cat "$E2")" = "$(printf 'JWT_SECRET=keepme\nOSTLER_LANG=en-GB')" ] && case "$line" in "rc=0 "*"COULD NOT READ"*) true ;; *) false ;; esac; then
+        ok "arm 6: an unreadable .env is left byte-identical (rc 0, the log line says it could not be read)"
+    else bad "arm 6: an unreadable .env was rewritten or the refusal was not logged: [$line] now: $(tr '\n' ';' < "$E2")"; fi
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
         printf 'OSTLER_WIKI_COMPILER_MEM_LIMIT=2048m\nOSTLER_WIKI_SITE_MEM_LIMIT=1024m\n' > "$TMP/.env"
         cfg="$(cd "$TMP" && docker compose -f "$CMP" --profile compile config 2>&1)"  # read-only; real HOME so the CLI finds its compose plugin

@@ -1026,9 +1026,39 @@ STORE_RESTART_WINDOW_S = 24 * 3600
 @dataclass
 class StoreRestart:
     name: str
-    restart_count: int
+    restart_count: int    # -1 = this store was missing from docker inspect
     started_at: datetime | None
     oom: bool
+
+
+STORE_RESTART_STATE = ("doctor", "store-restarts.json")
+
+
+def store_restart_state_path() -> Path:
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state")
+    return Path(base).joinpath(*STORE_RESTART_STATE)
+
+
+def read_store_restart_state() -> dict:
+    """The restart counts (and any detected restart) the Doctor recorded last
+    time. Missing or unreadable = {} (first look: a baseline, never a RED)."""
+    try:
+        data = json.loads(store_restart_state_path().read_text())
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def write_store_restart_state(state: dict) -> None:
+    p = store_restart_state_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, sort_keys=True))
+        tmp.replace(p)
+    except OSError as exc:
+        logger.warning("store restart state not written: %s", exc)
 
 
 def collect_store_restarts(now: datetime | None = None) -> tuple[list[StoreRestart], str | None]:
@@ -1068,6 +1098,12 @@ def collect_store_restarts(now: datetime | None = None) -> tuple[list[StoreResta
                                  parts[2].strip().lower() == "true"))
     if not rows:
         return [], f"docker inspect returned no store containers (exit {r.returncode})"
+    seen = {row.name for row in rows}
+    # A store absent from a partial inspect is reported, never skipped:
+    # restart_count -1 means "could not check this one".
+    for name in STORE_CONTAINERS:
+        if name not in seen:
+            rows.append(StoreRestart(name, -1, None, False))
     since = int(now.timestamp()) - STORE_RESTART_WINDOW_S
     try:
         ev = subprocess.run(
