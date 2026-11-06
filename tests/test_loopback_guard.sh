@@ -393,5 +393,12 @@ grep -q 'lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"' 
 n="$(grep -l '^MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE=' "${HERE}"/install.sh.strings.*.sh | wc -l | tr -d ' ')"; t="$(ls "${HERE}"/install.sh.strings.*.sh | wc -l | tr -d ' ')"
 [ "$n" = "$t" ] && [ "$t" -gt 0 ] && ok "fail message present in all ${t} catalogues" || bad "fail message in ${n}/${t} catalogues"
 
+# 15. CONTRACT, both sides: the Doctor/Hub reader (vendor/doctor/agent/loopback_guard_status.py)
+#     reads the status files the REAL lib wrote above.
+rd() { OSTLER_LG_STATUS_FILE="$1" python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import loopback_guard_status as m; r = m.read_loopback_guard(); print(r["status"], r.get("reason", ""))' "${HERE}/vendor/doctor/agent"; }
+r1="$(rd "$T/happy/guard/status")"; r2="$(rd "$T/nogate/guard/status")"
+[ "$r1" = "active " ] && case "$r2" in "not-active anchor_rules_mismatch"*) true ;; *) false ;; esac \
+  && ok "Doctor/Hub reader on the lib's own status files: ok -> active, fail -> not-active (${r2})" || bad "reader contract: happy='$r1' nogate='$r2'"
+
 echo "loopback-guard: ${PASS} pass, ${FAIL} fail"
 [ "$FAIL" = 0 ]

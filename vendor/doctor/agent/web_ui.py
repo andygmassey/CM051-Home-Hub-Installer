@@ -76,6 +76,7 @@ from documents_access_posture import render_documents_access_posture
 # graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
 # has no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from derived_preferences_status import render_derived_preferences_status
+from loopback_guard_status import render_loopback_guard_status
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -1654,6 +1655,7 @@ def render_dashboard(
 
     source_status_section = render_source_status()
     derived_preferences_section = render_derived_preferences_status()
+    loopback_guard_section = render_loopback_guard_status()
 
     # Build findings
     findings_html = ""
@@ -2220,6 +2222,7 @@ def render_dashboard(
         {whatsapp_keepalive_section}
         {source_status_section}
         {derived_preferences_section}
+        {loopback_guard_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
