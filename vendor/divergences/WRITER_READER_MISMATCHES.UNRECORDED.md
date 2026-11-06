@@ -1791,3 +1791,13 @@ Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware
 ### What a future sync must preserve
 
 `_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## 2026-11-06: doctor shows the loopback guard and box-status carries it (CM051 #3362) -- `doctor`
+
+Tree `doctor`, files `vendor/doctor/agent/web_ui.py` (imports `render_loopback_guard_status`, calls it as `loopback_guard_section`, places `{loopback_guard_section}` after the derived-preferences section) and `vendor/doctor/agent/box_status.py` (new `_privacy_guard()`, and `box_status()` gains the `privacy_guard` key, which the Hub reads through its `/api/v1/box-status` proxy). The reader itself, `agent/loopback_guard_status.py`, is vendor-only (VENDOR_ONLY.tsv row). It READS the status file the v1.0.126 root daemon writes (`lib/ostler-loopback-guard.sh`) and never touches pf.
+
+Not regenerated into doctor.patch: the tree is `regenerate_forbidden` (CM051 #2219), the same refusal recorded above.
+
+### What a future sync must preserve
+
+The import, the call, the placeholder and the `privacy_guard` key. Guarded by `tests/test_doctor_shows_loopback_guard.py` (workflow `cold-box-source-truth.yml`) and arm 15 of `tests/test_loopback_guard.sh`, which feeds the reader the status files the real lib wrote. Owed upstream: none (HR015 Doctor runs as a service with no installer daemon to report on).
