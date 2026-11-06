@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "취소",
+    "finish_pair_later_button": "완료하고 나중에 페어링",
     "reveal_in_finder_button": "Finder에서 보기",
     "done_button": "완료",
     "quit_button": "종료",

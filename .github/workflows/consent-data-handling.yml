@@ -222,6 +222,10 @@ jobs:
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
 
+      - name: exports screen and folder pre-warm lines explain themselves, promise no button
+        if: always()
+        run: bash tests/test_exports_and_folder_prompts_explain_themselves.sh
+
       - name: translated install.sh / GUI catalogues are drop-in for en-GB
         if: always()
         run: |
@@ -312,6 +316,10 @@ jobs:
       - name: model pull and list use the pinned ollama, not PATH (NEW-119)
         if: always()
         run: bash tests/test_model_pull_uses_the_pinned_ollama.sh
+
+      - name: model pull shows one overall bar, never 100 before success (F&F 2026-11-05)
+        if: always()
+        run: bash tests/test_model_pull_progress_is_one_overall_bar.sh
 
       - name: no shipped script calls a bare ollama (NEW-119 guard)
         if: always()
