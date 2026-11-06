@@ -9,7 +9,9 @@
 # OLLAMA_HOST takes only http(s), so a unix socket is not available.
 #
 # THE GUARD: a pf anchor that refuses NEW loopback TCP connections to :11434
-# and to the ephemeral port range from every uid except the owner and root.
+# and to the ephemeral port range from every uid except the owner, root and,
+# when one is configured, the assistant's own macOS account (its separate
+# iMessage/WhatsApp identity is ours, so it is allowed explicitly).
 # Measured on the Studio, 2026-11-06 (macOS 15.6.1): pf's `user` keyword on
 # lo0 in the OUT direction matches the uid that OPENED the connection; owner
 # and root got 200, two other uids were blocked, the same probe with no rule
@@ -19,12 +21,21 @@
 #
 # SIDE EFFECT, STATED (and on the privacy page): other accounts on this Mac
 # cannot open loopback TCP connections to ANY ephemeral-range port (their own
-# local dev servers included). The owner and root are unaffected.
+# local dev servers included). The owner, the assistant account and root are
+# unaffected.
 #
 # Two halves, one file:
 #   ROOT half   install-root | apply | remove | selftest   (run as root)
 #   OWNER half  sourced by install.sh: ostler_lg_check, ostler_lg_tighten_ollama_dir,
-#               ostler_lg_upgrade_check, ostler_lg_status_field
+#               ostler_lg_install_step, ostler_lg_status_field
+#
+# NO UPDATE EVER PROMPTS (Andy, 2026-11-06). The root half runs ONLY inside the
+# INITIAL install's existing elevation (the GUI's one macOS administrator
+# dialog, or the CLI's sudo). An update (OSTLER_UPGRADE_MODE) never touches the
+# guard and never asks for a password; a box installed before the guard gets
+# it by reinstalling. Because the daemon is already root, a future privileged
+# change should ride on it rather than add a prompt; today it does NOTHING
+# beyond loading this anchor and self-testing it.
 # The root copy lives in /Library (root:wheel 0755), never in ~/.ostler, so the
 # owner cannot edit a script that runs as root.
 #
@@ -43,6 +54,7 @@ LG_LAUNCHCTL="${OSTLER_LG_LAUNCHCTL:-/bin/launchctl}"
 LG_SUDO="${OSTLER_LG_SUDO:-/usr/bin/sudo}"
 LG_PERL="${OSTLER_LG_PERL:-/usr/bin/perl}"
 LG_CHOWN="${OSTLER_LG_CHOWN:-/usr/sbin/chown}"
+LG_ID="${OSTLER_LG_ID:-/usr/bin/id}"
 LG_PROBE_HOST="${OSTLER_LG_PROBE_HOST:-127.0.0.1}"
 LG_PROBE_TIMEOUT="${OSTLER_LG_PROBE_TIMEOUT:-3}"
 LG_OTHER_USER="${OSTLER_LG_OTHER_USER:-nobody}"
@@ -56,6 +68,7 @@ LG_SENTINEL_PORT="${OSTLER_LG_SENTINEL_PORT:-65531}"
 # If it times out too, the probe cannot tell blocked from broken.
 LG_CONTROL_PORT="${OSTLER_LG_CONTROL_PORT:-9}"
 LG_RULE_COUNT=4
+LG_MIN_HUMAN_UID=501   # macOS gives people uids from 501; below that are system accounts
 LG_STATUS_MAX_AGE="${OSTLER_LG_STATUS_MAX_AGE:-900}"   # daemon re-checks every 300 s
 
 _lg_now() { date +%s; }
@@ -67,17 +80,22 @@ _lg_is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 # ingest sockets were measured on one walk) could fill the state table and
 # have its OWN connections dropped. flags S/SA: only a NEW connection's SYN is
 # judged; replies and established traffic never match.
-ostler_lg_rules() {   # $1 owner uid, $2 first ephemeral port, $3 last
-    local owner="$1" first="$2" last="$3"
+ostler_lg_rules() {   # $1 owner uid, $2 first ephemeral port, $3 last, $4 assistant uid (optional)
+    local owner="$1" first="$2" last="$3" asst="${4:-}" users
     _lg_is_uint "$owner" && _lg_is_uint "$first" && _lg_is_uint "$last" || { echo "ostler_lg_rules: non-numeric input" >&2; return 2; }
     [ "$owner" -gt 0 ] || { echo "ostler_lg_rules: owner uid must not be root" >&2; return 2; }
+    users="${owner}, 0"
+    if [ -n "$asst" ]; then
+        _lg_is_uint "$asst" && [ "$asst" -gt 0 ] && [ "$asst" != "$owner" ] || { echo "ostler_lg_rules: bad assistant uid '${asst}'" >&2; return 2; }
+        users="${owner}, ${asst}, 0"
+    fi
     [ "$first" -ge 1024 ] && [ "$first" -le "$last" ] && [ "$last" -le 65535 ] || { echo "ostler_lg_rules: bad range ${first}:${last}" >&2; return 2; }
     [ "$LG_FIXED_PORT" -lt "$first" ] || { echo "ostler_lg_rules: fixed port inside the range" >&2; return 2; }
     cat <<RULES
-# Ostler loopback guard (lib/ostler-loopback-guard.sh). Owner uid ${owner}.
-pass out quick on lo0 proto tcp from any to any port ${LG_FIXED_PORT} flags S/SA user { ${owner}, 0 } no state
+# Ostler loopback guard (lib/ostler-loopback-guard.sh). Owner uid ${owner}, assistant uid ${asst:-none}.
+pass out quick on lo0 proto tcp from any to any port ${LG_FIXED_PORT} flags S/SA user { ${users} } no state
 block drop out quick on lo0 proto tcp from any to any port ${LG_FIXED_PORT} flags S/SA
-pass out quick on lo0 proto tcp from any to any port ${first}:${last} flags S/SA user { ${owner}, 0 } no state
+pass out quick on lo0 proto tcp from any to any port ${first}:${last} flags S/SA user { ${users} } no state
 block drop out quick on lo0 proto tcp from any to any port ${first}:${last} flags S/SA
 RULES
 }
@@ -88,6 +106,42 @@ ostler_lg_ephemeral_range() {   # prints "first last"
     l="$("$LG_SYSCTL" -n net.inet.ip.portrange.last)" || return 1
     _lg_is_uint "$f" && _lg_is_uint "$l" || return 1
     echo "$f $l"
+}
+
+# ── the assistant's own macOS account ─────────────────────────────────────
+# The assistant's separate iMessage/WhatsApp identity runs in its OWN macOS
+# account (the founder bridge: vendor/imessage_bridge/bin/bridge.py, run as
+# that account, writing /Users/Shared/imessage-bridge/inbox.jsonl). It is
+# ours, so its uid is allowed explicitly. Configured by name, in
+# OSTLER_ASSISTANT_MAC_USER (environment, or that line in the owner's
+# ~/.ostler/.env), and resolved to a uid ONLY at install, inside the install's
+# own elevation. The daemon reads only the root-owned assistant_uid file.
+_lg_owner_home() {   # $1 owner uid
+    [ -n "${OSTLER_LG_OWNER_HOME:-}" ] && { echo "$OSTLER_LG_OWNER_HOME"; return 0; }
+    "$LG_PERL" -e 'my @p = getpwuid($ARGV[0]); print $p[7] if @p' "$1" 2>/dev/null
+}
+
+# Prints the configured assistant account NAME, or nothing.
+ostler_lg_configured_assistant() {   # $1 owner uid
+    local h
+    if [ -n "${OSTLER_ASSISTANT_MAC_USER:-}" ]; then echo "$OSTLER_ASSISTANT_MAC_USER"; return 0; fi
+    h="$(_lg_owner_home "$1")"
+    [ -n "$h" ] && [ -r "${h}/.ostler/.env" ] || return 0
+    sed -n 's/^OSTLER_ASSISTANT_MAC_USER=//p' "${h}/.ostler/.env" | tail -1 | tr -d "\"' "
+}
+
+# Prints the assistant uid for a name; rc 2 with a reason on stderr when the
+# account is not one we can safely allow. An empty name prints nothing, rc 0.
+ostler_lg_resolve_assistant() {   # $1 name, $2 owner uid
+    local name="$1" owner="$2" uid
+    [ -n "$name" ] || return 0
+    case "$name" in -*|*[!A-Za-z0-9_.-]*) echo "assistant_user_invalid_name" >&2; return 2 ;; esac
+    [ "$name" != "$LG_OTHER_USER" ] || { echo "assistant_user_is_the_selftest_account(${name})" >&2; return 2; }
+    uid="$("$LG_ID" -u -- "$name" 2>/dev/null)" || { echo "assistant_user_not_found(${name})" >&2; return 2; }
+    _lg_is_uint "$uid" || { echo "assistant_user_uid_unreadable(${name})" >&2; return 2; }
+    [ "$uid" -ge "$LG_MIN_HUMAN_UID" ] || { echo "assistant_user_is_a_system_account(${name}=${uid})" >&2; return 2; }
+    [ "$uid" != "$owner" ] || { echo "assistant_user_is_the_owner(${name})" >&2; return 2; }
+    echo "$uid"
 }
 
 # ── probe ─────────────────────────────────────────────────────────────────
@@ -106,18 +160,26 @@ ostler_lg_probe() {   # $1 sudo user spec (name or #uid), $2 port
 }
 
 # Prints key=value lines; rc 0 only when every check holds.
-ostler_lg_selftest() {   # $1 owner uid
-    local owner="$1" c o_fixed o_sent x_fixed x_sent fail=""
+ostler_lg_selftest() {   # $1 owner uid, $2 assistant uid (optional)
+    local owner="$1" asst="${2:-}" c o_fixed o_sent x_fixed x_sent a_fixed="" a_sent="" fail=""
     c="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_CONTROL_PORT")"
     x_fixed="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_FIXED_PORT")"
     x_sent="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_SENTINEL_PORT")"
     o_fixed="$(ostler_lg_probe "#${owner}" "$LG_FIXED_PORT")"
     o_sent="$(ostler_lg_probe "#${owner}" "$LG_SENTINEL_PORT")"
+    if [ -n "$asst" ]; then
+        a_fixed="$(ostler_lg_probe "#${asst}" "$LG_FIXED_PORT")"
+        a_sent="$(ostler_lg_probe "#${asst}" "$LG_SENTINEL_PORT")"
+    fi
     echo "probe_other_control_${LG_CONTROL_PORT}=${c}"
     echo "probe_other_${LG_FIXED_PORT}=${x_fixed}"
     echo "probe_other_runner_${LG_SENTINEL_PORT}=${x_sent}"
     echo "probe_owner_${LG_FIXED_PORT}=${o_fixed}"
     echo "probe_owner_runner_${LG_SENTINEL_PORT}=${o_sent}"
+    if [ -n "$asst" ]; then
+        echo "probe_assistant_${LG_FIXED_PORT}=${a_fixed}"
+        echo "probe_assistant_runner_${LG_SENTINEL_PORT}=${a_sent}"
+    fi
     # The control first: if the other account cannot even be REFUSED on an
     # unguarded port, a timeout below proves nothing (CANNOT-RUN, failed closed).
     case "$c" in refused|connected) ;; *) fail="selftest_control_not_refused(${c})" ;; esac
@@ -125,6 +187,10 @@ ostler_lg_selftest() {   # $1 owner uid
     [ -n "$fail" ] || [ "$x_sent" = timeout ] || fail="other_account_reaches_runner_range(${x_sent})"
     [ -n "$fail" ] || case "$o_fixed" in connected|refused) ;; *) fail="owner_blocked_on_${LG_FIXED_PORT}(${o_fixed})" ;; esac
     [ -n "$fail" ] || case "$o_sent" in connected|refused) ;; *) fail="owner_blocked_on_runner_range(${o_sent})" ;; esac
+    if [ -n "$asst" ]; then
+        [ -n "$fail" ] || case "$a_fixed" in connected|refused) ;; *) fail="assistant_blocked_on_${LG_FIXED_PORT}(${a_fixed})" ;; esac
+        [ -n "$fail" ] || case "$a_sent" in connected|refused) ;; *) fail="assistant_blocked_on_runner_range(${a_sent})" ;; esac
+    fi
     if [ -n "$fail" ]; then echo "selftest=fail"; echo "selftest_reason=${fail}"; return 1; fi
     echo "selftest=ok"; return 0
 }
@@ -147,19 +213,21 @@ _lg_notify_owner() {   # $1 owner uid, $2 text. Best effort, never fatal.
 
 # ── apply (root; the daemon's entry point) ────────────────────────────────
 ostler_lg_apply() {
-    local owner range first last rules_n info tok boot prev st reason="" pf_on=no selftest_out
+    local owner asst range first last rules_n info tok boot prev st reason="" pf_on=no selftest_out
     # Bound the daemon's own log (one line per 300 s tick): keep the newest half.
     if [ -f "${LG_DIR}/guard.log" ] && [ "$(wc -c < "${LG_DIR}/guard.log")" -gt 262144 ]; then
         tail -c 131072 "${LG_DIR}/guard.log" > "${LG_DIR}/guard.log.tmp" && cat "${LG_DIR}/guard.log.tmp" > "${LG_DIR}/guard.log"; rm -f "${LG_DIR}/guard.log.tmp"
     fi
     owner="$(cat "${LG_DIR}/owner_uid" 2>/dev/null)"
+    asst="$(cat "${LG_DIR}/assistant_uid" 2>/dev/null)"
     prev="$(ostler_lg_status_field verdict 2>/dev/null)"
     boot="$("$LG_SYSCTL" -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p')"
     if ! _lg_is_uint "$owner" || [ "$owner" -eq 0 ]; then reason="owner_uid_missing_or_invalid"
+    elif [ -n "$asst" ] && { ! _lg_is_uint "$asst" || [ "$asst" -eq 0 ] || [ "$asst" = "$owner" ]; }; then reason="assistant_uid_invalid"
     elif ! range="$(ostler_lg_ephemeral_range)"; then reason="ephemeral_range_unreadable"
     else
         first="${range% *}"; last="${range#* }"
-        if ! ostler_lg_rules "$owner" "$first" "$last" > "${LG_DIR}/rules.conf" 2>"${LG_DIR}/rules.err"; then
+        if ! ostler_lg_rules "$owner" "$first" "$last" "$asst" > "${LG_DIR}/rules.conf" 2>"${LG_DIR}/rules.err"; then
             reason="rules_render_failed($(tr '\n' ' ' < "${LG_DIR}/rules.err"))"
         fi
     fi
@@ -184,13 +252,14 @@ ostler_lg_apply() {
     [ -n "$reason" ] || [ "$pf_on" = yes ] || reason="pf_not_enabled"
     selftest_out=""
     if [ -z "$reason" ]; then
-        selftest_out="$(ostler_lg_selftest "$owner")" || reason="$(printf '%s\n' "$selftest_out" | sed -n 's/^selftest_reason=//p')"
+        selftest_out="$(ostler_lg_selftest "$owner" "$asst")" || reason="$(printf '%s\n' "$selftest_out" | sed -n 's/^selftest_reason=//p')"
     fi
     if [ -z "$reason" ]; then st=ok; else st=fail; fi
     {
         echo "verdict=${st}"
         echo "reason=${reason:-none}"
         echo "owner_uid=${owner:-unknown}"
+        echo "assistant_uid=${asst:-none}"
         echo "anchor=${LG_ANCHOR}"
         echo "ephemeral=${first:-?}:${last:-?}"
         echo "rules_loaded=${rules_n:-0}"
@@ -233,11 +302,16 @@ _lg_plist_body() {
 PLIST
 }
 
-ostler_lg_install_root() {   # $1 owner uid, $2 source copy of this file
-    local owner="$1" src="$2"
+ostler_lg_install_root() {   # $1 owner uid, $2 source copy of this file, $3 assistant account name (optional)
+    local owner="$1" src="$2" aname="${3:-}" auid
     [ "$(_lg_euid)" = 0 ] || { echo "install-root must run as root" >&2; return 2; }
     _lg_is_uint "$owner" && [ "$owner" -gt 0 ] || { echo "install-root: bad owner uid '${owner}'" >&2; return 2; }
     [ -r "$src" ] || { echo "install-root: cannot read ${src}" >&2; return 2; }
+    # The assistant account: the name passed in, else the owner's configured one.
+    # A configured account we cannot resolve STOPS the install (rc 2): allowing
+    # nobody would silently cut the assistant off; guessing would allow a stranger.
+    [ -n "$aname" ] || aname="$(ostler_lg_configured_assistant "$owner")"
+    auid="$(ostler_lg_resolve_assistant "$aname" "$owner")" || { echo "install-root: assistant account '${aname}' refused" >&2; return 2; }
     mkdir -p "$LG_DIR" || return 1
     "$LG_CHOWN" root:wheel "$LG_DIR" && chmod 0755 "$LG_DIR" || return 1
     if [ "$src" != "${LG_DIR}/ostler-loopback-guard.sh" ]; then
@@ -245,6 +319,11 @@ ostler_lg_install_root() {   # $1 owner uid, $2 source copy of this file
     fi
     "$LG_CHOWN" root:wheel "${LG_DIR}/ostler-loopback-guard.sh" && chmod 0755 "${LG_DIR}/ostler-loopback-guard.sh" || return 1
     printf '%s\n' "$owner" > "${LG_DIR}/owner_uid" && chmod 0644 "${LG_DIR}/owner_uid" || return 1
+    if [ -n "$auid" ]; then
+        printf '%s\n' "$auid" > "${LG_DIR}/assistant_uid" && chmod 0644 "${LG_DIR}/assistant_uid" || return 1
+    else
+        rm -f "${LG_DIR}/assistant_uid"
+    fi
     _lg_plist_body > "${LG_PLIST}.new" && "$LG_CHOWN" root:wheel "${LG_PLIST}.new" && chmod 0644 "${LG_PLIST}.new" && mv -f "${LG_PLIST}.new" "$LG_PLIST" || return 1
     # Synchronous first apply, so the caller reads a fresh verdict now; the
     # daemon then keeps it true at every boot and every 300 s.
@@ -275,7 +354,7 @@ ostler_lg_remove() {   # root. Prints each step; rc 1 if any rule is left behind
 # ── owner half (sourced by install.sh; no root) ───────────────────────────
 # rc 0 only for a FRESH ok verdict with the daemon plist installed.
 ostler_lg_check() {   # $1 max status age in seconds (default LG_STATUS_MAX_AGE)
-    local v at now max="${1:-$LG_STATUS_MAX_AGE}"
+    local v at now max="${1:-$LG_STATUS_MAX_AGE}" aname want
     [ -f "$LG_PLIST" ] || { echo "daemon_not_installed"; return 1; }
     v="$(ostler_lg_status_field verdict)" || { echo "no_status"; return 1; }
     at="$(ostler_lg_status_field checked_at)"; now="$(_lg_now)"
@@ -283,6 +362,10 @@ ostler_lg_check() {   # $1 max status age in seconds (default LG_STATUS_MAX_AGE)
     [ $((now - at)) -le "$max" ] || { echo "status_stale($((now - at))s)"; return 1; }
     [ "$v" = ok ] || { echo "$(ostler_lg_status_field reason)"; return 1; }
     [ "$(ostler_lg_status_field owner_uid)" = "$(id -u)" ] || { echo "guard_owner_is_another_account"; return 1; }
+    # The configured assistant account must be the one the guard allows.
+    aname="$(ostler_lg_configured_assistant "$(id -u)")"
+    want="$(ostler_lg_resolve_assistant "$aname" "$(id -u)" 2>&1)" || { echo "$want"; return 1; }
+    [ "$(ostler_lg_status_field assistant_uid)" = "${want:-none}" ] || { echo "assistant_not_in_guard(${aname:-none})"; return 1; }
     echo ok
 }
 
@@ -291,29 +374,6 @@ ostler_lg_tighten_ollama_dir() {
     local d="${1:-${HOME}/.ollama}"
     [ -d "$d" ] || return 0
     chmod 0700 "$d"
-}
-
-# OSTLER_UPGRADE_MODE: never prompts, never needs root. Records whether the
-# Hub must ask the owner ONCE for admin to install or refresh the guard.
-ostler_lg_upgrade_check() {   # $1 ~/.ostler dir, $2 payload copy of this file (may be empty)
-    local odir="$1" payload="${2:-}" why marker
-    marker="${odir}/state/loopback_guard_needs_admin"
-    mkdir -p "${odir}/state" "${odir}/lib"
-    [ -z "$payload" ] || [ ! -r "$payload" ] || cp -f "$payload" "${odir}/lib/ostler-loopback-guard.sh"
-    ostler_lg_tighten_ollama_dir || echo "loopback-guard: could not chmod 0700 ~/.ollama"
-    # 3 days, not 15 minutes: a Mac that slept through the daemon's ticks has a
-    # stale status that is not a missing guard, and a false "needs admin" would
-    # put an unnecessary password prompt in front of the owner. Doctor applies
-    # the strict age.
-    why="$(ostler_lg_check 259200)"
-    if [ "$why" = ok ] && [ -n "$payload" ] && [ -r "$payload" ] && ! cmp -s "$payload" "${LG_DIR}/ostler-loopback-guard.sh"; then
-        why="guard_outdated"
-    fi
-    if [ "$why" = ok ]; then rm -f "$marker"; echo "loopback-guard: active (ok)"; return 0; fi
-    printf 'reason=%s\nrecorded_at=%s\nfix=/bin/bash %s/lib/ostler-loopback-guard.sh install-root %s %s/lib/ostler-loopback-guard.sh\n' \
-        "$why" "$(_lg_now)" "$odir" "$(id -u)" "$odir" > "$marker"
-    echo "loopback-guard: NEEDS ADMIN (${why}); recorded ${marker} for the Hub to ask once"
-    return 1
 }
 
 # install.sh step (owner context; uses install.sh's fail_with_code/ok/warn).
@@ -327,7 +387,7 @@ ostler_lg_install_step() {   # $1 path of this lib
     mkdir -p "${OSTLER_DIR}/lib" && cp -f "$lib" "${OSTLER_DIR}/lib/ostler-loopback-guard.sh"
     why="$(ostler_lg_check)"
     if [ "$why" != ok ] && [ "${OSTLER_GUI:-0}" != 1 ] && "$LG_SUDO" -n /usr/bin/true 2>/dev/null; then
-        "$LG_SUDO" -n /bin/bash "$lib" install-root "$(id -u)" "$lib" >> "${INSTALL_LOG:-/dev/null}" 2>&1
+        "$LG_SUDO" -n /bin/bash "$lib" install-root "$(id -u)" "$lib" "$(ostler_lg_configured_assistant "$(id -u)")" >> "${INSTALL_LOG:-/dev/null}" 2>&1
         why="$(ostler_lg_check)"
     fi
     { echo "loopback_guard=${why}"; cat "${LG_DIR}/status" 2>/dev/null | sed 's/^/loopback_guard_status: /'; } >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null
@@ -343,11 +403,11 @@ ostler_lg_install_step() {   # $1 path of this lib
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     case "${1:-}" in
         apply)        ostler_lg_apply ;;
-        install-root) ostler_lg_install_root "${2:-}" "${3:-$0}" ;;
+        install-root) ostler_lg_install_root "${2:-}" "${3:-$0}" "${4:-}" ;;
         remove)       ostler_lg_remove ;;
-        selftest)     ostler_lg_selftest "${2:-$(cat "${LG_DIR}/owner_uid" 2>/dev/null)}" ;;
-        rules)        ostler_lg_rules "${2:-}" "${3:-49152}" "${4:-65535}" ;;
+        selftest)     ostler_lg_selftest "${2:-$(cat "${LG_DIR}/owner_uid" 2>/dev/null)}" "${3:-$(cat "${LG_DIR}/assistant_uid" 2>/dev/null)}" ;;
+        rules)        ostler_lg_rules "${2:-}" "${3:-49152}" "${4:-65535}" "${5:-}" ;;
         check)        ostler_lg_check ;;
-        *) echo "usage: $0 apply|install-root <owner_uid> [src]|remove|selftest [uid]|rules <uid> [first last]|check" >&2; exit 64 ;;
+        *) echo "usage: $0 apply|install-root <owner_uid> [src] [assistant_user]|remove|selftest [uid] [assistant_uid]|rules <uid> [first last] [assistant_uid]|check" >&2; exit 64 ;;
     esac
 fi

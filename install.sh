@@ -1701,7 +1701,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
                 _upg_log "ERROR: payload carries no ${_rec} -- this box cannot be reconciled against its cut"
             fi
         done
-        _lg_up="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/lib/ostler-loopback-guard.sh"; [[ -f "$_lg_up" ]] || _lg_up="${_UPG_PAYLOAD}/lib/ostler-loopback-guard.sh"; if [[ -f "$_lg_up" ]] && source "$_lg_up"; then { ostler_lg_upgrade_check "$_UPG_OSTLER_DIR" "$_lg_up" 2>&1 || true; } | while read -r _l; do _upg_log "$_l"; done; else source "${_UPG_OSTLER_DIR}/lib/ostler-loopback-guard.sh" 2>/dev/null && { ostler_lg_upgrade_check "$_UPG_OSTLER_DIR" "" 2>&1 || true; } | while read -r _l; do _upg_log "$_l"; done || { mkdir -p "${_UPG_OSTLER_DIR}/state"; printf "reason=guard_lib_missing\n" > "${_UPG_OSTLER_DIR}/state/loopback_guard_needs_admin"; _upg_log "ERROR: loopback guard lib missing from payload; Hub must reinstall the guard"; }; fi  # never fatal, never prompts
+
         # (7) Write VERSION last, as the success marker the Hub reads.
         if ! printf '%s\n' "$_new_version" > "$_UPG_VERSION_FILE" 2>/dev/null; then
             _upg_die 40 "failed to write ${_UPG_VERSION_FILE}"
