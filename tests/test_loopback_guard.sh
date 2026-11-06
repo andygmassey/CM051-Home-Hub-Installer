@@ -41,7 +41,16 @@ case "$1" in
         -f) [ -f "$D/fail_load" ] && { echo "syntax error" >&2; exit 1; }
             [ -f "$D/ignore_load" ] && exit 0
             grep -v -e '^#' -e '^$' "$2" > "$D/anchor"; exit 0 ;;
-        -s) cat "$D/anchor" 2>/dev/null; exit 0 ;;
+        -s) [ -f "$D/anchor" ] || exit 0
+            # Real pfctl prints one loaded rule per uid in a `user { a, b }` list,
+            # as `... port = N user = U flags S/SA no state` (measured on the Studio).
+            awk '{ line=$0; gsub(/port ([0-9]+) /, "port = &", line); sub(/port = port /, "port = ", line)
+                   if (match(line, /user \{ [0-9, ]+ \} /)) {
+                     u=substr(line, RSTART+7, RLENGTH-10); gsub(/ /,"",u); n=split(u, us, ",")
+                     pre=substr(line, 1, RSTART-1); post=substr(line, RSTART+RLENGTH)
+                     sub(/flags S\/SA /, "", pre)
+                     for (i=1;i<=n;i++) print pre "user = " us[i] " flags S/SA " post
+                   } else print line }' "$D/anchor"; exit 0 ;;
         -F) [ -f "$D/ignore_flush" ] || : > "$D/anchor"; exit 0 ;;
       esac ;;
 esac
@@ -51,26 +60,31 @@ EOF
     cat > "$d/bin/sudo" <<'EOF'
 #!/bin/bash
 D="$(cd "$(dirname "$0")/../pf" && pwd)"
-spec="$3"; port="${@: -2:1}"
+echo "sudo $*" >> "$D/calls"
+if [ "$1" = -n ] && [ "$2" = /usr/bin/true ]; then [ -f "$D/sudo_nopass" ]; exit $?; fi
+if [ "$2" != -u ] && [ "$1" != -u ]; then shift; [ "$1" = -n ] && shift; OSTLER_LG_EUID=0 "$@"; exit $?; fi
+spec="$3"; port="${@: -2:1}"; host="${@: -3:1}"
 case "$spec" in nobody) uid=4294967294 ;; \#*) uid="${spec#\#}" ;; *) uid=999 ;; esac
 [ -f "$D/control_times_out" ] && [ "$port" = 9 ] && { echo timeout; exit 0; }
 [ -f "$D/enabled" ] || { echo refused; exit 0; }
+B="$(cd "$(dirname "$0")" && pwd)"
 verdict=refused
 # first matching quick rule wins (all guard rules are quick)
 while read -r act rest; do
   [ "$act" = pass ] || [ "$act" = block ] || continue
-  ports="$(printf '%s' "$rest" | sed -n 's/.* port \([0-9:]*\) .*/\1/p')"
+  case "$host:$rest" in *:*" inet6 "*) [ "$host" = "::1" ] || continue ;; "::1:"*" inet "*) continue ;; esac
+  ports="$(printf '%s' "$rest" | sed -n -e 's/.* port = \([0-9]*\) .*/\1/p' -e 's/.* port \([0-9]*:[0-9]*\) .*/\1/p' | head -1)"
   [ -n "$ports" ] || continue
   case "$ports" in *:*) lo_p="${ports%:*}"; hi_p="${ports#*:}" ;; *) lo_p="$ports"; hi_p="$ports" ;; esac
   [ "$port" -ge "$lo_p" ] && [ "$port" -le "$hi_p" ] || continue
   if [ "$act" = pass ]; then
-    users="$(printf '%s' "$rest" | sed -n 's/.*user { \([0-9, ]*\) }.*/\1/p' | tr -d ' ')"
+    users="$(printf '%s' "$rest" | sed -n 's/.*user = \([0-9]*\) .*/\1/p')"
     case "$rest" in *"user "*) ;; *) verdict=refused; break ;; esac   # a pass with no user clause passes everyone
     case ",${users}," in *",${uid},"*) verdict=refused; break ;; esac
     continue
   fi
   verdict=timeout; break
-done < "$D/anchor"
+done < <(cd "$D/.." && "$B/pfctl" -a x -s rules)
 echo "$verdict"
 EOF
     cat > "$d/bin/sysctl" <<'EOF'
@@ -82,6 +96,19 @@ esac
 EOF
     printf '#!/bin/bash\necho "launchctl $*" >> "%s/pf/calls"\nexit 0\n' "$d" > "$d/bin/launchctl"
     printf '#!/bin/bash\nexit 0\n' > "$d/bin/chown"
+    # osascript: macOS's admin dialog. Records the call; cancel if pf/osascript_cancel,
+    # else runs the `do shell script` body as root (OSTLER_LG_EUID=0).
+    cat > "$d/bin/osascript" <<'EOF'
+#!/bin/bash
+D="$(cd "$(dirname "$0")/../pf" && pwd)"
+echo "osascript $*" >> "$D/calls"
+[ -f "$D/osascript_cancel" ] && { echo "execution error: User canceled. (-128)" >&2; exit 1; }
+cmd="$(printf '%s' "$2" | sed -n 's/^do shell script "\(.*\)" with prompt .*/\1/p')"
+[ -n "$cmd" ] || { echo "osascript stub: no do shell script" >&2; exit 2; }
+OSTLER_LG_EUID=0 /bin/bash -c "$cmd"
+EOF
+    # curl as the owner against :11434/api/version: the code is in pf/owner_http (default 200).
+    printf '#!/bin/bash\ncat "%s/pf/owner_http" 2>/dev/null || printf 200\n' "$d" > "$d/bin/curl"
     # id -u -- <name>: a fixed directory of accounts (names are synthetic).
     cat > "$d/bin/id" <<'EOF'
 #!/bin/bash
@@ -97,21 +124,25 @@ run() {   # $1 stub dir, $2 lib path, rest: shell to eval after sourcing
     local d="$1" lib="$2"; shift 2
     OSTLER_LG_DIR="$d/guard" OSTLER_LG_PLIST="$d/guard.plist" OSTLER_LG_PFCTL="$d/bin/pfctl" \
     OSTLER_LG_SYSCTL="$d/bin/sysctl" OSTLER_LG_LAUNCHCTL="$d/bin/launchctl" OSTLER_LG_SUDO="$d/bin/sudo" \
-    OSTLER_LG_CHOWN="$d/bin/chown" OSTLER_LG_ID="$d/bin/id" OSTLER_LG_EUID=0 \
+    OSTLER_LG_CHOWN="$d/bin/chown" OSTLER_LG_ID="$d/bin/id" OSTLER_LG_CURL="$d/bin/curl" OSTLER_LG_OSASCRIPT="$d/bin/osascript" OSTLER_LG_EUID="${LG_TEST_EUID:-0}" \
     OSTLER_LG_OWNER_HOME="${LG_TEST_OWNER_HOME:-$d/nohome}" \
     /bin/bash -c "source '$lib'; $*"
 }
 OWNER=501
 st() { sed -n "s/^$2=//p" "$1/guard/status" | tail -1; }
+# Blinds the loaded-rule count check, so a mutant below proves the SELF-TEST
+# catches it on its own (the count would catch most of them first).
+BLIND='s/\[ "$rules_n" = "$want_n" \] ||/true ||/' 
 
 # 1. happy path
 D="$T/happy"; mkstubs "$D"; echo $OWNER > "$D/guard/owner_uid"
 out="$(run "$D" "$LIB" ostler_lg_apply)"; rc=$?
-[ $rc = 0 ] && [ "$(st "$D" verdict)" = ok ] && [ "$(st "$D" rules_loaded)" = 4 ] && [ "$(st "$D" pf_enabled)" = yes ] \
-  && ok "apply: verdict ok, 4 rules, pf enabled" || bad "apply happy path rc=$rc out=$out status=$(cat "$D/guard/status")"
+[ $rc = 0 ] && [ "$(st "$D" verdict)" = ok ] && [ "$(st "$D" rules_loaded)" = 6 ] && [ "$(st "$D" rules_expected)" = 6 ] && [ "$(st "$D" pf_enabled)" = yes ] \
+  && ok "apply: verdict ok, 4 rule lines load as 6 rules after pfctl's per-uid expansion, pf enabled" || bad "apply happy path rc=$rc out=$out status=$(cat "$D/guard/status")"
 [ "$(st "$D" probe_other_11434)" = timeout ] && [ "$(st "$D" probe_owner_11434)" = refused ] \
   && [ "$(st "$D" probe_other_runner_65531)" = timeout ] && [ "$(st "$D" probe_owner_runner_65531)" = refused ] \
   && [ "$(st "$D" probe_other_control_9)" = refused ] \
+  && [ "$(st "$D" probe_other_v6_11434)" = timeout ] && [ "$(st "$D" probe_other_v6_runner_65531)" = timeout ] && [ "$(st "$D" probe_owner_v6_11434)" = refused ] \
   && ok "selftest: other account dropped on 11434 and runner range, owner reaches both, control refused" || bad "selftest fields: $(cat "$D/guard/status")"
 grep -q 'token=4242' "$D/guard/pf.token" && ok "pf reference token recorded with boot time" || bad "token file: $(cat "$D/guard/pf.token" 2>&1)"
 # second apply in the same boot must NOT take another pf reference
@@ -125,7 +156,8 @@ run "$D" "$LIB" ostler_lg_apply >/dev/null; rc=$?
   && ok "RED control: anchor not loaded -> verdict fail (anchor_rules_mismatch)" || bad "no-guard control: rc=$rc $(cat "$D/guard/status")"
 # the same control with the count check bypassed must still be caught by the self-test
 D="$T/nogate2"; mkstubs "$D"; echo $OWNER > "$D/guard/owner_uid"
-sed 's/^LG_RULE_COUNT=4$/LG_RULE_COUNT=0/' "$LIB" > "$T/lib_count0.sh"; touch "$D/pf/ignore_load"
+sed "$BLIND" "$LIB" > "$T/lib_count0.sh"; touch "$D/pf/ignore_load"
+cmp -s "$T/lib_count0.sh" "$LIB" && bad "count-blinding sed DID NOT APPLY"
 run "$D" "$T/lib_count0.sh" ostler_lg_apply >/dev/null
 case "$(st "$D" reason)" in other_account_reaches_11434*) ok "RED control: with the count check blinded, the self-test still fails (other account reaches 11434)" ;; *) bad "self-test did not catch an empty anchor: $(cat "$D/guard/status")" ;; esac
 
@@ -146,9 +178,10 @@ run "$D" "$LIB" ostler_lg_apply >/dev/null
 case "$(st "$D" reason)" in selftest_control_not_refused*) ok "control port timing out -> CANNOT grade, verdict fail" ;; *) bad "control: $(cat "$D/guard/status")" ;; esac
 
 # 5. MUTANTS of the rule text. Each must turn the verdict red.
-mutant() {   # $1 name, $2 sed expression, $3 expected reason prefix
-    local m="$T/mut_$1.sh" d="$T/mutd_$1"
-    sed "$2" "$LIB" > "$m"
+mutant() {   # $1 name, $2 sed expression, $3 expected reason prefix, $4 "count" = keep the count check
+    local m="$T/mut_$1.sh" d="$T/mutd_$1" b="$BLIND"
+    [ "${4:-}" = count ] && b='s/^$//'
+    sed -e "$2" "$LIB" | sed "$b" > "$m"
     if cmp -s "$m" "$LIB"; then bad "mutant $1 DID NOT APPLY (sed matched nothing)"; return; fi
     mkstubs "$d"; echo $OWNER > "$d/guard/owner_uid"
     run "$d" "$m" ostler_lg_apply >/dev/null
@@ -158,6 +191,9 @@ mutant drop_range_block '/^block drop out quick on lo0 proto tcp from any to any
 mutant drop_fixed_block '/^block drop out quick on lo0 proto tcp from any to any port \${LG_FIXED_PORT}/s/^block drop/pass/' other_account_reaches_11434
 mutant owner_not_passed 's/^    users="\${owner}, 0"$/    users="0"/' owner_blocked_on_11434
 mutant everyone_passed 's/ user { \${users} } no state/ no state/g' other_account_reaches_11434
+mutant add_inet 's/on lo0 proto tcp/on lo0 inet proto tcp/g' other_account_reaches_v6_11434
+mutant fixed_count_4 's/echo $((2 + 2 \* n))/echo 4/' 'anchor_rules_mismatch(6/4)' count
+mutant owner_not_passed_counted 's/^    users="\${owner}, 0"$/    users="0"/' 'anchor_rules_mismatch(4/6)' count
 mutant wrong_range 's/port \${first}:\${last}/port 1024:2048/g' other_account_reaches_runner_range
 
 # 6. owner-side check
@@ -177,7 +213,8 @@ D="$T/asst"; mkstubs "$D"
 run "$D" "$LIB" "ostler_lg_install_root $OWNER '$LIB' asst-one" >/dev/null; rc=$?
 [ $rc = 0 ] && [ "$(cat "$D/guard/assistant_uid")" = 502 ] && [ "$(st "$D" assistant_uid)" = 502 ] \
   && [ "$(grep -c 'user { 501, 502, 0 } no state' "$D/pf/anchor")" = 2 ] \
-  && ok "assistant: install-root resolves asst-one to 502, both pass rules allow { owner, assistant, root }" || bad "assistant install rc=$rc anchor=$(cat "$D/pf/anchor") status=$(cat "$D/guard/status")"
+  && [ "$(st "$D" rules_loaded)" = 8 ] && [ "$(st "$D" rules_expected)" = 8 ] \
+  && ok "assistant: install-root resolves asst-one to 502, both pass rules allow { owner, assistant, root }, 8 rules after expansion" || bad "assistant install rc=$rc anchor=$(cat "$D/pf/anchor") status=$(cat "$D/guard/status")"
 [ "$(st "$D" verdict)" = ok ] && [ "$(st "$D" probe_assistant_11434)" = refused ] && [ "$(st "$D" probe_assistant_runner_65531)" = refused ] \
   && [ "$(st "$D" probe_other_11434)" = timeout ] && [ "$(st "$D" probe_other_runner_65531)" = timeout ] \
   && ok "assistant: assistant uid REACHES 11434 and the runner range, nobody is DROPPED on both, verdict ok" || bad "assistant selftest: $(cat "$D/guard/status")"
@@ -187,13 +224,13 @@ run "$D" "$LIB" "ostler_lg_install_root $OWNER '$LIB'" >/dev/null
 [ ! -e "$D/guard/assistant_uid" ] && [ "$(st "$D" assistant_uid)" = none ] && [ "$(run "$D" "$LIB" "ostler_lg_probe '#502' 11434")" = timeout ] \
   && ok "assistant CONTROL: not configured -> uid 502 is dropped on 11434 (the allow is what lets it through)" || bad "assistant control: $(cat "$D/guard/status")"
 # MUTANT: the rule text forgets the assistant -> the self-test goes red
-sed 's/users="${owner}, ${asst}, 0"/users="${owner}, 0"/' "$LIB" > "$T/mut_asst.sh"
+sed -e 's/users="${owner}, ${asst}, 0"/users="${owner}, 0"/' -e "$BLIND" "$LIB" > "$T/mut_asst.sh"
 if cmp -s "$T/mut_asst.sh" "$LIB"; then bad "mutant assistant_dropped DID NOT APPLY"; else
   D="$T/asstm"; mkstubs "$D"; run "$D" "$T/mut_asst.sh" "ostler_lg_install_root $OWNER '$T/mut_asst.sh' asst-one" >/dev/null
   case "$(st "$D" reason)" in assistant_blocked_on_11434*) ok "mutant assistant_dropped caught ($(st "$D" reason))" ;; *) bad "mutant assistant_dropped survived: $(cat "$D/guard/status")" ;; esac
 fi
 # MUTANT: the self-test never probes the assistant -> the rule mutant above would pass silently
-sed -e 's/users="${owner}, ${asst}, 0"/users="${owner}, 0"/' -e 's/selftest "$owner" "$asst")/selftest "$owner")/' "$LIB" > "$T/mut_asst2.sh"
+sed -e 's/users="${owner}, ${asst}, 0"/users="${owner}, 0"/' -e 's/selftest "$owner" "$asst")/selftest "$owner")/' -e "$BLIND" "$LIB" > "$T/mut_asst2.sh"
 D="$T/asstm2"; mkstubs "$D"; run "$D" "$T/mut_asst2.sh" "ostler_lg_install_root $OWNER '$T/mut_asst2.sh' asst-one" >/dev/null
 [ "$(st "$D" verdict)" = ok ] && [ -z "$(st "$D" probe_assistant_11434)" ] \
   && ok "mutant selftest_skips_assistant is visible: verdict ok with no assistant probe (the probe-field check above would go red)" || bad "mutant selftest_skips_assistant: $(cat "$D/guard/status")"
@@ -223,6 +260,56 @@ run "$D" "$LIB" ostler_lg_remove >/dev/null; rc=$?
   && ok "remove: daemon booted out, anchor flushed, pf reference released, files gone" || bad "remove rc=$rc calls=$(cat "$D/pf/calls")"
 D="$T/rm2"; mkstubs "$D"; echo $OWNER > "$D/guard/owner_uid"; run "$D" "$LIB" ostler_lg_apply >/dev/null; touch "$D/pf/ignore_flush"
 run "$D" "$LIB" ostler_lg_remove >/dev/null 2>&1; [ $? = 1 ] && ok "remove: anchor that will not flush -> rc 1 (loud)" || bad "remove ignore_flush"
+
+# 8b. UNINSTALL from the GUI (no tty, no root, no passwordless sudo): admin is
+#     asked through macOS's own dialog, and a guard left behind is NEVER a clean uninstall.
+ui() {   # $1 dir: a fresh, installed guard
+    mkstubs "$1"; run "$1" "$LIB" "ostler_lg_install_root $OWNER '$LIB'" >/dev/null; touch "$1/guard.plist"
+}
+D="$T/un1"; ui "$D"
+out="$(LG_TEST_EUID=501 run "$D" "$LIB" "OSTLER_GUI=1 ostler_lg_uninstall" 2>&1 </dev/null)"; rc=$?
+[ $rc = 0 ] && grep -q 'osascript -e do shell script "/bin/bash .*ostler-loopback-guard.sh. remove" with prompt .* with administrator privileges' "$D/pf/calls" \
+  && [ ! -e "$D/guard" ] && [ ! -e "$D/guard.plist" ] && [ ! -s "$D/pf/anchor" ] && grep -q 'removed (via macos-admin-dialog)' <<<"$out" \
+  && ok "uninstall (GUI): admin via the macOS dialog (osascript, administrator privileges), daemon + anchor + files gone" || bad "uninstall GUI rc=$rc out=$out calls=$(cat "$D/pf/calls")"
+D="$T/un2"; ui "$D"; touch "$D/pf/osascript_cancel"
+out="$(LG_TEST_EUID=501 run "$D" "$LIB" "OSTLER_GUI=1 ostler_lg_uninstall" 2>&1 </dev/null)"; rc=$?
+[ $rc = 1 ] && [ -e "$D/guard.plist" ] && [ -s "$D/pf/anchor" ] && grep -q 'STILL INSTALLED' <<<"$out" \
+  && ok "uninstall: admin dialog cancelled -> rc 1, guard still installed and SAID so" || bad "uninstall cancel rc=$rc out=$out"
+D="$T/un3"; ui "$D"; touch "$D/pf/ignore_flush"
+LG_TEST_EUID=501 run "$D" "$LIB" "OSTLER_GUI=1 ostler_lg_uninstall" >/dev/null 2>&1 </dev/null; rc=$?
+[ $rc = 1 ] && [ -e "$D/guard" ] && ok "uninstall: anchor that will not flush -> rc 1 and the guard dir is KEPT (still visible as installed)" || bad "uninstall noflush rc=$rc"
+D="$T/un4"; ui "$D"; touch "$D/pf/sudo_nopass"
+out="$(LG_TEST_EUID=501 run "$D" "$LIB" "ostler_lg_uninstall" 2>&1 </dev/null)"; rc=$?
+[ $rc = 0 ] && ! grep -q osascript "$D/pf/calls" && grep -q 'via sudo-n' <<<"$out" && ok "uninstall: passwordless sudo used when present, no dialog" || bad "uninstall sudo-n rc=$rc out=$out"
+D="$T/un5"; mkstubs "$D"; rm -rf "$D/guard"; r="$(LG_TEST_EUID=501 run "$D" "$LIB" ostler_lg_uninstall 2>&1 </dev/null)"; [ $? = 0 ] && [ "$r" = "loopback-guard: not installed" ] && ! grep -q -e osascript -e 'sudo -n /bin' "$D/pf/calls" \
+  && ok "uninstall: nothing installed -> no prompt at all" || bad "uninstall absent: $r"
+# MUTANT: the uninstall trusts the removal instead of measuring it -> the cancel arm would report success
+sed 's/^    if ostler_lg_present; then$/    if false; then/' "$LIB" > "$T/mut_un.sh"
+if cmp -s "$T/mut_un.sh" "$LIB"; then bad "mutant trust_removal DID NOT APPLY"; else
+  D="$T/un6"; ui "$D"; touch "$D/pf/osascript_cancel"
+  LG_TEST_EUID=501 run "$D" "$T/mut_un.sh" "OSTLER_GUI=1 ostler_lg_uninstall" >/dev/null 2>&1 </dev/null
+  [ $? = 0 ] && [ -e "$D/guard.plist" ] && ok "mutant trust_removal is visible: rc 0 with the guard still installed (the cancel arm above would go red)" || bad "mutant trust_removal"
+fi
+# 8c. THE UNINSTALLER ITSELF (the two lines of the generated ostler-uninstall, run as written):
+#     guard still live -> no UNINSTALL_DONE, exit 4; guard removed -> UNINSTALL_DONE.
+I0="${HERE}/install.sh"
+UL1="$(grep '^echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _u_lg_live=0;' "$I0")"
+UL2="$(grep '^if \[\[ "${_u_lg_live:-0}" == 1 \]\]; then .* exit 4; fi; _u_emit UNINSTALL_DONE ' "$I0")"
+if [ -z "$UL1" ] || [ -z "$UL2" ]; then bad "uninstaller lines not found (UL1 ${#UL1} UL2 ${#UL2} chars)"; else
+  for arm in cancel ok; do
+    D="$T/unx_$arm"; ui "$D"; mkdir -p "$D/hm/.ostler/lib"; cp "$LIB" "$D/hm/.ostler/lib/ostler-loopback-guard.sh"
+    [ $arm = cancel ] && touch "$D/pf/osascript_cancel"
+    printf '%s\n' 'set -euo pipefail' '_u_emit() { echo "EMIT $*"; }' 'OSTLER_STORES_REMOVED=1 KEEP_CONTENT_DECISION=keep KNOWLEDGE_STAGING_OUTCOME=x COLIMA_RESULT=x' "$UL1" "$UL2" 'echo REACHED_END' > "$D/u.sh"
+    out="$(LG_TEST_EUID=501 run "$D" "$LIB" "HOME='$D/hm' OSTLER_GUI=1 /bin/bash '$D/u.sh'" 2>&1 </dev/null)"; rc=$?
+    if [ $arm = cancel ]; then
+      [ $rc = 4 ] && ! grep -q 'EMIT UNINSTALL_DONE' <<<"$out" && grep -q 'NOT UNINSTALLED' <<<"$out" \
+        && ok "uninstaller: guard still live -> exit 4, NO UNINSTALL_DONE, says NOT UNINSTALLED" || bad "uninstaller live arm rc=$rc out=$out"
+    else
+      [ $rc = 0 ] && grep -q 'EMIT UNINSTALL_DONE' <<<"$out" && [ ! -e "$D/guard.plist" ] \
+        && ok "uninstaller: guard removed via the admin dialog -> UNINSTALL_DONE" || bad "uninstaller ok arm rc=$rc out=$out"
+    fi
+  done
+fi
 
 # 9. install-root: refuses non-root and root owner; writes plist + bootstraps
 D="$T/inst"; mkstubs "$D"
@@ -268,6 +355,13 @@ out="$(run "$D" "$LIB" "$(step_env); ostler_lg_install_step '$LIB'; echo AFTER")
 [ $rc = 0 ] && grep -q '^OK Local AI engine is private' <<<"$out" && grep -q AFTER <<<"$out" && ! grep -q ERR_TRAP_FIRED \
   <<<"$out" && grep -q '^loopback_guard=ok' "$D/install.log" && ok "install step: fresh ok -> continues, ERR trap restored and silent, logged" || bad "install step ok: rc=$rc out=$out"
 
+# 13a. the owner must be SERVED (HTTP 200) on :11434 through the guard, not merely connect
+printf 000 > "$D/pf/owner_http"
+out="$(run "$D" "$LIB" "$(step_env); ostler_lg_install_step '$LIB'; echo AFTER")"; rc=$?
+[ $rc = 9 ] && grep -q 'FAIL_WITH_CODE ERR-08-LOOPBACK-GUARD-NOT-ACTIVE :: guard not active (owner_not_served_on_11434(http_000))' <<<"$out" \
+  && ok "install step: guard ok but the owner is not served (HTTP 000) on :11434 -> ERR-08, install stops" || bad "owner 200 arm: rc=$rc out=$out"
+rm -f "$D/pf/owner_http"
+
 # 13b. MUTANT: the step warns instead of failing closed -> 13 must go red
 sed 's/^    fail_with_code "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/    warn "ERR-08-LOOPBACK-GUARD-NOT-ACTIVE"/' "$LIB" > "$T/mut_step.sh"
 if cmp -s "$T/mut_step.sh" "$LIB"; then bad "mutant warn_not_fail DID NOT APPLY"; else
@@ -284,7 +378,7 @@ rot="$(grep -n '^# ── 3.3b Ollama log rotation' "$I" | head -1 | cut -d: -f1
 [ -n "$pin" ] && [ -n "$stp" ] && [ -n "$rot" ] && [ "$pin" -lt "$stp" ] && [ "$stp" -lt "$rot" ] \
   && ok "install.sh runs the guard step after Ollama is pinned and before log rotation (:$stp)" || bad "install step placement pin=$pin step=$stp rot=$rot"
 ue="$(awk '/<<.UNINSTALLEOF.$/{a=NR} /^UNINSTALLEOF$/{if(a&&!b)b=NR} END{print a, b}' "$I")"
-ur="$(grep -n 'sudo /bin/bash "\$_lg_root" remove' "$I" | head -1 | cut -d: -f1)"
+ur="$(grep -n 'source "\$_lg_src" && ostler_lg_uninstall; then' "$I" | head -1 | cut -d: -f1)"
 [ -n "$ur" ] && [ "$ur" -gt "${ue% *}" ] && [ "$ur" -lt "${ue#* }" ] && ok "the uninstaller (inside its heredoc) removes the guard" || bad "uninstall wiring ur=$ur heredoc=$ue"
 # NO UPDATE-TIME PROMPT (Andy, 2026-11-06): the update path must not touch the guard at all.
 upg_a="$(grep -n 'OSTLER_UPGRADE_MODE:-0}" == "1"' "$I" | head -1 | cut -d: -f1)"

@@ -922,7 +922,19 @@ _class3c() {
     done <<EOF_OLLAMA
 $(_ollama_guard_ports)
 EOF_OLLAMA
-    probe_note "ollama guard (3c): asked :${OLLAMA_GUARD_PORT} and ${nr} runner port(s) as the second identity; dropped = guard holds, any answer = readable. Dropped:${dropped:- none}"
+    # ::1 too: the guard's rules name no address family, so the second identity
+    # must be DROPPED on [::1]:11434 as well. A kernel refusal there means no
+    # guard in the v6 path (Ollama binds 127.0.0.1 today; a v6 bind would leak).
+    n_checked=$((n_checked + 1))
+    r="$(_second_id_run "/usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --connect-timeout ${OLLAMA_GUARD_CONNECT_S} --max-time 8 'http://[::1]:${OLLAMA_GUARD_PORT}/api/version'; echo \" \$?\"")"
+    code="${r% *}"; rc="${r##* }"
+    case "$code:$rc" in
+        000:28) refused_list="${refused_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(dropped-by-guard)"; dropped="${dropped} [::1]:${OLLAMA_GUARD_PORT}/api/version(dropped-by-guard)" ;;
+        000:7)  readable_list="${readable_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(kernel-refused-v6:no-guard-in-path,second-identity)" ;;
+        [1-5][0-9][0-9]:*) readable_list="${readable_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(${code},second-identity,ollama-has-no-auth)" ;;
+        *)      unmeasured_list="${unmeasured_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(second-identity:${r:-no-reading})" ;;
+    esac
+    probe_note "ollama guard (3c): asked :${OLLAMA_GUARD_PORT} (127.0.0.1 and ::1) and ${nr} runner port(s) as the second identity; dropped = guard holds, any answer = readable. Dropped:${dropped:- none}"
 }
 
 run_probe() {

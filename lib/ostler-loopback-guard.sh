@@ -56,6 +56,9 @@ LG_PERL="${OSTLER_LG_PERL:-/usr/bin/perl}"
 LG_CHOWN="${OSTLER_LG_CHOWN:-/usr/sbin/chown}"
 LG_ID="${OSTLER_LG_ID:-/usr/bin/id}"
 LG_PROBE_HOST="${OSTLER_LG_PROBE_HOST:-127.0.0.1}"
+LG_PROBE_HOST6="${OSTLER_LG_PROBE_HOST6:-::1}"   # the rules name no address family, so they cover ::1 too; the self-test proves it
+LG_CURL="${OSTLER_LG_CURL:-/usr/bin/curl}"
+LG_OSASCRIPT="${OSTLER_LG_OSASCRIPT:-/usr/bin/osascript}"
 LG_PROBE_TIMEOUT="${OSTLER_LG_PROBE_TIMEOUT:-3}"
 LG_OTHER_USER="${OSTLER_LG_OTHER_USER:-nobody}"
 LG_FIXED_PORT=11434
@@ -67,7 +70,10 @@ LG_SENTINEL_PORT="${OSTLER_LG_SENTINEL_PORT:-65531}"
 # A port OUTSIDE the guard (discard, 9): the other uid must get REFUSED here.
 # If it times out too, the probe cannot tell blocked from broken.
 LG_CONTROL_PORT="${OSTLER_LG_CONTROL_PORT:-9}"
-LG_RULE_COUNT=4
+# pfctl EXPANDS `user { a, b, c }` into one loaded rule per uid (measured on
+# the Studio, 2026-11-06: 4 rule lines with 3 uids load as 8 rules). So the
+# loaded count is 2 block rules plus 2 pass rules per allowed uid, never a
+# fixed 4. ostler_lg_expected_rule_count is the only place that knows this.
 LG_MIN_HUMAN_UID=501   # macOS gives people uids from 501; below that are system accounts
 LG_STATUS_MAX_AGE="${OSTLER_LG_STATUS_MAX_AGE:-900}"   # daemon re-checks every 300 s
 
@@ -98,6 +104,12 @@ block drop out quick on lo0 proto tcp from any to any port ${LG_FIXED_PORT} flag
 pass out quick on lo0 proto tcp from any to any port ${first}:${last} flags S/SA user { ${users} } no state
 block drop out quick on lo0 proto tcp from any to any port ${first}:${last} flags S/SA
 RULES
+}
+
+ostler_lg_expected_rule_count() {   # $1 assistant uid (optional): owner + root (+ assistant)
+    local n=2
+    [ -z "${1:-}" ] || n=3
+    echo $((2 + 2 * n))
 }
 
 ostler_lg_ephemeral_range() {   # prints "first last"
@@ -147,24 +159,32 @@ ostler_lg_resolve_assistant() {   # $1 name, $2 owner uid
 # ── probe ─────────────────────────────────────────────────────────────────
 # One TCP connect, as a given account. Prints connected | refused | timeout |
 # error:<reason>. Run by root (sudo -u needs no password for root).
-ostler_lg_probe() {   # $1 sudo user spec (name or #uid), $2 port
-    "$LG_SUDO" -n -u "$1" "$LG_PERL" -MIO::Socket::INET -e '
+ostler_lg_probe() {   # $1 sudo user spec (name or #uid), $2 port, $3 host (default 127.0.0.1)
+    "$LG_SUDO" -n -u "$1" "$LG_PERL" -MIO::Socket::IP -e '
         my ($h, $p, $t) = @ARGV;
-        my $s = IO::Socket::INET->new(PeerAddr => $h, PeerPort => $p, Proto => "tcp", Timeout => $t);
-        if ($s) { print "connected\n"; exit 0 }
+        my $s = IO::Socket::IP->new(PeerHost => $h, PeerPort => $p, Proto => "tcp", Timeout => $t);
+        # IO::Socket::IP on ::1 can hand back a socket whose non-blocking
+        # connect never completed (measured on the Studio: "connected" with no
+        # peer while curl to the same port timed out). Only a socket WITH a
+        # peer is connected; one without is a dropped SYN.
+        if ($s && defined getpeername($s)) { print "connected\n"; exit 0 }
+        if ($s) { print "timeout\n"; exit 0 }
         my $e = "$! $@";
         if ($e =~ /refused/i) { print "refused\n" }
         elsif ($e =~ /timed? ?out/i) { print "timeout\n" }
-        else { $e =~ s/\s+/_/g; print "error:$e\n" }' "$LG_PROBE_HOST" "$2" "$LG_PROBE_TIMEOUT" 2>/dev/null \
+        else { $e =~ s/\s+/_/g; print "error:$e\n" }' "${3:-$LG_PROBE_HOST}" "$2" "$LG_PROBE_TIMEOUT" 2>/dev/null \
         || echo "error:probe_could_not_run"
 }
 
 # Prints key=value lines; rc 0 only when every check holds.
 ostler_lg_selftest() {   # $1 owner uid, $2 assistant uid (optional)
-    local owner="$1" asst="${2:-}" c o_fixed o_sent x_fixed x_sent a_fixed="" a_sent="" fail=""
+    local owner="$1" asst="${2:-}" c o_fixed o_sent x_fixed x_sent x6_fixed x6_sent o6_fixed a_fixed="" a_sent="" fail=""
     c="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_CONTROL_PORT")"
     x_fixed="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_FIXED_PORT")"
     x_sent="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_SENTINEL_PORT")"
+    x6_fixed="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_FIXED_PORT" "$LG_PROBE_HOST6")"
+    x6_sent="$(ostler_lg_probe "$LG_OTHER_USER" "$LG_SENTINEL_PORT" "$LG_PROBE_HOST6")"
+    o6_fixed="$(ostler_lg_probe "#${owner}" "$LG_FIXED_PORT" "$LG_PROBE_HOST6")"
     o_fixed="$(ostler_lg_probe "#${owner}" "$LG_FIXED_PORT")"
     o_sent="$(ostler_lg_probe "#${owner}" "$LG_SENTINEL_PORT")"
     if [ -n "$asst" ]; then
@@ -176,6 +196,9 @@ ostler_lg_selftest() {   # $1 owner uid, $2 assistant uid (optional)
     echo "probe_other_runner_${LG_SENTINEL_PORT}=${x_sent}"
     echo "probe_owner_${LG_FIXED_PORT}=${o_fixed}"
     echo "probe_owner_runner_${LG_SENTINEL_PORT}=${o_sent}"
+    echo "probe_other_v6_${LG_FIXED_PORT}=${x6_fixed}"
+    echo "probe_other_v6_runner_${LG_SENTINEL_PORT}=${x6_sent}"
+    echo "probe_owner_v6_${LG_FIXED_PORT}=${o6_fixed}"
     if [ -n "$asst" ]; then
         echo "probe_assistant_${LG_FIXED_PORT}=${a_fixed}"
         echo "probe_assistant_runner_${LG_SENTINEL_PORT}=${a_sent}"
@@ -187,6 +210,9 @@ ostler_lg_selftest() {   # $1 owner uid, $2 assistant uid (optional)
     [ -n "$fail" ] || [ "$x_sent" = timeout ] || fail="other_account_reaches_runner_range(${x_sent})"
     [ -n "$fail" ] || case "$o_fixed" in connected|refused) ;; *) fail="owner_blocked_on_${LG_FIXED_PORT}(${o_fixed})" ;; esac
     [ -n "$fail" ] || case "$o_sent" in connected|refused) ;; *) fail="owner_blocked_on_runner_range(${o_sent})" ;; esac
+    [ -n "$fail" ] || [ "$x6_fixed" = timeout ] || fail="other_account_reaches_v6_${LG_FIXED_PORT}(${x6_fixed})"
+    [ -n "$fail" ] || [ "$x6_sent" = timeout ] || fail="other_account_reaches_v6_runner_range(${x6_sent})"
+    [ -n "$fail" ] || case "$o6_fixed" in connected|refused) ;; *) fail="owner_blocked_on_v6_${LG_FIXED_PORT}(${o6_fixed})" ;; esac
     if [ -n "$asst" ]; then
         [ -n "$fail" ] || case "$a_fixed" in connected|refused) ;; *) fail="assistant_blocked_on_${LG_FIXED_PORT}(${a_fixed})" ;; esac
         [ -n "$fail" ] || case "$a_sent" in connected|refused) ;; *) fail="assistant_blocked_on_runner_range(${a_sent})" ;; esac
@@ -213,7 +239,7 @@ _lg_notify_owner() {   # $1 owner uid, $2 text. Best effort, never fatal.
 
 # ── apply (root; the daemon's entry point) ────────────────────────────────
 ostler_lg_apply() {
-    local owner asst range first last rules_n info tok boot prev st reason="" pf_on=no selftest_out
+    local owner asst range first last rules_n want_n info tok boot prev st reason="" pf_on=no selftest_out
     # Bound the daemon's own log (one line per 300 s tick): keep the newest half.
     if [ -f "${LG_DIR}/guard.log" ] && [ "$(wc -c < "${LG_DIR}/guard.log")" -gt 262144 ]; then
         tail -c 131072 "${LG_DIR}/guard.log" > "${LG_DIR}/guard.log.tmp" && cat "${LG_DIR}/guard.log.tmp" > "${LG_DIR}/guard.log"; rm -f "${LG_DIR}/guard.log.tmp"
@@ -246,7 +272,8 @@ ostler_lg_apply() {
     fi
     if [ -z "$reason" ]; then
         rules_n="$("$LG_PFCTL" -a "$LG_ANCHOR" -s rules 2>/dev/null | grep -c -E '^(pass|block) ')"
-        [ "$rules_n" = "$LG_RULE_COUNT" ] || reason="anchor_rules_mismatch(${rules_n:-0}/${LG_RULE_COUNT})"
+        want_n="$(ostler_lg_expected_rule_count "$asst")"
+        [ "$rules_n" = "$want_n" ] || reason="anchor_rules_mismatch(${rules_n:-0}/${want_n})"
     fi
     info="$("$LG_PFCTL" -s info 2>/dev/null)"; grep -q 'Status: Enabled' <<<"$info" && pf_on=yes
     [ -n "$reason" ] || [ "$pf_on" = yes ] || reason="pf_not_enabled"
@@ -263,6 +290,7 @@ ostler_lg_apply() {
         echo "anchor=${LG_ANCHOR}"
         echo "ephemeral=${first:-?}:${last:-?}"
         echo "rules_loaded=${rules_n:-0}"
+        echo "rules_expected=${want_n:-?}"
         echo "pf_enabled=${pf_on}"
         printf '%s\n' "$selftest_out" | grep -v '^$'
         echo "checked_at=$(_lg_now)"
@@ -346,9 +374,49 @@ ostler_lg_remove() {   # root. Prints each step; rc 1 if any rule is left behind
     tok="$(sed -n 's/^boot=[^ ]* token=//p' "${LG_DIR}/pf.token" 2>/dev/null)"
     [ -z "$tok" ] || "$LG_PFCTL" -X "$tok" >/dev/null 2>&1 || true
     left="$("$LG_PFCTL" -a "$LG_ANCHOR" -s rules 2>/dev/null | grep -c -E '^(pass|block) ')"
-    rm -rf "$LG_DIR"
+    # Rules left behind: KEEP the directory, so ostler_lg_present still sees
+    # the guard and the uninstaller cannot report a clean removal.
     if [ "${left:-0}" != 0 ]; then echo "loopback-guard: ${left} rule(s) still loaded in ${LG_ANCHOR}" >&2; return 1; fi
+    rm -rf "$LG_DIR"
     echo "loopback-guard: removed (daemon, anchor, pf reference, files)"
+}
+
+# ── uninstall (owner context; the uninstaller calls this) ────────────────
+# The guard is root's, so removing it needs admin. Asked ONCE, the way the
+# install asks: from a terminal, sudo's own prompt; from the GUI uninstaller
+# (no tty, OSTLER_GUI=1) macOS's own administrator dialog via `do shell
+# script ... with administrator privileges`. The password goes to macOS; this
+# script never sees it. Afterwards it MEASURES: rc 0 only when the daemon
+# plist and the guard directory are both gone. A guard left behind would keep
+# cutting other accounts off after Ostler is "gone", so the caller must not
+# report the uninstall as complete on a non-zero return.
+ostler_lg_present() {   # rc 0 when any part of the guard is still installed
+    [ -e "$LG_PLIST" ] || [ -e "$LG_DIR" ]
+}
+
+ostler_lg_uninstall() {
+    local root_copy="${LG_DIR}/ostler-loopback-guard.sh" how
+    ostler_lg_present || { echo "loopback-guard: not installed"; return 0; }
+    if [ ! -r "$root_copy" ]; then
+        echo "loopback-guard: daemon present but ${root_copy} is missing; cannot remove it safely" >&2
+        return 1
+    fi
+    case "$root_copy" in *\'*|*\"*|*\\*) echo "loopback-guard: unquotable path ${root_copy}" >&2; return 1 ;; esac
+    if [ "$(_lg_euid)" = 0 ]; then
+        how=root; /bin/bash "$root_copy" remove
+    elif "$LG_SUDO" -n /usr/bin/true 2>/dev/null; then
+        how=sudo-n; "$LG_SUDO" -n /bin/bash "$root_copy" remove
+    elif [ "${OSTLER_GUI:-0}" != 1 ] && [ -t 0 ]; then
+        how=sudo-tty; "$LG_SUDO" /bin/bash "$root_copy" remove
+    else
+        how=macos-admin-dialog
+        "$LG_OSASCRIPT" -e "do shell script \"/bin/bash '${root_copy}' remove\" with prompt \"Ostler needs an administrator to remove its privacy guard.\" with administrator privileges" >/dev/null  # i18n-exempt (macOS dialog prompt; the uninstaller's own copy is localised)
+    fi
+    if ostler_lg_present; then
+        echo "loopback-guard: STILL INSTALLED after removal via ${how}; other accounts are still cut off from loopback ports. Run: sudo /bin/bash '${root_copy}' remove" >&2
+        return 1
+    fi
+    echo "loopback-guard: removed (via ${how})"
 }
 
 # ── owner half (sourced by install.sh; no root) ───────────────────────────
@@ -389,6 +457,16 @@ ostler_lg_install_step() {   # $1 path of this lib
     if [ "$why" != ok ] && [ "${OSTLER_GUI:-0}" != 1 ] && "$LG_SUDO" -n /usr/bin/true 2>/dev/null; then
         "$LG_SUDO" -n /bin/bash "$lib" install-root "$(id -u)" "$lib" "$(ostler_lg_configured_assistant "$(id -u)")" >> "${INSTALL_LOG:-/dev/null}" 2>&1
         why="$(ostler_lg_check)"
+    fi
+    # The owner must still be SERVED by the engine through the guard (HTTP 200,
+    # not merely a connect): the guard must never lock the owner out.
+    if [ "$why" = ok ]; then
+        local code="" i
+        for i in 1 2 3 4 5; do
+            code="$("$LG_CURL" -s -o /dev/null -w '%{http_code}' --noproxy '*' --max-time 5 "http://127.0.0.1:${LG_FIXED_PORT}/api/version" 2>/dev/null)"
+            [ "$code" = 200 ] && break; sleep 1
+        done
+        [ "$code" = 200 ] || why="owner_not_served_on_${LG_FIXED_PORT}(http_${code:-none})"
     fi
     { echo "loopback_guard=${why}"; cat "${LG_DIR}/status" 2>/dev/null | sed 's/^/loopback_guard_status: /'; } >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null
     [ "$had_e" = 1 ] && set -e; eval "${saved_trap:-:}"

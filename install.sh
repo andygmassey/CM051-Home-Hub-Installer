@@ -29203,7 +29203,7 @@ fi
 
 echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
-echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _lg_root="/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh"; if [ -f "$_lg_root" ] || [ -f /Library/LaunchDaemons/com.ostler.loopback-guard.plist ]; then sudo /bin/bash "$_lg_root" remove || echo "  WARNING: the privacy guard was NOT fully removed. Run: sudo /bin/bash \"$_lg_root\" remove" >&2; fi
+echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _u_lg_live=0; _lg_src="${HOME}/.ostler/lib/ostler-loopback-guard.sh"; [ -f "$_lg_src" ] || _lg_src="/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh"; if [ -e "${OSTLER_LG_PLIST:-/Library/LaunchDaemons/com.ostler.loopback-guard.plist}" ] || [ -e "${OSTLER_LG_DIR:-/Library/Application Support/Ostler/loopback-guard}" ]; then if [ -f "$_lg_src" ] && source "$_lg_src" && ostler_lg_uninstall; then :; else _u_lg_live=1; echo "  ERROR: the privacy guard is STILL INSTALLED, so other accounts on this Mac are still cut off from local ports. Ostler is NOT fully uninstalled. Run: sudo /bin/bash \"/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh\" remove" >&2; fi; fi  # lib/ostler-loopback-guard.sh ostler_lg_uninstall: admin via sudo or the macOS dialog
 echo "  Removing Keychain entry..."
 security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
 
@@ -29329,7 +29329,7 @@ elif [[ -d "$USER_FACING_ROOT" ]]; then
 fi
 
 echo ""
-_u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
+if [[ "${_u_lg_live:-0}" == 1 ]]; then echo "  NOT UNINSTALLED: the privacy guard named above is still active. Everything else was removed." >&2; exit 4; fi; _u_emit UNINSTALL_DONE "stores_removed=${OSTLER_STORES_REMOVED}" "content=${KEEP_CONTENT_DECISION}" "knowledge_staging=${KNOWLEDGE_STAGING_OUTCOME}" "colima=${COLIMA_RESULT}"
 if [[ "$OSTLER_STORES_REMOVED" -eq 1 ]]; then
     echo "  Done. Ostler has been removed$([[ "$_u_tick_rc" -eq 0 ]] || echo " APART FROM the running tasks named above")."
 else

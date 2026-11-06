@@ -282,6 +282,14 @@ case "$*" in *--connect-timeout*) printf 000; exit 28 ;; esac
 exec "$@"
 STUB
 chmod +x "$TMP/asother_guard"
+# A guard that holds on 127.0.0.1 but NOT on ::1 (e.g. rules pinned to inet).
+cat > "$TMP/asother_guard_v4only" <<'STUB'
+#!/bin/bash
+if [ "$*" = "/usr/bin/id -u" ]; then echo 4242; exit 0; fi
+case "$*" in *--connect-timeout*127.0.0.1*) printf 000; exit 28 ;; esac
+exec "$@"
+STUB
+chmod +x "$TMP/asother_guard_v4only"
 # A stand-in Ollama runner: its command line names llama-server (what 3b/3c
 # key on) and fake.py (LISTENER_MATCH). It answers 200 to anyone, as Ollama
 # does: Ollama has no auth, so only the guard can refuse.
@@ -764,7 +772,8 @@ arm_ollama_guard_holds_is_pass() {      # 24
     stop_llamas; stop_server
     [[ "$rc" -eq 0 ]] || return 1
     [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
-    [[ "$(grep -o 'dropped-by-guard' <<<"$out" | wc -l | tr -d ' ')" -ge 2 ]] || return 1
+    [[ "$(grep -o 'dropped-by-guard' <<<"$out" | wc -l | tr -d ' ')" -ge 3 ]] || return 1
+    [[ "$(count "[::1]:${g}/api/version(dropped-by-guard)" "$out")" -ge 1 ]] || return 1
     [[ "$(count '1 runner port(s)' "$out")" -eq 1 ]] || return 1
     return 0
 }
@@ -797,6 +806,16 @@ arm_ollama_kernel_refused_is_fail() {   # 27 no guard in the path at all
     stop_server
     [[ "$rc" -eq 1 ]] || return 1
     [[ "$(count "kernel-refused:no-guard-in-path" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_ollama_v6_unguarded_is_fail() {     # 29 the guard holds on 127.0.0.1 but not on ::1
+    local out rc g
+    start_server refuse "" ""; g="$(start_llama)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP $g"; OGUARD="$g"; SECOND="$TMP/asother_guard_v4only"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; SECOND=""; LAST_OUT="$out"
+    stop_llamas; stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "[::1]:${g}/api/version(kernel-refused-v6:no-guard-in-path,second-identity)" "$out")" -ge 1 ]] || return 1
     return 0
 }
 arm_runner_unmeasured_is_not_exempt() { # 28 no second identity -> a runner is NOT waved through
@@ -860,6 +879,7 @@ arm_ollama_no_guard_is_fail "$PROBE";       report "25 3c RED control: no guard,
 arm_ollama_owner_locked_out_is_fail "$PROBE"; report "26 3c: the owner cannot connect -> FAIL (lock-out), never a pass" $?
 arm_ollama_kernel_refused_is_fail "$PROBE"; report "27 3c: kernel-refused for the second identity = no guard in the path -> FAIL" $?
 arm_runner_unmeasured_is_not_exempt "$PROBE"; report "28 3c control: runner with no second identity is NOT exempt (unknown-listener)" $?
+arm_ollama_v6_unguarded_is_fail "$PROBE";   report "29 3c: dropped on 127.0.0.1 but kernel-refused on ::1 (no guard in the v6 path) -> FAIL naming [::1]" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so
@@ -944,6 +964,10 @@ run_mutant M10-runner-exempt-without-a-measured-refusal arm_runner_unmeasured_is
     's/if (rg == 1 \&\& tolower(cmd)/if (1 \&\& tolower(cmd)/'
 # M11 reads a pf drop as a pass for the OWNER: arm 26 must go red.
 # shellcheck disable=SC2016
+# M12 reads a v6 kernel refusal as a guard drop: arm 29 must go red.
+# shellcheck disable=SC2016
+run_mutant M12-v6-kernel-refusal-reads-as-dropped arm_ollama_v6_unguarded_is_fail \
+    's/^        000:7)  readable_list="${readable_list} \[::1\]/        000:7)  refused_list="${refused_list} [::1]/'
 run_mutant M11-owner-timeout-reads-as-served arm_ollama_owner_locked_out_is_fail \
     's/^                200) served_list="${served_list} ${port}${path}(owner)" ;;$/                200|000) served_list="${served_list} ${port}${path}(owner)" ;;/'
 
