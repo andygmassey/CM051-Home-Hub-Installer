@@ -130,6 +130,9 @@ NAMES = ["Alder " + "Testcase", "Birch " + "Testcase", "Cedar " + "Testcase",
          "Damson " + "Testcase", "Elm " + "Testcase", "Fir " + "Testcase"]
 
 
+ROLE = "Tester"
+
+
 @pytest.fixture()
 def world(monkeypatch, tmp_path):
     store = FakeOxigraph()
@@ -198,11 +201,11 @@ def test_a_changed_person_is_embedded_again_and_nobody_else(world):
     for i in range(3):
         _add(world["store"], i, NAMES[i])
     _run(world)
-    world["store"].update('INSERT DATA { <%s> pwg:jobTitle "Synthetic Role" . }' % _uri(1))
+    world["store"].update('INSERT DATA { <%s> pwg:jobTitle "%s" . }' % (_uri(1), ROLE))
     res = _run(world)
-    assert world["embedded"] == [NAMES[1] + " Synthetic Role"], world["embedded"]
+    assert world["embedded"] == [NAMES[1] + " " + ROLE], world["embedded"]
     assert res["status"] == "ok" and res["sent"] == 3, res
-    assert _point(world, 1)["payload"]["job_title"] == "Synthetic Role"
+    assert _point(world, 1)["payload"]["job_title"] == ROLE
 
 
 def test_a_field_that_is_not_embedded_is_refreshed_without_embedding(world):
