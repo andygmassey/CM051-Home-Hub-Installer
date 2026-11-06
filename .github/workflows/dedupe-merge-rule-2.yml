@@ -140,8 +140,8 @@ jobs:
           python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
           n="$(python3 -m pytest tests/test_people_index_embeds_only_what_changed.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 13 ]; then
-            echo "REFUSING: expected at least 13 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python3 -m pytest tests/test_people_index_embeds_only_what_changed.py -v

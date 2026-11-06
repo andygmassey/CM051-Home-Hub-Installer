@@ -4048,55 +4048,6 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
               "payload_refreshed": refreshed, "backlog": len(people) - sent}
     _people_index_finish(len(people), sent, never_embedded, embedded, "")
 
-    if sent == 0:
-        # We had Person nodes to index but none landed (embed failure
-        # for every row, or every chunk failed). Report error, not
-        # "ok" -- a silent ok-with-zero is the #600 bug.
-        logger.warning(
-            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
-            len(people), PEOPLE_QDRANT_COLLECTION,
-        )
-        return dict({
-            "status": "error",
-            "sent": 0,
-            "points_created": 0,
-            "total": len(people),
-        }, **counts)
-
-    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
-    #
-    # The check above only ever caught the ALL-OR-NOTHING case. Anything
-    # between -- an empty vector dropped by _qdrant_upsert_points, or one
-    # chunk out of several failing while the others land -- fell straight
-    # through to the "ok" return below, carrying whatever count DID make
-    # it. That count is real, but the status calling it "ok" is not: it is
-    # indistinguishable, to every caller, from a complete sweep.
-    #
-    # MEASURED on a real customer install, ten hours after completion: the
-    # graph held 8679 Person nodes, the vector store held 8643 points, a
-    # gap of 36 that never closed on its own. install.sh only reads `sent`
-    # to decide the customer-facing message and reads process rc (which
-    # this function's own internal try/except keeps at 0 for any failure
-    # it already caught) to decide whether to write a success sentinel --
-    # so a shortfall here had no way to reach either decision. Comparing
-    # what was SENT against what was ASKED is the only place that
-    # information still exists once _qdrant_upsert_points returns.
-    if sent < len(people):
-        logger.warning(
-            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
-            "not. Reporting error, not ok -- the missing %d would stay "
-            "unsearchable and invisible under a success status.",
-            sent, len(people), PEOPLE_QDRANT_COLLECTION,
-            len(people) - sent, len(people) - sent,
-        )
-        return dict({
-            "status": "error",
-            "reason": "partial_landing",
-            "sent": sent,
-            "points_created": sent,
-            "total": len(people),
-        }, **counts)
-
     # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
     # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
     #
@@ -4116,9 +4067,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     #
     # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
     #
-    # 1. WE ONLY REACH HERE WHEN sent > 0. The block above returns
-    #    status="error" when Oxigraph held Person nodes and none landed. So a
-    #    prune can never run off a failed projection.
+    # 1. THE PRUNE READS THE GRAPH, NEVER THE LANDING. It deletes a point only
+    #    when its person_uri is absent from BOTH the graph this pass loaded
+    #    and the graph as it is now. A person whose embed failed is still in
+    #    the graph, so a failed or partial landing cannot make it look stale.
+    #    It therefore runs BEFORE the zero-landing and partial-landing returns
+    #    below (v1.0.126, Archie on #3367): it used to run only when every
+    #    person landed, so a deleted or merged-away person stayed searchable
+    #    for as long as ANY backlog persisted, which on a first-run box is
+    #    hours. A failed Qdrant call (ensure, upsert) still returns earlier
+    #    and prunes nothing.
     # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
     #    any error, and None is handled separately from an empty list. An empty
     #    list from a broken read and an empty collection are indistinguishable
@@ -4175,6 +4133,57 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         else:
             pruned = 0
 
+    counts["pruned"] = pruned
+
+    if sent == 0:
+        # We had Person nodes to index but none landed (embed failure
+        # for every row, or every chunk failed). Report error, not
+        # "ok" -- a silent ok-with-zero is the #600 bug.
+        logger.warning(
+            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
+            len(people), PEOPLE_QDRANT_COLLECTION,
+        )
+        return dict({
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }, **counts)
+
+    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
+    #
+    # The check above only ever caught the ALL-OR-NOTHING case. Anything
+    # between -- an empty vector dropped by _qdrant_upsert_points, or one
+    # chunk out of several failing while the others land -- fell straight
+    # through to the "ok" return below, carrying whatever count DID make
+    # it. That count is real, but the status calling it "ok" is not: it is
+    # indistinguishable, to every caller, from a complete sweep.
+    #
+    # MEASURED on a real customer install, ten hours after completion: the
+    # graph held 8679 Person nodes, the vector store held 8643 points, a
+    # gap of 36 that never closed on its own. install.sh only reads `sent`
+    # to decide the customer-facing message and reads process rc (which
+    # this function's own internal try/except keeps at 0 for any failure
+    # it already caught) to decide whether to write a success sentinel --
+    # so a shortfall here had no way to reach either decision. Comparing
+    # what was SENT against what was ASKED is the only place that
+    # information still exists once _qdrant_upsert_points returns.
+    if sent < len(people):
+        logger.warning(
+            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
+            "not. Reporting error, not ok -- the missing %d would stay "
+            "unsearchable and invisible under a success status.",
+            sent, len(people), PEOPLE_QDRANT_COLLECTION,
+            len(people) - sent, len(people) - sent,
+        )
+        return dict({
+            "status": "error",
+            "reason": "partial_landing",
+            "sent": sent,
+            "points_created": sent,
+            "total": len(people),
+        }, **counts)
+
     logger.info(
         "People: %d of %d Person nodes indexed into Qdrant '%s'.",
         sent, len(people), PEOPLE_QDRANT_COLLECTION,
@@ -4184,7 +4193,6 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         "sent": sent,
         "points_created": sent,
         "total": len(people),
-        "pruned": pruned,
     }, **counts)
 
 
