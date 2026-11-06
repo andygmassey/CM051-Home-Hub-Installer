@@ -1358,6 +1358,51 @@ def _assistant_answers_grounded_timeout_seconds(turns, per_turn) -> int:
     return max(floor_s, min(derived, ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS))
 
 
+# ── data_conservation's CAP IS ITS OWN COLLECT BUDGET PLUS A MARGIN ──
+#
+# MEASURED: the probe's collect enforces its own wall-clock budget ON THE BOX
+# (probes/data_conservation.sh, OSTLER_CONSERVATION_COLLECT_BUDGET_S, default
+# 1800) and reports CANNOT-RUN-BUDGET with that reason when it hits it. Phase 2
+# gave it the flat 600 s, so on v1.0.124 phase 2 killed it at the flat cap
+# before its own budget could speak, and the row read "timed out" instead of
+# the probe's reason. The cap here follows whatever budget the probe will read,
+# plus a margin for staging, the perl TERM/KILL reap and the adjudication, so
+# the probe's own budget always fires first. This does NOT make the collect
+# finish: on the v1.0.125 book (512 MB of wiki markdown) it did not finish in
+# 5400 s, because its SHOWN stage is O(items x corpus). That is the probe's
+# scope, not this cap.
+DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS = 300
+DATA_CONSERVATION_TIMEOUT_CEILING_SECONDS = 14400
+_DC_BUDGET_RE = re.compile(r'OSTLER_CONSERVATION_COLLECT_BUDGET_S:-([0-9]+)')
+
+
+def _data_conservation_declared_budget(cm051_dir: Path):
+    """The collect budget default the probe file declares, or None if unreadable."""
+    probe = (cm051_dir / "scripts" / "box_walk_probes" / "probes"
+             / "data_conservation.sh")
+    try:
+        m = _DC_BUDGET_RE.search(probe.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    return int(m.group(1)) if m else None
+
+
+def _data_conservation_timeout_seconds(declared) -> int:
+    """Per-probe timeout for data_conservation. Pure, so the formula is driven
+    with no filesystem behind it. The env the probe itself reads moves the cap
+    with it; an unreadable declaration takes the flat cap, never a guess."""
+    explicit = os.environ.get("OSTLER_BOX_WALK_DATA_CONSERVATION_TIMEOUT_SECONDS", "")
+    if explicit.strip().isdigit():
+        return int(explicit)
+    env_budget = os.environ.get("OSTLER_CONSERVATION_COLLECT_BUDGET_S", "")
+    budget = int(env_budget) if env_budget.strip().isdigit() else declared
+    if not isinstance(budget, int) or budget <= 0:
+        return BOX_WALK_PROBE_TIMEOUT_SECONDS
+    return max(BOX_WALK_PROBE_TIMEOUT_SECONDS,
+               min(budget + DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS,
+                   DATA_CONSERVATION_TIMEOUT_CEILING_SECONDS))
+
+
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
 # of the 17 registered probes exit with it when a prerequisite is unreadable.
@@ -1660,6 +1705,10 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         _grounded_turns, _grounded_per_turn = _assistant_grounded_declarations(cm051_dir)
         _timeout_s = _assistant_answers_grounded_timeout_seconds(
             _grounded_turns, _grounded_per_turn
+        )
+    elif probe == "data_conservation":
+        _timeout_s = _data_conservation_timeout_seconds(
+            _data_conservation_declared_budget(cm051_dir)
         )
     try:
         result = subprocess.run(
