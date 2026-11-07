@@ -65,8 +65,15 @@ def harness(monkeypatch):
     monkeypatch.setattr(mod, "_qdrant_ensure_collection", lambda *a, **k: None)
 
     def _upsert(collection, points):
+        # ``upsert_returns`` is how many of the ASKED points land in the whole
+        # sweep. The sweep lands in chunks (PEOPLE_INDEX_CHUNK, v1.0.126), so
+        # it is a budget spent across calls, never a per-call constant.
         n = state["upsert_returns"]
-        return len(points) if n is None else n
+        if n is None:
+            return len(points)
+        take = min(n, len(points))
+        state["upsert_returns"] = n - take
+        return take
 
     monkeypatch.setattr(mod, "_qdrant_upsert_points", _upsert)
     # Prune stage: only reachable on a full landing in the fixed code, but

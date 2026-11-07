@@ -687,6 +687,7 @@ test_people_count_one_definition.py	WIRED	.github/workflows/people-have-human-ev
 test_people_count_waits_for_the_embed_drain.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
+test_people_index_embeds_only_what_changed.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_people_index_keeps_the_contacts_card.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
 test_people_rules_is_stdlib_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
