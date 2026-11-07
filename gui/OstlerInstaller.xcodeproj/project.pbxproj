@@ -33,6 +33,7 @@
 		2311C16E1DE97B3ADB33ED9E /* StepCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A68D9D961170201BC0E5A7 /* StepCatalog.swift */; };
 		249532A2E327E36101B1778A /* ViewCopy.de.json in Resources */ = {isa = PBXBuildFile; fileRef = 2BE71084A586F7F5F3694470 /* ViewCopy.de.json */; };
 		2664F2144B7EA368BF5B24FC /* RecoveryApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BECBCD317ECFB7182B86C35 /* RecoveryApp.swift */; };
+		26E98601EC6B706CC7C89DBA /* LateStepCancelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75141BAB0E94CB43B925BCA8 /* LateStepCancelTests.swift */; };
 		2806F4A76C20F46CB9B1E0FD /* ViewCopy.ar.json in Resources */ = {isa = PBXBuildFile; fileRef = BDCF222C464C949D55F156A1 /* ViewCopy.ar.json */; };
 		297DB80C29C941936F57FD6A /* DeviceLimitReachedViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF043F37481F3CACC3130494 /* DeviceLimitReachedViewSnapshotTests.swift */; };
 		2AFE7F7954CBD0B88DC81C24 /* AppIconSource-ink.svg in Resources */ = {isa = PBXBuildFile; fileRef = 9930CEB0B4699812C7CF9060 /* AppIconSource-ink.svg */; };
@@ -183,6 +184,7 @@
 		E6B7161B5F5165F38E8F0328 /* ViewCopy.es.json in Resources */ = {isa = PBXBuildFile; fileRef = 878BF558FC195DF7E7A67CCF /* ViewCopy.es.json */; };
 		E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260069E8B35BBB27233D9472 /* InstallCompleteView.swift */; };
 		EE2855BEB5855142F70AB7AA /* UninstallerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE22C3D213CA4ADF6586210 /* UninstallerApp.swift */; };
+		EEBE9547D67AE88C3B2808A9 /* LateStepPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D02C99EAED9E4DCD02762B40 /* LateStepPolicy.swift */; };
 		EF57D1AF9285D0FD899F2290 /* RecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BD33408C9334A350FE3C68 /* RecoveryCoordinator.swift */; };
 		F00B1DFFB8A3690966E7650A /* InstallerLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */; };
 		F1639B4D45C403B4E735AE4E /* InstallerLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */; };
@@ -288,6 +290,7 @@
 		6F6D6A276A313E76D98FEA20 /* PermissionsPrewarmSequencingTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmSequencingTest.swift; sourceTree = "<group>"; };
 		70FFB02505CDDA3CBD106CBE /* PermissionsPrewarmInfoPlistTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsPrewarmInfoPlistTest.swift; sourceTree = "<group>"; };
 		7232516E5CE0725DC792EAF0 /* TypedInstallGateTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypedInstallGateTest.swift; sourceTree = "<group>"; };
+		75141BAB0E94CB43B925BCA8 /* LateStepCancelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LateStepCancelTests.swift; sourceTree = "<group>"; };
 		7867B01C18ECF24B1AB11BB6 /* EnglishPrevailsNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnglishPrevailsNoteTests.swift; sourceTree = "<group>"; };
 		7872CDF57A4C636DE0B8BAB0 /* Outfit-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Outfit-Bold.ttf"; sourceTree = "<group>"; };
 		7903EF5EC6060503BE8F8B51 /* RecoveryKeySurvivesFailedInstallTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryKeySurvivesFailedInstallTests.swift; sourceTree = "<group>"; };
@@ -342,6 +345,7 @@
 		C25973FFF6214674D1BBCD77 /* HintCopy.en-US.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "HintCopy.en-US.json"; sourceTree = "<group>"; };
 		C26F91B82D454CA6441AED3F /* SystemRequirementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRequirementsView.swift; sourceTree = "<group>"; };
 		C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallFailedBannerTest.swift; sourceTree = "<group>"; };
+		D02C99EAED9E4DCD02762B40 /* LateStepPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LateStepPolicy.swift; sourceTree = "<group>"; };
 		D054CC7F27710FE7CEBFA810 /* HintCopy.pt-PT.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "HintCopy.pt-PT.json"; sourceTree = "<group>"; };
 		D32D456A934ED46ACD089EF7 /* FingerprintState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintState.swift; sourceTree = "<group>"; };
 		D93788700DA6F1729EFEB460 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -486,6 +490,7 @@
 				FE7A7D5DC9570D6ADC808110 /* HardwareFingerprintTests.swift */,
 				2D08A34AA949186B6994140A /* InstallerLanguageTests.swift */,
 				C79B61D716E7D57F5C6D903B /* InstallFailedBannerTest.swift */,
+				75141BAB0E94CB43B925BCA8 /* LateStepCancelTests.swift */,
 				FD52331F131D4AD6BB9BB3AD /* LicenseEntryDropzoneTests.swift */,
 				BF7245F438452C4256C70950 /* LicenseEntryShortIdHeuristicTests.swift */,
 				87045089A04409A175F1AD96 /* LicensePersistenceTests.swift */,
@@ -530,6 +535,7 @@
 			children = (
 				986E98B8756CAFB0276CDC2F /* ChoiceResolver.swift */,
 				BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */,
+				D02C99EAED9E4DCD02762B40 /* LateStepPolicy.swift */,
 				08A68D9D961170201BC0E5A7 /* StepCatalog.swift */,
 				AA415C1B21A151B849E39CE1 /* ViewCopy.swift */,
 			);
@@ -1615,6 +1621,7 @@
 				E7E43757F0A029A93B6F7708 /* InstallCompleteView.swift in Sources */,
 				12ECCC78BC04865699AF3802 /* InstallerCoordinator.swift in Sources */,
 				F00B1DFFB8A3690966E7650A /* InstallerLanguage.swift in Sources */,
+				EEBE9547D67AE88C3B2808A9 /* LateStepPolicy.swift in Sources */,
 				E2CE1F91FCB16D383072563C /* LicenseEntryView.swift in Sources */,
 				D7744170BE41B01FB10042A9 /* LicensePersistence.swift in Sources */,
 				825F57CAB6FA252C9933EAA5 /* LicenseVerifier.swift in Sources */,
@@ -1665,6 +1672,7 @@
 				A3E91202774BD111B0AB1AEA /* HardwareFingerprintTests.swift in Sources */,
 				1A23E840E7F3CF3C7163FD90 /* InstallFailedBannerTest.swift in Sources */,
 				A55125C138ACAA97209D0A98 /* InstallerLanguageTests.swift in Sources */,
+				26E98601EC6B706CC7C89DBA /* LateStepCancelTests.swift in Sources */,
 				2BCD8DD70C9BCF001725BC88 /* LicenseEntryDropzoneTests.swift in Sources */,
 				D1A8224D1913FCF3B71938F9 /* LicenseEntryShortIdHeuristicTests.swift in Sources */,
 				518D2D22C28A4FDC3193751D /* LicensePersistenceTests.swift in Sources */,
@@ -1875,7 +1883,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 12300;
+				CURRENT_PROJECT_VERSION = 12500;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1890,7 +1898,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.123;
+				MARKETING_VERSION = 1.0.125;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
@@ -1960,7 +1968,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 12300;
+				CURRENT_PROJECT_VERSION = 12500;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V95N2B8X7A;
 				ENABLE_HARDENED_RUNTIME = NO;
@@ -1981,7 +1989,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.123;
+				MARKETING_VERSION = 1.0.125;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

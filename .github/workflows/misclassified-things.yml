@@ -15,6 +15,9 @@ on:
       - 'tests/test_hunch_card_never_shows_a_flagged_interest.py'
       - 'tests/test_preference_projection_does_not_duplicate_the_pipeline.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/test_the_preference_seed_lands_both_rows.py'
+      - 'scripts/box_walk_probes/fixtures/preference_seed/**'
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - '.github/workflows/misclassified-things.yml'
   pull_request:
     paths:
@@ -25,6 +28,9 @@ on:
       - 'tests/test_hunch_card_never_shows_a_flagged_interest.py'
       - 'tests/test_preference_projection_does_not_duplicate_the_pipeline.py'
       - 'tests/_fake_oxigraph.py'
+      - 'tests/test_the_preference_seed_lands_both_rows.py'
+      - 'scripts/box_walk_probes/fixtures/preference_seed/**'
+      - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - '.github/workflows/misclassified-things.yml'
 
 concurrency:
@@ -70,3 +76,14 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_preference_projection_does_not_duplicate_the_pipeline.py -v -rs
+      - name: The walk's preference seed lands both rows as Likes, with one row on each side of the floor
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_the_preference_seed_lands_both_rows.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_the_preference_seed_lands_both_rows.py -v -rs
