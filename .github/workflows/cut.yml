@@ -1064,7 +1064,24 @@ jobs:
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
           OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
           OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
-        run: make -C gui check-orphans
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          OSTLER_CUT_VERSION: ${{ github.ref_name }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+        run: |
+          # The cut job examines CM051 AND the daemon (v1.0.126 went red on
+          # daemon:fix/brief-reply-debt-timeout-fallback). Same clone as the
+          # cut-prepare action's "Fetch ostler-assistant" step, so the gate
+          # sees the same 2 repos here as there.
+          set -eu
+          DEST="${RUNNER_TEMP}/ostler-assistant"
+          rm -rf "$DEST"
+          git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
+          export OSTLER_ASSISTANT_DIR="$DEST"
+          rc=0
+          make -C gui check-orphans 2>&1 | tee "${RUNNER_TEMP}/orphans.log" || true
+          rc=${PIPESTATUS[0]}
+          grep -E '^== summary: ' "${RUNNER_TEMP}/orphans.log" || true
+          exit "$rc"
 
   cut:
     needs: preflight
