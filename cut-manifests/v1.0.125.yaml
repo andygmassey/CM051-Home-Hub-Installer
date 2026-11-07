@@ -6310,3 +6310,8 @@ open_issues:
     repo: CM051
     title: 'cut-manifest gate never reads verdict_NNN or a row''s expiry: the one-cut rule is human-enforced only'
     gate: 'NOT BLOCKING (Archie 2026-11-04): gate gap, not an artefact defect; item 5 one-cut expiry enforced by hand until fixed; close needs the RED demo in the issue.'
+
+  - issue: 3366
+    repo: CM051
+    title: 'test_mutex_skips_when_another_tick_holds_the_lock writes the real ~/.ostler/state (no HOME isolation)'
+    gate: 'NOT BLOCKING (Archie 2026-11-07): test-hygiene defect on the dev/CI box, not in the shipped artefact; expires after one cut; close needs the test run under an isolated HOME with a RED demo of the leak.'
