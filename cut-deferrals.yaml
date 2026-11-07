@@ -32,6 +32,17 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
+  # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
+  - ref: "CM051-Home-Hub-Installer#3347"
+    reason: "frozen-branch cut: not on cut/v1.0.127, cannot change a DMG byte. Brief feature (weather-home-location). Owner: the 11 Nov brief job. Expires after v1.0.128."
+    review_by: 2026-11-14
+  - ref: "CM051-Home-Hub-Installer#3327"
+    reason: "frozen-branch cut: not on cut/v1.0.127, cannot change a DMG byte. Supply-chain hardening with its own 4 red checks. Owner: Archie, after the cut. Expires after v1.0.128."
+    review_by: 2026-11-14
+  - ref: "CM051-Home-Hub-Installer#3325"
+    reason: "frozen-branch cut: not on cut/v1.0.127, cannot change a DMG byte. Copy fix (hintcopy-no-gws) with 3 red checks. Owner: Archie, after the cut. Expires after v1.0.128."
+    review_by: 2026-11-14
   # v1.0.121 b9, ORM 2026-11-02 on Archie's ruling (option c): CM051 #3233 open 74h at the first 121 candidate
   # (run 41397083886, check-pr-age). FIRST so verify_pr_age.sh takes this row.
   - ref: "CM051-Home-Hub-Installer#3233"
