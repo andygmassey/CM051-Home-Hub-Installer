@@ -1,0 +1,37 @@
+# target|class|reason   (class: LINUX = preflight job, ubuntu; MACOS = cut job, before any build; BUILD_ONLY = needs build output or the signing identity)
+# Order matters inside a class: scripts/run_ship_prereqs.sh runs rows top to bottom. check-orphans then check-pr-age MUST be the last two LINUX rows.
+guard-local-cut|LINUX|CI guard, reads env only
+check-provenance|LINUX|named fixes present in this tree and the pinned daemon tag; needs the ostler-assistant clone, no build output
+check-freshness|LINUX|every shippable input against live upstream HEAD; network and tokens only
+check-orphans|LINUX|is any written fix missing from this cut; gh + clones only
+check-pr-age|LINUX|open PRs older than 48h; gh only (burnt v1.0.86 and v1.0.127)
+check-ship-version|MACOS|reads the Info.plist stamp with macOS tooling (CANNOT-RUN on ubuntu, measured run 42411231507); needs no built .app
+check-tools|MACOS|xcodebuild and xcrun are macOS-only
+check-version|MACOS|runs xcodegen/xcodebuild over the tracked version sources
+check-pbxproj-sync|MACOS|tracked pbxproj must equal xcodegen(project.yml); xcodegen is macOS here
+check-create-dmg|MACOS|create-dmg on PATH (brew, macOS)
+check-clean-tree|MACOS|cut checkout clean and on the expected branch; uses macOS tooling
+check-identity|BUILD_ONLY|needs the Developer ID in a keychain; the cut job imports it just before the build
+check-provenance-content|BUILD_ONLY|greps INSIDE the fetched daemon/hub/wiki artefacts, which exist only after the download-* targets
+download-hub-app|BUILD_ONLY|fetches the Hub bundle into the build dir; its output is the input to the build
+check-ostler-app|BUILD_ONLY|inspects the fetched Hub bundle, so needs download-hub-app output
+download-safari-extension|BUILD_ONLY|fetches the extension zip into the build dir
+download-python|BUILD_ONLY|fetches the Python bundle into the build dir
+stage-daemon|BUILD_ONLY|fetches + unpacks the daemon into the payload
+stage-payload|BUILD_ONLY|assembles the payload from the staged pieces
+sparkle-embed|BUILD_ONLY|codesigns the embedded Sparkle
+notarise-hub|BUILD_ONLY|signs and notarises the Hub
+build-uninstaller|BUILD_ONLY|builds and signs Uninstaller.app
+build-recovery|BUILD_ONLY|builds and signs Recover Ostler.app
+release|BUILD_ONLY|builds and signs OstlerInstaller.app
+seed-installer-app-pyc|BUILD_ONLY|needs the built .app
+sign-python-bundle|BUILD_ONLY|codesigns nested Mach-O files
+check-manifest|BUILD_ONLY|reads the BUILT .app
+notarise-app|BUILD_ONLY|notarises the built app
+staple-apps|BUILD_ONLY|staples the built apps
+package|BUILD_ONLY|writes and signs the DMG
+notarise-dmg|BUILD_ONLY|notarises the DMG
+verify-dmg-contents|BUILD_ONLY|mounts the DMG
+verify-stapling|BUILD_ONLY|mounts the DMG
+verify-commit-parity|BUILD_ONLY|mounts the DMG
+archive|BUILD_ONLY|copies the shipped DMG to the archive dir
