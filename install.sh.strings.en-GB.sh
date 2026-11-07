@@ -93,7 +93,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask ma
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please click Allow whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
@@ -138,9 +138,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR exports detected but im
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR-export import will be available when the pipeline ships."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="About to scan Downloads, Desktop, and Documents for AI exports (Google Takeout, Meta downloads, LinkedIn, etc.) you may have saved. macOS will show three folder-access prompts – please allow each one. It takes about 5-10 seconds in total. Nothing is moved or copied during the scan; we only check what is there."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS may ask permission to read your Calendar. Allow it so Ostler can build the meetings + events part of your knowledge graph. (Calendar data stays on this machine.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Click OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1276,7 +1276,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Cont
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Have you requested your data exports?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
+
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
 Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 

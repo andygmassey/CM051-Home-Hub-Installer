@@ -171,6 +171,7 @@ test_calendar_attendee_resolve_before_create.py	WIRED	.github/workflows/privacy-
 test_calendar_hydrate_venv.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_calendar_review_is_one_screen.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_calendar_set_aside_classification.py	WIRED	.github/workflows/install-gui-contract.yml
+test_cancel_at_the_pairing_step_finishes_the_install.py	WIRED	.github/workflows/swift-tests.yml
 test_cannot_run_branch_is_reachable.sh	WIRED	.github/workflows/cannot-run-branch-reachable.yml
 test_cannot_run_is_a_third_state.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_cannot_run_names_its_prerequisite.sh	WIRED	.github/workflows/cut-manifest.yml
@@ -205,6 +206,7 @@ test_cm041_conversation_path_safety_vendored.py	WIRED	.github/workflows/walk6-pe
 test_cm041_conversation_process_privacy_passthrough_vendored.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_deceased_excluded_from_proactive_surfaces.py	WIRED	.github/workflows/walk6-people-list-correctness-guard.yml
 test_cm041_usage_journal_producer.sh	WIRED	.github/workflows/usage-journal-producers.yml
+test_cm048_bulk_mail_no_commitment_vendored.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_exit_75_when_the_sink_is_unreachable.py	WIRED	.github/workflows/catchup-machinery.yml
 test_cm048_gateway_extracts_owner_turns_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_handle_resolver.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -317,6 +319,7 @@ test_deferral_reason_reads_block_scalars.sh	WIRED	.github/workflows/orphan-gate-
 test_deferred_register_cap_is_not_silent.sh	WIRED	.github/workflows/deferred-register-cap-not-silent.yml
 test_derive_agent_env_can_read_system_load.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_engine_writes_a_derived_preference.py	WIRED	.github/workflows/derived-preferences.yml
+test_derive_first_run_retries_within_30_min.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_half_life_matches_hygiene.py	WIRED	.github/workflows/derived-preferences.yml
 test_derive_is_kicked_once_after_install_and_upgrade.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferences.yml
@@ -421,6 +424,7 @@ test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.ym
 test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
+test_exports_and_folder_prompts_explain_themselves.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
 test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
@@ -591,6 +595,7 @@ test_minors_registry_is_inside_the_at_rest_exclusion.py	WIRED	.github/workflows/
 test_model_digest_pins.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-honesty.yml
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_model_pull_progress_is_one_overall_bar.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_model_pull_uses_the_pinned_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
@@ -846,6 +851,7 @@ test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_recovery_wrapper.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_tailscale_signin_is_at_the_end.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
+test_tailscale_signin_never_aborts.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_signin_reaps_up.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
@@ -902,6 +908,7 @@ test_the_pii_hook_asks_cis_question.sh	WIRED	.github/workflows/operator-pii-scan
 test_the_pii_scan_reads_every_file_in_the_tree.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_port_preflight_aborts_carry_distinct_support_codes.sh	WIRED	.github/workflows/colima-autostart.yml
 test_the_preference_projection_runs_before_the_compile_that_reads_it.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
+test_the_preference_seed_lands_both_rows.py	WIRED	.github/workflows/misclassified-things.yml
 test_the_promote_instructions_name_what_makes_it_fail.sh	WIRED	.github/workflows/customer-download-path.yml
 test_the_recovery_cli_does_not_print_the_key_by_default.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_the_recovery_key_can_be_redeemed_end_to_end.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
@@ -1138,6 +1145,7 @@ gui/OstlerInstallerTests/FullDiskAccessProbeTests.swift	WIRED	.github/workflows/
 gui/OstlerInstallerTests/HardwareFingerprintTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallFailedBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/InstallerLanguageTests.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/LateStepCancelTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryDropzoneTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicenseEntryShortIdHeuristicTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/LicensePersistenceTests.swift	WIRED	.github/workflows/swift-tests.yml
