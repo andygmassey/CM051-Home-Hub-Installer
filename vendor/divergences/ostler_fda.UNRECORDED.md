@@ -304,3 +304,15 @@ dedupe-merge-rule-2.yml.
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
 source this tree is cut from.
+
+## 2026-11-06: the people prune runs on a partial landing (v1.0.126, Archie on #3367)
+
+`vendor/ostler_fda/pwg_ingest.py`, `ingest_people_to_qdrant`: the PRUNE block moved
+unchanged (bar its guard 1 comment) from after the zero-landing and partial-landing
+returns to just before them, and `pruned` joins every result through `counts`. The
+prune reads the graph only (snapshot and fresh read), so a person whose embed failed
+is never stale; holding it back kept deleted and merged-away people searchable while
+any backlog persisted. Failed Qdrant calls (ensure, upsert) still return earlier and
+prune nothing. Proof: `tests/test_people_index_embeds_only_what_changed.py` (two
+prune arms) and the reversed arm in
+`tests/test_people_sweep_partial_landing_is_not_success.py`. Owed upstream: as above.

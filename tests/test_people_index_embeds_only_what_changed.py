@@ -345,3 +345,38 @@ def test_web_ui_renders_the_row_and_it_is_declared_vendor_only():
     assert "{people_index_section}" in ui
     vo = (ROOT / "vendor" / "VENDOR_ONLY.tsv").read_text(encoding="utf-8")
     assert "doctor/agent/people_index_status.py\t" in vo
+
+
+# ── 5. privacy: a removed person is pruned even while a backlog persists ───
+
+
+def test_a_deleted_person_is_pruned_on_a_pass_whose_landing_is_partial(world):
+    """Archie on #3367: the prune used to run only when EVERY person landed, so
+    a deleted or merged-away person stayed searchable for as long as any
+    backlog persisted. The prune reads the graph, not the landing."""
+    for i in range(3):
+        _add(world["store"], i, NAMES[i])
+    _run(world)
+    assert _point(world, 2) is not None, "control: the person to delete was indexed"
+    world["store"].update("DELETE WHERE { <%s> ?p ?o }" % _uri(2))
+    _add(world["store"], 3, NAMES[3])
+    world["fail"].add(NAMES[3])  # the newcomer cannot be embedded: partial
+    res = _run(world)
+    assert res["status"] == "error" and res.get("reason") == "partial_landing", res
+    assert _point(world, 2) is None, "a deleted person stayed searchable behind a backlog"
+    assert res.get("pruned") == 1, res
+    assert _point(world, 0) is not None and _point(world, 1) is not None, (
+        "control: people still in the graph are never pruned")
+
+
+def test_a_deleted_person_is_pruned_when_nothing_lands_at_all(world):
+    for i in range(2):
+        _add(world["store"], i, NAMES[i])
+    _run(world)
+    world["store"].update("DELETE WHERE { <%s> ?p ?o }" % _uri(1))
+    world["store"].update('INSERT DATA { <%s> pwg:jobTitle "%s" . }' % (_uri(0), ROLE))
+    world["fail"].add("*")  # embedder down: the changed person cannot land
+    res = _run(world)
+    assert res["status"] == "error", res
+    assert _point(world, 1) is None, "the embedder being down kept a deleted person searchable"
+    assert _point(world, 0) is not None, "control: a person whose embed failed keeps their point"
