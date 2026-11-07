@@ -198,6 +198,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # ostler-conversations-mirror.sh: sourced by bin/ostler-fda each tick (the derive
     # tick's ~/Documents mirror); bundled by the same postBuildScript.
     "lib/ostler-conversations-mirror.sh": ['${SRCROOT}/../lib/ostler-conversations-mirror.sh'],
+    # ostler-loopback-guard.sh: install.sh FAILS CLOSED without it, and the
+    # installer's admin shell runs its install-root from the bundle.
+    "lib/ostler-loopback-guard.sh": ['${SRCROOT}/../lib/ostler-loopback-guard.sh'],
+
     # v1.0.126: the container VM size table, sourced before `colima start`;
     # bundled by the same postBuildScript. Missing = the old fixed 4 GiB VM.
     "lib/ostler-vm-size.sh": ['${SRCROOT}/../lib/ostler-vm-size.sh'],

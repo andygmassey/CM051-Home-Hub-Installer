@@ -284,6 +284,10 @@ targets:
           # conversations.
           cp "${SRCROOT}/../lib/ostler-conversations-mirror.sh"  "${DEST}/lib/ostler-conversations-mirror.sh"
           chmod 755 "${DEST}/lib/ostler-conversations-mirror.sh"
+          # ostler-loopback-guard.sh: the admin shell (AuthorizationHelper.swift) runs
+          # its install-root from HERE, and install.sh FAILS CLOSED without it.
+          cp "${SRCROOT}/../lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"
+          chmod 755 "${DEST}/lib/ostler-loopback-guard.sh"
           # End-of-install confirmation helpers (whose calendars + who you
           # are): install.sh's confirmation block probes
           # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
@@ -417,6 +421,7 @@ targets:
           - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../lib/ostler-container-engine.sh
           - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
+          - $(SRCROOT)/../lib/ostler-loopback-guard.sh
           - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
@@ -447,6 +452,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-loopback-guard.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py

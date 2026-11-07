@@ -62,7 +62,7 @@ scenario() {
     fi
     wait_file "$pf" || { echo "CANNOT-RUN fixture child"; return 2; }
     CPORT="$(head -1 "$pf")"
-    LAST_OUT="$(env -u OSTLER_BOX_HOST OSTLER_PROBE_CRED_ROUTES="" OSTLER_PROBE_OWNER_ROUTE="" \
+    LAST_OUT="$(env -u OSTLER_BOX_HOST OSTLER_PROBE_CRED_ROUTES="" OSTLER_PROBE_OLLAMA_GUARD_PORT="" OSTLER_PROBE_OWNER_ROUTE="" \
         OSTLER_PROBE_KNOWN_LISTENERS="$CTRL" OSTLER_PROBE_LISTENER_MATCH="$TMP/.ostler" \
         OSTLER_PROBE_MUST_NOT_LISTEN="" OSTLER_PROBE_SURFACES="" OSTLER_GATEWAY_PORT="$CTRL" \
         bash "$probe" 2>&1)"; RC=$?

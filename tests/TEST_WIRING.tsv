@@ -357,6 +357,7 @@ test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-int
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
+test_doctor_shows_loopback_guard.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_spawns_no_protected_path_subprocess.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -570,6 +571,7 @@ test_listener_watchdog_install_marker.sh	WIRED	.github/workflows/upgrade-payload
 test_listener_watchdog_restarts_a_dead_listener.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_listener_watchdog_walk_probe.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_local_stores_do_not_route_through_a_proxy.py	WIRED	.github/workflows/install-abort-and-egress.yml
+test_loopback_guard.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_loopback_property_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_loose_exports_in_downloads_are_found_and_said.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_machine_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml

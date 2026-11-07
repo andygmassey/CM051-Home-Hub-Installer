@@ -232,7 +232,9 @@ else bad "K: install.sh does not wire _ostler_ollama_pin_apply + the deferral wa
 
 # L: the post-step pinned-agent check, lifted from install.sh and executed
 post="$W/postcheck.sh"
-awk '/^# ── THE AGENT MUST RUN THE PINNED BINARY/{f=1} /^# ── 3\.3b Ollama log rotation/{f=0} f{print}' "$INSTALL_SH" > "$post"
+# Ends at the loopback-guard step (lib/ostler-loopback-guard.sh), which follows
+# the pinned check and is tested in tests/test_loopback_guard.sh.
+awk '/^# ── THE AGENT MUST RUN THE PINNED BINARY/{f=1} /^_lg_lib=/{f=0} /^# ── 3\.3b Ollama log rotation/{f=0} f{print}' "$INSTALL_SH" > "$post"
 mk_plist() {  # mk_plist <path> <binary>
     mkdir -p "$(dirname "$1")"
     printf '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n    <key>Label</key>\n    <string>com.ostler.ollama</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>%s</string>\n        <string>serve</string>\n    </array>\n</dict>\n</plist>\n' "$2" > "$1"
