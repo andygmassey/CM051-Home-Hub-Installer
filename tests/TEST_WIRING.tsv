@@ -415,6 +415,7 @@ test_every_plistbuddy_read_is_guarded.sh	WIRED	.github/workflows/cold-box-source
 test_every_probe_on_disk_is_collected.py	WIRED	.github/workflows/every-probe-is-collected.yml
 test_every_question_declares_its_persistence.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_every_script_install_sh_reads_is_bundled.py	WIRED	.github/workflows/install-gui-contract.yml
+test_every_ship_prereq_is_classified.sh	WIRED	.github/workflows/cut.yml
 test_every_terminal_done_is_exit_or_guarded.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh	WIRED	.github/workflows/derived-preferences.yml
 test_every_walk_ssh_gives_up_on_a_dead_link.sh	WIRED	.github/workflows/walk-record-gate.yml
@@ -1260,4 +1261,3 @@ scripts/tests/test_walk_probes_l3_and_maps.sh	WIRED	.github/workflows/keyless-st
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
-test_every_ship_prereq_is_classified.sh	WIRED	.github/workflows/cut.yml
