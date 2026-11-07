@@ -186,6 +186,7 @@ on:
       - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
+      - 'scripts/tests/test_no_store_port_probe_exempts_only_loopback_ollama_runners.sh'
       # Walk-failure classification: the records themselves, the tool that
       # answers "what is this a regression of", and the gate that requires the
       # answer. `walks/**` is watched because a NEW walk record is exactly the
@@ -708,6 +709,11 @@ jobs:
         # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
+      - name: no_store_port sweep exempts only loopback ollama runners
+        if: always()
+        # Walk 124 false FAIL (llama-server runners). Red control 0.0.0.0, non-runner, no-parent, bind-ignoring mutant.
+        run: /bin/bash scripts/tests/test_no_store_port_probe_exempts_only_loopback_ollama_runners.sh
 
       - name: A self-test denominator is COUNTED, never TYPED
         if: always()
