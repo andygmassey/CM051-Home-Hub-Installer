@@ -29,6 +29,10 @@ fails=0
 awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f&&/^}$/{f=0}
      /^ollama_pull_with_retry\(\) \{/{g=1} g{print} g&&/^}$/{g=0}' \
     "$ROOT/install.sh" > "$W/fns.sh"
+# The wrapper pipes the stream into ollama_pull_progress (lib/progress_emitter.sh, sourced
+# by install.sh in production); a harness without it makes the pipe return 127 and the ERR
+# trap fire for a reason the product never meets. Lift the real one.
+awk '/^ollama_pull_progress\(\) \{/{f=1} f{print} f&&/^}$/{exit}' "$ROOT/lib/progress_emitter.sh" >> "$W/fns.sh"
 [ "$(grep -c '^_gui_ollama_pull() {' "$W/fns.sh")" -eq 1 ] \
   && [ "$(grep -c '^ollama_pull_with_retry() {' "$W/fns.sh")" -eq 1 ] \
   || { echo "CANNOT-RUN: could not lift the pull functions out of install.sh"; exit 2; }
