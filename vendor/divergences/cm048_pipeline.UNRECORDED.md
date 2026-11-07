@@ -151,32 +151,10 @@ reference vector for three members).
 
 Owed upstream: yes, CM048 `src/channel_adapter.py`.
 
-## 2026-11-05: reply debt reads WhatsApp and email (graft of CM048 #113)
+## 2026-11-05: CM048 #113 and #114 grafts RETIRED (v1.0.124 re-pin)
 
-Tree `cm048_pipeline`. A graft of CM048 PR #113 (branch `feat/reply-debt-wa-email`,
-head ca47022 plus the `addressed_in_group` follow-up), open for review. The four files
-below are BYTE-IDENTICAL to that branch. Not at the pin and not in the patch.
-
-- new `src/reply_debt_sources.py`: reads the WhatsApp and email reply-debt snapshots
-  (`$OSTLER_DIR/state/reply_debt/{whatsapp,email}_threads.json`) and applies the
-  per-channel rules. Identity is Contacts-card evidence only: no push names, no
-  From display names.
-- `src/reply_debt_service.py`: reads all three channels, adds `sources`, `channels`
-  and `partial` to the payload.
-- `src/reply_debt.py`: a WhatsApp group message that @mentions the owner is a
-  personal ask (`Thread.addresses_owner`); `addressed_in_group` only when true.
-- `src/reply_debt_adapters.py`: unchanged from this tree (CM048 #113 upstreams it).
-
-Producers: `whatsapp_source/pipeline.py` and `email_source/pipeline.py` +
-`email_source/reader.py` (recorded in their own trees' records). Proof:
-`tests/test_reply_debt_whatsapp_email.py`, run by
-`.github/workflows/reply-debt-never-reads-protected-data.yml`.
-
-Retire: re-pin cm048_pipeline to the CM048 commit that merges #113.
-
-## 2026-11-05: a shop's marketing SMS is never a reply owed (graft of CM048 #114)
-
-Tree `cm048_pipeline`, file `src/reply_debt.py`, BYTE-IDENTICAL to CM048 main at
-ec837ea4 (the squash merge of #114). `owed_verdict` answers no (rule "marketing") for
-an opt-out instruction or promotional wording in EN / ZH / JA / KO. Retire: re-pin
-cm048_pipeline to ec837ea4 or later.
+The reply-debt WhatsApp and email graft (CM048 #113, ada91103) and the marketing SMS
+graft (CM048 #114, ec837ea4) are native at the new pin: the cm048_pipeline re-pin past
+ec837ea4 found src/reply_debt.py, src/reply_debt_adapters.py, src/reply_debt_service.py
+and src/reply_debt_sources.py byte-identical to source@ec837ea4, so neither graft is
+carried here or in the patch any more.

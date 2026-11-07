@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "取消",
+    "finish_pair_later_button": "完成並稍後配對",
     "reveal_in_finder_button": "在 Finder 中顯示",
     "done_button": "完成",
     "quit_button": "結束",

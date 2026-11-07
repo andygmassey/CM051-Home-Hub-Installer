@@ -43,6 +43,7 @@ grep -q 'failed to connect' <<< "$HELPER" \
     || fail "could not extract _ts_daemon_up from install.sh"
 # Strip the leading indentation so it defines cleanly here.
 HELPER="$(printf '%s\n' "$HELPER" | sed 's/^    //')"
+eval "$(awk '/^    _ts_bounded\(\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$INSTALL_SH")"  # v1.0.124: _ts_daemon_up calls the bounded helper
 eval "$HELPER"
 echo "PASS: extracted the real _ts_daemon_up helper"
 
