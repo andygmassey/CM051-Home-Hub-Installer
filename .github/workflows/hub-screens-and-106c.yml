@@ -40,6 +40,9 @@ on:
       - 'tests/test_vendored_cm059_renders_a_birthday_card_with_no_body.py'
       - 'tests/test_interest_card_says_what_and_where.py'
       - 'tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py'
+      - 'vendor/cm059_editor/compiler/emit_frontpage.py'
+      - 'vendor/cm059_editor/compiler/signals.py'
+      - 'tests/test_vendored_cm059_slow_hub_keeps_last_good.py'
       - 'tests/test_hub_interest_card_shows_a_handle_as_at_handle.py'
       - 'tests/test_hub_screens_real_person_name_never_printed.py'
       - 'scripts/box_walk_probes/lib/owner_digest.py'
@@ -199,6 +202,11 @@ jobs:
       - name: The vendored Front Page holds back consent cards (no card without a working action)
         if: always()
         run: python3 tests/test_vendored_cm059_frontpage_holds_back_consent_cards.py
+      - name: The vendored editor keeps today's last good cards on a slow Hub, and hands the owed list to the wiki (CM059 #40, #39)
+        # v1.0.125 walk: a Hub answering in 6.3 s / 11.5 s hit the 5 s fetch
+        # timeout and every birthday card left the Front Page silently.
+        if: always()
+        run: python3 tests/test_vendored_cm059_slow_hub_keeps_last_good.py
       - name: A real person's name never reaches the screens probe's output or record (DMG #23)
         if: always()
         run: python3 tests/test_hub_screens_real_person_name_never_printed.py

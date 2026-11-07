@@ -1039,6 +1039,7 @@ test_vendored_brief_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-
 test_vendored_cm041_revendor_07a22b4c_routes.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_vendored_cm059_frontpage_holds_back_consent_cards.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_cm059_renders_a_birthday_card_with_no_body.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_vendored_cm059_slow_hub_keeps_last_good.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_vendored_conversation_process_failure_reason.py	WIRED	.github/workflows/failed-conversations-auto-retry-guard.yml
 test_vendored_conversation_routes_refuse_path_traversal.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_vendored_derive_covers_all_of_life.py	WIRED	.github/workflows/derived-preferences.yml
