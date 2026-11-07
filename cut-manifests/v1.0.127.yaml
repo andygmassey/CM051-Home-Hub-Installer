@@ -6330,3 +6330,8 @@ open_issues:
     repo: CM051
     title: 'cut markers: no wiki 0.1.69 marker, so provenance gates pass the 0.1.68 image too'
     gate: 'NOT BLOCKING (Archie 2026-11-07): provenance-gate gap, not an artefact defect; wiki 0.1.69 bytes proof moves to the walk (raw-URL crawl plus docker inspect showing site digest d31aa832); expires after one cut (v1.0.127; Archie 2026-11-08: carried, 126 tag produced no artefact so its clock never ran); close needs the RED demo in the issue.'
+
+  - issue: 3389
+    repo: CM051
+    title: 'OSTLER_ORPHAN_GATE_SKIP lists ''daemon'' but check-orphans still examines the daemon repo (skip key does not match gate repo key)'
+    gate: 'NOT BLOCKING (the issue''s own text, filed 2026-11-07: parity between preflight and cut holds because both use the same value, so it is not a cut blocker; registered by ORM 2026-11-08 only so the checklist gate sees the open issue, Archie to confirm or re-rule); expires after one cut (v1.0.127); close needs the skip list matched to real gate keys and a RED demo that an unknown key fails.'
