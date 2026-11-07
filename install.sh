@@ -361,7 +361,7 @@ _ks_bounded() {
 _install_derive_preferences_agent() {
     local label="com.ostler.derive-preferences"
     local plist="${HOME}/Library/LaunchAgents/${label}.plist"
-    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"
+    local interval_s="${OSTLER_DERIVE_INTERVAL_S:-21600}"; local tick_s="${OSTLER_DERIVE_TICK_S:-1800}"
     local wrapper="${OSTLER_DIR}/bin/ostler-derive-preferences-tick"
     local cm019_dir="${OSTLER_DIR}/services/cm019"
     local derive_user="${USER_ID_ARG:-${OSTLER_USER:-ostler}}"
@@ -379,25 +379,16 @@ _install_derive_preferences_agent() {
 	# the runner writes and the next tick tries again.
 	#
 	# EVERY EXIT LEAVES A RECORD. The runner writes state/derived-preferences.json
-	# for every outcome it reaches. A tick that never reaches it (deferred on load,
-	# yielded to a busy ingest slot, no venv, cannot enter the tree) writes the
-	# same file itself, marked "writer": "tick", with outcome deferred, yielded or
-	# cannot_start, the reason, the time and how many ticks in a row have had no
-	# pass. It carries the last COMPLETED pass forward (last_run_at, the node
-	# count), so the Doctor keeps the count and the walk probe's "did a pass run
-	# after the kick" read (a change in last_run_at) is not fooled by a deferral.
-	# v1.0.120, cold 16GB box: eight "deferred (load)" lines over 8.5h, no status
-	# file at all, and "What you like" degraded with no reason anywhere.
+	# for every outcome it reaches; a tick that never reaches it (deferred, yielded,
+	# no venv) writes the same file itself with "writer": "tick", the outcome, the
+	# reason and the no-pass streak, carrying the last COMPLETED pass forward
+	# (last_run_at, node count) so the Doctor and the walk probe are not fooled.
 	#
-	# THE CEILING. A box that is always busy must not starve this for ever. After
-	# OSTLER_DERIVE_DEFER_CEILING (3) ticks in a row with no pass, or
-	# OSTLER_DERIVE_DEFER_CEILING_S (12h) since the last completed pass (since the
-	# streak began when none ever completed), the load deferral is overridden and
-	# the pass runs under `taskpolicy -b`. An import that just finished
-	# (state/derive-preferences.after-import, written by ostler-import) overrides
-	# it once too. NEVER overridden: an operator Pause, and the ingest slot, which
-	# is the consistency guard (a derive must not read a graph an ingest is half
-	# way through writing). The tier lib itself is unchanged.
+	# THE CEILING: 3 no-pass ticks or 12h override the load deferral, never a Pause.
+	# CADENCE: launchd ticks every 30 min; until a pass WRITES nodes (or 6 passes
+	# ran) every tick may pass, then one per 6h. A first pass under first-run load
+	# is often empty. State: state/derive-preferences.cadence (kept over reboot and
+	# upgrade); state/derive-preferences.kick (installer) bypasses once.
 	set -uo pipefail
 
 	OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
@@ -567,6 +558,14 @@ _install_derive_preferences_agent() {
 	    _state_write 0 0
 	}
 
+	CAD="${STATE_DIR}/derive-preferences.cadence"; KICK="${STATE_DIR}/derive-preferences.kick"; PERIOD="$(_num "${OSTLER_DERIVE_PERIOD_S:-0}")"
+	CAD_N="$(_num "$(_kv attempts "$CAD")")"; CAD_AT="$(_num "$(_kv last_pass_epoch "$CAD")")"; CAD_OK="$(_kv settled "$CAD")"
+	if [[ -f "$KICK" ]]; then rm -f "$KICK"
+	elif [[ "$PERIOD" -gt 0 && "$CAD_AT" -gt 0 ]]; then
+	    _wait="$(_num "${OSTLER_DERIVE_RETRY_S:-1800}")"; [[ "$CAD_OK" == 1 ]] && _wait="$PERIOD"
+	    [[ $((NOW - CAD_AT)) -ge $((_wait - 120)) ]] || { log "cadence: next pass due in ~$((_wait - NOW + CAD_AT))s"; exit 0; }
+	fi
+	_cadence_after() { local n=$((CAD_N + 1)) s=0; [[ "$(_jf outcome)" == written || "$CAD_OK" == 1 || "$n" -ge "$(_num "${OSTLER_DERIVE_RETRY_MAX:-6}")" ]] && s=1; printf 'attempts=%s\nlast_pass_epoch=%s\nsettled=%s\n' "$n" "$NOW" "$s" >"$CAD.tmp" && mv -f "$CAD.tmp" "$CAD"; }
 	log "tick start"
 	_slot_lib="${HOME}/.ostler/lib/ostler-ingest-slot.sh"
 	if [[ "${OSTLER_INGEST_SLOT:-1}" != "0" && -f "$_slot_lib" ]]; then
@@ -581,7 +580,7 @@ _install_derive_preferences_agent() {
 	    _rc=0
 	    "${CMD[@]}" >>"$LOG_FILE" 2>&1 || _rc=$?
 	fi
-	_after_pass "$_rc"
+	_after_pass "$_rc"; _cadence_after
 	if [[ "$_rc" -eq 0 ]]; then
 	    log "tick finished: written (see state/derived-preferences.json)"
 	else
@@ -620,9 +619,10 @@ _install_derive_preferences_agent() {
         <key>QDRANT_URL</key>
         <string>${QDRANT_URL:-http://localhost:6333}</string>
         <key>QDRANT_COLLECTION</key><string>preferences</string>
+        <key>OSTLER_DERIVE_PERIOD_S</key><string>${interval_s}</string>
     </dict>
     <key>StartInterval</key>
-    <integer>${interval_s}</integer>
+    <integer>${tick_s}</integer>
     <key>RunAtLoad</key>
     <false/>
     <key>StandardOutPath</key>
@@ -654,7 +654,7 @@ DERIVEPLIST
         # exits 0 on failure), and through _ks_bounded: a penalty-boxed job must
         # never block the installer. An empty first pass is harmless (the writer
         # keeps a proven-empty graph); the import kicks it again once it has data.
-        _ks_bounded "gui/$(id -u)/${label}"
+        mkdir -p "${OSTLER_DIR}/state" 2>/dev/null; : > "${OSTLER_DIR}/state/derive-preferences.kick" 2>/dev/null; _ks_bounded "gui/$(id -u)/${label}"
     else
         warn "$MSG_WARN_DERIVE_AGENT_LOAD_FAILED"
     fi
@@ -2517,26 +2517,26 @@ _gui_ollama_pull() {
         "$OLLAMA_APP_BIN" pull "$model"  # NEW-119: the PINNED engine; a clean Mac has no ollama on PATH (rc 127)
         return
     fi
-    local rc_file line pct last=-1 clean
+    local rc_file tag bar msg idx n
     rc_file="$(mktemp -t ostler-ollama-pull)"
-    # `tr \r \n` splits ollama's carriage-return redraws into lines so a
-    # plain `read` sees each progress update whether ollama writes CR
-    # (tty-style) or LF (pipe-style) frames.
-    while IFS= read -r line; do
-        [[ "$line" == *%* ]] || continue
-        [[ "$line" =~ ([0-9]{1,3})% ]] || continue
-        pct="${BASH_REMATCH[1]}"
-        (( pct > 100 )) && pct=100
-        (( pct == last )) && continue
-        last="$pct"
-        gui_emit PCT "step=$step" "pct=$pct"
-        # Strip ANSI escapes + non-printables so the log line is clean.
-        clean="$(printf '%s' "$line" | LC_ALL=C sed $'s/\033\\[[0-9;?]*[a-zA-Z]//g' | tr -cd '[:print:] ')"
-        [[ -n "$clean" ]] && gui_log info "$clean"
-    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
+    # F&F 2026-11-05 item 4: `ollama pull` prints a percent PER LAYER, so the old per-line percent
+    # reset for each layer and sat at "100%" while the big layer ran on (20+ minutes of a full bar).
+    # The aggregator reads the same stream and emits one overall percent, capped at 99 until the
+    # pull exits 0. "Model i of N": OSTLER_PULL_N is set once at §3.9; idx counts distinct models.
+    # tests/test_model_pull_progress_is_one_overall_bar.sh runs the real aggregator on a fixture.
+    # F&F item 4: the stream goes through ollama_pull_progress (lib/progress_emitter.sh), which
+    # sums bytes over every layer into ONE overall bar. `tr \r \n` splits ollama's CR redraws.
+    [[ "$model" == "${_OSTLER_PULL_LAST:-}" ]] || OSTLER_PULL_IDX=$(( ${OSTLER_PULL_IDX:-0} + 1 )); _OSTLER_PULL_LAST="$model"
+    idx="${OSTLER_PULL_IDX:-1}"; n="${OSTLER_PULL_N:-1}"; (( idx > n )) && n=$idx
+    while IFS=$'\t' read -r tag bar msg; do
+        [[ "$tag" == PCT ]] || continue
+        gui_emit PCT "step=$step" "pct=$bar"
+        [[ -n "$msg" ]] && gui_log info "$msg"
+    done < <( { _pull_rc=0; "$OLLAMA_APP_BIN" pull "$model" || _pull_rc=$?; echo "$_pull_rc" > "$rc_file"; } 2>&1 | tr '\r' '\n' | ollama_pull_progress "$idx" "$n" )  # `||`: no ERR trap in the process sub (see tests/test_a_retried_model_pull_emits_no_fatal_done.sh)
     local rc
     rc="$(cat "$rc_file" 2>/dev/null)"
     rm -f "$rc_file"
+    if [[ "${rc:-1}" == "0" ]]; then gui_emit PCT "step=$step" "pct=$(( idx * 100 / n ))"; fi  # 100 only after ollama reports success
     return "${rc:-1}"
 }
 
@@ -15045,41 +15045,41 @@ else
         if ! docker info &>/dev/null 2>&1; then
             info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
 
-            # CX-80 (task #509, v1.0.1): the lima hostagent that
-            # backs Colima discovers + forwards the guest's Docker
-            # socket port asynchronously after `colima start` returns.
-            # On a cold first boot the hostagent port-discovery can
-            # race: `colima start` either exits non-zero ("error at
-            # instance: failed to get the host agent ... no forwarded
-            # port") OR exits 0 but leaves ${HOME}/.colima/default/
-            # docker.sock unforwarded, so the very next `docker info`
-            # cannot reach the daemon. The DMG #46 Studio retest hit
-            # exactly this: containers never came up and :8044 wiki
-            # was unreachable. The old single-shot `colima start ||
-            # fallback` had no retry, so one transient port-discovery
-            # miss dropped the customer straight to the Docker Desktop
-            # fallback (or a hard fail) even though a plain retry
-            # recovers it 100% of the time in practice.
+            # CX-80 (task #509, v1.0.1): the lima hostagent that backs Colima
+            # forwards the guest's Docker socket asynchronously after `colima
+            # start` returns. On a cold first boot that can race: `colima start`
+            # exits non-zero ("failed to get the host agent ... no forwarded
+            # port") OR exits 0 with ${HOME}/.colima/default/docker.sock not yet
+            # forwarded, so the next `docker info` cannot reach the daemon (DMG
+            # #46 Studio retest: no containers, :8044 wiki unreachable). The old
+            # single-shot `colima start || fallback` dropped the customer to the
+            # Docker Desktop fallback on one transient miss, although a plain
+            # retry recovers it. So: up to COLIMA_START_MAX_ATTEMPTS starts with
+            # a short backoff, `colima stop` between attempts to clear the
+            # half-started instance, then the Docker Desktop fallback / hard
+            # fail. Readiness is the `docker info` wait loop further below.
             #
-            # Self-heal: try up to COLIMA_START_MAX_ATTEMPTS times with
-            # a short backoff. Between attempts run `colima stop` to
-            # clear the half-started instance so the next `colima
-            # start` begins from a clean state rather than tripping on
-            # "instance already running but socket not forwarded". Log
-            # each attempt. Only after the bounded retries are
-            # exhausted do we fall through to the Docker Desktop
-            # fallback / hard fail. Readiness is the `docker info`
-            # wait loop further below; here we just need ONE clean
-            # start that leaves the socket reachable.
+            # v1.0.126 VM SIZE: the VM got a fixed 2 CPUs / 4 GiB on every Mac,
+            # and on the 125 walk the wiki compile was OOM-killed inside it
+            # (dmesg global_oom) and the wiki silently stopped refreshing. The
+            # size now comes from host RAM via ONE table, lib/ostler-vm-size.sh,
+            # and the chosen size is logged. A start that CREATES the VM marks
+            # it Ostler's, which is what lets an upgrade resize it later (the
+            # shared-VM rule: never resize a VM Ostler does not own; see the
+            # uninstaller's colima block).
+            _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
+            if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; fi  # i18n-exempt
+            _ostler_vm_existed=0; if ostler_vm_default_exists; then _ostler_vm_existed=1; fi
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
-                # Allocate enough resources for 3 containers.
-                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                # Sized by lib/ostler-vm-size.sh (see above), not a fixed 4 GiB.
+                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>/dev/null \
                     && docker info &>/dev/null 2>&1; then
-                    colima_started=1
+                    colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
                     break
                 fi
                 if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then
@@ -19739,7 +19739,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.34}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.37}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -19852,7 +19852,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="9c83dbebe76248d3796429c2d1e78d3e7ec198670713a3e7eecf57379b5a1ed4"
+DEFAULT_ASSISTANT_TARBALL_SHA256="8c63f84f4865caf704fd7743fc96450d3f1c37580424fb2d6b963741ded044b9"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -21965,7 +21965,7 @@ mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversatio
 # operator who sets it without moving them will mount an empty tree.
 mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
     || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
-
+if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -22036,6 +22036,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph@sha256:dd52e0da758fcbbd5dc5249ce818bac26122611e8315a67200f2982d8563a2a5  # 0.4.6
@@ -22060,6 +22061,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # ── Store front proxy (v1.0.10 security lockdown) ────────────────
   # Loopback nginx that fronts the two HTTP data stores (Qdrant REST
@@ -22138,6 +22140,7 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # Personal wiki: the browse layer over the Oxigraph graph + Qdrant
   # vectors, compiled by wiki-compiler into wiki-docs, served by MkDocs
@@ -22151,7 +22154,7 @@ services:
   #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:13ea95c4dec00b190888ed8d0e9b7b16ceb4628150bcebed38113a52cac9e110
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:d31aa832f44c440d267cda108b9923415d72be4c761d2eced0d7294fca26ce22
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22178,32 +22181,29 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
       - wiki-built:/site
     restart: unless-stopped
+    mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1536m}"  # lib/ostler-vm-size.sh table, via the compose .env
+    oom_score_adj: 500
 
-  # Wiki compiler -- runs on demand (compose profile "compile") to
-  # rebuild the wiki from current Oxigraph + Qdrant state. Invoked
-  # at install time by Phase 3.16 and on a recurring schedule by the
-  # wiki-recompile LaunchAgent (separate piece). Reads the data
-  # volumes read-only so a buggy compiler can never clobber the
-  # source of truth.
-  #
-  # Volume paths fixed in the Gap 3 PR:
-  #   - wiki-docs at /wiki (matches the compiler image's
-  #     WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output,
-  #     which the compiler image never wrote to.
-  #   - Obsidian vault target at /wiki/obsidian, bind-mounted from
-  #     the user-facing zone (~/Documents/Ostler/Wiki/ by default).
-  #     OSTLER_WIKI_DIR overrides the host path for operators who
-  #     want the vault on a different volume.
-  #   - _images/ at /wiki/obsidian/_images:ro so the post-processor's
-  #     rewritten ../_images/<slug>/file.jpg srcs (see
-  #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
-  #     against the same content the wiki-site mounts.
+  # Wiki compiler -- runs on demand (compose profile "compile") to rebuild the wiki from
+  # current Oxigraph + Qdrant state. Invoked at install time by Phase 3.16 and on a
+  # recurring schedule by the wiki-recompile LaunchAgent (separate piece). Reads the data
+  # volumes read-only so a buggy compiler can never clobber the source of truth. Volume
+  # paths fixed in the Gap 3 PR: - wiki-docs at /wiki (matches the compiler image's
+  # WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output, which the compiler image
+  # never wrote to. - Obsidian vault target at /wiki/obsidian, bind-mounted from the user-
+  # facing zone (~/Documents/Ostler/Wiki/ by default). OSTLER_WIKI_DIR overrides the host
+  # path for operators who want the vault on a different volume. - _images/ at
+  # /wiki/obsidian/_images:ro so the post-processor's rewritten ../_images/<slug>/file.jpg
+  # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
+  # content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:fa9f4f639587d9403f04c0ced67d8d2fe52cf1c37fcf14faafc5a13b2f4f415b
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ced104cc79cddb2755b3bfc69ae0a4737c42e87d5cec5b6631f2bcf577ff49b5
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
     cpu_shares: 256
+    mem_limit: "${OSTLER_WIKI_COMPILER_MEM_LIMIT:-1536m}"  # killed in its OWN cgroup, never a store (125: 9 OOM kills)
+    oom_score_adj: 500
     volumes:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
@@ -23934,7 +23934,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.34"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.37"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:
@@ -24227,7 +24227,7 @@ fi
 # ── 3.9 AI models ─────────────────────────────────────────────────
 
 progress "Downloading AI models (this is the big one)" "ai_models"
-
+_pl="$("$OLLAMA_APP_BIN" list 2>/dev/null || true)"; OSTLER_PULL_IDX=0; OSTLER_PULL_N=0; [[ "$_pl" == *nomic-embed-text* ]] || OSTLER_PULL_N=$((OSTLER_PULL_N + 1)); [[ "${PULL_MODEL:-}" == [nN] || "$_pl" == *"${AI_MODEL:-}"* ]] || OSTLER_PULL_N=$((OSTLER_PULL_N + 1))  # "Model i of N" for the bar
 # OS003 #233, as amended on #2972: the pin is checked on what we PULL. A model
 # already on disk and serving is kept as it is (ostler_note_existing_model
 # records how it compares, for the walk); a model we pull now must match its
@@ -28800,7 +28800,7 @@ rm -rf "${HOME}/.ostler/state/conversations_mirror" 2>/dev/null || true
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"
 # Ostler runs its Docker stores inside the SHARED colima `default` profile:
-# install.sh starts it with `colima start --cpu 2 --memory 4 --disk 30`, with
+# install.sh starts it with `colima start` sized by lib/ostler-vm-size.sh, with
 # NO --profile, so it is the `default` instance that every other Docker-on-Mac
 # user of this account shares. `docker compose down -v` above removed our
 # CONTAINERS and named VOLUMES; it did NOT remove that ~30GB Linux VM.
@@ -34326,16 +34326,16 @@ OSTLER_TS_WRAPPER
     # back the fixes -- a daemon-readiness gate (so a doomed sign-in wait
     # is never entered), and a hardened browser open (the bare `open`
     # from this subprocess silently did nothing on the fresh Mac).
-    #
-    # _ts_daemon_up: true when tailscaled is actually reachable on our
-    # socket. `tailscale status` prints "failed to connect to local
-    # Tailscale service" (to stderr) when the daemon is down; any other
-    # outcome -- including the logged-out state -- means it is up. This
-    # is the exact signal the .136 relaunch log showed when the wait was
-    # entered with no daemon.
+    # _ts_bounded SECS cmd...: stdout of cmd (+stderr if _TS_B_ERR), killed after SECS, never fails. A wedged tailscale CLI must not hang the sign-in wait.
+    _ts_bounded() {
+        local _s="$1" _o _p _i=0; shift; _o="$(mktemp 2>/dev/null)" || return 0
+        "$@" >"$_o" 2>"$_o.e" </dev/null & _p=$!
+        while [[ $_i -lt $((_s * 5)) ]] && kill -0 "$_p" 2>/dev/null; do sleep 0.2; _i=$((_i + 1)); done
+        kill "$_p" 2>/dev/null || true; wait "$_p" 2>/dev/null || true; cat "$_o" ${_TS_B_ERR:+"$_o.e"} 2>/dev/null || true; rm -f "$_o" "$_o.e"; return 0
+    }
     _ts_daemon_up() {
         local _out
-        _out="$("$TS_CLI" --socket="$TS_SOCK" status 2>&1 || true)"
+        _out="$(_TS_B_ERR=1 _ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" status)"
         [[ "$_out" != *"failed to connect"* ]]
     }
 
@@ -42836,14 +42836,12 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
     fi
     __OSTLER_STEP_ID="tailscale_signin"
     gui_step_begin "tailscale_signin" "$MSG_STEP_TAILSCALE_SIGNIN" 3 "$CURRENT_STEP" "$TOTAL_STEPS"
-        # #644 idempotency gate (the worst defect): only run the sign-in
-        # flow if tailscaled is ACTUALLY up. With no daemon, `tailscale
-        # up` cannot mint a login URL and `tailscale ip` never returns,
-        # so the wait below can only ever full-timeout -- the 382s hang
-        # observed on the .136 relaunch (daemon down, yet it still entered
-        # "Waiting for you to sign in (up to 3 minutes)"). If the daemon
-        # is not reachable, skip cleanly with the "set up later" message.
-        TS_SIGNIN_ATTEMPTED=0
+        # #644 gate: sign-in runs only if tailscaled is ACTUALLY up (no daemon: `up` mints no URL, the wait can only time out).
+        # NEVER ABORT: any tailscale/open failure, hang or unbound var in this block must finish the install unpaired (v1.0.124 tester abort).
+        _ts_saved_opts="$-"; _ts_saved_err_trap="$(trap -p ERR)"; trap - ERR; set +eu  # restored after the block; -E -e -u would abort the install here
+        # Timeout, skip or any tailscale error is non-fatal: the message says remote access can be set up later from Settings.
+        # tests/test_tailscale_signin_never_aborts.sh runs this block under -Eeuo with a hung, failing and empty tailscale.
+        TS_SIGNIN_ATTEMPTED=0; rm -f "${TS_STATE_DIR}/.signin_skip" 2>/dev/null || true  # F&F: clear a stale skip once, at entry
         if _ts_daemon_up; then
             TS_SIGNIN_ATTEMPTED=1
             # ── Browser auth: `tailscale up` prints a login URL ─────
@@ -42880,7 +42878,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                 [[ -n "$TS_URL" ]] && break
                 # Already-authenticated installs print no URL; stop once
                 # an IP exists.
-                [[ -n "$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
+                [[ -n "$(_ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)" ]] && break
                 sleep 2; TS_URL_WAIT=$((TS_URL_WAIT + 2))
             done
             if [[ -n "$TS_URL" ]]; then
@@ -42932,12 +42930,12 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
             # and the URL is re-shown on each tick so it never scrolls
             # out of reach.
             TS_SKIP_SENTINEL="${TS_STATE_DIR}/.signin_skip"
-            rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
+            # (not cleared here: the GUI may have written it during the URL poll above)
             info "$MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3"
-            TS_WAIT=0
+            TS_T0=$SECONDS; TS_WAIT=0
             TS_NEXT_TICK=30
             while [[ -z "$OSTLER_TAILSCALE_IP" && $TS_WAIT -lt ${OSTLER_TS_SIGNIN_WAIT:-180} ]]; do
-                OSTLER_TAILSCALE_IP=$("$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
+                OSTLER_TAILSCALE_IP=$(_ts_bounded "${OSTLER_TS_CALL_TIMEOUT:-8}" "$TS_CLI" --socket="$TS_SOCK" ip --4 2>/dev/null | head -1 || true)
                 [[ -n "$OSTLER_TAILSCALE_IP" ]] && break
                 if [[ -f "$TS_SKIP_SENTINEL" ]]; then
                     rm -f "$TS_SKIP_SENTINEL" 2>/dev/null || true
@@ -42946,7 +42944,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                     break
                 fi
                 sleep 3
-                TS_WAIT=$((TS_WAIT + 3))
+                TS_WAIT=$((SECONDS - TS_T0))
                 if [[ $TS_WAIT -ge $TS_NEXT_TICK ]]; then
                     info "$(printf "$MSG_INFO_TAILSCALE_STILL_WAITING" "$TS_WAIT")"
                     [[ -n "$TS_URL" ]] && info "$(printf "$MSG_INFO_TAILSCALE_SIGN_IN_URL" "$TS_URL")"
@@ -43221,7 +43219,9 @@ if ports:
             # a user Skip, the "set up later" message already covered it.
             warn "$MSG_WARN_TAILSCALE_DIDN_T_SIGN_WITHIN_3MIN"
             warn "$MSG_WARN_RUN_TAILSCALE_IP_4_ONCE_SIGNED"
+            info "$MSG_INFO_TAILSCALE_SETUP_LATER_FROM_SETTINGS"  # unpaired: pair later from the app
         fi
+        eval "$_ts_saved_err_trap"; case "$_ts_saved_opts" in *e*) set -e ;; esac; case "$_ts_saved_opts" in *u*) set -u ;; esac
 fi
 
 # ── Final assistant-daemon restart (FDA inheritance) ───────────────

@@ -655,6 +655,13 @@ struct OnboardingQuestionView: View {
                 .disabled(q.isReview)
                 Spacer()
             }
+            // F&F (v1.0.125): on a prompt where "n" ends the install,
+            // Continue is disabled while the switch is off; say why.
+            if !q.isReview && !yesnoContinueEnabled(promptId: q.prompt.id, isOn: yesnoValue) {
+                Text(ViewCopy.shared.string(for: "onboarding_question.yesno_switch_on_to_continue"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkMuted)
+            }
         case .choice:
             // F6.6: fda_preset gets a proper segmented / radio
             // control with all three options visible at once.
@@ -931,6 +938,8 @@ struct OnboardingQuestionView: View {
                 }
                     .buttonStyle(.ostlerPrimary)
                     .keyboardShortcut(.defaultAction)
+                    .disabled(q.prompt.kind == .yesno
+                              && !yesnoContinueEnabled(promptId: q.prompt.id, isOn: yesnoValue))
             }
         }
     }
@@ -1041,7 +1050,13 @@ struct OnboardingQuestionView: View {
                     fills: ["options": options]
                 )
             }
-        case .yesno, .secret, .acknowledge, .folder:
+        case .yesno:
+            // Defence in depth behind the disabled Continue: never send
+            // "n" from Continue on a prompt where "n" ends the install.
+            if !yesnoContinueEnabled(promptId: q.prompt.id, isOn: answer == "y") {
+                return ViewCopy.shared.string(for: "onboarding_question.yesno_switch_on_to_continue")
+            }
+        case .secret, .acknowledge, .folder:
             // acknowledge: never empty (default carries the answer).
             // folder: Skip submits "" deliberately; Continue is
             //         disabled when folderValue is empty so validate
@@ -1221,6 +1236,25 @@ func typedInstallInputMatches(sentinel: String, input: String) -> Bool {
     guard !sentinel.isEmpty else { return false }
     let typed = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     return typed == sentinel.uppercased()
+}
+
+/// Yes/no prompts where install.sh ends the install on "n":
+/// perms_ok, consent_article_9 and consent_third_party reach
+/// gui_cancelled; filevault_skip exits 1. On these the GUI's Continue
+/// must never send "n" (F&F tester, v1.0.125: Continue with the switch
+/// off cancelled the install). The terminal path is unchanged; in the
+/// GUI the customer stops with Quit. ConsentContinueGateTests pins
+/// this set against install.sh.
+let yesnoPromptsWhereNoEndsInstall: Set<String> = [
+    "perms_ok",
+    "filevault_skip",
+    "consent_article_9",
+    "consent_third_party",
+]
+
+/// True when the yes/no prompt's Continue is enabled with the switch at `isOn`.
+func yesnoContinueEnabled(promptId: String, isOn: Bool) -> Bool {
+    return isOn || !yesnoPromptsWhereNoEndsInstall.contains(promptId)
 }
 
 /// B2 (CX-14): URL-regex post-processor that turns plain help text

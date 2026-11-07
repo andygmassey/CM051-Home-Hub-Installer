@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "Annuler",
+    "finish_pair_later_button": "Terminer et associer plus tard",
     "reveal_in_finder_button": "Afficher dans le Finder",
     "done_button": "OK",
     "quit_button": "Quitter",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Saisissez INSTALL",
     "consent_install_typed_mismatch": "Saisissez exactement INSTALL (la casse n’a pas d’importance) pour confirmer, ou cliquez sur Annuler pour revenir en arrière.",
+    "yesno_switch_on_to_continue": "Activez cette option pour continuer. Pour arrêter, utilisez Quitter.",
     "preinstall_status_caption": "ÉTAT"
   },
   "assistant_name_suggestions": {

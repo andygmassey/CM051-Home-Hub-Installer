@@ -687,10 +687,83 @@ if [[ -n "$CUT_VERSION" ]]; then
     ARTEFACT_SHA="unavailable"
     ARTEFACT_SHA_SOURCE="asserted-unverifiable(not attempted)"
 
+    _SSHQ=(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+    _want_ver="${RECORDED_VERSION:-${CUT_VERSION:-}}"
+    _want_ver="${_want_ver#v}"
+    _want="OstlerInstaller-${_want_ver}.dmg"
+
+    # ── FIRST: THE DMG THE WALK SAID IT STAGED (~/.walk-dmg) ─────────────
+    #
+    # MEASURED 2026-11-05, v1.0.124 tagged walk: the box held a STALE
+    # OstlerInstaller-1.0.124.dmg in ~/Downloads (an earlier build of the same
+    # version), while the walk ran --from-dmg on the release asset and staged
+    # it as ~/Downloads/OstlerInstaller.dmg. The by-name search below hashed
+    # the stale file and labelled it measured(...). Wrong build, right label.
+    #
+    # ttywalk.sh now writes one tab-separated line, version / path / sha256,
+    # for the DMG it copied to the box (and removes the marker when it staged
+    # nothing). That file is re-hashed HERE, on the box, and the record is
+    # bound to it only when the digest equals the one the walk staged. Every
+    # other outcome is asserted-unverifiable with its own reason; nothing
+    # falls through to the by-name pick once a marker exists.
+    #
+    # RESIDUAL: the marker names the DMG an ssh walk STAGED. A console walk
+    # that never ran ttywalk.sh inherits the last ssh walk's marker; the
+    # version check below catches a different version, not a different build
+    # of the same one.
+    _mk_err="$(mktemp)"
+    _marker="$("${_SSHQ[@]}" "$BOX" \
+        '[ -e "$HOME/.walk-dmg" ] || exit 0; cat "$HOME/.walk-dmg"' 2>"$_mk_err")"
+    _mk_rc=$?
+    _mk_stderr="$(cat "$_mk_err")"
+    rm -f "$_mk_err"
+
+    if [[ "$_mk_rc" -ne 0 ]]; then
+        ARTEFACT_SHA_SOURCE="asserted-unverifiable(box unreachable or walk-dmg marker unreadable, rc=${_mk_rc})"
+        echo "  ⚠️  could not read the walk-dmg marker on ${BOX} (rc=${_mk_rc})."
+        [[ -n "$_mk_stderr" ]] && echo "      ${_mk_stderr}"
+    elif [[ -n "$_marker" ]]; then
+        IFS=$'\t' read -r _mk_ver _mk_path _mk_sha <<< "$_marker"
+        _mk_base="$(basename -- "${_mk_path:-none}")"
+        if [[ -z "${_mk_path:-}" || ! "${_mk_sha:-}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            ARTEFACT_SHA_SOURCE="asserted-unverifiable(walk-dmg marker on the box is malformed)"
+            echo "  ⚠️  ~/.walk-dmg on ${BOX} is malformed; not guessing by name."
+        elif [[ -n "$_want_ver" && "${_mk_ver:-}" != "$_want_ver" ]]; then
+            ARTEFACT_SHA_SOURCE="asserted-unverifiable(walk-dmg marker names version ${_mk_ver:-none}, record is ${_want_ver}; stale marker)"
+            echo "  ⚠️  ~/.walk-dmg names version ${_mk_ver:-none}, this record is ${_want_ver}."
+        else
+            _rh_out="$("${_SSHQ[@]}" "$BOX" \
+                "[ -f '${_mk_path}' ] || { echo NO-FILE; exit 0; }; shasum -a 256 -- '${_mk_path}'")"
+            _rh_rc=$?
+            _rh="$(printf '%s' "$_rh_out" | awk 'NR==1{print $1}')"
+            if [[ "$_rh_rc" -ne 0 ]]; then
+                ARTEFACT_SHA_SOURCE="asserted-unverifiable(re-hash of the staged ${_mk_base} failed, rc=${_rh_rc})"
+                echo "  ⚠️  could not re-hash ${_mk_base} on ${BOX} (rc=${_rh_rc})."
+            elif [[ "$_rh" == "NO-FILE" ]]; then
+                ARTEFACT_SHA_SOURCE="asserted-unverifiable(the staged ${_mk_base} named by the walk-dmg marker is missing from the box)"
+                echo "  ⚠️  the walk staged ${_mk_base} but it is no longer on ${BOX}."
+            elif [[ ! "$_rh" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                ARTEFACT_SHA_SOURCE="asserted-unverifiable(shasum of the staged ${_mk_base} returned no usable digest)"
+                echo "  ⚠️  ${_mk_base} is on ${BOX} but shasum returned nothing usable."
+            elif [[ "$_rh" != "$_mk_sha" ]]; then
+                ARTEFACT_SHA_SOURCE="asserted-unverifiable(the staged ${_mk_base} now hashes ${_rh}, the walk staged ${_mk_sha}; replaced since the walk)"
+                echo "  ⚠️  ${_mk_base} on ${BOX} no longer matches the DMG the walk staged."
+            else
+                ARTEFACT_SHA="$_rh"
+                ARTEFACT_SHA_SOURCE="measured(shasum -a 256 of ${_mk_base} on the walked box, the DMG the walk staged per its walk-dmg marker; re-hash equals the staged sha)"
+                echo "  artefact hashed on the box (the DMG the walk staged): ${_rh}"
+            fi
+        fi
+    else
+    # ── NO MARKER: FALL BACK TO THE FILENAME SEARCH ──────────────────────
+    # A walk staged by an older ttywalk.sh, or a console walk. The by-name pick
+    # is the defect above, so it is taken only when it is the ONLY candidate:
+    # an unversioned OstlerInstaller.dmg (the release asset name) beside it
+    # makes the field ambiguous, recorded as ambiguous rather than guessed.
     _dmg_err="$(mktemp)"
-    _dmg_list="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+    _dmg_list="$("${_SSHQ[@]}" "$BOX" \
         'for d in "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
-             [ -d "$d" ] && find "$d" -maxdepth 1 -type f -name "OstlerInstaller-*.dmg" -print
+             [ -d "$d" ] && find "$d" -maxdepth 1 -type f \( -name "OstlerInstaller-*.dmg" -o -name "OstlerInstaller.dmg" \) -print
          done' 2>"$_dmg_err")"
     _dmg_rc=$?
     _dmg_stderr="$(cat "$_dmg_err")"
@@ -703,15 +776,17 @@ if [[ -n "$CUT_VERSION" ]]; then
         echo "  ⚠️  could not look for the walked DMG on ${BOX} (rc=${_dmg_rc})."
         [[ -n "$_dmg_stderr" ]] && echo "      ${_dmg_stderr}"
     else
-        _want="OstlerInstaller-${CUT_VERSION#v}.dmg"
         # grep -F: the pattern is a literal filename. -c is not used for the
         # decision because the empty-list case must count 0, not error.
         _matched="$(printf '%s\n' "$_dmg_list" | /usr/bin/grep -F -- "/${_want}")"
         _n_matched="$(printf '%s' "$_matched" | /usr/bin/grep -c .)"
         [[ -z "$_matched" ]] && _n_matched=0
+        _bare="$(printf '%s\n' "$_dmg_list" | /usr/bin/grep -F -- "/OstlerInstaller.dmg")"
+        _n_bare="$(printf '%s' "$_bare" | /usr/bin/grep -c .)"
+        [[ -z "$_bare" ]] && _n_bare=0
 
-        if [[ "$_n_matched" -eq 1 ]]; then
-            _hash="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+        if [[ "$_n_matched" -eq 1 && "$_n_bare" -eq 0 ]]; then
+            _hash="$("${_SSHQ[@]}" "$BOX" \
                 "shasum -a 256 -- '${_matched}'" | awk '{print $1}')"
             if [[ "$_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
                 ARTEFACT_SHA="$_hash"
@@ -721,6 +796,10 @@ if [[ -n "$CUT_VERSION" ]]; then
                 ARTEFACT_SHA_SOURCE="asserted-unverifiable(shasum on the box returned no usable digest)"
                 echo "  ⚠️  ${_want} is on ${BOX} but shasum returned nothing usable."
             fi
+        elif [[ "$_n_bare" -gt 0 ]]; then
+            ARTEFACT_SHA_SOURCE="asserted-unverifiable(${_n_matched} ${_want} and ${_n_bare} unversioned OstlerInstaller.dmg on the box and no walk-dmg marker, cannot tell which was walked)"
+            echo "  ⚠️  ${_n_matched} ${_want} plus ${_n_bare} OstlerInstaller.dmg on ${BOX}, no"
+            echo "      walk-dmg marker. Ambiguous, so recorded as ambiguous rather than guessed."
         elif [[ "$_n_matched" -eq 0 ]]; then
             ARTEFACT_SHA_SOURCE="asserted-unverifiable(no ${_want} on the box)"
             echo "  ⚠️  no ${_want} found on ${BOX}. The walk is real; which BUILD it"
@@ -730,6 +809,7 @@ if [[ -n "$CUT_VERSION" ]]; then
             echo "  ⚠️  ${_n_matched} copies of ${_want} on ${BOX}. Ambiguous, so recorded"
             echo "      as ambiguous rather than guessed."
         fi
+    fi
     fi
 
     # Counts are the ones already parsed from the single probe run above --

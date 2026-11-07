@@ -300,9 +300,31 @@ from diagnostic_copy import (
     WIKI_UNREACHABLE_FIX,
     WIKI_UNREACHABLE_FIX_COMMAND,
     WIKI_UNREACHABLE_TITLE,
+    WIKI_COMPILE_KILLED_DETAIL,
+    WIKI_COMPILE_KILLED_FIX,
+    WIKI_COMPILE_KILLED_FIX_COMMAND,
+    WIKI_COMPILE_KILLED_OOM_DETAIL,
+    WIKI_COMPILE_KILLED_TITLE_FMT,
+    WIKI_COMPILE_KILL_TIME_FMT,
+    WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+    WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+    WIKI_SUMMARIES_KILLED_TITLE_FMT,
+    STORE_LABELS,
+    STORE_RESTARTED_DETAIL_FMT,
+    STORE_RESTARTED_FIX,
+    STORE_RESTARTED_FIX_COMMAND,
+    STORE_RESTARTED_OOM_TITLE_FMT,
+    STORE_RESTARTED_TITLE_FMT,
+    STORE_RESTART_UNCHECKED_DETAIL_FMT,
+    STORE_RESTART_UNCHECKED_TITLE,
 )
 from status_collector import (
+    STORE_RESTART_WINDOW_S,
     WIKI_URL,
+    collect_store_restarts,
+    read_store_restart_state,
+    read_wiki_compile_kills,
+    write_store_restart_state,
     detect_ostler_prefix,
     is_native_deployment,
     is_ostler_container,
@@ -572,6 +594,11 @@ def check_wiki_health(snapshot: Any) -> list[dict]:
             "risk": "low",
             "category": "runtime",
         })
+
+    # A compile that was KILLED (v1.0.126, from the 125 walk): RED, read
+    # before the port probe for the same reason as the stall above. The wiki
+    # answering is exactly what made this one invisible.
+    findings.extend(_wiki_compile_kill_findings())
 
     wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
     if not wiki_svc:
@@ -898,6 +925,129 @@ def check_listener_watchdog(snapshot: Any) -> list[dict]:
                 "category": "runtime",
             })
     return findings
+
+
+def _wiki_compile_kill_findings() -> list[dict]:
+    """One CRITICAL finding per wiki-compile phase whose last run was killed.
+
+    wiki-recompile-tick.sh writes the marker when a compile dies on a signal
+    and removes it when one finishes, so a present marker means the wiki IS
+    stale right now. Never raises: a reader failure becomes a warning that
+    says it could not check, never silence and never a fabricated cause.
+    """
+    out: list[dict] = []
+    try:
+        kills = read_wiki_compile_kills()
+    except Exception:  # noqa: BLE001
+        log.warning("wiki compile-kill markers could not be read", exc_info=True)
+        kills = []
+    for k in kills:
+        if k.unreadable:
+            out.append({
+                "severity": "warning",
+                "title": WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+                "detail": WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+                "fix": WIKI_COMPILE_KILLED_FIX,
+                "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+            continue
+        when = (
+            k.at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+            if k.at is not None else "an unknown time"
+        )
+        titles = (
+            WIKI_SUMMARIES_KILLED_TITLE_FMT if k.phase == "summaries"
+            else WIKI_COMPILE_KILLED_TITLE_FMT
+        )
+        out.append({
+            "severity": "critical",
+            "title": titles.get(k.cause, titles["unknown"]).format(time=when),
+            "detail": (
+                WIKI_COMPILE_KILLED_OOM_DETAIL if k.cause == "oom"
+                else WIKI_COMPILE_KILLED_DETAIL
+            ),
+            "fix": WIKI_COMPILE_KILLED_FIX,
+            "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    return out
+
+
+def check_store_restarts(snapshot: Any) -> list[dict]:
+    """A data store that NEWLY restarted in the last day is a CRITICAL.
+
+    v1.0.126, from the 125 box: the OOM killer took oxigraph, Docker restarted
+    it, and every probe answered. Evidence of a new restart is an oom event
+    (or State.OOMKilled) for THAT store, or its RestartCount rising past the
+    count recorded on the previous look. A fresh StartedAt alone is what
+    every reboot looks like and is NOT evidence (Archie, #3364). The first
+    look only records a baseline. A store docker could not report on gets a
+    "could not check" warning, never silence.
+    """
+    from datetime import datetime, timezone
+    try:
+        rows, err = collect_store_restarts()
+    except Exception as exc:  # noqa: BLE001
+        rows, err = [], f"{type(exc).__name__}"
+    def _unchecked(reason: str) -> dict:
+        return {
+            "severity": "warning",
+            "title": STORE_RESTART_UNCHECKED_TITLE,
+            "detail": STORE_RESTART_UNCHECKED_DETAIL_FMT.format(reason=reason),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        }
+    if err:
+        return [_unchecked(err)]
+    now = datetime.now(tz=timezone.utc)
+    state = read_store_restart_state()
+    new_state = dict(state)
+    out: list[dict] = []
+    for r in rows:
+        label = STORE_LABELS.get(r.name, r.name)
+        if r.restart_count < 0:
+            out.append(_unchecked(f"{label} was not in docker's answer"))
+            continue
+        prev = state.get(r.name) if isinstance(state.get(r.name), dict) else {}
+        prev_count = prev.get("count") if isinstance(prev.get("count"), int) else None
+        rec = {"count": r.restart_count}
+        detected_at = prev.get("detected_at")
+        oom = bool(prev.get("oom"))
+        if r.oom or (prev_count is not None and r.restart_count > prev_count):
+            when_dt = r.started_at or now
+            detected_at = when_dt.isoformat()
+            oom = r.oom
+        if detected_at:
+            rec["detected_at"] = detected_at
+            rec["oom"] = oom
+        new_state[r.name] = rec
+        if not detected_at:
+            continue
+        try:
+            at = datetime.fromisoformat(detected_at)
+        except ValueError:
+            continue
+        if (now - at).total_seconds() > STORE_RESTART_WINDOW_S:
+            continue
+        when = at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+        fmt = STORE_RESTARTED_OOM_TITLE_FMT if oom else STORE_RESTARTED_TITLE_FMT
+        out.append({
+            "severity": "critical",
+            "title": fmt.format(time=when),
+            "detail": STORE_RESTARTED_DETAIL_FMT.format(store=label),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    if new_state != state:
+        write_store_restart_state(new_state)
+    return out
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
@@ -3044,6 +3194,7 @@ ALL_RULES = [
     check_qdrant_health,
     check_oxigraph_health,
     check_wiki_health,
+    check_store_restarts,
     check_engine_supervisor_present,
     check_listener_watchdog,
     check_redis_health,

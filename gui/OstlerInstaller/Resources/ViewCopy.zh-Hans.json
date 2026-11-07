@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "取消",
+    "finish_pair_later_button": "完成并稍后配对",
     "reveal_in_finder_button": "在访达中显示",
     "done_button": "完成",
     "quit_button": "退出",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "输入 INSTALL",
     "consent_install_typed_mismatch": "请准确输入 INSTALL（不区分大小写）以确认，或点按“取消”返回。",
+    "yesno_switch_on_to_continue": "打开此选项才能继续。如需停止，请使用“退出”。",
     "preinstall_status_caption": "状态"
   },
   "assistant_name_suggestions": {

@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="En el primer inicio, Ostler RemoteCapture pedirá
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler guarda tu wiki personal y las transcripciones de tus conversaciones en Documentos/Ostler, en este Mac. Son tuyas y permanecen en este equipo. Para escribirlas, Ostler necesita acceso a tu carpeta Documentos, así que macOS puede pedirlo durante la configuración y de nuevo más tarde hoy, cuando Ostler organice tu wiki por primera vez. La solicitud puede aparecer como procedente de python3.11, el ayudante incluido que Ostler usa para escribir tus archivos. Haz clic en Permitir cuando aparezca. Si no la ves o la rechazas, puedes activarlo en cualquier momento en Ajustes del Sistema, en Privacidad y seguridad, después en Archivos y carpetas, y a partir de entonces se escribirán tu wiki y las transcripciones de tus conversaciones."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler guarda tu wiki personal y las transcripciones de tus conversaciones en Documentos/Ostler, en este Mac. Son tuyas y permanecen en este equipo. Para escribirlas, Ostler necesita acceso a tu carpeta Documentos, así que macOS puede pedirlo durante la configuración y de nuevo más tarde hoy, cuando Ostler organice tu wiki por primera vez. La solicitud puede aparecer como procedente de python3.11, el ayudante incluido que Ostler usa para escribir tus archivos. Haz clic en Aceptar cuando aparezca. Si no la ves o la rechazas, puedes activarlo en cualquier momento en Ajustes del Sistema, en Privacidad y seguridad, después en Archivos y carpetas, y a partir de entonces se escribirán tu wiki y las transcripciones de tus conversaciones."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Motor de memoria de conversaciones instalado en venv."
 MSG_INFO_HUB_APP_VERIFYING="Verificando Ostler.app en %s"
 MSG_INFO_HUB_APP_STAGING="Copiando Ostler.app a /Applications desde %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="Se detectaron exportaciones 
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="La importación de exportaciones del RGPD estará disponible cuando se lance el flujo."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Se van a analizar Descargas, Escritorio y Documentos en busca de exportaciones de IA (Google Takeout, descargas de Meta, LinkedIn, etc.) que hayas guardado. macOS mostrará tres solicitudes de acceso a carpetas: permite cada una. Tarda unos 5-10 segundos en total. Durante el análisis no se mueve ni se copia nada; solo comprobamos lo que hay."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS puede pedirte permiso para leer tu Calendario. Permítelo para que Ostler pueda crear la parte de reuniones y eventos de tu grafo de conocimiento. (Los datos del Calendario se quedan en este equipo.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS está pidiendo permiso para Descargas. Haz clic en Aceptar."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS está pidiendo permiso para Escritorio. Haz clic en Aceptar."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS está pidiendo permiso para Documentos. Haz clic en Aceptar."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Comprobando el acceso a Descargas. Si macOS lo pide, haz clic en Aceptar."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Comprobando el acceso a Escritorio. Si macOS lo pide, haz clic en Aceptar."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Comprobando el acceso a Documentos. Si macOS lo pide, haz clic en Aceptar."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Acceso total al disco concedido. Preparando la siguiente solicitud de macOS (automatización de Mensajes)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1290,7 +1290,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Escribe INBOX de nuevo para confirmar, o p
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX significa que el asistente leerá todos los correos que recibas. Recomendamos encarecidamente usar en su lugar una etiqueta o carpeta dedicada."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="¿Has solicitado la exportación de tus datos?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importa 18 exportaciones de plataformas. La lista completa, con enlaces directos a la página de solicitud de cada proveedor, está en https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Servicios como Google, Meta, Spotify y LinkedIn te permiten solicitar una copia de tus propios datos, y Ostler puede importarla. Si todavía no has pedido la tuya, puedes omitir este paso y añadirlas más tarde, cuando quieras.
+
+Ostler importa 18 exportaciones de plataformas. La lista completa, con enlaces directos a la página de solicitud de cada proveedor, está en https://ostler.ai/docs/getting-started/data-exports/.
 
 La mayoría de los archivos tardan de 1 a 3 días en llegar por correo electrónico. Cuando lleguen los ZIP, déjalos en tu carpeta Descargas y Ostler los encontrará automáticamente.
 

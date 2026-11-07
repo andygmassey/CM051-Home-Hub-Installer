@@ -37,6 +37,10 @@ on:
       - 'vendor/ostler_fda/phone_twins.py'
       - 'tests/test_provisional_phone_twins_merge.py'
       - 'tests/test_people_index_keeps_the_contacts_card.py'
+      - 'tests/test_people_index_embeds_only_what_changed.py'
+      - 'tests/conftest.py'
+      - 'vendor/doctor/agent/people_index_status.py'
+      - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_email_named_twin_folds_into_the_card_holder.py'
       - 'tests/test_fda_tick_folds_a_post_install_email_twin.py'
       - 'tests/test_an_email_twin_fold_moves_both_people_counts.py'
@@ -126,6 +130,21 @@ jobs:
         run: |
           python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
           python3 -m pytest tests/test_people_index_keeps_the_contacts_card.py -v
+      # v1.0.126 item h (v1.0.125 walk: people without a vector grew 240 -> 1789
+      # in 4200 s): the hourly people sweep re-embedded EVERY person on every
+      # pass. Only new or changed people are embedded now (hash of the embedded
+      # text on the point), new ones first, and the backlog reaches the Doctor.
+      - name: The people index embeds only who is new or changed, and the Doctor shows the backlog
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          n="$(python3 -m pytest tests/test_people_index_embeds_only_what_changed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 15 ]; then
+            echo "REFUSING: expected at least 15 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_people_index_embeds_only_what_changed.py -v
       # v1.0.121 (v1.0.120 walk): an email-named Person written by the email
       # ingest (bare pwg:email, no hasIdentifier) is the card holding that
       # address. Folds into the ONE holder when its name is not human or is

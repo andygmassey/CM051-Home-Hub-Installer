@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "Annuleer",
+    "finish_pair_later_button": "Afronden en later koppelen",
     "reveal_in_finder_button": "Toon in Finder",
     "done_button": "Gereed",
     "quit_button": "Stop",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Typ INSTALL",
     "consent_install_typed_mismatch": "Typ INSTALL precies zo (hoofdletters maken niet uit) om te bevestigen, of klik op Annuleer om terug te gaan.",
+    "yesno_switch_on_to_continue": "Zet dit aan om door te gaan. Wil je stoppen, gebruik dan Stop.",
     "preinstall_status_caption": "STATUS"
   },
   "assistant_name_suggestions": {

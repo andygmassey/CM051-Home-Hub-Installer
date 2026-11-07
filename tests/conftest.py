@@ -21,3 +21,11 @@ def _reminder_fixture_dates_are_not_stale(request, monkeypatch):
     name = request.module.__name__
     if name.startswith("test_cm048_reminder") and "quality_gate" not in name:
         monkeypatch.setenv("OSTLER_TODO_MAX_AGE_DAYS", "0")
+
+
+@pytest.fixture(autouse=True)
+def _private_people_index_record(tmp_path, monkeypatch):
+    """The people sweep writes its backlog record to ~/.ostler/state/people-index.json
+    (pwg_ingest._people_index_state_path). Any test that drives the sweep must not
+    write the developer's or runner's real one."""
+    monkeypatch.setenv("OSTLER_PEOPLE_INDEX_STATE", str(tmp_path / "people-index.json"))

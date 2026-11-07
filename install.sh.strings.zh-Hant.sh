@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 mac
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話紀錄儲存在這部 Mac 的「文件」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文件」檔案夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內建輔助程式。每當出現時，請按「允許」。如果你錯過或拒絕了，可隨時在「系統設定」的「隱私權與安全性」中，選擇「檔案和檔案夾」開啟，之後你的維基和對話紀錄便會繼續寫入。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話紀錄儲存在這部 Mac 的「文件」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文件」檔案夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內建輔助程式。每當出現時，請按「好」。如果你錯過或拒絕了，可隨時在「系統設定」的「隱私權與安全性」中，選擇「檔案和檔案夾」開啟，之後你的維基和對話紀錄便會繼續寫入。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  對話記憶引擎已安裝在 venv 中。"
 MSG_INFO_HUB_APP_VERIFYING="正在驗證位於 %s 的 Ostler.app"
 MSG_INFO_HUB_APP_STAGING="正在從 %s 將 Ostler.app 放置到 /Applications"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="已偵測到 GDPR 匯出檔�
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="流程推出後，即可匯入 GDPR 匯出檔案。"
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="即將掃描「下載項目」、「桌面」和「文件」資料夾，尋找你可能已儲存的 AI 匯出檔案（Google Takeout、Meta 下載檔案、LinkedIn 等）。macOS 會顯示三次資料夾取用提示，請逐一允許。整個過程約需 5 至 10 秒。掃描期間不會移動或複製任何內容，我們只會檢查有哪些檔案。"
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS 可能會要求取得讀取「行事曆」的權限。請允許，讓 Ostler 建立你知識圖譜中的會議和活動部分。（行事曆資料只會留在這部 Mac 上。）"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS 正在要求「下載項目」的權限。請按「好」。"
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS 正在要求「桌面」的權限。請按「好」。"
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS 正在要求「文件」的權限。請按「好」。"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="正在檢查「下載項目」的存取權限。如果 macOS 詢問，請按「好」。"
+MSG_INFO_FOLDER_PREWARM_DESKTOP="正在檢查「桌面」的存取權限。如果 macOS 詢問，請按「好」。"
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="正在檢查「文件」的存取權限。如果 macOS 詢問，請按「好」。"
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="已授予「完整磁碟取用權限」。正在準備下一個 macOS 提示（「訊息」自動化）…"
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1284,7 +1284,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="再次輸入 INBOX 以確認，或按「�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX 表示助理會讀取你收到的每一封電子郵件。我們強烈建議改用專用的標籤或資料夾。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="你已經申請資料匯出了嗎？"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler 可匯入 18 個平台的匯出資料。完整清單及各服務供應商申請頁面的直接連結位於 https://ostler.ai/docs/getting-started/data-exports/。
+MSG_PROMPT_EXPORTS_ACK_HELP="Google、Meta、Spotify、LinkedIn 等服務讓你申請自己資料的副本，Ostler 可以匯入這些資料。如果你尚未申請，可以略過這一步，之後隨時再加入。
+
+Ostler 可匯入 18 個平台的匯出資料。完整清單及各服務供應商申請頁面的直接連結位於 https://ostler.ai/docs/getting-started/data-exports/。
 
 大多數封存檔需要 1 至 3 天才會透過電子郵件寄達。ZIP 檔案抵達後，請放入「下載項目」資料夾，Ostler 會自動找到。
 
