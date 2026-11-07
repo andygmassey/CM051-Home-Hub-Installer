@@ -961,7 +961,7 @@ run_mutant M9-3c-stops-recording-a-served-ollama-port arm_ollama_no_guard_is_fai
 # M10 makes the runner exemption unconditional (the #3351 shape): arm 28 must go red.
 # shellcheck disable=SC2016
 run_mutant M10-runner-exempt-without-a-measured-refusal arm_runner_unmeasured_is_not_exempt \
-    's/if (rg == 1 \&\& tolower(cmd)/if (1 \&\& tolower(cmd)/'
+    's/if (rg == 1 \&\& runner) next/if (1 \&\& runner) next/'
 # M11 reads a pf drop as a pass for the OWNER: arm 26 must go red.
 # shellcheck disable=SC2016
 # M12 reads a v6 kernel refusal as a guard drop: arm 29 must go red.
