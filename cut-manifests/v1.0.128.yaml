@@ -6344,9 +6344,9 @@ open_issues:
   - issue: 3396
     repo: CM051
     title: 'check-pr-age: review_by date is read differently on macOS (valid all day) and ubuntu (expired from 00:00Z)'
-    gate: 'NOT BLOCKING (the issue''s own text, filed 2026-11-07: parity gap on a pr_exemptions review day, a cut-gate defect not an artefact defect; registered by ORM 2026-11-08 only so the checklist gate sees the open issue, Archie to confirm or re-rule); expires after one cut (v1.0.128); close needs one shared parser (epoch, end-of-day UTC) and a RED test on the boundary date.'
+    gate: 'NOT BLOCKING (the issue''s own text, filed 2026-11-07: parity gap on a pr_exemptions review day, a cut-gate defect not an artefact defect; registered by ORM 2026-11-08 only so the checklist gate sees the open issue, Archie 2026-11-08 confirmed); expires after one cut (v1.0.128); close needs one shared parser (epoch, end-of-day UTC) and a RED test on the boundary date.'
 
   - issue: 3397
     repo: CM051
     title: 'Triage the 67 PRs whose pr_exemptions were re-dated to 2026-11-14 (owner Archie, after the v1.0.128 walk)'
-    gate: 'NOT BLOCKING (the issue''s own text: triage owner Archie, due after the v1.0.128 walk; registered by ORM 2026-11-08 only so the checklist gate sees the open issue, Archie to confirm or re-rule); expires after one cut (v1.0.128); close needs each of the 67 PRs merged, closed or re-justified.'
+    gate: 'NOT BLOCKING (the issue''s own text: triage owner Archie, due after the v1.0.128 walk; registered by ORM 2026-11-08 only so the checklist gate sees the open issue, Archie 2026-11-08 confirmed); expires after one cut (v1.0.128); close needs each of the 67 PRs merged, closed or re-justified.'
