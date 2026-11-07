@@ -1051,6 +1051,21 @@ jobs:
         if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
         run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
 
+      # LAST STEP, same command and same gate env as the cut job's `make -C gui
+      # ship` runs for check-orphans. v1.0.119 and v1.0.126 each spent their one
+      # tag push on this gate firing in the cut job, because nothing in
+      # preflight (and so no rehearse/ dispatch) ran it. GH_TOKEN is required:
+      # without it PR lookups fail closed as "no PR exists". Same ref guard and
+      # `always()` as the step above, for the same reasons.
+      - name: Orphaned-fix gate (same command as the build step)
+        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+        run: make -C gui check-orphans
+
   cut:
     needs: preflight
     # 🔴 THE ORDER WAS BUILD-THEN-SHIP-THEN-FIND-OUT, AND IT IS WHY EVERY CUT
