@@ -3681,6 +3681,179 @@ def _merge_people_payload(existing: Optional[dict], computed: dict) -> dict:
     return merged
 
 
+# ── People index: delta state (v1.0.126, item h) ──────────────────────
+#
+# The payload key that records WHICH text a point's vector was embedded from:
+# sha256 of exactly _person_embed_doc(person). A matching key means the vector
+# is current and the person is not embedded again.
+PEOPLE_EMBED_HASH_KEY = "embed_text_sha256"
+# People embedded and landed per step. A step lands before the next is
+# embedded, so coverage rises during a long first pass.
+PEOPLE_INDEX_CHUNK = int(os.getenv("PEOPLE_INDEX_CHUNK", "200"))
+# End-of-pass backlogs kept for the Doctor's "falling behind" rule.
+PEOPLE_INDEX_HISTORY = 6
+
+
+def _embed_text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _people_payload(person: dict, point_id: str) -> dict:
+    """The payload this sweep computes for one person (before the merge)."""
+    uri = person["uri"]
+    payload = {
+        "person_uri": uri,
+        "person_id": point_id,
+        "display_name": person["display_name"],
+        "contact_type": person["contact_type"] or "person",
+        "organization": person["organization"],
+        "job_title": person["job_title"],
+        "given_name": person["given_name"],
+        "family_name": person["family_name"],
+        "phones": person["phones"],
+        "emails": person["emails"],
+        # has_card for every reader; see card_by_uri in the loader.
+        "icloud_uid": person.get("icloud_uid", ""),
+        # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
+        # documented default -- ical-server.py ~L1019 "Default person tag
+        # today is L2"). The reader (ical-server.py ~L1020) drops a person
+        # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
+        # searchable; an unstamped person would predate the default and is
+        # still searchable, but stamping keeps the writer/reader explicit.
+        "privacy_level": DEFAULT_PRIVACY,
+        # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
+        # the same derivation so a consumer trusting the stored slug never
+        # diverges from one that recomputes it (iOS Identifiable id + URL).
+        "slug": _wiki_slug(person["display_name"]),
+        "source": "fda_people_index",
+        # BOTH names are stamped, and they are not redundant.
+        #
+        # `last_contact_ts` (epoch int) is what every read path actually
+        # filters and sorts on: people_stale()'s range filter, the
+        # "recency" sort in people_list(), and _recency_label(). It was
+        # absent from every point until 2026-09-16, which is why the
+        # stale / reconnect lists were permanently empty.
+        #
+        # `last_contact` (ISO date string) is kept because this payload has
+        # always carried the key and a consumer may read it; it now carries
+        # the real date instead of the empty string it used to hold on
+        # every record. Dropping it would be a gratuitous wire-shape change
+        # in a fix whose whole point is that the wire shape was not honoured.
+        "last_contact": person.get("last_contact", ""),
+        "last_contact_ts": _last_contact_epoch(
+            person.get("last_contact", "")
+        ),
+    }
+    # Surface the REAL pwg:createdAt date so the time-ordered wiki
+    # views (year pages, person timeline, "recent people") can place
+    # this person. The CM044 readers key on observed_at first, then
+    # fall back to created_at, so write BOTH from the same real date.
+    # Omit entirely when there is no real date: a no-real-date FDA
+    # person stays absent from time views rather than being stamped
+    # with a fabricated now() (consistent with the iCloud-contacts
+    # decision).
+    created_at = (person.get("created_at") or "").strip()
+    if created_at:
+        payload["observed_at"] = created_at
+        payload["created_at"] = created_at
+    return payload
+
+
+def _qdrant_set_payloads(collection: str, items: list) -> int:
+    """Write payloads onto EXISTING points without touching their vectors.
+
+    ``items`` is ``[(point_id, payload), ...]``. Uses the same
+    ``POST /collections/{c}/points/payload`` call the vendored CM041
+    browsing_enrich already makes against the shipped Qdrant. Returns how many
+    the server acknowledged; logs and continues on a failure.
+    """
+    if not items:
+        return 0
+    done = 0
+    transport = httpx.HTTPTransport(proxy=None)
+    url = f"{QDRANT_URL}/collections/{collection}/points/payload"
+    with httpx.Client(timeout=60.0, transport=transport) as client:
+        for point_id, payload in items:
+            try:
+                resp = client.post(url, json={"payload": payload, "points": [point_id]},
+                                   params={"wait": "true"})
+                resp.raise_for_status()
+                done += 1
+            except Exception as exc:
+                logger.warning(
+                    "Qdrant payload refresh in %s failed: %s",
+                    collection, type(exc).__name__,
+                )
+    return done
+
+
+def _people_index_state_path() -> Path:
+    """Where the backlog record lives: the Doctor reads the same path
+    (vendor/doctor/agent/people_index_status.py)."""
+    explicit = os.getenv("OSTLER_PEOPLE_INDEX_STATE")
+    if explicit:
+        return Path(explicit)
+    base = Path(os.getenv("OSTLER_DIR") or (Path.home() / ".ostler"))
+    return base / "state" / "people-index.json"
+
+
+def _people_index_read() -> dict:
+    try:
+        rec = json.loads(_people_index_state_path().read_text(encoding="utf-8"))
+        return rec if isinstance(rec, dict) else {}
+    except Exception:
+        return {}
+
+
+def _people_index_write(rec: dict) -> None:
+    """Counts only, atomic, and NEVER raises: bookkeeping about the index must
+    never be able to fail the index."""
+    try:
+        path = _people_index_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(rec, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception as exc:
+        logger.warning("People: could not record the backlog: %s", type(exc).__name__)
+
+
+def _people_index_record(phase: str, total: int, backlog: Optional[int],
+                         never_embedded: Optional[int] = None,
+                         embedded: Optional[int] = None, reason: str = "") -> None:
+    """The in-pass record. ``backlog`` is people without a current vector RIGHT
+    NOW (None when it cannot be known yet). History is carried forward."""
+    prev = _people_index_read()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rec = {
+        "writer": "ostler_fda.people_index",
+        "phase": phase,
+        "updated_at": now,
+        "total": total,
+        "backlog": backlog,
+        "never_embedded": never_embedded,
+        "embedded_this_pass": embedded,
+        "reason": reason,
+        "history": list(prev.get("history") or [])[-PEOPLE_INDEX_HISTORY:],
+    }
+    _people_index_write(rec)
+
+
+def _people_index_finish(total: int, sent: int, never_embedded: int,
+                         embedded: int, reason: str) -> None:
+    """End of a pass that knows its numbers: the backlog is everyone without a
+    current vector, and it joins the history the Doctor's red rule reads."""
+    backlog = max(total - sent, 0)
+    _people_index_record(phase="done" if not reason else "error", total=total,
+                         backlog=backlog, never_embedded=never_embedded,
+                         embedded=embedded, reason=reason)
+    rec = _people_index_read()
+    hist = list(rec.get("history") or [])
+    hist.append({"at": rec.get("updated_at"), "backlog": backlog, "total": total})
+    rec["history"] = hist[-PEOPLE_INDEX_HISTORY:]
+    _people_index_write(rec)
+
+
 def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     """Populate the Qdrant ``people`` collection from Oxigraph (#600).
 
@@ -3719,9 +3892,17 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
       ``status``         : "ok" | "no_data" | "error"
       ``reason``         : present only on a partial landing;
                            "partial_landing" when 0 < sent < total
-      ``sent``           : points upserted into Qdrant
+      ``sent``           : people whose point is current after this pass
+                           (embedded now, or already current by hash)
       ``points_created`` : alias of ``sent``
       ``total``          : Person nodes considered (with a display name)
+      ``embedded``       : people embedded and landed by THIS pass
+      ``already_current``: people skipped because their embedded text's
+                           hash matched (see the DELTA block)
+      ``payload_refreshed``: current people whose payload alone was rewritten
+      ``backlog``        : people still without a current vector
+
+    The backlog is also written to state/people-index.json for the Doctor.
     """
     try:
         people = _load_people_from_oxigraph()
@@ -3729,176 +3910,143 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         logger.warning(
             "People: Oxigraph query failed: %s", type(exc).__name__,
         )
+        _people_index_record(phase="error", total=0, backlog=None,
+                             reason="could_not_read_graph")
         return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
 
     if not people:
         logger.info("No people in Oxigraph to index.")
+        _people_index_finish(0, 0, 0, 0, "")
         return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
 
-    docs = [_person_embed_doc(p) for p in people]
-    vectors = _ollama_embed_batch(docs)
+    _people_index_record(phase="running", total=len(people), backlog=None)
 
-    # Size the collection from the first real embedding; fall back to
-    # the nomic-embed-text default only if nothing embedded.
-    vector_size = PEOPLE_EMBED_DIM
-    for vec in vectors:
-        if vec:
-            vector_size = len(vec)
-            break
-
-    try:
-        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, vector_size)
-    except Exception as exc:
-        logger.warning(
-            "People: could not ensure Qdrant collection '%s': %s",
-            PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
-        )
-        return {
-            "status": "error",
-            "sent": 0,
-            "points_created": 0,
-            "total": len(people),
-        }
-
-    # The stored payloads, so the upsert below never drops a field this sweep
-    # does not own. None means the read FAILED: refuse rather than overwrite
-    # blind (an empty list is a genuinely empty collection).
+    # The stored payloads, read FIRST: they say who already has a current
+    # vector, and the upserts below must never drop a field this sweep does not
+    # own. None means the read FAILED: refuse rather than overwrite blind (an
+    # empty list is a genuinely empty collection, including one that does not
+    # exist yet, which the scroll reports as []).
     stored = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
     if stored is None:
         logger.warning("People: could not read the stored points; not overwriting them blind.")
+        _people_index_record(phase="error", total=len(people), backlog=None,
+                             reason="could_not_read_existing")
         return {"status": "error", "reason": "could_not_read_existing",
                 "sent": 0, "points_created": 0, "total": len(people)}
     existing_by_id = {str(p.get("id")): (p.get("payload") or {}) for p in stored}
 
-    points: list[dict] = []
-    for person, vec in zip(people, vectors):
-        uri = person["uri"]
-        # Stable point id: same URI re-runs upsert in place rather than
-        # duplicating rows on re-install.
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
-        payload = {
-            "person_uri": uri,
-            "person_id": point_id,
-            "display_name": person["display_name"],
-            "contact_type": person["contact_type"] or "person",
-            "organization": person["organization"],
-            "job_title": person["job_title"],
-            "given_name": person["given_name"],
-            "family_name": person["family_name"],
-            "phones": person["phones"],
-            "emails": person["emails"],
-            # has_card for every reader; see card_by_uri in the loader.
-            "icloud_uid": person.get("icloud_uid", ""),
-            # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
-            # documented default -- ical-server.py ~L1019 "Default person tag
-            # today is L2"). The reader (ical-server.py ~L1020) drops a person
-            # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
-            # searchable; an unstamped person would predate the default and is
-            # still searchable, but stamping keeps the writer/reader explicit.
-            "privacy_level": DEFAULT_PRIVACY,
-            # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
-            # the same derivation so a consumer trusting the stored slug never
-            # diverges from one that recomputes it (iOS Identifiable id + URL).
-            "slug": _wiki_slug(person["display_name"]),
-            "source": "fda_people_index",
-            # BOTH names are stamped, and they are not redundant.
-            #
-            # `last_contact_ts` (epoch int) is what every read path actually
-            # filters and sorts on: people_stale()'s range filter, the
-            # "recency" sort in people_list(), and _recency_label(). It was
-            # absent from every point until 2026-09-16, which is why the
-            # stale / reconnect lists were permanently empty.
-            #
-            # `last_contact` (ISO date string) is kept because this payload has
-            # always carried the key and a consumer may read it; it now carries
-            # the real date instead of the empty string it used to hold on
-            # every record. Dropping it would be a gratuitous wire-shape change
-            # in a fix whose whole point is that the wire shape was not honoured.
-            "last_contact": person.get("last_contact", ""),
-            "last_contact_ts": _last_contact_epoch(
-                person.get("last_contact", "")
-            ),
-        }
-        # Surface the REAL pwg:createdAt date so the time-ordered wiki
-        # views (year pages, person timeline, "recent people") can place
-        # this person. The CM044 readers key on observed_at first, then
-        # fall back to created_at, so write BOTH from the same real date.
-        # Omit entirely when there is no real date: a no-real-date FDA
-        # person stays absent from time views rather than being stamped
-        # with a fabricated now() (consistent with the iCloud-contacts
-        # decision).
-        created_at = (person.get("created_at") or "").strip()
-        if created_at:
-            payload["observed_at"] = created_at
-            payload["created_at"] = created_at
-        points.append({
+    # ── DELTA (v1.0.126, item h) ─────────────────────────────────────────
+    #
+    # THE DEFECT THIS CLOSES. This sweep runs LAST in every hourly fda-rerun
+    # tick and used to embed EVERY person on EVERY pass. A pass grew with the
+    # graph, so on a first-run box it ran longer each hour, later ticks stood
+    # down behind the run lock, and new people waited longer every hour.
+    # Measured on the v1.0.125 walk: people without a vector grew 240 -> 1789
+    # in 4200 s, and people_count_agreement went CANNOT-RUN on 124 and 125.
+    #
+    # THE RULE. Each point carries PEOPLE_EMBED_HASH_KEY, the sha256 of exactly
+    # the text that was embedded for it (_person_embed_doc). A person is
+    # embedded only when:
+    #   new      no point at all (never embedded),       embedded FIRST;
+    #   changed  a point whose hash is absent or differs. A point written
+    #            before this key existed, or rewritten by contact_syncer
+    #            (whose upsert builds a fresh payload without the key), is
+    #            embedded once, then never again while unchanged.
+    # Everyone else keeps their vector. Their payload is still laid over the
+    # stored one and written (payload only, no vector) when a field that is
+    # not embedded moved, e.g. last_contact.
+    #
+    # Deleted people: unchanged. The PRUNE below removes this sweep's points
+    # whose Person left the graph, against the graph as it is at the end.
+    pending: list = []    # (rank, person, point_id, doc, digest, payload)
+    current: list = []    # (point_id, merged payload, stored payload)
+    for person in people:
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person["uri"]))
+        doc = _person_embed_doc(person)
+        digest = _embed_text_hash(doc)
+        payload = _people_payload(person, point_id)
+        payload[PEOPLE_EMBED_HASH_KEY] = digest
+        old = existing_by_id.get(point_id)
+        if old is not None and old.get(PEOPLE_EMBED_HASH_KEY) == digest:
+            merged = _merge_people_payload(old, payload)
+            if merged != old:
+                current.append((point_id, merged, old))
+            else:
+                current.append((point_id, None, old))
+            continue
+        rank = 0 if old is None else 1
+        pending.append((rank, person, point_id, doc, digest, payload))
+    # Stable: within each rank the graph's own order is kept.
+    pending.sort(key=lambda item: item[0])
+    never_embedded = sum(1 for item in pending if item[0] == 0)
+
+    # Payload-only refresh for the people whose vector is current. A failure
+    # here leaves a searchable person with an older payload: reported, never
+    # counted against the vector backlog.
+    refresh = [(pid, merged) for pid, merged, _old in current if merged is not None]
+    refreshed = _qdrant_set_payloads(PEOPLE_QDRANT_COLLECTION, refresh) if refresh else 0
+    already_current = len(current)
+
+    _people_index_record(phase="running", total=len(people), backlog=len(pending),
+                         never_embedded=never_embedded, embedded=0)
+
+    # Embed and land in CHUNKS, in the order above, so search coverage rises
+    # during a long first pass instead of all at once at its end, and a pass
+    # cut short still keeps what it landed.
+    embedded = 0
+    ensured = False
+    for start in range(0, len(pending), PEOPLE_INDEX_CHUNK):
+        chunk = pending[start:start + PEOPLE_INDEX_CHUNK]
+        vectors = _ollama_embed_batch([item[3] for item in chunk])
+        if not ensured:
+            first = next((v for v in vectors if v), None)
+            if first is not None:
+                try:
+                    _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, len(first))
+                except Exception as exc:
+                    logger.warning(
+                        "People: could not ensure Qdrant collection '%s': %s",
+                        PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
+                    )
+                    _people_index_finish(len(people), already_current + embedded,
+                                         never_embedded, embedded, "could_not_ensure_collection")
+                    return {
+                        "status": "error",
+                        "sent": already_current + embedded,
+                        "points_created": already_current + embedded,
+                        "total": len(people),
+                    }
+                ensured = True
+        points = [{
             "id": point_id,
             "vector": vec,
             "payload": _merge_people_payload(existing_by_id.get(point_id), payload),
-        })
+        } for (_rank, _person, point_id, _doc, _digest, payload), vec in zip(chunk, vectors)]
+        try:
+            embedded += _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
+        except Exception as exc:
+            logger.warning(
+                "People: Qdrant upsert failed: %s", type(exc).__name__,
+            )
+            _people_index_finish(len(people), already_current + embedded,
+                                 never_embedded, embedded, "upsert_failed")
+            return {
+                "status": "error",
+                "sent": already_current + embedded,
+                "points_created": already_current + embedded,
+                "total": len(people),
+            }
+        _people_index_record(phase="running", total=len(people),
+                             backlog=len(pending) - embedded,
+                             never_embedded=never_embedded, embedded=embedded)
 
-    sent = 0
-    try:
-        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
-    except Exception as exc:
-        logger.warning(
-            "People: Qdrant upsert failed: %s", type(exc).__name__,
-        )
-        return {
-            "status": "error",
-            "sent": sent,
-            "points_created": sent,
-            "total": len(people),
-        }
-
-    if sent == 0:
-        # We had Person nodes to index but none landed (embed failure
-        # for every row, or every chunk failed). Report error, not
-        # "ok" -- a silent ok-with-zero is the #600 bug.
-        logger.warning(
-            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
-            len(people), PEOPLE_QDRANT_COLLECTION,
-        )
-        return {
-            "status": "error",
-            "sent": 0,
-            "points_created": 0,
-            "total": len(people),
-        }
-
-    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
-    #
-    # The check above only ever caught the ALL-OR-NOTHING case. Anything
-    # between -- an empty vector dropped by _qdrant_upsert_points, or one
-    # chunk out of several failing while the others land -- fell straight
-    # through to the "ok" return below, carrying whatever count DID make
-    # it. That count is real, but the status calling it "ok" is not: it is
-    # indistinguishable, to every caller, from a complete sweep.
-    #
-    # MEASURED on a real customer install, ten hours after completion: the
-    # graph held 8679 Person nodes, the vector store held 8643 points, a
-    # gap of 36 that never closed on its own. install.sh only reads `sent`
-    # to decide the customer-facing message and reads process rc (which
-    # this function's own internal try/except keeps at 0 for any failure
-    # it already caught) to decide whether to write a success sentinel --
-    # so a shortfall here had no way to reach either decision. Comparing
-    # what was SENT against what was ASKED is the only place that
-    # information still exists once _qdrant_upsert_points returns.
-    if sent < len(people):
-        logger.warning(
-            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
-            "not. Reporting error, not ok -- the missing %d would stay "
-            "unsearchable and invisible under a success status.",
-            sent, len(people), PEOPLE_QDRANT_COLLECTION,
-            len(people) - sent, len(people) - sent,
-        )
-        return {
-            "status": "error",
-            "reason": "partial_landing",
-            "sent": sent,
-            "points_created": sent,
-            "total": len(people),
-        }
+    # `sent` keeps its meaning for every caller (install.sh compares it with
+    # `total`): the people whose point is current after this pass, whether it
+    # was embedded now or already matched. `embedded` is this pass's work.
+    sent = already_current + embedded
+    counts = {"embedded": embedded, "already_current": already_current,
+              "payload_refreshed": refreshed, "backlog": len(people) - sent}
+    _people_index_finish(len(people), sent, never_embedded, embedded, "")
 
     # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
     # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
@@ -3919,9 +4067,16 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     #
     # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
     #
-    # 1. WE ONLY REACH HERE WHEN sent > 0. The block above returns
-    #    status="error" when Oxigraph held Person nodes and none landed. So a
-    #    prune can never run off a failed projection.
+    # 1. THE PRUNE READS THE GRAPH, NEVER THE LANDING. It deletes a point only
+    #    when its person_uri is absent from BOTH the graph this pass loaded
+    #    and the graph as it is now. A person whose embed failed is still in
+    #    the graph, so a failed or partial landing cannot make it look stale.
+    #    It therefore runs BEFORE the zero-landing and partial-landing returns
+    #    below (v1.0.126, Archie on #3367): it used to run only when every
+    #    person landed, so a deleted or merged-away person stayed searchable
+    #    for as long as ANY backlog persisted, which on a first-run box is
+    #    hours. A failed Qdrant call (ensure, upsert) still returns earlier
+    #    and prunes nothing.
     # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
     #    any error, and None is handled separately from an empty list. An empty
     #    list from a broken read and an empty collection are indistinguishable
@@ -3932,10 +4087,8 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     #    nothing about which of those are current, so it must never touch them.
     #    Measured: 1610 of the collection's points are icloud_contacts.
     pruned: Optional[int] = None
-    projected_uris = {
-        (pt.get("payload") or {}).get("person_uri") for pt in points
-    }
-    projected_uris.discard(None)
+    # Every person this pass projected (embedded now or already current).
+    projected_uris = {person["uri"] for person in people}
     # RACE CLOSED (walk #15, people_stores_reconcile: graph 8074, vectors
     # 8075). `projected_uris` is the snapshot taken BEFORE the embed and
     # upsert, which take minutes. A node removed from the graph inside that
@@ -3980,17 +4133,67 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         else:
             pruned = 0
 
+    counts["pruned"] = pruned
+
+    if sent == 0:
+        # We had Person nodes to index but none landed (embed failure
+        # for every row, or every chunk failed). Report error, not
+        # "ok" -- a silent ok-with-zero is the #600 bug.
+        logger.warning(
+            "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
+            len(people), PEOPLE_QDRANT_COLLECTION,
+        )
+        return dict({
+            "status": "error",
+            "sent": 0,
+            "points_created": 0,
+            "total": len(people),
+        }, **counts)
+
+    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
+    #
+    # The check above only ever caught the ALL-OR-NOTHING case. Anything
+    # between -- an empty vector dropped by _qdrant_upsert_points, or one
+    # chunk out of several failing while the others land -- fell straight
+    # through to the "ok" return below, carrying whatever count DID make
+    # it. That count is real, but the status calling it "ok" is not: it is
+    # indistinguishable, to every caller, from a complete sweep.
+    #
+    # MEASURED on a real customer install, ten hours after completion: the
+    # graph held 8679 Person nodes, the vector store held 8643 points, a
+    # gap of 36 that never closed on its own. install.sh only reads `sent`
+    # to decide the customer-facing message and reads process rc (which
+    # this function's own internal try/except keeps at 0 for any failure
+    # it already caught) to decide whether to write a success sentinel --
+    # so a shortfall here had no way to reach either decision. Comparing
+    # what was SENT against what was ASKED is the only place that
+    # information still exists once _qdrant_upsert_points returns.
+    if sent < len(people):
+        logger.warning(
+            "People: %d of %d Person nodes landed in Qdrant '%s'; %d did "
+            "not. Reporting error, not ok -- the missing %d would stay "
+            "unsearchable and invisible under a success status.",
+            sent, len(people), PEOPLE_QDRANT_COLLECTION,
+            len(people) - sent, len(people) - sent,
+        )
+        return dict({
+            "status": "error",
+            "reason": "partial_landing",
+            "sent": sent,
+            "points_created": sent,
+            "total": len(people),
+        }, **counts)
+
     logger.info(
         "People: %d of %d Person nodes indexed into Qdrant '%s'.",
         sent, len(people), PEOPLE_QDRANT_COLLECTION,
     )
-    return {
+    return dict({
         "status": "ok",
         "sent": sent,
         "points_created": sent,
         "total": len(people),
-        "pruned": pruned,
-    }
+    }, **counts)
 
 
 # ── Master runner ─────────────────────────────────────────────────

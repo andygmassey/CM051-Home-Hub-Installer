@@ -605,7 +605,11 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
 # ---------------------------------------------------------------------------
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-_DEFAULT_TIMEOUT = 5.0
+# 20 s, not 5: on a freshly installed box the Hub answered /api/v1/suggestions
+# in 6.3 s and 11.5 s during its first hour (v1.0.125 walk, 2026-11-06), and a
+# 5 s timeout dropped every birthday card. The tick is hourly and off the
+# request path, so waiting costs nothing a customer sees.
+_DEFAULT_TIMEOUT = 20.0
 
 _ENDPOINTS = {
     "reply_debt": "/api/v1/reply-debt",

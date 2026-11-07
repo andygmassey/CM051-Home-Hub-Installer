@@ -412,6 +412,8 @@ SECOND_ID_CMD="${OSTLER_PROBE_SECOND_ID_CMD-sudo -n -u nobody}"
 SECOND_ID_HOST="${OSTLER_PROBE_SECOND_ID_HOST-}"
 KNOWN_LISTENERS="${OSTLER_PROBE_KNOWN_LISTENERS-3000 6333 6379 7878 8000 8044 8089 8090 8144 8443 11434 42617}"
 LISTENER_MATCH="${OSTLER_PROBE_LISTENER_MATCH-ostler}"
+OLLAMA_GUARD_PORT="${OSTLER_PROBE_OLLAMA_GUARD_PORT-11434}"   # "" disables 3c (pre-v1.0.126 boxes)
+OLLAMA_GUARD_CONNECT_S="${OSTLER_PROBE_OLLAMA_GUARD_CONNECT_S-3}"
 
 # 6379 is redis, not HTTP, so it cannot be asked with curl. It is listed here
 # because the PROPERTY is identical -- an uncredentialled client must be refused
@@ -819,8 +821,12 @@ _listener_table() {
     # login shell is zsh, which does not word-split an unquoted \$L.
     # lsof is /usr/sbin/lsof on macOS and /usr/bin/lsof on the Linux runner; a
     # single path in a variable is safe under zsh (nothing to split).
-    box_run "L=/usr/sbin/lsof; [ -x \$L ] || L=\$(command -v lsof); { if sudo -n /usr/bin/true 2>/dev/null; then echo SCOPE all >&2; sudo -n \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; else echo SCOPE self >&2; \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; fi; } 2>&1 | awk '/^SCOPE/{print; next} /^p/{p=substr(\$0,2)} /^n/{n=\$0; sub(/.*:/,\"\",n); print n, p}' | sort -u |
-      while read -r port pid; do [ \"\$port\" = SCOPE ] && { echo SCOPE \$pid; continue; }; printf '%s %s %s\n' \"\$port\" \"\$pid\" \"\$(ps -ww -o command= -p \"\$pid\")\"; done"
+    # Line shape: "<port> <pid> <binds>\t<parent cmd>\t<cmd>". <binds> is the comma
+    # list of every address the pid listens on for that port; the parent is
+    # what the ollama-runner exemption in _class3 grades. Fields 1-2 are
+    # unchanged, so the control-port check below still reads $1.
+    box_run "L=/usr/sbin/lsof; [ -x \$L ] || L=\$(command -v lsof); { if sudo -n /usr/bin/true 2>/dev/null; then echo SCOPE all >&2; sudo -n \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; else echo SCOPE self >&2; \"\$L\" -nP -iTCP -sTCP:LISTEN -Fpn; fi; } 2>&1 | awk '/^SCOPE/{print; next} /^p/{p=substr(\$0,2)} /^n/{a=substr(\$0,2); q=a; sub(/.*:/,\"\",q); sub(/:[^:]*\$/,\"\",a); k=q \" \" p; if (!((k SUBSEP a) in seen)) { seen[k SUBSEP a]=1; b[k]=(k in b) ? b[k] \",\" a : a } } END{for (k in b) print k, b[k]}' | sort -u |
+      while read -r port pid binds; do [ \"\$port\" = SCOPE ] && { echo SCOPE \$pid; continue; }; ppid=\"\$(ps -o ppid= -p \"\$pid\" | tr -d ' ')\"; printf '%s %s %s\\t%s\\t%s\\n' \"\$port\" \"\$pid\" \"\$binds\" \"\$(ps -ww -o command= -p \"\${ppid:-0}\")\" \"\$(ps -ww -o command= -p \"\$pid\")\"; done"
 }
 _class3() {
     [ -n "$CRED_ROUTES$KNOWN_LISTENERS" ] || return 0
@@ -861,14 +867,95 @@ _class3() {
         return 0
     fi
     n_checked=$((n_checked + 1))
-    unknown="$(printf '%s\n' "$tbl" | awk -v known=" $KNOWN_LISTENERS " -v pat="$LISTENER_MATCH" '
+    # 3c grades the Ollama runner ports by a MEASURED refusal, so when 3c can
+    # run (second identity proven) the sweep skips the runners outright. When
+    # it cannot, the narrower #3351 shape exemption below still applies and is
+    # printed: a loopback bind alone is not privacy, so it is never silent.
+    runners_graded=0; [ "${sid:-}" = ok ] && [ -n "$OLLAMA_GUARD_PORT" ] && runners_graded=1
+    # Archie r14 (walk 124): the llama-server runners com.ostler.ollama spawns
+    # live under ~/.ostler, match LISTENER_MATCH, and sit on ephemeral ports. They
+    # are exempt ONLY when ALL hold: the process is a llama-server / ollama
+    # runner, its PARENT is the ollama serve process, and EVERY bind is loopback
+    # (127.x, ::1, localhost). Any other bind, parent or process still FAILs.
+    # The exempted ports are printed below so the exemption is never silent.
+    sweep='
+        BEGIN{FS="\t"}
+        $1 ~ /^SCOPE/{next}
+        { split($1, h, " "); port=h[1]; binds=h[3]; pcmd=$2; cmd=$3
+          if (tolower(cmd) !~ tolower(pat)) next
+          if (port+0 >= 49152 && cmd ~ /(limactl|gvproxy|ssh)/) next
+          if (index(known, " " port " ")) next
+          runner = (tolower(cmd) ~ /(llama-server|ollama[^ ]* runner)/)
+          if (rg == 1 && runner) next   # graded by the 3c measured refusal (#3362)
+          parent = (tolower(pcmd) ~ /ollama[^ ]* serve/)
+          lo = 1; nb = split(binds, bl, ","); if (nb == 0) lo = 0
+          for (i = 1; i <= nb; i++) if (bl[i] !~ /^(127\.[0-9.]+|\[::1\]|::1|localhost)$/) lo = 0
+          if (runner && parent && lo) { printf " %s(%s)", port, binds; next }
+          split(cmd, a, " "); n=a[1]; sub(/.*\//,"",n); printf "U %s(unknown-listener:%s)", port, n }'
+    swept="$(printf '%s\n' "$tbl" | awk -v known=" $KNOWN_LISTENERS " -v pat="$LISTENER_MATCH" -v rg="$runners_graded" "$sweep" | sort -u | tr -d '\n')"
+    unknown="$(printf '%s' "$swept" | grep -o 'U [^ ]*' | sed 's/^U / /' | tr -d '\n')"
+    exempt="$(printf '%s' "$swept" | sed 's/U [^ ]*//g')"
+    listening_list="${listening_list}${unknown}"
+    [ -z "$exempt" ] || probe_note "listener sweep EXEMPTED (ollama runner, parent is ollama serve, every bind loopback):${exempt}. A non-loopback bind, a different parent or a non-runner process is NOT exempt"
+    probe_note "listener sweep (scope ${scope}): every TCP listener whose command line matches '${LISTENER_MATCH}' is on a known port${unknown:+ EXCEPT${unknown}}"
+    _class3c
+}
+# 3c (v1.0.126, lib/ostler-loopback-guard.sh): Ollama has NO auth, so its only
+# gate is the pf guard. The second identity must be DROPPED (connect timeout,
+# curl rc 28) on :11434 and on every runner port; any HTTP answer, or a
+# connection refused by the kernel (no guard in the path), is READABLE. The
+# owner must still be served on each, or the guard locked the owner out.
+_ollama_guard_ports() {   # 11434 plus every runner listener in the 3b table
+    # Same LISTENER_MATCH as 3b: the runners are Ostler's (they live under
+    # ~/.ostler/runtime), so a non-Ostler Ollama on the box is not graded here.
+    printf '%s\n' "$tbl" | awk -v fixed="$OLLAMA_GUARD_PORT" -v pat="$LISTENER_MATCH" '
+        BEGIN{print fixed " /api/version"}
         $1=="SCOPE"{next}
         { cmd=$0; sub(/^[^ ]+ [^ ]+ /,"",cmd); if (tolower(cmd) !~ tolower(pat)) next
-          if ($1+0 >= 49152 && cmd ~ /(limactl|gvproxy|ssh)/) next
-          if (index(known, " " $1 " ")) next
-          split(cmd, a, " "); n=a[1]; sub(/.*\//,"",n); printf " %s(unknown-listener:%s)", $1, n }' | sort -u | tr -d '\n')"
-    listening_list="${listening_list}${unknown}"
-    probe_note "listener sweep (scope ${scope}): every TCP listener whose command line matches '${LISTENER_MATCH}' is on a known port${unknown:+ EXCEPT${unknown}}"
+          if (tolower(cmd) ~ /(llama-server|ollama[^ ]* runner)/ && $1 != fixed) print $1 " /health" }' | sort -u
+}
+_class3c() {
+    [ -n "$OLLAMA_GUARD_PORT" ] || return 0
+    if [ "${sid:-}" != ok ]; then
+        unmeasured_list="${unmeasured_list} ollama-guard(second-identity-${sid:-not-asked})"; return 0
+    fi
+    local port path r code rc nr=0 dropped=""
+    while read -r port path; do
+        [ -n "$port" ] || continue
+        [ "$port" = "$OLLAMA_GUARD_PORT" ] || nr=$((nr + 1))
+        n_checked=$((n_checked + 1))
+        r="$(_second_id_run "/usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --connect-timeout ${OLLAMA_GUARD_CONNECT_S} --max-time 8 'http://127.0.0.1:${port}${path}'; echo \" \$?\"")"
+        code="${r% *}"; rc="${r##* }"
+        case "$code:$rc" in
+            000:28) refused_list="${refused_list} ${port}${path}(dropped-by-guard)"; dropped="${dropped} ${port}${path}(dropped-by-guard)" ;;
+            000:7)  readable_list="${readable_list} ${port}${path}(kernel-refused:no-guard-in-path,second-identity)" ;;
+            [1-5][0-9][0-9]:*) readable_list="${readable_list} ${port}${path}(${code},second-identity,ollama-has-no-auth)" ;;
+            *)      unmeasured_list="${unmeasured_list} ${port}${path}(second-identity:${r:-no-reading})" ;;
+        esac
+        if [ "$PROBE_ARMS" = both ]; then
+            r="$(box_run "curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --connect-timeout ${OLLAMA_GUARD_CONNECT_S} --max-time 8 'http://127.0.0.1:${port}${path}'; echo \" \$?\"")"
+            case "${r% *}" in
+                200) served_list="${served_list} ${port}${path}(owner)" ;;
+                000) locked_list="${locked_list} ${port}${path}(owner-cannot-connect:rc${r##* })" ;;
+                *)   locked_list="${locked_list} ${port}${path}(${r% *},owner)" ;;
+            esac
+        fi
+    done <<EOF_OLLAMA
+$(_ollama_guard_ports)
+EOF_OLLAMA
+    # ::1 too: the guard's rules name no address family, so the second identity
+    # must be DROPPED on [::1]:11434 as well. A kernel refusal there means no
+    # guard in the v6 path (Ollama binds 127.0.0.1 today; a v6 bind would leak).
+    n_checked=$((n_checked + 1))
+    r="$(_second_id_run "/usr/bin/curl -s -o /dev/null -w '%{http_code}' --noproxy '*' --connect-timeout ${OLLAMA_GUARD_CONNECT_S} --max-time 8 'http://[::1]:${OLLAMA_GUARD_PORT}/api/version'; echo \" \$?\"")"
+    code="${r% *}"; rc="${r##* }"
+    case "$code:$rc" in
+        000:28) refused_list="${refused_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(dropped-by-guard)"; dropped="${dropped} [::1]:${OLLAMA_GUARD_PORT}/api/version(dropped-by-guard)" ;;
+        000:7)  readable_list="${readable_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(kernel-refused-v6:no-guard-in-path,second-identity)" ;;
+        [1-5][0-9][0-9]:*) readable_list="${readable_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(${code},second-identity,ollama-has-no-auth)" ;;
+        *)      unmeasured_list="${unmeasured_list} [::1]:${OLLAMA_GUARD_PORT}/api/version(second-identity:${r:-no-reading})" ;;
+    esac
+    probe_note "ollama guard (3c): asked :${OLLAMA_GUARD_PORT} (127.0.0.1 and ::1) and ${nr} runner port(s) as the second identity; dropped = guard holds, any answer = readable. Dropped:${dropped:- none}"
 }
 
 run_probe() {

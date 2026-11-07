@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="No primeiro arranque, o Ostler RemoteCapture pedi
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler guarda a sua wiki pessoal e os registos das suas conversas em Documentos/Ostler, neste Mac. Pertencem-lhe e permanecem neste computador. Para os escrever, o Ostler precisa de acesso à sua pasta Documentos, pelo que o macOS pode pedi-lo durante a configuração e novamente mais tarde no mesmo dia, quando o Ostler organizar a sua wiki pela primeira vez. O pedido pode aparecer como proveniente de python3.11, o auxiliar incluído que o Ostler usa para escrever os seus ficheiros. Clique em Permitir sempre que surgir. Se não o vir ou recusar, pode ativá-lo a qualquer momento em Definições do Sistema, em Privacidade e segurança, depois Ficheiros e pastas, e a sua wiki e os registos das conversas passarão a ser escritos a partir daí."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler guarda a sua wiki pessoal e os registos das suas conversas em Documentos/Ostler, neste Mac. Pertencem-lhe e permanecem neste computador. Para os escrever, o Ostler precisa de acesso à sua pasta Documentos, pelo que o macOS pode pedi-lo durante a configuração e novamente mais tarde no mesmo dia, quando o Ostler organizar a sua wiki pela primeira vez. O pedido pode aparecer como proveniente de python3.11, o auxiliar incluído que o Ostler usa para escrever os seus ficheiros. Clique em OK sempre que surgir. Se não o vir ou recusar, pode ativá-lo a qualquer momento em Definições do Sistema, em Privacidade e segurança, depois Ficheiros e pastas, e a sua wiki e os registos das conversas passarão a ser escritos a partir daí."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Motor de memória de conversas instalado no venv."
 MSG_INFO_HUB_APP_VERIFYING="A verificar o Ostler.app em %s"
 MSG_INFO_HUB_APP_STAGING="A copiar o Ostler.app para /Applications a partir de %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="Exportações RGPD detetadas
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="A importação de exportações RGPD estará disponível quando o pipeline for lançado."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Vamos analisar as pastas Descargas, Secretária e Documentos à procura de exportações de IA (Google Takeout, transferências da Meta, LinkedIn, etc.) que possa ter guardado. O macOS vai mostrar três pedidos de acesso a pastas – permita cada um deles. Demora cerca de 5 a 10 segundos no total. Nada é movido nem copiado durante a análise; apenas verificamos o que lá está."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="O macOS poderá pedir autorização para ler o seu Calendário. Permita-o para que o Ostler possa construir a parte de reuniões e eventos do seu grafo de conhecimento. (Os dados do Calendário ficam neste Mac.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="O macOS está a pedir autorização para Descargas. Clique em OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="O macOS está a pedir autorização para Secretária. Clique em OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="O macOS está a pedir autorização para Documentos. Clique em OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="A verificar o acesso a Descargas. Se o macOS pedir, clique em OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="A verificar o acesso à Secretária. Se o macOS pedir, clique em OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="A verificar o acesso a Documentos. Se o macOS pedir, clique em OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Acesso total ao disco concedido. A preparar o próximo pedido do macOS (automação das Mensagens)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1291,7 +1291,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Escreva INBOX novamente para confirmar ou 
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX significa que o assistente lerá todos os e-mails que receber. Recomendamos vivamente uma etiqueta/pasta dedicada."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Já pediu as suas exportações de dados?"
-MSG_PROMPT_EXPORTS_ACK_HELP="O Ostler importa 18 exportações de plataformas. A lista completa, com ligações diretas para a página de pedido de cada fornecedor, está em https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Serviços como a Google, a Meta, o Spotify e o LinkedIn permitem-lhe pedir uma cópia dos seus próprios dados, e o Ostler pode importá-la. Se ainda não pediu a sua, pode ignorar este passo e adicioná-las em qualquer altura mais tarde.
+
+O Ostler importa 18 exportações de plataformas. A lista completa, com ligações diretas para a página de pedido de cada fornecedor, está em https://ostler.ai/docs/getting-started/data-exports/.
 
 A maioria dos arquivos demora 1 a 3 dias a chegar por e-mail. Quando os ZIP chegarem, coloque-os na pasta Transferências e o Ostler encontrá-los-á automaticamente.
 
@@ -1967,3 +1969,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s verificado com o respetivo digest fixado (%s)"
 MSG_FAIL_MODEL_DIGEST_MISMATCH="O %s instalado não é o modelo fornecido por este instalador: encontrado %s, esperado %s (%s). A origem da transferência pode ter mudado, por isso a instalação foi interrompida antes de o utilizar. Contacte o suporte com esta mensagem."
 MSG_FAIL_MODEL_UNPINNED="%s não tem um digest fixado neste instalador, pelo que não pode ser verificado e não será utilizado. Trata-se de um defeito do instalador. Contacte o suporte com esta mensagem."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="Não foi possível verificar o %s transferido com o respetivo digest fixado (%s). O modelo não será utilizado sem verificação. Execute novamente o instalador; se isto se repetir, contacte o suporte com esta mensagem."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="O Ostler não conseguiu ativar a proteção que restringe o motor de IA local à sua conta (%s). Outras contas neste Mac poderiam aceder-lhe, por isso a instalação foi interrompida. Execute novamente o instalador e aprove o pedido de administrador; se isto se repetir, contacte o suporte. Detalhes: %s"

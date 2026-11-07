@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "取消",
+    "finish_pair_later_button": "完成並稍後配對",
     "reveal_in_finder_button": "在 Finder 中顯示",
     "done_button": "完成",
     "quit_button": "結束",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "輸入 INSTALL",
     "consent_install_typed_mismatch": "請準確輸入 INSTALL（不分大小寫）以確認，或按一下「取消」返回。",
+    "yesno_switch_on_to_continue": "開啟此選項才能繼續。如要停止，請使用「結束」。",
     "preinstall_status_caption": "狀態"
   },
   "assistant_name_suggestions": {

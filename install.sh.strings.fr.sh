@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Au premier lancement, Ostler RemoteCapture demand
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos comptes rendus de conversations dans Documents/Ostler, sur ce Mac. Ils vous appartiennent et restent sur cette machine. Pour les écrire, Ostler a besoin d’accéder à votre dossier Documents : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée, lorsque Ostler organisera votre wiki pour la première fois. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur Autoriser chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers ; votre wiki et vos comptes rendus de conversations seront alors écrits à partir de ce moment."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos comptes rendus de conversations dans Documents/Ostler, sur ce Mac. Ils vous appartiennent et restent sur cette machine. Pour les écrire, Ostler a besoin d’accéder à votre dossier Documents : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée, lorsque Ostler organisera votre wiki pour la première fois. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur OK chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers ; votre wiki et vos comptes rendus de conversations seront alors écrits à partir de ce moment."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Moteur de mémoire des conversations installé dans venv."
 MSG_INFO_HUB_APP_VERIFYING="Vérification d’Ostler.app dans %s"
 MSG_INFO_HUB_APP_STAGING="Copie d’Ostler.app dans /Applications depuis %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="Des exports RGPD ont été d
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="L'importation des exports RGPD sera disponible à la sortie du pipeline."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Nous allons analyser Téléchargements, Bureau et Documents à la recherche d'exports d'IA (Google Takeout, téléchargements Meta, LinkedIn, etc.) que vous auriez enregistrés. macOS affichera trois demandes d'accès aux dossiers : veuillez les autoriser une par une. Cela prend environ 5 à 10 secondes au total. Rien n'est déplacé ni copié pendant l'analyse ; nous vérifions seulement ce qui s'y trouve."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS peut vous demander l'autorisation de lire votre Calendrier. Autorisez-la pour qu'Ostler puisse construire la partie réunions et événements de votre graphe de connaissances. (Les données du Calendrier restent sur cette machine.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS demande l'autorisation pour Téléchargements. Cliquez sur OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS demande l'autorisation pour Bureau. Cliquez sur OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS demande l'autorisation pour Documents. Cliquez sur OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Vérification de l'accès à Téléchargements. Si macOS vous le demande, cliquez sur OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Vérification de l'accès à Bureau. Si macOS vous le demande, cliquez sur OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Vérification de l'accès à Documents. Si macOS vous le demande, cliquez sur OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Accès complet au disque accordé. Préparation de la prochaine demande macOS (automatisation de Messages)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1291,7 +1291,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Saisissez à nouveau INBOX pour confirmer,
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX signifie que l’assistant lira chaque e-mail que vous recevez. Nous recommandons vivement d’utiliser plutôt un libellé ou dossier dédié."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Avez-vous demandé vos exportations de données ?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importe 18 exportations de plateformes. La liste complète, avec des liens directs vers la page de demande de chaque fournisseur, se trouve sur https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Des services comme Google, Meta, Spotify et LinkedIn vous permettent de demander une copie de vos propres données, et Ostler peut l’importer. Si vous n’avez pas encore fait cette demande, vous pouvez passer cette étape et les ajouter plus tard, quand vous voulez.
+
+Ostler importe 18 exportations de plateformes. La liste complète, avec des liens directs vers la page de demande de chaque fournisseur, se trouve sur https://ostler.ai/docs/getting-started/data-exports/.
 
 La plupart des archives mettent de 1 à 3 jours à arriver par e-mail. Une fois les fichiers ZIP reçus, déposez-les dans votre dossier Téléchargements et Ostler les trouvera automatiquement.
 
@@ -1965,3 +1967,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s vérifié par rapport à son empreinte épingl�
 MSG_FAIL_MODEL_DIGEST_MISMATCH="Le modèle %s installé n'est pas celui fourni par cet installateur : trouvé %s, attendu %s (%s). La source de téléchargement a peut-être changé ; l'installation s'est donc arrêtée avant de l'utiliser. Contactez l'assistance avec ce message."
 MSG_FAIL_MODEL_UNPINNED="%s n'a pas d'empreinte épinglée dans cet installateur ; il ne peut donc pas être vérifié et ne sera pas utilisé. Il s'agit d'un défaut de l'installateur. Contactez l'assistance avec ce message."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="Impossible de vérifier %s téléchargé par rapport à son empreinte épinglée (%s). Le modèle ne sera pas utilisé sans vérification. Relancez l'installateur ; si le problème persiste, contactez l'assistance avec ce message."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="Ostler n'a pas pu activer la protection qui réserve le moteur d'IA local à votre compte (%s). D'autres comptes de ce Mac pourraient y accéder, l'installation s'est donc arrêtée. Relancez l'installateur et acceptez la demande administrateur ; si cela se répète, contactez l'assistance. Détails : %s"

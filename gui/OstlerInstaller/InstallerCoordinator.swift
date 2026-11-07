@@ -1415,6 +1415,28 @@ final class InstallerCoordinator: ObservableObject {
         }
     }
 
+    /// F&F item 6: the single entry point for the footer's Cancel and the
+    /// "Finish and pair later" button. At a pairing step it asks install.sh to
+    /// skip the sign-in wait and carry on to the end; it never terminates the
+    /// subprocess there. Elsewhere it is the old cancel(). The caller quits the
+    /// app only for `.terminate`.
+    @discardableResult
+    func requestCancel(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> LateStepPolicy.CancelAction {
+        let action = LateStepPolicy.cancelAction(stepId: currentStepId)
+        switch action {
+        case .terminate:
+            cancel()
+        case .finishWithoutPairing:
+            let wrote = LateStepPolicy.writeSkipSentinel(home: home)
+            appendLog(level: "info", msg: wrote
+                ? "Finishing without pairing; pairing can be done later from Settings or Doctor."
+                : "Could not write the pair-later marker; the install continues and will time out the sign-in wait on its own.")
+        }
+        return action
+    }
+
     func cancel() {
         guard let process = process, process.isRunning else { return }
         process.terminate()
@@ -1422,6 +1444,18 @@ final class InstallerCoordinator: ObservableObject {
     }
 
     // ── Prompt response (called by views) ────────────────────────
+
+    /// The visible log line for a sent answer. A yes/no answer is only
+    /// "y" or "n" (no PII), and on the consent prompts it decides whether
+    /// the install continues, so the line carries it (F&F, v1.0.125: a
+    /// cancel whose cause the log could not show). Every other kind logs
+    /// the id and kind only, never the answer.
+    static func sentAnswerLogLine(prompt: PendingPrompt, answer: String) -> String {
+        let base = "Sent answer for \(prompt.id) (\(prompt.kind.rawValue))"
+        guard prompt.kind == .yesno else { return base }
+        let value = (answer == "y" || answer == "n") ? answer : "other"
+        return base + ": " + value
+    }
 
     func respond(to prompt: PendingPrompt, with answer: String) {
         guard let handle = promptPipeWriteHandle else {
@@ -1435,7 +1469,7 @@ final class InstallerCoordinator: ObservableObject {
         let sanitised = answer.replacingOccurrences(of: "\n", with: " ")
         let line = sanitised + "\n"
         handle.write(Data(line.utf8))
-        appendLog(level: "info", msg: "Sent answer for \(prompt.id) (\(prompt.kind.rawValue))")
+        appendLog(level: "info", msg: Self.sentAnswerLogLine(prompt: prompt, answer: sanitised))
         // Secrets never reach the log -- byte-length only. For non-secret
         // prompts we log the answer at .debug so `log show --debug` can
         // reconstruct the full session; .info stays clean.

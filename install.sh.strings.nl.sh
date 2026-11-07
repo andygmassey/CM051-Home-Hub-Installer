@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Bij de eerste start vraagt Ostler RemoteCapture m
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens onder Documenten/Ostler, op deze Mac. Ze zijn van jou en blijven op deze machine. Om ze te schrijven heeft Ostler toegang nodig tot je map Documenten, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw, wanneer Ostler je wiki voor het eerst ordent. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op Sta toe wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen. Vanaf dan worden je wiki en gespreksgegevens geschreven."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens onder Documenten/Ostler, op deze Mac. Ze zijn van jou en blijven op deze machine. Om ze te schrijven heeft Ostler toegang nodig tot je map Documenten, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw, wanneer Ostler je wiki voor het eerst ordent. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op OK wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen. Vanaf dan worden je wiki en gespreksgegevens geschreven."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Geheugenengine voor gesprekken geïnstalleerd in venv."
 MSG_INFO_HUB_APP_VERIFYING="Ostler.app controleren op %s"
 MSG_INFO_HUB_APP_STAGING="Ostler.app vanuit %s in /Applications plaatsen"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR-exports gedetecteerd, m
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="Import van GDPR-exports wordt beschikbaar zodra de pipeline uitkomt."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Downloads, Bureaublad en Documenten worden doorzocht op AI-exports (Google Takeout, Meta-downloads, LinkedIn enzovoort) die je mogelijk hebt bewaard. macOS toont drie meldingen voor maptoegang – sta ze alle drie toe. Het duurt in totaal ongeveer 5-10 seconden. Tijdens de scan wordt niets verplaatst of gekopieerd; we kijken alleen wat er staat."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS vraagt mogelijk toestemming om je Agenda te lezen. Sta dit toe zodat Ostler het deel van je kennisgraaf met afspraken en evenementen kan opbouwen. (Agendagegevens blijven op deze Mac.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS vraagt toestemming voor Downloads. Klik op OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS vraagt toestemming voor Bureaublad. Klik op OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS vraagt toestemming voor Documenten. Klik op OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Toegang tot Downloads controleren. Als macOS erom vraagt, klik je op OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Toegang tot Bureaublad controleren. Als macOS erom vraagt, klik je op OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Toegang tot Documenten controleren. Als macOS erom vraagt, klik je op OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Volledige schijftoegang verleend. De volgende macOS-melding (Berichten-automatisering) wordt voorbereid..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1287,7 +1287,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Typ INBOX nogmaals om te bevestigen, of kl
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX betekent dat de assistent alle e-mail leest die je ontvangt. We raden sterk aan in plaats daarvan een eigen label of map te gebruiken."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Heb je je gegevensexports aangevraagd?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importeert 18 platformexports. De volledige lijst, met directe links naar de aanvraagpagina van elke aanbieder, staat op https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Diensten zoals Google, Meta, Spotify en LinkedIn laten je een kopie van je eigen gegevens aanvragen, en Ostler kan die importeren. Heb je die nog niet aangevraagd, dan kun je dit overslaan en ze later op elk moment toevoegen.
+
+Ostler importeert 18 platformexports. De volledige lijst, met directe links naar de aanvraagpagina van elke aanbieder, staat op https://ostler.ai/docs/getting-started/data-exports/.
 
 De meeste archieven komen binnen 1 tot 3 dagen per e-mail binnen. Zodra de ZIP-bestanden er zijn, zet je ze in je map Downloads en Ostler vindt ze automatisch.
 
@@ -1961,3 +1963,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s gecontroleerd aan de hand van de vastgezette di
 MSG_FAIL_MODEL_DIGEST_MISMATCH="Het geïnstalleerde %s is niet het model dat dit installatieprogramma meelevert: gevonden %s, verwacht %s (%s). De downloadbron is mogelijk gewijzigd, daarom is de installatie gestopt voordat het werd gebruikt. Neem contact op met de support en geef dit bericht door."
 MSG_FAIL_MODEL_UNPINNED="%s heeft in dit installatieprogramma geen vastgezette digest, dus het kan niet worden gecontroleerd en wordt niet gebruikt. Dit is een fout in het installatieprogramma. Neem contact op met de support en geef dit bericht door."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="De gedownloade %s kon niet worden gecontroleerd aan de hand van de vastgezette digest (%s). Het model wordt niet ongecontroleerd gebruikt. Voer het installatieprogramma opnieuw uit; als dit zich herhaalt, neem dan contact op met de support en geef dit bericht door."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="Ostler kon de beveiliging niet inschakelen die de lokale AI-engine aan jouw account voorbehoudt (%s). Andere accounts op deze Mac zouden hem kunnen bereiken, dus de installatie is gestopt. Voer het installatieprogramma opnieuw uit en keur het beheerdersverzoek goed; als dit zich herhaalt, neem dan contact op met support. Details: %s"

@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Al primo avvio, Ostler RemoteCapture chiederà a 
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler salva il tuo wiki personale e le trascrizioni delle tue conversazioni in Documenti/Ostler, su questo Mac. Sono tuoi e restano su questo computer. Per scriverli, Ostler ha bisogno di accedere alla cartella Documenti, quindi macOS potrebbe chiedertelo durante la configurazione e di nuovo più tardi oggi, quando Ostler organizzerà per la prima volta il tuo wiki. La richiesta può sembrare provenire da python3.11, l'helper incluso che Ostler usa per scrivere i tuoi file. Fai clic su Consenti ogni volta che compare. Se te la perdi o la rifiuti, puoi attivarla in qualsiasi momento in Impostazioni di Sistema, sotto Privacy e sicurezza, poi File e cartelle, e da quel momento il tuo wiki e le trascrizioni delle conversazioni verranno scritti."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler salva il tuo wiki personale e le trascrizioni delle tue conversazioni in Documenti/Ostler, su questo Mac. Sono tuoi e restano su questo computer. Per scriverli, Ostler ha bisogno di accedere alla cartella Documenti, quindi macOS potrebbe chiedertelo durante la configurazione e di nuovo più tardi oggi, quando Ostler organizzerà per la prima volta il tuo wiki. La richiesta può sembrare provenire da python3.11, l'helper incluso che Ostler usa per scrivere i tuoi file. Fai clic su OK ogni volta che compare. Se te la perdi o la rifiuti, puoi attivarla in qualsiasi momento in Impostazioni di Sistema, sotto Privacy e sicurezza, poi File e cartelle, e da quel momento il tuo wiki e le trascrizioni delle conversazioni verranno scritti."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Motore della memoria delle conversazioni installato nel venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifica di Ostler.app in %s"
 MSG_INFO_HUB_APP_STAGING="Copia di Ostler.app in /Applications da %s"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="Esportazioni GDPR rilevate, 
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="L'importazione delle esportazioni GDPR sarà disponibile con il rilascio della pipeline."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Stiamo per cercare in Download, Scrivania e Documenti eventuali esportazioni AI (Google Takeout, download di Meta, LinkedIn, ecc.) che potresti aver salvato. macOS mostrerà tre richieste di accesso alle cartelle: consentile tutte. Servono circa 5-10 secondi in totale. Durante la scansione nulla viene spostato o copiato; controlliamo solo cosa c'è."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS potrebbe chiederti il permesso di leggere Calendario. Consentilo così Ostler potrà costruire la parte di riunioni ed eventi del tuo grafo della conoscenza. (I dati di Calendario restano su questo Mac.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS chiede il permesso per Download. Fai clic su OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS chiede il permesso per Scrivania. Fai clic su OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS chiede il permesso per Documenti. Fai clic su OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Controllo dell'accesso a Download. Se macOS lo chiede, fai clic su OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Controllo dell'accesso a Scrivania. Se macOS lo chiede, fai clic su OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Controllo dell'accesso a Documenti. Se macOS lo chiede, fai clic su OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Accesso completo al disco concesso. Preparazione della prossima richiesta di macOS (automazione di Messaggi)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1290,7 +1290,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Digita di nuovo INBOX per confermare, oppu
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX significa che l'assistente leggerà ogni email che ricevi. Consigliamo vivamente di usare invece un'etichetta o una cartella dedicata."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Hai richiesto l'esportazione dei tuoi dati?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importa 18 esportazioni di piattaforme. L'elenco completo, con collegamenti diretti alla pagina di richiesta di ciascun fornitore, è su https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Servizi come Google, Meta, Spotify e LinkedIn ti permettono di richiedere una copia dei tuoi dati, e Ostler può importarla. Se non hai ancora fatto la richiesta, puoi saltare questo passaggio e aggiungerle in qualsiasi momento.
+
+Ostler importa 18 esportazioni di piattaforme. L'elenco completo, con collegamenti diretti alla pagina di richiesta di ciascun fornitore, è su https://ostler.ai/docs/getting-started/data-exports/.
 
 La maggior parte degli archivi impiega da 1 a 3 giorni per arrivare via email. Quando arrivano gli ZIP, mettili nella cartella Download e Ostler li troverà automaticamente.
 
@@ -1966,3 +1968,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s verificato rispetto al digest fissato (%s)"
 MSG_FAIL_MODEL_DIGEST_MISMATCH="Il modello %s installato non è quello fornito da questo installer: trovato %s, previsto %s (%s). La fonte del download potrebbe essere cambiata, quindi l'installazione è stata interrotta prima di usarlo. Contatta l'assistenza con questo messaggio."
 MSG_FAIL_MODEL_UNPINNED="%s non ha un digest fissato in questo installer, quindi non può essere verificato e non verrà usato. Si tratta di un difetto dell'installer. Contatta l'assistenza con questo messaggio."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="Impossibile verificare il download di %s rispetto al digest fissato (%s). Il modello non verrà usato senza verifica. Esegui di nuovo l'installer; se il problema si ripete, contatta l'assistenza con questo messaggio."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="Ostler non è riuscito ad attivare la protezione che riserva il motore di IA locale al tuo account (%s). Altri account su questo Mac potrebbero raggiungerlo, quindi l'installazione è stata interrotta. Riesegui l'installer e approva la richiesta di amministratore; se si ripete, contatta l'assistenza. Dettagli: %s"

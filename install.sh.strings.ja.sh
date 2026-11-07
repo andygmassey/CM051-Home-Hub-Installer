@@ -99,7 +99,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="初回起動時に、Ostler RemoteCaptureはmacOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostlerは、あなたの個人用ウィキと会話の記録を、このMacの「書類」内のOstlerフォルダ(Documents/Ostler)に保存します。これらはあなたのものであり、このMacの外には出ません。書き込むには「書類」フォルダへのアクセスが必要なため、セットアップ中と、今日このあとOstlerが初めてウィキを整理するときに、macOSが許可を求めることがあります。要求は、Ostlerがファイルの書き込みに使う同梱ヘルパーのpython3.11からのものとして表示される場合があります。表示されたら、その都度「許可」をクリックしてください。見逃した場合や許可しなかった場合でも、システム設定の「プライバシーとセキュリティ」、「ファイルとフォルダ」からいつでもオンにでき、以降はウィキと会話の記録が書き込まれます。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostlerは、あなたの個人用ウィキと会話の記録を、このMacの「書類」内のOstlerフォルダ(Documents/Ostler)に保存します。これらはあなたのものであり、このMacの外には出ません。書き込むには「書類」フォルダへのアクセスが必要なため、セットアップ中と、今日このあとOstlerが初めてウィキを整理するときに、macOSが許可を求めることがあります。要求は、Ostlerがファイルの書き込みに使う同梱ヘルパーのpython3.11からのものとして表示される場合があります。表示されたら、その都度「OK」をクリックしてください。見逃した場合や許可しなかった場合でも、システム設定の「プライバシーとセキュリティ」、「ファイルとフォルダ」からいつでもオンにでき、以降はウィキと会話の記録が書き込まれます。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  会話メモリエンジンをvenvにインストールしました。"
 MSG_INFO_HUB_APP_VERIFYING="%s にあるOstler.appを検証中"
 MSG_INFO_HUB_APP_STAGING="%s からOstler.appを/Applicationsへ配置中"
@@ -144,9 +144,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR エクスポートを�
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR エクスポートのインポートは、パイプラインの提供開始後に利用できます。"
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="ダウンロード、デスクトップ、書類フォルダ内に保存されている可能性のある AI エクスポート（Google Takeout、Meta のダウンロード、LinkedIn など）をスキャンします。macOS からフォルダへのアクセス確認が3回表示されますので、それぞれ許可してください。所要時間は合計で5～10秒ほどです。スキャン中にファイルが移動またはコピーされることはなく、何があるかを確認するだけです。"
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS からカレンダーの読み取り許可を求められる場合があります。Ostler があなたのナレッジグラフの会議や予定の部分を作成できるよう、許可してください。（カレンダーのデータはこの Mac の外に出ません。）"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS がダウンロードフォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS がデスクトップフォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS が書類フォルダへのアクセス許可を求めています。「OK」をクリックしてください。"
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="ダウンロードフォルダへのアクセスを確認しています。macOS が確認を求めた場合は「OK」をクリックしてください。"
+MSG_INFO_FOLDER_PREWARM_DESKTOP="デスクトップフォルダへのアクセスを確認しています。macOS が確認を求めた場合は「OK」をクリックしてください。"
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="書類フォルダへのアクセスを確認しています。macOS が確認を求めた場合は「OK」をクリックしてください。"
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="フルディスクアクセスが許可されました。次の macOS の確認（メッセージのオートメーション）を準備しています..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1289,7 +1289,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="確認のためもう一度INBOXと入力�
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOXを指定すると、アシスタントは受信するすべてのメールを読み込みます。代わりに専用のラベル/フォルダを強くおすすめします。"
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="データのエクスポートはリクエストしましたか?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostlerは18のプラットフォームのエクスポートを読み込めます。各プロバイダのリクエストページへの直接リンクを含む全一覧は、https://ostler.ai/docs/getting-started/data-exports/ にあります。
+MSG_PROMPT_EXPORTS_ACK_HELP="Google、Meta、Spotify、LinkedInなどのサービスでは、自分のデータのコピーをリクエストでき、Ostlerはそれを読み込めます。まだリクエストしていない場合は、この手順をスキップして、後からいつでも追加できます。
+
+Ostlerは18のプラットフォームのエクスポートを読み込めます。各プロバイダのリクエストページへの直接リンクを含む全一覧は、https://ostler.ai/docs/getting-started/data-exports/ にあります。
 
 ほとんどのアーカイブは、メールで届くまで1〜3日かかります。ZIPが届いたら「ダウンロード」フォルダに入れてください。Ostlerが自動的に見つけます。
 
@@ -1965,3 +1967,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%sは固定されたダイジェスト(%s)と照�
 MSG_FAIL_MODEL_DIGEST_MISMATCH="インストールされている%sは、このインストーラが提供するモデルではありません。見つかったもの: %s、期待されるもの: %s(%s)。ダウンロード元が変更された可能性があるため、使用する前にインストールを停止しました。このメッセージを添えてサポートにお問い合わせください。"
 MSG_FAIL_MODEL_UNPINNED="%sには、このインストーラ内に固定されたダイジェストがないため、検証できず、使用されません。これはインストーラの不具合です。このメッセージを添えてサポートにお問い合わせください。"
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="ダウンロードした%sを固定されたダイジェスト(%s)と照合して検証できませんでした。未検証のモデルは使用されません。インストーラを再実行してください。繰り返し発生する場合は、このメッセージを添えてサポートにお問い合わせください。"
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="ローカルAIエンジンをあなたのアカウント専用にする保護機能をオンにできませんでした(%s)。このMacの他のアカウントからアクセスできる状態のため、インストールを停止しました。インストーラを再実行し、管理者の確認を許可してください。繰り返し発生する場合は、サポートにお問い合わせください。詳細:%s"

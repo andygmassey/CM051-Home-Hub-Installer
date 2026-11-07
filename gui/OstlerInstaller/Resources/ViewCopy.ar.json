@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "إلغاء",
+    "finish_pair_later_button": "إنهاء والإقران لاحقًا",
     "reveal_in_finder_button": "إظهار في Finder",
     "done_button": "تم",
     "quit_button": "إنهاء",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "اكتب INSTALL",
     "consent_install_typed_mismatch": "اكتب INSTALL تمامًا كما هي (حالة الأحرف غير مهمة) للتأكيد، أو انقر على إلغاء للرجوع.",
+    "yesno_switch_on_to_continue": "شغّل هذا الخيار للمتابعة. للتوقف، استخدم إنهاء.",
     "preinstall_status_caption": "الحالة"
   },
   "assistant_name_suggestions": {

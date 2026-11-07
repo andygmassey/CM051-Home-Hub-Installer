@@ -98,7 +98,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Beim ersten Start fragt Ostler RemoteCapture bei 
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler speichert dein persönliches Wiki und deine Gesprächsprotokolle unter Dokumente/Ostler auf diesem Mac. Sie gehören dir und bleiben auf diesem Gerät. Zum Schreiben braucht Ostler Zugriff auf deinen Dokumente-Ordner. Deshalb fragt macOS eventuell bei der Einrichtung danach und später am Tag noch einmal, wenn Ostler dein Wiki erstmals ordnet. Die Anfrage kann so aussehen, als käme sie von python3.11, dem mitgelieferten Hilfsprogramm, mit dem Ostler deine Dateien schreibt. Klicke bitte jedes Mal auf „Erlauben“. Falls du sie verpasst oder ablehnst, kannst du den Zugriff jederzeit in den Systemeinstellungen unter Datenschutz & Sicherheit > Dateien und Ordner aktivieren. Ab dann werden dein Wiki und deine Gesprächsprotokolle geschrieben."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler speichert dein persönliches Wiki und deine Gesprächsprotokolle unter Dokumente/Ostler auf diesem Mac. Sie gehören dir und bleiben auf diesem Gerät. Zum Schreiben braucht Ostler Zugriff auf deinen Dokumente-Ordner. Deshalb fragt macOS eventuell bei der Einrichtung danach und später am Tag noch einmal, wenn Ostler dein Wiki erstmals ordnet. Die Anfrage kann so aussehen, als käme sie von python3.11, dem mitgelieferten Hilfsprogramm, mit dem Ostler deine Dateien schreibt. Klicke bitte jedes Mal auf „OK“. Falls du sie verpasst oder ablehnst, kannst du den Zugriff jederzeit in den Systemeinstellungen unter Datenschutz & Sicherheit > Dateien und Ordner aktivieren. Ab dann werden dein Wiki und deine Gesprächsprotokolle geschrieben."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Gedächtnis-Engine für Gespräche in der venv installiert."
 MSG_INFO_HUB_APP_VERIFYING="Ostler.app wird überprüft unter %s"
 MSG_INFO_HUB_APP_STAGING="Ostler.app wird aus %s nach /Applications bereitgestellt"
@@ -143,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="DSGVO-Exporte erkannt, aber 
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="Der Import von DSGVO-Exporten ist verfügbar, sobald die Pipeline bereitsteht."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="Gleich werden Downloads, Schreibtisch und Dokumente nach KI-Exporten durchsucht (Google Takeout, Meta-Downloads, LinkedIn usw.), die du vielleicht gespeichert hast. macOS zeigt drei Abfragen zum Ordnerzugriff an – bitte erlaube jede davon. Das dauert insgesamt etwa 5–10 Sekunden. Während der Suche wird nichts verschoben oder kopiert; wir prüfen nur, was vorhanden ist."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS fragt möglicherweise um Erlaubnis, deinen Kalender zu lesen. Erlaube es, damit Ostler den Teil deines Wissensgraphen mit Terminen und Ereignissen aufbauen kann. (Kalenderdaten bleiben auf diesem Gerät.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS fragt um Erlaubnis für Downloads. Klicke auf „OK“."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS fragt um Erlaubnis für den Schreibtisch. Klicke auf „OK“."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS fragt um Erlaubnis für Dokumente. Klicke auf „OK“."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Ostler prüft den Zugriff auf Downloads. Falls macOS nachfragt, klicke auf „OK“."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Ostler prüft den Zugriff auf den Schreibtisch. Falls macOS nachfragt, klicke auf „OK“."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Ostler prüft den Zugriff auf Dokumente. Falls macOS nachfragt, klicke auf „OK“."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Festplattenvollzugriff erteilt. Die nächste macOS-Abfrage (Automatisierung für Nachrichten) wird vorbereitet..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -1290,7 +1290,9 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Gib zur Bestätigung erneut INBOX ein oder
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX bedeutet, dass der Assistent jede E-Mail liest, die du erhältst. Wir empfehlen dringend stattdessen ein eigenes Label oder einen eigenen Ordner."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Hast du deine Datenexporte angefordert?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler importiert 18 Plattform-Exporte. Die vollständige Liste mit direkten Links zur Anfrageseite jedes Anbieters findest du unter https://ostler.ai/docs/getting-started/data-exports/.
+MSG_PROMPT_EXPORTS_ACK_HELP="Dienste wie Google, Meta, Spotify und LinkedIn lassen dich eine Kopie deiner eigenen Daten anfordern, und Ostler kann sie importieren. Wenn du deine noch nicht angefordert hast, kannst du das hier überspringen und sie jederzeit später hinzufügen.
+
+Ostler importiert 18 Plattform-Exporte. Die vollständige Liste mit direkten Links zur Anfrageseite jedes Anbieters findest du unter https://ostler.ai/docs/getting-started/data-exports/.
 
 Die meisten Archive treffen nach 1 bis 3 Tagen per E-Mail ein. Sobald die ZIP-Dateien da sind, lege sie in deinen Ordner „Downloads“, und Ostler findet sie automatisch.
 
@@ -1965,3 +1967,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s anhand des festgelegten Digests überprüft (%s
 MSG_FAIL_MODEL_DIGEST_MISMATCH="Das installierte %s ist nicht das Modell, das dieses Installationsprogramm mitbringt: gefunden %s, erwartet %s (%s). Möglicherweise hat sich die Downloadquelle geändert, deshalb wurde die Installation gestoppt, bevor es verwendet wurde. Wende dich mit dieser Meldung an den Support."
 MSG_FAIL_MODEL_UNPINNED="Für %s ist in diesem Installationsprogramm kein Digest festgelegt, daher kann es nicht überprüft werden und wird nicht verwendet. Das ist ein Fehler im Installationsprogramm. Wende dich mit dieser Meldung an den Support."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="Das heruntergeladene %s konnte nicht anhand des festgelegten Digests überprüft werden (%s). Das Modell wird nicht ungeprüft verwendet. Führe das Installationsprogramm erneut aus. Wenn das wieder passiert, wende dich mit dieser Meldung an den Support."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="Ostler konnte den Schutz nicht einschalten, der den lokalen KI-Dienst auf dein Konto beschränkt (%s). Andere Konten auf diesem Mac könnten ihn erreichen, daher wurde die Installation angehalten. Starte den Installer erneut und bestätige die Administratorabfrage; wenn das wieder passiert, wende dich an den Support. Details: %s"

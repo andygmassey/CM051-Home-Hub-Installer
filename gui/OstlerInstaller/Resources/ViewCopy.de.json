@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "Abbrechen",
+    "finish_pair_later_button": "Fertigstellen und später koppeln",
     "reveal_in_finder_button": "Im Finder anzeigen",
     "done_button": "Fertig",
     "quit_button": "Beenden",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "INSTALL eingeben",
     "consent_install_typed_mismatch": "Gib INSTALL genau so ein (Groß- und Kleinschreibung spielt keine Rolle), um zu bestätigen, oder klicke auf „Abbrechen“, um zurückzugehen.",
+    "yesno_switch_on_to_continue": "Schalte dies ein, um fortzufahren. Zum Aufhören verwende „Beenden“.",
     "preinstall_status_caption": "STATUS"
   },
   "assistant_name_suggestions": {

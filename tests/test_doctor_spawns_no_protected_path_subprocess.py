@@ -273,7 +273,7 @@ PINNED = {
     "import_obsidian.py": 1,        # same shape as evernote
     "remote_access.py": 1,          # tailscale --socket ~/.ostler/tailscale
     "routine_status.py": 1,         # launchctl print
-    "status_collector.py": 2,       # docker ps, docker version
+    "status_collector.py": 4,       # docker ps, docker version, docker inspect + docker events of the store containers (126, store OOM restart row)
     "test_health_gate.py": 1,       # pytest (dev-only __main__)
 }
 METADATA_TOOLS = {"tmutil", "mdls", "mdfind", "xattr", "sqlite3", "osascript", "defaults",

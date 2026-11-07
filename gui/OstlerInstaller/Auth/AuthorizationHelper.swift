@@ -124,6 +124,35 @@ internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) 
     """
 }
 
+/// The root work of the ONE admin shell. Exposed at file scope so the
+/// test target asserts the shell production actually runs, not a copy.
+///
+/// The loopback guard (lib/ostler-loopback-guard.sh, v1.0.126): a pf
+/// anchor plus the com.ostler.loopback-guard LaunchDaemon that refuse other
+/// accounts on the Mac a connection to the local AI engine (:11434 and its
+/// ephemeral runner ports). Installed here because install.sh under
+/// OSTLER_GUI=1 never holds root. Its outcome is NOT judged here: the guard
+/// writes a status file and install.sh FAILS CLOSED (ERR-08-LOOPBACK-GUARD-
+/// NOT-ACTIVE) unless that status is a fresh ok. A resource path containing a
+/// single quote cannot be quoted safely, so the guard step is omitted and
+/// install.sh then fails closed rather than running an unquoted path as root.
+internal func buildAdminInnerShell(resourcePath: String?) -> String {
+    var shell =
+        "/usr/bin/sudo -v ; " +
+        "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
+        "/bin/mkdir -p /opt/homebrew ; " +
+        "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
+        "/bin/chmod 755 /opt/homebrew ; " +
+        "/bin/mkdir -p /usr/local/bin ; " +
+        "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
+        "/bin/chmod 755 /usr/local/bin"
+    if let res = resourcePath, !res.contains("'") {
+        let lib = "'" + res + "/lib/ostler-loopback-guard.sh'"
+        shell += " ; /bin/bash " + lib + " install-root $(/usr/bin/id -u $ORIG_USER) " + lib
+    }
+    return shell
+}
+
 actor AuthorizationHelper {
     static let shared = AuthorizationHelper()
 
@@ -207,15 +236,7 @@ actor AuthorizationHelper {
         // touching the escape contract. Every command is pinned to
         // its absolute path so a hostile PATH on the customer's
         // account cannot shadow `chown` etc with a malicious binary.
-        let innerShell =
-            "/usr/bin/sudo -v ; " +
-            "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
-            "/bin/mkdir -p /opt/homebrew ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
-            "/bin/chmod 755 /opt/homebrew ; " +
-            "/bin/mkdir -p /usr/local/bin ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
-            "/bin/chmod 755 /usr/local/bin"
+        let innerShell = buildAdminInnerShell(resourcePath: Bundle.main.resourcePath)
 
         let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
 

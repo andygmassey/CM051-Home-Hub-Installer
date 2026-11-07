@@ -17,6 +17,8 @@
 # from a runner with no box, no network and no credentials.
 #
 # WHAT THIS ASSERTS
+#   0. the DMG the walk STAGED (ttywalk.sh's ~/.walk-dmg marker) wins over a
+#      stale same-version file in ~/Downloads (v1.0.124 walk, 2026-11-05).
 #   1. one matching DMG on the box  -> measured(...), and the recorded sha is
 #      the sha the box returned. VALUE, not merely a well-formed string.
 #   2. zero / two / unreachable     -> three DISTINCT asserted-unverifiable
@@ -112,9 +114,15 @@ DMG_49_DL="${BOX_HOME}/Downloads/OstlerInstaller-1.0.49.dmg"
 
 # ── THE STUB ────────────────────────────────────────────────────────────────
 # `ssh` is resolved through the shell, so this shadows the binary. It must
-# discriminate the two remote calls the writer makes -- the find and the
-# shasum -- or arm 1 would hash the file listing.
+# discriminate the remote calls the writer makes -- the walk-dmg marker read,
+# the find and the shasum -- or arm 1 would hash the file listing.
+#
+# Two DIFFERENT digests, so an arm can tell WHICH file was hashed: any
+# versioned OstlerInstaller-<v>.dmg hashes STUB_SHA, the unversioned
+# OstlerInstaller.dmg (the release asset name ttywalk.sh stages) WALKED_SHA.
 STUB_SHA="$(printf 'pretend dmg bytes\n' | shasum -a 256 | awk '{print $1}')"
+WALKED_SHA="$(printf 'the dmg the walk staged\n' | shasum -a 256 | awk '{print $1}')"
+DMG_WALKED="${BOX_HOME}/Downloads/OstlerInstaller.dmg"
 ssh() {
     local a cmd=""
     for a in "$@"; do cmd="$a"; done     # last arg is the remote command;
@@ -122,21 +130,33 @@ ssh() {
                                           # because the cut host is macOS and
                                           # ships bash 3.2.
     case "$cmd" in
-        *shasum*) printf '%s  %s\n' "$STUB_SHA" "$DMG_50_DL"; return 0 ;;
-        *)        [[ -n "$FAKE_LIST" ]] && printf '%s\n' "$FAKE_LIST"; return "$FAKE_RC" ;;
+        *walk-dmg*)
+            [[ "$FAKE_RC" -ne 0 ]] && return "$FAKE_RC"
+            [[ -n "$FAKE_MARKER" ]] && printf '%s\n' "$FAKE_MARKER"; return 0 ;;
+        *shasum*)
+            if [[ "$FAKE_STAGED_GONE" == 1 && "$cmd" == *NO-FILE* ]]; then
+                echo NO-FILE; return 0
+            fi
+            case "$cmd" in
+                *"/OstlerInstaller.dmg'"*) printf '%s  %s\n' "$WALKED_SHA" "$DMG_WALKED" ;;
+                *)                         printf '%s  %s\n' "$STUB_SHA" "$DMG_50_DL" ;;
+            esac
+            return 0 ;;
+        *)  [[ -n "$FAKE_LIST" ]] && printf '%s\n' "$FAKE_LIST"; return "$FAKE_RC" ;;
     esac
 }
 
-drive() { # drive <rc> <find-output>
+drive() { # drive <rc> <find-output> [<marker line>] [<staged file gone: 1>]
     BOX="fake.invalid"; CUT_VERSION="v1.0.50"
     FAKE_RC="$1"; FAKE_LIST="$2"
+    FAKE_MARKER="${3:-}"; FAKE_STAGED_GONE="${4:-0}"
     ARTEFACT_SHA=""; ARTEFACT_SHA_SOURCE=""
     # shellcheck disable=SC1090
     . "$BLK" >/dev/null 2>&1
 }
 
-expect_source() { # expect_source <label> <rc> <list> <substring>
-    drive "$2" "$3"
+expect_source() { # expect_source <label> <rc> <list> <substring> [<marker>] [<gone>]
+    drive "$2" "$3" "${5:-}" "${6:-0}"
     case "$ARTEFACT_SHA_SOURCE" in
         *"$4"*) ok "$1 -> ${ARTEFACT_SHA_SOURCE}" ;;
         *)      bad "$1 recorded '${ARTEFACT_SHA_SOURCE}', expected to contain '$4'" ;;
@@ -173,6 +193,68 @@ fi
 # A writer that hashed whatever DMG it found would pass every arm above.
 expect_source "CONTROL: a v1.0.49 DMG does not satisfy a v1.0.50 walk" 0 \
     "$DMG_49_DL" "no OstlerInstaller-1.0.50.dmg"
+
+# ── 3b. THE v1.0.124 DEFECT: A STALE SAME-VERSION DMG BESIDE THE WALKED ONE ─
+# MEASURED 2026-11-05: ~/Downloads held a stale OstlerInstaller-<v>.dmg from an
+# earlier build of the same version, the walk staged OstlerInstaller.dmg, and
+# the record took the stale file's sha as measured(...). With the marker the
+# walk wrote, the record must carry the WALKED sha. The old by-name pick
+# hashes the versioned file (STUB_SHA) and goes red here.
+BOTH="${DMG_50_DL}
+${DMG_WALKED}"
+MARKER_OK="$(printf '1.0.50\t%s\t%s' "$DMG_WALKED" "$WALKED_SHA")"
+expect_source "DEFECT: stale OstlerInstaller-1.0.50.dmg plus the walked OstlerInstaller.dmg named in the marker" 0 \
+    "$BOTH" "the DMG the walk staged" "$MARKER_OK"
+if [[ "$ARTEFACT_SHA" == "$WALKED_SHA" ]]; then
+    ok "...and the RECORDED SHA IS THE WALKED DMG's, not the stale same-named file's"
+else
+    bad "the record carries '${ARTEFACT_SHA}', not the walked DMG's ${WALKED_SHA} -- the wrong build is bound to the record"
+fi
+
+# Every way the marker cannot be honoured is asserted-unverifiable with its
+# OWN reason, and never falls through to the by-name pick (which would hash the
+# stale file and call it measured).
+expect_source "marker names a file no longer on the box" 0 "$BOTH" \
+    "is missing from the box" "$MARKER_OK" 1
+[[ "$ARTEFACT_SHA" == "unavailable" ]] && ok "...and no sha is recorded" \
+    || bad "a missing staged file still recorded sha '${ARTEFACT_SHA}'"
+expect_source "marker sha differs from the re-hash (file replaced since the walk)" 0 "$BOTH" \
+    "replaced since the walk" "$(printf '1.0.50\t%s\t%s' "$DMG_WALKED" "$STUB_SHA")"
+expect_source "marker from a walk of a DIFFERENT version (stale marker)" 0 "$BOTH" \
+    "stale marker" "$(printf '1.0.49\t%s\t%s' "$DMG_WALKED" "$WALKED_SHA")"
+expect_source "malformed marker" 0 "$BOTH" "malformed" "garbage"
+
+# NO MARKER (an older ttywalk.sh, a console walk): the by-name pick is taken
+# only when it is the sole candidate. The v1.0.124 box state without a marker
+# is ambiguous, never measured.
+expect_source "no marker, stale versioned DMG beside an unversioned one" 0 "$BOTH" \
+    "cannot tell which was walked"
+[[ "$ARTEFACT_SHA" == "unavailable" ]] && ok "...and no sha is recorded" \
+    || bad "an ambiguous box with no marker still recorded sha '${ARTEFACT_SHA}'"
+
+# ── 3c. THE PRODUCER: ttywalk.sh WRITES THE MARKER THIS BLOCK READS ─────────
+# The consumer arms above are green by construction if nothing writes the
+# marker. This is a source check, NOT an execution of ttywalk.sh (that needs a
+# box): it pins the three things the consumer depends on -- the marker is
+# removed on every walk, it is written from the sha of the DMG the walk
+# scp'd, and its field order is version, path, sha.
+TTY="${REPO_ROOT}/scripts/ttywalk.sh"
+TTY_CODE="$(sed 's/^[[:space:]]*#.*$//' "$TTY")"
+if grep -qF 'rm -f ~/.walk-dmg' <<< "$TTY_CODE"; then
+    ok "ttywalk.sh removes ~/.walk-dmg on every walk, so a repo walk never inherits a marker"
+else
+    bad "ttywalk.sh never removes ~/.walk-dmg -- a later walk would inherit the previous walk's DMG"
+fi
+if grep -qF "printf '%s\\t%s\\t%s\\n' '\${ARTEFACT_VERSION:-}' \\\"\\\$HOME/Downloads/\${_wdm_name}\\\" '\${_wdm_sha}' > ~/.walk-dmg" <<< "$TTY_CODE"; then
+    ok "ttywalk.sh writes version, staged path, staged sha to ~/.walk-dmg (the order this block parses)"
+else
+    bad "ttywalk.sh does not write ~/.walk-dmg as version<TAB>path<TAB>sha -- the consumer would read nothing or the wrong field"
+fi
+if grep -qF '_wdm_sha="$_wpa_sha"' <<< "$TTY_CODE" && grep -qF '_wdm_name="$_wpa_name"' <<< "$TTY_CODE"; then
+    ok "the marker's sha and name are the ones the walk scp'd and verified at placement"
+else
+    bad "the marker is not fed from the scp'd DMG's sha and name"
+fi
 
 # ── 4. THE FIELDS THE READER REQUIRES ARE ACTUALLY WRITTEN ──────────────────
 # The arms above prove the block computes the right values. This proves those

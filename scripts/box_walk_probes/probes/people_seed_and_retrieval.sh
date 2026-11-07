@@ -526,10 +526,19 @@ except Exception:
 PY
 }
 
-# judge_dep_health <bodyfile> -> ok:<n>|down:<names>|nochecks|unparseable
+# judge_dep_health <bodyfile> -> ok:<n>[;ignored:<name>(<why>),...]|down:<names>|nochecks|unparseable
+#
+# Only the stores the two legs actually use are judged: oxigraph (graph seed and
+# lookup), qdrant (semantic search), ollama (embed behind memory/assert). A
+# required store that is ok:false, or absent from the report, is DOWN.
+# Every other check (gws and any future connector) is ignored AND NAMED: the
+# Hub deliberately reports gws {"ok": false, "not_connected": true} when no
+# Google connector is consented (ical-server.py gws privacy gate), and that is
+# not a dead store.
 judge_dep_health() {
     python3 - "$1" <<'PY'
 import json, sys
+REQUIRED = ("oxigraph", "qdrant", "ollama")
 try:
     d = json.load(open(sys.argv[1]))
 except Exception:
@@ -537,9 +546,16 @@ except Exception:
 checks = d.get("checks") or {}
 if not isinstance(checks, dict) or not checks:
     print("nochecks"); raise SystemExit
-bad = [k for k, v in checks.items()
-       if isinstance(v, dict) and v.get("ok") is False]
-print("down:" + ",".join(sorted(bad)) if bad else "ok:%d" % len(checks))
+bad = [k for k in REQUIRED
+       if not (isinstance(checks.get(k), dict) and checks[k].get("ok") is True)]
+if bad:
+    print("down:" + ",".join(sorted(bad))); raise SystemExit
+ign = []
+for k, v in sorted(checks.items()):
+    if k in REQUIRED or not (isinstance(v, dict) and v.get("ok") is False):
+        continue
+    ign.append("%s(%s)" % (k, "not_connected" if v.get("not_connected") else "ok:false"))
+print("ok:%d" % len(REQUIRED) + (";ignored:" + ",".join(ign) if ign else ""))
 PY
 }
 
@@ -929,7 +945,7 @@ phase1_positive_controls() {
     guard_transport "$code" "${API_BASE}/health?detailed=1" "C4, whether the stores are up,"
     deps="$(judge_dep_health "${out}.body")"
     case "$deps" in
-        ok:*) pass "C4 dependency health reports every store up (${deps#ok:} checks, HTTP ${code})" ;;
+        ok:*) pass "C4 dependency health reports oxigraph, qdrant and ollama up (${deps#ok:}, HTTP ${code})" ;;
         down:*) fail "C4 dependency health reports stores DOWN (${deps#down:}) -- absence below would be a store fault, not a missing person" ;;
         *) fail "C4 dependency health unreadable (HTTP ${code}, ${deps}) -- cannot establish the stores are up" ;;
     esac

@@ -58,6 +58,13 @@ on:
       - 'tests/test_interval_agents_are_quiesced_before_their_programs_move.sh'
       - 'tests/test_a_quiesced_interval_agent_is_re_registered.sh'
       - 'tests/test_a_taken_port_is_named_not_abstracted.sh'
+      - 'tests/test_loopback_guard.sh'
+      - 'lib/ostler-loopback-guard.sh'
+      - 'tests/test_doctor_shows_loopback_guard.py'
+      - 'vendor/doctor/agent/loopback_guard_status.py'
+      - 'vendor/doctor/agent/box_status.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'gui/OstlerInstaller/Auth/AuthorizationHelper.swift'
       - 'tests/test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh'
       - 'install.sh'
       # Both halves of the bash 3.2 guard: the test itself, so a change to it
@@ -205,6 +212,12 @@ jobs:
       - name: a taken port is named, not abstracted into a catch-all
         if: always()
         run: bash tests/test_a_taken_port_is_named_not_abstracted.sh
+      - name: the loopback guard keeps ollama owner-only, fails closed, and is wired (pf stubbed)
+        if: always()
+        run: /bin/bash tests/test_loopback_guard.sh
+      - name: Doctor and the Hub's box-status read the loopback guard's status (three answers, never two)
+        if: always()
+        run: python3 tests/test_doctor_shows_loopback_guard.py
       - name: a KeepAlive agent that can never bind is not reported as a green install
         # always(), because this is the ending the SIBLING gate above does not
         # cover: there the readiness loop times out and the install aborts;

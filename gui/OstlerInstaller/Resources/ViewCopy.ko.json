@@ -95,6 +95,7 @@
   },
   "footer": {
     "cancel_button": "취소",
+    "finish_pair_later_button": "완료하고 나중에 페어링",
     "reveal_in_finder_button": "Finder에서 보기",
     "done_button": "완료",
     "quit_button": "종료",
@@ -241,6 +242,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "INSTALL 입력",
     "consent_install_typed_mismatch": "확인하려면 INSTALL을 정확히 입력하세요(대소문자는 구분하지 않습니다). 돌아가려면 취소를 클릭하세요.",
+    "yesno_switch_on_to_continue": "계속하려면 이 옵션을 켜세요. 중단하려면 종료를 사용하세요.",
     "preinstall_status_caption": "상태"
   },
   "assistant_name_suggestions": {

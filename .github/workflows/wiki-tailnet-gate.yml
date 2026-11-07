@@ -80,6 +80,13 @@ jobs:
         if: always()
         run: bash tests/test_tailscale_signin_reaps_up.sh
 
+      # v1.0.124: a wedged tailscale CLI aborted the install in tailscale_signin.
+      # Runs the real block under -Eeuo with a hung, failing and empty tailscale
+      # plus two mutants (guard removed, bound removed) that must go red.
+      - name: Sign-in wait can never abort the install
+        if: always()
+        run: bash tests/test_tailscale_signin_never_aborts.sh
+
       # #16 console walk: the sign-in opened TWO Safari tabs every time,
       # because an unconditional backgrounded re-issue followed a successful
       # first open. This extracts the real sign-in URL block and _ts_open_url

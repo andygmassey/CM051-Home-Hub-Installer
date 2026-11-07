@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "12300"
-    MARKETING_VERSION: "1.0.123"
+    CURRENT_PROJECT_VERSION: "12800"
+    MARKETING_VERSION: "1.0.128"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.123"
-        CFBundleVersion: "12300"
+        CFBundleShortVersionString: "1.0.128"
+        CFBundleVersion: "12800"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -250,6 +250,12 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # ostler-vm-size.sh (v1.0.126): install.sh sources it from
+          # ${SCRIPT_DIR}/lib/ostler-vm-size.sh to size the colima VM from host
+          # RAM. Missing = the old fixed 4 GiB VM, which OOM-killed the wiki
+          # compile on the 125 walk.
+          cp "${SRCROOT}/../lib/ostler-vm-size.sh"               "${DEST}/lib/ostler-vm-size.sh"
+          chmod 755 "${DEST}/lib/ostler-vm-size.sh"
           # settling_progress.sh: install.sh sources it from
           # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
           # `emails` channels on the wiki's settling panel. Those two producers
@@ -278,6 +284,10 @@ targets:
           # conversations.
           cp "${SRCROOT}/../lib/ostler-conversations-mirror.sh"  "${DEST}/lib/ostler-conversations-mirror.sh"
           chmod 755 "${DEST}/lib/ostler-conversations-mirror.sh"
+          # ostler-loopback-guard.sh: the admin shell (AuthorizationHelper.swift) runs
+          # its install-root from HERE, and install.sh FAILS CLOSED without it.
+          cp "${SRCROOT}/../lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"
+          chmod 755 "${DEST}/lib/ostler-loopback-guard.sh"
           # End-of-install confirmation helpers (whose calendars + who you
           # are): install.sh's confirmation block probes
           # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
@@ -407,9 +417,11 @@ targets:
           - $(SRCROOT)/../lib/ostler_store_auth.py
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../lib/ostler-container-engine.sh
           - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
+          - $(SRCROOT)/../lib/ostler-loopback-guard.sh
           - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
@@ -436,9 +448,11 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_store_auth.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-loopback-guard.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py

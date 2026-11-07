@@ -27,7 +27,11 @@
 #
 # ENV
 #   OSTLER_BOX_HOST                 unset means this machine.
-#   OSTLER_SMARTPREFS_DERIVE_BUDGET_S  seconds to wait for a derive pass (240).
+#   OSTLER_SMARTPREFS_DERIVE_BUDGET_S  seconds per wait for a derive pass (240).
+#   OSTLER_SMARTPREFS_DERIVE_TOTAL_S   total seconds across waits and re-kicks (1800, the
+#                                   product's first-run retry period; a pass in flight is
+#                                   waited for, never re-kicked). Expiry reads CANNOT-RUN.
+#   OSTLER_SMARTPREFS_REKICK_PAUSE_S   pause before re-kicking a deferred/yielded tick (30).
 #   OSTLER_SMARTPREFS_SEED_SKIP=1   do not seed (the probes then CANNOT-RUN).
 # BASH 3.2. No associative arrays, no mapfile.
 # ============================================================================
