@@ -1,0 +1,55 @@
+{
+  "schema": "ostler-preference-seed/v1",
+  "measured_on": "2026-11-06, against CM051 vendor/cm019_preferences and vendor/cm059_editor (main 366a7767), by tests/test_the_preference_seed_lands_both_rows.py",
+
+  "why": [
+    "The walk carries this fixture itself (CM051 scripts/box_walk_probes/fixtures/preference_seed) and pairs it with the OS003 gates/seed loader, which still owns the write and the graph read-back.",
+    "The OS003 fixture it replaces seeded the clearing row as 8 Spotify PLAYS. Since CM051 #2921 (a play is not a like) the ingest aggregates plays to a NeutralPreference, and the loader counts pwg:LikePreference only, so the v1.0.124 and v1.0.125 walks read 'created 2, filtered 7, graph 1' and the seed exited 1.",
+    "Its second row (0.1732) also stopped being screened when the compiler floor moved from 0.28 to 0.10, so even a landed pair would have read suppressed=0 on a seed-only store."
+  ],
+
+  "exports_dir": "exports",
+  "plays": 0,
+
+  "synthetic": {
+    "statement": "Every string below is invented for this fixture. No real artist, release, recording, account or topic carries these names, and none of them names or describes a person, an organisation, a place or a message.",
+    "how_to_check": "The three strings are the only content in exports/. Read the two files."
+  },
+
+  "expect_rows": [
+    {
+      "subject": "ostler seed ensemble - loopback serenade",
+      "category": "music",
+      "source": "spotify",
+      "parser": "SpotifyParser",
+      "export_file": "YourLibrary.json",
+      "clears_floor": true,
+      "measured_confidence": 0.2992
+    },
+    {
+      "subject": "@loopbackcartography",
+      "category": "social_media",
+      "source": "twitter",
+      "parser": "TwitterParser",
+      "export_file": "like.js",
+      "clears_floor": false,
+      "measured_confidence": 0.0945
+    }
+  ],
+
+  "graph_readback": {
+    "pre_count": 0,
+    "post_count": 2,
+    "note": "One saved track (an explicit like) and one account liked twice parse to 2 rows and aggregate to 2 pwg:LikePreference rows. A post-count of 1 with the music row missing means the music row landed as something other than a Like (a play is Neutral since CM051 #2921); a post-count of 0 or 1 otherwise means a write was lost. The ingest exit code is not the verdict: services/ingest/src/loaders/oxigraph_loader.py returns False on a failed INSERT and the caller does not raise, so a failed write and a clean run print the same rc."
+  },
+
+  "compiler": {
+    "min_confidence": 0.10,
+    "expect_interests_at_least": 1,
+    "expect_suppressed_low_confidence_at_least": 1,
+    "arithmetic": "confidence = category_trust x source_trust x evidence_factor x recency_confidence. music 0.95 x spotify 0.45 (DEFAULT_SOURCE_TRUST) x 0.70 (1 observation, 1 source) x recency = 0.2992. social_media 0.30 x twitter 0.45 x 0.70 x ~1.0 = 0.0945 (an export with no date reads its fresh createdAt). The floor is compile_profile's default min_confidence (vendor/cm059_editor/compiler/interest_profile.py), which is what the box's build_from_live applies.",
+    "margins": "The clearing row sits about +0.20 over the floor and the screened row about -0.006 under it. If a trust constant or the floor moves upstream, tests/test_the_preference_seed_lands_both_rows.py goes red before a walk does: read the printed confidence and the floor before calling it a walk failure."
+  },
+
+  "does_not_clear": "A passing seed here does NOT clear CM051 #1872. This fixture proves the preference write route carries a row from an export file into the graph and that the confidence screen keeps its floor. It says nothing about whether a real install ever RUNS an ingest over the exports a customer actually has."
+}
