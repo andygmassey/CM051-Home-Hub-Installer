@@ -919,6 +919,7 @@ jobs:
           # v1018-D027: local cutting must be impossible. Asserted here too, so
           # a PR that quietly removes the guard cannot then cut in CI.
           ./tests/test_no_local_cuts.sh
+          ./tests/test_every_ship_prereq_is_classified.sh
           # The appcast debt is collected HERE, before a version is spent.
           # PUBLISH_APPCAST=onbox means CI cuts a good DMG and does NOT
           # publish the feed, by Andy's settled decision (no Sparkle private
@@ -1057,31 +1058,33 @@ jobs:
       # preflight (and so no rehearse/ dispatch) ran it. GH_TOKEN is required:
       # without it PR lookups fail closed as "no PR exists". Same ref guard and
       # `always()` as the step above, for the same reasons.
-      - name: Orphaned-fix gate (same command as the build step)
+      # LAST STEP. Every ship: / release: / package: prerequisite that needs no build output, run here
+      # with the cut step's own env (the list is scripts/ship_prereq_classes.tsv, enforced by
+      # tests/test_every_ship_prereq_is_classified.sh). check-orphans then check-pr-age are the last two.
+      # v1.0.119/126 burnt on check-orphans, v1.0.127 on check-pr-age, each only in the cut job.
+      # The daemon is cloned exactly as cut-prepare does, so the orphan gate examines the same 2 repos.
+      - name: Ship prerequisites that need no build output (LINUX class)
         if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          PROV_GATE_SKIP_CLASSES: wiki
           OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
           OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
           OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
-          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
           OSTLER_CUT_VERSION: ${{ github.ref_name }}
-          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
         run: |
-          # The cut job examines CM051 AND the daemon (v1.0.126 went red on
-          # daemon:fix/brief-reply-debt-timeout-fallback). Same clone as the
-          # cut-prepare action's "Fetch ostler-assistant" step, so the gate
-          # sees the same 2 repos here as there.
           set -eu
           DEST="${RUNNER_TEMP}/ostler-assistant"
           rm -rf "$DEST"
           git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
           export OSTLER_ASSISTANT_DIR="$DEST"
-          rc=0
-          make -C gui check-orphans 2>&1 | tee "${RUNNER_TEMP}/orphans.log" || true
-          rc=${PIPESTATUS[0]}
-          grep -E '^== summary: ' "${RUNNER_TEMP}/orphans.log" || true
-          exit "$rc"
+          bash scripts/run_ship_prereqs.sh LINUX
 
   cut:
     needs: preflight
@@ -1238,6 +1241,24 @@ jobs:
           ./tests/test_orphan_gate_pr_skip_is_per_label.sh
           ./tests/test_orphan_gate_empty_pr_list_needs_a_control.sh
           ./tests/test_orphan_gate_failed_fetch_is_not_truth.sh
+
+      # macOS-only static prerequisites of make ship, run before any build (class MACOS in
+      # scripts/ship_prereq_classes.tsv). Same targets, same env as the Build step below.
+      - name: Ship prerequisites that need no build output (MACOS class)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          PROV_GATE_SKIP_CLASSES: wiki
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+          OSTLER_CUT_VERSION: ${{ github.ref_name }}
+        run: bash scripts/run_ship_prereqs.sh MACOS
 
       - name: Build, sign, notarise, staple
         env:
