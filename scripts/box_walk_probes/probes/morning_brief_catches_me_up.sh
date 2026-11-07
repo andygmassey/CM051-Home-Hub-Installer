@@ -35,7 +35,28 @@ run_probe() {
         || probe_cannot_run "could not stage wow_moments.py on the box"
     cap="$(mktemp)"
     # The Hub venv's python has tomllib; /usr/bin/python3 is the fallback.
-    box_run "PY=\$HOME/.ostler/.venv/bin/python3; [ -x \$PY ] || PY=python3; \$PY ${remote}/wow_moments.py morning-box; rm -rf ${remote}" > "${cap}" 2>/dev/null
+    # REPLY_MAX_ITEMS is READ from the oa commit the cut ships (DAEMON_COMMIT in that cut's
+    # cut.env), never from oa main and never typed here. The cut.env is OSTLER_CUT_ENV, else
+    # cuts/${OSTLER_CUT_TAG}/cut.env in this checkout. Anything unresolved (no env, no tag, the
+    # commit not in the local oa repo, no constant) leaves the cap empty: the box side then says
+    # NOT INSTRUMENTED and grades its legacy top 3 rather than guess.
+    local oa_repo cut_env daemon_sha oa_src reply_cap_env cap_src
+    oa_repo="${OSTLER_OA_REPO:-${HOME}/Developer/orm/ostler-assistant}"
+    cut_env="${OSTLER_CUT_ENV:-}"
+    if [ -z "${cut_env}" ] && [ -n "${OSTLER_CUT_TAG:-}" ]; then
+        cut_env="${_HERE}/../../cuts/${OSTLER_CUT_TAG}/cut.env"
+    fi
+    reply_cap_env=""; cap_src="NOT INSTRUMENTED"
+    if [ -n "${cut_env}" ] && [ -r "${cut_env}" ]; then
+        daemon_sha="$(sed -n 's/^DAEMON_COMMIT=\([0-9a-f]\{7,40\}\).*/\1/p' "${cut_env}" | head -1)"
+        if [ -n "${daemon_sha}" ]; then
+            oa_src="$(git -C "${oa_repo}" show "${daemon_sha}:crates/zeroclaw-runtime/src/brief/catchup.rs" 2>/dev/null)" || oa_src=""
+            reply_cap_env="$(printf '%s\n' "${oa_src}" | sed -n 's/^[[:space:]]*\(pub\(([a-z]*)\)\{0,1\}[[:space:]]\{1,\}\)\{0,1\}const[[:space:]]\{1,\}REPLY_MAX_ITEMS[[:space:]]*:[[:space:]]*usize[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\);.*/\3/p' | head -1)"
+            case "${reply_cap_env}" in ''|*[!0-9]*) reply_cap_env="" ;; esac
+            [ -n "${reply_cap_env}" ] && cap_src="oa ${daemon_sha:0:8} (cut.env DAEMON_COMMIT)"
+        fi
+    fi
+    box_run "PY=\$HOME/.ostler/.venv/bin/python3; [ -x \$PY ] || PY=python3; OSTLER_REPLY_MAX_ITEMS='${reply_cap_env}' OSTLER_REPLY_CAP_SRC='${cap_src}' \$PY ${remote}/wow_moments.py morning-box; rm -rf ${remote}" > "${cap}" 2>/dev/null
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side half returned no capture"; }
     out="$(python3 "${_HERE}/lib/wow_moments.py" judge-morning "${cap}")"; rc=$?
