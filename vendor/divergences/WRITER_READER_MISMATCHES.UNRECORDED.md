@@ -1791,3 +1791,35 @@ Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware
 ### What a future sync must preserve
 
 `_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a killed wiki compile is a RED row (v1.0.126 b1/b2, from the 125 walk) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. Files:
+
+- `agent/status_collector.py`, appended at the end: `WIKI_COMPILE_KILL_PHASES`, `WIKI_COMPILE_KILL_CAUSES`, dataclass `WikiCompileKill`, and `read_wiki_compile_kills()`, which reads `state/wiki-recompile/compile-killed.<phase>.json` (written by CM051 `wiki-recompile/bin/wiki-recompile-tick.sh` when a compile exits 137/143). An unparseable marker is returned with `unreadable=True`; an unknown cause stays `"unknown"`.
+- `agent/diagnostic_rules.py`: nine new copy imports and `read_wiki_compile_kills` imported from status_collector; new `_wiki_compile_kill_findings()` placed just above `_WIKI_STALL_MIN_TICKS`; `check_wiki_health` calls it right after the refresh-stall block and before the port probe. One CRITICAL finding per killed phase, a WARNING ("could not check") for an unreadable marker.
+- `agent/diagnostic_copy.py`: a new block after `WIKI_REFRESH_STALLED_FIX_COMMAND`: `WIKI_COMPILE_KILLED_TITLE_FMT` / `WIKI_SUMMARIES_KILLED_TITLE_FMT` (dicts keyed by cause: oom, timeout, killed, unknown; the oom title is "Your wiki stopped updating at {time}: not enough memory"), the two details, fix, fix command (kickstart of `com.creativemachines.ostler.wiki-recompile`), the unreadable title and detail, and `WIKI_COMPILE_KILL_TIME_FMT`.
+
+### What a future sync must preserve
+
+All three, and the marker contract with the tick (path, `phase`, `exit`, `cause`, `at` in UTC). Guarded by `tests/test_a_killed_wiki_compile_is_a_doctor_red.py` (workflow `vendor-integrity.yml`), which runs the real tick into the real rule: 11 of its checks fail on the pre-change tree. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a store OOM-killed and restarted is a RED row (v1.0.126, from the 125 box) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. `agent/status_collector.py` appends `STORE_CONTAINERS`, `STORE_RESTART_WINDOW_S`, dataclass `StoreRestart` and `collect_store_restarts()` (one `docker inspect` of the three store containers for RestartCount / State.OOMKilled / StartedAt, one `docker events --filter event=oom` for the last day; `OSTLER_DOCTOR_DOCKER_BIN` overrides the binary for tests). It also adds `STORE_RESTART_STATE`, `store_restart_state_path`, `read_store_restart_state` and `write_store_restart_state` (`state/doctor/store-restarts.json`, the last-seen RestartCount per store); a store missing from a partial inspect comes back with `restart_count = -1`. `agent/diagnostic_rules.py` adds `check_store_restarts` (registered in `ALL_RULES` after `check_wiki_health`) and its imports: RED only on an oom event / OOMKilled for that store or a RestartCount rise past the recorded count (a reboot is silent; the first look is a baseline), held 24 h; a store docker did not report gets a 'could not check' warning. `agent/diagnostic_copy.py` adds the `STORE_RESTARTED_*`, `STORE_RESTART_UNCHECKED_*` strings and `STORE_LABELS` after `WIKI_COMPILE_KILL_TIME_FMT`. Guarded by `tests/test_a_store_oom_restart_is_a_doctor_red.py` (vendor-integrity.yml), including the reboot and partial-inspect cases. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## 2026-11-06: the People search row (v1.0.126, item h) -- `doctor`
+
+Tree `doctor`. Pin NOT moved; regeneration is forbidden for this tree (manifest
+`regenerate_forbidden`). Files: `vendor/doctor/agent/web_ui.py` (import
+`render_people_index_status`, call it beside `render_derived_preferences_status`,
+placeholder `{people_index_section}` after `{derived_preferences_section}`) and the
+new vendor-only `vendor/doctor/agent/people_index_status.py` (VENDOR_ONLY.tsv row).
+
+The row reads `state/people-index.json`, written by the vendored ostler_fda people
+sweep, and says "Making N people searchable" (amber) while people still have no
+search vector, "All N people are searchable" (green) at zero, and goes red only when
+the end-of-pass backlog grew on each of the last three passes. Guarded by
+`tests/test_people_index_embeds_only_what_changed.py` (workflow
+`dedupe-merge-rule-2.yml`), which also asserts the import, call and placeholder.
+Owed upstream: none until the writer itself is lifted into HR015 ostler_fda.

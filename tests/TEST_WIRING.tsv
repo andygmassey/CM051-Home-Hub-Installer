@@ -50,6 +50,7 @@ test_a_hung_slot_holder_is_stopped.sh	WIRED	.github/workflows/ingest-slot.yml
 test_a_jq_index_read_cannot_return_the_string_null.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
+test_a_killed_wiki_compile_is_a_doctor_red.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_launchagent_names_an_absolute_interpreter.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -80,6 +81,7 @@ test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_step_that_measured_nothing_cannot_report_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_a_store_oom_restart_is_a_doctor_red.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_store_refusal_is_not_an_empty_batch.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_struck_row_names_an_issue_not_a_pull_request.py	WIRED	.github/workflows/cut-checklist-complete.yml
@@ -597,6 +599,7 @@ test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-hones
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_pull_progress_is_one_overall_bar.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_model_pull_uses_the_pinned_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_morning_reply_naming_top_n.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
@@ -685,6 +688,7 @@ test_people_count_one_definition.py	WIRED	.github/workflows/people-have-human-ev
 test_people_count_waits_for_the_embed_drain.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_hydrate_partial_landing_sentinel.sh	WIRED	.github/workflows/people-sweep-partial-landing.yml
+test_people_index_embeds_only_what_changed.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_people_index_keeps_the_contacts_card.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_people_projection_prunes_what_left_the_graph.py	WIRED	.github/workflows/people-projection-prune.yml
 test_people_rules_is_stdlib_only.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
@@ -1075,6 +1079,7 @@ test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.ym
 test_verify_seeded_pyc_matches_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
+test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -1221,6 +1226,7 @@ scripts/tests/test_no_env_trust_anchors.sh	WIRED	.github/workflows/cut-gate-wrap
 scripts/tests/test_no_foreign_ontology_namespace.sh	WIRED	.github/workflows/foreign-ontology-namespace.yml
 scripts/tests/test_no_invisible_reusable_workflows.sh	WIRED	.github/workflows/enforce-ledger-write.yml
 scripts/tests/test_no_person_holds_two_contact_cards_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
+scripts/tests/test_no_store_port_probe_exempts_only_loopback_ollama_runners.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_no_store_port_probe_reads_the_credential.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_ollama_contract_controls.sh	WIRED	.github/workflows/consent-data-handling.yml
 scripts/tests/test_people_count_agreement_probe.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml

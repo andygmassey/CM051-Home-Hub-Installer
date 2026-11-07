@@ -31,6 +31,7 @@ Python 3.9, stdlib only.
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -66,8 +67,48 @@ def _get(path, tok):
     return json.load(opener.open(req, timeout=20))
 
 
-def box():
-    cap = {"gateway": GATEWAY}
+def _knob(name, default):
+    raw = os.environ.get(name, "")
+    try:
+        v = int(raw) if raw.strip() else default
+    except ValueError:
+        v = default
+    return v if v >= 0 else default
+
+
+# CONSOLIDATION IS ASYNCHRONOUS (v1.0.124 and v1.0.125: 0 core entries on a box doing first-run work, the read
+# taken once). The core read is now POLLED until at least one core entry exists or the budget runs out. The budget
+# ends the wait and nothing else: a zero after it is still CANNOT-RUN, with the waited time printed, never PASS.
+WAIT_S = _knob("OSTLER_CORE_MEMORY_WAIT_S", 300)
+POLL_S = max(1, _knob("OSTLER_CORE_MEMORY_POLL_S", 15))
+
+
+def _read(cat, tok):
+    """(entries, None) or (None, reason)."""
+    try:
+        d = _get("/api/memory?category=" + cat, tok)
+    except urllib.error.HTTPError as exc:
+        return None, "GET /api/memory?category=%s answered HTTP %d" % (cat, exc.code)
+    except Exception as exc:  # noqa: BLE001
+        return None, "GET /api/memory?category=%s failed: %s" % (cat, type(exc).__name__)
+    entries = d.get("entries") if isinstance(d, dict) else None
+    if not isinstance(entries, list):
+        return None, "GET /api/memory?category=%s returned no entries list (%s)" % (cat, type(d).__name__)
+    return entries, None
+
+
+def _summary(entries):
+    return {
+        "n": len(entries),
+        "n_core_shaped": sum(1 for e in entries if isinstance(e, dict) and is_core(e)),
+        "marker_keys": [str(e.get("key", "")) for e in entries if isinstance(e, dict) and has_marker(e.get("content"))],
+    }
+
+
+def box(wait_s=None, poll_s=None, clock=time.monotonic, sleep=time.sleep):
+    wait_s = WAIT_S if wait_s is None else wait_s
+    poll_s = POLL_S if poll_s is None else poll_s
+    cap = {"gateway": GATEWAY, "core_wait_budget_s": wait_s}
     try:
         tok = open(TOKEN_PATH, encoding="utf-8").read().strip()
     except Exception as exc:  # noqa: BLE001 -- the reason is the output
@@ -76,24 +117,24 @@ def box():
     if not tok:
         cap["cannot"] = "admin token file is empty"
         return cap
-    for cat in ("core", "daily"):
-        try:
-            d = _get("/api/memory?category=" + cat, tok)
-        except urllib.error.HTTPError as exc:
-            cap["cannot"] = "GET /api/memory?category=%s answered HTTP %d" % (cat, exc.code)
+    t0, polls = clock(), 0
+    while True:
+        entries, why = _read("core", tok)
+        polls += 1
+        if why:
+            cap["cannot"] = why
             return cap
-        except Exception as exc:  # noqa: BLE001
-            cap["cannot"] = "GET /api/memory?category=%s failed: %s" % (cat, type(exc).__name__)
-            return cap
-        entries = d.get("entries") if isinstance(d, dict) else None
-        if not isinstance(entries, list):
-            cap["cannot"] = "GET /api/memory?category=%s returned no entries list (%s)" % (cat, type(d).__name__)
-            return cap
-        cap[cat] = {
-            "n": len(entries),
-            "n_core_shaped": sum(1 for e in entries if isinstance(e, dict) and is_core(e)),
-            "marker_keys": [str(e.get("key", "")) for e in entries if isinstance(e, dict) and has_marker(e.get("content"))],
-        }
+        waited = int(round(clock() - t0))
+        if entries or waited + poll_s > wait_s:
+            break
+        sleep(poll_s)
+    cap["core"] = _summary(entries)
+    cap["core_waited_s"], cap["core_polls"] = waited, polls
+    entries, why = _read("daily", tok)
+    if why:
+        cap["cannot"] = why
+        return cap
+    cap["daily"] = _summary(entries)
     return cap
 
 
@@ -120,7 +161,11 @@ def judge(cap):
         return EX_FAIL, lines + ["FAIL core entries carrying the prefetch block: %d of %d (keys: %s)"
                                  % (len(leaks), core["n"], ", ".join(leaks[:10]))]
     if core["n"] == 0:
-        return EX_CANNOT, lines + ["CANNOT the daemon holds 0 core entries: nothing was consolidated, nothing examined"]
+        waited = ""
+        if isinstance(cap.get("core_waited_s"), int):
+            waited = " (polled %s times over %ds of a %ss budget, OSTLER_CORE_MEMORY_WAIT_S)" % (
+                cap.get("core_polls", "?"), cap["core_waited_s"], cap.get("core_wait_budget_s", "?"))
+        return EX_CANNOT, lines + ["CANNOT the daemon holds 0 core entries%s: nothing was consolidated, nothing examined" % waited]
     return EX_PASS, lines + ["OK core_entries=%d prefetch_block_leaks=0" % core["n"]]
 
 
@@ -162,7 +207,44 @@ def self_test():
     ok = keys == ["core_b"] and all(is_core(e) for e in entries)
     bad += 0 if ok else 1
     print("  %s reader: canned API reply flags exactly the leaking key" % ("ok  " if ok else "FAIL"))
+    # The poll, driven through the REAL box() with a stubbed reader and clock: core entries that arrive on the
+    # third read inside the budget are judged (PASS); a box that stays at zero is CANNOT-RUN once the budget is spent,
+    # with the wait printed, and never PASS.
+    for name, arrive_on, budget, want, want_polls in (
+            ("core entries arrive on poll 3, inside the budget", 3, 60, EX_PASS, 3),
+            ("core stays at zero: budget spent, CANNOT-RUN not PASS", 0, 60, EX_CANNOT, 5),
+            ("budget 0: one read, no wait", 0, 0, EX_CANNOT, 1)):
+        got, polls = _poll_case(arrive_on, budget)
+        ok = got[0] == want and polls == want_polls and (want != EX_CANNOT or "polled %d times" % polls in got[1][-1])
+        bad += 0 if ok else 1
+        print("  %s poll: %s (want %d/%d polls, got %d/%d)" % ("ok  " if ok else "FAIL", name, want, want_polls, got[0], polls))
     return bad
+
+
+def _poll_case(arrive_on, budget):
+    global _read, TOKEN_PATH
+    now, reads = [0.0], [0]
+    real_read, real_tok = _read, TOKEN_PATH
+
+    def fake_read(cat, tok):
+        if cat == "daily":
+            return [], None
+        reads[0] += 1
+        if arrive_on and reads[0] >= arrive_on:
+            return [{"key": "core_a", "category": "core", "content": "User has a cat."}], None
+        return [], None
+
+    import tempfile
+    fd, path = tempfile.mkstemp()
+    os.write(fd, b"synthetic"); os.close(fd)
+    try:
+        _read, TOKEN_PATH = fake_read, path
+        cap = box(wait_s=budget, poll_s=15, clock=lambda: now[0],
+                  sleep=lambda s: now.__setitem__(0, now[0] + s))
+    finally:
+        _read, TOKEN_PATH = real_read, real_tok
+        os.unlink(path)
+    return judge(cap), reads[0]
 
 
 def main(argv):

@@ -6,6 +6,7 @@
                   agent.slim_tool_prompt hides from the array but names in tool_help's description
   l3 fixtures     l3_prefetch: uncommon names, so ~8.8k seeded people cannot crowd the control out
   derive re-kick  smart_prefs _derive_until_pass: a tick that only yielded is kicked again
+  derive 126      the kick writes the cadence-bypass mark; a pass in flight is waited for, not re-kicked
   is_shown        data_conservation: the 110 MB corpus is padded once, not once per call
 
 All data synthetic; the gateway and the model are loopback stubs.
@@ -231,6 +232,86 @@ class DeriveRekick(unittest.TestCase):
         (ran, st), kicks = self._drive(["not_written"])
         self.assertFalse(ran)
         self.assertEqual(kicks, 0)
+
+
+class DeriveAfterKickWalk126(unittest.TestCase):
+    """v1.0.125: every kick after the seed logged "cadence: next pass due in ~17000s" (the product's 6 h
+    settled cadence, CM051 #3350) and exited with no pass and no status write, so the seed waited one 240 s
+    budget and four probes read CANNOT-RUN. The seed now writes the tick's own cadence-bypass mark before it
+    kicks, and keeps WAITING (no kick that would kill it) while no tick has reported since the kick."""
+
+    def _drive(self, statuses, total=1800, budget=240, since="2026-11-06T05:00:00Z"):
+        seq, kicks, now = list(statuses), [], [0.0]
+
+        def wait(prev, b):
+            now[0] += b            # a real wait blocks for its budget
+            o = seq.pop(0) if len(seq) > 1 else seq[0]
+            return o.get("outcome") == "written" and o.get("ts", "") >= since, o
+
+        def kick():
+            kicks.append(1)
+            return 0, ""
+
+        res = smart_prefs._derive_until_pass("p", budget, total, kick=kick, wait=wait, clock=lambda: now[0],
+                                             nap=lambda s: now.__setitem__(0, now[0] + s), since=since,
+                                             now_iso=lambda: since)
+        return res, len(kicks), now[0]
+
+    STALE = {"outcome": "written", "ts": "2026-11-06T04:31:00Z"}
+
+    def test_a_pass_in_flight_past_one_budget_is_waited_for_not_abandoned(self):
+        # MUST-FAIL on the old loop: it stopped after the first 240 s wait because the outcome was not deferred
+        (ran, st), kicks, _ = self._drive([self.STALE] * 4 + [{"outcome": "written", "ts": "2026-11-06T05:20:00Z"}])
+        self.assertTrue(ran)
+        self.assertEqual(kicks, 0)   # never kickstart -k a pass in flight
+
+    def test_a_stale_deferred_status_from_before_the_kick_is_not_rekicked(self):
+        (ran, st), kicks, _ = self._drive([{"outcome": "deferred", "ts": "2026-11-06T04:59:00Z"},
+                                           {"outcome": "written", "ts": "2026-11-06T05:10:00Z"}])
+        self.assertTrue(ran)
+        self.assertEqual(kicks, 0)
+
+    def test_a_fresh_deferral_is_kicked_again(self):
+        (ran, st), kicks, _ = self._drive([{"outcome": "deferred", "ts": "2026-11-06T05:01:00Z"},
+                                           {"outcome": "written", "ts": "2026-11-06T05:10:00Z"}])
+        self.assertTrue(ran)
+        self.assertEqual(kicks, 1)
+
+    def test_no_tick_ever_reports_stops_at_the_total_budget_not_a_pass(self):
+        (ran, st), kicks, spent = self._drive([self.STALE], total=1800)
+        self.assertFalse(ran)
+        self.assertEqual(kicks, 0)
+        self.assertGreaterEqual(spent, 1800)
+        self.assertLess(spent, 1800 + 240 + 1)
+        # and the probe reads that as CANNOT-RUN, with the wait named, never PASS
+        f = {"fixture": {"points": smart_prefs.EXPECTED_POINTS, "facts": smart_prefs.EXPECTED_FACTS,
+                         "tags": smart_prefs.EXPECTED_TAGS},
+             "seed": {"marker": True, "ran_after_seed": False, "outcome": "written", "waited_s": int(spent),
+                      "total_s": 1800, "kick_mark_left": True},
+             "engine_can_run": True}
+        rows = smart_prefs.judge_breadth(f)
+        self.assertEqual(rows[0][1], "CANNOT", rows)
+        self.assertIn("of a 1800s budget", rows[0][2])
+        self.assertIn("never consumed", rows[0][2])
+
+    def test_the_kick_writes_the_cadence_bypass_mark_before_kickstart(self):
+        with tempfile.TemporaryDirectory() as d:
+            mark = os.path.join(d, "state", "derive-preferences.kick")
+            seen = os.path.join(d, "seen")
+            lc = os.path.join(d, "launchctl")
+            with open(lc, "w") as fh:
+                fh.write('#!/bin/sh\n[ -f "%s" ] && echo present > "%s" || echo absent > "%s"\nexit 0\n' % (mark, seen, seen))
+            os.chmod(lc, 0o755)
+            old = (smart_prefs.KICK_MARK, smart_prefs.LAUNCHCTL)
+            smart_prefs.KICK_MARK, smart_prefs.LAUNCHCTL = mark, lc
+            try:
+                self.assertEqual(smart_prefs._kick(force=True)[0], 0)
+                self.assertEqual(open(seen).read().strip(), "present")
+                os.remove(mark)
+                self.assertEqual(smart_prefs._kick()[0], 0)       # an unforced kick (the forget's) writes none
+                self.assertEqual(open(seen).read().strip(), "absent")
+            finally:
+                smart_prefs.KICK_MARK, smart_prefs.LAUNCHCTL = old
 
 
 class TaintedRelease(unittest.TestCase):

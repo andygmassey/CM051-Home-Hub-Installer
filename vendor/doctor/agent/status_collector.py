@@ -937,3 +937,184 @@ def collect_hydrate_markers() -> list[HydrateMarkerInfo]:
             detail=fields.get("detail", ""),
         ))
     return out
+
+
+# ---------------------------------------------------------------------------
+# A wiki compile that was KILLED (v1.0.126, from the 125 walk)
+# ---------------------------------------------------------------------------
+#
+# On the 125 walk the wiki compiler was killed by the kernel inside the
+# container VM (out of memory), the refresh tick logged it as a timeout, and
+# the wiki silently stopped updating. wiki-recompile-tick.sh now writes
+# state/wiki-recompile/compile-killed.<phase>.json when a compile dies on a
+# signal, and removes it when a compile of that phase finishes. This reads
+# them. Shape, not content: phase, exit code, cause and a timestamp; nothing
+# from the wiki itself.
+
+WIKI_COMPILE_KILL_PHASES = ("baseline", "summaries")
+WIKI_COMPILE_KILL_CAUSES = ("oom", "timeout", "killed")
+
+
+@dataclass
+class WikiCompileKill:
+    phase: str
+    exit_code: int | None
+    cause: str            # one of WIKI_COMPILE_KILL_CAUSES, or "unknown"
+    at: datetime | None   # UTC; None when the marker's time is unreadable
+    unreadable: bool = False   # the marker exists but could not be parsed
+
+
+def read_wiki_compile_kills(state_dir: str | None = None) -> list[WikiCompileKill]:
+    """Every phase whose last compile was killed, newest first.
+
+    A marker that exists but cannot be parsed is returned with
+    unreadable=True rather than dropped: "the wiki may be stale and we
+    cannot say why" is a finding, and silence there would be the exact
+    failure this exists to end. An unknown cause is kept as "unknown",
+    never mapped onto a known one.
+    """
+    base = state_dir or os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state",
+    )
+    out: list[WikiCompileKill] = []
+    for phase in WIKI_COMPILE_KILL_PHASES:
+        path = Path(base) / "wiki-recompile" / f"compile-killed.{phase}.json"
+        try:
+            if not path.exists():
+                continue
+            data = json.loads(path.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("marker is not an object")
+        except Exception:  # noqa: BLE001
+            logger.warning("wiki compile-kill marker unreadable: %s", path.name)
+            out.append(WikiCompileKill(phase, None, "unknown", None, True))
+            continue
+        cause = str(data.get("cause", ""))
+        if cause not in WIKI_COMPILE_KILL_CAUSES:
+            cause = "unknown"
+        try:
+            rc = int(data.get("exit"))
+        except (TypeError, ValueError):
+            rc = None
+        at = None
+        try:
+            at = datetime.fromisoformat(str(data.get("at", "")).replace("Z", "+00:00"))
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=timezone.utc)
+        except ValueError:
+            at = None
+        out.append(WikiCompileKill(phase, rc, cause, at))
+    out.sort(key=lambda k: k.at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# A data store that was KILLED and restarted (v1.0.126, from the 125 box)
+# ---------------------------------------------------------------------------
+#
+# Measured by ORM on the 125 box: the kernel OOM killer took the OXIGRAPH
+# store at about 10:24Z; `restart: unless-stopped` brought it back, every
+# probe answered, and nothing said the knowledge graph had gone down. Docker
+# CLEARS State.OOMKilled when it restarts a container, so the oom EVENT from
+# `docker events` is the evidence that survives the restart; RestartCount and
+# StartedAt say when. Read-only: two docker calls, no logs, no content.
+
+STORE_CONTAINERS = ("ostler-qdrant", "ostler-oxigraph", "ostler-redis")
+STORE_RESTART_WINDOW_S = 24 * 3600
+
+
+@dataclass
+class StoreRestart:
+    name: str
+    restart_count: int    # -1 = this store was missing from docker inspect
+    started_at: datetime | None
+    oom: bool
+
+
+STORE_RESTART_STATE = ("doctor", "store-restarts.json")
+
+
+def store_restart_state_path() -> Path:
+    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "state")
+    return Path(base).joinpath(*STORE_RESTART_STATE)
+
+
+def read_store_restart_state() -> dict:
+    """The restart counts (and any detected restart) the Doctor recorded last
+    time. Missing or unreadable = {} (first look: a baseline, never a RED)."""
+    try:
+        data = json.loads(store_restart_state_path().read_text())
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def write_store_restart_state(state: dict) -> None:
+    p = store_restart_state_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, sort_keys=True))
+        tmp.replace(p)
+    except OSError as exc:
+        logger.warning("store restart state not written: %s", exc)
+
+
+def collect_store_restarts(now: datetime | None = None) -> tuple[list[StoreRestart], str | None]:
+    """Every store container that has been restarted, and whether an OOM
+    kill of THAT container is on record (State.OOMKilled, or a docker `oom`
+    event in the last day). Returns (rows, error); error is set only when
+    docker could not be asked at all, so "could not look" never reads as
+    "nothing restarted"."""
+    now = now or datetime.now(tz=timezone.utc)
+    docker = os.environ.get("OSTLER_DOCTOR_DOCKER_BIN") or _docker_bin()
+    try:
+        r = subprocess.run(
+            [docker, "inspect", "-f",
+             "{{.Name}}\t{{.RestartCount}}\t{{.State.OOMKilled}}\t{{.State.StartedAt}}",
+             *STORE_CONTAINERS],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        return [], "Docker not installed"
+    except subprocess.TimeoutExpired:
+        return [], "docker inspect timed out"
+    rows: list[StoreRestart] = []
+    for line in (r.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        try:
+            count = int(parts[1])
+        except ValueError:
+            continue
+        started = None
+        try:
+            started = datetime.fromisoformat(parts[3].strip()[:26].rstrip("Z").split(".")[0] + "+00:00")
+        except ValueError:
+            started = None
+        rows.append(StoreRestart(parts[0].lstrip("/"), count, started,
+                                 parts[2].strip().lower() == "true"))
+    if not rows:
+        return [], f"docker inspect returned no store containers (exit {r.returncode})"
+    seen = {row.name for row in rows}
+    # A store absent from a partial inspect is reported, never skipped:
+    # restart_count -1 means "could not check this one".
+    for name in STORE_CONTAINERS:
+        if name not in seen:
+            rows.append(StoreRestart(name, -1, None, False))
+    since = int(now.timestamp()) - STORE_RESTART_WINDOW_S
+    try:
+        ev = subprocess.run(
+            [docker, "events", "--since", str(since), "--until", str(int(now.timestamp())),
+             "--filter", "event=oom", "--format", "{{.Actor.Attributes.name}}\t{{.Time}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        oom_names = {l.split("\t", 1)[0].strip() for l in (ev.stdout or "").splitlines() if l.strip()}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        oom_names = set()
+    for row in rows:
+        if row.name in oom_names:
+            row.oom = True
+    return rows, None
