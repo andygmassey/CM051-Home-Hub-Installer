@@ -1,11 +1,11 @@
 # target|class|reason   (class: LINUX = preflight job, ubuntu; MACOS = cut job, before any build; BUILD_ONLY = needs build output or the signing identity)
 # Order matters inside a class: scripts/run_ship_prereqs.sh runs rows top to bottom. check-orphans then check-pr-age MUST be the last two LINUX rows.
 guard-local-cut|LINUX|CI guard, reads env only
-check-ship-version|LINUX|plist stamp, cuts/ and one ls-remote; no built .app
 check-provenance|LINUX|named fixes present in this tree and the pinned daemon tag; needs the ostler-assistant clone, no build output
 check-freshness|LINUX|every shippable input against live upstream HEAD; network and tokens only
 check-orphans|LINUX|is any written fix missing from this cut; gh + clones only
 check-pr-age|LINUX|open PRs older than 48h; gh only (burnt v1.0.86 and v1.0.127)
+check-ship-version|MACOS|reads the Info.plist stamp with macOS tooling (CANNOT-RUN on ubuntu, measured run 42411231507); needs no built .app
 check-tools|MACOS|xcodebuild and xcrun are macOS-only
 check-version|MACOS|runs xcodegen/xcodebuild over the tracked version sources
 check-pbxproj-sync|MACOS|tracked pbxproj must equal xcodegen(project.yml); xcodegen is macOS here
