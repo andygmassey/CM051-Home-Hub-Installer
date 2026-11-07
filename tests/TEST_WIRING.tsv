@@ -50,6 +50,7 @@ test_a_hung_slot_holder_is_stopped.sh	WIRED	.github/workflows/ingest-slot.yml
 test_a_jq_index_read_cannot_return_the_string_null.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_keepalive_agent_that_cannot_bind_is_not_reported_green.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_killed_converge_still_gets_its_catchup_agent.sh	WIRED	.github/workflows/killed-converge-gets-its-catchup.yml
+test_a_killed_wiki_compile_is_a_doctor_red.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_launchagent_names_an_absolute_interpreter.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_loopback_probe_must_not_ask_a_proxy.sh	WIRED	.github/workflows/colima-autostart.yml
 test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -80,6 +81,7 @@ test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_step_that_measured_nothing_cannot_report_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
+test_a_store_oom_restart_is_a_doctor_red.py	WIRED	.github/workflows/vendor-integrity.yml
 test_a_store_refusal_is_not_an_empty_batch.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_a_stored_secret_says_so_where_it_is_typed.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_a_struck_row_names_an_issue_not_a_pull_request.py	WIRED	.github/workflows/cut-checklist-complete.yml
@@ -1075,6 +1077,7 @@ test_verify_no_symbol_regression.sh	WIRED	.github/workflows/symbol-regression.ym
 test_verify_seeded_pyc_matches_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
+test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml

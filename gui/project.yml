@@ -250,6 +250,12 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # ostler-vm-size.sh (v1.0.126): install.sh sources it from
+          # ${SCRIPT_DIR}/lib/ostler-vm-size.sh to size the colima VM from host
+          # RAM. Missing = the old fixed 4 GiB VM, which OOM-killed the wiki
+          # compile on the 125 walk.
+          cp "${SRCROOT}/../lib/ostler-vm-size.sh"               "${DEST}/lib/ostler-vm-size.sh"
+          chmod 755 "${DEST}/lib/ostler-vm-size.sh"
           # settling_progress.sh: install.sh sources it from
           # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
           # `emails` channels on the wiki's settling panel. Those two producers
@@ -407,6 +413,7 @@ targets:
           - $(SRCROOT)/../lib/ostler_store_auth.py
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../lib/ostler-container-engine.sh
           - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
@@ -436,6 +443,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_store_auth.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh

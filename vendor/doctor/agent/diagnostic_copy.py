@@ -226,6 +226,71 @@ WIKI_REFRESH_STALLED_FIX_COMMAND = (
     "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 )
 
+# ── a wiki compile that was KILLED (v1.0.126, from the 125 walk) ─────
+#
+# The compiler was killed inside the container VM for lack of memory and the
+# wiki silently stopped updating. {time} is the customer's local time.
+WIKI_COMPILE_KILLED_TITLE_FMT = {
+    "oom": "Your wiki stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki stopped updating at {time}: the update took too long",
+    "killed": "Your wiki stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki stopped updating at {time}",
+}
+WIKI_SUMMARIES_KILLED_TITLE_FMT = {
+    "oom": "Your wiki's summaries stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki's summaries stopped updating at {time}: the update took too long",
+    "killed": "Your wiki's summaries stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki's summaries stopped updating at {time}",
+}
+WIKI_COMPILE_KILLED_DETAIL = (
+    "Your wiki still opens, but it shows what it had at that time, and "
+    "nothing newer will appear until an update finishes. Your data is not "
+    "affected."
+)
+WIKI_COMPILE_KILLED_OOM_DETAIL = (
+    "The space your wiki is built in ran out of memory and the update was "
+    "stopped. Your wiki still opens, but it shows what it had at that time, "
+    "and nothing newer will appear until an update finishes. Your data is "
+    "not affected."
+)
+WIKI_COMPILE_KILLED_FIX = (
+    "Close apps you are not using, then start the wiki update again. If "
+    "this keeps happening, contact Ostler support."
+)
+WIKI_COMPILE_KILLED_FIX_COMMAND = (
+    "launchctl kickstart gui/$(id -u)/com.creativemachines.ostler.wiki-recompile"
+)
+WIKI_COMPILE_KILL_UNREADABLE_TITLE = "Ostler could not check when your wiki last updated"
+WIKI_COMPILE_KILL_UNREADABLE_DETAIL = (
+    "A record of a stopped wiki update exists but could not be read, so "
+    "your wiki may be out of date. Starting the update again replaces it."
+)
+WIKI_COMPILE_KILL_TIME_FMT = "%H:%M on %-d %b"
+
+# ── a data store that was KILLED and restarted (v1.0.126, from the 125 box)
+STORE_RESTARTED_OOM_TITLE_FMT = "Your memory store restarted at {time}: not enough memory"
+STORE_RESTARTED_TITLE_FMT = "Your memory store restarted at {time}"
+STORE_RESTARTED_DETAIL_FMT = (
+    "Part of what Ostler remembers ({store}) stopped and started again. "
+    "While it was down, nothing could be saved to it or read from it. It is "
+    "running again now and your data is kept on this Mac."
+)
+STORE_RESTARTED_FIX = (
+    "Close apps you are not using. If this happens again, contact Ostler "
+    "support."
+)
+STORE_RESTARTED_FIX_COMMAND = "/opt/homebrew/bin/docker ps --filter name=ostler-"
+STORE_RESTART_UNCHECKED_TITLE = "Ostler could not check whether your memory store restarted"
+STORE_RESTART_UNCHECKED_DETAIL_FMT = (
+    "The container runtime could not be asked ({reason}), so a restart of "
+    "your memory store would not show here."
+)
+STORE_LABELS = {
+    "ostler-qdrant": "the search index",
+    "ostler-oxigraph": "the knowledge graph",
+    "ostler-redis": "the short-term cache",
+}
+
 # ── the container-engine supervisor's own report ─────────────────────
 #
 # Measured 2026-08-23 on the walk box: the engine was INSTALLED and STOPPED,

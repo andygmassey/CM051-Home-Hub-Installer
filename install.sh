@@ -15045,41 +15045,41 @@ else
         if ! docker info &>/dev/null 2>&1; then
             info "$MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME"
 
-            # CX-80 (task #509, v1.0.1): the lima hostagent that
-            # backs Colima discovers + forwards the guest's Docker
-            # socket port asynchronously after `colima start` returns.
-            # On a cold first boot the hostagent port-discovery can
-            # race: `colima start` either exits non-zero ("error at
-            # instance: failed to get the host agent ... no forwarded
-            # port") OR exits 0 but leaves ${HOME}/.colima/default/
-            # docker.sock unforwarded, so the very next `docker info`
-            # cannot reach the daemon. The DMG #46 Studio retest hit
-            # exactly this: containers never came up and :8044 wiki
-            # was unreachable. The old single-shot `colima start ||
-            # fallback` had no retry, so one transient port-discovery
-            # miss dropped the customer straight to the Docker Desktop
-            # fallback (or a hard fail) even though a plain retry
-            # recovers it 100% of the time in practice.
+            # CX-80 (task #509, v1.0.1): the lima hostagent that backs Colima
+            # forwards the guest's Docker socket asynchronously after `colima
+            # start` returns. On a cold first boot that can race: `colima start`
+            # exits non-zero ("failed to get the host agent ... no forwarded
+            # port") OR exits 0 with ${HOME}/.colima/default/docker.sock not yet
+            # forwarded, so the next `docker info` cannot reach the daemon (DMG
+            # #46 Studio retest: no containers, :8044 wiki unreachable). The old
+            # single-shot `colima start || fallback` dropped the customer to the
+            # Docker Desktop fallback on one transient miss, although a plain
+            # retry recovers it. So: up to COLIMA_START_MAX_ATTEMPTS starts with
+            # a short backoff, `colima stop` between attempts to clear the
+            # half-started instance, then the Docker Desktop fallback / hard
+            # fail. Readiness is the `docker info` wait loop further below.
             #
-            # Self-heal: try up to COLIMA_START_MAX_ATTEMPTS times with
-            # a short backoff. Between attempts run `colima stop` to
-            # clear the half-started instance so the next `colima
-            # start` begins from a clean state rather than tripping on
-            # "instance already running but socket not forwarded". Log
-            # each attempt. Only after the bounded retries are
-            # exhausted do we fall through to the Docker Desktop
-            # fallback / hard fail. Readiness is the `docker info`
-            # wait loop further below; here we just need ONE clean
-            # start that leaves the socket reachable.
+            # v1.0.126 VM SIZE: the VM got a fixed 2 CPUs / 4 GiB on every Mac,
+            # and on the 125 walk the wiki compile was OOM-killed inside it
+            # (dmesg global_oom) and the wiki silently stopped refreshing. The
+            # size now comes from host RAM via ONE table, lib/ostler-vm-size.sh,
+            # and the chosen size is logged. A start that CREATES the VM marks
+            # it Ostler's, which is what lets an upgrade resize it later (the
+            # shared-VM rule: never resize a VM Ostler does not own; see the
+            # uninstaller's colima block).
+            _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
+            if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; fi  # i18n-exempt
+            _ostler_vm_existed=0; if ostler_vm_default_exists; then _ostler_vm_existed=1; fi
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
-                # Allocate enough resources for 3 containers.
-                if colima start --cpu 2 --memory 4 --disk 30 2>/dev/null \
+                # Sized by lib/ostler-vm-size.sh (see above), not a fixed 4 GiB.
+                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>/dev/null \
                     && docker info &>/dev/null 2>&1; then
-                    colima_started=1
+                    colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
                     break
                 fi
                 if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then
@@ -21965,7 +21965,7 @@ mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversatio
 # operator who sets it without moving them will mount an empty tree.
 mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
     || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
-
+if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
 services:
   qdrant:
@@ -22036,6 +22036,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   oxigraph:
     image: ghcr.io/oxigraph/oxigraph@sha256:dd52e0da758fcbbd5dc5249ce818bac26122611e8315a67200f2982d8563a2a5  # 0.4.6
@@ -22060,6 +22061,7 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # ── Store front proxy (v1.0.10 security lockdown) ────────────────
   # Loopback nginx that fronts the two HTTP data stores (Qdrant REST
@@ -22138,6 +22140,7 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    oom_score_adj: -500  # a store: the kernel picks the wiki first (125: OOM took oxigraph)
 
   # Personal wiki: the browse layer over the Oxigraph graph + Qdrant
   # vectors, compiled by wiki-compiler into wiki-docs, served by MkDocs
@@ -22178,32 +22181,29 @@ services:
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
       - wiki-built:/site
     restart: unless-stopped
+    mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1536m}"  # lib/ostler-vm-size.sh table, via the compose .env
+    oom_score_adj: 500
 
-  # Wiki compiler -- runs on demand (compose profile "compile") to
-  # rebuild the wiki from current Oxigraph + Qdrant state. Invoked
-  # at install time by Phase 3.16 and on a recurring schedule by the
-  # wiki-recompile LaunchAgent (separate piece). Reads the data
-  # volumes read-only so a buggy compiler can never clobber the
-  # source of truth.
-  #
-  # Volume paths fixed in the Gap 3 PR:
-  #   - wiki-docs at /wiki (matches the compiler image's
-  #     WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output,
-  #     which the compiler image never wrote to.
-  #   - Obsidian vault target at /wiki/obsidian, bind-mounted from
-  #     the user-facing zone (~/Documents/Ostler/Wiki/ by default).
-  #     OSTLER_WIKI_DIR overrides the host path for operators who
-  #     want the vault on a different volume.
-  #   - _images/ at /wiki/obsidian/_images:ro so the post-processor's
-  #     rewritten ../_images/<slug>/file.jpg srcs (see
-  #     compiler/obsidian.py::convert_image_srcs in CM044) resolve
-  #     against the same content the wiki-site mounts.
+  # Wiki compiler -- runs on demand (compose profile "compile") to rebuild the wiki from
+  # current Oxigraph + Qdrant state. Invoked at install time by Phase 3.16 and on a
+  # recurring schedule by the wiki-recompile LaunchAgent (separate piece). Reads the data
+  # volumes read-only so a buggy compiler can never clobber the source of truth. Volume
+  # paths fixed in the Gap 3 PR: - wiki-docs at /wiki (matches the compiler image's
+  # WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output, which the compiler image
+  # never wrote to. - Obsidian vault target at /wiki/obsidian, bind-mounted from the user-
+  # facing zone (~/Documents/Ostler/Wiki/ by default). OSTLER_WIKI_DIR overrides the host
+  # path for operators who want the vault on a different volume. - _images/ at
+  # /wiki/obsidian/_images:ro so the post-processor's rewritten ../_images/<slug>/file.jpg
+  # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
+  # content the wiki-site mounts.
   wiki-compiler:
     image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ced104cc79cddb2755b3bfc69ae0a4737c42e87d5cec5b6631f2bcf577ff49b5
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
     cpu_shares: 256
+    mem_limit: "${OSTLER_WIKI_COMPILER_MEM_LIMIT:-1536m}"  # killed in its OWN cgroup, never a store (125: 9 OOM kills)
+    oom_score_adj: 500
     volumes:
       - wiki-docs:/wiki
       - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
@@ -28800,7 +28800,7 @@ rm -rf "${HOME}/.ostler/state/conversations_mirror" 2>/dev/null || true
 # ── #GAP1: the SHARED colima `default` Docker VM ───────────────
 _u_emit UNINSTALL_PHASE "name=colima"
 # Ostler runs its Docker stores inside the SHARED colima `default` profile:
-# install.sh starts it with `colima start --cpu 2 --memory 4 --disk 30`, with
+# install.sh starts it with `colima start` sized by lib/ostler-vm-size.sh, with
 # NO --profile, so it is the `default` instance that every other Docker-on-Mac
 # user of this account shares. `docker compose down -v` above removed our
 # CONTAINERS and named VOLUMES; it did NOT remove that ~30GB Linux VM.
