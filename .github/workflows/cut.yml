@@ -920,6 +920,7 @@ jobs:
           # a PR that quietly removes the guard cannot then cut in CI.
           ./tests/test_no_local_cuts.sh
           ./tests/test_every_ship_prereq_is_classified.sh
+          ./tests/test_ttywalk_guard_install_root_mirrors_the_app.sh
           # The appcast debt is collected HERE, before a version is spent.
           # PUBLISH_APPCAST=onbox means CI cuts a good DMG and does NOT
           # publish the feed, by Andy's settled decision (no Sparkle private

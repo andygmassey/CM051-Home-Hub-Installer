@@ -912,6 +912,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         # walk that declared nothing, can never read as console.
         printf 'walk_kind\t%s\n'        "$WALK_KIND"
         printf 'walk_kind_source\t%s\n' "$WALK_KIND_SOURCE"
+        if [[ -n "${OSTLER_WALK_NOTES:-}" ]]; then printf 'walk_notes\t%s\n' "$(printf '%s' "$OSTLER_WALK_NOTES" | tr '\t\n\r' '   ')"; fi
         printf '#\n'
         printf '# instrument_rev answers the question this record has never\n'
         printf '# answered: WHICH PROBES graded that artefact. The subject is\n'

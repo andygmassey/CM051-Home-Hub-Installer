@@ -1433,6 +1433,44 @@ else
     rm -f "$_SAFARI_FX_LOCAL"
 fi
 
+# ── LOOPBACK GUARD, ROOT HALF: the harness replica of the .app's admin shell ─
+#
+# MEASURED v1.0.128 thin walk: step 5/44 died with ERR-08-LOOPBACK-GUARD-NOT-
+# ACTIVE daemon_not_installed. ostler_lg_install_step only runs `sudo -n ...
+# install-root` when OSTLER_GUI != 1; under OSTLER_GUI=1 (this harness) the
+# root half is the .app's admin shell (gui/OstlerInstaller/Auth/
+# AuthorizationHelper.swift buildAdminInnerShell), and there is no .app here.
+# So the harness runs the SAME invocation, as root via sudo -n, BEFORE install.sh.
+# The two templates below are diffed against the Swift source by
+# tests/test_ttywalk_guard_install_root_mirrors_the_app.sh: change either side
+# and that test goes RED. @LIB@ is the quoted lib path, @OWNER@ the account.
+# TWO arguments after install-root (owner uid, lib) and NO third assistant arg,
+# exactly as the Swift string. rc is NOT masked and the output goes to the walk log.
+LG_LIB_TMPL="'@RES@/lib/ostler-loopback-guard.sh'"
+LG_INSTALL_ROOT_TMPL='/bin/bash @LIB@ install-root $(/usr/bin/id -u @OWNER@) @LIB@'
+rule "LOOPBACK GUARD ROOT HALF (harness replica of AuthorizationHelper, NOT the dialog)"
+# The path must be LITERAL inside the single quotes (as in the Swift string), so
+# resolve the box's $HOME first rather than leaving it for the remote shell.
+_lg_home="$("${SSH[@]}" 'printf %s "$HOME"')" || die "could not read \$HOME on the host for the guard step."
+[[ -n "$_lg_home" ]] || die "the host reported an empty \$HOME for the guard step."
+_lg_res="${_lg_home}/${REMOTE_DIR}"
+_lg_lib="${LG_LIB_TMPL//@RES@/${_lg_res}}"
+_lg_cmd="${LG_INSTALL_ROOT_TMPL//@LIB@/${_lg_lib}}"
+_lg_cmd="${_lg_cmd//@OWNER@/${HOST%%@*}}"
+say "sudo -n ${_lg_cmd}"
+_lg_rc=0
+_lg_out="$("${SSH[@]}" "sudo -n ${_lg_cmd}" 2>&1)" || _lg_rc=$?
+printf '%s\n' "$_lg_out" | while IFS= read -r _l; do say "  $_l"; done
+say "guard install-root rc=${_lg_rc}"
+# Into the box's walk log as well, so the log a reader opens holds the line.
+"${SSH[@]}" "printf '%s\n' 'guard root half driven by harness replica of AuthorizationHelper, NOT the dialog: install-root rc=${_lg_rc}' >> \"\$HOME/${REMOTE_DIR}/ttywalk.log\"" >/dev/null 2>&1 || true
+export OSTLER_WALK_NOTES="guard root half driven by harness replica of AuthorizationHelper, NOT the dialog (install-root rc=${_lg_rc})"
+if [[ "$_lg_rc" -ne 0 ]]; then
+    say "⚠️  install-root did not succeed (rc=${_lg_rc}); install.sh would now fail closed on the guard."
+    say "    Not starting the install: the root half is what this step exists to establish."
+    exit "$CANNOT_RUN"
+fi
+
 # ── Run ──────────────────────────────────────────────────────────────
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"
 say "started $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
