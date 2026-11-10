@@ -59,7 +59,7 @@ jobs:
       # Missing any of the three makes pytest exit 2 on COLLECTION -- not a
       # failing assertion, an unimportable module.
       - name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers
       # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, copying
       # contact-card-repair.yml: a floor in a SEPARATE step would skip this
       # one when it failed, hiding the real result behind an earlier red.
