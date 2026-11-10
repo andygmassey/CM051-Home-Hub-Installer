@@ -1293,6 +1293,7 @@ Ostler 可匯入 18 個平台的匯出資料。完整清單及各服務供應商
 不使用的可以略過；之後隨時都可以再匯入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟未加密的情況下繼續嗎？"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你確定嗎？這有安全風險。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未加密。
 
 如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務金鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的金鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。

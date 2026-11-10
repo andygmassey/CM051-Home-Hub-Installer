@@ -187,7 +187,7 @@ jobs:
         # lookup makes zero requests unless the owner accepted enrichment.
         if: always()
         run: |
-          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
           python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
           python3 tests/test_food_mbox_consumed_and_pruned.py
       - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
@@ -270,7 +270,7 @@ jobs:
         if: always()
         run: |
           python3 -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt \
-            nameparser rapidfuzz phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
           n="$(python3 -m pytest tests/test_ingest_contract.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 30 ]; then

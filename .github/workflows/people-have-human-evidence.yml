@@ -51,7 +51,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph cryptography
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph cryptography
       - name: Junk senders and sender ids are not people, real people stay, a card always wins
         run: |
           n="$(python -m pytest tests/test_people_have_human_evidence.py \

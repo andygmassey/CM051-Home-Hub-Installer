@@ -9116,15 +9116,15 @@ else
     echo "  System Settings > Privacy & Security > FileVault (it encrypts"
     echo "  in the background -- no reinstall needed)."
     echo ""
-    # Default Yes: plaintext-at-rest is accepted for v1, so the install
-    # continues by default rather than blocking. The choice is still
-    # explicit and informed (the warning above + the prompt copy spell
-    # out the unencrypted-at-rest consequence), and it is recorded below.
+    # Two asks. The first defaults Yes; the second, default NO, is the
+    # real gate: a bare Enter here stops the install, never continues.
+    # Stopping is a user-selected exit, not an installer block.
     FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "y" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
-    if [[ "${FV_CONTINUE:-y}" == "n" || "${FV_CONTINUE:-y}" == "N" ]]; then
-        # The operator chose the safer path: stop so they can enable
-        # FileVault first. This is a user-selected exit, not an
-        # installer-imposed block on the plaintext posture.
+    FV_SURE=n
+    if [[ "${FV_CONTINUE:-y}" != "n" && "${FV_CONTINUE:-y}" != "N" ]]; then
+        FV_SURE="$(gui_read "$MSG_PROMPT_FILEVAULT_CONFIRM_TITLE" yesno "n" "" "" "filevault_confirm")"
+    fi
+    if [[ ! "${FV_SURE:-n}" =~ ^[Yy] ]]; then
         echo ""
         echo "  Stopping here as you asked -- nothing has failed."
         echo "  Turn FileVault on (System Settings > Privacy & Security >"

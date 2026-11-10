@@ -45,7 +45,7 @@ jobs:
       # guard), so install its pinned cryptography and put the VENDORED copy on
       # PYTHONPATH for the job (same shape as db-key-delivery-and-recovery.yml).
       - name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph "cryptography>=50.0.0,<51.0.0"
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject pyoxigraph "cryptography>=50.0.0,<51.0.0"
       - name: "Timeline dates: offset, event dates only, unreadable rows dropped"
         if: always()
         run: |
