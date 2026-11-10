@@ -22,6 +22,7 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_filevault_default_no_confirm.sh'
       - 'tests/test_recording_consent_fields_have_a_producer_and_a_consumer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
@@ -36,6 +37,7 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_filevault_default_no_confirm.sh'
       - 'tests/test_recording_consent_fields_have_a_producer_and_a_consumer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
@@ -118,6 +120,10 @@ jobs:
       - name: auto-login consent is opt-in and its copy does not overclaim
         if: always()
         run: /bin/bash tests/test_autologin_consent_opt_in.sh
+
+      - name: FileVault-off install needs a second, default-No confirm (bare Enter never continues)
+        if: always()
+        run: /bin/bash tests/test_filevault_default_no_confirm.sh
 
       # SAME JOB, SAME REASON. This one extracts the RemoteCapture phase out of
       # install.sh and EXECUTES it under three consent answers, so it has to run
