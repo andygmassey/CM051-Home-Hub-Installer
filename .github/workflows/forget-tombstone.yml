@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: Every syncer and ingest leaves a forgotten person absent
         run: |
           set -eu
@@ -74,7 +74,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml beautifulsoup4
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml beautifulsoup4
       - name: A merged person is never re-created by the next ingest
         run: |
           set -eu
@@ -98,7 +98,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: "F6: one Facebook export is imported once and re-imports keep their node"
         run: |
           set -eu
@@ -121,7 +121,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: Forget says done only when the person is gone from both stores
         run: |
           set -eu

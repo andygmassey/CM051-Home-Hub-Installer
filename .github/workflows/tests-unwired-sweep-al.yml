@@ -68,7 +68,7 @@ jobs:
       - name: Install python deps for the vendored-module tests
         # cm019 ingest parsers (aiofiles/bs4/lxml/pydantic*), ostler_fda pwg_ingest
         # (httpx/nameparser) and cm041 identity_resolver (rapidfuzz/httpx/phonenumbers).
-        run: python3 -m pip install --quiet aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers nameparser pyyaml
+        run: python3 -m pip install --quiet aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers "nameparser>=2.1.0,<3.0" pyyaml
 
       - name: Shell tests (a..l)
         run: |
