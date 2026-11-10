@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="地區：美國（來源：%s）"
 MSG_INFO_REPO_URL="儲存庫網址：%s"
 MSG_INFO_REPO_URL_2="儲存庫網址：%s"
 MSG_INFO_REPO_URL_3="儲存庫網址：%s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="現在請選擇用來解鎖你的 Hub 的密碼短語。每次啟動 Hub 介面時，你都需要輸入這個密碼短語。"
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="已略過復原密碼短語。（已淘汰：v1.0 一律需要密碼短語。）"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="正在重用位於 %s 的現有 Doctor 代理程式安裝"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="正在重用位於 %s 的現有電郵擷取安裝"
@@ -439,13 +439,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="無法將你對背景豐富化的選
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="內部記錄金鑰已設定。Hub 服務從你個人資料夾內的受保護檔案讀取金鑰，因此無需提示即可啟動。"
-MSG_OK_DB_KEY_DELIVERED="資料庫密鑰已交付予 Hub 服務（%s，只有你可以讀取）。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
 MSG_WARN_DB_KEY_NOT_DELIVERED="無法將資料庫密鑰交予 Hub 服務。在問題解決前，它們會以未加密方式開啟資料庫。"
 MSG_INFO_DB_KEY_RECOVER_HINT="執行此指令以復原並交付密鑰：%s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="正在加密先前安裝遺留的資料庫"
 MSG_WARN_DB_MIGRATION_FAILED="部分現有資料庫無法加密，仍可在磁碟上讀取。"
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="此安裝沒有資料庫密鑰檔案，因此 Hub 服務會以未加密方式開啟資料庫。"
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
 MSG_WARN_DB_PLAINTEXT_COUNT="這部 Mac 上目前有 %s 個資料庫可在磁碟上讀取。"
 MSG_INFO_DB_MIGRATE_HINT="然後加密現有的資料庫：%s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="已安裝延後的裝置註冊重試程序（每小時執行一次，直至佇列清空）"
@@ -1305,11 +1305,11 @@ MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你�
 選擇「否」：在此停止，讓你先開啟 FileVault，然後再重新執行安裝程式。無論選哪一個，都沒有出錯。"
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="準備設定磁碟加密"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 的敏感資料庫會使用 SQLCipher 加密，密碼短語由你在下一個畫面自行選擇。每次啟動 Hub UI 時，你都需要輸入這個密碼短語。安裝結束時還會產生一個獨立的復原密鑰，只顯示一次。為了讓 Mac 上的所有內容都受到靜態保護，請保持 macOS FileVault 開啟。準備好後，請按「繼續」。"
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="也設定復原密碼短語嗎？（建議）"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="選擇你的密碼短語"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="這個密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub UI。至少 16 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="確認你的密碼短語"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="請再次輸入相同的密碼短語以確認。"
 

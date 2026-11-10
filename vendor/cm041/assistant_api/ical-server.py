@@ -146,6 +146,39 @@ else:
     )
 
 
+class DbKeyMissingError(RuntimeError):
+    """A database that must be encrypted was asked for with no key."""
+
+
+def _refuse_plaintext(db_path: str) -> None:
+    """v1.0.129: corrections.db and assert_spool.db NEVER open plaintext.
+
+    They used to fall through to plain sqlite3 with a one-shot warning when
+    no key resolved, so a missing key silently produced a readable file.
+    Now the open is refused with an ERROR on every attempt (unless
+    OSTLER_ALLOW_PLAINTEXT_DB=1 is set explicitly, which also logs ERROR); callers that
+    already catch connect failures (corrections: HTTP 503 degraded) report
+    it, and the posture marker above already tells Doctor the key is absent.
+    """
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
+    if os.environ.get("OSTLER_ALLOW_PLAINTEXT_DB") == "1":
+        # Explicit, loud, per-open opt-in for test harnesses with no
+        # sqlcipher3. The installer and every plist leave it unset.
+        print(
+            f"ERROR: OSTLER_ALLOW_PLAINTEXT_DB=1: opening {db_path} as "
+            "PLAINTEXT SQLite by explicit request (no database key).",
+            file=sys.stderr, flush=True,
+        )
+        return
+    msg = (
+        f"refusing to open {db_path} without a database key "
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`."
+    )
+    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+    raise DbKeyMissingError(msg)
+
+
 def _warn_plaintext_once(db_path: str) -> None:
     """Print a one-shot stderr warning when the coach DB falls through
     to plaintext SQLite. Loud is the right level here: silent plaintext
@@ -4414,7 +4447,7 @@ def _assert_spool_connect():
     if _ENCRYPTION_KEY:
         conn = _secure_connect(db_path, _ENCRYPTION_KEY)
     else:
-        _warn_plaintext_once(db_path)
+        _refuse_plaintext(db_path)  # raises unless plaintext was explicitly allowed
         conn = sqlite3.connect(db_path)
     try:
         os.chmod(db_path, 0o600)
@@ -5344,17 +5377,15 @@ def _memory_source_label(source: str) -> str:
 def _memory_corrections_connect():
     """Open the memory_corrections SQLite database.
 
-    Uses the encrypted-DB wrapper from ostler_security when a key is
-    configured, falling back (with a loud warning) to plaintext SQLite
-    when running unencrypted. Mirrors the COACH_DB pattern in
-    ``coach_recent`` so a customer Hub with no key set still works.
+    Uses the encrypted-DB wrapper from ostler_security. With no key it
+    REFUSES (DbKeyMissingError, logged at ERROR); it never opens plaintext.
     """
     MEMORY_CORRECTIONS_DB.parent.mkdir(parents=True, exist_ok=True)
     db_path = str(MEMORY_CORRECTIONS_DB)
     if _ENCRYPTION_KEY:
         conn = _secure_connect(db_path, _ENCRYPTION_KEY)
     else:
-        _warn_plaintext_once(db_path)
+        _refuse_plaintext(db_path)  # raises unless plaintext was explicitly allowed
         conn = sqlite3.connect(db_path)
     conn.row_factory = _row_factory_for(conn)
     return conn

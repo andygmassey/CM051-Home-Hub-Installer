@@ -1028,6 +1028,7 @@ test_v1010_redteam3_teamid_pin.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_v1010_store_auth_loopback.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_v1010_store_front_proxy.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_wiki_not_tailscale_served.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_v1_0_129_db_key_keychain_no_plaintext_fallback.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_v1_sweep_install_gating.sh	WIRED	(via test_codename_sweep_sees_an_early_leak.sh)
 test_vane_bundle.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_vane_searxng_has_no_idle_egress.py	WIRED	.github/workflows/install-abort-and-egress.yml

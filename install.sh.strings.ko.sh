@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="지역: 미국 (출처: %s)"
 MSG_INFO_REPO_URL="저장소 URL: %s"
 MSG_INFO_REPO_URL_2="저장소 URL: %s"
 MSG_INFO_REPO_URL_3="저장소 URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="이제 Hub를 잠금 해제할 암호를 선택하세요. Hub UI를 시작할 때마다 이 암호를 입력하게 됩니다."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="복구 암호를 건너뛰었습니다. (더 이상 사용되지 않음: v1.0은 항상 암호가 필요합니다.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="%s에 있는 기존 Doctor 에이전트 설치를 재사용합니다"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="%s에 있는 기존 이메일 수집 설치를 재사용합니다"
@@ -439,13 +439,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="백그라운드 보강 선택을 ~/.
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="내부 기록용 키를 설정했습니다. Hub 서비스는 홈 폴더의 보호된 파일에서 키를 읽으므로, 입력을 요구하지 않고 시작합니다."
-MSG_OK_DB_KEY_DELIVERED="데이터베이스 키를 Hub 서비스에 전달했습니다(%s, 나만 읽을 수 있음)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
 MSG_WARN_DB_KEY_NOT_DELIVERED="데이터베이스 키를 Hub 서비스에 전달하지 못했습니다. 문제가 해결될 때까지 데이터베이스가 암호화되지 않은 상태로 열립니다."
 MSG_INFO_DB_KEY_RECOVER_HINT="다음을 실행해 키를 복구하고 전달하세요: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="이전 설치에서 남은 데이터베이스를 암호화하는 중"
 MSG_WARN_DB_MIGRATION_FAILED="기존 데이터베이스 일부를 암호화하지 못했습니다. 디스크에서 계속 읽을 수 있는 상태입니다."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="이 설치에는 데이터베이스 키 파일이 없어 Hub 서비스가 데이터베이스를 암호화하지 않은 상태로 열고 있습니다."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
 MSG_WARN_DB_PLAINTEXT_COUNT="이 Mac의 데이터베이스 %s개를 지금 디스크에서 읽을 수 있습니다."
 MSG_INFO_DB_MIGRATE_HINT="그런 다음 이미 있는 데이터베이스를 암호화하세요: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="보류된 기기 등록 재시도를 설치했습니다(대기열이 비워질 때까지 매시간 실행)"
@@ -1305,11 +1305,11 @@ FileVault 사용을 강력히 권장합니다. 시스템 설정 > 개인정보 �
 아니요를 선택하면 여기서 멈추므로, 먼저 FileVault를 켠 다음 설치 프로그램을 다시 실행할 수 있습니다. 어느 쪽을 선택해도 문제가 생긴 것은 아닙니다."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="디스크 암호화 설정 준비 완료"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler의 민감한 데이터베이스는 다음 화면에서 직접 정하는 암호문을 사용해 SQLCipher로 암호화됩니다. Hub UI를 시작할 때마다 이 암호문을 입력해야 합니다. 별도의 복구 키도 생성되어 설치가 끝날 때 한 번만 표시됩니다. Mac의 모든 데이터를 저장 시 완전히 보호하려면 macOS FileVault를 계속 켜 두세요. 준비되면 계속을 누르세요."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="복구용 암호문도 설정하시겠습니까? (권장)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="암호문 선택"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="이 암호문은 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 16자 이상이어야 합니다. 분실하면 복구해 드릴 수 없습니다. 암호 관리자에 보관하는 것을 권장합니다."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="암호문 확인"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="확인을 위해 같은 암호문을 다시 입력하세요."
 

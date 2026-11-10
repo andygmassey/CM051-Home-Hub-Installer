@@ -299,7 +299,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Region: United States (source: %s)"
 MSG_INFO_REPO_URL="Repo URL: %s"
 MSG_INFO_REPO_URL_2="Repo URL: %s"
 MSG_INFO_REPO_URL_3="Repo URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose the passphrase that will unlock your Hub. You'll type this each time you start the Hub UI."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (Deprecated: v1.0 always requires a passphrase.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
@@ -436,13 +436,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enric
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
 MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
 MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
 MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
@@ -1299,11 +1299,11 @@ Choose Yes to continue now with the disk unencrypted at rest (this is a delibera
 Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 16 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 

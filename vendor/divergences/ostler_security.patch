@@ -1,64 +1,76 @@
-diff --git a/README.md b/README.md
-index d074893c..166b61c7 100644
---- a/README.md
-+++ b/README.md
-@@ -68,7 +68,7 @@ Pre-passkey legacy code still ships for reference:
+--- a/audit_log.py
++++ b/audit_log.py
+@@ -119,8 +119,30 @@
+         # O_NOFOLLOW so an attacker can't race a symlink in before
+         # sqlite opens it. See _safe_open_path.
+         self._safe_open_path(Path(self.db_path))
++        self._upgrade_plaintext_file()
+         self._ensure_schema()
  
- ## Public API – what downstream consumers use
++    def _upgrade_plaintext_file(self) -> None:
++        """v1.0.129: a keyed log over an old PLAINTEXT audit.db re-keys it.
++
++        Earlier installs created audit.db unkeyed. Opening that file with a
++        key fails ("not a database"), which the callers swallow, so the
++        audit trail would silently stop. Convert it once instead. No .bak
++        is kept: a backup would be the plaintext copy this removes.
++        """
++        if not self._encryption_key_hex:
++            return
++        try:
++            with open(self.db_path, "rb") as fh:
++                header = fh.read(16)
++        except OSError:
++            return
++        if header == b"SQLite format 3\x00":
++            from .database import migrate_to_encrypted
++            migrate_to_encrypted(
++                self.db_path, self._encryption_key_hex, backup=False,
++            )
++
+     @staticmethod
+     def _safe_open_path(db_path: Path) -> None:
+         """Close the symlink-TOCTOU window before sqlite opens the file.
+@@ -313,12 +335,29 @@
+     ip_address: Optional[str] = None,
+     success: bool = True,
+     db_path: Optional[str | Path] = None,
++    encryption_key_hex: Optional[str] = None,
+ ) -> None:
+     """Write an audit log entry using the default log instance.
  
--Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
-+Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
- `whatsapp_bridge`) import exactly one symbol:
- 
- ```python
-diff --git a/consent.py b/consent.py
-index cbf49e10..fd4bc4b0 100644
---- a/consent.py
-+++ b/consent.py
-@@ -133,6 +133,7 @@ def record_consent(
-     hub_version: Optional[str] = None,
-     user_id: Optional[str] = None,
-     scope: Optional[str] = None,
-+    legal_note: Optional[dict] = None,
- ) -> Path:
-     """Persist a consent record for ``tickbox_id``.
- 
-@@ -161,6 +162,15 @@ def record_consent(
-             EU AI Act Annex III: a future emotion-recognition feature
-             requires a NEW tickbox, never silent expansion of an
-             existing record.
-+        legal_note: Optional pin of a REGION-CHOSEN legal note shown with
-+            the wording (CM051, 2026-10-24: the spoken-capture note follows
-+            the Mac's region). A dict with ``region`` (ISO-3166 alpha-2 or
-+            ``"none"``), ``variant``, ``text`` and ``sha256``; stored as
-+            ``legal_note_region`` / ``legal_note_variant`` /
-+            ``legal_note_text`` / ``legal_note_sha256``. Absent on records
-+            written before it existed; readers must treat it as optional.
-+            ``wording_hash`` stays the hash of ``wording_text``, so
-+            :func:`is_current` and every gate keyed on it are unchanged.
- 
-     Returns:
-         Path to the consent file (single registry, not per-tickbox).
-@@ -202,6 +212,14 @@ def record_consent(
-         "user_id": user_id,
-         "scope": scope,
-     }
-+    if legal_note is not None:
-+        for key in ("region", "variant", "text", "sha256"):
-+            if not legal_note.get(key):
-+                raise ValueError(f"legal_note.{key} is required")
-+        record["legal_note_region"] = legal_note["region"]
-+        record["legal_note_variant"] = legal_note["variant"]
-+        record["legal_note_text"] = legal_note["text"]
-+        record["legal_note_sha256"] = legal_note["sha256"]
- 
-     registry = _load_registry()
-     registry["schema_version"] = CONSENT_SCHEMA_VERSION
-diff --git a/consent_cli.py b/consent_cli.py
-index 0b6acb4e..05bfd81b 100644
+     If no db_path is provided, uses ~/.ostler/security/audit.db
++
++    v1.0.129: the default log is KEYED. The key is the caller's, else the
++    resolved database key. With neither, the entry is NOT written (ERROR
++    logged) rather than creating a plaintext audit.db.
+     """
+     global _default_log
++    if _default_log is None and not encryption_key_hex:
++        try:
++            from .db_key import resolve_db_key
++            encryption_key_hex = resolve_db_key().key
++        except Exception:
++            encryption_key_hex = None
++    if _default_log is None and not encryption_key_hex:
++        logger.error(
++            "audit log entry %s dropped: no database key, and an audit.db "
++            "is not created unencrypted", event_type,
++        )
++        return
+     if _default_log is None:
+         with _default_log_lock:
+             # Re-check inside the lock – another thread may have
+@@ -328,5 +367,5 @@
+                 parent = Path(path).parent
+                 parent.mkdir(parents=True, exist_ok=True)
+                 parent.chmod(0o700)  # BH-6 fix: restrict directory permissions
+-                _default_log = AuditLog(path)
++                _default_log = AuditLog(path, encryption_key_hex)
+     _default_log.log(event_type, source, details, ip_address, success)
 --- a/consent_cli.py
 +++ b/consent_cli.py
-@@ -40,7 +40,9 @@ try:
+@@ -40,7 +40,9 @@
      from legal import (  # noqa: E402
          ARTICLE_9_EU_CONSENT,
          EU_VOICE_SPEAKER_ID_CONSENT,
@@ -68,7 +80,7 @@ index 0b6acb4e..05bfd81b 100644
          WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      )
  except ImportError as exc:  # pragma: no cover - smoke
-@@ -48,6 +50,17 @@ except ImportError as exc:  # pragma: no cover - smoke
+@@ -48,6 +50,17 @@
          f"[consent_cli] could not import legal package: {exc}", file=sys.stderr,
      )
      sys.exit(2)
@@ -86,7 +98,7 @@ index 0b6acb4e..05bfd81b 100644
  
  
  # Map cli tickbox arg -> ConsentString. Single source of truth.
-@@ -55,13 +68,29 @@ TICKBOX_REGISTRY = {
+@@ -55,13 +68,29 @@
      ARTICLE_9_EU_CONSENT.tickbox_id: ARTICLE_9_EU_CONSENT,
      WHATSAPP_UNOFFICIAL_RISK_CONSENT.tickbox_id: WHATSAPP_UNOFFICIAL_RISK_CONSENT,
      EU_VOICE_SPEAKER_ID_CONSENT.tickbox_id: EU_VOICE_SPEAKER_ID_CONSENT,
@@ -117,7 +129,7 @@ index 0b6acb4e..05bfd81b 100644
  }
  
  
-@@ -75,16 +104,58 @@ def _cmd_record(args: argparse.Namespace) -> int:
+@@ -75,16 +104,58 @@
          )
          return 2
  
@@ -177,7 +189,7 @@ index 0b6acb4e..05bfd81b 100644
      )
      return 0
  
-@@ -163,6 +234,17 @@ def main(argv: list[str] | None = None) -> int:
+@@ -163,6 +234,17 @@
          "--hub-version",
          default=os.environ.get("OSTLER_HUB_VERSION", "0.1.0"),
      )
@@ -195,11 +207,50 @@ index 0b6acb4e..05bfd81b 100644
      p_rec.set_defaults(func=_cmd_record)
  
      p_show = sub.add_parser("show", help="print one record as JSON")
-diff --git a/database.py b/database.py
-index 00a42721..4edaaab4 100644
+--- a/consent.py
++++ b/consent.py
+@@ -133,6 +133,7 @@
+     hub_version: Optional[str] = None,
+     user_id: Optional[str] = None,
+     scope: Optional[str] = None,
++    legal_note: Optional[dict] = None,
+ ) -> Path:
+     """Persist a consent record for ``tickbox_id``.
+ 
+@@ -161,6 +162,15 @@
+             EU AI Act Annex III: a future emotion-recognition feature
+             requires a NEW tickbox, never silent expansion of an
+             existing record.
++        legal_note: Optional pin of a REGION-CHOSEN legal note shown with
++            the wording (CM051, 2026-10-24: the spoken-capture note follows
++            the Mac's region). A dict with ``region`` (ISO-3166 alpha-2 or
++            ``"none"``), ``variant``, ``text`` and ``sha256``; stored as
++            ``legal_note_region`` / ``legal_note_variant`` /
++            ``legal_note_text`` / ``legal_note_sha256``. Absent on records
++            written before it existed; readers must treat it as optional.
++            ``wording_hash`` stays the hash of ``wording_text``, so
++            :func:`is_current` and every gate keyed on it are unchanged.
+ 
+     Returns:
+         Path to the consent file (single registry, not per-tickbox).
+@@ -202,6 +212,14 @@
+         "user_id": user_id,
+         "scope": scope,
+     }
++    if legal_note is not None:
++        for key in ("region", "variant", "text", "sha256"):
++            if not legal_note.get(key):
++                raise ValueError(f"legal_note.{key} is required")
++        record["legal_note_region"] = legal_note["region"]
++        record["legal_note_variant"] = legal_note["variant"]
++        record["legal_note_text"] = legal_note["text"]
++        record["legal_note_sha256"] = legal_note["sha256"]
+ 
+     registry = _load_registry()
+     registry["schema_version"] = CONSENT_SCHEMA_VERSION
 --- a/database.py
 +++ b/database.py
-@@ -25,16 +25,23 @@ from typing import Optional
+@@ -25,16 +25,23 @@
  
  logger = logging.getLogger(__name__)
  
@@ -227,7 +278,7 @@ index 00a42721..4edaaab4 100644
      )
  
  
-@@ -80,15 +87,15 @@ def get_db_connection(
+@@ -80,15 +87,15 @@
          # pattern the 2026-04-28 fixes removed from CM048 and the
          # other two downstream services -- propagating the same
          # discipline here so the security boundary holds even when
@@ -246,7 +297,7 @@ index 00a42721..4edaaab4 100644
              f"without an encryption_key_hex if plaintext is intentional."
          )
  
-@@ -118,7 +125,7 @@ def migrate_to_encrypted(
+@@ -118,7 +125,7 @@
          or SQLCipher not available).
      """
      if not HAS_SQLCIPHER:
@@ -255,11 +306,201 @@ index 00a42721..4edaaab4 100644
          return False
  
      db_path = Path(db_path)
-diff --git a/migrate_dbs_cli.py b/migrate_dbs_cli.py
-index 5c26860e..65f4bb2b 100644
+--- a/db_key.py
++++ b/db_key.py
+@@ -97,7 +97,9 @@
+ 
+ import os
+ import re
++import shutil
+ import stat
++import subprocess
+ from pathlib import Path
+ from typing import NamedTuple, Optional
+ 
+@@ -107,6 +109,7 @@
+ # adds the second one rather than replacing it.
+ SOURCE_ENV = "OSTLER_DB_KEY"
+ SOURCE_KEY_FILE = "OSTLER_DB_KEY_FILE"
++SOURCE_KEYCHAIN = "keychain"
+ 
+ # Reasons. These flow into posture.py's `reason` field when no key could
+ # be used. "no_key" is the pre-existing value and keeps its meaning:
+@@ -118,6 +121,8 @@
+ REASON_KEY_FILE_SYMLINK = "key_file_symlink"
+ REASON_KEY_FILE_MALFORMED = "key_file_malformed"
+ REASON_KEY_FILE_UNREADABLE = "key_file_unreadable"
++REASON_KEYCHAIN_UNAVAILABLE = "keychain_unavailable"
++REASON_KEYCHAIN_MALFORMED = "keychain_malformed"
+ 
+ # 32 bytes, hex encoded. Matches what ostler-migrate-dbs documents and
+ # what passphrase.derive_key().hex() produces.
+@@ -164,6 +169,138 @@
+     return default_key_file()
+ 
+ 
++# ---------------------------------------------------------------------------
++# KEYCHAIN (v1.0.129). The key no longer rests as hex in a file.
++#
++# The login Keychain holds it under service "Ostler DB Key". The file
++# (~/.ostler/security/db_key) is now ONLY a migration source: the first
++# resolve that finds it and no Keychain item moves it, reads it back, and
++# deletes the file. What this buys, and nothing more: the key is not a
++# plaintext file in the home folder or in a copy of it. It is NOT a gate
++# against another process running as the same user (it can ask `security`
++# for the item too), and the boundary for a stolen Mac stays FileVault.
++#
++# The Keychain is reached through /usr/bin/security, not a framework, so
++# the same code runs from a LaunchAgent (measured: a gui/<uid> agent reads
++# an item written by `security -i`) and the key never appears in argv: the
++# write goes in on stdin via `security -i`.
++#
++# Isolation: the Keychain is consulted only for the DEFAULT install home. An
++# explicit OSTLER_DB_KEY_FILE, or a non-default OSTLER_HOME, keeps the old
++# file-only behaviour so a test or a one-off run can never read, overwrite or
++# delete the real item. OSTLER_DB_KEY_KEYCHAIN_SERVICE opts a harness back in
++# under a service name of its own.
++# ---------------------------------------------------------------------------
++KEYCHAIN_SERVICE_DEFAULT = "Ostler DB Key"
++KEYCHAIN_ACCOUNT = "ostler-db-key"
++_SECURITY_BIN = "/usr/bin/security"
++_KEYCHAIN_NOT_FOUND_RC = 44  # errSecItemNotFound, as exit status
++
++
++def keychain_service() -> str:
++    return os.environ.get("OSTLER_DB_KEY_KEYCHAIN_SERVICE") or KEYCHAIN_SERVICE_DEFAULT
++
++
++def keychain_available() -> bool:
++    """True when the macOS `security` tool exists on this host."""
++    return os.path.exists(_SECURITY_BIN)
++
++
++def keychain_enabled() -> bool:
++    """Whether this process should use the Keychain for the DB key."""
++    if not keychain_available():
++        return False
++    if os.environ.get("OSTLER_DB_KEY_KEYCHAIN_SERVICE"):
++        return True
++    if os.environ.get("OSTLER_DB_KEY_FILE") or os.environ.get("OSTLER_HOME"):
++        return False
++    return True
++
++
++def read_keychain_key() -> DbKey:
++    """Read the key from the login Keychain. Never raises.
++
++    "No item" is REASON_NO_KEY (the caller may then migrate the file).
++    Anything else that stops the read (locked keychain, no session, a
++    value that is not 64 hex) is REASON_KEYCHAIN_UNAVAILABLE or
++    REASON_KEYCHAIN_MALFORMED, and the caller must NOT fall through to
++    plaintext on it.
++    """
++    try:
++        proc = subprocess.run(
++            [_SECURITY_BIN, "find-generic-password",
++             "-s", keychain_service(), "-a", KEYCHAIN_ACCOUNT, "-w"],
++            capture_output=True, text=True, timeout=20,
++        )
++    except (OSError, subprocess.SubprocessError) as exc:
++        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
++                     f"could not run security: {exc.__class__.__name__}")
++    if proc.returncode == _KEYCHAIN_NOT_FOUND_RC:
++        return DbKey(None, None, REASON_NO_KEY, None)
++    if proc.returncode != 0:
++        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
++                     f"security exited {proc.returncode}: "
++                     f"{(proc.stderr or '').strip()[:160]}")
++    raw = (proc.stdout or "").strip()
++    if not _HEX_KEY_RE.match(raw):
++        return DbKey(None, None, REASON_KEYCHAIN_MALFORMED,
++                     f"the Keychain item is not 64 hex characters ({len(raw)})")
++    return DbKey(raw.lower(), SOURCE_KEYCHAIN, None,
++                 f'Keychain item "{keychain_service()}"')
++
++
++def write_keychain_key(key_hex: str) -> None:
++    """Store the key in the login Keychain and read it back.
++
++    Raises OSError if the write fails or the read-back does not match. The
++    key travels on stdin to `security -i`, never in argv.
++    """
++    if not _HEX_KEY_RE.match(key_hex or ""):
++        raise OSError("refusing to store a key that is not 64 hex characters")
++    if not keychain_available():
++        raise OSError("the macOS security tool is not present")
++    cmd = (f'add-generic-password -U -s "{keychain_service()}" '
++           f'-a "{KEYCHAIN_ACCOUNT}" -w {key_hex.lower()}\n')
++    try:
++        proc = subprocess.run([_SECURITY_BIN, "-i"], input=cmd,
++                              capture_output=True, text=True, timeout=20)
++    except (OSError, subprocess.SubprocessError) as exc:
++        raise OSError(f"could not run security: {exc.__class__.__name__}")
++    back = read_keychain_key()
++    if back.key != key_hex.lower():
++        raise OSError(
++            f"Keychain write did not verify (rc={proc.returncode}, "
++            f"read-back: {back.reason or 'mismatch'})"
++        )
++
++
++def migrate_key_file_to_keychain(path: Path) -> DbKey:
++    """Move the key file's key into the Keychain, then delete the file.
++
++    The file is deleted ONLY after the Keychain read-back matched. On any
++    failure the file is left exactly as it was and the returned DbKey is
++    the file's, so a failed move never costs the customer their key.
++    Safe to race: two services doing this at once write the same value.
++    """
++    fk = read_key_file(path)
++    if not fk.key:
++        return fk
++    try:
++        write_keychain_key(fk.key)
++    except OSError as exc:
++        return DbKey(fk.key, fk.source, None,
++                     f"{fk.detail}; Keychain move failed: {exc}")
++    try:
++        path.unlink()
++    except FileNotFoundError:
++        pass
++    except OSError as exc:
++        return DbKey(fk.key, SOURCE_KEYCHAIN, None,
++                     f"in the Keychain; could not delete {path}: {exc}")
++    return DbKey(fk.key, SOURCE_KEYCHAIN, None,
++                 f'moved from {path} to Keychain item "{keychain_service()}"')
++
++
+ def _mode_bits(path: Path) -> int:
+     return stat.S_IMODE(path.lstat().st_mode)
+ 
+@@ -273,4 +410,22 @@
+     if env_key:
+         return DbKey(env_key, SOURCE_ENV, None, None)
+ 
+-    return read_key_file(key_file_path())
++    if not keychain_enabled():
++        return read_key_file(key_file_path())
++
++    kc = read_keychain_key()
++    if kc.key:
++        # A file left behind by a crash between write and delete is a
++        # plaintext copy of a key that is already protected: remove it.
++        leftover = key_file_path()
++        try:
++            if leftover.is_file() and read_key_file(leftover).key == kc.key:
++                leftover.unlink()
++        except OSError:
++            pass
++        return kc
++    if kc.reason != REASON_NO_KEY:
++        # The Keychain exists and would not give the key up (locked, no
++        # session, malformed). Do not guess and do not read the file.
++        return kc
++    return migrate_key_file_to_keychain(key_file_path())
 --- a/migrate_dbs_cli.py
 +++ b/migrate_dbs_cli.py
-@@ -204,8 +204,8 @@ def main(argv: list[str] | None = None) -> int:
+@@ -204,8 +204,8 @@
  
      if not HAS_SQLCIPHER:
          print(
@@ -270,11 +511,9 @@ index 5c26860e..65f4bb2b 100644
              file=sys.stderr,
          )
          return 2
-diff --git a/passphrase_recovery_cli.py b/passphrase_recovery_cli.py
-index 943251c3..4082ecc3 100644
 --- a/passphrase_recovery_cli.py
 +++ b/passphrase_recovery_cli.py
-@@ -54,13 +54,15 @@ the product consumes: 64 hex characters, identical to what
+@@ -54,13 +54,15 @@
      ostler-unlock --recovery-key --install-key-file
  
      # know the passphrase, just want a one-off key on stdout
@@ -292,7 +531,7 @@ index 943251c3..4082ecc3 100644
  Every other line goes to stderr.
  
  SECRETS NEVER TOUCH ARGV
-@@ -75,13 +77,16 @@ interactive prompt. Same discipline as ``migrate_recovery_key_aad.py``.
+@@ -75,13 +77,16 @@
  Exit codes
  ----------
  
@@ -310,7 +549,7 @@ index 943251c3..4082ecc3 100644
  """
  from __future__ import annotations
  
-@@ -105,6 +110,10 @@ EXIT_AUTH_FAILED = 1
+@@ -105,6 +110,10 @@
  EXIT_NOTHING_TO_UNLOCK = 2
  EXIT_INTERNAL = 3
  EXIT_KEY_FILE_WRITE_FAILED = 4
@@ -321,7 +560,7 @@ index 943251c3..4082ecc3 100644
  
  SecretReader = Callable[[str], str]
  
-@@ -230,6 +239,7 @@ def run(
+@@ -230,6 +239,7 @@
      passphrase_reader: SecretReader = hidden_reader,
      max_attempts: int = 3,
      write_key_file: bool = False,
@@ -329,7 +568,7 @@ index 943251c3..4082ecc3 100644
      key_file: Optional[Path] = None,
      stdout: TextIO = sys.stdout,
      stderr: TextIO = sys.stderr,
-@@ -395,9 +405,51 @@ def run(
+@@ -395,9 +405,51 @@
                  "gui/$(id -u)/com.ostler.ical-server",
              )
  
@@ -384,11 +623,10 @@ index 943251c3..4082ecc3 100644
      return rc
  
  
-@@ -455,6 +507,15 @@ def build_parser() -> argparse.ArgumentParser:
-             "they stop opening databases in plaintext."
+@@ -456,6 +508,15 @@
          ),
      )
-+    parser.add_argument(
+     parser.add_argument(
 +        "--print-key",
 +        action="store_true",
 +        help=(
@@ -397,10 +635,11 @@ index 943251c3..4082ecc3 100644
 +            "--install-key-file unless you are scripting."
 +        ),
 +    )
-     parser.add_argument(
++    parser.add_argument(
          "--key-file",
          type=Path,
-@@ -480,6 +541,7 @@ def main(argv: Optional[list] = None) -> int:
+         default=None,
+@@ -480,6 +541,7 @@
          secret_file=args.secret_file,
          max_attempts=args.max_attempts,
          write_key_file=args.install_key_file,
@@ -408,11 +647,27 @@ index 943251c3..4082ecc3 100644
          key_file=args.key_file,
      )
  
-diff --git a/pyproject.toml b/pyproject.toml
-index 144c098a..b0e618d8 100644
+--- a/passphrase.py
++++ b/passphrase.py
+@@ -761,8 +761,13 @@
+ 
+     try:
+         from .audit_log import AuditLog, EVENT_PASSPHRASE_CHANGE
+-        audit = AuditLog(config_dir / "audit.db")
+-        audit.log(EVENT_PASSPHRASE_CHANGE, source="change_passphrase")
++        # v1.0.129: audit.db is keyed with the key the services use (the
++        # resolved database key). No key -> no entry; never a plaintext file.
++        from .db_key import resolve_db_key
++        _audit_key = resolve_db_key().key
++        if _audit_key:
++            audit = AuditLog(config_dir / "audit.db", _audit_key)
++            audit.log(EVENT_PASSPHRASE_CHANGE, source="change_passphrase")
+     except Exception:
+         pass  # Audit log failure should not block passphrase change
+ 
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -17,19 +17,25 @@ keywords = ["security", "encryption", "sqlcipher", "passkey", "audit"]
+@@ -17,19 +17,25 @@
  # Pinned versions for supply chain safety (AV-7). Update deliberately,
  # not automatically. pyproject is now the source of truth for installs.
  #
@@ -445,8 +700,17 @@ index 144c098a..b0e618d8 100644
  ]
  # OPF (OpenAI Privacy Filter) runtime – pulled in only when the
  # caller actually needs the privacy classifier. Switched from
-diff --git a/requirements.txt b/requirements.txt
-index 0fcd0462..24b8ecde 100644
+--- a/README.md
++++ b/README.md
+@@ -68,7 +68,7 @@
+ 
+ ## Public API – what downstream consumers use
+ 
+-Out-of-tree consumers (CM048 `ingest.py`, CM041 `marvin_api` +
++Out-of-tree consumers (CM048 `ingest.py`, CM041 `assistant_api` +
+ `whatsapp_bridge`) import exactly one symbol:
+ 
+ ```python
 --- a/requirements.txt
 +++ b/requirements.txt
 @@ -3,7 +3,7 @@

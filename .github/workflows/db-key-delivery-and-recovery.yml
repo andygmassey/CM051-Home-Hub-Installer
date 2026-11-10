@@ -75,6 +75,8 @@ on:
       - 'tests/test_the_recovery_cli_does_not_print_the_key_by_default.py'
       - 'vendor/ostler_security/passphrase_recovery_cli.py'
       - 'tests/test_the_db_key_reaches_the_services_and_the_disk.py'
+      - 'tests/test_v1_0_129_db_key_keychain_no_plaintext_fallback.py'
+      - 'gui/OstlerInstaller/Resources/ViewCopy*.json'
       - 'vendor/ostler_security/audit_log.py'
       - 'vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py'
       - 'tests/test_audit_log_row_factory.py'
@@ -193,6 +195,23 @@ jobs:
           python tests/test_the_db_key_reaches_the_services_and_the_disk.py || rc=$?
           if [ "$rc" -eq 2 ]; then
             echo "::error title=CANNOT-RUN (harness, not product)::The db-key harness could not obtain a verdict: ostler_security.db_key would not import, sqlcipher3 is absent, or a vendored consumer is missing from this tree. NOTHING about at-rest encryption has been measured, and in particular this is NOT evidence that the services received a key."
+          fi
+          exit "$rc"
+
+      # v1.0.129 hardening. The key is in the login Keychain and not a
+      # plaintext file; corrections.db / assert_spool.db refuse to open with
+      # no key; audit.db is created keyed; the passphrase copy claims nothing
+      # false. RED on origin/main (12 arms), GREEN on this tree. sqlcipher3 is
+      # installed above, so the audit.db byte arms RUN here (they are
+      # CANNOT-RUN on a bare interpreter, and rc=2 is annotated, never passed).
+      - name: v1.0.129 - DB key in Keychain, no silent plaintext, keyed audit.db
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          python tests/test_v1_0_129_db_key_keychain_no_plaintext_fallback.py || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::An arm of the v1.0.129 hardening test could not obtain a verdict. Nothing is claimed for it."
           fi
           exit "$rc"
 
