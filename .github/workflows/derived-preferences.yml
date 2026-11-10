@@ -270,7 +270,7 @@ jobs:
         if: always()
         run: |
           python3 -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt \
-            nameparser rapidfuzz phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
           n="$(python3 -m pytest tests/test_ingest_contract.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 30 ]; then

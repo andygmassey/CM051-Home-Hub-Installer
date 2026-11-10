@@ -1295,7 +1295,7 @@ Ostler 可导入 18 个平台的导出数据。完整列表及各服务商申请
 不使用的可以跳过；以后随时可以导入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="在磁盘静态数据【未加密】的情况下继续吗？"
-MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你确定吗？这有安全风险。"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="这台 Mac 上的“文件保险箱”（FileVault）已关闭，因此你的磁盘处于未加密状态。
 
 如果继续，这意味着：Ostler 存储的所有内容，包括 ~/Documents/Ostler 下你的整个个人图谱（维基、对话、知识笔记），以及 ~/.ostler 下的服务密钥和数据库，都会以未加密的方式写入磁盘。任何人只要能从这块磁盘启动、把它取出，或者使用一个未锁定的会话，就能读取全部内容。Ostler 用来加密数据库的密钥就保存在同一块磁盘上，因此在 FileVault 关闭时，它无法防止能接触到磁盘的人读取你的数据。

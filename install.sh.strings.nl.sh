@@ -1296,7 +1296,7 @@ De meeste archieven komen binnen 1 tot 3 dagen per e-mail binnen. Zodra de ZIP-b
 Sla over wat je niet gebruikt; je kunt later altijd meer importeren."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTELD is?"
-MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Weet je het zeker? Dit is een beveiligingsrisico."
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
 Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.

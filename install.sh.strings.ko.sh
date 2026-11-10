@@ -1294,7 +1294,7 @@ Ostler는 18개 플랫폼의 내보내기 파일을 가져올 수 있습니다. 
 사용하지 않는 항목은 건너뛰세요. 나중에 언제든 더 가져올 수 있습니다."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="저장된 디스크를 암호화하지 않은 상태로 계속하시겠습니까?"
-MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="정말 계속하시겠습니까? 이는 보안 위험입니다."
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="이 Mac에서는 FileVault가 꺼져 있어 저장된 디스크가 암호화되어 있지 않습니다.
 
 계속할 경우: Ostler가 저장하는 모든 것, 즉 ~/Documents/Ostler 아래의 개인 그래프 전체(위키, 대화, 지식 노트)와 ~/.ostler 아래의 서비스 비밀 정보 및 데이터베이스가 암호화되지 않은 상태로 디스크에 기록됩니다. 이 드라이브로 부팅하거나, 드라이브를 분리하거나, 잠금 해제된 세션에 접근할 수 있는 사람은 누구나 모든 내용을 읽을 수 있습니다. Ostler가 데이터베이스 암호화에 사용하는 키는 같은 디스크에 저장되므로, FileVault가 꺼져 있으면 디스크에 접근할 수 있는 사람으로부터 데이터를 보호하지 못합니다.

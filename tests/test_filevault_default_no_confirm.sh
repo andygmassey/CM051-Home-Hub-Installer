@@ -103,7 +103,7 @@ check() {
     esac
 }
 
-# Bare Enter, one or two, must not proceed.
+# A bare Enter key, once or twice, must not proceed.
 check "bare Enter, one ENTER"                      '\n'      NOT_PROCEED
 check "bare Enter, two ENTERs"                     '\n\n'    NOT_PROCEED
 # A single "y" must not proceed: the second question needs its own yes.

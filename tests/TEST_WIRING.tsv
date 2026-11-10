@@ -152,7 +152,6 @@ test_assistant_sends_are_not_owner_input.py	WIRED	.github/workflows/assistant-se
 test_audit_log_row_factory.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_audit_red_merges_predicate.py	WIRED	.github/workflows/red-merge-audit.yml
 test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
-test_filevault_default_no_confirm.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_backfill_strip_tracking_urls.py	WIRED	.github/workflows/url-clean.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
@@ -449,6 +448,7 @@ test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_loads_after_an_aborted_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_fda_tick_folds_a_post_install_email_twin.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
+test_filevault_default_no_confirm.sh	WIRED	.github/workflows/consent-contract.yml
 test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
