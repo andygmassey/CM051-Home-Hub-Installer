@@ -302,9 +302,9 @@
   },
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption.",
-    "help_optic_id": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption.",
-    "help_password_or_watch": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
+    "help_touch_id": "Ostler는 내부 기록 일부의 키를 설정하는 데 이 암호 문구를 사용합니다. Ostler 데이터 전체는 Apple의 전체 디스크 암호화인 FileVault로 보호됩니다.",
+    "help_optic_id": "Ostler는 내부 기록 일부의 키를 설정하는 데 이 암호 문구를 사용합니다. Ostler 데이터 전체는 Apple의 전체 디스크 암호화인 FileVault로 보호됩니다.",
+    "help_password_or_watch": "Ostler는 내부 기록 일부의 키를 설정하는 데 이 암호 문구를 사용합니다. Ostler 데이터 전체는 Apple의 전체 디스크 암호화인 FileVault로 보호됩니다."
   },
   "recovery_key_reveal": {
     "_meta": "CX-53 (DMG ship, 2026-05-24): recovery-key reveal sheet rendered over InstallCompleteView when install.sh emits the RECOVERY_KEY marker. Mirrors install.sh.strings.en-GB.sh MSG_INFO_RECOVERY_KEY_REVEALED_* keys so the GUI + TTY paths read from a single editorial source.",

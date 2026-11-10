@@ -441,7 +441,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Não foi possível guardar a sua esc
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave de um ficheiro protegido na sua pasta pessoal, por isso arrancam sem pedir nada."
 MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub (%s, legível apenas por si)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Não foi possível entregar a chave da base de dados aos serviços do Hub. Estes abrirão as bases de dados sem encriptação até que seja corrigido."
 MSG_INFO_DB_KEY_RECOVER_HINT="Execute isto para a recuperar e entregar: %s/.venv/bin/ostler-unlock --install-key-file"

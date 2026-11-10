@@ -440,7 +440,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="バックグラウンド補完の選
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="内部レコード用の鍵を設定しました。Hub のサービスは、ホームフォルダ内の保護されたファイルから鍵を読み取るため、起動時に入力を求められることはありません。"
 MSG_OK_DB_KEY_DELIVERED="データベースの鍵を Hub のサービスに渡しました(%s、あなただけが読み取れます)。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="データベースの鍵を Hub のサービスに渡せませんでした。修正されるまで、データベースは暗号化されないまま開かれます。"
 MSG_INFO_DB_KEY_RECOVER_HINT="次のコマンドを実行して、鍵を復旧し渡してください: %s/.venv/bin/ostler-unlock --install-key-file"
