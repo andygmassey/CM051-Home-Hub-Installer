@@ -439,7 +439,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="백그라운드 보강 선택을 ~/.
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="데이터베이스가 암호화되었습니다. Hub 서비스는 홈 폴더의 보호된 파일에서 키를 읽으므로 묻지 않고 시작됩니다."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
 MSG_OK_DB_KEY_DELIVERED="데이터베이스 키를 Hub 서비스에 전달했습니다(%s, 나만 읽을 수 있음)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="데이터베이스 키를 Hub 서비스에 전달하지 못했습니다. 문제가 해결될 때까지 데이터베이스가 암호화되지 않은 상태로 열립니다."
 MSG_INFO_DB_KEY_RECOVER_HINT="다음을 실행해 키를 복구하고 전달하세요: %s/.venv/bin/ostler-unlock --install-key-file"

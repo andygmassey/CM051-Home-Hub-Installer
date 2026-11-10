@@ -442,7 +442,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Impossible d'enregistrer votre choix
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Bases de données chiffrées. Les services du Hub lisent la clé dans un fichier protégé de votre dossier personnel, et démarrent donc sans vous solliciter."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
 MSG_OK_DB_KEY_DELIVERED="Clé de base de données transmise aux services du Hub (%s, lisible uniquement par vous)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Impossible de transmettre la clé de base de données aux services du Hub. Ils ouvriront les bases de données sans chiffrement tant que ce ne sera pas corrigé."
 MSG_INFO_DB_KEY_RECOVER_HINT="Exécutez ceci pour la récupérer et la transmettre : %s/.venv/bin/ostler-unlock --install-key-file"
