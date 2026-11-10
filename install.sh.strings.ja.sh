@@ -1298,7 +1298,7 @@ Ostlerは18のプラットフォームのエクスポートを読み込めます
 使わないものはスキップしてかまいません。後からいつでも追加で読み込めます。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="ディスクを暗号化しないまま続けますか?"
-MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="本当によろしいですか？これはセキュリティ上のリスクです。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="このMacではFileVaultがオフのため、ディスクは保存時に暗号化されていません。
 
 続行した場合の影響:Ostlerが保存するすべてのデータ(~/Documents/Ostler 内の個人グラフ全体(Wiki、会話、ナレッジノート)、および ~/.ostler 内のサービスのシークレットとデータベース)が、暗号化されずにディスクへ書き込まれます。このドライブから起動できる人、ドライブを取り外せる人、ロック解除されたセッションにアクセスできる人は、そのすべてを読み取れます。Ostlerがデータベースの暗号化に使う鍵は同じディスク上に保存されているため、FileVaultがオフの状態では、ディスクを手にした人からデータを守ることはできません。

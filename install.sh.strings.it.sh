@@ -1299,7 +1299,7 @@ La maggior parte degli archivi impiega da 1 a 3 giorni per arrivare via email. Q
 Salta quelli che non usi; puoi sempre importarne altri più tardi."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuare con il disco NON cifrato a riposo?"
-MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Sei sicuro? Questo è un rischio per la sicurezza."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault è DISATTIVATO su questo Mac, quindi il disco non è cifrato a riposo.
 
 Cosa significa se continui: tutto ciò che Ostler memorizza, cioè l'intero grafo personale (wiki, conversazioni, note di conoscenza) in ~/Documents/Ostler, più i segreti dei servizi e i database in ~/.ostler, viene scritto su disco NON cifrato. Chiunque possa avviare il Mac da questa unità, rimuoverla o accedere a una sessione sbloccata può leggere tutto. La chiave con cui Ostler cifra i suoi database è salvata su questo stesso disco, quindi senza FileVault non protegge i tuoi dati da chi ha accesso al disco.
