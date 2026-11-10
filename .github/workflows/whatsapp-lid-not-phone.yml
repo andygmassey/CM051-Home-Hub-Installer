@@ -53,7 +53,7 @@ jobs:
       # one makes pytest exit 2 on COLLECTION -- not a failing assertion, an
       # unimportable module.
       - name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers
       # `from ostler_fda import pwg_ingest` needs `vendor/` on sys.path.
       # `python -m pytest` inserts the CURRENT WORKING DIRECTORY as
       # sys.path[0] (python -m semantics), so running from inside vendor/
