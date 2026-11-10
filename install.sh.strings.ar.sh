@@ -1301,6 +1301,7 @@ MSG_PROMPT_EXPORTS_ACK_HELP="تتيح لك خدمات مثل Google وMeta وSpo
 تخطَّ ما لا تستخدمه، ويمكنك دائمًا استيراد المزيد لاحقًا."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="المتابعة مع قرص غير مشفّر أثناء التخزين؟"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="هل أنت متأكد؟ هذا يشكل خطرًا أمنيًا."
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، لذا فالقرص غير مشفّر أثناء التخزين.
 

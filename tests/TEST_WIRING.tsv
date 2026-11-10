@@ -448,6 +448,7 @@ test_fda_rerun_ingests.sh	WIRED	.github/workflows/fda-rerun-ingests.yml
 test_fda_rerun_loads_after_an_aborted_run.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_fda_rerun_recurs.sh	WIRED	.github/workflows/fda-rerun-recurs.yml
 test_fda_tick_folds_a_post_install_email_twin.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
+test_filevault_default_no_confirm.sh	WIRED	.github/workflows/consent-contract.yml
 test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml

@@ -1300,6 +1300,7 @@ La plupart des archives mettent de 1 à 3 jours à arriver par e-mail. Une fois 
 Ignorez celles que vous n'utilisez pas ; vous pourrez toujours en importer d'autres plus tard."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au repos ?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Êtes-vous sûr ? C’est un risque pour la sécurité."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
 
 Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
