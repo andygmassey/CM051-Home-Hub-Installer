@@ -93,7 +93,7 @@ first launch at the console. An ssh session cannot see it, and whether macOS
 raises a Location prompt is itself a GUI event.
 
 1. On a box whose macOS Region is set to Hong Kong (System Settings > General >
-   Language & Region), launch RemoteCapture 0.1.10 for the first time.
+   Language & Region), launch RemoteCapture 0.1.11 for the first time.
 2. **Expected:** the consent screen names the jurisdiction from the Mac's
    region (HK) without a Location prompt.
 
