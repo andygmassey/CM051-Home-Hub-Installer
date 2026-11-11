@@ -167,6 +167,19 @@
     "continue_anyway_button": "Continuar mesmo assim",
     "quit_reopen_button": "Sair e reabrir"
   },
+  "fda_drag": {
+    "heading": "Deixe o Ostler ler suas mensagens e e-mails",
+    "reveal_button": "Mostrar no Finder",
+    "instruction": "Arraste {app} para a lista e ative.",
+    "cant_drag": "Não consegue arrastar?",
+    "manual_steps": "Clique em + abaixo da lista e escolha {app}.",
+    "already_on_link": "Já ativou?",
+    "waiting": "Aguardando acesso...",
+    "granted": "Acesso concedido",
+    "anim_drag": "Arraste o app para a lista",
+    "anim_switch_on": "Ative o acesso",
+    "anim_done": "O Ostler continua sozinho"
+  },
   "log_drawer": {
     "header_label": "LOG",
     "copy_log": "Copiar registro",

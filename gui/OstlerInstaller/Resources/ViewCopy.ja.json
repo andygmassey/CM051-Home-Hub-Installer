@@ -167,6 +167,19 @@
     "continue_anyway_button": "このまま続行",
     "quit_reopen_button": "終了して再度開く"
   },
+  "fda_drag": {
+    "heading": "Ostler にメッセージとメールの読み取りを許可",
+    "reveal_button": "Finder で表示",
+    "instruction": "{app} をリストにドラッグして、オンにしてください。",
+    "cant_drag": "ドラッグできませんか？",
+    "manual_steps": "リストの下の + をクリックして {app} を選択します。",
+    "already_on_link": "すでにオンにしましたか？",
+    "waiting": "アクセスを待っています…",
+    "granted": "アクセスが許可されました",
+    "anim_drag": "アプリをリストにドラッグ",
+    "anim_switch_on": "オンにする",
+    "anim_done": "Ostler が自動で続けます"
+  },
   "log_drawer": {
     "header_label": "ログ",
     "copy_log": "ログをコピー",

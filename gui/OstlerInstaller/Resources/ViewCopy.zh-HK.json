@@ -167,6 +167,19 @@
     "continue_anyway_button": "仍然繼續",
     "quit_reopen_button": "結束並重新打開"
   },
+  "fda_drag": {
+    "heading": "讓 Ostler 讀取你嘅訊息同郵件",
+    "reveal_button": "喺 Finder 中顯示",
+    "instruction": "將 {app} 拖入列表，然後將其開啟。",
+    "cant_drag": "無法拖曳？",
+    "manual_steps": "按一下列表下方的 +，然後選擇 {app}。",
+    "already_on_link": "已經開啟了嗎？",
+    "waiting": "正在等待授權...",
+    "granted": "已授予存取權限",
+    "anim_drag": "將 App 拖入清單",
+    "anim_switch_on": "打開開關",
+    "anim_done": "Ostler 會自動繼續"
+  },
   "log_drawer": {
     "header_label": "記錄",
     "copy_log": "拷貝記錄",

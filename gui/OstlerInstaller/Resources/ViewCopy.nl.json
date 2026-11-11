@@ -167,6 +167,19 @@
     "continue_anyway_button": "Toch doorgaan",
     "quit_reopen_button": "Stop en open opnieuw"
   },
+  "fda_drag": {
+    "heading": "Laat Ostler je berichten en mail lezen",
+    "reveal_button": "Toon in Finder",
+    "instruction": "Sleep {app} naar de lijst en zet het aan.",
+    "cant_drag": "Lukt slepen niet?",
+    "manual_steps": "Klik onder de lijst op + en kies {app}.",
+    "already_on_link": "Al aangezet?",
+    "waiting": "Wachten op toegang...",
+    "granted": "Toegang verleend",
+    "anim_drag": "Sleep de app naar de lijst",
+    "anim_switch_on": "Zet hem aan",
+    "anim_done": "Ostler gaat zelf verder"
+  },
   "log_drawer": {
     "header_label": "LOG",
     "copy_log": "Logboek kopiëren",

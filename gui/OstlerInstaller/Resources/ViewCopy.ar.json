@@ -167,6 +167,19 @@
     "continue_anyway_button": "المتابعة على أي حال",
     "quit_reopen_button": "إنهاء وإعادة الفتح"
   },
+  "fda_drag": {
+    "heading": "دع Ostler يقرأ رسائلك وبريدك",
+    "reveal_button": "أظهره في Finder",
+    "instruction": "اسحب {app} إلى القائمة، ثم فعّله.",
+    "cant_drag": "لا يمكنك سحبه؟",
+    "manual_steps": "انقر على + أسفل القائمة ثم اختر {app}.",
+    "already_on_link": "هل فعّلته بالفعل؟",
+    "waiting": "في انتظار منح الوصول...",
+    "granted": "تم منح الوصول",
+    "anim_drag": "اسحب التطبيق إلى القائمة",
+    "anim_switch_on": "فعّله",
+    "anim_done": "يواصل Ostler العمل تلقائياً"
+  },
   "log_drawer": {
     "header_label": "السجل",
     "copy_log": "نسخ السجل",

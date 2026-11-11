@@ -167,6 +167,19 @@
     "continue_anyway_button": "Continuer quand même",
     "quit_reopen_button": "Quitter et rouvrir"
   },
+  "fda_drag": {
+    "heading": "Laissez Ostler lire vos messages et vos e-mails",
+    "reveal_button": "Afficher dans le Finder",
+    "instruction": "Faites glisser {app} dans la liste, puis activez-le.",
+    "cant_drag": "Impossible de le faire glisser ?",
+    "manual_steps": "Cliquez sur + sous la liste et choisissez {app}.",
+    "already_on_link": "Déjà activé ?",
+    "waiting": "En attente de l’accès...",
+    "granted": "Accès accordé",
+    "anim_drag": "Faites glisser l'app dans la liste",
+    "anim_switch_on": "Activez-la",
+    "anim_done": "Ostler reprend tout seul"
+  },
   "log_drawer": {
     "header_label": "JOURNAL",
     "copy_log": "Copier le journal",
