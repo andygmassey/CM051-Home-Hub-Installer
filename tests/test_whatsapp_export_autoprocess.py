@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """A dropped WhatsApp per-chat export is parsed and persisted, not skipped.
 
-Decision of record, 2026-11-11: WhatsApp chat exports auto-process. Before
+Owner direction, 2026-11-08 (Andy): WhatsApp chat exports auto-process. Before
 this, lib/ostler-detect-exports.sh answered every "WhatsApp chat*.txt" with
 skip, and universal_import had no dispatcher for whatsapp_export. Both are
-now wired: the watcher answers import, and the dispatcher parses the chat
-and drives the same pwg-convo sink the Messenger leg uses.
+now wired: the watcher answers import (only if WhatsApp was accepted at setup),
+and the dispatcher parses the chat and drives the same pwg-convo sink the
+Messenger leg uses.
 
 Every fixture is SYNTHETIC. Names are placeholders. No real chat is read.
 
@@ -154,7 +155,15 @@ def test_watcher_answers_import_for_a_dropped_chat_and_zip():
     zdir.mkdir()
     with zipfile.ZipFile(zdir / "WhatsApp Chat - Synthetic.zip", "w") as z:
         z.writestr("_chat.txt", IOS)
-    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(d), "LC_ALL": "C"}
+    # The customer accepted WhatsApp at setup (the consent registry the watcher
+    # reads); without it the watcher answers skip, which is tested in
+    # tests/test_no_whatsapp_chat_export_instruction.sh section 3.
+    home = d / "ostler"
+    (home / "posture").mkdir(parents=True)
+    (home / "posture" / "consent.json").write_text(
+        '{\n  "schema_version": 1,\n  "records": {\n    "whatsapp_unofficial_risk": {\n'
+        '      "tickbox_id": "whatsapp_unofficial_risk",\n      "decision": "accepted"\n    }\n  }\n}\n')
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(d), "LC_ALL": "C", "OSTLER_HOME": str(home)}
     subprocess.run(["bash", str(LIB), str(d), "--unzip"], capture_output=True, env=env, check=False)
     out = subprocess.run(["bash", str(LIB), str(d), "--loose"], capture_output=True, text=True, env=env, check=False).stdout
     rows = [l.split("\t") for l in out.splitlines() if "WhatsApp" in l]

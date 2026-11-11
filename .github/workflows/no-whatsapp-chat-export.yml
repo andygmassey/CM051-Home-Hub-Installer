@@ -1,5 +1,5 @@
 # Owner direction, 2026-10-25: no customer surface tells anyone to export a chat.
-# Decision, 2026-11-11: a chat export a customer drops in is AUTO-PROCESSED
+# Owner direction, 2026-11-08 (Andy): a chat export a customer drops in is AUTO-PROCESSED
 # (watcher: import; ostler_fda.whatsapp_export -> pwg-convo). Both guards run here.
 name: no-whatsapp-chat-export
 

@@ -10546,7 +10546,7 @@ _scan_find_backups
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
 #   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, then
 #             ostler_fda.whatsapp_export parses it and pwg-convo persists it
-#             (the Messenger sink). Auto-processed, decided 2026-11-11.
+#             (the Messenger sink). Owner direction 2026-11-08 (Andy). Import only if WhatsApp was accepted at setup (posture/consent.json).
 #             An iOS .zip reaches it through _zip_shape_re and _chat.txt.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
@@ -10566,7 +10566,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_rest="${_lx#*$'\x1f'}"
         _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
     done
-    _lx_any=1
+    _lx_any=1; _lx_wa_dec=""; _lx_wa_why="you did not accept WhatsApp in the setup consent screen, so Ostler did not read this chat"; [[ -r "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json" ]] && _lx_wa_dec="$(awk '/"whatsapp_unofficial_risk"[[:space:]]*:/{f=1} f && /"decision"[[:space:]]*:/{ if (match($0, /"(accepted|declined)"/)) { print substr($0, RSTART+1, RLENGTH-2); exit } }' "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json")"; [[ "$_lx_wa_dec" == declined ]] && _lx_wa_why="you declined WhatsApp in the setup consent screen, so Ostler did not read this chat"
     # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
     # "change the installer, not the box"): depth 6 covers every export shape
     # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
@@ -10584,7 +10584,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_label="${_lx_row%%$'\x1f'*}"
         _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
         _lx_min="${_lx_t%%$'\x1f'*}"
-        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"; [[ "$_lx_label" == "WhatsApp chat" && "$_lx_wa_dec" != accepted ]] && _lx_noimp="$_lx_wa_why"
         _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
         case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
         if [[ -z "$_lx_size" ]]; then
