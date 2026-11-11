@@ -96,6 +96,7 @@ jobs:
           set -uo pipefail
           fail=0
           for t in \
+            tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
