@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  %s에 복제했습니다."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture는 Apple 실리콘 전용입니다. 이 Mac에서는 설치를 건너뜁니다."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 로그: %s/ostler-remotecapture.log (및 .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="이전 설치에서 Ostler RemoteCapture가 로그인 시 시작되도록 설정되어 있었습니다. 이를 중지했으며 다시 시작되지 않습니다."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture가 설치되지 않았습니다. 음성 텍스트 변환을 끈 상태로 두기로 선택하셨습니다. 마음이 바뀌면 설정에서 켠 다음 설치 프로그램을 다시 실행하세요."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="음성 텍스트 변환을 켜기 전까지 Ostler RemoteCapture는 꺼진 상태로 있습니다. 당분간 꺼 두기로 선택하셨습니다. Ostler 설정 또는 RemoteCapture에서 언제든 켤 수 있습니다. 다시 설치할 필요는 없습니다."
 MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS에 화면 기록 및 마이크 권한을 요청합니다. 통화와 회의를 이 Mac에서 텍스트로 변환할 수 있도록 두 가지 모두 허용하세요. 메뉴 막대에 보라색 기록 표시는 나타나지 않습니다. 오디오 캡처는 의도적으로 조용히 이루어집니다."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the

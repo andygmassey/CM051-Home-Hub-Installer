@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  已克隆到 %s。"
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture 仅支持 Apple 芯片。已在这台机器上跳过安装。"
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 日志：%s/ostler-remotecapture.log（以及 .err）"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="之前的安装让 Ostler RemoteCapture 在登录时启动。它已被停止，不会再次启动。"
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="未安装 Ostler RemoteCapture：你选择了关闭语音转写。如果改变主意，请在“设置”中开启，然后再次运行安装程序。"
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="在你开启语音转写之前，Ostler RemoteCapture 保持关闭：你选择暂时关闭语音转写。你可以随时在 Ostler 的“设置”或 RemoteCapture 中开启，无需重新安装。"
 MSG_INFO_CM042_TCC_PRE_PROMPT="首次启动时，Ostler RemoteCapture 会请求 macOS 授予“屏幕录制”和“麦克风”权限。请同时允许，以便在本地转写通话和会议。菜单栏中不会出现紫色录制指示标志，音频采集在设计上是静默的。"
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the

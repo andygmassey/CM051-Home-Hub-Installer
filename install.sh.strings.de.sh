@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  Geklont nach %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture läuft nur auf Apple Silicon. Die Installation wird auf diesem Mac übersprungen."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture-Protokolle: %s/ostler-remotecapture.log (und .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Bei einer früheren Installation wurde Ostler RemoteCapture beim Anmelden gestartet. Es wurde gestoppt und startet nicht mehr."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture wurde nicht installiert: Du hast die Transkription gesprochener Sprache ausgeschaltet. Schalte sie in den Einstellungen ein und führe das Installationsprogramm erneut aus, falls du es dir anders überlegst."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture bleibt aus, bis du die Transkription gesprochener Sprache einschaltest: Du hast sie vorerst ausgeschaltet gelassen. Du kannst sie jederzeit in den Einstellungen von Ostler oder in RemoteCapture einschalten. Eine Neuinstallation ist nicht nötig."
 MSG_INFO_CM042_TCC_PRE_PROMPT="Beim ersten Start fragt Ostler RemoteCapture bei macOS die Berechtigungen für Bildschirmaufnahme und Mikrofon an. Erteile beide, damit Anrufe und Meetings lokal transkribiert werden können. In deiner Menüleiste erscheint kein violetter Aufnahmeindikator – die Audioerfassung läuft bewusst lautlos."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
