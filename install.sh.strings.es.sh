@@ -442,7 +442,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="No se pudo guardar en ~/.ostler/post
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Bases de datos cifradas. Los servicios del Hub leen la clave de un archivo protegido en tu carpeta personal, así que se inician sin pedirte nada."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Clave de los registros internos configurada. Los servicios del Hub leen la clave de un archivo protegido en tu carpeta de inicio, así que se inician sin pedirte nada."
 MSG_OK_DB_KEY_DELIVERED="Clave de la base de datos entregada a los servicios del Hub (%s, legible solo por ti)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="No se pudo entregar la clave de la base de datos a los servicios del Hub. Abrirán las bases de datos sin cifrar hasta que se solucione."
 MSG_INFO_DB_KEY_RECOVER_HINT="Ejecuta esto para recuperarla y entregarla: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1299,6 +1299,7 @@ La mayoría de los archivos tardan de 1 a 3 días en llegar por correo electrón
 Omite los que no uses; siempre puedes importar más después."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="¿Continuar con el disco SIN CIFRAR en reposo?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="¿Estás seguro? Esto supone un riesgo de seguridad."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault está desactivado en este Mac, así que tu disco no está cifrado en reposo.
 
 Qué significa esto si continúas: todo lo que guarda Ostler (todo tu grafo personal: wiki, conversaciones y notas de conocimiento en ~/Documents/Ostler, además de los secretos de servicio y las bases de datos en ~/.ostler) se escribe en el disco SIN CIFRAR. Cualquiera que pueda arrancar desde esta unidad, extraerla o acceder a una sesión desbloqueada puede leerlo todo. La clave con la que Ostler cifra sus bases de datos se guarda en este mismo disco, así que sin FileVault no protege tus datos frente a quien tenga acceso al disco.

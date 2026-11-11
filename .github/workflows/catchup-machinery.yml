@@ -77,7 +77,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pytest
-        run: python -m pip install --quiet pytest httpx pyyaml phonenumbers nameparser
+        run: python -m pip install --quiet pytest httpx pyyaml phonenumbers "nameparser>=2.1.0,<3.0"
       - name: core walks to the oldest item, bounded, kill-safe
         run: |
           n="$(python -m pytest tests/test_catchup_core.py --collect-only -q | grep -cE '::test_')" || n=0

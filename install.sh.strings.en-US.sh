@@ -436,7 +436,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enric
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
 MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
 MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1288,6 +1288,7 @@ Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them
 Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
 What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.

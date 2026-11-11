@@ -439,7 +439,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="无法将你的后台扩充选择保
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="数据库已加密。Hub 服务会从你个人文件夹中的受保护文件读取密钥，因此启动时无需向你询问。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="内部记录密钥已设置。Hub 服务从你主文件夹中的受保护文件读取密钥，因此无需提示即可启动。"
 MSG_OK_DB_KEY_DELIVERED="数据库密钥已交付给 Hub 服务（%s，仅你本人可读）。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="无法将数据库密钥交给 Hub 服务。在问题解决之前，它们将以未加密方式打开数据库。"
 MSG_INFO_DB_KEY_RECOVER_HINT="运行以下命令以恢复密钥并交付：%s/.venv/bin/ostler-unlock --install-key-file"
@@ -1295,6 +1295,7 @@ Ostler 可导入 18 个平台的导出数据。完整列表及各服务商申请
 不使用的可以跳过；以后随时可以导入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="在磁盘静态数据【未加密】的情况下继续吗？"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你确定吗？这有安全风险。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="这台 Mac 上的“文件保险箱”（FileVault）已关闭，因此你的磁盘处于未加密状态。
 
 如果继续，这意味着：Ostler 存储的所有内容，包括 ~/Documents/Ostler 下你的整个个人图谱（维基、对话、知识笔记），以及 ~/.ostler 下的服务密钥和数据库，都会以未加密的方式写入磁盘。任何人只要能从这块磁盘启动、把它取出，或者使用一个未锁定的会话，就能读取全部内容。Ostler 用来加密数据库的密钥就保存在同一块磁盘上，因此在 FileVault 关闭时，它无法防止能接触到磁盘的人读取你的数据。

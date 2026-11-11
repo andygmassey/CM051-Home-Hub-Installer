@@ -441,7 +441,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Je keuze voor verrijking op de achte
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases versleuteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, zodat ze starten zonder iets te vragen."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, dus ze starten zonder dat je iets hoeft in te voeren."
 MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd (%s, alleen door jou leesbaar)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Kon de databasesleutel niet aan de Hub-services doorgeven. Ze openen databases onversleuteld totdat dit is opgelost."
 MSG_INFO_DB_KEY_RECOVER_HINT="Voer dit uit om hem te herstellen en door te geven: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1296,6 +1296,7 @@ De meeste archieven komen binnen 1 tot 3 dagen per e-mail binnen. Zodra de ZIP-b
 Sla over wat je niet gebruikt; je kunt later altijd meer importeren."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTELD is?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Weet je het zeker? Dit is een beveiligingsrisico."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
 Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.

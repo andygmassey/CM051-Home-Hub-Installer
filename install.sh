@@ -9116,15 +9116,15 @@ else
     echo "  System Settings > Privacy & Security > FileVault (it encrypts"
     echo "  in the background -- no reinstall needed)."
     echo ""
-    # Default Yes: plaintext-at-rest is accepted for v1, so the install
-    # continues by default rather than blocking. The choice is still
-    # explicit and informed (the warning above + the prompt copy spell
-    # out the unencrypted-at-rest consequence), and it is recorded below.
+    # Two asks. The first defaults Yes; the second, default NO, is the
+    # real gate: a bare Enter here stops the install, never continues.
+    # Stopping is a user-selected exit, not an installer block.
     FV_CONTINUE="$(gui_read "$MSG_PROMPT_FILEVAULT_SKIP_TITLE" yesno "y" "$MSG_PROMPT_FILEVAULT_SKIP_HELP" "" "filevault_skip")"
-    if [[ "${FV_CONTINUE:-y}" == "n" || "${FV_CONTINUE:-y}" == "N" ]]; then
-        # The operator chose the safer path: stop so they can enable
-        # FileVault first. This is a user-selected exit, not an
-        # installer-imposed block on the plaintext posture.
+    FV_SURE=n
+    if [[ "${FV_CONTINUE:-y}" != "n" && "${FV_CONTINUE:-y}" != "N" ]]; then
+        FV_SURE="$(gui_read "$MSG_PROMPT_FILEVAULT_CONFIRM_TITLE" yesno "n" "" "" "filevault_confirm")"
+    fi
+    if [[ ! "${FV_SURE:-n}" =~ ^[Yy] ]]; then
         echo ""
         echo "  Stopping here as you asked -- nothing has failed."
         echo "  Turn FileVault on (System Settings > Privacy & Security >"
@@ -13133,7 +13133,7 @@ if [[ "$OSTLER_REGION" == "eu" ]]; then
     echo "  clear words, before we touch any of it."
     echo ""
     echo -e "  ${BOLD}Where the data lives.${NC} Everything Ostler reads stays on this"
-    echo "  Mac, in encrypted folders only you can unlock. We never get a"
+    echo "  Mac. Your Ostler data is protected by FileVault, Apple's full-disk encryption. We never get a"
     echo "  copy. There is no \"cloud\" version of your data."
     echo ""
     echo -e "  ${BOLD}What's in scope.${NC} Depending on which connectors you turn on,"
@@ -13714,7 +13714,7 @@ echo "  Ostler will now install the following on this Mac:"
 echo ""
 echo "    - Docker containers via Colima (Qdrant, Oxigraph, Redis)"
 echo "    - Ollama with ${AI_MODEL} (${AI_MODEL_SIZE})"
-echo "    - Encryption for all stored data"
+echo "    - Protected by FileVault, Apple's full-disk encryption"
 echo "    - Export watcher (scans Downloads for GDPR exports)"
 [[ "${CONTACT_COUNT:-0}" -gt 0 ]] && \
 echo "    - Import ${CONTACT_COUNT} contacts from iCloud"

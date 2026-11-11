@@ -439,7 +439,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="無法將你對背景豐富化的選
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="資料庫已加密。Hub 服務會從你的個人資料夾中的受保護檔案讀取密鑰，因此啟動時不會提示你。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="內部記錄金鑰已設定。Hub 服務從你個人資料夾內的受保護檔案讀取金鑰，因此無需提示即可啟動。"
 MSG_OK_DB_KEY_DELIVERED="資料庫密鑰已交付予 Hub 服務（%s，只有你可以讀取）。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="無法將資料庫密鑰交予 Hub 服務。在問題解決前，它們會以未加密方式開啟資料庫。"
 MSG_INFO_DB_KEY_RECOVER_HINT="執行此指令以復原並交付密鑰：%s/.venv/bin/ostler-unlock --install-key-file"
@@ -1294,6 +1294,7 @@ Ostler 可匯入 18 個平台的匯出資料。完整清單及各供應商申請
 不使用的可以略過;日後隨時可以匯入更多。"
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟靜態資料「未加密」的情況下繼續嗎？"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你確定嗎？這是一個安全風險。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未進行靜態加密。
 
 如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務密鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的密鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。

@@ -441,7 +441,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Não foi possível guardar a sua esc
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Bases de dados encriptadas. Os serviços do Hub leem a chave a partir de um ficheiro protegido na sua pasta pessoal, pelo que arrancam sem lhe pedir nada."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave de um ficheiro protegido na sua pasta pessoal, por isso arrancam sem pedir nada."
 MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub (%s, legível apenas por si)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Não foi possível entregar a chave da base de dados aos serviços do Hub. Estes abrirão as bases de dados sem encriptação até que seja corrigido."
 MSG_INFO_DB_KEY_RECOVER_HINT="Execute isto para a recuperar e entregar: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1300,6 +1300,7 @@ A maioria dos arquivos demora 1 a 3 dias a chegar por e-mail. Quando os ZIP cheg
 Ignore as que não utiliza; pode sempre importar mais tarde."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM CIFRAGEM em repouso?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Tem a certeza? Isto é um risco de segurança."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, pelo que o disco não está cifrado em repouso.
 
 O que isto significa se continuar: tudo o que o Ostler guarda -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos e bases de dados de serviços em ~/.ostler -- é gravado no disco SEM CIFRAGEM. Quem conseguir arrancar a partir deste disco, retirá-lo ou aceder a uma sessão desbloqueada pode ler tudo. A chave com que o Ostler cifra as suas bases de dados fica guardada neste mesmo disco, por isso, sem o FileVault, não protege os seus dados de quem tiver acesso ao disco.

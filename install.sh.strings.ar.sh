@@ -440,7 +440,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="تعذر حفظ اختيارك ال�
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="تم تشفير قواعد البيانات. تقرأ خدمات Hub المفتاح من ملف محمي في مجلدك الرئيسي، لذلك تبدأ دون أن تطلب منك شيئًا."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="تم إعداد مفتاح السجلات الداخلية. تقرأ خدمات Hub المفتاح من ملف محمي في مجلدك الشخصي، لذلك تبدأ دون أن تُطالَب بأي إدخال."
 MSG_OK_DB_KEY_DELIVERED="تم تسليم مفتاح قاعدة البيانات إلى خدمات Hub (%s، ولا يقرأه سواك)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="تعذر تسليم مفتاح قاعدة البيانات إلى خدمات Hub. ستفتح قواعد البيانات دون تشفير إلى أن تتم المعالجة."
 MSG_INFO_DB_KEY_RECOVER_HINT="شغّل هذا الأمر لاستعادته وتسليمه: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1301,6 +1301,7 @@ MSG_PROMPT_EXPORTS_ACK_HELP="تتيح لك خدمات مثل Google وMeta وSpo
 تخطَّ ما لا تستخدمه، ويمكنك دائمًا استيراد المزيد لاحقًا."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="المتابعة مع قرص غير مشفّر أثناء التخزين؟"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="هل أنت متأكد؟ هذا يشكل خطرًا أمنيًا."
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، لذا فالقرص غير مشفّر أثناء التخزين.
 

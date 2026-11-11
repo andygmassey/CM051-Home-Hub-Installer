@@ -89,7 +89,7 @@ jobs:
       - name: dedupe_merge leaves one displayName, chosen upward only (phone < email < human)
         if: always()
         run: |
-          python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client nameparser
+          python3 -m pip install --quiet pyoxigraph httpx phonenumbers rapidfuzz qdrant-client "nameparser>=2.1.0,<3.0"
           python3 tests/test_dedupe_merge_name_tier_upward_only.py
 
       # P16: RULE 1 used to merge two NAMED people on a shared phone string,
@@ -98,7 +98,7 @@ jobs:
       - name: A shared phone joins two named people only when their names match too
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0"
           n="$(python3 -m pytest tests/test_dedupe_merge_shared_phone_needs_same_name.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 11 ]; then
@@ -114,7 +114,7 @@ jobs:
       - name: A number-named person is the Contacts person who holds that number, never a household's
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0"
           n="$(python3 -m pytest tests/test_provisional_phone_twins_merge.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 13 ]; then
@@ -128,7 +128,7 @@ jobs:
       - name: The people index keeps the Contacts card it mirrors
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0"
           python3 -m pytest tests/test_people_index_keeps_the_contacts_card.py -v
       # v1.0.126 item h (v1.0.125 walk: people without a vector grew 240 -> 1789
       # in 4200 s): the hourly people sweep re-embedded EVERY person on every
@@ -137,7 +137,7 @@ jobs:
       - name: The people index embeds only who is new or changed, and the Doctor shows the backlog
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0"
           n="$(python3 -m pytest tests/test_people_index_embeds_only_what_changed.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 15 ]; then
@@ -153,7 +153,7 @@ jobs:
       - name: An email-named person folds into the one card holding that address
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser qdrant-client
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0" qdrant-client
           n="$(python3 -m pytest tests/test_email_named_twin_folds_into_the_card_holder.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 13 ]; then
@@ -168,7 +168,7 @@ jobs:
       - name: The hourly fda-rerun tick folds a post-install email twin
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz nameparser
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx phonenumbers rapidfuzz "nameparser>=2.1.0,<3.0"
           n="$(python3 -m pytest tests/test_fda_tick_folds_a_post_install_email_twin.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 5 ]; then
@@ -182,7 +182,7 @@ jobs:
       - name: An email-twin fold moves the graph and Doctor people counts together
         if: always()
         run: |
-          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx nameparser rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject cryptography qdrant-client
+          python3 -m pip install --quiet pytest pyoxigraph==0.5.12 httpx "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml beautifulsoup4 vobject cryptography qdrant-client
           n="$(python3 -m pytest tests/test_an_email_twin_fold_moves_both_people_counts.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 2 ]; then

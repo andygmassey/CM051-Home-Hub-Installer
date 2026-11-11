@@ -441,7 +441,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Deine Auswahl zur Anreicherung im Hi
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Datenbanken verschlüsselt. Die Hub-Dienste lesen den Schlüssel aus einer geschützten Datei in deinem Benutzerordner und starten daher ohne Nachfrage."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Schlüssel für interne Datensätze eingerichtet. Die Hub-Dienste lesen den Schlüssel aus einer geschützten Datei in deinem Benutzerordner und starten daher ohne Nachfrage."
 MSG_OK_DB_KEY_DELIVERED="Datenbankschlüssel an die Hub-Dienste übergeben (%s, nur für dich lesbar)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Der Datenbankschlüssel konnte nicht an die Hub-Dienste übergeben werden. Sie öffnen Datenbanken unverschlüsselt, bis dies behoben ist."
 MSG_INFO_DB_KEY_RECOVER_HINT="Führe dies aus, um ihn wiederherzustellen und zu übergeben: %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1299,6 +1299,7 @@ Die meisten Archive treffen nach 1 bis 3 Tagen per E-Mail ein. Sobald die ZIP-Da
 Überspringe, was du nicht nutzt; du kannst jederzeit später mehr importieren."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Mit UNVERSCHLÜSSELTER Festplatte fortfahren?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Bist du sicher? Das ist ein Sicherheitsrisiko."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault ist auf diesem Mac AUSGESCHALTET, daher ist deine Festplatte nicht verschlüsselt.
 
 Was das bedeutet, wenn du fortfährst: Alles, was Ostler speichert -- dein gesamter persönlicher Graph (Wiki, Unterhaltungen, Wissensnotizen) unter ~/Documents/Ostler sowie Dienstgeheimnisse und Datenbanken unter ~/.ostler -- wird UNVERSCHLÜSSELT auf die Festplatte geschrieben. Jeder, der von diesem Laufwerk starten, es ausbauen oder auf eine entsperrte Sitzung zugreifen kann, kann alles lesen. Der Schlüssel, mit dem Ostler seine Datenbanken verschlüsselt, liegt auf derselben Festplatte. Ohne FileVault schützt er deine Daten daher nicht vor jemandem, der die Festplatte in die Hände bekommt.

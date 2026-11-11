@@ -442,7 +442,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Impossible d'enregistrer votre choix
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Bases de données chiffrées. Les services du Hub lisent la clé dans un fichier protégé de votre dossier personnel, et démarrent donc sans vous solliciter."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Clé des enregistrements internes configurée. Les services du Hub lisent la clé dans un fichier protégé de votre dossier personnel, et démarrent donc sans rien vous demander."
 MSG_OK_DB_KEY_DELIVERED="Clé de base de données transmise aux services du Hub (%s, lisible uniquement par vous)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Impossible de transmettre la clé de base de données aux services du Hub. Ils ouvriront les bases de données sans chiffrement tant que ce ne sera pas corrigé."
 MSG_INFO_DB_KEY_RECOVER_HINT="Exécutez ceci pour la récupérer et la transmettre : %s/.venv/bin/ostler-unlock --install-key-file"
@@ -1300,6 +1300,7 @@ La plupart des archives mettent de 1 à 3 jours à arriver par e-mail. Une fois 
 Ignorez celles que vous n'utilisez pas ; vous pourrez toujours en importer d'autres plus tard."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au repos ?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Êtes-vous sûr ? C’est un risque pour la sécurité."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
 
 Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
