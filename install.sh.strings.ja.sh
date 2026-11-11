@@ -709,6 +709,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s を %s からダウン�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="考えられる原因: リリースタグがまだ公開されていない、ネットワークがオフライン、または上流の公証が処理中です。リリースが公開されたら、インストーラをもう一度実行してください。"
 MSG_WARN_CM042_EXTRACT_FAILED="Ostler RemoteCapture の tarball を展開できませんでした。LaunchAgent をスキップします。"
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture の LaunchAgent を読み込めませんでした。上の出力と ~/Library/LaunchAgents/ を確認してください。"
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="音声の文字起こしスクリプトをインストールできませんでした；Hubの設定では文字起こしをオンにできません。"
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  会話の補強は利用できません。Ostler のそれ以外の部分は通常どおりインストールされます。会話メモリーエンジンを組み込むには、--allow-plaintext を付けずにもう一度実行してください。"
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="会話メモリーエンジンのインストールに失敗しました (クローン)。"
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  検索先: %s/cm048_pipeline/pyproject.toml"

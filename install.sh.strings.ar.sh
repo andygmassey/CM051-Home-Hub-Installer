@@ -709,6 +709,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="تعذّر تنزيل Ostler RemoteCapture v%s �
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="الأسباب الشائعة: لم يُنشر وسم الإصدار بعد، أو لا يوجد اتصال بالشبكة، أو أن التوثيق (notarisation) لدى المصدر لم يكتمل. أعد تشغيل المثبّت عند إتاحة الإصدار."
 MSG_WARN_CM042_EXTRACT_FAILED="تعذّر استخراج أرشيف Ostler RemoteCapture. سيتم تخطي LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="فشل تحميل LaunchAgent الخاص بـ Ostler RemoteCapture. راجع المخرجات أعلاه و ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="تعذّر تثبيت نصّ تفريغ الكلام نصيًا؛ ولا يمكن تشغيل التفريغ من إعدادات Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  لن يتوفر إثراء المحادثات. يُثبَّت باقي Ostler بشكل طبيعي. أعد التشغيل من دون --allow-plaintext لتفعيل محرّك ذاكرة المحادثات."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="فشل تثبيت محرّك ذاكرة المحادثات (الاستنساخ)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  تم البحث عن: %s/cm048_pipeline/pyproject.toml"

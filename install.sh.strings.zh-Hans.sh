@@ -708,6 +708,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="无法下载 Ostler RemoteCapture v%s（来源�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="常见原因：版本标签尚未发布、网络离线，或上游公证仍在进行。请在版本正式发布后重新运行安装程序。"
 MSG_WARN_CM042_EXTRACT_FAILED="无法解压 Ostler RemoteCapture 压缩包，正在跳过 LaunchAgent。"
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent 加载失败。请查看上方输出和 ~/Library/LaunchAgents/。"
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="无法安装语音转写脚本；无法在 Hub 设置中开启语音转写。"
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  对话增强功能将不可用。Ostler 的其余部分会正常安装；如需接入对话记忆引擎，请不带 --allow-plaintext 重新运行。"
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="对话记忆引擎安装失败（克隆）。"
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  查找路径：%s/cm048_pipeline/pyproject.toml"

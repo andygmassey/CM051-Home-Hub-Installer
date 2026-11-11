@@ -704,6 +704,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarization still in flight. Re-run the installer once the release is live."
 MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Could not install the spoken-transcription script; Hub Settings cannot turn transcription on."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"

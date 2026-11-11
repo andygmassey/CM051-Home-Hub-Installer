@@ -708,6 +708,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s를 %s에서 다운로�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="흔한 원인: 릴리스 태그가 아직 게시되지 않았거나, 네트워크가 오프라인이거나, 상위 공증이 아직 진행 중일 수 있습니다. 릴리스가 공개된 후 설치 프로그램을 다시 실행하세요."
 MSG_WARN_CM042_EXTRACT_FAILED="Ostler RemoteCapture tarball을 추출하지 못했습니다. LaunchAgent를 건너뜁니다."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent를 불러오지 못했습니다. 위의 출력과 ~/Library/LaunchAgents/를 확인하세요."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="음성 텍스트 변환 스크립트를 설치하지 못했습니다. Hub 설정에서는 텍스트 변환을 켤 수 없습니다."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  대화 보강 기능을 사용할 수 없습니다. 나머지 Ostler는 정상적으로 설치됩니다. 대화 메모리 엔진을 연결하려면 --allow-plaintext 없이 다시 실행하세요."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="대화 메모리 엔진 설치에 실패했습니다(clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  확인한 경로: %s/cm048_pipeline/pyproject.toml"

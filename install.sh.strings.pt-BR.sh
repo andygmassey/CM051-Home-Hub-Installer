@@ -711,6 +711,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Não foi possível baixar o Ostler RemoteCapture
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Causas comuns: a tag da versão ainda não foi publicada, a rede está offline ou a notarização ainda está em andamento. Execute o instalador novamente quando a versão estiver disponível."
 MSG_WARN_CM042_EXTRACT_FAILED="Não foi possível extrair o tarball do Ostler RemoteCapture; ignorando o LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Falha ao carregar o LaunchAgent do Ostler RemoteCapture. Veja a saída acima e ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Não foi possível instalar o script de transcrição de voz; a transcrição não pode ser ativada nos Ajustes do Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  O enriquecimento de conversas não estará disponível. O restante do Ostler é instalado normalmente; execute novamente sem --allow-plaintext para ativar o mecanismo de memória de conversas."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Falha na instalação do mecanismo de memória de conversas (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Procurado em: %s/cm048_pipeline/pyproject.toml"
