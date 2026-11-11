@@ -26,8 +26,8 @@ Keychain isolation: no arm touches the real login keychain, its items, the
 default keychain or the search list. Hermetic arms (H) use a fake `security`
 that records argv and need no keychain. Real-keychain arms (K) create a
 throwaway keychain with `security create-keychain` (which adds it to the
-search list, so they run only on CI or with OSTLER_TEST_THROWAWAY_KEYCHAIN=1),
-point the code at it with OSTLER_KEYCHAIN_PATH, delete it afterwards, and
+search list, so they run ONLY on a disposable CI runner and are CANNOT-RUN
+everywhere else), point the code at it with OSTLER_KEYCHAIN_PATH, delete it afterwards, and
 assert the search list is unchanged. Every `security` call is given an
 explicit keychain path.
 
@@ -92,12 +92,11 @@ def search_list() -> str:
 
 def throwaway_allowed() -> bool:
     """`security create-keychain` ADDS the new keychain to the user's search
-    list, so it is only run where that list is disposable: a CI runner, or
-    when the operator opts in. On a developer Mac the real-keychain arms are
+    list, so it is only run where that list is disposable: a CI runner. There
+    is NO local opt-in: on a developer Mac the real-keychain arms are
     CANNOT-RUN and the hermetic arms (fake `security`, no keychain at all)
     carry the argv/refusal assertions."""
-    return (os.environ.get("CI") == "true"
-            or os.environ.get("OSTLER_TEST_THROWAWAY_KEYCHAIN") == "1")
+    return os.environ.get("CI") == "true"
 
 
 def secdir(base: Path, with_key: bool) -> Path:
@@ -122,6 +121,84 @@ def fake_security(path: Path, rc: int, log: Path) -> str:
         f"exit {rc}\n")
     path.chmod(0o755)
     return str(path)
+
+
+def scan_python_security_calls(src: str, name: str):
+    """Return (n_calls, violations) for every call whose argv list starts with
+    the security binary. An argv element may only be a string constant or a
+    call to keychain_service()/keychain_path()/str(), or the KEYCHAIN_ACCOUNT constant. A key-bearing name, an
+    f-string, or an add-generic-password / `-w <value>` pair is a violation."""
+    import ast
+    tree = ast.parse(src)
+    n, bad = 0, []
+    def is_bin(e):
+        return (isinstance(e, ast.Name) and e.id == "_SECURITY_BIN") or (
+            isinstance(e, ast.Constant) and isinstance(e.value, str)
+            and e.value.endswith("/security"))
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.List) and node.elts and is_bin(node.elts[0])):
+            continue
+        n += 1
+        els = node.elts[1:]
+        for i, e in enumerate(els):
+            ok = isinstance(e, ast.Constant) or (
+                isinstance(e, ast.Name) and e.id == "KEYCHAIN_ACCOUNT") or (
+                isinstance(e, ast.Call) and isinstance(e.func, ast.Name)
+                and e.func.id in ("keychain_service", "keychain_path", "str"))
+            if not ok:
+                bad.append(f"{name}:{node.lineno} argv element {i + 1} is {ast.dump(e)[:60]}")
+        consts = [e.value for e in els if isinstance(e, ast.Constant)]
+        if "add-generic-password" in consts:
+            bad.append(f"{name}:{node.lineno} add-generic-password in argv (must go via stdin -i)")
+        if "-w" in consts:
+            j = [k for k, e in enumerate(els) if isinstance(e, ast.Constant) and e.value == "-w"][0]
+            if "find-generic-password" not in consts or j != len(els) - 2:
+                bad.append(f"{name}:{node.lineno} -w must be a bare read flag followed only by the keychain path")
+    return n, bad
+
+
+def scan_shell_security_calls(text: str, name: str):
+    """Shell call sites: no add-generic-password at all outside `security -i`,
+    and no `-w <value>` on any security line."""
+    n, bad = 0, []
+    for no, line in enumerate(text.splitlines(), 1):
+        code = line.strip()
+        if code.startswith("#") or "generic-password" not in code:
+            continue
+        if not re.search(r"\bsecurity\b", code):
+            continue
+        n += 1
+        if "add-generic-password" in code and not re.search(r"\bsecurity\s+-i\b", code):
+            bad.append(f"{name}:{no} add-generic-password in argv")
+        if re.search(r"\s-w\s+[^\s-]", code) and "find-generic-password" not in code:
+            bad.append(f"{name}:{no} -w <value> in argv")
+    return n, bad
+
+
+def scan_tree_for_security_calls(root: Path):
+    total, bad, files = 0, [], []
+    skip_dirs = {".git", "tests", "node_modules", "cut-manifests", "divergences"}
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or skip_dirs & set(p.relative_to(root).parts):
+            continue
+        if p.suffix not in (".py", ".sh") and p.name != "install.sh":
+            continue
+        try:
+            t = p.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = str(p.relative_to(root))
+        if p.suffix == ".py" and ("_SECURITY_BIN" in t or "/usr/bin/security" in t):
+            n, b = scan_python_security_calls(t, rel)
+        elif p.suffix != ".py" and "generic-password" in t:
+            n, b = scan_shell_security_calls(t, rel)
+        else:
+            continue
+        if n:
+            files.append(rel)
+        total += n
+        bad += b
+    return total, bad, files
 
 
 def main() -> int:
@@ -188,6 +265,22 @@ def main() -> int:
                   "H2: a failed move leaves the key file exactly as it was")
             check(not log.exists(),
                   "H2: NO security invocation was made for a nonexistent keychain (no dialog-capable call)")
+            # H2b: the resolver itself, end to end, with the keychain absent.
+            rr = db_key.resolve_db_key()
+            check(rr.key is None and rr.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE,
+                  f"H2b: resolve_db_key with an absent keychain -> keychain_unavailable (got {rr.reason!r})")
+            check(rr.source != "file" and (d / "db_key").read_text().strip() == KEY
+                  and not log.exists(),
+                  "H2b: ...no plaintext fallback, key file untouched, still no security call")
+            # H2c: the DEFAULT path (login.keychain-db under the fake HOME, which
+            # does not exist) must not be assumed to exist either.
+            os.environ.pop("OSTLER_KEYCHAIN_PATH", None)
+            check(not os.path.exists(db_key.keychain_path()),
+                  "H2c (control): the default login keychain does not exist under the temp HOME")
+            rd = db_key.read_keychain_key()
+            check(rd.key is None and rd.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE and not log.exists(),
+                  f"H2c: absent default login keychain -> keychain_unavailable, no security call (got {rd.reason!r})")
+            os.environ["OSTLER_KEYCHAIN_PATH"] = ghost
             # H3: with the keychain file present, EVERY invocation names it explicitly.
             dummy = work / "dummy.keychain-db"
             dummy.write_bytes(b"not a real keychain; the fake security never reads it")
@@ -238,7 +331,7 @@ def main() -> int:
             check(False, "K: resolver has Keychain support")
         elif not throwaway_allowed():
             skip("K1-K3", "creating a keychain edits the user's keychain search list; "
-                          "set OSTLER_TEST_THROWAWAY_KEYCHAIN=1 (or run on CI) to allow it")
+                          "runs on CI only, never on a developer Mac")
         else:
             kc = str(work / "test.keychain-db")
             pw = os.urandom(16).hex()
@@ -279,6 +372,25 @@ def main() -> int:
                 os.environ.pop("OSTLER_DB_KEY_KEYCHAIN_SERVICE", None)
             check(search_list() == before,
                   "K4: the user keychain search list is identical before and after the test")
+
+        # ---- S: the key value is never in any security argv (static scan) ----
+        print("S. no security call site anywhere puts the key in argv")
+        # Controls: the scanner flags each way of getting it wrong.
+        cn, cb = scan_python_security_calls(
+            "import subprocess\nsubprocess.run([_SECURITY_BIN, 'add-generic-password', '-w', key_hex, kp])\n", "ctl")
+        check(cn == 1 and len(cb) >= 3, f"S control: scanner flags key_hex + add-generic-password + -w in a python argv ({len(cb)} hits)")
+        cn, cb = scan_python_security_calls(
+            "subprocess.run([_SECURITY_BIN, 'find-generic-password', '-w', f'{k}', kp])\n", "ctl")
+        check(cn == 1 and cb, "S control: scanner flags an f-string argv element")
+        cn, cb = scan_shell_security_calls('security add-generic-password -s x -w "$KEY" kc\n', "ctl.sh")
+        check(cn == 1 and len(cb) == 2, f"S control: scanner flags shell `add-generic-password -w $KEY` ({len(cb)} hits)")
+        cn, cb = scan_python_security_calls(
+            "subprocess.run([_SECURITY_BIN, 'find-generic-password', '-s', keychain_service(), '-a', A, '-w', keychain_path()])\n", "ctl")
+        check(cn == 1 and len(cb) == 1, "S control: a Name element (A) is flagged but the bare `-w <path>` read form is accepted")
+        total, bad, files = scan_tree_for_security_calls(ROOT)
+        check(total >= 2 and "vendor/ostler_security/db_key.py" in files,
+              f"S denominator: {total} call sites in {files} (db_key.py read+write must be among them)")
+        check(not bad, "S: no call site puts the key in argv" + (": " + "; ".join(bad) if bad else ""))
 
         # ---- R: no silent plaintext --------------------------------------
         print("R. corrections.db / assert_spool.db with no key")
