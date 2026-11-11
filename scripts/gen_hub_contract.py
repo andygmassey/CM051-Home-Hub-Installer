@@ -188,6 +188,23 @@ def _imports(fn_or_tree):
     return out
 
 
+def _same_module_delegate_keys(fn, funcs):
+    """One level: a handler that returns a local assigned from a call to
+    another function in the same file returns that function's keys too
+    (``result = _core(...); result["x"] = ...; return result``)."""
+    returned = {v.id for n in ast.walk(fn) if isinstance(n, ast.Return) and n.value is not None
+                for v in (n.value.elts if isinstance(n.value, ast.Tuple) else [n.value])
+                if isinstance(v, ast.Name)}
+    keys = set()
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) \
+                and n.targets[0].id in returned and isinstance(n.value, ast.Call) \
+                and isinstance(n.value.func, ast.Name) and n.value.func.id in funcs \
+                and funcs[n.value.func.id] is not fn:
+            keys |= _returned_keys(funcs[n.value.func.id])
+    return keys
+
+
 def _follow_imported(fn, module_dir):
     """One level: response keys / payload fields of imported helpers the handler returns or feeds."""
     resp, req, opt = set(), set(), set()
@@ -283,7 +300,7 @@ def extract_ical(text):
                 resp, req, opt = set(), [], []
                 if call is not None and call.func.id in funcs:
                     hf = funcs[call.func.id]
-                    resp = _returned_keys(hf)
+                    resp = _returned_keys(hf) | _same_module_delegate_keys(hf, funcs)
                     if verb == "POST" and hf.args.args:
                         # first arg that is the payload (skip leading slug/id params)
                         pname = hf.args.args[-1].arg

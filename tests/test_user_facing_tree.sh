@@ -10,7 +10,7 @@
 #   - mkdir -p semantics: pre-existing subdirs are not damaged.
 #
 # Runs the production snippet inside an isolated $HOME under
-# mktemp so the developer's real ~/.ostler / ~/Documents/Ostler
+# mktemp so the developer's real ~/.ostler / ~/Ostler
 # is never touched.
 #
 # Pure shell. No deps beyond bash + find + mkdir.
@@ -30,7 +30,7 @@ trap 'rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX"
 
 OSTLER_DIR="${HOME}/.ostler"
-USER_FACING_ROOT="${HOME}/Documents/Ostler"
+USER_FACING_ROOT="${HOME}/Ostler"
 USER_TREE_SENTINEL="${OSTLER_DIR}/.installer-tree-created"
 USER_TREE_SUBDIRS=("Wiki" "Transcripts" "Daily-Briefs" "Captures" "Exports")
 

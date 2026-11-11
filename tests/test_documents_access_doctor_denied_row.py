@@ -2,7 +2,7 @@
 """Tests for the Documents-access posture tile in the Doctor dashboard.
 
 The launch-blocker this guards: Ostler writes the customer's wiki and
-conversation records under ~/Documents/Ostler, behind the macOS
+conversation records under ~/Ostler, behind the macOS
 Files-and-Folders consent. A denial must be visible in Doctor, and told
 apart from a fresh box that has not been asked yet (not-yet-asked) and
 from a working box.
@@ -78,7 +78,7 @@ def test_wrapper_calls_the_writer():
 
 def test_working_when_root_exists_and_writable():
     home = _home()
-    root = home / "Documents" / "Ostler"
+    root = home / "Ostler"
     root.mkdir()
     _run_writer(home)
     assert dap.read_documents_access()["status"] == dap.STATUS_WORKING, _record(home)
@@ -91,7 +91,7 @@ def test_not_yet_asked_when_root_absent_and_root_not_created():
     home = _home()
     _run_writer(home)
     assert dap.read_documents_access()["status"] == dap.STATUS_NOT_ASKED, _record(home)
-    assert not (home / "Documents" / "Ostler").exists(), "the writer created the root"
+    assert not (home / "Ostler").exists(), "the writer created the root"
     assert dap.render_documents_access_posture() == ""
 
 
@@ -100,7 +100,7 @@ def test_denied_real_chmod_drives_real_writer():
         print("CANNOT-RUN: root ignores chmod 000; denied-by-chmod not exercised")
         return
     home = _home()
-    root = home / "Documents" / "Ostler"
+    root = home / "Ostler"
     root.mkdir()
     root.chmod(0)
     try:
@@ -112,7 +112,7 @@ def test_denied_real_chmod_drives_real_writer():
     html = dap.render_documents_access_posture()
     assert "Ostler cannot write to your Documents folder" in html and "How to fix" in html
     # The fix names what System Settings shows for the identity that writes
-    # ~/Documents/Ostler (the signed daemon, display name "Ostler"), not the
+    # ~/Ostler (the signed daemon, display name "Ostler"), not the
     # python3.11 row that no longer makes the request.
     assert "Full Disk Access" in html and "make sure Ostler is switched on" in html, html
     assert "python3.11" not in html, html
@@ -135,7 +135,7 @@ def test_no_record_is_could_not_check():
 
 def test_stale_record_is_could_not_check():
     home = _home()
-    (home / "Documents" / "Ostler").mkdir()
+    (home / "Ostler").mkdir()
     _run_writer(home)
     p = home / ".ostler" / "state" / "documents_access.tsv"
     old = int(time.time()) - dap.STATUS_MAX_AGE_SECONDS - 60

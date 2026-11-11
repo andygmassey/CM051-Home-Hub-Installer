@@ -156,7 +156,7 @@ compile_evidence() {
 import glob, os
 d = os.path.expanduser('~/.ostler/state/settling_progress.d')
 n = len(glob.glob(os.path.join(d, '*.json')))
-w = os.path.expanduser('~/Documents/Ostler/Wiki/index.md')
+w = os.path.expanduser('~/Ostler/Wiki/index.md')
 print(str(n) + ' ' + ('present' if os.path.exists(w) else 'none'))
 OSTLERUJEV"
 }

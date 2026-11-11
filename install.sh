@@ -91,7 +91,7 @@ NO_EXTENSIONS=false
 #
 # A closed loop with no exit for a week, in which the product repeatedly
 # instructs the customer to pull a lever that is not connected to anything.
-# Three more sites treat the flag as real in prose: install.sh:33738,
+# Three more sites treat the flag as real in prose: install.sh:33768,
 # vendor/doctor/agent/imessage_tcc_posture.py:23, and
 # vendor/doctor/agent/reminders_posture.py:28 ("refreshed on each --repair
 # run"). It refreshed nothing.
@@ -290,7 +290,7 @@ _ostler_persist_diagnostics() {
 #
 # 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
 # always. Do NOT route a site whose exit code chooses a customer-visible
-# branch through this -- install.sh:34294 picks ok/warn from the exit status of
+# branch through this -- install.sh:34324 picks ok/warn from the exit status of
 # its kickstart, and backgrounding it would report "started" for a daemon that
 # never started. Lying to the customer is worse than stalling them. That site
 # needs a three-state bounded variant and is deliberately NOT converted here.
@@ -4931,22 +4931,22 @@ sys.exit(1 if missing else 0)
 OSTLER_RUNTIME_READY_PY
 }
 
-# Two-zone layout: ~/Documents/Ostler/ holds the customer's
-# generated content (wiki MDs, call transcripts, daily briefs,
-# quick captures, one-off exports). ~/.ostler/ above is the
-# engine room (databases, configs, logs, caches). The user-facing
-# tree is created at install time and survives an uninstall by
-# default; the customer is asked whether to keep it. See
-# /tmp/tnm_brief_two_zone_architecture_2026-05-02.md (Gap 4).
-USER_FACING_ROOT="${HOME}/Documents/Ostler"
-# Ordered list of subdirs created under ${USER_FACING_ROOT}.
-# Conversations/ holds the four-artefact conversation-memory bundles
-# (summary + todos + transcript + metadata) that CM048's pwg-convo
-# emits for every wired human channel -- WhatsApp first (the gating
-# floor), then iMessage / email / meeting-voice. The bundle feeds
-# write under ${USER_FACING_ROOT}/Conversations/<date>/<slug>-<id>/.
-# (AI Conversations live in a SEPARATE tree, added in v1.0.1.)
+# Two-zone layout: ~/Ostler/ holds the customer's generated content (wiki, transcripts,
+# briefs, captures, exports); ~/.ostler/ is the engine room. The root is in the HOME
+# folder, NOT Documents: iCloud Desktop & Documents uploads Documents (measured 2026-11-11).
+USER_FACING_ROOT="${HOME}/Ostler"
+# Subdirs under ${USER_FACING_ROOT}; Conversations/ = CM048 four-artefact bundles (<date>/<slug>-<id>/); AI Conversations is a SEPARATE tree.
 USER_TREE_SUBDIRS=("Wiki" "Conversations" "Transcripts" "Daily-Briefs" "Captures" "Exports")
+# Older installs wrote the root under ~/Documents/Ostler, which iCloud uploads. Move it once: same-volume rename, NO symlink left in Documents, cloud copies never deleted.
+_ostler_migrate_user_root() {
+    local old="${HOME}/Documents/Ostler" new="${USER_FACING_ROOT}" icl
+    [[ -d "$old" && ! -L "$old" ]] || return 0
+    [[ "$new" == "${HOME}/Ostler" && ! -e "$new" ]] && mv -- "$old" "$new" || { warn "$(printf "$MSG_WARN_USER_ROOT_NOT_MOVED" "$old" "$new")"; return 0; }
+    info "$(printf "$MSG_INFO_USER_ROOT_MOVED" "$old" "$new")"
+    icl="$(defaults read com.apple.finder FXICloudDriveDocuments 2>&1)" || true
+    [[ "$icl" == 1 ]] && warn "$MSG_WARN_USER_ROOT_ICLOUD_COPIES"
+    return 0
+}
 
 # ── DMG #48 install transcript ────────────────────────────────────
 #
@@ -9104,7 +9104,7 @@ else
     echo "  Ostler stores is written to disk UNENCRYPTED:"
     echo ""
     echo "    - your whole personal graph (wiki, conversations, knowledge)"
-    echo "      under ~/Documents/Ostler"
+    echo "      under ~/Ostler"
     echo "    - service secrets and databases under ~/.ostler"
     echo ""
     echo "  Anyone who can boot from this drive, remove it, or reach an"
@@ -9162,18 +9162,18 @@ fi  # end of SKIP_PHASE2 check (user input questions)
 # both the install path and the dependency tree.
 mkdir -p "$DATA_DIR" "$CONFIG_DIR" "$LOGS_DIR" "$SECURITY_CONFIG_DIR"
 
-# Two-zone layout: create the customer's user-facing tree under
-# ~/Documents/Ostler/ on first install. Subsequent runs honour
-# the sentinel and skip, so a customer who has deliberately
-# removed (or renamed) one of the subdirs is not surprised by
-# its silent re-creation on the next install.sh run. mkdir -p
-# is itself idempotent; the sentinel exists only to express
-# "we have already announced this layout to this install".
+# Two-zone layout: create the customer's user-facing tree under ~/Ostler/ on first
+# install; the sentinel makes later runs skip, so a subdir the customer removed or
+# renamed is not silently re-created (mkdir -p is idempotent; the sentinel only
+# records "this install has been told about the layout").
+# Re-run on an older install: move the old Documents-folder root to ~/Ostler (iCloud
+# exposure, see _ostler_migrate_user_root above).
+_ostler_migrate_user_root
 if [[ ! -f "$USER_TREE_SENTINEL" ]]; then
     # Pre-explain the macOS Documents (Files and Folders) consent prompt,
     # emitted before the mkdir below. macOS gates that prompt per RESPONSIBLE
     # PROCESS, so one upfront note cannot cover it by sitting next to a single
-    # write: the installer's own first write under ~/Documents/Ostler is this
+    # write: the installer's own first write under ~/Ostler is this
     # mkdir and may prompt now, while the bundled python3.11 that organises the
     # wiki writes here later from its own launchd jobs and prompts separately,
     # possibly the next day. The copy is honest about that timing and names
@@ -9201,7 +9201,7 @@ fi
 #   * ${OSTLER_DIR} (~/.ostler): secrets/ (service + admin tokens,
 #     JWT_SECRET in .env), the SQLCipher DBs, and state/. Some of
 #     this is encrypted (SQLCipher) but the secrets + .env are NOT.
-#   * ${USER_FACING_ROOT} (~/Documents/Ostler): the compiled wiki +
+#   * ${USER_FACING_ROOT} (~/Ostler): the compiled wiki +
 #     Obsidian vault + conversation transcripts + daily briefs, all
 #     plaintext markdown of the customer's entire life graph.
 #
@@ -14376,7 +14376,7 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # exists as the thing that holds when nobody updates this by hand.
     #
     # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
-    # decrements at :30784-:31408 and :39023 subtract from whatever this sets,
+    # decrements at :30814-:31438 and :39053 subtract from whatever this sets,
     # so a fallback seed still ends up below the number of steps that actually
     # run. That is why progress() now CLAMPS (see the note there): the clamp is
     # the thing that holds when this constant next drifts, and it will.
@@ -14417,7 +14417,7 @@ progress() {
     #
     # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
     # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
-    # sites (:14358 + six mid-run at :30784-:31408 + :39023). If the seed
+    # sites (:14358 + six mid-run at :30814-:31438 + :39053). If the seed
     # overshoots -- which the fallback at :14391 does by construction, since
     # it hardcodes 38 and the mid-run decrements then subtract from THAT --
     # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
@@ -15318,7 +15318,7 @@ fi
 # runs `colima start` directly from launchd, which means NO Full Disk
 # Access, which means Colima cannot mount ~/Documents, which means the
 # wiki-site and wiki-compiler binds
-#   ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}...
+#   ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}...
 # fail and the wiki dies on every reboot. That is the exact Group C
 # failure the agent was deleted to fix (6723acc).
 #
@@ -15450,7 +15450,7 @@ unset _PRUNE_QUARANTINE _PRUNE_N _pl _pl_label _pl_prog
 # restart:unless-stopped containers -> wiki. That is the whole self-heal chain.
 #
 # We deliberately do NOT add a bare Colima LaunchAgent here: a login-time
-# `colima start` with no FDA cannot mount ~/Documents/Ostler/Wiki/_images
+# `colima start` with no FDA cannot mount ~/Ostler/Wiki/_images
 # (a TCC-protected path the wiki-site container bind-mounts), which is the
 # exact regression the v1.0.10 Group C change removed. Colima-start stays
 # daemon-owned (FDA-correct); auto-login is what makes the daemon actually run.
@@ -19051,12 +19051,6 @@ try:
     from ostler_security.audit_log import log_event, EVENT_UNLOCK
     passphrase = os.environ['RECOVERY_PASSPHRASE_FOR_SETUP']
     result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
-    log_event(
-        EVENT_UNLOCK,
-        source='install.sh',
-        details={'action': 'passphrase_setup'},
-        db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db',
-    )
     # Emit recovery_key on stdout for the installer to show once
     # at Phase 4 keychain-save (line ~6373). Format is the
     # XXXX-XXXX-XXXX-XXXX-XXXX-XXXX recovery key, not BIP39.
@@ -19099,6 +19093,12 @@ try:
             _dek.hex(), Path('${SECURITY_CONFIG_DIR}') / 'db_key',
         )
         print('DB_KEY_FILE=' + str(_key_path))
+        # audit.db is created KEYED (v1.0.129); no key, no entry, never plaintext.
+        try:
+            log_event(EVENT_UNLOCK, source='install.sh', details={'action': 'passphrase_setup'},
+                      db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db', encryption_key_hex=_dek.hex())
+        except Exception as _ae:
+            print('AUDIT_LOG_ERROR=' + str(_ae))
     except Exception as _e:
         print('DB_KEY_FILE_ERROR=' + str(_e))
 except SystemExit as e:
@@ -19332,8 +19332,8 @@ fi
 # there NOW, which is a question about the filesystem and is answered by
 # looking. A box whose key file was deleted after install is in the same
 # state and deserves the same warning.
-if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" \
-      && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then
+if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]] \
+   && ! /usr/bin/security find-generic-password -s "Ostler DB Key" -a ostler-db-key "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" &>/dev/null; then
     warn "$MSG_WARN_DB_KEY_MISSING_ON_RERUN"
 
     # SAY HOW MANY, NOT JUST THAT. "your databases are unencrypted" is a
@@ -19643,7 +19643,7 @@ PY
     else
         warn "$MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED"
     fi
-    unset _enrich_decision_file
+    unset _enrich_decision_file; OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" -m ostler_security.consent_cli publish-wording 2>>"${OSTLER_DIR}/posture/consent-cli-failures.log" || true  # the app refuses capture when this file is absent
 
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
@@ -21943,12 +21943,12 @@ fi
 # and not ours. Non-fatal: a failure here is a degraded wiki page, not a
 # reason to abort an install, and the mount still works if the writer leg
 # creates the tree first.
-mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}" 2>/dev/null \
+mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Ostler/AI Conversations}" 2>/dev/null \
     || warn "Could not create the AI Conversations folder, so the wiki page for them may stay empty until the next compile."  # i18n-exempt
 
 # #979, FOURTH INSTANCE, AND THIS TIME IT IS THE HUMAN CONVERSATIONS TREE.
 #
-# Everything the comment above says is true of ~/Documents/Ostler/Conversations
+# Everything the comment above says is true of ~/Ostler/Conversations
 # as well. That is where the four shipped bundle feeds (vendor/imessage_source,
 # vendor/email_source, vendor/whatsapp_source, vendor/spoken_source, each with
 # its own LaunchAgent) write the four-artefact bundles, and the wiki-compiler
@@ -21958,12 +21958,12 @@ mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversatio
 #
 # THE WRITERS RESOLVE THIS PATH IN CODE, NOT FROM AN ENV VAR:
 # vendor/cm048_pipeline/src/ostler_paths.py::conversations_dir() returns
-# Path.home()/"Documents"/"Ostler"/"Conversations" with no override hook. So
+# Path.home()/"Ostler"/"Conversations" with no override hook. So
 # the default below is the only path any writer ever uses, and the variable
 # exists to re-aim the MOUNT, exactly as OSTLER_WIKI_DIR and
 # OSTLER_AI_CONVERSATIONS_DIR do here. It does not move the writers, and an
 # operator who sets it without moving them will mount an empty tree.
-mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}" 2>/dev/null \
+mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Ostler/Conversations}" 2>/dev/null \
     || warn "Could not create the Conversations folder, so the wiki pages for your conversations may stay empty until the next compile."  # i18n-exempt
 if [[ -f "${SCRIPT_DIR}/lib/ostler-vm-size.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-vm-size.sh"; ostler_vm_write_container_limits "${OSTLER_DIR}/.env"; info "$OSTLER_VM_LIMITS_LINE"; fi
 cat > "${OSTLER_DIR}/docker-compose.yml" <<'DCEOF'
@@ -22151,10 +22151,10 @@ services:
   #     never matched what the wiki-site image expects.
   #   - Knowledge images bind-mounted from the user-facing zone so
   #     a single host directory backs both the HTML site at :8044
-  #     AND the Obsidian vault at ~/Documents/Ostler/Wiki/_images/
+  #     AND the Obsidian vault at ~/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:d31aa832f44c440d267cda108b9923415d72be4c761d2eced0d7294fca26ce22
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:169e949ff63c1895b37adc2c92fb3257564faa4c03953ed5ac6acd414080e1e2
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22178,7 +22178,7 @@ services:
       OSTLER_LANG: "${OSTLER_LANG:-en-GB}"
     volumes:
       - wiki-docs:/docs/docs:ro
-      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
+      - ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro
       - wiki-built:/site
     restart: unless-stopped
     mem_limit: "${OSTLER_WIKI_SITE_MEM_LIMIT:-1536m}"  # lib/ostler-vm-size.sh table, via the compose .env
@@ -22191,13 +22191,13 @@ services:
   # paths fixed in the Gap 3 PR: - wiki-docs at /wiki (matches the compiler image's
   # WIKI_OUTPUT_DIR=/wiki convention). Was wiki_docs:/app/output, which the compiler image
   # never wrote to. - Obsidian vault target at /wiki/obsidian, bind-mounted from the user-
-  # facing zone (~/Documents/Ostler/Wiki/ by default). OSTLER_WIKI_DIR overrides the host
+  # facing zone (~/Ostler/Wiki/ by default). OSTLER_WIKI_DIR overrides the host
   # path for operators who want the vault on a different volume. - _images/ at
   # /wiki/obsidian/_images:ro so the post-processor's rewritten ../_images/<slug>/file.jpg
   # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
   # content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:ced104cc79cddb2755b3bfc69ae0a4737c42e87d5cec5b6631f2bcf577ff49b5
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5eeb6176bb3816ba47d2a12fe188ca0aca31ea0e276f832abed24ea3ed75fa27
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
@@ -22206,8 +22206,8 @@ services:
     oom_score_adj: 500
     volumes:
       - wiki-docs:/wiki
-      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian
-      - ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
+      - ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}:/wiki/obsidian
+      - ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro
       # 🔴 #979 -- THIRD INSTANCE OF #849 AND #482, whose comments are both
       # below in this same service. Same two repos, same shape, third time:
       # a mount added and tested on CM044's OWN docker/docker-compose.yml
@@ -22224,7 +22224,7 @@ services:
       #
       # WITHOUT THIS LINE THE PAGE IS EMPTY FOR EVER, AND SILENTLY.
       # compiler/pages/ai_conversation_pages.py falls back to expanduser of
-      # ~/Documents/Ostler/AI Conversations, which inside a container with
+      # ~/Ostler/AI Conversations, which inside a container with
       # no HOME resolves to /root/..., never exists, so it takes its
       # graceful episodic-store-not-present branch and writes an EMPTY-STATE
       # page. Meanwhile install.sh's own test_ai_conversations_leg_wired.sh
@@ -22235,10 +22235,10 @@ services:
       # CONSUMES these transcripts and nothing in CM044 writes them, so a
       # writable mount onto the customer's conversation tree is a foothold
       # the wiki compiler has no reason to hold.
-      - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}:/ai-conversations:ro
+      - ${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Ostler/AI Conversations}:/ai-conversations:ro
       # 🔴 #979 A FOURTH TIME, AND THE TREE IS THE HUMAN ONE. The comment
-      # above is about ~/Documents/Ostler/AI Conversations. THIS line is about
-      # ~/Documents/Ostler/Conversations, a different tree with a different
+      # above is about ~/Ostler/AI Conversations. THIS line is about
+      # ~/Ostler/Conversations, a different tree with a different
       # producer, and it was missing here for the identical reason.
       #
       # MEASURED 2026-09-23 on origin/main 7ecd4907, on this file:
@@ -22265,7 +22265,7 @@ services:
       # these bundles and nothing in CM044 writes them, so a writable mount
       # onto the customer's conversation tree is a foothold it has no reason
       # to hold.
-      - ${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}:/conversations:ro
+      - ${OSTLER_CONVERSATIONS_DIR:-${HOME}/Ostler/Conversations}:/conversations:ro
       - oxigraph_data:/app/oxigraph:ro
       - qdrant_data:/app/qdrant:ro
       # Hydration status hand-off (CM044 #624). The compiler writes a
@@ -23302,9 +23302,9 @@ STATE_DIR="${OSTLER_DIR}/state"
 # 🔴 THE DEFECT THIS REPLACES. Three sites wrote customer-derived
 # artefacts to a FIXED, world-readable /tmp path:
 #
-#   install.sh:35866  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:38489  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:42414  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#   install.sh:35896  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:38519  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:42444  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
 #
 # /private/tmp is drwxrwxrwt. The sticky bit stops another account
 # DELETING the file; it does nothing about READING it. At the default
@@ -24824,6 +24824,11 @@ COACHPY
     # END _ostler_init_coach_db
     if [[ -x "$CM048_VENV/bin/python" ]]; then
         _ostler_init_coach_db "$CM048_VENV/bin/python" "${OSTLER_DIR}/coach/observations.db" "${DB_KEY_FILE:-}"
+        # v1.0.129: the file was only the hand-off. Move the key into the login Keychain, delete the file.
+        if [[ -f "${SECURITY_CONFIG_DIR}/db_key" && "${SECURITY_CONFIG_DIR}" == "${HOME}/.ostler/security" ]]; then
+            _kc_out="$("$CM048_VENV/bin/python" -c 'import sys; from pathlib import Path; from ostler_security.db_key import migrate_key_file_to_keychain as m; r = m(Path(sys.argv[1])); print(r.source, r.detail)' "${SECURITY_CONFIG_DIR}/db_key" 2>&1)" || true
+            if [[ -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then echo "    Database key is still in ${SECURITY_CONFIG_DIR}/db_key: ${_kc_out}"; fi  # i18n-exempt: diagnostic only
+        fi
     fi
 
     if [[ -x "$CM048_BIN" ]]; then
@@ -26113,8 +26118,8 @@ fi
 # ── TIME MACHINE EXCLUSION STATUS: measured HERE, read by Doctor (NEW-121) ──
 #
 # Doctor used to run `tmutil isexcluded` itself, from its own launchd python,
-# on ~/.ostler, ~/Documents/Ostler and ~/.colima. TCC charged those reads to
-# python3.11, and the ~/Documents/Ostler one was a NON-preflight Documents
+# on ~/.ostler, ~/Ostler and ~/.colima. TCC charged those reads to
+# python3.11, and the ~/Ostler one was a NON-preflight Documents
 # request (measured on the v1.0.120 box): the shape that shows a customer a
 # "python3 would like to access your Documents folder" prompt.
 #
@@ -26138,7 +26143,7 @@ _ostler_tm_status_record() {
     {
         printf 'recorded_at\t%s\n' "$(date +%s)"
         printf 'writer\tfda-rerun\n'
-        for d in "${OSTLER_DIR}" "${HOME}/Documents/Ostler" "${HOME}/.colima"; do
+        for d in "${OSTLER_DIR}" "${HOME}/Ostler" "${HOME}/.colima"; do
             if [[ ! -d "$d" ]]; then
                 printf 'folder\tabsent\t%s\t\n' "$d"
                 continue
@@ -26165,7 +26170,7 @@ _ostler_tm_status_record || true
 
 # ── DOCUMENTS ACCESS POSTURE: probed HERE, read by Doctor (NEW-121) ───────
 #
-# Doctor's Documents tile used to probe-write into ~/Documents/Ostler from
+# Doctor's Documents tile used to probe-write into ~/Ostler from
 # its own launchd python on every /doctor render, a Documents request TCC
 # charged to python3.11. The same probe runs here instead, as a child of the
 # signed FDA holder (see the Time Machine block above), and Doctor reads
@@ -26179,7 +26184,7 @@ _ostler_tm_status_record || true
 # write a genuine create. Non-fatal in every branch.
 _ostler_documents_access_record() {
     local out="${OSTLER_DIR}/state/documents_access.tsv"
-    local root="${OSTLER_DOCUMENTS_DIR:-${HOME}/Documents/Ostler}"
+    local root="${OSTLER_DOCUMENTS_DIR:-${HOME}/Ostler}"
     local target probe err st detail="" tmp
     mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || return 0
     if [[ -d "$root" ]]; then target="$root"; else target="$(dirname "$root")"; fi
@@ -27824,7 +27829,7 @@ if not isinstance(payload, dict) or "meetings" not in payload:
     _log("skip: CANNOT-RUN hub reply has no 'meetings' key; not treating it as an empty calendar")
     sys.exit(0)
 
-meetings = payload.get("meetings") or []
+meetings = payload.get("meetings") or []; considered = payload.get("considered", "?"); _log(f"hub considered={considered} meetings={len(meetings)}"); [_log(f"filtered uid={f.get('uid', '')} reason={f.get('reason', '?')}") for f in (payload.get("filtered") or [])]
 if not meetings:
     _log("no meetings in window")
     sys.exit(0)
@@ -27897,7 +27902,7 @@ try:
         if any(b in title.lower() for b in BANNED):
             title = "Upcoming meeting"
         when = m.get("start") or ""
-        header = f"Meeting: {title}" + (f" at {when}" if when else "") + "."
+        header = (f"Meeting: {title}" if m.get("attendees") else f"You have {title}") + (f" at {when}" if when else "") + "."
         parts = [header]
         failed = False
         for a in (m.get("attendees") or [])[:3]:
@@ -27906,7 +27911,7 @@ try:
                 failed = True
                 break
             parts.append(text)
-        if failed or len(parts) == 1:
+        if failed or (len(parts) == 1 and m.get("attendees")):
             _log(f"skip: no composed brief for {key}; will retry next tick")
             undelivered.append(key)
             continue
@@ -28147,8 +28152,8 @@ _u_emit() {
 # overrides are supported for scripted use (CI, beta-onboarding
 # automation, customer-support tooling):
 #
-#   --keep-content     ~/Documents/Ostler/ stays put after uninstall
-#   --remove-content   ~/Documents/Ostler/ is also removed
+#   --keep-content     ~/Ostler/ stays put after uninstall
+#   --remove-content   ~/Ostler/ is also removed
 #
 # These are mutually exclusive. Specifying neither falls through
 # to the interactive Y/n prompt below.
@@ -28257,12 +28262,12 @@ Usage: ostler-uninstall [options]
 Removes the Ostler installation. Always removes ~/.ostler/ (except
 power.conf), Docker volumes, LaunchAgents, and the PATH entry.
 
-By default, prompts whether to also remove ~/Documents/Ostler/
+By default, prompts whether to also remove ~/Ostler/
 (your generated wiki, transcripts, captures, exports). Use the
 flags below to skip the prompt:
 
-  --keep-content     Keep ~/Documents/Ostler/ after uninstall
-  --remove-content   Remove ~/Documents/Ostler/ as well
+  --keep-content     Keep ~/Ostler/ after uninstall
+  --remove-content   Remove ~/Ostler/ as well
   --purge-data       Also wipe ~/.ostler/data/knowledge-staging (imported
                      Evernote markdown + images). Default is to keep it so
                      a reinstall reuses it. Use for a full/privacy removal.
@@ -28291,7 +28296,7 @@ HELPEOF
     esac
 done
 
-USER_FACING_ROOT="${HOME}/Documents/Ostler"
+USER_FACING_ROOT="${HOME}/Ostler"
 
 echo ""
 echo "  Ostler Uninstaller"
@@ -28398,7 +28403,7 @@ else
 fi
 
 # ── User-facing content (Wiki/Transcripts/Captures/etc.) ───────
-# Decide whether to also remove ~/Documents/Ostler/. The default
+# Decide whether to also remove ~/Ostler/. The default
 # is "keep": the customer's generated content survives an
 # uninstall so that a re-install (or a switch to a different host
 # that mounts the same Documents folder) finds the wiki + the
@@ -28557,6 +28562,36 @@ else
     KEEP_CONTENT_DECISION="keep"
 fi
 
+# ── Legacy root: ~/Documents/Ostler (installs before CM051 #3429) ──
+# Older installs wrote the user-facing root into ~/Documents, which iCloud uploads.
+# Removal happens only for an EMPTY folder (rmdir removes nothing else), or after
+# the customer types YES here. --yes and --remove-content do NOT cover it: they
+# consent to uninstalling Ostler and to removing ~/Ostler, not to deleting files
+# in the customer's Documents folder. Without a terminal it is kept.
+LEGACY_ROOT="${HOME}/Documents/Ostler"
+if [[ -d "$LEGACY_ROOT" && ! -L "$LEGACY_ROOT" ]]; then
+    if rmdir "$LEGACY_ROOT" 2>/dev/null; then
+        echo "  Removed the empty older folder ${LEGACY_ROOT}."
+    elif _assume_yes_granted; then
+        echo "  ${LEGACY_ROOT} is an older Ostler folder with files in it. --yes does not delete files in Documents, so it is kept."
+    else
+        echo ""
+        echo "  An older Ostler folder still has files in it: ${LEGACY_ROOT}"
+        echo "  Documents is synced to iCloud, so deleting it also deletes those iCloud copies."
+        LEGACY_REPLY=""
+        read -r -p "  Type YES to delete it, or press Enter to keep it: " LEGACY_REPLY || LEGACY_REPLY=""
+        if [[ "$LEGACY_REPLY" == "YES" ]]; then
+            if rm -rf -- "$LEGACY_ROOT"; then
+                echo "  Removed ${LEGACY_ROOT}."
+            else
+                echo "  Could not remove all of ${LEGACY_ROOT}; the rest is left in place."
+            fi
+        else
+            echo "  Kept ${LEGACY_ROOT}."
+        fi
+    fi
+fi
+
 echo ""
 # DELIBERATE-STOP MARKER, written FIRST, before any bootout or file removal.
 # The assistant LaunchAgent is KeepAlive PathState on this file (job stays
@@ -28631,9 +28666,9 @@ _u_emit UNINSTALL_PHASE "name=launchagents"
 #   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
 #               torn down at all. Found loaded on the .208 box-walk.
 #   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
-#   2026-08-15  tailscaled: written at install.sh:34254, absent from both
+#   2026-08-15  tailscaled: written at install.sh:34284, absent from both
 #               walls. Its only bootout is the install-time restart at
-#               install.sh:34294, which is not a teardown.
+#               install.sh:34324, which is not a teardown.
 #
 # THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
 # the current login session and does not touch the disk. launchd rescans
@@ -28726,7 +28761,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
 # ANDY, 2026-09-24: "The Uninstaller should wipe all this shit." The list
 # above is hand-maintained and it is STRUCTURALLY BLIND to one whole class:
 # an agent installed by VENDORED code rather than by install.sh writing the
-# plist itself. install.sh:41370 copies context-refresh/ and runs its
+# plist itself. install.sh:41400 copies context-refresh/ and runs its
 # INSTALL_SNIPPET.sh, and that snippet writes
 # com.creativemachines.ostler.context-refresh. A list derived from reading
 # install.sh can never contain it.
@@ -29021,7 +29056,7 @@ _u_quit_bundle_processes() {
 _u_emit UNINSTALL_PHASE "name=remotecapture"
 # Remove the menubar app from /Applications and the per-user
 # Application Support directory. Transcripts written under
-# ~/Documents/Ostler/Transcripts/ are user-facing content and are
+# ~/Ostler/Transcripts/ are user-facing content and are
 # handled by the keep-content decision higher up.
 # BOTH LOCATIONS, AND THE ORDER IS NOT ARBITRARY. The app moved into
 # /Applications/Ostler on 2026-09-18. An uninstaller that knows only the
@@ -29065,7 +29100,7 @@ _u_quit_bundle_processes "/Applications/Ostler.app"
 # persists state via the gateway, not a per-user data directory." That is
 # true of Application Support and false of WebKit: the Tauri webview's chat
 # UI keeps its own localStorage there, keyed by bundle id, and neither
-# ~/.ostler (below) nor ~/Documents/Ostler (the user-content prompt further
+# ~/.ostler (below) nor ~/Ostler (the user-content prompt further
 # down) is anywhere near it.
 #
 # MEASURED 2026-10-01 on a box that had just been reset and freshly
@@ -29073,7 +29108,7 @@ _u_quit_bundle_processes "/Applications/Ostler.app"
 # This is site data keyed by bundle id, not a customer document, so it is
 # removed unconditionally here -- the same category as the LaunchAgents and
 # the .app bundles in this script, not the keep/remove prompt that governs
-# ~/Documents/Ostler below.
+# ~/Ostler below.
 #
 # EACH REMOVAL IS CHECKED, NOT ASSUMED: `rm -rf ... || true` reports success
 # whether or not anything was actually deleted (a permission error on a
@@ -29114,7 +29149,7 @@ fi
 
 # ── Ostler Safari Extension.app ────────────────────────────────
 _u_emit UNINSTALL_PHASE "name=safari_extension"
-# install.sh:42043 moves SafariHistoryExt.app to this name, so it is OUR
+# install.sh:42073 moves SafariHistoryExt.app to this name, so it is OUR
 # bundle and the customer never chose it. It was in NEITHER half of the
 # contract printed above -- not in "This will remove", not in "This will
 # NOT remove" -- so an uninstall left a branded app in /Applications and
@@ -29205,7 +29240,7 @@ echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _u_lg_live=0; _lg_src="${HOME}/.ostler/lib/ostler-loopback-guard.sh"; [ -f "$_lg_src" ] || _lg_src="/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh"; if [ -e "${OSTLER_LG_PLIST:-/Library/LaunchDaemons/com.ostler.loopback-guard.plist}" ] || [ -e "${OSTLER_LG_DIR:-/Library/Application Support/Ostler/loopback-guard}" ]; then if [ -f "$_lg_src" ] && source "$_lg_src" && ostler_lg_uninstall; then :; else _u_lg_live=1; echo "  ERROR: the privacy guard is STILL INSTALLED, so other accounts on this Mac are still cut off from local ports. Ostler is NOT fully uninstalled. Run: sudo /bin/bash \"/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh\" remove" >&2; fi; fi  # lib/ostler-loopback-guard.sh ostler_lg_uninstall: admin via sudo or the macOS dialog
 echo "  Removing Keychain entry..."
-security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
+security delete-generic-password -s "Ostler Recovery Key" "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" 2>/dev/null || true
 
 echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
 sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
@@ -29879,43 +29914,38 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              matching CM041's fix/v1010-ical-server-auth reader. -->
         <key>PWG_SERVICE_TOKEN</key>
         <string>${PWG_SERVICE_TOKEN}</string>
-        <!-- THE DATABASE KEY'S PATH, NOT THE DATABASE KEY.
-             ical-server.py opens the coach and memory-corrections
-             databases through ostler_security, and it used to get its
-             key from OSTLER_DB_KEY, which nothing on any install ever
-             set (17 mentions, 3 readers, 0 setters, measured with
-             OSTLER_AI_CONVERSATIONS_DIR as the positive control on the
-             same query). So it took its plaintext branch every time.
-             LaunchAgents inherit no environment, so the value has to
-             reach this agent from its plist one way or another.
-             ⛔ AND THE KEY ITSELF MUST NOT BE THE WAY.
-             SECURITY_MODEL.md lists "Time-Machine backup theft" as a
-             threat this product DEFENDS AGAINST, and names the defence:
-             key material does not travel in backups. That is why the
-             recovery-key save a few thousand lines below shells out to
-             swift purely to pin kSecAttrAccessibleWhenUnlockedThisDeviceOnly.
-             ~/Library/LaunchAgents IS backed up by default, so a DEK in
-             this file would put the unwrapped key in every backup beside
-             a copy of the database it opens, and delete that defence
-             without a line of code admitting it.
-             Two more surfaces a path survives and a key does not: a
-             launchctl print of this job renders EnvironmentVariables in
-             full, and that output gets pasted into support threads; and
-             rendered config reaches the diagnostics bundle, which is why
-             this repo has log-hygiene gates at all.
-             NOTE FOR THE NEXT EDITOR: this heredoc is UNQUOTED, so a
-             backtick in this comment is EXECUTED and its output replaces
-             the text (#873). The launchctl invocation above is spelled
-             without backticks for that reason, not by accident, and
-             tests/test_no_live_command_substitution_in_heredocs.sh
-             caught the first draft of this very comment doing it.
-             So the key lives at 0600 inside the 0700 security
-             directory, next to keychain.json, excluded from Time
-             Machine at the write site, and this variable says where.
-             The resolver and the full argument are in
-             vendor/ostler_security/db_key.py. -->
-        <key>OSTLER_DB_KEY_FILE</key>
-        <string>${SECURITY_CONFIG_DIR}/db_key</string>
+        <!-- THE DATABASE KEY IS NOT IN THIS FILE, AND NOT IN THE ENVIRONMENT.
+             ical-server.py opens its databases through ostler_security, which
+             reads the key from the login Keychain (item: Ostler DB Key) by
+             running the macOS security tool. Until v1.0.129 the key sat as
+             plain hex in a file in the security folder and this plist carried
+             that file's path; the file is now only a migration source and the
+             installer deletes it once the Keychain read-back matches.
+             Can a LaunchAgent read the item? Yes. Measured 2026-11-11 on
+             macOS 26.4.1: a throwaway agent in the user's login session read
+             an item written by the security tool and got the same bytes back.
+             It is deliberately not an EnvironmentVariables entry:
+               1. this plist lives in the LaunchAgents folder of the user's
+                  Library, which Time Machine backs up by default, so a key
+                  here would sit in every backup beside the database it opens;
+               2. the launchctl print output of a job renders its environment
+                  in full, and that output is pasted into support threads;
+               3. rendered config reaches the diagnostics bundle.
+             SECURITY_MODEL.md lists backup theft as a defended threat.
+             Do NOT set OSTLER_DB_KEY_FILE here. An explicit file path puts the
+             resolver in file-only mode, the Keychain is never read, and the
+             service would find no key at all.
+             What this does and does not buy: the key is no longer a plaintext
+             file. Any process running as this user can still ask the security
+             tool for the item, so it is not a gate against that. For a stolen
+             Mac the boundary remains FileVault.
+             If the Keychain cannot be read (locked, no login session) the
+             resolver returns an error and the services refuse to open their
+             keyed databases. They do not fall back to plaintext.
+             NOTE FOR THE NEXT EDITOR: this heredoc is UNQUOTED, so a backtick
+             in this comment is EXECUTED (#873). None are used on purpose.
+             tests/test_no_live_command_substitution_in_heredocs.sh guards it.
+             The resolver is vendor/ostler_security/db_key.py. -->
     </dict>
     <!-- Interactive: this job answers the Hub People and Timeline screens. -->
     <key>ProcessType</key>
@@ -32857,11 +32887,11 @@ else
                 #
                 # WHY IT WAS WORSE THAN A WRONG LOG LINE. One invented boolean drove
                 # THREE customer-facing branches, all of them the wrong way:
-                #   :32837  suppressed `open -R` -- no Finder window, so the drag-in
+                #   :32867  suppressed `open -R` -- no Finder window, so the drag-in
                 #           route was never offered
-                #   :32853  printed "already listed" at a customer looking at a list
+                #   :32883  printed "already listed" at a customer looking at a list
                 #           that did not contain it
-                #   :32883  dropped LINE3, the drag instruction, from the modal
+                #   :32913  dropped LINE3, the drag instruction, from the modal
                 # The one route that might have worked was withheld BECAUSE the code
                 # had convinced itself the customer did not need it.
                 #
@@ -33313,7 +33343,7 @@ fi  # end Apple Silicon guard
 # RemoteCapture is the call / meeting transcription companion: a
 # MenuBarExtra (LSUIElement) that records system audio + microphone
 # via ScreenCaptureKit + CATap, transcribes locally with WhisperKit,
-# and lands transcripts under ~/Documents/Ostler/Transcripts/. The
+# and lands transcripts under ~/Ostler/Transcripts/. The
 # Info.plist sets LSUIElement, so the app shows in the menu bar
 # only, no Dock icon.
 #
@@ -33354,7 +33384,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.10}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.11}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── RemoteCapture integrity pin (cross-origin) ──────────────────
 # The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
@@ -33370,6 +33400,7 @@ OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-release
 # the published asset, never type it by hand.
 _ostler_remotecapture_pinned_sha() {
     case "$1" in
+        0.1.11) echo "390940a83c19500ca24e9658e2923123ae7eaa918d786f55e2f74d3162da9105" ;;
         0.1.10) echo "6910cfb0f3acd3833cdbbc0087dfbfcc8f046c06b321721748a0bcea60b28c89" ;; 0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
         0.1.8) echo "f183b9731832293bc1a1ed3b24a6675af416804ea2a9b915d942c168f8d6dec4" ;;
         0.1.7) echo "e269af01b058204cca41d72b6c0afc8d90f1de73054ebbcf456e8b7101c599f5" ;;
@@ -33483,6 +33514,8 @@ REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
 REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler RemoteCapture"
+# Hub Settings (ostler-assistant #677) runs this at ${OSTLER_DIR}/bin, the path its default names, and the assistant plist names it too. Every answer gets it; enable refuses without an accepted consent record.
+mkdir -p "${OSTLER_DIR}/bin" && install -m 755 "${SCRIPT_DIR}/scripts/remotecapture_transcription.sh" "${OSTLER_DIR}/bin/remotecapture_transcription.sh" || warn "$MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED"
 
 # Apple Silicon only. The Phase C release workflow only builds an
 # arm64 slice (WhisperKit + ScreenCaptureKit perform best on Apple
@@ -33493,80 +33526,80 @@ REMOTECAPTURE_ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
 
 # ── RECORDING-CONSENT GATE (HR015 #940) ───────────────────────────
 #
-# THE CONSENT HAD NO HANDS. Measured on CM051 origin/main e0fb21bf,
-# 2026-09-16, with /usr/bin/grep over the whole tree:
+# CONSENT DECIDES PLACEMENT, NOT INSTALLATION. Andy, 2026-11-11: a customer
+# who left "spoken transcription" off got no RemoteCapture at all, and turning
+# it on later said "run the installer again". Now every answer stages the app
+# and its LaunchAgent plist. Only "accepted" puts the plist in
+# ~/Library/LaunchAgents, where launchd starts it at login. Any other answer
+# stages the same plist beside the app, in "Ostler RemoteCapture/", where
+# launchd never reads it. Nothing captures until consent is recorded.
+# scripts/remotecapture_transcription.sh enable then copies the plist across
+# and bootstraps it. No reinstall.
 #
-#   spoken_capture_recording_consent
-#     built     legal wording          vendor/legal/consent_strings.py:226
-#     shown     Phase-2 screen         install.sh 10893-10932
-#     recorded  consent_cli record     install.sh 15746-15755
-#     REFUSED   nothing, anywhere      0 sites
+# THREE STATES, NOT TWO. accepted places the agent live. declined and unknown
+# both stage it disabled. unknown also SAYS SO, via _ostler_warn_consent_unknown,
+# rather than treating a missing answer as a refusal in silence.
 #
-#   The only reader of a durable consent record in this file is
-#   _ostler_consent_state, and its two call sites both name
-#   third_party_data_personal_records. CONTROL, same shape and same
-#   predicate: `_ostler_consent_state third_party` is 2 -- so the search
-#   can find a call site, and the zero above is a real absence. (The
-#   call sites pass the tickbox UNQUOTED, so a pattern with a quote
-#   after the function name finds nothing; that is a wrong-shaped
-#   control, not an absence.)
+# THE MEASUREMENT THAT MADE THE GATE NECESSARY, CM051 e0fb21bf, 2026-09-16:
+# spoken_capture_recording_consent had no reader in install.sh except
+# _ostler_consent_state, and a declined answer still started the companion at
+# login. The placement rule above is the fix. Skipping the install was not.
 #
-# WHAT THE CUSTOMER WAS TOLD, AND WHAT THEN HAPPENED. The screen's
-# default is "n". Answering it -- or clicking straight through --
-# printed MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF, "Spoken transcription
-# will stay off." Roughly fifteen thousand lines later this phase then
-# ran unconditionally and, for that same customer:
+# NO NEW LATE TOTAL_STEPS DECREMENT: the ratchet stays pinned at six.
 #
-#   - pre-prompted them to grant Screen Recording and Microphone,
-#   - downloaded and staged Ostler RemoteCapture into /Applications,
-#   - cleared its quarantine xattr,
-#   - bootstrapped a LaunchAgent with RunAtLoad and KeepAlive both
-#     true, so the call/meeting transcription companion starts at
-#     login and is restarted if it exits.
+# WHAT "DISABLED" MEANS, PRECISELY. The staged plist is ordinary XML with
+# RunAtLoad and KeepAlive true. It is inert because launchd reads only
+# ~/Library/LaunchAgents at login and only what `launchctl bootstrap` is given.
+# A file in "Ostler RemoteCapture/" starts nothing. The enable script is the
+# only thing that copies it across, and it refuses without an ACCEPTED record
+# from `ostler_security.consent_cli check --tickbox spoken_capture_recording_consent`.
 #
-# HR015 #940 sets its own priority on the premise that "transcription
-# is OFF BY DEFAULT and opt-in ... a user who clicks straight through
-# records nobody". On this tree that premise was not true, and the
-# issue's WARN VERSUS ENFORCE section is the answer: stopping by
-# default is a materially better position than having said so.
+# WHAT THIS DOES NOT DO. A copy opened by hand from the staged folder still runs.
+# CM042 has NO gate that reads this consent record: ConsentChecker.check
+# (RemoteCapture/Consent/ConsentView.swift:240) shows a dialog per session and
+# never reads a persisted record. Measured 2026-11-11, CM042 main 4b4cab8.
 #
-# THREE STATES, NOT TWO. accepted installs. declined does not, and says
-# the customer's own answer back to them. unknown -- nobody was ever
-# asked, or the answer was lost -- also does not install, and SAYS SO
-# OUT LOUD via _ostler_warn_consent_unknown rather than silently
-# treating a missing answer as a refusal. The opt-in default for a
-# recording-consent question is off; what may not happen is that being
-# invisible.
+# TESTS. tests/test_recording_consent_gates_the_capture_companion.sh runs this
+# phase for each answer and asserts the effects. tests/test_remotecapture_enable_later_no_reinstall.sh
+# runs the enable and disable script against a stubbed launchctl.
 #
-# THE APP IS NOT DELETED. A customer may have installed RemoteCapture
-# themselves. What this refuses is Ostler staging it and starting it
-# for them, so a prior run's LaunchAgent is booted out and removed and
-# the bundle is left where it is.
+# COMMANDS. scripts/remotecapture_transcription.sh enable | disable | status
+#   enable   moves the app into /Applications/Ostler, copies the staged plist into ~/Library/LaunchAgents, bootstraps it.
+#            Refuses (rc 3) without an accepted spoken_capture_recording_consent record.
+#   disable  boots it out, removes the LaunchAgents plist, and parks the app back in staged/.
+#   status   reports consent, the live plist, the staged plist, the app, and whether launchd has it.
 #
-# NO NEW LATE TOTAL_STEPS DECREMENT, deliberately: the ratchet is
-# pinned at six and this step already keeps its slot on its existing
-# Apple-Silicon skip path. The denominator is unchanged either way.
+# STAGED IS NOT RUNNING. For a declined or unknown answer the installer never
+# starts the agent. The consent test asserts that: nothing live, nothing loaded.
+#
+# WHY THE APP IS PARKED. Not accepted: the verified app leaves /Applications for the
+# staged folder, where nothing opens it. The enable script moves it back.
+# Path mirrors scripts/remotecapture_transcription.sh STAGED_APP. A failed move
+# leaves the app in /Applications and says so (MSG_ERR_CM042_RENAME_FAILED).
+_ostler_remotecapture_park() {
+    [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && return 0; local s="${HOME}/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app"; mkdir -p "${s%/*}" && rm -rf "$s" && mv "$REMOTECAPTURE_APP_PATH" "$s" || err "$(printf "$MSG_ERR_CM042_RENAME_FAILED" "$REMOTECAPTURE_APP_PATH")"
+}
 _OSTLER_CONSENT_SPOKEN_CAPTURE="$(_ostler_consent_state spoken_capture_recording_consent "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}")"
-if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" != "accepted" ]]; then
-    REMOTECAPTURE_INSTALLED=false
-    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "declined" ]]; then
-        info "$MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF"
-    else
-        _ostler_warn_consent_unknown "Ostler RemoteCapture (call and meeting transcripts)" spoken_capture_recording_consent
-    fi
-    # Stand down a previous run's agent. Without this, a customer who
-    # answered yes once and no later would keep the companion starting
-    # at every login, which is the same defect one level down.
-    if [[ -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" ]]; then
-        launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" >/dev/null 2>&1 || true
-        rm -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null || true
-        info "$MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED"
-    fi
-elif [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
+# Every consent answer stages the app. Only the agent's placement reads the answer (tail).
+if [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
     warn "$(printf "$MSG_WARN_CM042_APPLE_SILICON_ONLY" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_ARCH_DETECTED}")"
     info "$MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING"
     REMOTECAPTURE_INSTALLED=false
 else
+    REMOTECAPTURE_INSTALLED=false
+    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" != "accepted" ]]; then
+        if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "declined" ]]; then
+            info "$MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF"
+        else
+            _ostler_warn_consent_unknown "Ostler RemoteCapture (call and meeting transcripts)" spoken_capture_recording_consent
+        fi
+        # A previous run's live agent stands down: yes once, no later, must not keep starting.
+        if [[ -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" ]]; then
+            launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" >/dev/null 2>&1 || true
+            rm -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null || true
+            info "$MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED"
+        fi
+    fi
 
 # Customer-facing TCC pre-prompt. RemoteCapture requests Screen
 # Recording + Microphone on first launch via ScreenCaptureKit +
@@ -33721,7 +33754,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
             # strip xattr when the verify chain passed.
             xattr -dr com.apple.quarantine "$REMOTECAPTURE_APP_PATH" 2>/dev/null || true
             ok "$(printf "$MSG_OK_CM042_INSTALLED" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_APP_PATH}")"
-            REMOTECAPTURE_INSTALLED=true
+            REMOTECAPTURE_INSTALLED=true; _ostler_remotecapture_park
         else
             err "$MSG_ERR_CM042_VERIFY_FAILED"
             if [[ -s "$REMOTECAPTURE_CODESIGN_LOG" ]]; then
@@ -33757,13 +33790,15 @@ fi
 rm -rf "$REMOTECAPTURE_TMPDIR"
 REMOTECAPTURE_TMPDIR=""
 
-# LaunchAgent: auto-start on login, KeepAlive across crashes. The
-# .app is a MenuBarExtra (LSUIElement) so the customer sees the
-# menu-bar icon appear on login. ProcessType=Interactive + Aqua
-# session is implicit for a user LaunchAgent under gui/<uid>.
+# The same plist is written either way. Only its location decides whether it runs.
+# LaunchAgent: live in ~/Library/LaunchAgents only on an accepted answer; otherwise staged disabled beside the app.
+REMOTECAPTURE_STAGED_PLIST="${REMOTECAPTURE_APP_SUPPORT_DIR}/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist.staged"
 if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
-    mkdir -p "${HOME}/Library/LaunchAgents"
-    cat > "$REMOTECAPTURE_LAUNCHAGENT_PLIST" <<RCAPEOF
+    mkdir -p "${HOME}/Library/LaunchAgents" "$REMOTECAPTURE_APP_SUPPORT_DIR"
+    REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_STAGED_PLIST"; [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_LAUNCHAGENT_PLIST"
+    # RunAtLoad and KeepAlive describe a LIVE agent. Staged, they are inert:
+    # nothing reads this file until the enable script bootstraps it.
+    cat > "$REMOTECAPTURE_PLIST_TARGET" <<RCAPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -33785,18 +33820,16 @@ if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
 </dict>
 </plist>
 RCAPEOF
-    chmod 0644 "$REMOTECAPTURE_LAUNCHAGENT_PLIST"
-
-    # bootout-then-bootstrap so re-runs of the installer reload
-    # the plist cleanly. bootout of a non-loaded label is a no-op.
-    if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
-        ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
-        info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
-    else
-        warn "$MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED"
+    chmod 0644 "$REMOTECAPTURE_PLIST_TARGET"
+    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]]; then
+        if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
+            ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
+            info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
+        else
+            warn "$MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED"
+        fi
     fi
 fi
-
 fi  # end RemoteCapture Apple Silicon guard
 
 # ── 3.14g Ostler.app (Tauri Hub desktop) ────────────────────────
@@ -35826,7 +35859,7 @@ _hydrate_collection_has_rows() {
 # name before reporting a reason.
 #
 # 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
-# (~:36332) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
+# (~:36362) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
 # to 0, so a refused connection and a graph holding nothing are byte-identical
 # to it. Harmless there -- it only suppresses a warning -- and fatal here.
 #
@@ -40758,7 +40791,7 @@ set -e
 # now a path -- gui_step_record_rc -- and non-fatal no longer has to mean
 # unrecorded. An empty wiki is still non-fatal to the install and still shows
 # the customer the same screen; it now also closes its step honestly.
-WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}"
+WIKI_DOCS_DIR="${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}"
 # v1.0.117 THIN WALK, W6: "ZERO pages" on a wiki that had pages.
 # The old count was `find | wc -l | tr` under pipefail with
 # `|| WIKI_PAGE_COUNT=""`, and an empty value was then read as 0. The
@@ -42360,7 +42393,7 @@ fi
 # Drains the customer's external-LLM chat history (ChatGPT exports,
 # Claude Code sessions, ZeroClaw sessions, channel JSONL) through the
 # vendored CM052 producer (pwg-ai-convo) into
-# ~/Documents/Ostler/AI Conversations/<YYYY-MM-DD>/<id>.md -- the same
+# ~/Ostler/AI Conversations/<YYYY-MM-DD>/<id>.md -- the same
 # path CM044's ai_conversation_pages.py reads for the AI Chats wing.
 #
 # ON for v1.0.10: OSTLER_AI_CONVERSATIONS_ENABLED defaults to true so
@@ -42445,7 +42478,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
     # readable thing.
     #
     # WHY THE OBVIOUS PROBE IS WORTHLESS HERE. cm052 dual-stores: an episodic
-    # markdown artefact under ~/Documents/Ostler/AI Conversations, and a POST of
+    # markdown artefact under ~/Ostler/AI Conversations, and a POST of
     # extracted facts to CM048 (vendor/cm052_ai_conversations/src/cm052/wire.py).
     # Counting the markdown looks like corroboration and is not: that tree is a
     # directory under $HOME, and so is the sentinel. THEY SHARE A LIFETIME. The
@@ -42584,7 +42617,7 @@ if [[ "$OSTLER_AI_CONVERSATIONS_ENABLED" == "true" ]]; then
                 _aiconv_rc=1
             else
             CM052_USER_EMAIL="${USER_EMAIL:-}" \
-            OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Documents/Ostler/AI Conversations" \
+            OSTLER_AI_CONVERSATIONS_DIR="${HOME}/Ostler/AI Conversations" \
             OSTLER_AI_CONV_TRANSCRIPT_PRIVACY="${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}" \
             OSTLER_AI_CONV_GIST_PRIVACY="${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
             $_AICONV_TIMEOUT_WRAP "$_AICONV_BIN" \
@@ -42712,7 +42745,7 @@ except Exception:
         <key>CM052_USER_EMAIL</key>
         <string>${USER_EMAIL:-}</string>
         <key>OSTLER_AI_CONVERSATIONS_DIR</key>
-        <string>${HOME}/Documents/Ostler/AI Conversations</string>
+        <string>${HOME}/Ostler/AI Conversations</string>
         <key>OSTLER_AI_CONV_TRANSCRIPT_PRIVACY</key>
         <string>${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}</string>
         <key>OSTLER_AI_CONV_GIST_PRIVACY</key>
@@ -42735,7 +42768,7 @@ AICONVPLIST
                 "${OSTLER_FINAL_DIR:-${OSTLER_DIR}}/services/cm052/.venv/bin/python3" \
                 "src.cm052.catchup:adapters" 0 "" \
                 "CM052_USER_EMAIL=${USER_EMAIL:-}" \
-                "OSTLER_AI_CONVERSATIONS_DIR=${HOME}/Documents/Ostler/AI Conversations" \
+                "OSTLER_AI_CONVERSATIONS_DIR=${HOME}/Ostler/AI Conversations" \
                 "OSTLER_AI_CONV_TRANSCRIPT_PRIVACY=${OSTLER_AI_CONV_TRANSCRIPT_PRIVACY:-L3}" \
                 "OSTLER_AI_CONV_GIST_PRIVACY=${OSTLER_AI_CONV_GIST_PRIVACY:-L2}" \
                 || warn "AI chats history catch-up not registered; chats older than a year will not be read."  # i18n-exempt
@@ -42961,6 +42994,30 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
         fi
 
         if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            # Tailnet advertise default (2026-11-11). Once Tailscale is up, set
+            # [gateway] companion_advertise_tailnet = true so the pairing QR carries
+            # the tailnet address. Absent or not connected: key left alone (default
+            # false). Idempotent. Never fails the install.
+            _ostler_tailnet_advertise_default() {
+                local _cfg="${OSTLER_DIR:-${HOME}/.ostler}/assistant-config/config.toml"
+                local _tmp="${_cfg}.tailnet.$$" _label="com.creativemachines.ostler.assistant"
+                [[ -n "${OSTLER_TAILSCALE_IP:-}" && -f "$_cfg" ]] || return 0
+                if grep -q '^companion_advertise_tailnet = true$' "$_cfg"; then return 0; fi
+                if grep -q '^companion_advertise_tailnet' "$_cfg"; then
+                    sed 's/^companion_advertise_tailnet.*/companion_advertise_tailnet = true/' "$_cfg" > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                elif grep -q '^\[gateway\]$' "$_cfg"; then
+                    awk '{print} /^\[gateway\]$/ && !d {print "companion_advertise_tailnet = true"; d=1}' "$_cfg" > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                else
+                    { cat "$_cfg"; printf '\n[gateway]\ncompanion_advertise_tailnet = true\n'; } > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                fi
+                cat "$_tmp" > "$_cfg" || true; rm -f "$_tmp"
+                # Read at daemon start: kickstart only if the agent is already loaded.
+                if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
+                    _ks_bounded "gui/$(id -u)/${_label}" -k   # bounded: see _ks_bounded
+                fi
+                return 0
+            }
+            _ostler_tailnet_advertise_default || true
             # ── Expose the Hub's local ports on the tailnet ─────────
             # In userspace mode the tailnet IP does not reach local
             # listeners without an explicit proxy, so serve each Hub
@@ -44010,7 +44067,7 @@ echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━�
 # Close any still-open step + signal completion to the GUI. No-op
 # under TTY mode (OSTLER_GUI unset). The GUI consumes DONE to flip
 # its sidebar to the success state and offer a "Reveal in Finder"
-# affordance for ~/Documents/Ostler.
+# affordance for ~/Ostler.
 if [[ -n "${__OSTLER_STEP_ID:-}" ]]; then
     gui_step_end
 fi
@@ -44021,7 +44078,7 @@ fi
 # session with 43+ real errors." I went to fix that line and found the filing
 # is PARTLY A MISREADING, so the fix is not what the row asked for.
 #
-# The string at :41681 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
+# The string at :41711 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
 # It was "ostler-assistant doctor: no errors detected". It is SCOPED, TRUE,
 # and it is about the assistant doctor's own output -- it counts the
 # doctor's own error markers, nothing else. Rewriting a truthful line
@@ -44051,12 +44108,12 @@ fi
 #
 # PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
 # @TNM measured the boundary: `gui_done ok` is unconditional, and everything
-# below :43949 is documented post-success cosmetics. A verdict printed after
+# below :43979 is documented post-success cosmetics. A verdict printed after
 # the GUI has flipped to success can describe a problem but cannot stop the
 # customer being told it worked.
 #
 # BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
-# correctness property here rather than a style note: :43356 documents that
+# correctness property here rather than a style note: :43386 documents that
 # everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
 # (CX-123/#643), so an unset variable in this block will NOT abort -- it will
 # expand to nothing and silently produce a wrong sentence. Which would be this

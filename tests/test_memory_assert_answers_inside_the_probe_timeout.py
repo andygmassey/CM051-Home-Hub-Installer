@@ -129,6 +129,10 @@ class Server:
         self.port = _free_port()
         env = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
         env.pop("OSTLER_DB_KEY", None)
+        # v1.0.129: the spool no longer opens plaintext silently. This job
+        # has no sqlcipher3, so it asks for plaintext explicitly (logged).
+        env["OSTLER_ALLOW_PLAINTEXT_DB"] = "1"
+        env["OSTLER_HOME"] = str(WORK)  # hermetic: never consult the real Keychain
         env.update({
             "OSTLER_API_PORT": str(self.port), "OXIGRAPH_URL": EDGE_URL,
             "QDRANT_URL": EDGE_URL, "EMBED_OLLAMA_URL": EDGE_URL,

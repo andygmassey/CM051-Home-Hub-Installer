@@ -441,7 +441,7 @@ def main(argv=None):
     ap.add_argument("--token-path", default="~/.ostler/secrets/oxigraph_token")
     ap.add_argument("--user-id")
     ap.add_argument("--conversations-root", default=os.environ.get("OSTLER_CONVERSATIONS_ROOT",
-                                                                    "~/Documents/Ostler/Conversations"))
+                                                                    "~/Ostler/Conversations"))
     ap.add_argument("--workspace")
     ap.add_argument("--persona")
     a = ap.parse_args(argv)

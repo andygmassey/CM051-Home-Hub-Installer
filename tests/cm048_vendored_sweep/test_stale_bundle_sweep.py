@@ -4,7 +4,7 @@ THE DEFECT (measured on the v1.0.111 walk box)
 -----------------------------------------------
 After step 09 wrote the bundle, ``_remove_stale_bundle_folders`` ran
 ``Path(root).glob("*/*-<short id>")`` over EVERY date folder under
-~/Documents/Ostler/Conversations. Under the Hub's launchd agent an
+~/Ostler/Conversations. Under the Hub's launchd agent an
 opendir on a folder carrying a com.apple.macl label blocks forever
 (os_scandir -> __opendir2 -> open$NOCANCEL), so ``pwg-convo process``
 never exited, the Hub's 900s subprocess timeout fired, and the

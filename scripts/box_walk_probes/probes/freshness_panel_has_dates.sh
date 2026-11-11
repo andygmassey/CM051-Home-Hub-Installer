@@ -117,7 +117,7 @@ OSTLERDISK"
 #
 # THE PANEL THE CUSTOMER ACTUALLY SEES is compiled markdown, in the wiki:
 #
-#   ~/Documents/Ostler/Wiki/index.md
+#   ~/Ostler/Wiki/index.md
 #     ## Data freshness
 #     | Meetings      | <span class="pw-status pw-status--ok">26 August 2026</span> |
 #     | Contact       | <span class="pw-status pw-status--ok">26 August 2026</span> |
@@ -206,7 +206,7 @@ for f in files:
     if v and str(v).strip().lower() not in ('', 'unknown', 'none', 'null'):
         dated += 1
 
-wiki = os.path.expanduser('~/Documents/Ostler/Wiki/index.md')
+wiki = os.path.expanduser('~/Ostler/Wiki/index.md')
 found = os.path.exists(wiki)
 text = ''
 if found:
@@ -278,7 +278,7 @@ run_probe() {
 
     if [ "$found" != "1" ]; then
         probe_examined 0 "freshness sources"
-        probe_cannot_run "the compiled wiki index (~/Documents/Ostler/Wiki/index.md) is not present, so the panel the customer reads was never opened. ${ifiles} settling_progress.d file(s) exist, ${idated} carrying a real timestamp -- the data is there, the rendered panel is not."
+        probe_cannot_run "the compiled wiki index (~/Ostler/Wiki/index.md) is not present, so the panel the customer reads was never opened. ${ifiles} settling_progress.d file(s) exist, ${idated} carrying a real timestamp -- the data is there, the rendered panel is not."
     fi
 
     if [ "${ifiles}" = "0" ]; then

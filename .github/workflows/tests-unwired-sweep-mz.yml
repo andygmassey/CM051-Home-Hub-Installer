@@ -116,9 +116,11 @@ jobs:
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_uninstall_legacy_documents_root.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
+            tests/test_user_root_is_home_ostler_not_documents.sh \
             tests/test_usr_local_bin_symlinks_gui_safe.sh \
             tests/test_v1010_at_rest_exclusions.sh \
             tests/test_v1010_ingest_reroute_plists.sh \

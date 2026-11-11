@@ -154,6 +154,7 @@ esc_bin="$(printf '%s' "$ASSISTANT_MACOS_DIR"          | sed 's/[&/\]/\\&/g')"
 esc_home="$(printf '%s' "$ASSISTANT_HOME_RESOLVED"     | sed 's/[&/\]/\\&/g')"
 esc_logs="$(printf '%s' "$LOGS_DIR"                    | sed 's/[&/\]/\\&/g')"
 esc_assistant_cfg="$(printf '%s' "$ASSISTANT_CONFIG_DIR" | sed 's/[&/\]/\\&/g')"
+esc_ostler_dir="$(printf '%s' "$OSTLER_DIR" | sed 's/[&/\]/\\&/g')"
 
 # #646 self-echo loop guard: the customer's OWN iMessage handles
 # (comma-separated phone + email), passed in by install.sh from the
@@ -200,6 +201,7 @@ sed \
     -e "s/OSTLER_ASSISTANT_CONFIG/$esc_assistant_cfg/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \
+    -e "s/OSTLER_DIR_ROOT/$esc_ostler_dir/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     "$ASSISTANT_PLIST_SRC" > "$RENDERED_PLIST"
 umask "$_snippet_umask_orig"

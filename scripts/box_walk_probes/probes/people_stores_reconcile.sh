@@ -408,7 +408,7 @@ try:
         except Exception:
             n = -1
         try:
-            w = os.path.exists(os.path.expanduser("~/Documents/Ostler/Wiki/index.md"))
+            w = os.path.exists(os.path.expanduser("~/Ostler/Wiki/index.md"))
         except Exception:
             w = False
         return "settling=%s wiki=%s" % (n if n >= 0 else "unreadable",
@@ -549,7 +549,7 @@ read_wiki_people_tile() {
     fi
     box_run "python3 - <<'OSTLERTILE'
 import os, re
-p = os.path.expanduser(\"~/Documents/Ostler/Wiki/index.md\")
+p = os.path.expanduser(\"~/Ostler/Wiki/index.md\")
 try:
     src = open(p, encoding=\"utf-8\").read()
 except Exception:
@@ -773,7 +773,7 @@ def marker():
                     v = line.split("=", 1)[1].strip()
                     return calendar.timegm(time.strptime(v, "%Y-%m-%dT%H:%M:%SZ")) if v else 0
             return 0
-        return int(os.stat(os.path.expanduser("~/Documents/Ostler/Wiki/index.md")).st_mtime)
+        return int(os.stat(os.path.expanduser("~/Ostler/Wiki/index.md")).st_mtime)
     except Exception:
         return -1
 if action == "kick":

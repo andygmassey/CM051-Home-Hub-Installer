@@ -85,12 +85,12 @@ MSG_INFO_CLONED="  تم الاستنساخ إلى %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture يعمل على Apple Silicon فقط. سيتم تخطي التثبيت على هذا الجهاز."
 MSG_INFO_CM042_LOGS_AT="سجلات RemoteCapture: %s/ostler-remotecapture.log (و.err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="كان تثبيت سابق قد ضبط Ostler RemoteCapture ليبدأ عند تسجيل الدخول. تم إيقافه ولن يبدأ مرة أخرى."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="لم يتم تثبيت Ostler RemoteCapture: اخترت إبقاء تفريغ الكلام نصيًا متوقفًا. فعّله في الإعدادات وشغّل المثبّت مرة أخرى إذا غيّرت رأيك."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="يبقى Ostler RemoteCapture متوقفًا حتى تشغّل تفريغ الكلام نصيًا: اخترت إبقاءه متوقفًا في الوقت الحالي. يمكنك تشغيله في أي وقت من إعدادات Ostler أو من RemoteCapture. لا حاجة لإعادة التثبيت."
 MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler RemoteCapture من macOS إذن تسجيل الشاشة والميكروفون. امنح الإذنين ليمكن تفريغ المكالمات والاجتماعات نصيًا محليًا. لا يظهر مؤشر تسجيل أرجواني في شريط القوائم – فالتقاط الصوت صامت بحسب التصميم."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler Remo
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="يحفظ Ostler ويكيك الشخصي وسجلات محادثاتك ضمن Documents/Ostler على هذا الـ Mac. هي ملكك وتبقى على هذا الجهاز. ولكتابتها يحتاج Ostler إلى الوصول إلى مجلد المستندات، لذا قد يطلب macOS ذلك أثناء الإعداد، ومرة أخرى لاحقًا اليوم عندما ينظّم Ostler ويكيك للمرة الأولى. قد يظهر الطلب وكأنه صادر من python3.11، وهي الأداة المضمّنة التي يستخدمها Ostler لكتابة ملفاتك. يُرجى النقر على موافق كلما ظهر. وإن فاتك أو رفضته، يمكنك تفعيله في أي وقت من إعدادات النظام، ضمن الخصوصية والأمن، ثم الملفات والمجلدات، وستُكتب ويكيك وسجلات محادثاتك من ذلك الحين فصاعدًا."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="يحفظ Ostler ويكيك الشخصي وسجلات محادثاتك في مجلد Ostler داخل مجلد المنزل (~/Ostler) على هذا الـ Mac. هي ملكك وتبقى على هذا الجهاز. المجلد خارج المستندات عمدًا، لذا لا يرفعه iCloud Drive. وقد يحتاج Ostler مع ذلك إلى الوصول إلى مجلد المستندات، مثلًا للبحث عن ملفات تصدير البيانات التي حفظتَها فيه، لذا قد يطلب macOS ذلك أثناء الإعداد، ومرة أخرى لاحقًا اليوم. قد يظهر الطلب وكأنه صادر من python3.11، وهي الأداة المضمّنة التي يستخدمها Ostler لكتابة ملفاتك. يُرجى النقر على موافق كلما ظهر. وإن فاتك أو رفضته، يمكنك تفعيله في أي وقت من إعدادات النظام، ضمن الخصوصية والأمن، ثم الملفات والمجلدات."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="تم نقل مجلد Ostler من %s إلى %s، فلم تعد مزامنة سطح المكتب والمستندات في iCloud Drive تصل إليه."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="مزامنة سطح المكتب والمستندات في iCloud Drive مفعّلة على هذا الـ Mac، لذا قد تكون نسخ سابقة من ملفات Ostler موجودة في iCloud Drive بالفعل. لم يحذفها Ostler. لإزالتها، افتح iCloud Drive في Finder، ثم افتح المستندات، واحذف مجلد Ostler هناك."
+MSG_WARN_USER_ROOT_NOT_MOVED="تُرك مجلد Ostler السابق %s في مكانه لأنه تعذّر نقله إلى %s. إما أن ذلك المجلد موجود بالفعل أو أن النقل فشل. لم يُحذف أي شيء. يستخدم Ostler الآن المجلد الجديد: انقل ملفاتك بنفسك إن أردتها هناك."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  تم تثبيت محرك ذاكرة المحادثات في venv."
 MSG_INFO_HUB_APP_VERIFYING="جارٍ التحقق من Ostler.app في %s"
 MSG_INFO_HUB_APP_STAGING="جارٍ نقل Ostler.app إلى /Applications من %s"
@@ -301,7 +306,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="المنطقة: الولايات المت�
 MSG_INFO_REPO_URL="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_2="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_3="عنوان URL للمستودع: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="اختر الآن عبارة المرور التي ستفتح Hub الخاص بك. ستكتبها في كل مرة تشغّل فيها واجهة Hub."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="اختر الآن عبارة المرور. يستخدمها Ostler لإعداد المفتاح لبعض سجلاته الداخلية."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="تم تخطي عبارة مرور الاسترداد. (مُهمَل: يتطلب الإصدار v1.0 عبارة مرور دائمًا.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="إعادة استخدام تثبيت وكيل Doctor الموجود في %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="إعادة استخدام تثبيت email-ingest الموجود في %s"
@@ -440,13 +445,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="تعذر حفظ اختيارك ال�
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="تم إعداد مفتاح السجلات الداخلية. تقرأ خدمات Hub المفتاح من ملف محمي في مجلدك الشخصي، لذلك تبدأ دون أن تُطالَب بأي إدخال."
-MSG_OK_DB_KEY_DELIVERED="تم تسليم مفتاح قاعدة البيانات إلى خدمات Hub (%s، ولا يقرأه سواك)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="تم إعداد مفتاح السجلات الداخلية. تقرأ خدمات Hub المفتاح من سلسلة مفاتيح تسجيل الدخول، لذلك تبدأ دون أن تُطالَب بأي إدخال."
+MSG_OK_DB_KEY_DELIVERED="تم تسليم مفتاح قاعدة البيانات إلى خدمات Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="تعذر تسليم مفتاح قاعدة البيانات إلى خدمات Hub. ستفتح قواعد البيانات دون تشفير إلى أن تتم المعالجة."
 MSG_INFO_DB_KEY_RECOVER_HINT="شغّل هذا الأمر لاستعادته وتسليمه: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="جارٍ تشفير أي قواعد بيانات متبقية من تثبيت سابق"
 MSG_WARN_DB_MIGRATION_FAILED="تعذر تشفير بعض قواعد البيانات الموجودة. ما زالت قابلة للقراءة على القرص."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="لا يحتوي هذا التثبيت على ملف مفتاح لقاعدة البيانات، لذلك تفتح خدمات Hub قواعد البيانات دون تشفير."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="لا يحتوي هذا التثبيت على مفتاح لقاعدة البيانات، لذلك لن تتمكن خدمات Hub من فتح قواعد البيانات المشفّرة."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s من قواعد البيانات على هذا الـ Mac قابلة للقراءة على القرص الآن."
 MSG_INFO_DB_MIGRATE_HINT="ثم شفّر ما هو موجود بالفعل: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="تم تثبيت إعادة المحاولة المؤجلة لتسجيل الجهاز (تعمل كل ساعة إلى أن تفرغ قائمة الانتظار)"
@@ -709,6 +714,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="تعذّر تنزيل Ostler RemoteCapture v%s �
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="الأسباب الشائعة: لم يُنشر وسم الإصدار بعد، أو لا يوجد اتصال بالشبكة، أو أن التوثيق (notarisation) لدى المصدر لم يكتمل. أعد تشغيل المثبّت عند إتاحة الإصدار."
 MSG_WARN_CM042_EXTRACT_FAILED="تعذّر استخراج أرشيف Ostler RemoteCapture. سيتم تخطي LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="فشل تحميل LaunchAgent الخاص بـ Ostler RemoteCapture. راجع المخرجات أعلاه و ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="تعذّر تثبيت نصّ تفريغ الكلام نصيًا؛ ولا يمكن تشغيل التفريغ من إعدادات Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  لن يتوفر إثراء المحادثات. يُثبَّت باقي Ostler بشكل طبيعي. أعد التشغيل من دون --allow-plaintext لتفعيل محرّك ذاكرة المحادثات."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="فشل تثبيت محرّك ذاكرة المحادثات (الاستنساخ)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  تم البحث عن: %s/cm048_pipeline/pyproject.toml"
@@ -1305,7 +1311,7 @@ MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="هل أنت متأكد؟ هذا يشكل خ�
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، لذا فالقرص غير مشفّر أثناء التخزين.
 
-ماذا يعني ذلك إن تابعت: كل ما يخزّنه Ostler -- مخطط بياناتك الشخصي بالكامل (الويكي والمحادثات وملاحظات المعرفة) ضمن ~/Documents/Ostler، إضافةً إلى أسرار الخدمات وقواعد البيانات ضمن ~/.ostler -- يُكتب على القرص دون تشفير. يستطيع أي شخص يمكنه الإقلاع من هذا القرص أو إخراجه أو الوصول إلى جلسة مفتوحة أن يقرأ كل ذلك. يُخزَّن المفتاح الذي يشفّر به Ostler قواعد بياناته على القرص نفسه، لذلك عندما يكون FileVault متوقفًا لا يحمي هذا التشفير بياناتك من أي شخص يصل إلى القرص.
+ماذا يعني ذلك إن تابعت: كل ما يخزّنه Ostler -- مخطط بياناتك الشخصي بالكامل (الويكي والمحادثات وملاحظات المعرفة) ضمن ~/Ostler، إضافةً إلى أسرار الخدمات وقواعد البيانات ضمن ~/.ostler -- يُكتب على القرص دون تشفير. يستطيع أي شخص يمكنه الإقلاع من هذا القرص أو إخراجه أو الوصول إلى جلسة مفتوحة أن يقرأ كل ذلك. يُخزَّن المفتاح الذي يشفّر به Ostler قواعد بياناته على القرص نفسه، لذلك عندما يكون FileVault متوقفًا لا يحمي هذا التشفير بياناتك من أي شخص يصل إلى القرص.
 
 يوصى بشدة بتشغيل FileVault. يمكنك تشغيله في أي وقت من إعدادات النظام > الخصوصية والأمن > FileVault -- فهو يشفّر في الخلفية دون إعادة التثبيت.
 
@@ -1313,11 +1319,11 @@ MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، 
 اختر لا للتوقف هنا لتشغيل FileVault أولًا، ثم أعد تشغيل المثبّت. لم يحدث أي خطأ في الحالتين."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="جاهز لإعداد تشفير القرص"
-MSG_PROMPT_PASSKEY_ACK_HELP="تُشفَّر قواعد بيانات Ostler الحساسة باستخدام SQLCipher بعبارة مرور تختارها في الشاشة التالية. ستكتب عبارة المرور هذه في كل مرة تشغّل فيها واجهة Hub. يُنشأ أيضًا مفتاح استرداد منفصل يُعرض مرة واحدة في نهاية التثبيت. للحصول على حماية كاملة لكل ما على Mac أثناء التخزين، أبقِ FileVault في macOS قيد التشغيل. اضغط متابعة عندما تكون جاهزًا."
+MSG_PROMPT_PASSKEY_ACK_HELP="يستخدم Ostler عبارة مرور تختارها في الشاشة التالية لإعداد المفتاح لبعض سجلاته الداخلية. يُنشأ أيضًا مفتاح استرداد منفصل ويُعرض مرة واحدة في نهاية التثبيت. بياناتك في Ostler محمية في مجملها بواسطة FileVault، تشفير Apple للقرص الكامل. اضغط على متابعة عندما تكون مستعدًا."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="هل تريد تعيين عبارة مرور للاسترداد أيضًا؟ (موصى به)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="اختر عبارة المرور"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="تشفّر عبارة المرور هذه الرسم المعرفي الخاص بك وتفتح واجهة Hub عند كل بدء تشغيل. 16 حرفًا على الأقل. لا يمكننا استرجاعها لك. يُنصح بحفظها في مدير كلمات المرور."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="يستخدم Ostler هذه العبارة لإعداد مفتاح لبعض سجلاته الداخلية. وبياناتك في Ostler محمية في مجملها بواسطة FileVault، تشفير Apple للقرص الكامل."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="أكّد عبارة المرور"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="أعد إدخال عبارة المرور نفسها للتأكيد."
 

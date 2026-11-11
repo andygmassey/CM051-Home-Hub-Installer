@@ -107,6 +107,10 @@
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>ZEROCLAW_WORKSPACE</key>
         <string>OSTLER_ASSISTANT_CONFIG</string>
+        <key>OSTLER_PYTHON</key>
+        <string>OSTLER_DIR_ROOT/.venv/bin/python3</string>
+        <key>OSTLER_REMOTECAPTURE_TRANSCRIPTION_SCRIPT</key>
+        <string>OSTLER_DIR_ROOT/bin/remotecapture_transcription.sh</string>
         <!--
             OSTLER_IMESSAGE_SELF_HANDLES (#646): the customer's OWN
             iMessage handles (comma-separated phone + email), rendered by

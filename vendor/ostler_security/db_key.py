@@ -97,7 +97,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import stat
+import subprocess
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -107,6 +109,7 @@ from typing import NamedTuple, Optional
 # adds the second one rather than replacing it.
 SOURCE_ENV = "OSTLER_DB_KEY"
 SOURCE_KEY_FILE = "OSTLER_DB_KEY_FILE"
+SOURCE_KEYCHAIN = "keychain"
 
 # Reasons. These flow into posture.py's `reason` field when no key could
 # be used. "no_key" is the pre-existing value and keeps its meaning:
@@ -118,6 +121,8 @@ REASON_KEY_FILE_UNSAFE_DIR = "key_file_unsafe_dir"
 REASON_KEY_FILE_SYMLINK = "key_file_symlink"
 REASON_KEY_FILE_MALFORMED = "key_file_malformed"
 REASON_KEY_FILE_UNREADABLE = "key_file_unreadable"
+REASON_KEYCHAIN_UNAVAILABLE = "keychain_unavailable"
+REASON_KEYCHAIN_MALFORMED = "keychain_malformed"
 
 # 32 bytes, hex encoded. Matches what ostler-migrate-dbs documents and
 # what passphrase.derive_key().hex() produces.
@@ -162,6 +167,232 @@ def key_file_path() -> Path:
     if override:
         return Path(override)
     return default_key_file()
+
+
+# ---------------------------------------------------------------------------
+# KEYCHAIN (v1.0.129). The key no longer rests as hex in a file.
+#
+# The login Keychain holds it under service "Ostler DB Key". The file
+# (~/.ostler/security/db_key) is now ONLY a migration source: the first
+# resolve that finds it and no Keychain item moves it, reads it back, and
+# deletes the file. What this buys, and nothing more: the key is not a
+# plaintext file in the home folder or in a copy of it. It is NOT a gate
+# against another process running as the same user (it can ask `security`
+# for the item too), and the boundary for a stolen Mac stays FileVault.
+#
+# The Keychain is reached through /usr/bin/security, not a framework, so
+# the same code runs from a LaunchAgent (measured: a gui/<uid> agent reads
+# an item written by `security -i`) and the key never appears in argv: the
+# write goes in on stdin via `security -i`.
+#
+# Never a dialog: before any find/add the keychain must be positively
+# UNLOCKED (_keychain_lock_state); locked or undeterminable -> unavailable
+# without calling security. The calls also run with stdin=/dev/null and in a
+# new session (no controlling tty). SECURITYSESSIONID is left alone: changing
+# it would cut the process off from the login keychain.
+#
+# Isolation: the Keychain is consulted only for the DEFAULT install home. An
+# explicit OSTLER_DB_KEY_FILE, or a non-default OSTLER_HOME, keeps the old
+# file-only behaviour so a test or a one-off run can never read, overwrite or
+# delete the real item. OSTLER_DB_KEY_KEYCHAIN_SERVICE opts a harness back in
+# under a service name of its own.
+# ---------------------------------------------------------------------------
+KEYCHAIN_SERVICE_DEFAULT = "Ostler DB Key"
+KEYCHAIN_ACCOUNT = "ostler-db-key"
+_SECURITY_BIN = "/usr/bin/security"
+_KEYCHAIN_NOT_FOUND_RC = 44  # errSecItemNotFound, as exit status
+
+
+def keychain_service() -> str:
+    return os.environ.get("OSTLER_DB_KEY_KEYCHAIN_SERVICE") or KEYCHAIN_SERVICE_DEFAULT
+
+
+def keychain_path() -> str:
+    """The keychain FILE every `security` call is pinned to.
+
+    Default is the login keychain. OSTLER_KEYCHAIN_PATH repoints it (tests use
+    a throwaway keychain). It is always passed explicitly: without a keychain
+    argument `security` consults the user's default/search list, and when that
+    is missing macOS raises the GUI "Keychain Not Found ... Reset To Defaults"
+    dialog, which can wipe a user's keychain.
+    """
+    return (os.environ.get("OSTLER_KEYCHAIN_PATH")
+            or os.path.expanduser("~/Library/Keychains/login.keychain-db"))
+
+
+def _keychain_missing() -> Optional[str]:
+    """Reason string if the pinned keychain file is absent, else None.
+
+    Checked BEFORE any `security` call, so a missing keychain never reaches a
+    dialog-capable code path.
+    """
+    kp = keychain_path()
+    if not os.path.isfile(kp):
+        return f"keychain file {kp} does not exist"
+    return None
+
+
+LOCK_UNLOCKED, LOCK_LOCKED, LOCK_UNKNOWN = "unlocked", "locked", "unknown"
+_KSEC_UNLOCK_STATE_BIT = 1  # kSecUnlockStateStatus in SecKeychainGetStatus
+
+
+def _keychain_lock_state(path: str) -> str:
+    """Non-interactive lock probe: SecKeychainGetStatus via ctypes.
+
+    Measured (macOS, throwaway keychain, ssh session): status 7 unlocked,
+    2 locked; it never prompts. `security find-generic-password` on a locked
+    keychain exits 36 with no stderr here, but in a GUI session it can raise
+    the unlock-password dialog, and `show-keychain-info` fails with 36
+    "User interaction is not allowed" on a locked one, so neither is used to
+    DETECT. Anything not positively unlocked (framework missing, call fails)
+    is LOCK_UNKNOWN and treated as unavailable: fail closed.
+    """
+    try:
+        import ctypes
+        import ctypes.util
+        lib = ctypes.util.find_library("Security")
+        if not lib:
+            return LOCK_UNKNOWN
+        sf = ctypes.CDLL(lib)
+        sf.SecKeychainOpen.argtypes = [ctypes.c_char_p,
+                                       ctypes.POINTER(ctypes.c_void_p)]
+        sf.SecKeychainGetStatus.argtypes = [ctypes.c_void_p,
+                                            ctypes.POINTER(ctypes.c_uint32)]
+        ref = ctypes.c_void_p()
+        if sf.SecKeychainOpen(path.encode(), ctypes.byref(ref)) != 0 or not ref:
+            return LOCK_UNKNOWN
+        st = ctypes.c_uint32()
+        if sf.SecKeychainGetStatus(ref, ctypes.byref(st)) != 0:
+            return LOCK_UNKNOWN
+        return (LOCK_UNLOCKED if st.value & _KSEC_UNLOCK_STATE_BIT
+                else LOCK_LOCKED)
+    except Exception:
+        return LOCK_UNKNOWN
+
+
+def _keychain_unusable() -> Optional[str]:
+    """Reason string if the pinned keychain is absent OR not positively
+    unlocked, else None. Runs BEFORE every find/add so a locked keychain never
+    reaches a call that can raise the macOS unlock-password dialog."""
+    missing = _keychain_missing()
+    if missing:
+        return missing
+    state = _keychain_lock_state(keychain_path())
+    if state == LOCK_UNLOCKED:
+        return None
+    if state == LOCK_LOCKED:
+        return (f"keychain {keychain_path()} is locked; not calling security "
+                "(it could raise an unlock dialog)")
+    return f"could not determine whether keychain {keychain_path()} is locked"
+
+
+def keychain_available() -> bool:
+    """True when the macOS `security` tool exists on this host."""
+    return os.path.exists(_SECURITY_BIN)
+
+
+def keychain_enabled() -> bool:
+    """Whether this process should use the Keychain for the DB key."""
+    if not keychain_available():
+        return False
+    if os.environ.get("OSTLER_DB_KEY_KEYCHAIN_SERVICE"):
+        return True
+    if os.environ.get("OSTLER_DB_KEY_FILE") or os.environ.get("OSTLER_HOME"):
+        return False
+    return True
+
+
+def read_keychain_key() -> DbKey:
+    """Read the key from the login Keychain. Never raises.
+
+    "No item" is REASON_NO_KEY (the caller may then migrate the file).
+    Anything else that stops the read (locked keychain, no session, a
+    value that is not 64 hex) is REASON_KEYCHAIN_UNAVAILABLE or
+    REASON_KEYCHAIN_MALFORMED, and the caller must NOT fall through to
+    plaintext on it.
+    """
+    missing = _keychain_unusable()
+    if missing:
+        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE, missing)
+    try:
+        proc = subprocess.run(
+            [_SECURITY_BIN, "find-generic-password",
+             "-s", keychain_service(), "-a", KEYCHAIN_ACCOUNT, "-w",
+             keychain_path()],
+            capture_output=True, text=True, timeout=20,
+            stdin=subprocess.DEVNULL, start_new_session=True,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
+                     f"could not run security: {exc.__class__.__name__}")
+    if proc.returncode == _KEYCHAIN_NOT_FOUND_RC:
+        return DbKey(None, None, REASON_NO_KEY, None)
+    if proc.returncode != 0:
+        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
+                     f"security exited {proc.returncode}: "
+                     f"{(proc.stderr or '').strip()[:160]}")
+    raw = (proc.stdout or "").strip()
+    if not _HEX_KEY_RE.match(raw):
+        return DbKey(None, None, REASON_KEYCHAIN_MALFORMED,
+                     f"the Keychain item is not 64 hex characters ({len(raw)})")
+    return DbKey(raw.lower(), SOURCE_KEYCHAIN, None,
+                 f'Keychain item "{keychain_service()}"')
+
+
+def write_keychain_key(key_hex: str) -> None:
+    """Store the key in the login Keychain and read it back.
+
+    Raises OSError if the write fails or the read-back does not match. The
+    key travels on stdin to `security -i`, never in argv.
+    """
+    if not _HEX_KEY_RE.match(key_hex or ""):
+        raise OSError("refusing to store a key that is not 64 hex characters")
+    if not keychain_available():
+        raise OSError("the macOS security tool is not present")
+    missing = _keychain_unusable()
+    if missing:
+        raise OSError(missing)
+    cmd = (f'add-generic-password -U -s "{keychain_service()}" '
+           f'-a "{KEYCHAIN_ACCOUNT}" -w {key_hex.lower()} "{keychain_path()}"\n')
+    try:
+        proc = subprocess.run([_SECURITY_BIN, "-i"], input=cmd,
+                              capture_output=True, text=True, timeout=20,
+                              start_new_session=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise OSError(f"could not run security: {exc.__class__.__name__}")
+    back = read_keychain_key()
+    if back.key != key_hex.lower():
+        raise OSError(
+            f"Keychain write did not verify (rc={proc.returncode}, "
+            f"read-back: {back.reason or 'mismatch'})"
+        )
+
+
+def migrate_key_file_to_keychain(path: Path) -> DbKey:
+    """Move the key file's key into the Keychain, then delete the file.
+
+    The file is deleted ONLY after the Keychain read-back matched. On any
+    failure the file is left exactly as it was and the returned DbKey is
+    the file's, so a failed move never costs the customer their key.
+    Safe to race: two services doing this at once write the same value.
+    """
+    fk = read_key_file(path)
+    if not fk.key:
+        return fk
+    try:
+        write_keychain_key(fk.key)
+    except OSError as exc:
+        return DbKey(fk.key, fk.source, None,
+                     f"{fk.detail}; Keychain move failed: {exc}")
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        return DbKey(fk.key, SOURCE_KEYCHAIN, None,
+                     f"in the Keychain; could not delete {path}: {exc}")
+    return DbKey(fk.key, SOURCE_KEYCHAIN, None,
+                 f'moved from {path} to Keychain item "{keychain_service()}"')
 
 
 def _mode_bits(path: Path) -> int:
@@ -273,4 +504,22 @@ def resolve_db_key() -> DbKey:
     if env_key:
         return DbKey(env_key, SOURCE_ENV, None, None)
 
-    return read_key_file(key_file_path())
+    if not keychain_enabled():
+        return read_key_file(key_file_path())
+
+    kc = read_keychain_key()
+    if kc.key:
+        # A file left behind by a crash between write and delete is a
+        # plaintext copy of a key that is already protected: remove it.
+        leftover = key_file_path()
+        try:
+            if leftover.is_file() and read_key_file(leftover).key == kc.key:
+                leftover.unlink()
+        except OSError:
+            pass
+        return kc
+    if kc.reason != REASON_NO_KEY:
+        # The Keychain exists and would not give the key up (locked, no
+        # session, malformed). Do not guess and do not read the file.
+        return kc
+    return migrate_key_file_to_keychain(key_file_path())

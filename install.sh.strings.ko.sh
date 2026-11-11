@@ -85,12 +85,12 @@ MSG_INFO_CLONED="  %s에 복제했습니다."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture는 Apple 실리콘 전용입니다. 이 Mac에서는 설치를 건너뜁니다."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 로그: %s/ostler-remotecapture.log (및 .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="이전 설치에서 Ostler RemoteCapture가 로그인 시 시작되도록 설정되어 있었습니다. 이를 중지했으며 다시 시작되지 않습니다."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture가 설치되지 않았습니다. 음성 텍스트 변환을 끈 상태로 두기로 선택하셨습니다. 마음이 바뀌면 설정에서 켠 다음 설치 프로그램을 다시 실행하세요."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="음성 텍스트 변환을 켜기 전까지 Ostler RemoteCapture는 꺼진 상태로 있습니다. 당분간 꺼 두기로 선택하셨습니다. Ostler 설정 또는 RemoteCapture에서 언제든 켤 수 있습니다. 다시 설치할 필요는 없습니다."
 MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS에 화면 기록 및 마이크 권한을 요청합니다. 통화와 회의를 이 Mac에서 텍스트로 변환할 수 있도록 두 가지 모두 허용하세요. 메뉴 막대에 보라색 기록 표시는 나타나지 않습니다. 오디오 캡처는 의도적으로 조용히 이루어집니다."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler는 개인 위키와 대화 기록을 이 Mac의 Documents/Ostler에 저장합니다. 이 파일은 사용자의 것이며 이 기기에만 보관됩니다. 파일을 쓰려면 Ostler가 문서 폴더에 접근해야 하므로 설정 중에 macOS가 허용을 요청할 수 있으며, 오늘 나중에 Ostler가 위키를 처음 정리할 때 다시 요청할 수 있습니다. 요청은 Ostler가 파일을 쓰는 데 사용하는 번들 도우미인 python3.11에서 온 것으로 표시될 수 있습니다. 요청이 나타나면 항상 승인을 클릭해 주세요. 놓치거나 허용하지 않은 경우에도 시스템 설정의 개인정보 보호 및 보안, 파일 및 폴더에서 언제든 켤 수 있으며, 그 후부터 위키와 대화 기록이 저장됩니다."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler는 개인 위키와 대화 기록을 이 Mac의 홈 폴더 안 Ostler 폴더(~/Ostler)에 저장합니다. 이 파일은 사용자의 것이며 이 기기에만 보관됩니다. 이 폴더는 의도적으로 문서 폴더 밖에 있으므로 iCloud Drive에 업로드되지 않습니다. 다만 문서 폴더에 저장해 둔 데이터 내보내기 파일을 찾는 등의 이유로 Ostler가 문서 폴더에 접근해야 할 수 있으며, 그 경우 설정 중에 macOS가 허용을 요청할 수 있고 오늘 나중에 다시 요청할 수도 있습니다. 요청은 Ostler가 파일을 쓰는 데 사용하는 번들 도우미인 python3.11에서 온 것으로 표시될 수 있습니다. 요청이 나타나면 항상 승인을 클릭해 주세요. 놓치거나 허용하지 않은 경우에도 시스템 설정의 개인정보 보호 및 보안, 파일 및 폴더에서 언제든 켤 수 있습니다."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Ostler 폴더를 %s에서 %s(으)로 옮겼으므로 iCloud Drive의 데스크탑 및 문서 동기화가 더 이상 이 폴더에 닿지 않습니다."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="이 Mac에서 iCloud Drive의 데스크탑 및 문서 동기화가 켜져 있으므로 이전 Ostler 파일 사본이 이미 iCloud Drive에 있을 수 있습니다. Ostler는 이를 삭제하지 않았습니다. 삭제하려면 Finder에서 iCloud Drive를 열고 문서를 연 다음 그곳의 Ostler 폴더를 삭제하세요."
+MSG_WARN_USER_ROOT_NOT_MOVED="이전 Ostler 폴더 %s은(는) %s(으)로 옮길 수 없어 그대로 두었습니다. 해당 폴더가 이미 있거나 이동에 실패한 경우입니다. 아무것도 삭제하지 않았습니다. Ostler는 이제 새 폴더를 사용합니다. 파일을 새 폴더에 두려면 직접 옮겨 주세요."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  대화 메모리 엔진이 venv에 설치되었습니다."
 MSG_INFO_HUB_APP_VERIFYING="%s의 Ostler.app 확인 중"
 MSG_INFO_HUB_APP_STAGING="%s에서 Ostler.app을 /Applications로 준비하는 중"
@@ -301,7 +306,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="지역: 미국 (출처: %s)"
 MSG_INFO_REPO_URL="저장소 URL: %s"
 MSG_INFO_REPO_URL_2="저장소 URL: %s"
 MSG_INFO_REPO_URL_3="저장소 URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="이제 Hub를 잠금 해제할 암호를 선택하세요. Hub UI를 시작할 때마다 이 암호를 입력하게 됩니다."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="이제 암호 문구를 선택하세요. Ostler는 내부 기록 일부의 키를 설정하는 데 이 암호 문구를 사용합니다."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="복구 암호를 건너뛰었습니다. (더 이상 사용되지 않음: v1.0은 항상 암호가 필요합니다.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="%s에 있는 기존 Doctor 에이전트 설치를 재사용합니다"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="%s에 있는 기존 이메일 수집 설치를 재사용합니다"
@@ -439,13 +444,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="백그라운드 보강 선택을 ~/.
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="내부 기록용 키를 설정했습니다. Hub 서비스는 홈 폴더의 보호된 파일에서 키를 읽으므로, 입력을 요구하지 않고 시작합니다."
-MSG_OK_DB_KEY_DELIVERED="데이터베이스 키를 Hub 서비스에 전달했습니다(%s, 나만 읽을 수 있음)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="내부 기록용 키를 설정했습니다. Hub 서비스는 로그인 키체인에서 키를 읽으므로, 입력을 요구하지 않고 시작합니다."
+MSG_OK_DB_KEY_DELIVERED="데이터베이스 키를 Hub 서비스에 전달했습니다."
 MSG_WARN_DB_KEY_NOT_DELIVERED="데이터베이스 키를 Hub 서비스에 전달하지 못했습니다. 문제가 해결될 때까지 데이터베이스가 암호화되지 않은 상태로 열립니다."
 MSG_INFO_DB_KEY_RECOVER_HINT="다음을 실행해 키를 복구하고 전달하세요: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="이전 설치에서 남은 데이터베이스를 암호화하는 중"
 MSG_WARN_DB_MIGRATION_FAILED="기존 데이터베이스 일부를 암호화하지 못했습니다. 디스크에서 계속 읽을 수 있는 상태입니다."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="이 설치에는 데이터베이스 키 파일이 없어 Hub 서비스가 데이터베이스를 암호화하지 않은 상태로 열고 있습니다."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="이 설치에는 데이터베이스 키가 없으므로 Hub 서비스가 암호화된 데이터베이스를 열 수 없습니다."
 MSG_WARN_DB_PLAINTEXT_COUNT="이 Mac의 데이터베이스 %s개를 지금 디스크에서 읽을 수 있습니다."
 MSG_INFO_DB_MIGRATE_HINT="그런 다음 이미 있는 데이터베이스를 암호화하세요: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="보류된 기기 등록 재시도를 설치했습니다(대기열이 비워질 때까지 매시간 실행)"
@@ -708,6 +713,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s를 %s에서 다운로�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="흔한 원인: 릴리스 태그가 아직 게시되지 않았거나, 네트워크가 오프라인이거나, 상위 공증이 아직 진행 중일 수 있습니다. 릴리스가 공개된 후 설치 프로그램을 다시 실행하세요."
 MSG_WARN_CM042_EXTRACT_FAILED="Ostler RemoteCapture tarball을 추출하지 못했습니다. LaunchAgent를 건너뜁니다."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent를 불러오지 못했습니다. 위의 출력과 ~/Library/LaunchAgents/를 확인하세요."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="음성 텍스트 변환 스크립트를 설치하지 못했습니다. Hub 설정에서는 텍스트 변환을 켤 수 없습니다."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  대화 보강 기능을 사용할 수 없습니다. 나머지 Ostler는 정상적으로 설치됩니다. 대화 메모리 엔진을 연결하려면 --allow-plaintext 없이 다시 실행하세요."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="대화 메모리 엔진 설치에 실패했습니다(clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  확인한 경로: %s/cm048_pipeline/pyproject.toml"
@@ -1297,7 +1303,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="저장된 디스크를 암호화하지 않은 �
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="정말 계속하시겠습니까? 이는 보안 위험입니다."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="이 Mac에서는 FileVault가 꺼져 있어 저장된 디스크가 암호화되어 있지 않습니다.
 
-계속할 경우: Ostler가 저장하는 모든 것, 즉 ~/Documents/Ostler 아래의 개인 그래프 전체(위키, 대화, 지식 노트)와 ~/.ostler 아래의 서비스 비밀 정보 및 데이터베이스가 암호화되지 않은 상태로 디스크에 기록됩니다. 이 드라이브로 부팅하거나, 드라이브를 분리하거나, 잠금 해제된 세션에 접근할 수 있는 사람은 누구나 모든 내용을 읽을 수 있습니다. Ostler가 데이터베이스 암호화에 사용하는 키는 같은 디스크에 저장되므로, FileVault가 꺼져 있으면 디스크에 접근할 수 있는 사람으로부터 데이터를 보호하지 못합니다.
+계속할 경우: Ostler가 저장하는 모든 것, 즉 ~/Ostler 아래의 개인 그래프 전체(위키, 대화, 지식 노트)와 ~/.ostler 아래의 서비스 비밀 정보 및 데이터베이스가 암호화되지 않은 상태로 디스크에 기록됩니다. 이 드라이브로 부팅하거나, 드라이브를 분리하거나, 잠금 해제된 세션에 접근할 수 있는 사람은 누구나 모든 내용을 읽을 수 있습니다. Ostler가 데이터베이스 암호화에 사용하는 키는 같은 디스크에 저장되므로, FileVault가 꺼져 있으면 디스크에 접근할 수 있는 사람으로부터 데이터를 보호하지 못합니다.
 
 FileVault 사용을 강력히 권장합니다. 시스템 설정 > 개인정보 보호 및 보안 > FileVault에서 언제든지 켤 수 있으며, 다시 설치하지 않아도 백그라운드에서 암호화됩니다.
 
@@ -1305,11 +1311,11 @@ FileVault 사용을 강력히 권장합니다. 시스템 설정 > 개인정보 �
 아니요를 선택하면 여기서 멈추므로, 먼저 FileVault를 켠 다음 설치 프로그램을 다시 실행할 수 있습니다. 어느 쪽을 선택해도 문제가 생긴 것은 아닙니다."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="디스크 암호화 설정 준비 완료"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler의 민감한 데이터베이스는 다음 화면에서 직접 정하는 암호문을 사용해 SQLCipher로 암호화됩니다. Hub UI를 시작할 때마다 이 암호문을 입력해야 합니다. 별도의 복구 키도 생성되어 설치가 끝날 때 한 번만 표시됩니다. Mac의 모든 데이터를 저장 시 완전히 보호하려면 macOS FileVault를 계속 켜 두세요. 준비되면 계속을 누르세요."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler는 다음 화면에서 직접 정하는 암호 문구를 사용해 내부 기록 일부의 키를 설정합니다. 별도의 복구 키도 생성되며, 설치가 끝날 때 한 번만 표시됩니다. Ostler 데이터 전체는 Apple의 전체 디스크 암호화인 FileVault로 보호됩니다. 준비되면 계속을 누르세요."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="복구용 암호문도 설정하시겠습니까? (권장)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="암호문 선택"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="이 암호문은 지식 그래프를 암호화하고 시작할 때마다 Hub UI의 잠금을 해제합니다. 16자 이상이어야 합니다. 분실하면 복구해 드릴 수 없습니다. 암호 관리자에 보관하는 것을 권장합니다."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler는 내부 기록 일부의 키를 설정하는 데 이 암호 문구를 사용합니다. Ostler 데이터 전체는 Apple의 전체 디스크 암호화인 FileVault로 보호됩니다."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="암호문 확인"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="확인을 위해 같은 암호문을 다시 입력하세요."
 
