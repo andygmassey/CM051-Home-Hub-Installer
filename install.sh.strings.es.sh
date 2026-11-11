@@ -442,8 +442,8 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="No se pudo guardar en ~/.ostler/post
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Clave de los registros internos configurada. Los servicios del Hub leen la clave de tu llavero de inicio de sesión, así que se inician sin pedirte nada."
+MSG_OK_DB_KEY_DELIVERED="Clave de la base de datos entregada a los servicios del Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="No se pudo entregar la clave de la base de datos a los servicios del Hub. Abrirán las bases de datos sin cifrar hasta que se solucione."
 MSG_INFO_DB_KEY_RECOVER_HINT="Ejecuta esto para recuperarla y entregarla: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Cifrando las bases de datos que queden de una instalación anterior"

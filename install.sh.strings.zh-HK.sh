@@ -439,8 +439,8 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="無法將你對背景豐富化的選
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="內部記錄金鑰已設定。Hub 服務從你的登入鑰匙圈讀取金鑰，因此無需提示即可啟動。"
+MSG_OK_DB_KEY_DELIVERED="資料庫密鑰已交付予 Hub 服務。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="無法將資料庫密鑰交予 Hub 服務。在問題解決前，它們會以未加密方式開啟資料庫。"
 MSG_INFO_DB_KEY_RECOVER_HINT="執行此指令以復原並交付密鑰：%s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="正在加密先前安裝遺留的資料庫"

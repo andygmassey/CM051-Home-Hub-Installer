@@ -440,8 +440,8 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="تعذر حفظ اختيارك ال�
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="تم إعداد مفتاح السجلات الداخلية. تقرأ خدمات Hub المفتاح من سلسلة مفاتيح تسجيل الدخول، لذلك تبدأ دون أن تُطالَب بأي إدخال."
+MSG_OK_DB_KEY_DELIVERED="تم تسليم مفتاح قاعدة البيانات إلى خدمات Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="تعذر تسليم مفتاح قاعدة البيانات إلى خدمات Hub. ستفتح قواعد البيانات دون تشفير إلى أن تتم المعالجة."
 MSG_INFO_DB_KEY_RECOVER_HINT="شغّل هذا الأمر لاستعادته وتسليمه: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="جارٍ تشفير أي قواعد بيانات متبقية من تثبيت سابق"
