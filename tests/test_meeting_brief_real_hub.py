@@ -392,6 +392,28 @@ def main():
                           "filtered uid=fixture-uid-allday reason=all_day_no_attendees" in log, log[-300:])
                 finally:
                     Calendar.extra = []
+
+                print("-- 7 declined: a solo timed event the owner declined gets no nudge --")
+                Calendar.extra = [
+                    {"uid": "fixture-uid-declined", "summary": "Coffee", "start": base["start"],
+                     "start_formatted": base["start_formatted"], "location": "",
+                     "attendees": [{"name": "Sam Jones", "email": "sam@fixture.example",
+                                    "role": "attendee", "status": "DECLINED"}]},
+                    {"uid": "fixture-uid-busy-solo", "summary": "Dentist", "start": base["start"],
+                     "start_formatted": base["start_formatted"], "location": "", "attendees": []},
+                ]
+                try:
+                    rc, sent, log = run_sender(script, hub, ann_port, composer, work)
+                    by_uid7 = {s["meeting_uid"]: s["message"] for s in sent}
+                    check("CONTROL: a busy solo timed event is still nudged in the same run",
+                          by_uid7.get("fixture-uid-busy-solo") == f"You have Dentist at {base['start_formatted']}.",
+                          str(by_uid7))
+                    check("DECLINED: a solo timed event the owner declined is not nudged",
+                          "fixture-uid-declined" not in by_uid7, str(sorted(by_uid7)))
+                    check("DECLINED: the sender logs that skip by uid and reason",
+                          "filtered uid=fixture-uid-declined reason=declined" in log, log[-300:])
+                finally:
+                    Calendar.extra = []
         except RealHubUnavailable as exc:
             print("CANNOT-RUN:", exc)
             return 2
