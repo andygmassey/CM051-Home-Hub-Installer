@@ -316,3 +316,24 @@ any backlog persisted. Failed Qdrant calls (ensure, upsert) still return earlier
 prune nothing. Proof: `tests/test_people_index_embeds_only_what_changed.py` (two
 prune arms) and the reversed arm in
 `tests/test_people_sweep_partial_landing_is_not_success.py`. Owed upstream: as above.
+
+## 2026-11-11: a dropped WhatsApp chat export is parsed and persisted (CM051 #3423, owner direction 2026-11-08)
+
+`vendor/ostler_fda/whatsapp_export.py` is a NEW file (the per-chat WhatsApp
+parser, iOS and Android line shapes, L2 payload, CM048 conversation shape).
+`vendor/ostler_fda/universal_import.py` gains `_dispatch_whatsapp_export`, which
+persists through the same `_stage_then_persist` sink the Messenger leg uses, and a
+`"whatsapp_export"` entry in `_DISPATCH`. The `recognised_no_parser` comment that
+stood where that entry now is goes with it.
+
+Why: owner direction 2026-11-08 (Andy) reversed the 2026-10-25 skip. Before this
+graft a dropped chat export was answered skip and never parsed. The regeneration
+was not attempted, for the reason recorded in the sections above (the source has
+advanced past the pin, so `regenerate_divergence_patch.sh` refuses), so this hand
+edit is recorded here.
+
+Proof: `tests/test_whatsapp_export_autoprocess.py` (six arms, RED on origin/main,
+GREEN on this graft), and `tests/test_no_whatsapp_chat_export_instruction.sh`
+section 3, which gates the watcher's import answer on the WhatsApp consent record.
+
+Owed upstream: no. The file has no HR015 counterpart at this pin.
