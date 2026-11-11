@@ -149,7 +149,7 @@ DROP="${FH}/Documents/Ostler/imports/chatgpt"
 # --- 4. scanner run: copied, not moved, one folder ----------------------------
 HOME="$FH" PATH="${WORK}/stubs:${PATH}" bash "${FH}/.ostler/bin/ostler-scan-exports" >/dev/null 2>&1
 DROPPED=$(find "$DROP" -mindepth 1 -maxdepth 1 -type d -name 'chatgpt-*' 2>/dev/null | wc -l | tr -d ' ')
-if [ "$DROPPED" = "1" ] && [ -f "$(find "$DROP" -mindepth 2 -maxdepth 2 -name conversations.json 2>/dev/null | head -1)" ]; then
+if [ "$DROPPED" = "1" ] && [ -f "$(find "$DROP" -mindepth 2 -maxdepth 2 -name conversations.json 2>/dev/null | sed -n 1p)" ]; then
     ok "the synthetic export landed in the CM052 drop folder (1 folder)"
 else
     bad "expected 1 chatgpt-* folder with conversations.json in ${DROP}, found ${DROPPED}"
@@ -207,11 +207,11 @@ convs = list(chatgpt_export.read(Path(sys.argv[2])))
 print("CONVERSATIONS " + str(len(convs)))
 ' "$CM052_SRC" "$DROP" 2>&1)"
 ADAPTER_RC=$?
-if [ "$ADAPTER_RC" -eq 3 ] || printf '%s' "$ADAPTER_OUT" | grep -q '^IMPORT_FAILED'; then
+if [ "$ADAPTER_RC" -eq 3 ] || [ "$(printf '%s' "$ADAPTER_OUT" | grep -c '^IMPORT_FAILED')" -gt 0 ]; then
     cannot "CM052 adapter would not import: ${ADAPTER_OUT}"
 elif [ "$ADAPTER_RC" -ne 0 ]; then
     bad "CM052 adapter raised (rc=${ADAPTER_RC}): $(printf '%s' "$ADAPTER_OUT" | tail -1 | cut -c1-200)"
-elif printf '%s' "$ADAPTER_OUT" | grep -qx 'CONVERSATIONS 2'; then
+elif [ "$(printf '%s' "$ADAPTER_OUT" | grep -cx 'CONVERSATIONS 2')" -gt 0 ]; then
     ok "CM052's chatgpt adapter reads the drop folder and yields 2 conversations"
 else
     bad "CM052's chatgpt adapter yielded: $(printf '%s' "$ADAPTER_OUT" | tail -1 | cut -c1-200)"

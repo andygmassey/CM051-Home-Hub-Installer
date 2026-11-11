@@ -46,7 +46,10 @@ while IFS= read -r -d '' z; do
     fi
     # ChatGPT shape only: a "mapping" key and no Claude.ai "chat_messages" key.
     # Escaped quotes inside message text cannot match these key patterns.
-    if ! grep -q '"mapping":' "${stage}/conversations.json" || grep -q '"chat_messages":' "${stage}/conversations.json"; then
+    is_chatgpt=0
+    grep -q '"mapping":' "${stage}/conversations.json" && is_chatgpt=1
+    grep -q '"chat_messages":' "${stage}/conversations.json" && is_chatgpt=0
+    if (( is_chatgpt == 0 )); then
         rm -rf "$stage"; not_chatgpt=$((not_chatgpt + 1)); continue
     fi
     h="$(shasum -a 256 "${stage}/conversations.json" 2>/dev/null | cut -c1-16)"
