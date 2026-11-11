@@ -27824,7 +27824,7 @@ if not isinstance(payload, dict) or "meetings" not in payload:
     _log("skip: CANNOT-RUN hub reply has no 'meetings' key; not treating it as an empty calendar")
     sys.exit(0)
 
-meetings = payload.get("meetings") or []
+meetings = payload.get("meetings") or []; considered = payload.get("considered", "?"); _log(f"hub considered={considered} meetings={len(meetings)}"); [_log(f"filtered uid={f.get('uid', '')} reason={f.get('reason', '?')}") for f in (payload.get("filtered") or [])]
 if not meetings:
     _log("no meetings in window")
     sys.exit(0)
@@ -27897,7 +27897,7 @@ try:
         if any(b in title.lower() for b in BANNED):
             title = "Upcoming meeting"
         when = m.get("start") or ""
-        header = f"Meeting: {title}" + (f" at {when}" if when else "") + "."
+        header = (f"Meeting: {title}" if m.get("attendees") else f"You have {title}") + (f" at {when}" if when else "") + "."
         parts = [header]
         failed = False
         for a in (m.get("attendees") or [])[:3]:
@@ -27906,7 +27906,7 @@ try:
                 failed = True
                 break
             parts.append(text)
-        if failed or len(parts) == 1:
+        if failed or (len(parts) == 1 and m.get("attendees")):
             _log(f"skip: no composed brief for {key}; will retry next tick")
             undelivered.append(key)
             continue

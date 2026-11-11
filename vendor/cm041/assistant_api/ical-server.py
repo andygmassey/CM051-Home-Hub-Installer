@@ -9680,10 +9680,12 @@ def api_meeting_upcoming(within_minutes=120):
     # build_calendar_response, so it is read in-process.
     _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
                  else _calendar_events_in_process)
+    report = {}
     try:
         all_briefs = _brief.pre_meeting_brief(
             days=days_lookahead,
             events_provider=_provider,
+            report=report,
         )
     except Exception as exc:
         return {
@@ -9718,6 +9720,9 @@ def api_meeting_upcoming(within_minutes=120):
             return None
 
     upcoming = []
+    # Every event the calendar returned that is NOT in ``meetings`` is listed
+    # here with a reason, so the sender can log why (uid and reason only).
+    filtered = list(report.get("filtered", []))
     for b in all_briefs:
         dt = _parse_start(b)
         if dt is None:
@@ -9728,11 +9733,15 @@ def api_meeting_upcoming(within_minutes=120):
             continue
         if now <= dt <= window_end:
             upcoming.append(b)
+        else:
+            filtered.append({"uid": b.get("uid", ""), "reason": "outside_window"})
 
     return {
         "meetings": upcoming,
         "within_minutes": within_minutes,
         "count": len(upcoming),
+        "considered": report.get("considered", len(all_briefs)),
+        "filtered": filtered,
     }
 
 
