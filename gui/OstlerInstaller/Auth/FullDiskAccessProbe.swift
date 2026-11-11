@@ -168,6 +168,28 @@ enum FDAHandoff {
         return appBundleURL(bundle).deletingPathExtension().lastPathComponent
     }
 
+    /// Ostler itself (OstlerAssistant.app): the program that reads Messages,
+    /// Mail and the rest at runtime. It travels inside this installer; nil when
+    /// the installer was built without it. macOS grants Full Disk Access to the
+    /// app's code identity, so the copy install.sh later stages under ~/.ostler
+    /// is the same program to macOS as this one.
+    static func assistantBundleURL(_ bundle: Bundle = .main) -> URL? {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["OSTLER_DEBUG_FDA_ASSISTANT_APP"], !path.isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        #endif
+        let url = bundle.bundleURL.appendingPathComponent("Contents/Resources/ostler-payload/assistant-agent/OstlerAssistant.app")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Customer-facing name of the app at `url` ("Ostler"), read from its own
+    /// Info.plist, falling back to the file name.
+    static func displayName(ofAppAt url: URL) -> String {
+        if let b = Bundle(url: url) { return displayName(b) }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
     /// The app's icon as a bitmap with `pixels` x `pixels` real pixels, shown
     /// at `points` x `points`. `NSWorkspace.icon(forFile:)` returns a
     /// multi-representation image whose 32pt-ish default size is then scaled

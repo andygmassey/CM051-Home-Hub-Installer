@@ -463,7 +463,7 @@ final class InstallerCoordinator: ObservableObject {
         #if DEBUG
         // Screenshot hook: land on the Full Disk Access screen with no probe,
         // relocation or Settings window. Compiled out of Release.
-        if ProcessInfo.processInfo.environment["OSTLER_DEBUG_FDA_GATE"] == "1" {
+        if ProcessInfo.processInfo.environment["OSTLER_DEBUG_FDA_GATE"] == "1", FDAFlow.usesDragScreen() {
             needsFullDiskAccessUpfront = true
             return
         }

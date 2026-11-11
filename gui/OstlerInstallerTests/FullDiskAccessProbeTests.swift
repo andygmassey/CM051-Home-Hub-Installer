@@ -207,7 +207,7 @@ final class FDAHandoffTests: XCTestCase {
 
     /// The manual continue stays hidden for the first 20 seconds.
     func testManualContinueDelayIsTwentySeconds() {
-        XCTAssertEqual(FullDiskAccessGateView.manualContinueDelay, 20)
+        XCTAssertEqual(FullDiskAccessDragGateView.manualContinueDelay, 20)
     }
 
     func testDisplayNameIsTheAppNameWithoutExtension() {

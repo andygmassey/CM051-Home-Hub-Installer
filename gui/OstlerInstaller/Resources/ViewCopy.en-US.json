@@ -141,22 +141,12 @@
   "fda_sheet": {
     "heading": "Full Disk Access required",
     "reason_default": "Ostler reads Safari, iMessage, Notes, Mail, Calendar, Photos and Reminders from local macOS databases.",
-    "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and check Ostler Installer. Then come back here and tap Continue.",
+    "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and check OstlerInstaller. Then come back here and tap Continue.",
     "open_settings_button": "Open System Settings",
     "continue_button": "I've granted it, continue"
   },
   "fda_gate": {
-    "heading": "Let Ostler read your messages and mail",
-    "reveal_button": "Show in Finder",
-    "instruction": "Drag {app} into the list, then switch it on.",
-    "cant_drag": "Can't drag it?",
-    "manual_steps": "Click + below the list and choose {app}.",
-    "already_on_link": "Already switched it on?",
-    "waiting": "Waiting for access...",
-    "granted": "Access granted",
-    "anim_drag": "Drag the app into the list",
-    "anim_switch_on": "Switch it on",
-    "anim_done": "Ostler carries on by itself",
+    "heading": "Welcome to Ostler",
     "welcome": "Thank you for buying Ostler. Setup takes around half an hour, a little longer on a first run while Ostler downloads its AI models, and it keeps filling in your world for a while after that. You can leave it running.",
     "reads_lead": "To work quietly for you, Ostler needs your permission to read a few things on this Mac:",
     "data_messages": "Messages",
@@ -169,12 +159,26 @@
     "permissions_note": "Over the next few minutes macOS will ask you to approve these, plus a few system permissions Ostler needs to run. Just allow each one as it appears.",
     "upnext_label": "First up: Full Disk Access",
     "step_1": "Tap Open System Settings below.",
-    "step_2": "Switch on Ostler Installer in the list.",
+    "step_2": "Switch on OstlerInstaller in the list.",
     "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
     "open_settings_button": "Open System Settings",
+    "recheck_button": "I've switched it on, continue",
     "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
     "continue_anyway_button": "Continue anyway",
     "quit_reopen_button": "Quit and reopen"
+  },
+  "fda_drag": {
+    "heading": "Let Ostler read your messages and mail",
+    "reveal_button": "Show in Finder",
+    "instruction": "Drag {app} into the list, then switch it on.",
+    "cant_drag": "Can't drag it?",
+    "manual_steps": "Click + below the list and choose {app}.",
+    "already_on_link": "Already switched it on?",
+    "waiting": "Waiting for access...",
+    "granted": "Access granted",
+    "anim_drag": "Drag the app into the list",
+    "anim_switch_on": "Switch it on",
+    "anim_done": "Ostler carries on by itself"
   },
   "log_drawer": {
     "header_label": "LOG"

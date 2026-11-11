@@ -27,7 +27,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RES="${REPO_ROOT}/gui/OstlerInstaller/Resources"
-VIEW="${REPO_ROOT}/gui/OstlerInstaller/Views/FullDiskAccessGateView.swift"
+VIEW="${REPO_ROOT}/gui/OstlerInstaller/Views/FullDiskAccessDragGateView.swift"
+OLDVIEW="${REPO_ROOT}/gui/OstlerInstaller/Views/FullDiskAccessGateView.swift"
+FLOW="${REPO_ROOT}/gui/OstlerInstaller/Auth/FDAFlow.swift"
+ASSIST="${REPO_ROOT}/gui/OstlerInstaller/Auth/FDAAssistantProbe.swift"
+CONTENT="${REPO_ROOT}/gui/OstlerInstaller/Views/ContentView.swift"
 PROBE="${REPO_ROOT}/gui/OstlerInstaller/Auth/FullDiskAccessProbe.swift"
 AUTH="${REPO_ROOT}/gui/OstlerInstaller/Auth/AuthorizationHelper.swift"
 
@@ -43,15 +47,15 @@ NEW_KEYS="heading reveal_button instruction cant_drag manual_steps already_on_li
 CAT_OUT="$(python3 -I - "$RES" $NEW_KEYS <<'PY'
 import glob, json, os, sys
 res, keys = sys.argv[1], sys.argv[2:]
-en = json.load(open(os.path.join(res, "ViewCopy.json"), encoding="utf-8"))["fda_gate"]
+en = json.load(open(os.path.join(res, "ViewCopy.json"), encoding="utf-8"))["fda_drag"]
 problems = []
 files = sorted(glob.glob(os.path.join(res, "ViewCopy*.json")))
 for path in files:
     name = os.path.basename(path)
     tree = json.load(open(path, encoding="utf-8"))
-    gate = tree.get("fda_gate", {})
+    gate = tree.get("fda_drag", {})
     for k in keys:
-        dotted = "fda_gate." + k
+        dotted = "fda_drag." + k
         if k not in gate:
             problems.append(f"{name}: missing {dotted}")
             continue
@@ -105,10 +109,10 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Poll every 2 seconds and advance on grant
 # ---------------------------------------------------------------------------
-if grep -q 'FDAGrantWatch' "$PROBE" && grep -q 'FDAGrantWatch' "$VIEW"; then
+if grep -q 'FDATwoGrantWatch' "$ASSIST" && grep -q 'FDATwoGrantWatch' "$VIEW"; then
     pass "grant watcher is defined in the probe and driven by the view"
 else
-    fail "no FDAGrantWatch wiring between FullDiskAccessProbe.swift and the gate view"
+    fail "no FDATwoGrantWatch wiring between FDAAssistantProbe.swift and the gate view"
 fi
 # Read only the body of watchForGrant: the illustration loop also sleeps, so a
 # file-wide grep for "2 seconds" would be satisfied by the wrong function.
@@ -120,7 +124,8 @@ end = src.index("private func revealManualContinue")
 print(src[start:end])
 PY2
 )"
-if grep -q 'FDAGrantWatch' <<< "$POLL_BODY" \
+if grep -q 'FDATwoGrantWatch' <<< "$POLL_BODY" \
+   && grep -q 'assistant:' <<< "$POLL_BODY" \
    && grep -q 'recheckFullDiskAccessAndProceed' <<< "$POLL_BODY" \
    && grep -qE 'nanoseconds: 2_000_000_000' <<< "$POLL_BODY"; then
     pass "watchForGrant polls every 2 seconds and advances on grant"
@@ -132,19 +137,21 @@ fi
 # 4b. Redesign contract (Andy, v1 "a bit primitive looking")
 # ---------------------------------------------------------------------------
 # The retired v1 strings must be gone from every catalogue and the view.
+# (recheck_button is NOT retired: the old gate, kept for macOS before 27.3,
+# still uses it.)
 RETIRED="$(python3 -I - "$RES" <<'PY3'
 import glob, json, os, sys
 bad = []
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "ViewCopy*.json"))):
     gate = json.load(open(path, encoding="utf-8")).get("fda_gate", {})
-    for k in ("drag_hint", "fallback_line", "recheck_button"):
+    for k in ("drag_hint", "fallback_line"):
         if k in gate:
             bad.append(os.path.basename(path) + ":" + k)
 print("\n".join(bad))
 PY3
 )"
 if [ -z "$RETIRED" ]; then
-    pass "retired v1 strings (drag_hint, fallback_line, recheck_button) are out of every catalogue"
+    pass "retired v1 strings (drag_hint, fallback_line) are out of every catalogue"
 else
     fail "retired v1 strings still present: $RETIRED"
 fi
@@ -166,7 +173,7 @@ if [ "$PRIMARY_N" = "1" ]; then
 else
     fail "gate has $PRIMARY_N primary buttons, expected 1"
 fi
-if grep -q 'manualContinueDelay: Double = 20' "$VIEW" && grep -q 'fda_gate\.already_on_link' "$VIEW" \
+if grep -q 'manualContinueDelay: Double = 20' "$VIEW" && grep -q 'fda_drag\.already_on_link' "$VIEW" \
    && grep -q 'showAlreadyOn' "$VIEW"; then
     pass "manual continue is the 'Already switched it on?' link, behind a 20 second delay"
 else
@@ -213,6 +220,71 @@ else
     fail "no Reveal in Finder action in the gate view"
 fi
 
+# ---------------------------------------------------------------------------
+# 6. Which screen: 27.3+ only; earlier macOS keeps the existing gate
+# ---------------------------------------------------------------------------
+if grep -q 'FDAFlow\.usesDragScreen()' "$CONTENT" && grep -q 'FullDiskAccessGateView()' "$CONTENT" \
+   && grep -q 'FullDiskAccessDragGateView()' "$CONTENT"; then
+    pass "ContentView picks the drag screen or the existing gate through FDAFlow"
+else
+    fail "ContentView does not choose between the two gates through FDAFlow.usesDragScreen()"
+fi
+THRESH_N="$(grep -rn 'OperatingSystemVersion(majorVersion: 27' "${REPO_ROOT}/gui/OstlerInstaller" | grep -v '^.*://' | wc -l | tr -d ' ')"
+if [ "$THRESH_N" = "1" ] && grep -q 'dragScreenMinimum = OperatingSystemVersion(majorVersion: 27, minorVersion: 3' "$FLOW"; then
+    pass "the 27.3 threshold is written in exactly one place (FDAFlow.dragScreenMinimum)"
+else
+    fail "the 27.3 threshold is not a single constant (found $THRESH_N)"
+fi
+if python3 -I - "$FLOW" <<'PY5'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+i = src.index('environment["OSTLER_DEBUG_MACOS_VERSION"]')
+before = src[:i]
+assert before.rstrip().endswith("#if DEBUG") or "#if DEBUG" in before[-80:], "override not under #if DEBUG"
+assert src.index("#endif", i) < src.index("return real", i)
+PY5
+then
+    pass "the macOS-version override is DEBUG-only"
+else
+    fail "the macOS-version override is not confined to DEBUG"
+fi
+# The existing gate must not know about the new screen.
+if grep -qE 'FDAFlow|FDAHandoff|FDAHeroTimeline|FDAMiniSettings|FDADebug|FDATwoGrantWatch|fda_drag' "$OLDVIEW"; then
+    fail "the existing gate references the new drag screen; it must stay as it was"
+else
+    pass "the existing gate (macOS before 27.3) references nothing from the drag screen"
+fi
+if grep -q 'fda_gate\.recheck_button' "$OLDVIEW"; then
+    pass "the existing gate still uses its own recheck button string"
+else
+    fail "the existing gate lost its recheck button string"
+fi
+RECHECK_MISSING="$(python3 -I - "$RES" <<'PY6'
+import glob, json, os, sys
+print(" ".join(os.path.basename(p) for p in sorted(glob.glob(os.path.join(sys.argv[1], "ViewCopy*.json")))
+      if "recheck_button" not in json.load(open(p, encoding="utf-8")).get("fda_gate", {})))
+PY6
+)"
+if [ -z "$RECHECK_MISSING" ]; then
+    pass "fda_gate.recheck_button is in every catalogue (the existing gate needs it)"
+else
+    fail "fda_gate.recheck_button missing from: $RECHECK_MISSING"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Two grants: Ostler (probed AS Ostler) and Ostler Installer
+# ---------------------------------------------------------------------------
+if grep -q 'assistantTile' "$VIEW" && grep -q 'installerTile' "$VIEW" \
+   && grep -q 'FDAHandoff\.assistantBundleURL' "$VIEW" && grep -q 'ostler-payload/assistant-agent/OstlerAssistant\.app' "$PROBE"; then
+    pass "the screen has an Ostler tile (the bundled OstlerAssistant.app) and an Ostler Installer tile"
+else
+    fail "the screen does not carry both the Ostler and the Ostler Installer tiles"
+fi
+if grep -q '"/usr/bin/open"' "$ASSIST" && grep -q '"--stdout"' "$ASSIST" && grep -q 'run-source", "imessage", "--self-test"' "$ASSIST"; then
+    pass "Ostler is probed through LaunchServices (open --stdout) running its own self-test"
+else
+    fail "Ostler's grant is not probed as Ostler through LaunchServices"
+fi
 echo
 if [ "$FAILS" -gt 0 ]; then
     echo "RESULT: ${FAILS} failing group(s)"
