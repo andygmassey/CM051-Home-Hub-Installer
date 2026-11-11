@@ -88,7 +88,8 @@ git rev-parse --git-dir >/dev/null 2>&1 || cannot "not a git checkout; the gate 
 PAT='(Documents|Dokumente|Documentos|Documenti|Documenten)/Ostler|"Documents" *(/|,) *"Ostler"|「(文稿|文件|書類)」(内の|/)Ostler|Documents\\/Ostler'
 hits="$(git grep -n -E "$PAT" -- . \
     ':!cuts' ':!cut-manifests' ':!vendor/divergences/*.patch' ':!tests/test_user_root_is_home_ostler_not_documents.sh' \
-    | $GREP -v -E '^install\.sh:[0-9]+:.*(local old=|# Older installs wrote the root under|ensure legacy)' )"
+    ':!tests/test_uninstall_legacy_documents_root.sh' ':!vendor/divergences/*.UNRECORDED.md' \
+    | $GREP -v -E '^install\.sh:[0-9]+:.*(local old=|# Older installs wrote the root under|ensure legacy|# ── Legacy root: |LEGACY_ROOT="\$\{HOME\}/Documents/Ostler")' )"
 rc=$?
 if [ -z "$hits" ]; then ok "no tracked file outside the allowlist names Documents/Ostler"
 else bad "files still name the old root:"; echo "$hits" | cut -c1-200 >&2; fi
