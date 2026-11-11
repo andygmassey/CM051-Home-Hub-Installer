@@ -265,6 +265,12 @@ targets:
           # falls back to a silent no-op and both channels ship permanently
           # blank, which looks identical to a feature nobody built.
           cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
+          # settling_channels.json: the fixed channel set the Setting-up bar
+          # divides by. install.sh copies ${SCRIPT_DIR}/lib/settling_channels.json
+          # to ~/.ostler/state/; CM044 reads it from there. Missing = the bar
+          # falls back to whichever shards exist, so it can read 100 early.
+          cp "${SRCROOT}/../lib/settling_channels.json"          "${DEST}/lib/settling_channels.json"
+          chmod 644 "${DEST}/lib/settling_channels.json"
           # ostler-container-engine.sh + ostler-engine-supervisor.sh: the
           # periodic container-engine liveness check and its recovery path.
           # install.sh stages both into ~/.ostler and schedules
@@ -419,6 +425,7 @@ targets:
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
+          - $(SRCROOT)/../lib/settling_channels.json
           - $(SRCROOT)/../lib/ostler-container-engine.sh
           - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
           - $(SRCROOT)/../lib/ostler-loopback-guard.sh
@@ -450,6 +457,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_channels.json
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-loopback-guard.sh

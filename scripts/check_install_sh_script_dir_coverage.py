@@ -217,6 +217,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
+    # settling_channels.json: the fixed Setting-up channel set (CM051 #3426).
+    # install.sh copies it to ~/.ostler/state/; gui/project.yml cp's it into
+    # Resources/lib/. The needle asserts the bundling reference.
+    "lib/settling_channels.json": ['${SRCROOT}/../lib/settling_channels.json'],
     # #399: the end-of-install confirmation helpers. install.sh's
     # confirmation block probes ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py
     # and ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips the
