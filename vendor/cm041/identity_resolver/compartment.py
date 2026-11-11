@@ -13,7 +13,7 @@ EXACTLY today's storage layout. Nothing about single-user behaviour changes:
     SPARQL read endpoint          ``{base}/query``           ``{base}/query?default-graph-uri=...``
     SPARQL INSERT DATA payload    unchanged                  wrapped in ``GRAPH <iri> { ... }``
     Qdrant collection             base name unchanged        ``user__priya__<base>``
-    Visible zone                  ``~/Ostler``     ``~/Ostler/Users/priya``
+    Visible zone                  ``~/Ostler``     ``~/Ostler/Users/<name>``
     Engine zone                   ``~/.ostler``              ``~/.ostler/users/priya``
     ============================  =========================  ==========================
 
