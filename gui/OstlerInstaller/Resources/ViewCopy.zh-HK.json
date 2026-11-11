@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "需要「全磁碟取用權限」",
     "reason_default": "Ostler 會從 macOS 本機資料庫讀取 Safari、iMessage、備忘錄、郵件、日曆、照片和提醒事項。",
-    "instructions": "打開「系統設定」，在「私隱與安全性」部分找到「全磁碟取用權限」，並剔選 OstlerInstaller。然後返回這裏，按一下「繼續」。",
+    "instructions": "打開「系統設定」，在「私隱與安全性」部分找到「全磁碟取用權限」，並剔選 Ostler Installer。然後返回這裏，按一下「繼續」。",
     "open_settings_button": "打開「系統設定」",
     "continue_button": "我已授權，繼續"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "在接下來的幾分鐘，macOS 會要求你批准這些權限，以及 Ostler 運作所需的一些系統權限。每次出現時，只需選擇允許。",
     "upnext_label": "首先：全磁碟取用權限",
     "step_1": "按一下下方的「打開系統設定」。",
-    "step_2": "在列表中開啟 OstlerInstaller。",
+    "step_2": "在列表中開啟 Ostler Installer。",
     "step_3": "macOS 會要求你結束。結束後重新打開，設定便會自動繼續。",
     "open_settings_button": "打開「系統設定」",
     "unconfirmed_note": "Ostler 無法確認「完整磁碟取用權」。你可以繼續；開啟取用權後，「訊息」、「郵件」和 Safari 瀏覽記錄便會匯入。",

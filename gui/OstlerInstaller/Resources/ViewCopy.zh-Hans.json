@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "需要“完全磁盘访问权限”",
     "reason_default": "Ostler 会从本地 macOS 数据库读取 Safari、iMessage、备忘录、邮件、日历、照片和提醒事项。",
-    "instructions": "打开“系统设置”，在“隐私与安全性”部分找到“完全磁盘访问权限”，然后勾选 OstlerInstaller。之后回到这里，点按“继续”。",
+    "instructions": "打开“系统设置”，在“隐私与安全性”部分找到“完全磁盘访问权限”，然后勾选 Ostler Installer。之后回到这里，点按“继续”。",
     "open_settings_button": "打开“系统设置”",
     "continue_button": "我已授权，继续"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "在接下来的几分钟里，macOS 会请你批准这些权限，以及 Ostler 运行所需的几项系统权限。出现时逐一允许即可。",
     "upnext_label": "首先：完全磁盘访问权限",
     "step_1": "点按下方的“打开系统设置”。",
-    "step_2": "在列表中打开 OstlerInstaller 的开关。",
+    "step_2": "在列表中打开 Ostler Installer 的开关。",
     "step_3": "macOS 会请你退出。退出并重新打开后，设置会自动继续。",
     "open_settings_button": "打开“系统设置”",
     "unconfirmed_note": "Ostler 无法确认“完全磁盘访问权限”。你可以继续；开启该权限后，将导入“信息”、“邮件”和 Safari 浏览记录。",

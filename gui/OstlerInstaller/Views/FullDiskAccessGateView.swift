@@ -36,7 +36,7 @@ struct FullDiskAccessGateView: View {
 
     private let appURL = FDAHandoff.appBundleURL()
     private let appName = FDAHandoff.displayName()
-    private let appIcon = NSWorkspace.shared.icon(forFile: FDAHandoff.appBundleURL().path)
+    private let appIcon = FDAHandoff.icon(forFile: FDAHandoff.appBundleURL().path, points: 64, pixels: 256)
 
     /// Seconds before the manual continue link appears.
     static let manualContinueDelay: Double = 20
@@ -69,7 +69,7 @@ struct FullDiskAccessGateView: View {
             FDAWindowPlacement.dockInstallerLeft()
         }
         .task {
-            if FDADebug.snapshotDir != nil {
+            if FDADebug.snapshotDir != nil && !FDADebug.rendering {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 FDADebug.writeSnapshots(coordinator: coordinator)
                 NSApp.terminate(nil)
@@ -154,6 +154,7 @@ struct FullDiskAccessGateView: View {
         HStack(spacing: CGFloat.ostlerSpace2) {
             Image(nsImage: appIcon)
                 .resizable()
+                .interpolation(.high)
                 .frame(width: 44, height: 44)
             Text(appName)
                 .font(.ostlerH3)
@@ -221,11 +222,18 @@ struct FullDiskAccessGateView: View {
         VStack(spacing: CGFloat.ostlerSpace2) {
             statusRow
             if coordinator.showFDAContinueAnyway { unconfirmedControls }
+            // Once access is granted the button is gone: it keeps its slot (so
+            // nothing jumps) but is invisible, inert and out of the
+            // accessibility tree, and loses the Return-key default.
             Button(ViewCopy.shared.string(for: "fda_gate.open_settings_button")) {
                 AuthorizationHelper.shared.openFullDiskAccessPane()
             }
             .buttonStyle(.ostlerPrimary)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(granted ? nil : .defaultAction)
+            .opacity(granted ? 0 : 1)
+            .disabled(granted)
+            .allowsHitTesting(!granted)
+            .accessibilityHidden(granted)
 
             // Reserves its line so the layout does not jump when it appears.
             Button(ViewCopy.shared.string(for: "fda_gate.already_on_link")) {
@@ -431,6 +439,7 @@ struct FDAMiniSettings: View {
             // Travelling copy of the app icon.
             Image(nsImage: appIcon)
                 .resizable()
+                .interpolation(.high)
                 .frame(width: 40, height: 40)
                 .scaleEffect(frame.tileScale)
                 .shadow(color: .black.opacity(0.25 * frame.tileOpacity), radius: 6, x: 0, y: 3)
@@ -536,6 +545,7 @@ struct FDAMiniSettings: View {
             HStack(spacing: 8) {
                 Image(nsImage: appIcon)
                     .resizable()
+                    .interpolation(.high)
                     .frame(width: 20, height: 20)
                 Text(appName)
                     .font(.system(size: 11.5))
@@ -610,6 +620,8 @@ struct FDAMiniSettings: View {
 enum FDADebug {
     #if DEBUG
     static var overrides: [String: String] = [:]
+    /// True while writeSnapshots is drawing, so the hosted copies do not recurse.
+    static var rendering = false
     private static func value(_ k: String) -> String? {
         overrides[k] ?? ProcessInfo.processInfo.environment[k]
     }
@@ -633,18 +645,38 @@ enum FDADebug {
             ("manual", ["OSTLER_DEBUG_FDA_T": "0.88", "OSTLER_DEBUG_FDA_MANUAL": "1", "OSTLER_DEBUG_FDA_LINK_AFTER": "0"]),
             ("reduce", ["OSTLER_DEBUG_FDA_REDUCE": "1"]),
         ]
+        rendering = true
+        defer { rendering = false }
         for (name, env) in states {
             overrides = env
-            let view = FullDiskAccessGateView()
+            // The real AppKit hierarchy, drawn with cacheDisplay. SwiftUI's
+            // ImageRenderer cannot draw AppKit-backed controls: the native
+            // ProgressView came out as a yellow "prohibited" placeholder glyph
+            // there, while the live window shows the spinner.
+            let host = NSHostingView(rootView: FullDiskAccessGateView()
                 .environmentObject(coordinator)
                 .frame(width: 880, height: 620)
-                .environment(\.colorScheme, .light)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            if let img = renderer.nsImage, let tiff = img.tiffRepresentation,
-               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("fda_v2_\(name).png"))
+                .environment(\.colorScheme, .light))
+            host.frame = NSRect(x: 0, y: 0, width: 880, height: 620)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.appearance = NSAppearance(named: .aqua)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            // Let the hosted tree settle (spinner, images) before drawing.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            host.layoutSubtreeIfNeeded()
+            // 2x bitmap (an offscreen window has no backing scale of its own).
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 1760, pixelsHigh: 1240, bitsPerSample: 8,
+                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { continue }
+            rep.size = host.bounds.size
+            host.cacheDisplay(in: host.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("fda_v3_\(name).png"))
             }
+            print("snapshot \(name): \(rep.pixelsWide)x\(rep.pixelsHigh)")
         }
         overrides = [:]
     }
@@ -656,6 +688,7 @@ enum FDADebug {
     static var frozenProgress: Double? { nil }
     static var linkDelay: Double? { nil }
     static var snapshotDir: String? { nil }
+    static var rendering: Bool { false }
     static func writeSnapshots(coordinator: InstallerCoordinator) {}
     #endif
 }

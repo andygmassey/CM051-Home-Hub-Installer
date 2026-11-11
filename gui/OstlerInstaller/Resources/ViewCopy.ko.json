@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "전체 디스크 접근 권한 필요",
     "reason_default": "Ostler는 macOS의 로컬 데이터베이스에서 Safari, iMessage, 메모, 메일, 캘린더, 사진, 미리 알림을 읽습니다.",
-    "instructions": "시스템 설정을 열고 개인정보 보호 및 보안 섹션에서 전체 디스크 접근 권한을 찾아 OstlerInstaller를 체크하세요. 그런 다음 이곳으로 돌아와 계속을 누르세요.",
+    "instructions": "시스템 설정을 열고 개인정보 보호 및 보안 섹션에서 전체 디스크 접근 권한을 찾아 Ostler Installer를 체크하세요. 그런 다음 이곳으로 돌아와 계속을 누르세요.",
     "open_settings_button": "시스템 설정 열기",
     "continue_button": "허용했습니다. 계속"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "앞으로 몇 분 동안 macOS가 이러한 권한과 Ostler 실행에 필요한 몇 가지 시스템 권한의 승인을 요청합니다. 요청이 나타날 때마다 허용해 주세요.",
     "upnext_label": "먼저 전체 디스크 접근 권한 설정",
     "step_1": "아래의 시스템 설정 열기를 누르세요.",
-    "step_2": "목록에서 OstlerInstaller를 켜세요.",
+    "step_2": "목록에서 Ostler Installer를 켜세요.",
     "step_3": "macOS가 종료를 요청합니다. 종료 후 다시 열면 설정이 자동으로 이어집니다.",
     "open_settings_button": "시스템 설정 열기",
     "unconfirmed_note": "Ostler가 전체 디스크 접근 권한을 확인하지 못했습니다. 계속할 수 있으며, 접근 권한을 켜면 메시지, 메일, Safari 방문 기록을 가져옵니다.",

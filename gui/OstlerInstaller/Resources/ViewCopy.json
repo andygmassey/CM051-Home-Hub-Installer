@@ -151,7 +151,7 @@
   "fda_sheet": {
     "heading": "Full Disk Access required",
     "reason_default": "Ostler reads Safari, iMessage, Notes, Mail, Calendar, Photos and Reminders from local macOS databases.",
-    "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and tick OstlerInstaller. Then come back here and tap Continue.",
+    "instructions": "Open System Settings, find Full Disk Access in the Privacy & Security section, and tick Ostler Installer. Then come back here and tap Continue.",
     "open_settings_button": "Open System Settings",
     "continue_button": "I've granted it, continue"
   },
@@ -180,7 +180,7 @@
     "permissions_note": "Over the next few minutes macOS will ask you to approve these, plus a few system permissions Ostler needs to run. Just allow each one as it appears.",
     "upnext_label": "First up: Full Disk Access",
     "step_1": "Tap Open System Settings below.",
-    "step_2": "Switch on OstlerInstaller in the list.",
+    "step_2": "Switch on Ostler Installer in the list.",
     "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
     "open_settings_button": "Open System Settings",
     "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",

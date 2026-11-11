@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "Acesso Total ao Disco necessário",
     "reason_default": "O Ostler lê Safari, iMessage, Notas, Mail, Calendário, Fotos e Lembretes a partir de bancos de dados locais do macOS.",
-    "instructions": "Abra os Ajustes do Sistema, encontre Acesso Total ao Disco na seção Privacidade e Segurança e marque OstlerInstaller. Depois volte aqui e clique em Continuar.",
+    "instructions": "Abra os Ajustes do Sistema, encontre Acesso Total ao Disco na seção Privacidade e Segurança e marque Ostler Installer. Depois volte aqui e clique em Continuar.",
     "open_settings_button": "Abrir Ajustes do Sistema",
     "continue_button": "Já concedi, continuar"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "Nos próximos minutos, o macOS pedirá que você aprove essas permissões, além de algumas permissões de sistema de que o Ostler precisa para funcionar. Basta permitir cada uma quando aparecer.",
     "upnext_label": "Primeiro: Acesso Total ao Disco",
     "step_1": "Clique em Abrir Ajustes do Sistema abaixo.",
-    "step_2": "Ative OstlerInstaller na lista.",
+    "step_2": "Ative Ostler Installer na lista.",
     "step_3": "O macOS pedirá que você saia. Saia e reabra, e a configuração continuará automaticamente.",
     "open_settings_button": "Abrir Ajustes do Sistema",
     "unconfirmed_note": "O Ostler não conseguiu confirmar o Acesso Total ao Disco. Você pode continuar; o histórico do Mensagens, do Mail e do Safari será importado quando o acesso for ativado.",

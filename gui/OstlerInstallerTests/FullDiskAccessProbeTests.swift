@@ -234,4 +234,14 @@ final class FDAHandoffTests: XCTestCase {
         XCTAssertFalse(watch.tick(report(.missing)),
                        "every probe absent says nothing about access; the poll must not advance on it")
     }
+
+    /// The tile and mock-row icon must carry real pixels (not a 32pt rep that
+    /// SwiftUI scales up): 256px at 64pt is 4x, so every use scales down.
+    func testHandoffIconCarriesRealPixels() throws {
+        let icon = FDAHandoff.icon(forFile: FDAHandoff.appBundleURL().path, points: 64, pixels: 256)
+        let rep = try XCTUnwrap(icon.representations.first as? NSBitmapImageRep)
+        XCTAssertEqual(rep.pixelsWide, 256)
+        XCTAssertEqual(rep.pixelsHigh, 256)
+        XCTAssertEqual(icon.size.width, 64)
+    }
 }

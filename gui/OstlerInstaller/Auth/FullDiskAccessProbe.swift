@@ -168,6 +168,33 @@ enum FDAHandoff {
         return appBundleURL(bundle).deletingPathExtension().lastPathComponent
     }
 
+    /// The app's icon as a bitmap with `pixels` x `pixels` real pixels, shown
+    /// at `points` x `points`. `NSWorkspace.icon(forFile:)` returns a
+    /// multi-representation image whose 32pt-ish default size is then scaled
+    /// up by SwiftUI, which is what made the tile soft on Retina. Drawing it
+    /// once into a bitmap at 4x the largest size it is shown at lets every
+    /// use scale DOWN, which stays sharp.
+    static func icon(forFile path: String, points: CGFloat, pixels: Int) -> NSImage {
+        let source = NSWorkspace.shared.icon(forFile: path)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return source }
+        rep.size = NSSize(width: points, height: points)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return source }
+        NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .high
+        source.draw(in: NSRect(x: 0, y: 0, width: points, height: points),
+                    from: .zero, operation: .sourceOver, fraction: 1,
+                    respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
+        let out = NSImage(size: NSSize(width: points, height: points))
+        out.addRepresentation(rep)
+        return out
+    }
+
     /// A drag source that carries the bundle's file URL, so dropping it on
     /// the Full Disk Access list adds this app and nothing else.
     static func dragProvider(for url: URL) -> NSItemProvider {

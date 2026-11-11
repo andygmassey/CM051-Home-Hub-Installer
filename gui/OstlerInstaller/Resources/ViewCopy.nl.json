@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "Volledige schijftoegang vereist",
     "reason_default": "Ostler leest Safari, iMessage, Notities, Mail, Agenda, Foto's en Herinneringen uit lokale macOS-databases.",
-    "instructions": "Open Systeeminstellingen, zoek Volledige schijftoegang in het onderdeel Privacy en beveiliging en vink OstlerInstaller aan. Kom daarna terug en klik op Ga door.",
+    "instructions": "Open Systeeminstellingen, zoek Volledige schijftoegang in het onderdeel Privacy en beveiliging en vink Ostler Installer aan. Kom daarna terug en klik op Ga door.",
     "open_settings_button": "Open Systeeminstellingen",
     "continue_button": "Ik heb toegang gegeven, ga door"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "In de komende minuten vraagt macOS je om deze goed te keuren, plus een paar systeemtoestemmingen die Ostler nodig heeft. Sta ze gewoon toe zodra ze verschijnen.",
     "upnext_label": "Eerst: Volledige schijftoegang",
     "step_1": "Klik hieronder op Open Systeeminstellingen.",
-    "step_2": "Zet OstlerInstaller in de lijst aan.",
+    "step_2": "Zet Ostler Installer in de lijst aan.",
     "step_3": "macOS vraagt je om af te sluiten. Sluit af en open opnieuw, dan gaat de configuratie automatisch verder.",
     "open_settings_button": "Open Systeeminstellingen",
     "unconfirmed_note": "Ostler kon Volledige schijftoegang niet bevestigen. Je kunt doorgaan; Berichten, Mail en Safari-geschiedenis worden geïmporteerd zodra de toegang is ingeschakeld.",

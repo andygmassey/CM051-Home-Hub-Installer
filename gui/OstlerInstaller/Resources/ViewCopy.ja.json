@@ -141,7 +141,7 @@
   "fda_sheet": {
     "heading": "フルディスクアクセスが必要です",
     "reason_default": "Ostlerは、macOSのローカルデータベースからSafari、iMessage、メモ、メール、カレンダー、写真、リマインダーを読み取ります。",
-    "instructions": "システム設定を開き、「プライバシーとセキュリティ」内の「フルディスクアクセス」でOstlerInstallerにチェックを入れてください。その後ここに戻り、「続ける」をクリックしてください。",
+    "instructions": "システム設定を開き、「プライバシーとセキュリティ」内の「フルディスクアクセス」でOstler Installerにチェックを入れてください。その後ここに戻り、「続ける」をクリックしてください。",
     "open_settings_button": "システム設定を開く",
     "continue_button": "許可しました、続ける"
   },
@@ -169,7 +169,7 @@
     "permissions_note": "これから数分の間に、macOSがこれらの許可と、Ostlerの実行に必要ないくつかのシステム権限の承認を求めます。表示されたら、その都度許可してください。",
     "upnext_label": "最初に:フルディスクアクセス",
     "step_1": "下の「システム設定を開く」をクリックします。",
-    "step_2": "リストでOstlerInstallerをオンにします。",
+    "step_2": "リストでOstler Installerをオンにします。",
     "step_3": "macOSから終了を求められます。終了して再度開くと、セットアップが自動的に続行されます。",
     "open_settings_button": "システム設定を開く",
     "unconfirmed_note": "Ostlerはフルディスクアクセスを確認できませんでした。続行できます。アクセスをオンにすると、メッセージ、メール、Safariの履歴が読み込まれます。",
