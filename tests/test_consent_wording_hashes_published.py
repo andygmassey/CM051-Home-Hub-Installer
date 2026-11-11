@@ -34,7 +34,8 @@ TICKBOX = "spoken_capture_recording_consent"
 
 
 def _run(args, env_home):
-    env = dict(os.environ, OSTLER_HOME=env_home, PYTHONDONTWRITEBYTECODE="1")
+    env = dict(os.environ, OSTLER_HOME=env_home, PYTHONDONTWRITEBYTECODE="1",
+               PYTHONPATH=str(VENDOR))
     return subprocess.run(
         [sys.executable, "-m", "ostler_security.consent_cli", *args],
         cwd=str(VENDOR), env=env, capture_output=True, text=True,
