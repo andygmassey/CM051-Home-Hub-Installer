@@ -254,6 +254,7 @@ test_consent_promises_no_cloud_routing.py	WIRED	.github/workflows/l10n-check.yml
 test_consent_records_survive_the_promote.sh	WIRED	.github/workflows/consent-registry.yml
 test_consent_state_is_defined_before_it_is_called.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_consent_tickbox_registry.sh	WIRED	.github/workflows/consent-registry.yml
+test_consent_wording_hashes_published.py	WIRED	.github/workflows/consent-registry.yml
 test_console_only_register_names_real_probes.py	WIRED	.github/workflows/walk-record-gate.yml
 test_contact_card_prefill.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_contact_cards_seed_runs_the_probe.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
