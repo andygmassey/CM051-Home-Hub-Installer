@@ -70,7 +70,7 @@ def check(cond: bool, msg: str) -> None:
 ONE_NODE = {
     "s": {"type": "uri", "value": "urn:synthetic:derived:node-1"},
     "dimension": {"type": "literal", "value": "media.film.genre"},
-    "subject": {"type": "literal", "value": "Synthetic Genre"},
+    "subject": {"type": "literal", "value": "synthetic-genre-beta"},
     "strength": {"type": "literal", "value": "0.8"},
     "confidence": {"type": "literal", "value": "0.9"},
     "category": {"type": "literal", "value": "films"},
@@ -136,7 +136,7 @@ def server(oxi_url: str, status: dict | None = None):
         "OSTLER_API_PORT": str(port), "OXIGRAPH_URL": oxi_url, "OSTLER_DIR": str(ostler),
         "QDRANT_URL": oxi_url, "EMBED_OLLAMA_URL": oxi_url,
         "OSTLER_SERVICE_TOKEN": TOKEN, "USER_ID": "fixtureowner",
-        "USER_NAME": "Synthetic Owner", "HOME": str(work), "PWG_HOME": str(work / "pwg"),
+        "USER_NAME": "synthetic-owner", "HOME": str(work), "PWG_HOME": str(work / "pwg"),
         "OSTLER_INTEREST_PROFILE": str(prof), "NO_PROXY": "*",
         "PYTHONDONTWRITEBYTECODE": "1", "WIKI_BASE_URL": "http://wiki.example",
         "PYTHONPATH": os.pathsep.join([str(SERVER.parent.parent), str(SERVER.parent.parent.parent)]),
