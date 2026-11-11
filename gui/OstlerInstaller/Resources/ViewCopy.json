@@ -157,7 +157,15 @@
   },
 
   "fda_gate": {
-    "heading": "Welcome to Ostler",
+    "heading": "Let Ostler read your messages and mail",
+    "reveal_button": "Show in Finder",
+    "drag_hint": "Drag this app into the list",
+    "fallback_line": "Or click + in that window and choose {app} from {path}",
+    "waiting": "Waiting for you to switch it on",
+    "granted": "Access granted. Carrying on.",
+    "anim_drag": "Drag the app into the list",
+    "anim_switch_on": "Switch it on",
+    "anim_done": "Ostler carries on by itself",
     "welcome": "Thank you for buying Ostler. Setup takes around half an hour, a little longer on a first run while Ostler downloads its AI models, and it keeps filling in your world for a while after that. You can leave it running.",
     "reads_lead": "To work quietly for you, Ostler needs your permission to read a few things on this Mac:",
     "data_messages": "Messages",

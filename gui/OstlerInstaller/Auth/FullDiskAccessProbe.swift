@@ -19,6 +19,7 @@
 // Logs carry paths and errno only, never file contents.
 
 import Foundation
+import AppKit
 
 enum FDAReadOutcome: Equatable {
     case readable
@@ -129,5 +130,42 @@ struct FDAGateState: Equatable {
         if launchDecision(report) == .proceed { return .proceed }
         failedRechecks += 1
         return .hold
+    }
+}
+
+/// Auto-advance on grant. The gate polls the probe every 2 seconds and
+/// feeds each report here. Returns true exactly once: on the first tick
+/// where a protected read succeeds. A denial or an inconclusive report
+/// (every probe file absent) never advances.
+struct FDAGrantWatch: Equatable {
+    private(set) var fired = false
+
+    mutating func tick(_ report: FDAProbeReport) -> Bool {
+        guard !fired, report.granted else { return false }
+        fired = true
+        return true
+    }
+}
+
+/// The app the customer must add to Full Disk Access. The probe reads
+/// from this process, so the bundle that owns this process's executable
+/// is the one macOS needs listed. The gate drags exactly this bundle.
+enum FDAHandoff {
+    static func appBundleURL(_ bundle: Bundle = .main) -> URL {
+        bundle.bundleURL
+    }
+
+    /// The name as Finder and System Settings show it, without ".app".
+    static func displayName(_ bundle: Bundle = .main) -> String {
+        if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty {
+            return name
+        }
+        return appBundleURL(bundle).deletingPathExtension().lastPathComponent
+    }
+
+    /// A drag source that carries the bundle's file URL, so dropping it on
+    /// the Full Disk Access list adds this app and nothing else.
+    static func dragProvider(for url: URL) -> NSItemProvider {
+        NSItemProvider(contentsOf: url) ?? NSItemProvider(object: url as NSURL)
     }
 }

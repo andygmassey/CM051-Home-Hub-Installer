@@ -146,7 +146,15 @@
     "continue_button": "Ich habe es erlaubt, fortfahren"
   },
   "fda_gate": {
-    "heading": "Willkommen bei Ostler",
+    "heading": "Lass Ostler deine Nachrichten und Mails lesen",
+    "reveal_button": "Im Finder zeigen",
+    "drag_hint": "Ziehe diese App in die Liste",
+    "fallback_line": "Oder klicke in diesem Fenster auf + und wähle {app} aus {path}",
+    "waiting": "Warten, bis du den Zugriff einschaltest",
+    "granted": "Zugriff erteilt. Es geht weiter.",
+    "anim_drag": "App in die Liste ziehen",
+    "anim_switch_on": "Einschalten",
+    "anim_done": "Ostler macht danach von selbst weiter",
     "welcome": "Danke, dass du Ostler gekauft hast. Die Einrichtung dauert etwa eine halbe Stunde, beim ersten Mal etwas länger, während Ostler seine KI-Modelle lädt. Danach füllt sich deine Welt noch eine Weile weiter. Du kannst es einfach laufen lassen.",
     "reads_lead": "Damit Ostler im Hintergrund für dich arbeiten kann, braucht es deine Erlaubnis, einige Dinge auf diesem Mac zu lesen:",
     "data_messages": "Nachrichten",

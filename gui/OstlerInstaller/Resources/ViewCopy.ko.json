@@ -146,7 +146,15 @@
     "continue_button": "허용했습니다. 계속"
   },
   "fda_gate": {
-    "heading": "Ostler에 오신 것을 환영합니다",
+    "heading": "Ostler가 메시지와 메일을 읽도록 허용하세요",
+    "reveal_button": "Finder에서 보기",
+    "drag_hint": "이 앱을 목록으로 끌어다 놓으세요",
+    "fallback_line": "또는 그 창에서 +를 누르고 {path}에서 {app}을(를) 선택하세요",
+    "waiting": "켜 주기를 기다리는 중",
+    "granted": "접근이 허용되었습니다. 계속합니다.",
+    "anim_drag": "앱을 목록으로 끌어다 놓기",
+    "anim_switch_on": "켜기",
+    "anim_done": "Ostler가 알아서 계속합니다",
     "welcome": "Ostler를 구매해 주셔서 감사합니다. 설정에는 약 30분이 걸리며, 처음 실행할 때는 Ostler가 AI 모델을 내려받느라 조금 더 걸립니다. 그 후에도 한동안 사용자의 세계를 계속 채워 나갑니다. 실행 상태로 두셔도 됩니다.",
     "reads_lead": "Ostler가 조용히 일하려면 이 Mac의 몇 가지 항목을 읽을 수 있는 권한이 필요합니다:",
     "data_messages": "메시지",

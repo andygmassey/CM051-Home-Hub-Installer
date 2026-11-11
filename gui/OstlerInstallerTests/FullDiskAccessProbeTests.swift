@@ -115,3 +115,57 @@ final class FullDiskAccessProbeTests: XCTestCase {
         XCTAssertEqual(InstallerCoordinator.relaunchCommand.last, "/Applications/OstlerInstaller.app")
     }
 }
+
+// MARK: - FDA handoff (macOS 27.3: the app cannot add itself to the list)
+
+final class FDAHandoffTests: XCTestCase {
+    private func report(_ outcome: FDAReadOutcome) -> FDAProbeReport {
+        FullDiskAccessProbe.run(home: "/fixture-home", access: FakeAccess(fallback: outcome))
+    }
+
+    /// The tile must drag the binary whose protected read is being probed,
+    /// not a look-alike bundle. The probe runs in this process, so the
+    /// bundle it names must own this process's executable.
+    func testDragURLIsTheBundleOwningTheProbingProcess() throws {
+        // Only meaningful when hosted in OstlerInstaller.app (project.yml
+        // TEST_HOST). Under a bare SwiftPM runner Bundle.main is not an app.
+        try XCTSkipUnless(Bundle.main.bundleURL.pathExtension == "app", "needs the app host")
+        let url = FDAHandoff.appBundleURL()
+        XCTAssertEqual(url.pathExtension, "app")
+        XCTAssertEqual(Bundle(url: url)?.executableURL?.standardizedFileURL,
+                       Bundle.main.executableURL?.standardizedFileURL,
+                       "the dragged bundle must be the one whose executable is probing")
+    }
+
+    func testDragProviderCarriesTheBundleFileURL() {
+        let url = FDAHandoff.appBundleURL()
+        let provider = FDAHandoff.dragProvider(for: url)
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier("public.file-url"),
+                      "a real drag source must offer a file URL to the Finder list")
+    }
+
+    func testDisplayNameIsTheAppNameWithoutExtension() {
+        XCTAssertFalse(FDAHandoff.displayName().hasSuffix(".app"))
+        XCTAssertFalse(FDAHandoff.displayName().isEmpty)
+    }
+
+    /// Auto-advance: fires exactly once, on the first tick that reads.
+    func testGrantWatchAdvancesOnTheTickAccessAppears() {
+        var watch = FDAGrantWatch()
+        XCTAssertFalse(watch.tick(report(.denied(errno: EPERM))), "denied must not advance")
+        XCTAssertFalse(watch.tick(report(.denied(errno: EPERM))), "still denied must not advance")
+        XCTAssertTrue(watch.tick(report(.readable)), "the first readable tick advances")
+    }
+
+    func testGrantWatchFiresOnlyOnce() {
+        var watch = FDAGrantWatch()
+        XCTAssertTrue(watch.tick(report(.readable)))
+        XCTAssertFalse(watch.tick(report(.readable)), "must not advance twice")
+    }
+
+    func testGrantWatchDoesNotAdvanceOnAnInconclusiveProbe() {
+        var watch = FDAGrantWatch()
+        XCTAssertFalse(watch.tick(report(.missing)),
+                       "every probe absent says nothing about access; the poll must not advance on it")
+    }
+}

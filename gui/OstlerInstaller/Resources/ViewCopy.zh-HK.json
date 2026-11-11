@@ -146,7 +146,15 @@
     "continue_button": "我已授權，繼續"
   },
   "fda_gate": {
-    "heading": "歡迎使用 Ostler",
+    "heading": "讓 Ostler 讀取你嘅訊息同郵件",
+    "reveal_button": "喺 Finder 中顯示",
+    "drag_hint": "將呢個 App 拖入清單",
+    "fallback_line": "或者喺該視窗撳 +，然後由 {path} 揀 {app}",
+    "waiting": "等緊你開啟",
+    "granted": "已獲授權，繼續中",
+    "anim_drag": "將 App 拖入清單",
+    "anim_switch_on": "打開開關",
+    "anim_done": "Ostler 會自動繼續",
     "welcome": "感謝你購買 Ostler。設定大約需要半小時，首次執行時 Ostler 需要下載 AI 模型，所以會稍長一點，之後它還會繼續充實你的個人世界一段時間。你可以讓它在背景執行。",
     "reads_lead": "為了在背後靜靜地為你效勞，Ostler 需要你允許它讀取這部 Mac 上的以下內容：",
     "data_messages": "訊息",

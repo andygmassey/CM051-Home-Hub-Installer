@@ -146,7 +146,15 @@
     "continue_button": "Já concedi, continuar"
   },
   "fda_gate": {
-    "heading": "Boas-vindas ao Ostler",
+    "heading": "Deixe o Ostler ler suas mensagens e e-mails",
+    "reveal_button": "Mostrar no Finder",
+    "drag_hint": "Arraste este app para a lista",
+    "fallback_line": "Ou clique em + nessa janela e escolha {app} em {path}",
+    "waiting": "Aguardando você ativar",
+    "granted": "Acesso concedido. Seguindo em frente.",
+    "anim_drag": "Arraste o app para a lista",
+    "anim_switch_on": "Ative o acesso",
+    "anim_done": "O Ostler continua sozinho",
     "welcome": "Obrigado por comprar o Ostler. A configuração leva cerca de meia hora, um pouco mais na primeira vez, enquanto o Ostler baixa seus modelos de IA, e continua preenchendo o seu mundo por um tempo depois disso. Você pode deixá-la em execução.",
     "reads_lead": "Para trabalhar discretamente por você, o Ostler precisa da sua permissão para ler algumas coisas neste Mac:",
     "data_messages": "Mensagens",

@@ -146,7 +146,15 @@
     "continue_button": "Ik heb toegang gegeven, ga door"
   },
   "fda_gate": {
-    "heading": "Welkom bij Ostler",
+    "heading": "Laat Ostler je berichten en mail lezen",
+    "reveal_button": "Toon in Finder",
+    "drag_hint": "Sleep deze app naar de lijst",
+    "fallback_line": "Of klik in dat venster op + en kies {app} uit {path}",
+    "waiting": "Wachten tot je hem aanzet",
+    "granted": "Toegang verleend. We gaan verder.",
+    "anim_drag": "Sleep de app naar de lijst",
+    "anim_switch_on": "Zet hem aan",
+    "anim_done": "Ostler gaat zelf verder",
     "welcome": "Bedankt voor je aankoop van Ostler. De configuratie duurt ongeveer een half uur, iets langer bij de eerste keer terwijl Ostler zijn AI-modellen downloadt, en daarna blijft Ostler nog een tijdje je wereld aanvullen. Je kunt het laten draaien.",
     "reads_lead": "Om ongemerkt voor je aan het werk te zijn, heeft Ostler je toestemming nodig om een aantal dingen op deze Mac te lezen:",
     "data_messages": "Berichten",

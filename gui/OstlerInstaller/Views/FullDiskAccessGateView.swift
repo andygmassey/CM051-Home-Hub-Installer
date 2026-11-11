@@ -1,191 +1,243 @@
 // FullDiskAccessGateView.swift
 //
-// CX-87 (2026-06-01): front-loaded Full Disk Access gate. This is the
-// VERY FIRST screen (after self-relocation to /Applications) whenever
-// the installer bundle does not yet have Full Disk Access.
+// CX-87 (2026-06-01): front-loaded Full Disk Access gate. The first screen
+// whenever the installer does not yet have Full Disk Access. macOS requires
+// quit-and-reopen after a grant, so the gate runs before any question and the
+// whole setup runs once on the post-grant launch.
 //
-// WHY this exists: macOS requires the app to quit and reopen after FDA
-// is switched on (the new TCC grant is only picked up on relaunch).
-// Previously FDA was a *reactive* gate -- install.sh emitted NEEDS_FDA
-// part-way through, so the quit-and-reopen landed mid-flow and the
-// relaunch took the "previous installation" reuse path, silently
-// skipping the unfinished tail of Phase 2 (channel choice, consent,
-// the iMessage Automation prompt). By demanding FDA up-front, the whole
-// setup runs exactly ONCE on the post-grant launch: no mid-install
-// interruption, no reuse-skip, nothing asked twice.
-//
-// The old FullDiskAccessSheet stays as a defensive fallback for the
-// rare case a later step still needs a grant the customer revoked.
-//
-// CX-128 (2026-06-01): this is the customer's literal first impression
-// of Ostler on their Mac, so it reads as a welcome screen, not a bare
-// permission gate. It thanks them for buying Ostler, sets the "works
-// quietly in the background" expectation, frames the permission asks as
-// the cost of that, then introduces Full Disk Access as the first one
-// (happening next). The control row matches the house layout every
-// other screen uses: ghost on the left, primary action bottom-right
-// carrying the default-action keyboard shortcut.
+// 2026-11-11, macOS 27.3: apps can no longer add themselves to the Full Disk
+// Access list (READING_TRIAGE_2026-11-11.md). So this screen hands the
+// customer the app instead of asking them to find it:
+//   - the System Settings pane opens, and this window is docked to the left so
+//     both are visible;
+//   - the app tile is a real drag source (FDAHandoff.dragProvider), dropped
+//     straight onto the list;
+//   - a short loop shows the drag and the toggle; with Reduce Motion it shows
+//     the same three steps as a still;
+//   - a fallback line and Show in Finder cover the manual "+" route;
+//   - the gate polls a protected read every 2 seconds and advances the moment
+//     access is granted. No Continue click is needed.
 
 import SwiftUI
+import AppKit
 
 struct FullDiskAccessGateView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // The four Apple data sources Ostler reads, shown as scannable chips
-    // so the "what it reads" message lands at a glance rather than buried
-    // in prose. Order matches the customer's mental priority.
-    private struct DataSource: Identifiable {
-        let id = UUID()
-        let icon: String
-        let labelKey: String
-    }
-    private let dataSources: [DataSource] = [
-        .init(icon: "message.fill",            labelKey: "fda_gate.data_messages"),
-        .init(icon: "envelope.fill",           labelKey: "fda_gate.data_mail"),
-        .init(icon: "calendar",                labelKey: "fda_gate.data_calendar"),
-        .init(icon: "person.crop.circle.fill", labelKey: "fda_gate.data_contacts"),
-        .init(icon: "checklist",               labelKey: "fda_gate.data_reminders"),
-        .init(icon: "photo.on.rectangle",      labelKey: "fda_gate.data_photos"),
-    ]
+    /// 0: tile not yet dragged. 1: tile landed in the list. 2: toggle on.
+    @State private var animStep = 0
+    @State private var granted = false
+
+    private let appURL = FDAHandoff.appBundleURL()
+    private let appName = FDAHandoff.displayName()
+    private let appIcon = NSWorkspace.shared.icon(forFile: FDAHandoff.appBundleURL().path)
 
     var body: some View {
-        VStack(spacing: CGFloat.ostlerSpace4) {
-            hero
-            readsCard
-            fullDiskAccessCard
+        VStack(spacing: CGFloat.ostlerSpace3) {
+            heading
+            illustration
+            dragTile
+            fallbackLine
             Spacer(minLength: 0)
+            statusRow
+            privacyLine
             controls
         }
         .padding(.horizontal, CGFloat.ostlerSpace5)
-        .padding(.top, CGFloat.ostlerSpace4)
-        .padding(.bottom, CGFloat.ostlerSpace4)
+        .padding(.vertical, CGFloat.ostlerSpace4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.ostlerChassis)
+        .onAppear {
+            AuthorizationHelper.shared.openFullDiskAccessPane()
+            FDAWindowPlacement.dockInstallerLeft()
+        }
+        .task { await watchForGrant() }
+        .task(id: reduceMotion) {
+            if !reduceMotion { await loopIllustration() }
+        }
     }
 
-    // MARK: - Hero
+    // MARK: - Heading
 
-    private var hero: some View {
-        VStack(spacing: CGFloat.ostlerSpace2) {
-            OstlerMarque(size: 50)
-            Text(ViewCopy.shared.string(for: "fda_gate.heading"))
-                .font(.ostlerDisplay)
+    private var heading: some View {
+        Text(ViewCopy.shared.string(for: "fda_gate.heading"))
+            .font(.ostlerDisplay)
+            .foregroundStyle(Color.ostlerInk)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Illustration (animated, or a still under Reduce Motion)
+
+    @ViewBuilder
+    private var illustration: some View {
+        if reduceMotion {
+            HStack(spacing: CGFloat.ostlerSpace2) {
+                stillStep(1, symbol: "square.and.arrow.down", key: "fda_gate.anim_drag")
+                stillStep(2, symbol: "switch.2", key: "fda_gate.anim_switch_on")
+                stillStep(3, symbol: "checkmark.circle.fill", key: "fda_gate.anim_done")
+            }
+            .frame(height: 140)
+        } else {
+            mockList
+                .frame(width: 320, height: 140)
+        }
+    }
+
+    private func stillStep(_ number: Int, symbol: String, key: String) -> some View {
+        VStack(spacing: CGFloat.ostlerSpace1) {
+            Text("\(number)")
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerPanel)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.ostlerOxblood))
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(Color.ostlerOxblood)
+            Text(ViewCopy.shared.string(for: key))
+                .font(.ostlerCaption)
                 .foregroundStyle(Color.ostlerInk)
-            Text(ViewCopy.shared.string(for: "fda_gate.welcome"))
-                .font(.ostlerBodyLg)
-                .foregroundStyle(Color.ostlerInkMuted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - "What Ostler reads" card
-
-    private var readsCard: some View {
-        VStack(alignment: .leading, spacing: CGFloat.ostlerSpace2) {
-            Text(ViewCopy.shared.string(for: "fda_gate.reads_lead"))
-                .font(.ostlerBodyLg)
-                .foregroundStyle(Color.ostlerInk)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: CGFloat.ostlerSpace2) {
-                ForEach(dataSources) { source in
-                    dataChip(source)
-                }
-            }
-
-            HStack(spacing: CGFloat.ostlerSpace2) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.ostlerForest)
-                Text(ViewCopy.shared.string(for: "fda_gate.privacy_line"))
-                    .font(.ostlerCaption)
-                    .foregroundStyle(Color.ostlerInkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(CGFloat.ostlerSpace3)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.ostlerPanel)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.ostlerHairlineSoft, lineWidth: 1)
-        )
-    }
-
-    private func dataChip(_ source: DataSource) -> some View {
-        VStack(spacing: CGFloat.ostlerSpace1) {
-            Image(systemName: source.icon)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(Color.ostlerOxblood)
-            Text(ViewCopy.shared.string(for: source.labelKey))
-                .font(.ostlerCaption)
-                .foregroundStyle(Color.ostlerInk)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, CGFloat.ostlerSpace3)
+        .padding(CGFloat.ostlerSpace2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.ostlerChassisDeep)
+                .fill(Color.ostlerPanel)
         )
     }
 
-    // MARK: - Full Disk Access card (the first permission, emphasised)
+    /// A small mock of the System Settings list. A copy of the app icon
+    /// travels up into the row, and the toggle turns on.
+    private var mockList: some View {
+        let landed = animStep >= 1
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.ostlerPanel)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.ostlerHairlineSoft, lineWidth: 1)
 
-    private var fullDiskAccessCard: some View {
-        VStack(alignment: .leading, spacing: CGFloat.ostlerSpace2) {
             HStack(spacing: CGFloat.ostlerSpace2) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(Color.ostlerOxblood)
-                Text(ViewCopy.shared.string(for: "fda_gate.upnext_label"))
-                    .font(.ostlerH2)
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 28, height: 28)
+                    .opacity(landed ? 1 : 0)
+                Text(appName)
+                    .font(.ostlerBody)
                     .foregroundStyle(Color.ostlerInk)
+                Spacer(minLength: 0)
+                mockToggle(on: animStep >= 2)
             }
+            .padding(CGFloat.ostlerSpace3)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, CGFloat.ostlerSpace2)
 
-            VStack(alignment: .leading, spacing: CGFloat.ostlerSpace2) {
-                stepRow(1, key: "fda_gate.step_1")
-                stepRow(2, key: "fda_gate.step_2")
-                stepRow(3, key: "fda_gate.step_3")
+            // The travelling copy of the tile: starts below the list, lands on the row.
+            Image(nsImage: appIcon)
+                .resizable()
+                .frame(width: 40, height: 40)
+                .offset(x: landed ? 14 : 130, y: landed ? 14 : 100)
+                .opacity(animStep >= 2 ? 0 : 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private func mockToggle(on: Bool) -> some View {
+        Capsule()
+            .fill(on ? Color.ostlerForest : Color.ostlerChassisDeep)
+            .frame(width: 40, height: 22)
+            .overlay(alignment: on ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.ostlerPanel)
+                    .frame(width: 18, height: 18)
+                    .padding(2)
             }
+    }
 
-            Text(ViewCopy.shared.string(for: "fda_gate.permissions_note"))
+    // MARK: - The draggable app tile
+
+    private var dragTile: some View {
+        VStack(spacing: CGFloat.ostlerSpace1) {
+            Image(nsImage: appIcon)
+                .resizable()
+                .frame(width: 64, height: 64)
+            Text(appName)
+                .font(.ostlerH2)
+                .foregroundStyle(Color.ostlerInk)
+            Text(ViewCopy.shared.string(for: "fda_gate.drag_hint"))
                 .font(.ostlerCaption)
                 .foregroundStyle(Color.ostlerInkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(CGFloat.ostlerSpace3)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, CGFloat.ostlerSpace5)
+        .padding(.vertical, CGFloat.ostlerSpace3)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.ostlerOxbloodSoft)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.ostlerOxblood.opacity(0.5), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onDrag { FDAHandoff.dragProvider(for: appURL) }
+        .accessibilityElement(children: .combine)
     }
 
-    private func stepRow(_ number: Int, key: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: CGFloat.ostlerSpace2) {
-            Text("\(number)")
-                .font(.ostlerCaption)
-                .foregroundStyle(Color.ostlerPanel)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.ostlerOxblood))
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 5 }
-            Text(ViewCopy.shared.string(for: key))
-                .font(.ostlerBody)
-                .foregroundStyle(Color.ostlerInk)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+    private var fallbackLine: some View {
+        HStack(spacing: CGFloat.ostlerSpace2) {
+            Text(ViewCopy.shared.string(
+                for: "fda_gate.fallback_line",
+                fills: ["app": appName, "path": displayFolder]
+            ))
+            .font(.ostlerCaption)
+            .foregroundStyle(Color.ostlerInkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            Button(ViewCopy.shared.string(for: "fda_gate.reveal_button")) {
+                NSWorkspace.shared.activateFileViewerSelecting([appURL])
+            }
+            .buttonStyle(.ostlerGhost)
         }
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Controls
+    /// The folder holding the app, with the home folder shown as ~.
+    private var displayFolder: String {
+        (appURL.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+    }
+
+    // MARK: - Status, privacy, controls
+
+    private var statusRow: some View {
+        HStack(spacing: CGFloat.ostlerSpace2) {
+            if granted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.ostlerForest)
+                Text(ViewCopy.shared.string(for: "fda_gate.granted"))
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                Text(ViewCopy.shared.string(for: "fda_gate.waiting"))
+            }
+        }
+        .font(.ostlerBody)
+        .foregroundStyle(Color.ostlerInk)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var privacyLine: some View {
+        HStack(spacing: CGFloat.ostlerSpace2) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.ostlerForest)
+            Text(ViewCopy.shared.string(for: "fda_gate.privacy_line"))
+                .font(.ostlerCaption)
+                .foregroundStyle(Color.ostlerInkMuted)
+        }
+        .frame(maxWidth: .infinity)
+    }
 
     private var controls: some View {
         VStack(spacing: CGFloat.ostlerSpace2) {
@@ -215,6 +267,7 @@ struct FullDiskAccessGateView: View {
 
                 Spacer()
 
+                // Also the reopen button: if the customer closed the Settings pane, this brings it back.
                 Button(ViewCopy.shared.string(for: "fda_gate.open_settings_button")) {
                     AuthorizationHelper.shared.openFullDiskAccessPane()
                 }
@@ -223,24 +276,49 @@ struct FullDiskAccessGateView: View {
             }
         }
     }
+
+    // MARK: - Behaviour
+
+    /// Polls a protected read every 2 seconds. On the first successful read,
+    /// shows the check mark briefly and hands on to the normal flow.
+    private func watchForGrant() async {
+        var watch = FDAGrantWatch()
+        while !Task.isCancelled {
+            if watch.tick(coordinator.fullDiskAccessReport()) {
+                granted = true
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                coordinator.recheckFullDiskAccessAndProceed()
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
+
+    /// Drag, toggle, hold, repeat. Each cycle starts from the still frame.
+    private func loopIllustration() async {
+        while !Task.isCancelled {
+            withAnimation(nil) { animStep = 0 }
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            withAnimation(.easeInOut(duration: 0.9)) { animStep = 1 }
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            withAnimation(.easeInOut(duration: 0.3)) { animStep = 2 }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+    }
 }
 
-// MARK: - Ostler marque
-
-/// The Ostler brand mark: an oxblood squircle with a white "O" ring,
-/// matching the Ostler.app icon. Drawn in code so it stays crisp at any
-/// size and needs no bundled asset.
-private struct OstlerMarque: View {
-    let size: CGFloat
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
-            .fill(Color.ostlerOxblood)
-            .frame(width: size, height: size)
-            .overlay(
-                Circle()
-                    .strokeBorder(Color.ostlerPanel, lineWidth: size * 0.11)
-                    .padding(size * 0.26)
-            )
+/// Docks the installer window to the left of the screen, so the System
+/// Settings pane opened beside it stays visible. macOS places the Settings
+/// window itself; this only controls where the installer sits.
+@MainActor
+enum FDAWindowPlacement {
+    static func dockInstallerLeft() {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey }),
+              let area = (window.screen ?? NSScreen.main)?.visibleFrame
+        else { return }
+        var frame = window.frame
+        frame.origin.x = area.minX + 12
+        frame.origin.y = max(area.minY, min(frame.origin.y, area.maxY - frame.height))
+        window.setFrame(frame, display: true, animate: true)
     }
 }
