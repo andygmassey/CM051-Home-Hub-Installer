@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -53,6 +54,13 @@ DERIVED_NODE_COUNT_QUERY = (
 )
 
 STATUS_SCHEMA = 1
+
+# A reader can run for hours on a big real-data box, and the Doctor and the
+# assistant call a pass stale once updated_at is 3h old. While a reader runs,
+# a background thread restamps updated_at every HEARTBEAT_S seconds (at most
+# once a minute), so a live pass is never read as killed. 0 turns it off; the
+# test uses that as its red control.
+HEARTBEAT_S = 60
 
 
 def _default_status_path() -> Path:
@@ -98,6 +106,9 @@ class _Progress:
         self.status, self.path, self.total = status, path, total
         self.done = 0
         self.items = 0
+        # The heartbeat thread and the reader-finished path both rewrite the
+        # status dict; one lock keeps the JSON dump from seeing a half update.
+        self._lock = threading.RLock()
         # Stamps the Doctor and the derived API read to tell a pass that is
         # moving from one that was killed (see derived_preferences_status).
         self.started_at = status.get("last_run_at") or _now_iso()
@@ -105,26 +116,64 @@ class _Progress:
         self._sync()
 
     def _sync(self) -> None:
-        self.status["progress"] = {
-            "readers_done": self.done,
-            "readers_total": self.total,
-            "items_so_far": self.items,
-            "started_at": self.started_at,
-            "updated_at": _now_iso(),
-        }
-        try:
-            _write_status(self.path, self.status)
-        except OSError as exc:  # progress is decoration; the pass goes on
-            print(f"derive: progress not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+        with self._lock:
+            self.status["progress"] = {
+                "readers_done": self.done,
+                "readers_total": self.total,
+                "items_so_far": self.items,
+                "started_at": self.started_at,
+                "updated_at": _now_iso(),
+            }
+            try:
+                _write_status(self.path, self.status)
+            except OSError as exc:  # progress is decoration; the pass goes on
+                print(f"derive: progress not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+    def heartbeat(self) -> None:
+        """Restamp updated_at while one reader is still working (no counts move)."""
+        with self._lock:
+            self._sync()
 
     def reader_finished(self, name: str, seconds: float, items: int, ok: bool) -> None:
-        self.done += 1
-        self.items += items if ok else 0
-        self.status["reader_timings"].append(
-            {"name": name, "seconds": round(seconds, 2), "items": items, "ok": ok})
-        print(f"derive: reader {self.done}/{self.total} {name}: "
-              f"{'ok' if ok else 'FAILED'} in {seconds:.1f}s, {items} item(s)", flush=True)
-        self._sync()
+        with self._lock:
+            self.done += 1
+            self.items += items if ok else 0
+            self.status["reader_timings"].append(
+                {"name": name, "seconds": round(seconds, 2), "items": items, "ok": ok})
+            print(f"derive: reader {self.done}/{self.total} {name}: "
+                  f"{'ok' if ok else 'FAILED'} in {seconds:.1f}s, {items} item(s)", flush=True)
+            self._sync()
+
+
+class _Heartbeat:
+    """Context manager: while open, calls progress.heartbeat() every HEARTBEAT_S
+    seconds from a daemon thread. Read HEARTBEAT_S at entry, so a test can set it.
+    Stops and joins on exit, so no stamp lands after the reader has finished."""
+
+    def __init__(self, progress: _Progress):
+        self._progress = progress
+        self._stop = threading.Event()
+        self._thread = None
+        self._every = HEARTBEAT_S
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._every):
+            try:
+                self._progress.heartbeat()
+            except Exception as exc:  # noqa: BLE001 - a missed stamp is not a failed pass
+                print(f"derive: heartbeat not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+    def __enter__(self):
+        if self._every and self._every > 0:
+            self._thread = threading.Thread(target=self._run, name="derive-heartbeat", daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join()
+        return False
 
 
 class _TimedReader:
@@ -140,7 +189,8 @@ class _TimedReader:
     def read(self, user_id):
         t0 = time.monotonic()
         try:
-            items = list(self._inner.read(user_id))
+            with _Heartbeat(self._progress):
+                items = list(self._inner.read(user_id))
         except Exception:
             self._progress.reader_finished(self.dimension, time.monotonic() - t0, 0, False)
             raise
