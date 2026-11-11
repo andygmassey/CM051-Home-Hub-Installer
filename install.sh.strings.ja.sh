@@ -302,7 +302,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="地域: アメリカ合衆国 (ソース: 
 MSG_INFO_REPO_URL="リポジトリURL: %s"
 MSG_INFO_REPO_URL_2="リポジトリURL: %s"
 MSG_INFO_REPO_URL_3="リポジトリURL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="次に、パスフレーズを設定してください。Ostler は、内部レコードの一部の鍵を設定するためにこのパスフレーズを使用します。"
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="リカバリー用パスフレーズをスキップしました。(非推奨: v1.0ではパスフレーズが常に必要です。)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="既存のDoctorエージェントのインストールを再利用します: %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="既存のemail-ingestのインストールを再利用します: %s"
@@ -446,7 +446,7 @@ MSG_WARN_DB_KEY_NOT_DELIVERED="データベースの鍵を Hub のサービス�
 MSG_INFO_DB_KEY_RECOVER_HINT="次のコマンドを実行して、鍵を復旧し渡してください: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="以前のインストールから残っているデータベースを暗号化しています"
 MSG_WARN_DB_MIGRATION_FAILED="既存のデータベースの一部を暗号化できませんでした。ディスク上で読み取れる状態のままです。"
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="このインストールにはデータベースキーがないため、Hub サービスは暗号化されたデータベースを開けません。"
 MSG_WARN_DB_PLAINTEXT_COUNT="この Mac 上の %s 個のデータベースは、現在ディスク上で読み取れる状態です。"
 MSG_INFO_DB_MIGRATE_HINT="その後、すでにあるデータを暗号化してください: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="保留中のデバイス登録の再試行をインストールしました(キューが空になるまで1時間ごとに実行)"
@@ -1309,11 +1309,11 @@ FileVaultの使用を強くおすすめします。「システム設定」>「�
 「いいえ」を選ぶと、ここで中止します。先にFileVaultをオンにしてから、インストーラをもう一度実行してください。どちらを選んでも問題は起きていません。"
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="ディスク暗号化の設定準備ができました"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler は、次の画面で設定するパスフレーズを使って、内部レコードの一部の鍵を設定します。これとは別にリカバリーキーも生成され、インストールの最後に一度だけ表示されます。Ostler のデータ全体は、Apple のフルディスク暗号化機能である FileVault によって保護されています。準備ができたら「続ける」を押してください。"
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="リカバリ用のパスフレーズも設定しますか?(推奨)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="パスフレーズを選択"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler は、内部レコードの一部の鍵を設定するためにこのパスフレーズを使用します。Ostler のデータ全体は、Apple のフルディスク暗号化機能である FileVault によって保護されています。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="パスフレーズを確認"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="確認のため、同じパスフレーズをもう一度入力してください。"
 

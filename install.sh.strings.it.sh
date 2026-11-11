@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Area geografica: Stati Uniti (origine: %s)
 MSG_INFO_REPO_URL="URL del repository: %s"
 MSG_INFO_REPO_URL_2="URL del repository: %s"
 MSG_INFO_REPO_URL_3="URL del repository: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Ora scegli una passphrase. Ostler la usa per configurare la chiave di alcuni dei suoi registri interni."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Passphrase di recupero saltata. (Obsoleto: la versione 1.0 richiede sempre una passphrase.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Riutilizzo l'installazione esistente dell'agente Doctor in %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Riutilizzo l'installazione esistente di email-ingest in %s"
@@ -447,7 +447,7 @@ MSG_WARN_DB_KEY_NOT_DELIVERED="Non è stato possibile consegnare la chiave del d
 MSG_INFO_DB_KEY_RECOVER_HINT="Esegui questo comando per recuperarla e consegnarla: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Cifratura degli eventuali database rimasti da un'installazione precedente"
 MSG_WARN_DB_MIGRATION_FAILED="Non è stato possibile cifrare alcuni database esistenti. Restano leggibili su disco."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Questa installazione non ha una chiave del database, quindi i servizi dell'Hub non apriranno i database cifrati."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database su questo Mac sono al momento leggibili su disco."
 MSG_INFO_DB_MIGRATE_HINT="Poi cifra quelli già presenti: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Nuovo tentativo differito di registrazione del dispositivo installato (viene eseguito ogni ora finché la coda non si svuota)"
@@ -1310,11 +1310,11 @@ Scegli Sì per continuare ora con il disco non cifrato a riposo (è una scelta d
 Scegli No per fermarti qui, attivare prima FileVault e poi eseguire di nuovo l'installer. In entrambi i casi non è andato storto nulla."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Pronto a configurare la cifratura del disco"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler usa una passphrase che scegli nella schermata successiva per configurare la chiave di alcuni dei suoi registri interni. Viene inoltre generata una chiave di recupero separata, mostrata una sola volta al termine dell'installazione. I tuoi dati Ostler, nel complesso, sono protetti da FileVault, la cifratura integrale del disco di Apple. Premi Continua quando sei pronto."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Impostare anche una passphrase di recupero? (consigliato)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Scegli la tua passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler usa questa passphrase per configurare la chiave di alcuni dei suoi registri interni. I tuoi dati Ostler, nel complesso, sono protetti da FileVault, la cifratura integrale del disco di Apple."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Conferma la tua passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Inserisci di nuovo la stessa passphrase per confermare."
 

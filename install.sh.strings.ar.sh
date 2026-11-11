@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="المنطقة: الولايات المت�
 MSG_INFO_REPO_URL="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_2="عنوان URL للمستودع: %s"
 MSG_INFO_REPO_URL_3="عنوان URL للمستودع: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="اختر الآن عبارة المرور. يستخدمها Ostler لإعداد المفتاح لبعض سجلاته الداخلية."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="تم تخطي عبارة مرور الاسترداد. (مُهمَل: يتطلب الإصدار v1.0 عبارة مرور دائمًا.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="إعادة استخدام تثبيت وكيل Doctor الموجود في %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="إعادة استخدام تثبيت email-ingest الموجود في %s"
@@ -446,7 +446,7 @@ MSG_WARN_DB_KEY_NOT_DELIVERED="تعذر تسليم مفتاح قاعدة الب�
 MSG_INFO_DB_KEY_RECOVER_HINT="شغّل هذا الأمر لاستعادته وتسليمه: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="جارٍ تشفير أي قواعد بيانات متبقية من تثبيت سابق"
 MSG_WARN_DB_MIGRATION_FAILED="تعذر تشفير بعض قواعد البيانات الموجودة. ما زالت قابلة للقراءة على القرص."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="لا يحتوي هذا التثبيت على مفتاح لقاعدة البيانات، لذلك لن تتمكن خدمات Hub من فتح قواعد البيانات المشفّرة."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s من قواعد البيانات على هذا الـ Mac قابلة للقراءة على القرص الآن."
 MSG_INFO_DB_MIGRATE_HINT="ثم شفّر ما هو موجود بالفعل: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="تم تثبيت إعادة المحاولة المؤجلة لتسجيل الجهاز (تعمل كل ساعة إلى أن تفرغ قائمة الانتظار)"
@@ -1313,11 +1313,11 @@ MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، 
 اختر لا للتوقف هنا لتشغيل FileVault أولًا، ثم أعد تشغيل المثبّت. لم يحدث أي خطأ في الحالتين."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="جاهز لإعداد تشفير القرص"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="يستخدم Ostler عبارة مرور تختارها في الشاشة التالية لإعداد المفتاح لبعض سجلاته الداخلية. يُنشأ أيضًا مفتاح استرداد منفصل ويُعرض مرة واحدة في نهاية التثبيت. بياناتك في Ostler محمية في مجملها بواسطة FileVault، تشفير Apple للقرص الكامل. اضغط على متابعة عندما تكون مستعدًا."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="هل تريد تعيين عبارة مرور للاسترداد أيضًا؟ (موصى به)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="اختر عبارة المرور"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="يستخدم Ostler هذه العبارة لإعداد مفتاح لبعض سجلاته الداخلية. وبياناتك في Ostler محمية في مجملها بواسطة FileVault، تشفير Apple للقرص الكامل."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="أكّد عبارة المرور"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="أعد إدخال عبارة المرور نفسها للتأكيد."
 
