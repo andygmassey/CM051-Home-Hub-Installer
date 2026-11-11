@@ -11,7 +11,7 @@
 //   - the System Settings pane opens, and this window is docked to the left so
 //     both are visible;
 //   - a miniature of that pane shows, on a ~4.4 second loop, the app being
-//     dragged into the list and switched on (Reduce Motion: the final state
+//     dragged into the list and switched on (reduce-motion: the final state
 //     with three numbered captions);
 //   - the app tile is a real drag source (FDAHandoff.dragProvider), dropped
 //     straight onto the list;
@@ -699,7 +699,7 @@ struct FDAMiniSettings: View {
 /// Debug build.
 ///   OSTLER_DEBUG_FDA_GATE=1       open on this screen, no Settings, no probe
 ///   OSTLER_DEBUG_FDA_T=0.35       freeze the hero at that point of the loop
-///   OSTLER_DEBUG_FDA_REDUCE=1     render the Reduce Motion layout
+///   OSTLER_DEBUG_FDA_REDUCE=1     render the reduce-motion layout
 ///   OSTLER_DEBUG_FDA_GRANTED=1    show the "Access granted" state
 ///   OSTLER_DEBUG_FDA_LINK_AFTER=0 seconds before the manual link appears
 ///   OSTLER_DEBUG_FDA_STEP=2       tile 1 done, tile 2 active

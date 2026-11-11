@@ -15,7 +15,7 @@
 #      with the same {placeholders} as the English.
 #   2. The gate view is a real drag source (.onDrag) whose provider is the
 #      running app bundle, not a hand-typed path.
-#   3. The gate view honours Reduce Motion with a static illustration.
+#   3. The gate view honours reduce-motion with a static illustration.
 #   4. The gate polls a protected read every 2 seconds and advances on grant.
 #   5. The Settings deep-link is still Privacy_AllFiles, and Reveal in
 #      Finder selects the bundle.
@@ -98,7 +98,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Reduce Motion
+# 3. reduce-motion
 # ---------------------------------------------------------------------------
 if grep -q 'accessibilityReduceMotion' "$VIEW"; then
     pass "animation branches on accessibilityReduceMotion"

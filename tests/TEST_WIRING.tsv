@@ -436,6 +436,7 @@ test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml
 test_fda_dialog_tells_the_truth.sh	WIRED	.github/workflows/fda-dialog-truth.yml
+test_fda_gate_drag_handoff.sh	WIRED	.github/workflows/swift-tests.yml
 test_fda_listed_has_one_writer.sh	WIRED	.github/workflows/fda-listed.yml
 test_fda_modal_names_a_path_a_human_can_reach.sh	WIRED	.github/workflows/fda-dialog-truth.yml
 test_fda_module_reachable.sh	WIRED	.github/workflows/fda-reachable.yml
@@ -1150,6 +1151,7 @@ gui/OstlerInstallerTests/DeviceRegistrationClientTests.swift	WIRED	.github/workf
 gui/OstlerInstallerTests/EmailSupportMailtoTest.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/EnglishPrevailsNoteTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/ErrorCodeBannerTest.swift	WIRED	.github/workflows/swift-tests.yml
+gui/OstlerInstallerTests/FDADragScreenGateTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FDAPresetSubtitleFaceRecognitionClaimTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FailureStateMachineTests.swift	WIRED	.github/workflows/swift-tests.yml
 gui/OstlerInstallerTests/FingerprintStateTests.swift	WIRED	.github/workflows/swift-tests.yml

@@ -150,11 +150,11 @@ final class FDAHandoffTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fda-\(UUID().uuidString)/Fixture.app/Contents")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent().deletingLastPathComponent()) }
-        let plist: [String: Any] = ["CFBundleName": "FixtureInternal", "CFBundleDisplayName": "Fixture Shown",
+        let plist: [String: Any] = ["CFBundleName": "FixtureInternal", "CFBundleDisplayName": "fixture shown name",
                                     "CFBundleIdentifier": "ai.test.fixture", "CFBundlePackageType": "APPL"]
         try (plist as NSDictionary).write(to: dir.appendingPathComponent("Info.plist"))
         let bundle = try XCTUnwrap(Bundle(url: dir.deletingLastPathComponent()))
-        XCTAssertEqual(FDAHandoff.displayName(bundle), "Fixture Shown")
+        XCTAssertEqual(FDAHandoff.displayName(bundle), "fixture shown name")
     }
 
     // MARK: Hero timeline
