@@ -68,16 +68,23 @@ chmod +x "${WORK}/bin/launchctl"
 # ── a fresh box: the installer's effects for a declined answer ──────────────
 new_box() {
     local s="${WORK}/box-$1"
-    rm -rf "$s"; mkdir -p "$s/home/Library/LaunchAgents" "$s/home/Library/Application Support/Ostler RemoteCapture" "$s/state"
+    rm -rf "$s"; mkdir -p "$s/home/Library/LaunchAgents" "$s/home/Library/Application Support/Ostler RemoteCapture" "$s/state" "$s/apps/Ostler"
     printf '%s\n' '<plist>staged, inert</plist>' > "$s/home/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged"
+    # The installer parks the verified app outside /Applications for a declined answer.
+    mkdir -p "$s/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS"
+    : > "$s/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture"
     echo "$s"
 }
-run_script() {  # $1 box, $2 consent (accepted|none), $3.. action, optional $4 script path
+# The sandboxed apps folder stands in for /Applications/Ostler. Never the real one.
+app_in()     { [ -d "$1/apps/Ostler/Ostler RemoteCapture.app" ]; }
+app_staged() { [ -d "$1/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app" ]; }
+run_script() {  # $1 box, $2 consent (accepted|none), $3.. action
     local box="$1" consent="$2"; shift 2
     local subject="$SCRIPT"
     if [ -n "${SUBJECT_OVERRIDE:-}" ]; then subject="$SUBJECT_OVERRIDE"; fi
     env -i HOME="$box/home" PATH="${WORK}/bin:/usr/bin:/bin" \
         REMOTECAPTURE_HOME="$box/home" REMOTECAPTURE_LABEL="$LABEL" \
+        REMOTECAPTURE_APPS_DIR="$box/apps/Ostler" \
         OSTLER_PYTHON="${WORK}/py" STUB_CONSENT="$consent" STUB_STATE="$box/state" \
         bash "$subject" "$@" 2>&1
 }
@@ -93,6 +100,14 @@ if [ ! -f "$(live_plist "$B")" ] && ! /usr/bin/grep -q bootstrap "$B/state/launc
 else
     bad "refused enable still wrote a LaunchAgent or called bootstrap"
 fi
+if ! app_in "$B" && app_staged "$B"; then
+    ok "declined: the app is NOT in /Applications/Ostler; it is parked in staged/ (nothing can double-click it)"
+else
+    bad "declined: app in apps=$(app_in "$B" && echo yes || echo no) staged=$(app_staged "$B" && echo yes || echo no). A declined app must not sit in /Applications."
+fi
+out="$(run_script "$B" none status)"
+case "$out" in *"app: parked in staged/"*) ok "status reports the app parked while declined" ;;
+    *) bad "status does not report the parked app: ${out}" ;; esac
 
 echo "── accepted later: enable turns it on in place, with no reinstall ──"
 out="$(run_script "$B" accepted enable)"; rc=$?
@@ -100,6 +115,11 @@ if [ "$rc" -eq 0 ] && [ -f "$(live_plist "$B")" ] && [ -f "$B/state/loaded" ]; t
     ok "enable after consent copies the staged plist into LaunchAgents and loads it (rc 0)"
 else
     bad "enable after consent did not load the agent (rc=${rc}): ${out}"
+fi
+if app_in "$B" && ! app_staged "$B"; then
+    ok "enable moves the app from staged/ into /Applications/Ostler before the agent starts"
+else
+    bad "enable did not move the app into place (in=$(app_in "$B" && echo yes || echo no) staged=$(app_staged "$B" && echo yes || echo no))"
 fi
 if /usr/bin/grep -q "bootstrap gui/$(id -u) $(live_plist "$B")" "$B/state/launchctl.log" 2>/dev/null; then
     ok "it is bootstrapped from LaunchAgents, the path launchd reads"
@@ -118,9 +138,14 @@ if [ "$rc" -eq 0 ] && [ ! -f "$(live_plist "$B")" ] && [ ! -f "$B/state/loaded" 
 else
     bad "disable left the agent live or deleted the staged copy (rc=${rc}): ${out}"
 fi
+if ! app_in "$B" && app_staged "$B"; then
+    ok "disable parks the app back in staged/, out of /Applications"
+else
+    bad "disable left the app in /Applications (in=$(app_in "$B" && echo yes || echo no) staged=$(app_staged "$B" && echo yes || echo no))"
+fi
 out="$(run_script "$B" accepted enable)"; rc=$?
-if [ "$rc" -eq 0 ] && [ -f "$B/state/loaded" ]; then
-    ok "enable again after disable succeeds with no reinstall"
+if [ "$rc" -eq 0 ] && [ -f "$B/state/loaded" ] && app_in "$B"; then
+    ok "enable again after disable succeeds with no reinstall, app back in /Applications/Ostler"
 else
     bad "re-enable after disable failed (rc=${rc}): ${out}"
 fi
@@ -132,6 +157,13 @@ if [ "$rc" -eq 2 ] && [ ! -f "$(live_plist "$B2")" ]; then
     ok "no staged plist: CANNOT-RUN (rc 2), nothing written"
 else
     bad "no staged plist did not report CANNOT-RUN (rc=${rc}): ${out}"
+fi
+B4="$(new_box noapp)"; rm -rf "$B4/home/Library/Application Support/Ostler"
+out="$(run_script "$B4" accepted enable)"; rc=$?
+if [ "$rc" -eq 2 ] && [ ! -f "$(live_plist "$B4")" ] && ! app_in "$B4"; then
+    ok "no app anywhere: CANNOT-RUN (rc 2), agent not written, nothing faked into /Applications"
+else
+    bad "no app did not report CANNOT-RUN (rc=${rc}): ${out}"
 fi
 
 # ── MUTATION: remove the consent check and the refusal must disappear ───────
@@ -149,6 +181,23 @@ if [ "$rc" -ne 3 ]; then
     ok "MUTATION: without the check, an unconsented enable is NOT refused, so the refusal test is measuring the check"
 else
     bad "MUTATION: the mutant still refused. The refusal assertion is not measuring the consent check."
+fi
+
+# ── MUTATION: enable skips the app move and the placement assertion must fail ─
+echo "── mutation: enable without moving the app into /Applications ──"
+MUT2="${WORK}/mutant-app.sh"
+/usr/bin/sed 's/mkdir -p "\$APPS_DIR" && mv "\$STAGED_APP" "\$APP" ||/true ||/' "$SCRIPT" > "$MUT2"
+if ! /usr/bin/grep -q '^            true || {' "$MUT2"; then
+    echo "CANNOT-RUN: the app-move mutation did not apply, so it is not evidence of anything." >&2; exit 2
+fi
+SUBJECT_OVERRIDE="$MUT2"
+B5="$(new_box mutantapp)"
+out="$(run_script "$B5" accepted enable)"; rc=$?
+unset SUBJECT_OVERRIDE
+if ! app_in "$B5"; then
+    ok "MUTATION: without the move, enable leaves the app parked, so the app-placement assertion is measuring the move"
+else
+    bad "MUTATION: the mutant still moved the app. The placement assertion is not measuring the move."
 fi
 
 echo

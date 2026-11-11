@@ -33521,31 +33521,31 @@ REMOTECAPTURE_ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
 # only thing that copies it across, and it refuses without an ACCEPTED record
 # from `ostler_security.consent_cli check --tickbox spoken_capture_recording_consent`.
 #
-# WHAT THIS DOES NOT DO. It does not stop a customer launching RemoteCapture.app
-# by hand from /Applications. The app's own first-run gate must read the same
-# consent record before capturing. That gate lives in the RemoteCapture repo
-# and is not verified by anything in this file.
+# WHAT THIS DOES NOT DO. A copy opened by hand from the staged folder still runs.
+# CM042 has NO gate that reads this consent record: ConsentChecker.check
+# (RemoteCapture/Consent/ConsentView.swift:240) shows a dialog per session and
+# never reads a persisted record. Measured 2026-11-11, CM042 main 4b4cab8.
 #
 # TESTS. tests/test_recording_consent_gates_the_capture_companion.sh runs this
 # phase for each answer and asserts the effects. tests/test_remotecapture_enable_later_no_reinstall.sh
 # runs the enable and disable script against a stubbed launchctl.
 #
 # COMMANDS. scripts/remotecapture_transcription.sh enable | disable | status
-#   enable   copies the staged plist into ~/Library/LaunchAgents and bootstraps it.
+#   enable   moves the app into /Applications/Ostler, copies the staged plist into ~/Library/LaunchAgents, bootstraps it.
 #            Refuses (rc 3) without an accepted spoken_capture_recording_consent record.
-#   disable  boots it out and removes the LaunchAgents plist. The staged copy stays.
-#   status   reports consent, the live plist, the staged plist, and whether launchd has it.
+#   disable  boots it out, removes the LaunchAgents plist, and parks the app back in staged/.
+#   status   reports consent, the live plist, the staged plist, the app, and whether launchd has it.
 #
 # STAGED IS NOT RUNNING. For a declined or unknown answer the installer never
 # starts the agent. The consent test asserts that: nothing live, nothing loaded.
 #
-# WHY THE APP SUPPORT FOLDER. launchd reads ~/Library/LaunchAgents at login and
-# nowhere else, so a plist kept under "Ostler RemoteCapture/" starts nothing.
-#
-#
-#
-#
-#
+# WHY THE APP IS PARKED. Not accepted: the verified app leaves /Applications for the
+# staged folder, where nothing opens it. The enable script moves it back.
+# Path mirrors scripts/remotecapture_transcription.sh STAGED_APP. A failed move
+# leaves the app in /Applications and says so (MSG_ERR_CM042_RENAME_FAILED).
+_ostler_remotecapture_park() {
+    [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && return 0; local s="${HOME}/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app"; mkdir -p "${s%/*}" && rm -rf "$s" && mv "$REMOTECAPTURE_APP_PATH" "$s" || err "$(printf "$MSG_ERR_CM042_RENAME_FAILED" "$REMOTECAPTURE_APP_PATH")"
+}
 _OSTLER_CONSENT_SPOKEN_CAPTURE="$(_ostler_consent_state spoken_capture_recording_consent "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}")"
 # Every consent answer stages the app. Only the agent's placement reads the answer (tail).
 if [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
@@ -33721,7 +33721,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
             # strip xattr when the verify chain passed.
             xattr -dr com.apple.quarantine "$REMOTECAPTURE_APP_PATH" 2>/dev/null || true
             ok "$(printf "$MSG_OK_CM042_INSTALLED" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_APP_PATH}")"
-            REMOTECAPTURE_INSTALLED=true
+            REMOTECAPTURE_INSTALLED=true; _ostler_remotecapture_park
         else
             err "$MSG_ERR_CM042_VERIFY_FAILED"
             if [[ -s "$REMOTECAPTURE_CODESIGN_LOG" ]]; then

@@ -185,17 +185,18 @@ STUBS
 
     local out rc
     out="$(bash "${r}/run.sh" 2>&1)"; rc=$?
-    local fetched=no app=no livep=no stagedp=no booted=no loaded=no
+    local fetched=no app=no livep=no stagedp=no booted=no loaded=no appstaged=no
     [ -f "${r}/curl-called" ] && fetched=yes
     [ -f "${r}/apps/Ostler/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture" ] && app=yes
+    [ -f "${r}/box/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture" ] && appstaged=yes
     [ -f "$live" ] && livep=yes
     [ -f "${r}/box/Library/Application Support/Ostler RemoteCapture/com.creativemachines.ostler-remotecapture.plist.staged" ] && stagedp=yes
     if [ -f "${r}/launchctl-calls" ] && /usr/bin/grep -q 'bootout' "${r}/launchctl-calls"; then booted=yes; fi
     [ -f "${r}/loaded" ] && loaded=yes
-    printf '%s|%s|%s|%s|%s|%s|%s|%s' "$rc" "$fetched" "$app" "$livep" "$stagedp" "$booted" "$loaded" "$(printf '%s' "$out" | tr '\n' ';')"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s' "$rc" "$fetched" "$app" "$livep" "$stagedp" "$booted" "$loaded" "$appstaged" "$(printf '%s' "$out" | tr '\n' ';')"
 }
 field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
-digest() { printf '%s' "$1" | cut -d'|' -f8-; }
+digest() { printf '%s' "$1" | cut -d'|' -f9-; }
 
 # ── the harness must be able to tell the outcomes apart ─────────────────────
 echo "── the mechanism, so the predicate is not taken on trust ──"
@@ -218,18 +219,18 @@ echo "── consumer-side: what each answer actually does ──"
 
 # ACCEPTED: the customer asked for this. Live agent, loaded.
 _r="$(_run_arm "$SUBJECT" accepted)"
-if [ "$(field "$_r" 4)" = yes ] && [ "$(field "$_r" 7)" = yes ]; then
-    ok "accepted: the LaunchAgent is live in LaunchAgents and loaded, as the customer asked"
+if [ "$(field "$_r" 4)" = yes ] && [ "$(field "$_r" 7)" = yes ] && [ "$(field "$_r" 3)" = yes ] && [ "$(field "$_r" 8)" = no ]; then
+    ok "accepted: the app is in /Applications, the LaunchAgent is live in LaunchAgents and loaded, as the customer asked"
 else
     bad "accepted: the agent was not made live (live=$(field "$_r" 4) loaded=$(field "$_r" 7)). A yes that does nothing is a closed hole."
 fi
 
-# DECLINED: the app IS installed; nothing is live; the customer is told it stays off.
+# DECLINED: the app is PARKED outside /Applications; nothing is live; the customer is told it stays off.
 _r="$(_run_arm "$SUBJECT" declined)"
-if [ "$(field "$_r" 3)" = yes ]; then
-    ok "declined: RemoteCapture is installed, so turning transcription on later needs no reinstall"
+if [ "$(field "$_r" 3)" = no ] && [ "$(field "$_r" 8)" = yes ]; then
+    ok "declined: the app is parked in staged/, NOT in /Applications, and enable can bring it back with no reinstall"
 else
-    bad "declined: RemoteCapture was not installed. A customer who said 'not now' cannot switch it on without running the installer again."
+    bad "declined: app in /Applications=$(field "$_r" 3) parked=$(field "$_r" 8). A declined app must not sit where a customer can open it."
 fi
 if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 7)" = no ]; then
     ok "declined: nothing is live in LaunchAgents and nothing is loaded, so nothing captures or starts at login"
@@ -250,8 +251,8 @@ esac
 # UNKNOWN: nobody was asked, or the answer was lost. Same placement as declined,
 # but the customer is told it is waiting, not refused.
 _r="$(_run_arm "$SUBJECT" unknown)"
-if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 7)" = no ] && [ "$(field "$_r" 5)" = yes ]; then
-    ok "unknown: staged disabled, nothing live (off is the safe posture for an unanswered recording question)"
+if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 7)" = no ] && [ "$(field "$_r" 5)" = yes ] && [ "$(field "$_r" 3)" = no ] && [ "$(field "$_r" 8)" = yes ]; then
+    ok "unknown: parked outside /Applications, staged plist disabled, nothing live (off is the safe posture for an unanswered recording question)"
 else
     bad "unknown: not staged disabled with nothing live (staged=$(field "$_r" 5) live=$(field "$_r" 4) loaded=$(field "$_r" 7))"
 fi
@@ -297,6 +298,28 @@ if [ "$(field "$_r" 4)" = yes ]; then
     ok "MUTATION A: a declined answer places a live agent -- the guard fires"
 else
     bad "MUTATION A: the mutant ALSO kept the declined agent off. This test is not measuring the placement."
+fi
+
+# ── MUTATION C: never park the app, so a declined app stays in /Applications ─
+echo "── mutation C: the verified app is never parked ──"
+_mutc="${WORK}/mutantC.sh"
+python3 - "$SUBJECT" > "$_mutc" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+needle = 'REMOTECAPTURE_INSTALLED=true; _ostler_remotecapture_park'
+if src.count(needle) != 1:
+    sys.exit(3)
+sys.stdout.write(src.replace(needle, 'REMOTECAPTURE_INSTALLED=true', 1))
+PY
+if [ ! -s "$_mutc" ] || ! bash -n "$_mutc" 2>/dev/null; then
+    echo "CANNOT-RUN: mutant C did not build or parse; nothing was measured." >&2
+    exit 2
+fi
+_r="$(_run_arm "$_mutc" declined)"
+if [ "$(field "$_r" 3)" = yes ]; then
+    ok "MUTATION C: without the park, a declined app sits in /Applications -- the placement guard fires"
+else
+    bad "MUTATION C: the mutant ALSO kept the declined app out of /Applications. The placement assertion is not measuring the park."
 fi
 
 # ── MUTATION B: blind the scanner ───────────────────────────────────────────
