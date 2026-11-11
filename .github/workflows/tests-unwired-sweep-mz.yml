@@ -110,6 +110,7 @@ jobs:
             tests/test_setup_progress_advancing.sh \
             tests/test_settling_denominator_terminal_writes.sh \
             tests/test_settling_seed_fixture_terminal.sh \
+            tests/test_settling_writers_end_to_end.sh \
             tests/test_settling_zero_is_discovering.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \

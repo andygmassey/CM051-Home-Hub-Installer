@@ -31,11 +31,8 @@
 #   2. TERMINAL CALL SITE, per manifest row.
 #      shell rows   must contain  settling_complete <channel>  or
 #                                 settling_skip <channel>
-#      python rows  must be in PYTHON_TERMINAL_BY_FINAL_EMIT, with the reason
-#                   the terminal write is a final done==total emit rather than
-#                   a settling_complete / settling_skip call. Those reasons are
-#                   the BLOCKERS in the map; they are recorded here so they
-#                   stay visible, not hidden.
+#      python rows  must carry complete=True and skip_reason="<code>" emits.
+#                   There is NO allowlist: done==total is not terminal.
 #
 #   3. EVERY CHANNEL. Each channel in the manifest has at least one terminal
 #      writer.
@@ -67,13 +64,6 @@ emails|vendor/email_source/bin/email-bundle-tick.sh|shell
 calendar|vendor/ostler_fda/calendar.py|python
 messages|vendor/ostler_fda/imessage.py|python
 messages|vendor/ostler_fda/whatsapp_history.py|python'
-
-# Python producers whose terminal write is a FINAL done==total emit, not a
-# settling_complete / settling_skip call. Each reason is a known limit, not a
-# clean pass; see docs/setup_progress_terminal_map.md (BLOCKERS B3, B2).
-PYTHON_TERMINAL_BY_FINAL_EMIT='vendor/ostler_fda/calendar.py
-vendor/ostler_fda/imessage.py
-vendor/ostler_fda/whatsapp_history.py'
 
 # channels_from_json <file>  -> one channel per line. Exit 1 with the reason on
 # stderr if the file is missing, unparseable, empty, or lists a channel twice.
@@ -150,17 +140,22 @@ EOF
                 n=$((n+1))
             fi
         else
-            if printf '%s\n' "$PYTHON_TERMINAL_BY_FINAL_EMIT" | /usr/bin/grep -qxF "$file"; then
-                if /usr/bin/grep -q 'report_settling_progress(' "$root/$file"; then
-                    ok "$channel: $file terminal by final done==total emit (allowlisted, see map)"
-                    seen_channels+=("$channel")
-                else
-                    bad "$channel: $file no longer calls report_settling_progress; the allowlist entry is stale"
-                    n=$((n+1))
-                fi
-            else
-                bad "$channel: $file is a python writer with no allowlisted terminal write"
+            # Python writers: NO allowlist. A done==total emit is not terminal
+            # (the CM044 reader counts only explicit markers), so the file must
+            # carry BOTH markers: complete=True on the finishing emit, and a
+            # skip_reason="<code>" for a run with nothing available.
+            if ! /usr/bin/grep -q 'report_settling_progress(' "$root/$file"; then
+                bad "$channel: $file no longer calls report_settling_progress"
                 n=$((n+1))
+            elif ! /usr/bin/grep -qE 'complete=True' "$root/$file"; then
+                bad "$channel: $file has NO complete=True emit, so a finished run stays open at done==total"
+                n=$((n+1))
+            elif ! /usr/bin/grep -qE 'skip_reason="[a-z_]+"' "$root/$file"; then
+                bad "$channel: $file has NO skip_reason=\"<code>\" emit, so a run with nothing available stays open"
+                n=$((n+1))
+            else
+                ok "$channel: $file has complete=True and skip_reason=\"<code>\" emits (no allowlist)"
+                seen_channels+=("$channel")
             fi
         fi
     done <<EOF
@@ -212,6 +207,23 @@ if [ "$mut_rc" -ge 1 ] && printf '%s\n' "$mut_out" | /usr/bin/grep -q 'emails: .
     ok "self-proof: removing the emails terminal call makes this check FAIL ($mut_rc failure(s))"
 else
     bad "self-proof: the check did not FAIL on a tree with the emails terminal call removed (rc=$mut_rc)"
+fi
+
+# SELF-PROOF 3: the python writers carry no allowlist. Strip complete=True from a
+# copy of calendar.py and require a FAIL naming it.
+MUT3="$(mktemp -d)"
+mkdir -p "$MUT3/vendor/ostler_fda" "$MUT3/vendor/email_source/bin" "$MUT3/lib"
+cp "$TREE/install.sh" "$MUT3/install.sh"
+cp "$TREE/lib/settling_channels.json" "$MUT3/lib/" 2>/dev/null
+cp "$TREE/vendor/email_source/bin/email-bundle-tick.sh" "$MUT3/vendor/email_source/bin/"
+cp "$TREE/vendor/ostler_fda/"*.py "$MUT3/vendor/ostler_fda/"
+sed -e 's/complete=True/complete=False/' "$TREE/vendor/ostler_fda/calendar.py" > "$MUT3/vendor/ostler_fda/calendar.py"
+mut3_out="$(check_tree "$MUT3" 2>&1)"
+rm -rf "$MUT3"
+if printf '%s\n' "$mut3_out" | /usr/bin/grep -q 'calendar: .*NO complete=True'; then
+    ok "self-proof: stripping complete=True from calendar.py makes this check FAIL (no allowlist)"
+else
+    bad "self-proof: the check did not FAIL on a calendar.py with complete=True removed"
 fi
 
 # SELF-PROOF 2: a JSON that drops emails must make the agreement check report DISAGREE.

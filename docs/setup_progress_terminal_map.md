@@ -20,9 +20,7 @@ terminal. Shards outside the fixed set (notes, today) are listed, not counted.
 
 ## BLOCKERS
 
-**B1. The bar cannot display 100%.** `CM044/compiler/hydration.py:1087`
-`pct = max(1, min(99, pct))`. Every shard can be terminal and the bar still
-reads 99. Fix lives in CM044, not here. Not fixed in this PR.
+**B1. RESOLVED in CM044 (PR #429).** The reader no longer clamps to 99 when every fixed channel is terminal, and counts ONLY explicit markers (`complete`, `skip_reason`) as terminal. That is why every Python writer below must emit a marker: `done == total` alone reads open and holds the bar at 99.
 
 **B2. Emails has no progress writer, so it cannot advance during a walk.**
 The emails shard is written only by the hourly tick's terminal calls
@@ -32,19 +30,7 @@ Nothing writes an intermediate `done`. On a box with a backlog (Mini16:
 the backlog clears or the tick completes. The producer needs per-tick `done`
 writes from `email_source.pipeline`. Not in this PR.
 
-**B3. Windowed iMessage and WhatsApp never reach terminal.** Their final emit
-carries the *actual* `done`, not `total`:
-- `vendor/ostler_fda/imessage.py:351` `_emit_settling(done=done, total=total)`
-- `vendor/ostler_fda/whatsapp_history.py:534` `_emit_settling(done=done, total=total)`
-
-`total` is computed over **all** rows (`imessage.py:287`,
-`whatsapp_history.py:475`). Rows outside `since_days` are skipped
-(`imessage.py:316`, `whatsapp_history.py:498`) and never added to `done`. So
-any window that excludes a row leaves `done < total` for good. Reachable only
-when the window covers every row. **Not verified** which `since_days` the
-install passes for each. The fix is a product decision (exclude out-of-window
-rows from the denominator, as WhatsApp already does for dropped T1 chats at
-`whatsapp_history.py:519`), so it is not made here.
+**B3. RESOLVED here.** The final iMessage and WhatsApp emits now carry `complete=True`, so a run that finished its window is terminal even when `since_days` excluded older rows (`done < total`). Older chats are not ingested by that run; a later run that measures a larger total re-opens the shard. Proof: `tests/test_settling_writers_end_to_end.py` (a fixture with one out-of-window chat per source reads exactly 100).
 
 **B4. A later zero-count write can falsely complete a shard (found, not fixed).**
 `lib/settling_progress.sh` (`settling_report`, the non-terminal branch) sets
@@ -103,55 +89,49 @@ Skip reasons: `mail_absent`, `mail_unreadable`, `no_messages`.
 
 ### 3. calendar  (python, one producer: `vendor/ostler_fda/calendar.py`)
 
-| Write | file:line | Condition |
+| Write | Where | Condition |
 |---|---|---|
-| `_emit_settling(done=0, total=N)` | `calendar.py:319` | start; N = rows (0 if none) |
-| throttled `_emit_settling(done=i, total=N)` | `:329` | every row at `done == total` or 30 s |
-| final `_emit_settling(done=N, total=N)` | `:367` | **always** on a completed extract |
+| `skip_reason="no_calendar"` | `extract_events`, db not found | no Calendar database; raises FileNotFoundError after |
+| `skip_reason="permission_denied"` | `extract_events`, FDA refusal | raises PermissionError after |
+| `skip_reason="no_events"` | after the query | zero rows in the window |
+| `_emit_settling(done=0, total=N)` | start | N > 0 |
+| throttled `_emit_settling(done=i, total=N)` | per row | every row at `done == total` or 30 s |
+| final `_emit_settling(done=N, total=N, complete=True)` | end of extract | **terminal**, always on a completed extract with N > 0 |
 
-Terminal: `:367` sets `done == total` unconditionally. Reachable whenever the
-extract finishes. An exception between `:319` and `:367` leaves the shard open
-at `i/N`; the exception path is not guarded by a finally.
-Skip reasons: none (`total == 0` is terminal by the probe's rule, `nothing to measure`).
-Terminal form: done==total, not a `settling_complete` call (see `test_settling_denominator_terminal_writes.sh` allowlist).
+An exception between the start emit and the final leaves the shard open at `i/N`.
 
 ### 4. messages.imessage  (python: `vendor/ostler_fda/imessage.py`)
 
-| Write | file:line | Condition |
+| Write | Where | Condition |
 |---|---|---|
-| `_emit_settling(done=0, total=0, needs_source=False)` | `:296` | chat.db has no messages. Terminal by the probe rule. |
-| `_emit_settling(done=0, total=T)` | `:302` | start |
-| throttled `_emit_settling(done=d, total=T)` | `:344` | `done == total` or 30 s |
-| final `_emit_settling(done=d, total=T)` | `:351` | `d` is the in-window count. Terminal only if `d == T`. **B3.** |
-
-Skip reasons: none. The `needs_source` path is not present for iMessage (`:296` writes `False`).
+| `skip_reason="no_chat_db"` | db not found | raises FileNotFoundError after |
+| `skip_reason="permission_denied"` | FDA refusal | raises PermissionError after |
+| `skip_reason="no_messages"` | zero messages | terminal |
+| `_emit_settling(done=0, total=T)` | start | |
+| throttled `_emit_settling(done=d, total=T)` | per chat | `done == total` or 30 s |
+| final `_emit_settling(done=d, total=T, complete=True)` | end of extract | **terminal** (B3 resolved) |
 
 ### 5. messages.whatsapp  (python: `vendor/ostler_fda/whatsapp_history.py`)
 
-| Write | file:line | Condition |
+| Write | Where | Condition |
 |---|---|---|
-| `_emit_settling(done=0, total=0, needs_source=True)` | `:409` | ChatStorage.sqlite missing. **Not terminal.** Waits for the customer. |
-| `_emit_settling(done=0, total=0, needs_source=True)` | `:421` | FDA denied (PermissionError). **Not terminal.** |
-| `_emit_settling(done=0, total=0, needs_source=False)` | `:482` | DB present, no sessions. Terminal by the probe rule. |
-| `_emit_settling(done=0, total=T)` | `:486` | start |
-| throttled `_emit_settling(done=d, total=T)` | `:526` | `done == total` or 30 s |
-| final `_emit_settling(done=d, total=T)` | `:534` | `d` is in-window. Terminal only if `d == T`. **B3.** |
+| `skip_reason="whatsapp_not_installed"` | ChatStorage.sqlite missing | terminal. Was `needs_source` (waits for a customer action nobody revisits). Raises FileNotFoundError after. |
+| `skip_reason="permission_denied"` | FDA denied | terminal. Raises PermissionError after. |
+| `skip_reason="no_messages"` | DB present, no sessions | terminal |
+| `_emit_settling(done=0, total=T)` | start | |
+| throttled `_emit_settling(done=d, total=T)` | per chat | `done == total` or 30 s |
+| final `_emit_settling(done=d, total=T, complete=True)` | end of extract | **terminal** (B3 resolved) |
 
-Dropped T1 chats (`status@broadcast` et al.) are removed from `total` (`:519`),
-so they cannot hold the bar.
+Dropped T1 chats (`status@broadcast` et al.) are removed from `total`, so they cannot hold the bar.
 
-Skip reasons: none. `needs_source` is not terminal, and the probe's rule matches.
-A missing WhatsApp app does not move the bar (`total == 0`, see the reader rule
-above), but the probe marks it OPEN and FAILs on it.
+A skip is not sticky: a later run that finds work overwrites it with counts.
 
-## Shard rule the probe uses
+## Shard rule
 
-TERMINAL = `complete:true` | `skip_reason` non-empty | `total>0 and done>=total` |
-`total==0 and needs_source false`.
-
-A `needs_source:true, total:0` shard is OPEN to the probe. It is not in the bar's
-arithmetic. This is intentional: the probe asks "is the writer finished", not
-"does the bar move".
+TERMINAL = `complete:true` | `skip_reason` non-empty. Nothing else: not `done >= total`, not `total == 0`.
+`0/0` with no marker is `discovering`, which is open. The static gate
+(`tests/test_settling_denominator_terminal_writes.sh`) has no Python allowlist: each Python
+writer file must carry `complete=True` and a `skip_reason="<code>"` emit.
 
 ## Not reachable from this tree
 

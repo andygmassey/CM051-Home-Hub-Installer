@@ -110,6 +110,7 @@ def _emit_settling(
     needs_source: bool = False,
     started_at: Optional[str] = None,
     skip_reason: str = "",
+    complete: bool = False,
 ) -> None:
     """Best-effort settling-progress emit for the WhatsApp backfill.
 
@@ -125,6 +126,7 @@ def _emit_settling(
             started_at=started_at,
             shard=_SETTLING_SHARD,
             skip_reason=skip_reason,
+            complete=complete,
         )
     except Exception:  # noqa: BLE001 -- see docstring
         logger.warning(
@@ -408,7 +410,8 @@ def extract_conversations(
         # connect the source rather than showing a stalled bar. Then
         # re-raise so callers (extract_all, main) keep their existing
         # skip semantics.
-        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
+        _emit_settling(done=0, total=0, started_at=started_at,
+                       skip_reason="whatsapp_not_installed")
         raise FileNotFoundError(
             f"WhatsApp ChatStorage.sqlite not found at {db_path}. "
             "Install WhatsApp Desktop from the Mac App Store, then re-run."
@@ -420,7 +423,8 @@ def extract_conversations(
     except PermissionError:
         # FDA not granted -- from the customer's perspective the source is
         # not yet connected. Emit needs_source=True and re-raise.
-        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
+        _emit_settling(done=0, total=0, started_at=started_at,
+                       skip_reason="permission_denied")
         raise
     try:
         # Pull a minimal session row -- we resolve participants per
@@ -531,10 +535,10 @@ def extract_conversations(
 
     conn.close()
 
-    # Final emit carries the ACTUAL done. The previous version passed
-    # done=total here "belt-and-braces", which overwrote the honest count with
-    # a claim of completion on every single run.
-    _emit_settling(done=done, total=total, started_at=started_at)
+    # Final emit carries the ACTUAL done (done=total here used to overwrite the
+    # honest count with a claim of completion) AND the explicit terminal
+    # marker: the run finished its window. See imessage.py for the window note.
+    _emit_settling(done=done, total=total, started_at=started_at, complete=True)
     logger.info(
         "Extracted %d WhatsApp chats (t1_dm=%d, t2_intimate=%d, t2_active=%d, t3_skip=%d)",
         len(chats),

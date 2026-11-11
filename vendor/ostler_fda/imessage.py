@@ -179,6 +179,7 @@ def _emit_settling(
     needs_source: bool = False,
     started_at: Optional[str] = None,
     skip_reason: str = "",
+    complete: bool = False,
 ) -> None:
     """Best-effort settling-progress emit for the iMessage backfill.
 
@@ -196,6 +197,7 @@ def _emit_settling(
             started_at=started_at,
             shard=_SETTLING_SHARD,
             skip_reason=skip_reason,
+            complete=complete,
         )
     except Exception:  # noqa: BLE001 -- see docstring
         logger.warning(
@@ -230,6 +232,8 @@ def extract_conversations(
     started_at = datetime.now(timezone.utc).isoformat()
 
     if not db_path.exists():
+        _emit_settling(done=0, total=0, started_at=started_at,
+                       skip_reason="no_chat_db")
         # chat.db is a system-installed file on macOS Sequoia+, so
         # "missing" is unusual (custom test env, damaged install) rather
         # than "source not connected". needs_source stays False -- the
@@ -240,6 +244,8 @@ def extract_conversations(
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
         if is_fda_refusal(e, db_path):
+            _emit_settling(done=0, total=0, started_at=started_at,
+                           skip_reason="permission_denied")
             raise PermissionError(
                 "Cannot read iMessage history. Grant Full Disk Access."
             ) from e
@@ -347,11 +353,12 @@ def extract_conversations(
             _emit_settling(done=done, total=total, started_at=started_at)
             last_tick = now
 
-    # Final emit carries the ACTUAL done, not total. The previous version
-    # passed done=total here "belt-and-braces", which meant every run ended at
-    # 100% no matter how much of the corpus the window had excluded -- it
-    # overwrote the honest count with a claim of completion.
-    _emit_settling(done=done, total=total, started_at=started_at)
+    # Final emit carries the ACTUAL done, not total (done=total here used to
+    # overwrite the honest count with a claim of completion), AND the explicit
+    # terminal marker: the run finished its window. Out-of-window chats are
+    # not ingested by this run; the shared writer keeps `done` monotonic, and a
+    # later run that measures a larger total re-opens the shard.
+    _emit_settling(done=done, total=total, started_at=started_at, complete=True)
 
     logger.info("Extracted %d conversations from iMessage", len(conversations))
     return conversations
