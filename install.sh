@@ -33483,6 +33483,8 @@ REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
 REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler RemoteCapture"
+# Hub Settings (ostler-assistant #677) runs this at ${OSTLER_DIR}/bin, the path its default names, and the assistant plist names it too. Every answer gets it; enable refuses without an accepted consent record.
+mkdir -p "${OSTLER_DIR}/bin" && install -m 755 "${SCRIPT_DIR}/scripts/remotecapture_transcription.sh" "${OSTLER_DIR}/bin/remotecapture_transcription.sh" || warn "Could not install the spoken-transcription script; Hub Settings cannot turn transcription on"
 
 # Apple Silicon only. The Phase C release workflow only builds an
 # arm64 slice (WhisperKit + ScreenCaptureKit perform best on Apple

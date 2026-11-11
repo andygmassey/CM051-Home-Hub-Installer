@@ -27,6 +27,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'tests/test_remotecapture_enable_later_no_reinstall.sh'
+      - 'tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh'
       - 'scripts/remotecapture_transcription.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
@@ -44,6 +45,7 @@ on:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
       - 'tests/test_remotecapture_enable_later_no_reinstall.sh'
+      - 'tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh'
       - 'scripts/remotecapture_transcription.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
@@ -158,4 +160,16 @@ jobs:
           set -uo pipefail
           rc=0
           /bin/bash tests/test_remotecapture_enable_later_no_reinstall.sh || rc=$?
+          exit "$rc"
+
+      # The Hub Settings toggle (ostler-assistant #677) runs the installed copy of
+      # this script at ${OSTLER_DIR}/bin, with OSTLER_PYTHON from the assistant
+      # plist. Asserts install.sh lands it there, the rendered plist names it and
+      # a python that imports consent_cli, and status runs through that env.
+      - name: Hub Settings toggle finds the installed script through the daemon's plist
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh || rc=$?
           exit "$rc"
