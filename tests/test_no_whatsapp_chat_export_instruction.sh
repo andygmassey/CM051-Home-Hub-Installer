@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# NO CUSTOMER SURFACE TELLS ANYONE TO EXPORT A WHATSAPP CHAT (owner direction, 2026-10-25).
+# NO CUSTOMER SURFACE TELLS ANYONE TO EXPORT A WHATSAPP CHAT.
 #
-# Ostler never parsed a per-chat WhatsApp "Export chat" .txt: universal_import
-# recognises the name and has no dispatcher (recognised_no_parser). WhatsApp
-# history comes from WhatsApp Desktop's own store via Full Disk Access.
+# History comes from WhatsApp Desktop's own store via Full Disk Access. A
+# per-chat "Export chat" file that a customer drops in anyway is now
+# AUTO-PROCESSED (decided 2026-11-11, superseding the 2026-10-25 skip): the
+# watcher answers "import" and ostler_fda.whatsapp_export persists it. The
+# customer is still never told to export one.
 #
 # 1. COPY GUARD: no customer string (the installer catalogue, the GUI copy
 #    files) pairs WhatsApp with an instruction to export a chat.
 # 2. BEHAVIOUR: a "WhatsApp Chat ....txt" dropped into Downloads is answered
-#    "skip" with a plain reason that names WhatsApp Desktop, never "import".
-#    Run through the SHIPPED lib/ostler-detect-exports.sh --loose.
+#    "import", never "skip". Run through the SHIPPED lib/ostler-detect-exports.sh --loose.
 #
 # Synthetic fixtures only. THREE OUTCOMES: 0 pass, 1 fail, 2 CANNOT-RUN.
 set -u
@@ -57,7 +58,7 @@ fi
     && ok "the exports prompt says WhatsApp needs no export" \
     || bad "the exports prompt does not say WhatsApp needs no export"
 
-echo "-- 2. a dropped WhatsApp chat file is answered plainly, never imported --"
+echo "-- 2. a dropped WhatsApp chat file is answered import, never skip --"
 SB="$(mktemp -d "${TMPDIR:-/tmp}/wa-guard.XXXXXX")" || { echo "CANNOT-RUN: no scratch dir" >&2; exit 2; }
 trap 'rm -rf "$SB"' EXIT
 D="$SB/Downloads"; mkdir -p "$D"
@@ -72,17 +73,14 @@ printf '%s' "$ICS_LINE" | /usr/bin/grep -q "$(printf '\t')import" \
     || bad "control: the calendar file was not answered import: ${ICS_LINE}"
 if [ -z "$WA_LINE" ]; then
     bad "the WhatsApp chat file was not recognised at all (silent): output was: ${OUT}"
-elif printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')skip$(printf '\t')"; then
-    ok "the WhatsApp chat file is answered skip"
+elif printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')import"; then
+    ok "the WhatsApp chat file is answered import"
 else
-    bad "the WhatsApp chat file is not answered skip: ${WA_LINE}"
+    bad "the WhatsApp chat file is not answered import: ${WA_LINE}"
 fi
-printf '%s' "$WA_LINE" | /usr/bin/grep -q 'WhatsApp Desktop' \
-    && ok "the reason names WhatsApp Desktop" \
-    || bad "the reason does not name WhatsApp Desktop: ${WA_LINE}"
-printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')import" \
-    && bad "the WhatsApp chat file is still answered import" \
-    || ok "the WhatsApp chat file is never answered import"
+printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')skip" \
+    && bad "the WhatsApp chat file is still answered skip: ${WA_LINE}" \
+    || ok "the WhatsApp chat file is never answered skip"
 
 if [ "$FAIL" -eq 0 ]; then echo "PASS"; exit 0; fi
 echo "FAIL"; exit 1

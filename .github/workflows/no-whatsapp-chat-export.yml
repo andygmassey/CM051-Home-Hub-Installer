@@ -1,6 +1,6 @@
-# Owner direction, 2026-10-25: the per-chat WhatsApp "Export chat" step is removed from
-# customer surfaces. Ostler never parsed those .txt files (universal_import has
-# no dispatcher); WhatsApp history comes from WhatsApp Desktop's own store.
+# Owner direction, 2026-10-25: no customer surface tells anyone to export a chat.
+# Decision, 2026-11-11: a chat export a customer drops in is AUTO-PROCESSED
+# (watcher: import; ostler_fda.whatsapp_export -> pwg-convo). Both guards run here.
 name: no-whatsapp-chat-export
 
 on:
@@ -12,6 +12,9 @@ on:
       - 'lib/ostler-detect-exports.sh'
       - 'gui/OstlerInstaller/Resources/*.json'
       - 'tests/test_no_whatsapp_chat_export_instruction.sh'
+      - 'tests/test_whatsapp_export_autoprocess.py'
+      - 'vendor/ostler_fda/whatsapp_export.py'
+      - 'vendor/ostler_fda/universal_import.py'
       - '.github/workflows/no-whatsapp-chat-export.yml'
   pull_request:
     paths:
@@ -20,6 +23,9 @@ on:
       - 'lib/ostler-detect-exports.sh'
       - 'gui/OstlerInstaller/Resources/*.json'
       - 'tests/test_no_whatsapp_chat_export_instruction.sh'
+      - 'tests/test_whatsapp_export_autoprocess.py'
+      - 'vendor/ostler_fda/whatsapp_export.py'
+      - 'vendor/ostler_fda/universal_import.py'
       - '.github/workflows/no-whatsapp-chat-export.yml'
 
 permissions:
@@ -33,3 +39,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: No customer string tells anyone to export a WhatsApp chat
         run: /bin/bash tests/test_no_whatsapp_chat_export_instruction.sh
+      - name: A dropped WhatsApp chat export is parsed and persisted, not skipped
+        run: python3 tests/test_whatsapp_export_autoprocess.py
