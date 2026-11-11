@@ -17,10 +17,11 @@
 #   2 the embedded copy equals lib/ostler-chatgpt-handoff.sh (drift guard)
 #   3 the shipped scanner calls the helper
 #   4 scanner run: 2-conversation zip is copied, not moved; one drop folder
-#   5 producer invoked with --source chatgpt once; second run is a no-op
+#   5 the hand-off never invokes pwg-ai-convo; a second run adds nothing
 #   6 a zip without conversations.json is not handed over
 #   7 the same export twice lands in one folder
 #   8 CM052's real adapter reads the drop folder and yields 2 conversations
+#   9 a Claude.ai export (conversations.json with chat_messages) is not staged
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -111,10 +112,19 @@ with zipfile.ZipFile(work / "chatgpt-export-synthetic-copy.zip", "w") as z:
     z.writestr("conversations.json", body)
 with zipfile.ZipFile(work / "not-chatgpt.zip", "w") as z:
     z.writestr("readme.txt", b"synthetic, no conversations")
+# A Claude.ai export also carries conversations.json, but its entries have
+# chat_messages, not mapping. It must not be staged as ChatGPT.
+claude = [{"uuid": "synthetic-claude-a", "name": "Synthetic Claude A",
+           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:01:00Z",
+           "chat_messages": [{"uuid": "cm1", "sender": "human", "text": "synthetic question"},
+                             {"uuid": "cm2", "sender": "assistant", "text": "synthetic reply"}]}]
+with zipfile.ZipFile(work / "claude-export-synthetic.zip", "w") as z:
+    z.writestr("conversations.json", json.dumps(claude).encode())
+    z.writestr("users.json", b"[]")
 PY
 [ $? -eq 0 ] || cannot "could not build synthetic zips"
 DL="${FH}/Downloads"
-mv "${WORK}/chatgpt-export-synthetic.zip" "${WORK}/not-chatgpt.zip" "$DL/"
+mv "${WORK}/chatgpt-export-synthetic.zip" "${WORK}/not-chatgpt.zip" "${WORK}/claude-export-synthetic.zip" "$DL/"
 cp "${WORK}/chatgpt-export-synthetic-copy.zip" "$DL/"
 # Age them: the helper leaves a zip modified in the last 120s for the next tick.
 touch -t 202001010000 "$DL"/*.zip
@@ -151,20 +161,20 @@ else
     bad "the user's zip was moved or changed"
 fi
 
-# --- 5. producer once with --source chatgpt; second run is a no-op ------------
-if [ -f "${WORK}/producer-calls.log" ] && [ "$(grep -c -- '--source chatgpt --json' "${WORK}/producer-calls.log")" = "1" ] \
-   && [ -f "$(find "$DROP" -mindepth 2 -maxdepth 2 -name .ingested 2>/dev/null | head -1)" ]; then
-    ok "pwg-ai-convo ran once with --source chatgpt --json and marked the folder ingested"
+# --- 5. the hand-off never invokes pwg-ai-convo; a second run adds nothing ----
+# The aiconv agent drains the drop folder with the right env (L3/L2 privacy).
+# A direct producer call from here runs without CM052_USER_EMAIL and exits 2.
+if [ ! -e "${WORK}/producer-calls.log" ]; then
+    ok "the hand-off never invoked pwg-ai-convo (the aiconv agent drains the drop folder)"
 else
-    bad "producer not run once with --source chatgpt --json, or no .ingested marker"
+    bad "the hand-off invoked pwg-ai-convo directly: $(head -1 "${WORK}/producer-calls.log" | cut -c1-200)"
 fi
 HOME="$FH" PATH="${WORK}/stubs:${PATH}" bash "${FH}/.ostler/bin/ostler-scan-exports" >/dev/null 2>&1
-CALLS="$(wc -l < "${WORK}/producer-calls.log" 2>/dev/null | tr -d ' ')"
 DROPPED2=$(find "$DROP" -mindepth 1 -maxdepth 1 -type d -name 'chatgpt-*' 2>/dev/null | wc -l | tr -d ' ')
-if [ "$CALLS" = "1" ] && [ "$DROPPED2" = "1" ]; then
-    ok "second run: no new folder, no second producer call (idempotent)"
+if [ "$DROPPED2" = "1" ] && [ ! -e "${WORK}/producer-calls.log" ]; then
+    ok "second run: no new folder, still no producer call (idempotent)"
 else
-    bad "second run not idempotent: producer calls=${CALLS}, folders=${DROPPED2}"
+    bad "second run not idempotent: folders=${DROPPED2}, producer called=$([ -e "${WORK}/producer-calls.log" ] && echo yes || echo no)"
 fi
 
 # --- 6. a zip without conversations.json is not handed over -------------------
@@ -205,6 +215,17 @@ elif printf '%s' "$ADAPTER_OUT" | grep -qx 'CONVERSATIONS 2'; then
     ok "CM052's chatgpt adapter reads the drop folder and yields 2 conversations"
 else
     bad "CM052's chatgpt adapter yielded: $(printf '%s' "$ADAPTER_OUT" | tail -1 | cut -c1-200)"
+fi
+
+# --- 9. a Claude.ai export is not staged as ChatGPT ---------------------------
+# The Claude-shaped zip is in Downloads with a different hash. Only the ChatGPT
+# export may reach the drop folder, so the folder count stays at 1 and no
+# drop folder holds the Claude conversations.
+CLAUDE_IN_DROP=$(grep -rl 'synthetic-claude-a' "$DROP" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CLAUDE_IN_DROP" = "0" ] && [ "$DROPPED" = "1" ]; then
+    ok "the Claude.ai export (chat_messages) was not staged; only the ChatGPT export was"
+else
+    bad "Claude.ai export reached the drop folder (files=${CLAUDE_IN_DROP}, folders=${DROPPED})"
 fi
 
 echo ""

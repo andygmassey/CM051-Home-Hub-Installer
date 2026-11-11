@@ -44199,13 +44199,17 @@ fi
 mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true
 cat > "${OSTLER_DIR}/lib/ostler-chatgpt-handoff.sh" <<'OSTLER_CHATGPT_HANDOFF_EOF'
 #!/usr/bin/env bash
-# ChatGPT export hand-off: Downloads -> CM052's drop folder.
+# ChatGPT export hand-off: Downloads -> CM052's drop folder. STAGING ONLY.
 #
 # A ChatGPT export is a .zip whose root holds conversations.json. The Downloads
 # detector recognises no signature for it, and CM052's adapter cannot read a
 # zip, so before this file the export was unzipped and then ignored. This copies
-# conversations.json into CM052's drop folder, where pwg-ai-convo's chatgpt
-# adapter reads it, then runs the producer once for the new folders.
+# conversations.json into CM052's drop folder, where the aiconv agent drains it.
+# This file never runs pwg-ai-convo: a direct call has no CM052_USER_EMAIL, exits
+# 2, and skips the L3/L2 privacy env the aiconv agent sets.
+#
+# Only ChatGPT exports are staged. A Claude.ai export also carries
+# conversations.json, but its entries have "chat_messages", not "mapping".
 #
 # Usage: ostler-chatgpt-handoff.sh <downloads-dir>
 # stdout is counts only: never a file name, never transcript text. The user's
@@ -44219,10 +44223,8 @@ set -uo pipefail
 
 DIR="${1:-}"
 [[ -n "$DIR" && -d "$DIR" ]] || { echo "chatgpt-handoff: no downloads folder" >&2; exit 1; }
-OSTLER_HOME_DIR="${OSTLER_DIR:-${HOME}/.ostler}"
 # Same default CM052 reads (adapters/chatgpt_export.py _DEFAULT_DROP_FOLDER).
 DROP="${OSTLER_CHATGPT_IMPORT_DIR:-${HOME}/Documents/Ostler/imports/chatgpt}"
-PRODUCER="${OSTLER_HOME_DIR}/services/cm052/.venv/bin/pwg-ai-convo"
 # A zip modified this recently may still be downloading: leave it for next tick.
 STALE_S=120
 
@@ -44242,6 +44244,11 @@ while IFS= read -r -d '' z; do
     if ! unzip -p "$z" "$member" > "${stage}/conversations.json" 2>/dev/null || [[ ! -s "${stage}/conversations.json" ]]; then
         rm -rf "$stage"; failed=$((failed + 1)); continue
     fi
+    # ChatGPT shape only: a "mapping" key and no Claude.ai "chat_messages" key.
+    # Escaped quotes inside message text cannot match these key patterns.
+    if ! grep -q '"mapping":' "${stage}/conversations.json" || grep -q '"chat_messages":' "${stage}/conversations.json"; then
+        rm -rf "$stage"; not_chatgpt=$((not_chatgpt + 1)); continue
+    fi
     h="$(shasum -a 256 "${stage}/conversations.json" 2>/dev/null | cut -c1-16)"
     if [[ -z "$h" ]]; then rm -rf "$stage"; failed=$((failed + 1)); continue; fi
     dest="${DROP}/chatgpt-${h}"
@@ -44254,29 +44261,8 @@ while IFS= read -r -d '' z; do
     fi
 done < <(find "$DIR" -mindepth 1 -maxdepth 1 -type f -name '*.zip' -print0)
 
-# Ingest: one producer run covers every folder that has no .ingested marker.
-# The marker is written only on producer success, so a failed run is retried.
-pending=0
-for d in "${DROP}"/chatgpt-*/; do
-    [[ -d "$d" && ! -f "${d}.ingested" ]] && pending=$((pending + 1))
-done
-ingest="none"
-if (( pending > 0 )); then
-    if [[ -x "$PRODUCER" ]]; then
-        ingest_json="$("$PRODUCER" --source chatgpt --json)"; ingest_rc=$?
-        if [[ "$ingest_rc" -eq 0 ]]; then
-            for d in "${DROP}"/chatgpt-*/; do [[ -d "$d" ]] && : > "${d}.ingested"; done
-            ingest="ok ${ingest_json}"
-        else
-            ingest="failed rc=${ingest_rc}"
-        fi
-    else
-        ingest="producer_missing"
-    fi
-fi
-
-printf 'chatgpt-handoff: staged=%s already_in_drop=%s waiting=%s not_chatgpt=%s failed=%s pending_ingest=%s ingest=%s\n' \
-    "$staged" "$present" "$waiting" "$not_chatgpt" "$failed" "$pending" "$ingest"
+printf 'chatgpt-handoff: staged=%s already_in_drop=%s waiting=%s not_chatgpt=%s failed=%s\n' \
+    "$staged" "$present" "$waiting" "$not_chatgpt" "$failed"
 exit 0
 OSTLER_CHATGPT_HANDOFF_EOF
 chmod +x "${OSTLER_DIR}/lib/ostler-chatgpt-handoff.sh" 2>/dev/null || true
