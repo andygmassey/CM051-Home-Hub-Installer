@@ -19643,7 +19643,7 @@ PY
     else
         warn "$MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED"
     fi
-    unset _enrich_decision_file
+    unset _enrich_decision_file; OSTLER_HOME="${OSTLER_DIR}" "$OSTLER_PYTHON" -m ostler_security.consent_cli publish-wording 2>>"${OSTLER_DIR}/posture/consent-cli-failures.log" || true  # the app refuses capture when this file is absent
 
     ok "$MSG_OK_CONSENT_RECORDS_REGION_PERSISTED_OSTLER_POSTURE"
 fi
