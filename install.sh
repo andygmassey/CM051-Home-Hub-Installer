@@ -91,7 +91,7 @@ NO_EXTENSIONS=false
 #
 # A closed loop with no exit for a week, in which the product repeatedly
 # instructs the customer to pull a lever that is not connected to anything.
-# Three more sites treat the flag as real in prose: install.sh:33738,
+# Three more sites treat the flag as real in prose: install.sh:33768,
 # vendor/doctor/agent/imessage_tcc_posture.py:23, and
 # vendor/doctor/agent/reminders_posture.py:28 ("refreshed on each --repair
 # run"). It refreshed nothing.
@@ -290,7 +290,7 @@ _ostler_persist_diagnostics() {
 #
 # 🔴 ONLY FOR CALL SITES THAT DISCARD THE RESULT. This returns 0 immediately,
 # always. Do NOT route a site whose exit code chooses a customer-visible
-# branch through this -- install.sh:34294 picks ok/warn from the exit status of
+# branch through this -- install.sh:34324 picks ok/warn from the exit status of
 # its kickstart, and backgrounding it would report "started" for a daemon that
 # never started. Lying to the customer is worse than stalling them. That site
 # needs a three-state bounded variant and is deliberately NOT converted here.
@@ -14376,7 +14376,7 @@ if ! [[ "$TOTAL_STEPS" =~ ^[0-9]+$ ]] || [[ "$TOTAL_STEPS" -le 0 ]]; then
     # exists as the thing that holds when nobody updates this by hand.
     #
     # ⚠️ AND CORRECTING IT DOES NOT MAKE THIS BRANCH RIGHT. The six mid-run
-    # decrements at :30784-:31408 and :39023 subtract from whatever this sets,
+    # decrements at :30814-:31438 and :39053 subtract from whatever this sets,
     # so a fallback seed still ends up below the number of steps that actually
     # run. That is why progress() now CLAMPS (see the note there): the clamp is
     # the thing that holds when this constant next drifts, and it will.
@@ -14417,7 +14417,7 @@ progress() {
     #
     # WHY IT MATTERS, and it is not only the number. TOTAL_STEPS is seeded by
     # counting `progress "` lines in BASH_SOURCE, then DECREMENTED at seven
-    # sites (:14358 + six mid-run at :30784-:31408 + :39023). If the seed
+    # sites (:14358 + six mid-run at :30814-:31438 + :39053). If the seed
     # overshoots -- which the fallback at :14391 does by construction, since
     # it hardcodes 38 and the mid-run decrements then subtract from THAT --
     # CURRENT_STEP can exceed TOTAL_STEPS and PCT goes above 100.
@@ -23302,9 +23302,9 @@ STATE_DIR="${OSTLER_DIR}/state"
 # 🔴 THE DEFECT THIS REPLACES. Three sites wrote customer-derived
 # artefacts to a FIXED, world-readable /tmp path:
 #
-#   install.sh:35866  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:38489  (was) --output /tmp/ostler-dedupe-report.yaml
-#   install.sh:42414  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
+#   install.sh:35896  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:38519  (was) --output /tmp/ostler-dedupe-report.yaml
+#   install.sh:42444  (was) mktemp ... || _AICONV_OUT=/tmp/ostler-aiconv-summary.json
 #
 # /private/tmp is drwxrwxrwt. The sticky bit stops another account
 # DELETING the file; it does nothing about READING it. At the default
@@ -28661,9 +28661,9 @@ _u_emit UNINSTALL_PHASE "name=launchagents"
 #   2026-08-08  ollama-logrotate + meeting-brief-sender: written, never
 #               torn down at all. Found loaded on the .208 box-walk.
 #   2026-08-15  stay-awake + aiconv-resume: booted out, plist never removed.
-#   2026-08-15  tailscaled: written at install.sh:34254, absent from both
+#   2026-08-15  tailscaled: written at install.sh:34284, absent from both
 #               walls. Its only bootout is the install-time restart at
-#               install.sh:34294, which is not a teardown.
+#               install.sh:34324, which is not a teardown.
 #
 # THE FILE IS THE HALF THAT MATTERS. `launchctl bootout` unloads a job from
 # the current login session and does not touch the disk. launchd rescans
@@ -28756,7 +28756,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
 # ANDY, 2026-09-24: "The Uninstaller should wipe all this shit." The list
 # above is hand-maintained and it is STRUCTURALLY BLIND to one whole class:
 # an agent installed by VENDORED code rather than by install.sh writing the
-# plist itself. install.sh:41370 copies context-refresh/ and runs its
+# plist itself. install.sh:41400 copies context-refresh/ and runs its
 # INSTALL_SNIPPET.sh, and that snippet writes
 # com.creativemachines.ostler.context-refresh. A list derived from reading
 # install.sh can never contain it.
@@ -29144,7 +29144,7 @@ fi
 
 # ── Ostler Safari Extension.app ────────────────────────────────
 _u_emit UNINSTALL_PHASE "name=safari_extension"
-# install.sh:42043 moves SafariHistoryExt.app to this name, so it is OUR
+# install.sh:42073 moves SafariHistoryExt.app to this name, so it is OUR
 # bundle and the customer never chose it. It was in NEITHER half of the
 # contract printed above -- not in "This will remove", not in "This will
 # NOT remove" -- so an uninstall left a branded app in /Applications and
@@ -32887,11 +32887,11 @@ else
                 #
                 # WHY IT WAS WORSE THAN A WRONG LOG LINE. One invented boolean drove
                 # THREE customer-facing branches, all of them the wrong way:
-                #   :32837  suppressed `open -R` -- no Finder window, so the drag-in
+                #   :32867  suppressed `open -R` -- no Finder window, so the drag-in
                 #           route was never offered
-                #   :32853  printed "already listed" at a customer looking at a list
+                #   :32883  printed "already listed" at a customer looking at a list
                 #           that did not contain it
-                #   :32883  dropped LINE3, the drag instruction, from the modal
+                #   :32913  dropped LINE3, the drag instruction, from the modal
                 # The one route that might have worked was withheld BECAUSE the code
                 # had convinced itself the customer did not need it.
                 #
@@ -35856,7 +35856,7 @@ _hydrate_collection_has_rows() {
 # name before reporting a reason.
 #
 # 🔴 READ THE HTTP STATUS, NEVER `tr -dc '0-9'` ON THE BODY. _guard_email_coverage
-# (~:36332) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
+# (~:36362) pipes the CSV through `tr -dc '0-9' || true` and defaults the result
 # to 0, so a refused connection and a graph holding nothing are byte-identical
 # to it. Harmless there -- it only suppresses a warning -- and fatal here.
 #
@@ -44046,7 +44046,7 @@ fi
 # session with 43+ real errors." I went to fix that line and found the filing
 # is PARTLY A MISREADING, so the fix is not what the row asked for.
 #
-# The string at :41681 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
+# The string at :41711 is MSG_OK_OSTLER_ASSISTANT_DOCTOR_NO_ERRORS_DETECTED.
 # It was "ostler-assistant doctor: no errors detected". It is SCOPED, TRUE,
 # and it is about the assistant doctor's own output -- it counts the
 # doctor's own error markers, nothing else. Rewriting a truthful line
@@ -44076,12 +44076,12 @@ fi
 #
 # PLACEMENT IS LEAD, NOT STYLE. It goes ABOVE `gui_done ok`, which is where
 # @TNM measured the boundary: `gui_done ok` is unconditional, and everything
-# below :43949 is documented post-success cosmetics. A verdict printed after
+# below :43979 is documented post-success cosmetics. A verdict printed after
 # the GUI has flipped to success can describe a problem but cannot stop the
 # customer being told it worked.
 #
 # BRACE-AND-DEFAULT EVERY EXPANSION. @TNM's constraint, and it is a
-# correctness property here rather than a style note: :43356 documents that
+# correctness property here rather than a style note: :43386 documents that
 # everything from there to `gui_done ok` runs with `set -u` SUPPRESSED
 # (CX-123/#643), so an unset variable in this block will NOT abort -- it will
 # expand to nothing and silently produce a wrong sentence. Which would be this
