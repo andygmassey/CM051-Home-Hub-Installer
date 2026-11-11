@@ -439,7 +439,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="无法将你的后台扩充选择保
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="数据库已加密。Hub 服务会从你个人文件夹中的受保护文件读取密钥，因此启动时无需向你询问。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="内部记录密钥已设置。Hub 服务从你主文件夹中的受保护文件读取密钥，因此无需提示即可启动。"
 MSG_OK_DB_KEY_DELIVERED="数据库密钥已交付给 Hub 服务（%s，仅你本人可读）。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="无法将数据库密钥交给 Hub 服务。在问题解决之前，它们将以未加密方式打开数据库。"
 MSG_INFO_DB_KEY_RECOVER_HINT="运行以下命令以恢复密钥并交付：%s/.venv/bin/ostler-unlock --install-key-file"

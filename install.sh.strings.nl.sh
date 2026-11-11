@@ -441,7 +441,7 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Je keuze voor verrijking op de achte
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases versleuteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, zodat ze starten zonder iets te vragen."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, dus ze starten zonder dat je iets hoeft in te voeren."
 MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd (%s, alleen door jou leesbaar)."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Kon de databasesleutel niet aan de Hub-services doorgeven. Ze openen databases onversleuteld totdat dit is opgelost."
 MSG_INFO_DB_KEY_RECOVER_HINT="Voer dit uit om hem te herstellen en door te geven: %s/.venv/bin/ostler-unlock --install-key-file"
