@@ -7,9 +7,20 @@
 # and never finishes it silently holds the bar below 100% for good; this test
 # turns that into a red CI run instead.
 #
+# THE ONE LIST. The fixed channel set (the bar's denominator) is
+# lib/settling_channels.json. It is the only list of channels in CM051. CM044's
+# compiler/hydration.py reads the same file at runtime (installed to
+# ~/.ostler/state/settling_channels.json by install.sh). This gate reads it too,
+# and fails when the writer MANIFEST below names a different set of channels.
+#
 # The map of sources, their terminal writes and their skip reasons is
 # docs/setup_progress_terminal_map.md. This test enforces the part of it that
 # can be checked by reading code:
+#
+#   0.  ONE LIST. lib/settling_channels.json parses.
+#   0b. AGREEMENT. The channels in the JSON are exactly the channels in MANIFEST
+#       below, in both directions. A disagreement is reported as DISAGREE.
+#   5.  INSTALLED. install.sh copies the JSON to the state dir CM044 reads.
 #
 #   1. DISCOVERY. Every file in the tree that calls a settling writer
 #      (shell: settling_report / settling_report_measured / settling_complete /
@@ -30,8 +41,9 @@
 #      writer.
 #
 # SELF-PROOF. The test runs its own check against a mutated copy of the email
-# tick (the terminal call removed) and must see it FAIL. A check that cannot
-# fail is not a check.
+# tick (the terminal call removed) and must see it FAIL. It also runs against a
+# copy whose JSON drops emails and must see DISAGREE. A check that cannot fail
+# is not a check.
 #
 # Usage:
 #   bash tests/test_settling_denominator_terminal_writes.sh
@@ -63,10 +75,46 @@ PYTHON_TERMINAL_BY_FINAL_EMIT='vendor/ostler_fda/calendar.py
 vendor/ostler_fda/imessage.py
 vendor/ostler_fda/whatsapp_history.py'
 
+# channels_from_json <file>  -> one channel per line. Exit 1 with the reason on
+# stderr if the file is missing, unparseable, empty, or lists a channel twice.
+channels_from_json() {
+    python3 -I -c '
+import json, sys
+try:
+    chans = json.load(open(sys.argv[1], encoding="utf-8"))["channels"]
+    assert isinstance(chans, list) and chans, "no channels list"
+    assert all(isinstance(c, str) and c.strip() for c in chans), "non-string channel"
+    assert len(set(chans)) == len(chans), "channel listed twice"
+except Exception as exc:
+    sys.stderr.write("unusable %s: %s: %s\n" % (sys.argv[1], type(exc).__name__, exc))
+    sys.exit(1)
+print("\n".join(chans))
+' "$1"
+}
+
 # check_tree <root>  -> prints PASS/FAIL lines, returns number of failures
 check_tree() {
     local root="$1" n=0 line channel file kind
     local -a seen_channels=()
+    local json_channels=""
+
+    # 0. ONE LIST: the fixed channel set comes from the JSON file.
+    if json_channels="$(channels_from_json "$root/lib/settling_channels.json")"; then
+        ok "fixed channel set: $(printf '%s' "$json_channels" | tr '\n' ' ')"
+    else
+        bad "lib/settling_channels.json is missing or unusable in $root; the fixed channel set has no source"
+        n=$((n+1)); json_channels=""
+    fi
+
+    # 0b. AGREEMENT: the JSON and the writer MANIFEST name the same channels.
+    local manifest_channels
+    manifest_channels="$(printf '%s\n' "$MANIFEST" | cut -d'|' -f1 | sort -u)"
+    if [ "$(printf '%s\n' "$json_channels" | sort -u)" = "$manifest_channels" ]; then
+        ok "DISAGREE check: lib/settling_channels.json and the writer MANIFEST name the same channels"
+    else
+        bad "DISAGREE: lib/settling_channels.json names [$(printf '%s' "$json_channels" | tr '\n' ' ')] but the writer MANIFEST names [$(printf '%s' "$manifest_channels" | tr '\n' ' ')]"
+        n=$((n+1))
+    fi
 
     # 1. DISCOVERY: every writer call site must be in the manifest.
     local found
@@ -119,15 +167,26 @@ EOF
 $MANIFEST
 EOF
 
-    # 3. EVERY CHANNEL has at least one terminal writer.
+    # 3. EVERY CHANNEL in the ONE LIST has at least one terminal writer.
     local ch
-    for ch in $(printf '%s\n' "$MANIFEST" | cut -d'|' -f1 | sort -u); do
+    while IFS= read -r ch; do
+        [ -n "$ch" ] || continue
         if printf '%s\n' "${seen_channels[@]:-}" | /usr/bin/grep -qxF "$ch"; then
             ok "channel $ch has a terminal writer"
         else
             bad "channel $ch has NO terminal writer"; n=$((n+1))
         fi
-    done
+    done <<LIST_EOF
+$json_channels
+LIST_EOF
+
+    # 5. INSTALLED: install.sh copies the JSON to the state dir CM044 reads.
+    if /usr/bin/grep -qF 'lib/settling_channels.json" "${HOME}/.ostler/state/"' "$root/install.sh" 2>/dev/null; then
+        ok "install.sh installs settling_channels.json to ~/.ostler/state"
+    else
+        bad "install.sh does not install lib/settling_channels.json to ~/.ostler/state; CM044 falls back to its built-in copy"
+        n=$((n+1))
+    fi
 
     return "$n"
 }
@@ -140,7 +199,8 @@ rc_real=$?
 
 # SELF-PROOF: remove the emails terminal call from a copy and require a FAIL.
 MUT="$(mktemp -d)"
-trap 'rm -rf "$MUT"' EXIT
+MUT2="$(mktemp -d)"
+trap 'rm -rf "$MUT" "$MUT2"' EXIT
 mkdir -p "$MUT/vendor/email_source/bin" "$MUT/vendor/ostler_fda"
 cp "$TREE/install.sh" "$MUT/install.sh"
 cp "$TREE/vendor/ostler_fda/"*.py "$MUT/vendor/ostler_fda/"
@@ -152,6 +212,16 @@ if [ "$mut_rc" -ge 1 ] && printf '%s\n' "$mut_out" | /usr/bin/grep -q 'emails: .
     ok "self-proof: removing the emails terminal call makes this check FAIL ($mut_rc failure(s))"
 else
     bad "self-proof: the check did not FAIL on a tree with the emails terminal call removed (rc=$mut_rc)"
+fi
+
+# SELF-PROOF 2: a JSON that drops emails must make the agreement check report DISAGREE.
+mkdir -p "$MUT2/lib"
+printf '%s\n' '{"schema": 1, "channels": ["contacts", "calendar", "messages"]}' > "$MUT2/lib/settling_channels.json"
+mut2_out="$(check_tree "$MUT2" 2>&1)"
+if printf '%s\n' "$mut2_out" | /usr/bin/grep -q 'DISAGREE:'; then
+    ok "self-proof: a JSON that drops emails makes the agreement check report DISAGREE"
+else
+    bad "self-proof: the agreement check did not report DISAGREE on a JSON that drops emails"
 fi
 
 if /usr/bin/grep -q 'test_settling_denominator_terminal_writes.sh' "$WORKFLOW"; then

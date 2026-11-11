@@ -10409,7 +10409,7 @@ fi
 # the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
 # promote, so it is the only spelling correct on both sides of the move.
 # Guarded by tests/test_prelaunch_libs_survive_promote.sh.
-mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ] && cp "${SCRIPT_DIR}/lib/settling_progress.sh" "${OSTLER_DIR}/lib/" 2>/dev/null || true
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ] && cp "${SCRIPT_DIR}/lib/settling_progress.sh" "${OSTLER_DIR}/lib/" 2>/dev/null || true ; mkdir -p "${HOME}/.ostler/state" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_channels.json" ] && cp "${SCRIPT_DIR}/lib/settling_channels.json" "${HOME}/.ostler/state/" 2>/dev/null || true
 cat > "${OSTLER_DIR}/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
 #!/usr/bin/env bash
 # Bulletproof GDPR-export detection for Ostler's import.

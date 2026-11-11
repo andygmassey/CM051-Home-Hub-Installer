@@ -5,11 +5,18 @@ every terminal write with its file:line, the condition that fires it, and the
 skip reasons. Measured by reading code at `38c8cf21` (+ this PR). Line numbers
 are for that tree.
 
-The denominator is `state/settling_progress.d/*.json`, read by CM044
-`compiler/hydration.py` (`_read_progress_shards` :870, `_coerce_channel` :977,
-`settling_progress` :1032). The reader sums `done` and `total` **only over
-shards with `total > 0`**. A shard with `total == 0` cannot hold the bar down.
-A shard with `total > 0` and `done < total` does.
+The fixed channel set (the bar's denominator) is `lib/settling_channels.json`,
+installed to `~/.ostler/state/settling_channels.json`. It is the only list of
+channels in CM051. CM044 `compiler/hydration.py` reads the same file at runtime,
+and `tests/test_settling_denominator_terminal_writes.sh` fails with DISAGREE if
+the file and the writer MANIFEST name different channels.
+
+The bar is the MEAN of per-channel fractions over that fixed set. A channel
+with no shard counts as open at 0. A terminal channel counts as 1. Any other
+channel counts as `max(running max, done/total)`, so the bar never falls when a
+total grows. The running max is persisted in `~/.ostler/state/settling_bar.json`
+and resets only on a fresh install. 100 only when every fixed channel is
+terminal. Shards outside the fixed set (notes, today) are listed, not counted.
 
 ## BLOCKERS
 
