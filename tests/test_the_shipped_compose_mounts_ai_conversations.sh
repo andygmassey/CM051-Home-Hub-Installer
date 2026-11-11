@@ -14,7 +14,7 @@
 # CM044's compose would pass today for the same reason the last two did.
 #
 # The customer consequence: compiler/pages/ai_conversation_pages.py falls back
-# to expanduser of ~/Documents/Ostler/AI Conversations, which inside a
+# to expanduser of ~/Ostler/AI Conversations, which inside a
 # container with no HOME resolves to /root/... , never exists, and so takes
 # its graceful episodic-store-not-present branch and writes an empty-state
 # page. install.sh's own test_ai_conversations_leg_wired.sh proves the WRITER
@@ -84,7 +84,7 @@ echo "ARM 4: install.sh creates the host tree BEFORE compose can bind it"
 # Docker creates a missing bind source itself, owned by root, and the hourly
 # writer leg runs as the customer. A root-owned directory in the visible zone
 # is worse than the empty page this fixes.
-[ "$(grep -c 'mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/AI Conversations}"' "$INSTALL" || true)" -gt 0 ] \
+[ "$(grep -c 'mkdir -p "${OSTLER_AI_CONVERSATIONS_DIR:-${HOME}/Ostler/AI Conversations}"' "$INSTALL" || true)" -gt 0 ] \
     && ok "(4) the tree is created, so Docker cannot leave a root-owned one" \
     || no "(4) nothing creates the bind source before the mount"
 

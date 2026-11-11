@@ -48,7 +48,7 @@ namespace: every subject IRI starts `https://schema.ostler.ai/ontology#ownerscor
 (people as `pwg:Person` in the default graph, facts as `urn:ostler:Fact` in the
 owner's `urn:ostler:user/<USER_ID>` graph, the shapes the product writes and its
 readers scope to), and conversations are folders marked `owner_score_seed: true`
-under `~/Documents/Ostler/Conversations/<date>/`. `purge` deletes that prefix in
+under `~/Ostler/Conversations/<date>/`. `purge` deletes that prefix in
 every graph and the marked folders, nothing else; `count` and the seed/purge
 output print before/after counts, and the store total returns to its starting
 value. It refuses on a box not declared synthetic (persona CONTEXT.md in place or

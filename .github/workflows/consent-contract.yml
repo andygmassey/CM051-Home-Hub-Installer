@@ -26,6 +26,9 @@ on:
       - 'tests/test_recording_consent_fields_have_a_producer_and_a_consumer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
+      - 'tests/test_remotecapture_enable_later_no_reinstall.sh'
+      - 'tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh'
+      - 'scripts/remotecapture_transcription.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
       - 'tests/test_the_consent_rules_table_is_safe.py'
@@ -41,6 +44,9 @@ on:
       - 'tests/test_recording_consent_fields_have_a_producer_and_a_consumer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
+      - 'tests/test_remotecapture_enable_later_no_reinstall.sh'
+      - 'tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh'
+      - 'scripts/remotecapture_transcription.sh'
       - 'lib/progress_emitter.sh'
       - '.github/workflows/consent-contract.yml'
       - 'tests/test_the_consent_rules_table_is_safe.py'
@@ -134,13 +140,36 @@ jobs:
       # becomes unreachable code -- the class cannot-run-branch-reachable exists
       # to catch. A harness that could not read the phase has measured NOTHING
       # about it, and that is not a pass.
-      - name: a declined recording consent stops the capture companion being installed
+      - name: a declined recording consent stages the capture companion disabled, never live
         if: always()
         run: |
           set -uo pipefail
           rc=0
           /bin/bash tests/test_recording_consent_gates_the_capture_companion.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
-            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent stops it. This is not a pass."
+            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent leaves it disabled. This is not a pass."
           fi
+          exit "$rc"
+
+      # Turning transcription on later must not need a reinstall. The installer
+      # stages the app and a disabled plist for every answer; the enable script
+      # is the in-place path, and it must refuse without an accepted record.
+      - name: transcription enabled later in place, no reinstall, refused without consent
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_remotecapture_enable_later_no_reinstall.sh || rc=$?
+          exit "$rc"
+
+      # The Hub Settings toggle (ostler-assistant #677) runs the installed copy of
+      # this script at ${OSTLER_DIR}/bin, with OSTLER_PYTHON from the assistant
+      # plist. Asserts install.sh lands it there, the rendered plist names it and
+      # a python that imports consent_cli, and status runs through that env.
+      - name: Hub Settings toggle finds the installed script through the daemon's plist
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh || rc=$?
           exit "$rc"

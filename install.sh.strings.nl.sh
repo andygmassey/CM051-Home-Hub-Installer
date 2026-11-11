@@ -85,12 +85,12 @@ MSG_INFO_CLONED="  Gekloond naar %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture werkt alleen op Apple Silicon. Installatie op deze machine wordt overgeslagen."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture-logbestanden: %s/ostler-remotecapture.log (en .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Een eerdere installatie liet Ostler RemoteCapture bij het inloggen starten. Dit is gestopt en start niet meer."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture is niet geïnstalleerd: je hebt ervoor gekozen gesproken transcriptie uit te laten. Zet het aan in Instellingen en voer het installatieprogramma opnieuw uit als je van gedachten verandert."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture blijft uit totdat je gesproken transcriptie aanzet: je hebt ervoor gekozen het voorlopig uit te laten. Je kunt het op elk moment aanzetten in de Instellingen van Ostler of in RemoteCapture. Opnieuw installeren is niet nodig."
 MSG_INFO_CM042_TCC_PRE_PROMPT="Bij de eerste start vraagt Ostler RemoteCapture macOS om toestemming voor Schermopname en Microfoon. Geef beide, zodat gesprekken en vergaderingen lokaal getranscribeerd kunnen worden. Er verschijnt geen paarse opname-indicator in je menubalk, want audio wordt bewust ongemerkt opgevangen."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Bij de eerste start vraagt Ostler RemoteCapture m
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens onder Documenten/Ostler, op deze Mac. Ze zijn van jou en blijven op deze machine. Om ze te schrijven heeft Ostler toegang nodig tot je map Documenten, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw, wanneer Ostler je wiki voor het eerst ordent. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op OK wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen. Vanaf dan worden je wiki en gespreksgegevens geschreven."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens in de map Ostler in je thuismap (~/Ostler), op deze Mac. Ze zijn van jou en blijven op deze machine. De map staat bewust buiten Documenten, dus iCloud Drive uploadt hem niet. Ostler kan toch toegang nodig hebben tot je map Documenten, bijvoorbeeld om daar opgeslagen gegevensexports te zoeken, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op OK wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Je Ostler-map is verplaatst van %s naar %s, zodat de iCloud Drive-synchronisatie van Bureaublad en Documenten er niet meer bij kan."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="De iCloud Drive-synchronisatie van Bureaublad en Documenten staat aan op deze Mac, dus eerdere kopieën van je Ostler-bestanden staan mogelijk al in iCloud Drive. Ostler heeft ze niet verwijderd. Om ze te verwijderen open je iCloud Drive in de Finder, open je Documenten en verwijder je daar de map Ostler."
+MSG_WARN_USER_ROOT_NOT_MOVED="Je eerdere Ostler-map %s is op zijn plaats gelaten, omdat hij niet naar %s kon worden verplaatst. Die map bestaat al of het verplaatsen is mislukt. Er is niets verwijderd. Ostler gebruikt nu de nieuwe map: verplaats je bestanden zelf als je ze daar wilt hebben."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Geheugenengine voor gesprekken geïnstalleerd in venv."
 MSG_INFO_HUB_APP_VERIFYING="Ostler.app controleren op %s"
 MSG_INFO_HUB_APP_STAGING="Ostler.app vanuit %s in /Applications plaatsen"
@@ -302,7 +307,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Regio: Verenigde Staten (bron: %s)"
 MSG_INFO_REPO_URL="Repo-URL: %s"
 MSG_INFO_REPO_URL_2="Repo-URL: %s"
 MSG_INFO_REPO_URL_3="Repo-URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Kies nu de wachtzin waarmee je je Hub ontgrendelt. Die typ je elke keer als je de Hub-interface start."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Kies nu een wachtzin. Ostler gebruikt die om de sleutel in te stellen voor een deel van de interne gegevens."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Herstelwachtzin overgeslagen. (Verouderd: v1.0 vereist altijd een wachtzin.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Bestaande installatie van de Doctor-agent wordt hergebruikt op %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Bestaande email-ingest-installatie wordt hergebruikt op %s"
@@ -441,13 +446,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Je keuze voor verrijking op de achte
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, dus ze starten zonder dat je iets hoeft in te voeren."
-MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd (%s, alleen door jou leesbaar)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit je inlogsleutelhanger, dus ze starten zonder dat je iets hoeft in te voeren."
+MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Kon de databasesleutel niet aan de Hub-services doorgeven. Ze openen databases onversleuteld totdat dit is opgelost."
 MSG_INFO_DB_KEY_RECOVER_HINT="Voer dit uit om hem te herstellen en door te geven: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Databases van een eerdere installatie worden versleuteld"
 MSG_WARN_DB_MIGRATION_FAILED="Sommige bestaande databases konden niet worden versleuteld. Ze blijven leesbaar op schijf."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="Deze installatie heeft geen databasesleutelbestand, dus de Hub-services openen databases onversleuteld."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Deze installatie heeft geen databasesleutel, dus de Hub-diensten kunnen hun versleutelde databases niet openen."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) op deze Mac zijn nu leesbaar op schijf."
 MSG_INFO_DB_MIGRATE_HINT="Versleutel daarna wat er al staat: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Uitgestelde herhaalpoging voor apparaatregistratie geïnstalleerd (draait elk uur totdat de wachtrij leeg is)"
@@ -710,6 +715,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Kan Ostler RemoteCapture v%s niet downloaden van
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Veelvoorkomende oorzaken: de release-tag is nog niet gepubliceerd, je bent offline, of de notarisatie is nog bezig. Voer het installatieprogramma opnieuw uit zodra de release beschikbaar is."
 MSG_WARN_CM042_EXTRACT_FAILED="Kan het tarball van Ostler RemoteCapture niet uitpakken; LaunchAgent wordt overgeslagen."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Laden van de Ostler RemoteCapture LaunchAgent mislukt. Zie de uitvoer hierboven en ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Het script voor gesproken transcriptie kon niet worden geïnstalleerd; gesproken transcriptie kan niet worden aangezet in de Hub-instellingen."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Gespreksverrijking is niet beschikbaar. De rest van Ostler wordt normaal geïnstalleerd; voer de installatie opnieuw uit zonder --allow-plaintext om de geheugenengine voor gesprekken te koppelen."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Installatie van de geheugenengine voor gesprekken mislukt (klonen)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Gezocht naar: %s/cm048_pipeline/pyproject.toml"
@@ -1299,7 +1305,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTEL
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Weet je het zeker? Dit is een beveiligingsrisico."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
-Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
+Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
 
 FileVault wordt sterk aanbevolen. Je kunt het op elk moment aanzetten via Systeeminstellingen > Privacy en beveiliging > FileVault -- het versleutelt op de achtergrond, zonder opnieuw te installeren.
 
@@ -1307,11 +1313,11 @@ Kies Ja om nu door te gaan met de schijf onversleuteld in rust (dit is een bewus
 Kies Nee om hier te stoppen, zodat je eerst FileVault kunt aanzetten en daarna het installatieprogramma opnieuw kunt starten. Er is in beide gevallen niets misgegaan."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Klaar om schijfversleuteling in te stellen"
-MSG_PROMPT_PASSKEY_ACK_HELP="De gevoelige databases van Ostler worden versleuteld met SQLCipher, met een wachtzin die je op het volgende scherm kiest. Je typt deze wachtzin elke keer dat je de Hub-interface start. Er wordt ook een aparte herstelsleutel gemaakt, die aan het eind van de installatie één keer wordt getoond. Laat macOS FileVault ingeschakeld voor volledige beveiliging in rust van alles op je Mac. Klik op Ga verder wanneer je klaar bent."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler gebruikt een wachtzin die je op het volgende scherm kiest om de sleutel in te stellen voor een deel van de interne gegevens. Er wordt ook een aparte herstelsleutel aangemaakt, die aan het einde van de installatie eenmalig wordt getoond. Je Ostler-gegevens zijn als geheel beschermd door FileVault, Apples volledige schijfversleuteling. Klik op Ga door als je er klaar voor bent."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Ook een herstelwachtzin instellen? (aanbevolen)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Kies je wachtzin"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. Wij kunnen hem niet voor je herstellen. We raden aan hem in een wachtwoordmanager te bewaren."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler gebruikt deze wachtzin om de sleutel voor een deel van de interne gegevens in te stellen. Je Ostler-gegevens zijn als geheel beschermd door FileVault, Apples volledige schijfversleuteling."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Bevestig je wachtzin"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Voer dezelfde wachtzin nogmaals in ter bevestiging."
 

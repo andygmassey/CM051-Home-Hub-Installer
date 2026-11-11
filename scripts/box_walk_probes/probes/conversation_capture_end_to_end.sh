@@ -10,7 +10,7 @@
 # until it reports complete (bounded; a timeout is reported as a FAIL with
 # the last status seen, never a hang), assert all four artefacts the
 # CLAUDE.md "Human-conversation 4-artefact spec" requires exist under
-# ~/Documents/Ostler/Conversations/<date>/<slug>-<id>/ (summary.md,
+# ~/Ostler/Conversations/<date>/<slug>-<id>/ (summary.md,
 # transcript.md, todos.md, each frontmatter-tagged -- the fourth "artefact",
 # metadata, is folded into that frontmatter rather than a fourth file; see
 # vendor/cm048_pipeline/src/conversation_writer.py's own docstring), confirm

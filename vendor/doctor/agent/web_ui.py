@@ -65,7 +65,7 @@ from dashboard_components import (
     render_whatsapp_keepalive,
 )
 # Documents-folder access posture (launch-blocker install UX fix). A
-# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# live write probe against ~/Ostler surfaced as a Doctor tile
 # so a macOS Files-and-Folders denial -- which otherwise fails the wiki
 # and conversation-record writes silently -- is never invisible. Lives
 # in its own vendor-only module (CM051 probes a layout HR015 Doctor has
@@ -1622,7 +1622,7 @@ def render_dashboard(
 
     # Documents-folder access posture (launch-blocker install UX fix).
     # NEW-121: Doctor READS ~/.ostler/state/documents_access.tsv, which the
-    # hourly fda-rerun tick writes by probing ~/Documents/Ostler as a child
+    # hourly fda-rerun tick writes by probing ~/Ostler as a child
     # of the signed FDA holder; Doctor itself never touches Documents (a
     # probe from here was a python3.11 Documents request). Ostler's bundled
     # interpreter writes the customer's wiki and conversation records

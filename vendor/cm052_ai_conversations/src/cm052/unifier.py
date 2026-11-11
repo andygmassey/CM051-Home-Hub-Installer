@@ -64,7 +64,7 @@ def _claude_code_projects_dir() -> Path:
 def _chatgpt_export_dir() -> Path:
     raw = (
         os.environ.get("OSTLER_CHATGPT_IMPORT_DIR")
-        or "~/Documents/Ostler/imports/chatgpt"
+        or "~/Ostler/imports/chatgpt"
     )
     return Path(raw).expanduser()
 

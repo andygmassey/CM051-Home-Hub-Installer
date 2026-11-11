@@ -146,6 +146,39 @@ else:
     )
 
 
+class DbKeyMissingError(RuntimeError):
+    """A database that must be encrypted was asked for with no key."""
+
+
+def _refuse_plaintext(db_path: str) -> None:
+    """v1.0.129: corrections.db and assert_spool.db NEVER open plaintext.
+
+    They used to fall through to plain sqlite3 with a one-shot warning when
+    no key resolved, so a missing key silently produced a readable file.
+    Now the open is refused with an ERROR on every attempt (unless
+    OSTLER_ALLOW_PLAINTEXT_DB=1 is set explicitly, which also logs ERROR); callers that
+    already catch connect failures (corrections: HTTP 503 degraded) report
+    it, and the posture marker above already tells Doctor the key is absent.
+    """
+    detail = f" {_DB_KEY.detail}" if _DB_KEY.detail else ""
+    if os.environ.get("OSTLER_ALLOW_PLAINTEXT_DB") == "1":
+        # Explicit, loud, per-open opt-in for test harnesses with no
+        # sqlcipher3. The installer and every plist leave it unset.
+        print(
+            f"ERROR: OSTLER_ALLOW_PLAINTEXT_DB=1: opening {db_path} as "
+            "PLAINTEXT SQLite by explicit request (no database key).",
+            file=sys.stderr, flush=True,
+        )
+        return
+    msg = (
+        f"refusing to open {db_path} without a database key "
+        f"(no database key: {_DB_KEY.reason}).{detail} "
+        "Recover the key with `ostler-unlock --install-key-file`."
+    )
+    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+    raise DbKeyMissingError(msg)
+
+
 def _warn_plaintext_once(db_path: str) -> None:
     """Print a one-shot stderr warning when the coach DB falls through
     to plaintext SQLite. Loud is the right level here: silent plaintext
@@ -4414,7 +4447,7 @@ def _assert_spool_connect():
     if _ENCRYPTION_KEY:
         conn = _secure_connect(db_path, _ENCRYPTION_KEY)
     else:
-        _warn_plaintext_once(db_path)
+        _refuse_plaintext(db_path)  # raises unless plaintext was explicitly allowed
         conn = sqlite3.connect(db_path)
     try:
         os.chmod(db_path, 0o600)
@@ -5344,17 +5377,15 @@ def _memory_source_label(source: str) -> str:
 def _memory_corrections_connect():
     """Open the memory_corrections SQLite database.
 
-    Uses the encrypted-DB wrapper from ostler_security when a key is
-    configured, falling back (with a loud warning) to plaintext SQLite
-    when running unencrypted. Mirrors the COACH_DB pattern in
-    ``coach_recent`` so a customer Hub with no key set still works.
+    Uses the encrypted-DB wrapper from ostler_security. With no key it
+    REFUSES (DbKeyMissingError, logged at ERROR); it never opens plaintext.
     """
     MEMORY_CORRECTIONS_DB.parent.mkdir(parents=True, exist_ok=True)
     db_path = str(MEMORY_CORRECTIONS_DB)
     if _ENCRYPTION_KEY:
         conn = _secure_connect(db_path, _ENCRYPTION_KEY)
     else:
-        _warn_plaintext_once(db_path)
+        _refuse_plaintext(db_path)  # raises unless plaintext was explicitly allowed
         conn = sqlite3.connect(db_path)
     conn.row_factory = _row_factory_for(conn)
     return conn
@@ -9680,10 +9711,12 @@ def api_meeting_upcoming(within_minutes=120):
     # build_calendar_response, so it is read in-process.
     _provider = (None if os.environ.get("CALENDAR_API_URL", "").strip()
                  else _calendar_events_in_process)
+    report = {}
     try:
         all_briefs = _brief.pre_meeting_brief(
             days=days_lookahead,
             events_provider=_provider,
+            report=report,
         )
     except Exception as exc:
         return {
@@ -9718,6 +9751,9 @@ def api_meeting_upcoming(within_minutes=120):
             return None
 
     upcoming = []
+    # Every event the calendar returned that is NOT in ``meetings`` is listed
+    # here with a reason, so the sender can log why (uid and reason only).
+    filtered = list(report.get("filtered", []))
     for b in all_briefs:
         dt = _parse_start(b)
         if dt is None:
@@ -9728,11 +9764,15 @@ def api_meeting_upcoming(within_minutes=120):
             continue
         if now <= dt <= window_end:
             upcoming.append(b)
+        else:
+            filtered.append({"uid": b.get("uid", ""), "reason": "outside_window"})
 
     return {
         "meetings": upcoming,
         "within_minutes": within_minutes,
         "count": len(upcoming),
+        "considered": report.get("considered", len(all_briefs)),
+        "filtered": filtered,
     }
 
 
@@ -12532,7 +12572,55 @@ def _sparql_select_unscoped(sparql):
             for b in data.get("results", {}).get("bindings", [])]
 
 
+# An in_progress derive record older than this has stopped moving (a killed
+# pass). Mirrors STALE_AFTER_S in vendor/doctor/agent/derived_preferences_status.py.
+_DERIVE_STALE_AFTER_S = 3 * 3600
+
+
+def _derive_pass_stale():
+    """True when the derive runner's status file says a pass is in progress and
+    its last stamp is more than _DERIVE_STALE_AFTER_S old, or has no usable
+    stamp. Any other state, or no file, is not stale."""
+    base = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+    try:
+        rec = json.loads(Path(base, "state", "derived-preferences.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - no file or unreadable: not a stale pass
+        return False
+    if not isinstance(rec, dict) or rec.get("outcome") != "in_progress":
+        return False
+    prog = rec.get("progress") if isinstance(rec.get("progress"), dict) else {}
+    stamp = _retry_parse_iso(prog.get("updated_at")) or _retry_parse_iso(prog.get("started_at")) \
+        or _retry_parse_iso(rec.get("last_run_at"))
+    if stamp is None:
+        return True
+    return datetime.now(timezone.utc) - stamp > timedelta(seconds=_DERIVE_STALE_AFTER_S)
+
+
+def _still_learning_note():
+    """While no derived preference is served yet (the first pass runs for tens
+    of minutes on a fresh box), say how many interests the profile holds so
+    the page is never blank. Counts the same non-sensitive records
+    api_preferences() serves. A pass that was killed part-way is reported as
+    stale, not as still learning."""
+    prof = api_preferences()
+    n = 0 if prof.get("degraded") else int(prof.get("count") or 0)
+    if _derive_pass_stale():
+        return {"status": "stale", "interests_so_far": n,
+                "text": "Last preferences pass did not finish"}
+    return {"interests_so_far": n, "text": f"Still learning: {n} interests found so far"}
+
+
 def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph; see _api_preferences_derived_core. An empty
+    answer also carries ``still_learning`` (see _still_learning_note)."""
+    result = _api_preferences_derived_core(limit=limit, min_confidence=min_confidence, tier=tier)
+    if not result.get("items"):
+        result["still_learning"] = _still_learning_note()
+    return result
+
+
+def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph, built through the CM019 producer builder
     (vendored verbatim in derived_preferences.py beside this file).

@@ -12,7 +12,7 @@
 # the same Apple Mail store, threads it into conversation threads,
 # and hands each new/updated thread to CM048's pwg-convo processor,
 # which emits the four artefacts under
-# ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+# ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
 #
 # Chain:
 #   1. email_source.reader reads Apple Mail's .emlx tree (reusing

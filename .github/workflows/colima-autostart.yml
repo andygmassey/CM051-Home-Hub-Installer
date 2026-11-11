@@ -17,7 +17,7 @@ name: colima-autostart
 # The daemon owns Colima's start by design (v1.0.10 Group C, 6723acc): a bare
 # LaunchAgent has no Full Disk Access, so a LaunchAgent-spawned Colima cannot
 # mount ~/Documents, and install.sh bind-mounts
-# ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki} into wiki-site and
+# ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki} into wiki-site and
 # wiki-compiler. That design is right. Two things around it were not:
 #
 #   1. install.sh:8347 claimed "Upgrade cleanup of any pre-existing

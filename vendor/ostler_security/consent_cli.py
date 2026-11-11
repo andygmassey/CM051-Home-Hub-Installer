@@ -204,6 +204,39 @@ def _cmd_text(args: argparse.Namespace) -> int:
     return 0
 
 
+WORDING_HASHES_FILE = "consent_wording_hashes.json"
+
+
+def _cmd_publish_wording(_args: argparse.Namespace) -> int:
+    """Write the SHA-256 of every bundled wording to
+    ``posture/consent_wording_hashes.json``.
+
+    The Hub app (CM042 RemoteCapture) gates capture on a persisted
+    ``wording_hash``. It must compare that against the wording THIS install
+    ships, not a constant compiled into the app, or every wording change
+    refuses every customer. install.sh runs this on every install that has
+    the security module, so the file always describes the shipped build.
+    Absent or unreadable is refused by the app (fail closed).
+    """
+    posture = consent._consent_dir()
+    payload = {
+        "schema_version": 1,
+        "tickboxes": {
+            tickbox_id: {
+                "wording_hash": cs.sha256(),
+                "wording_version": cs.version,
+            }
+            for tickbox_id, cs in sorted(TICKBOX_REGISTRY.items())
+        },
+    }
+    path = posture / WORDING_HASHES_FILE
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+    return 0
+
+
 def _cmd_remove_all(_args: argparse.Namespace) -> int:
     """Wipe the consent registry. install.sh calls this when the user
     declines the Article 9 screen, to leave no ``~/.ostler/`` residue.
@@ -262,6 +295,12 @@ def main(argv: list[str] | None = None) -> int:
         "--tickbox", required=True, choices=sorted(TICKBOX_REGISTRY),
     )
     p_txt.set_defaults(func=_cmd_text)
+
+    p_pub = sub.add_parser(
+        "publish-wording",
+        help="write posture/consent_wording_hashes.json for this build",
+    )
+    p_pub.set_defaults(func=_cmd_publish_wording)
 
     p_rm = sub.add_parser(
         "remove-all", help="wipe consent registry (decline-and-abort)",

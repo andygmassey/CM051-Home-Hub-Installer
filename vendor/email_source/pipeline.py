@@ -13,7 +13,7 @@ tick it:
      (``channel="email"`` plus the ``email_thread`` sidecar).
   4. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
      emits the four artefacts under
-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 CM048 owns classification, enrichment, the L3 short-circuit, the
 email-domain privacy ladder, and the four-artefact write. This module

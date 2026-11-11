@@ -21,3 +21,13 @@ would rewrite 1316 lines of the existing patch, not only this change.
 
 Read by CM048 `reply_debt_sources` (cm048_pipeline record, same date). Proof:
 `tests/test_reply_debt_whatsapp_email.py`. Owed upstream: HR015 email_source.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), email_source
+
+Not in the patch (`email_source.patch` is not changed by #3429). Each edit is one line of path text, `~/Documents/Ostler` becoming `~/Ostler`:
+
+- `INSTALL_HANDOFF_SPEC.md`, `__init__.py`, `pipeline.py`: one docstring or prose line each.
+- `bin/email-bundle-tick.sh`: one comment line.
+- `launchd/com.creativemachines.ostler.email-bundle.plist`: one plist text line.
+
+Upstream: NO PR. The pin `5d31073d` is not on HR015's `main`. It lives only in the archived tag `archive/2026-08-06/feat/4-artefact-email-source`. A PR would mean re-adding the archived tree to main; not done here.

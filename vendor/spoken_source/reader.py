@@ -34,7 +34,7 @@ diarise or map raw labels. It turns the file into a
 consume.
 
 Reading the transcript tree needs no special permission beyond normal
-access to ``~/Documents/Ostler/Transcripts`` (the user-facing zone).
+access to ``~/Ostler/Transcripts`` (the user-facing zone).
 The default root mirrors CM042 ``OstlerPaths.defaultTranscriptsDir()``
 and honours the same env overrides CM042 ``AppConfiguration`` reads
 (``OSTLER_TRANSCRIPTS_DIR`` first, then the legacy
@@ -62,14 +62,14 @@ def _default_transcripts_dir() -> Path:
     Mirrors CM042 ``AppConfiguration``'s override chain so this feed
     and the recorder agree on where finished transcripts live:
     ``OSTLER_TRANSCRIPTS_DIR`` first, then the legacy
-    ``CM042_TRANSCRIPT_DIR``, then ``~/Documents/Ostler/Transcripts``.
+    ``CM042_TRANSCRIPT_DIR``, then ``~/Ostler/Transcripts``.
     """
     override = os.getenv("OSTLER_TRANSCRIPTS_DIR") or os.getenv(
         "CM042_TRANSCRIPT_DIR"
     )
     if override:
         return Path(override).expanduser()
-    return Path.home() / "Documents" / "Ostler" / "Transcripts"
+    return Path.home() / "Ostler" / "Transcripts"
 
 
 @dataclass
@@ -383,7 +383,7 @@ def read_transcripts(
     Args:
         transcripts_dir: RemoteCapture transcripts root (injectable for
             tests). Defaults to ``OSTLER_TRANSCRIPTS_DIR`` /
-            ``CM042_TRANSCRIPT_DIR`` / ``~/Documents/Ostler/Transcripts``.
+            ``CM042_TRANSCRIPT_DIR`` / ``~/Ostler/Transcripts``.
         since_days: only sessions started within the last N days
             (``0`` disables the cutoff). The fresh-install clamp so the
             first tick does not bundle a year of recordings.

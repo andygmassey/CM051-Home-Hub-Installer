@@ -761,8 +761,13 @@ def _change_passphrase_locked(
 
     try:
         from .audit_log import AuditLog, EVENT_PASSPHRASE_CHANGE
-        audit = AuditLog(config_dir / "audit.db")
-        audit.log(EVENT_PASSPHRASE_CHANGE, source="change_passphrase")
+        # v1.0.129: audit.db is keyed with the key the services use (the
+        # resolved database key). No key -> no entry; never a plaintext file.
+        from .db_key import resolve_db_key
+        _audit_key = resolve_db_key().key
+        if _audit_key:
+            audit = AuditLog(config_dir / "audit.db", _audit_key)
+            audit.log(EVENT_PASSPHRASE_CHANGE, source="change_passphrase")
     except Exception:
         pass  # Audit log failure should not block passphrase change
 
