@@ -167,6 +167,8 @@ def main() -> int:
     prog = s.get("progress") or {}
     check(prog.get("readers_done") == total and prog.get("readers_total") == total,
           f"progress readers_done={prog.get('readers_done')} of {total}")
+    check(bool(prog.get("started_at")) and bool(prog.get("updated_at")),
+          f"progress carries started_at and updated_at (the stale check reads them): {sorted(prog)}")
     check(s.get("outcome") == "written", f"outcome={s.get('outcome')} (want written)")
 
     print("arm 2: a later reader sees the earlier one's progress already on disk")

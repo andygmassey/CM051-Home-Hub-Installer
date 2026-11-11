@@ -16,6 +16,12 @@ and a synthetic interest profile. Stdlib only.
   arm 2  CONTROL: a derived graph WITH a node serves items and carries no
          still_learning key (the note must not appear once there is content).
   arm 3  an UNREACHABLE store (the degraded path): still_learning is present too.
+  arm 4  a FRESH in_progress status file (the first pass is running): still
+         learning, not stale.
+  arm 5  a 4-hour-old in_progress status file (the pass was killed part-way):
+         still_learning says the last preferences pass did not finish
+         (status "stale"), never "still learning" forever.
+  arm 6  CONTROL: a stale record with a node served: items, no note.
 
 ICAL_SERVER may point at another ical-server.py (that is how the red on
 origin/main was watched). Exit: 0 pass, 1 real failure, 2 cannot-run.
@@ -33,6 +39,7 @@ import threading
 import time
 import urllib.request
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -105,16 +112,28 @@ PROFILE = {
 }
 
 
+def _status_record(hours_ago: float) -> dict:
+    """What derive_runner writes while a pass runs, stamped ``hours_ago``."""
+    stamp = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"schema": 1, "last_run_at": stamp, "outcome": "in_progress",
+            "progress": {"readers_done": 2, "readers_total": 8, "items_so_far": 9,
+                         "started_at": stamp, "updated_at": stamp}}
+
+
 @contextmanager
-def server(oxi_url: str):
+def server(oxi_url: str, status: dict | None = None):
     work = Path(tempfile.mkdtemp(prefix="still-learning-"))
     prof = work / "interest_profile.json"
     prof.write_text(json.dumps(PROFILE))
+    ostler = work / "ostler"
+    if status is not None:
+        (ostler / "state").mkdir(parents=True)
+        (ostler / "state" / "derived-preferences.json").write_text(json.dumps(status))
     port = _free_port()
     env = {k: v for k, v in os.environ.items() if "proxy" not in k.lower()}
     env.pop("OSTLER_DB_KEY", None)
     env.update({
-        "OSTLER_API_PORT": str(port), "OXIGRAPH_URL": oxi_url,
+        "OSTLER_API_PORT": str(port), "OXIGRAPH_URL": oxi_url, "OSTLER_DIR": str(ostler),
         "QDRANT_URL": oxi_url, "EMBED_OLLAMA_URL": oxi_url,
         "OSTLER_SERVICE_TOKEN": TOKEN, "USER_ID": "fixtureowner",
         "USER_NAME": "Synthetic Owner", "HOME": str(work), "PWG_HOME": str(work / "pwg"),
@@ -183,6 +202,31 @@ def main() -> int:
               "degraded with no items (the silent-empty rule holds)")
         check((body.get("still_learning") or {}).get("interests_so_far") == 5,
               "still_learning present with the profile count")
+
+        print("arm 4: a fresh in-progress pass is still learning, not stale")
+        StubOxigraph.bindings = []
+        with server(stub_url, status=_status_record(0.01)) as (url, op):
+            body = get_derived(url, op)
+        note = body.get("still_learning") or {}
+        check(note.get("text") == NOTE_TEXT.format(5) and "status" not in note,
+              f"fresh pass -> still learning, note={note}")
+
+        print("arm 5: a killed pass (4h old) says it did not finish, not still learning")
+        StubOxigraph.bindings = []
+        with server(stub_url, status=_status_record(4)) as (url, op):
+            body = get_derived(url, op)
+        note = body.get("still_learning") or {}
+        check(note.get("status") == "stale", f"status={note.get('status')!r} (want stale)")
+        check(note.get("text") == "Last preferences pass did not finish",
+              f"text={note.get('text')!r}")
+        check(note.get("interests_so_far") == 5, f"interests_so_far={note.get('interests_so_far')} (want 5)")
+
+        print("arm 6: CONTROL -- a stale record with a node served carries no note")
+        StubOxigraph.bindings = [ONE_NODE]
+        with server(stub_url, status=_status_record(4)) as (url, op):
+            body = get_derived(url, op)
+        check(len(body.get("items") or []) >= 1 and "still_learning" not in body,
+              "items served, no still_learning key")
     finally:
         stub.shutdown()
 

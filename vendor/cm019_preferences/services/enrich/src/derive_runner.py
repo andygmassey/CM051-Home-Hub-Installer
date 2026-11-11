@@ -98,6 +98,9 @@ class _Progress:
         self.status, self.path, self.total = status, path, total
         self.done = 0
         self.items = 0
+        # Stamps the Doctor and the derived API read to tell a pass that is
+        # moving from one that was killed (see derived_preferences_status).
+        self.started_at = status.get("last_run_at") or _now_iso()
         status["reader_timings"] = []
         self._sync()
 
@@ -106,6 +109,8 @@ class _Progress:
             "readers_done": self.done,
             "readers_total": self.total,
             "items_so_far": self.items,
+            "started_at": self.started_at,
+            "updated_at": _now_iso(),
         }
         try:
             _write_status(self.path, self.status)
