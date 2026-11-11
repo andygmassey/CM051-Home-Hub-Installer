@@ -124,6 +124,8 @@ _run_arm() {
         printf 'source %q\n' "$STRINGS"
         printf 'HOME=%q\n' "${r}/box"
         printf 'LOGS_DIR=%q\n' "${r}/logs"
+        printf 'OSTLER_DIR=%q\n' "${r}/box/.ostler"
+        printf 'SCRIPT_DIR=%q\n' "$REPO"
         printf 'OSTLER_APPS_DIR=%q\n' "${r}/apps/Ostler"
         printf 'OSTLER_CODESIGN_REQ=%q\n' 'anchor apple generic'
         printf 'OSTLER_REMOTECAPTURE_VERSION=%q\n' '0.1.10'

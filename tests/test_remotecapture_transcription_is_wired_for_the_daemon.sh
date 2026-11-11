@@ -51,7 +51,7 @@ if [ -z "$LINE" ]; then
     bad "install.sh has no line installing scripts/remotecapture_transcription.sh"
 else
     if grep -qF 'OSTLER_DIR="${OSTLER_DIR:-${HOME}/.ostler}"' "$INSTALLER" \
-       && printf '%s' "$LINE" | grep -qF '"${OSTLER_DIR}/bin/remotecapture_transcription.sh"'; then
+       && grep -qF '"${OSTLER_DIR}/bin/remotecapture_transcription.sh"' <<< "$LINE"; then
         ok "install.sh names \${OSTLER_DIR}/bin/remotecapture_transcription.sh and the \$HOME/.ostler default"
     else
         bad "install.sh destination is not #677's default path"

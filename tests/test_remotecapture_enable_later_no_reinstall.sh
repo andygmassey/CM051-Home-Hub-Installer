@@ -68,27 +68,27 @@ chmod +x "${WORK}/bin/launchctl"
 # ── a fresh box: the installer's effects for a declined answer ──────────────
 new_box() {
     local s="${WORK}/box-$1"
-    rm -rf "$s"; mkdir -p "$s/home/Library/LaunchAgents" "$s/home/Library/Application Support/Ostler RemoteCapture" "$s/state" "$s/apps/Ostler"
-    printf '%s\n' '<plist>staged, inert</plist>' > "$s/home/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged"
+    rm -rf "$s"; mkdir -p "$s/fakehome/Library/LaunchAgents" "$s/fakehome/Library/Application Support/Ostler RemoteCapture" "$s/state" "$s/apps/Ostler"
+    printf '%s\n' '<plist>staged, inert</plist>' > "$s/fakehome/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged"
     # The installer parks the verified app outside /Applications for a declined answer.
-    mkdir -p "$s/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS"
-    : > "$s/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture"
+    mkdir -p "$s/fakehome/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS"
+    : > "$s/fakehome/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture"
     echo "$s"
 }
 # The sandboxed apps folder stands in for /Applications/Ostler. Never the real one.
 app_in()     { [ -d "$1/apps/Ostler/Ostler RemoteCapture.app" ]; }
-app_staged() { [ -d "$1/home/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app" ]; }
+app_staged() { [ -d "$1/fakehome/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app" ]; }
 run_script() {  # $1 box, $2 consent (accepted|none), $3.. action
     local box="$1" consent="$2"; shift 2
     local subject="$SCRIPT"
     if [ -n "${SUBJECT_OVERRIDE:-}" ]; then subject="$SUBJECT_OVERRIDE"; fi
-    env -i HOME="$box/home" PATH="${WORK}/bin:/usr/bin:/bin" \
-        REMOTECAPTURE_HOME="$box/home" REMOTECAPTURE_LABEL="$LABEL" \
+    env -i HOME="$box/fakehome" PATH="${WORK}/bin:/usr/bin:/bin" \
+        REMOTECAPTURE_HOME="$box/fakehome" REMOTECAPTURE_LABEL="$LABEL" \
         REMOTECAPTURE_APPS_DIR="$box/apps/Ostler" \
         OSTLER_PYTHON="${WORK}/py" STUB_CONSENT="$consent" STUB_STATE="$box/state" \
         bash "$subject" "$@" 2>&1
 }
-live_plist() { echo "$1/home/Library/LaunchAgents/${LABEL}.plist"; }
+live_plist() { echo "$1/fakehome/Library/LaunchAgents/${LABEL}.plist"; }
 
 echo "── declined (or never answered): the staged agent is NOT started, and the in-place path refuses ──"
 B="$(new_box declined)"
@@ -133,7 +133,7 @@ case "$out" in *"agent: loaded"*) ok "status reports the agent loaded, from the 
 echo "── disable stands it down and keeps the staged copy, so enable works again ──"
 out="$(run_script "$B" accepted disable)"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -f "$(live_plist "$B")" ] && [ ! -f "$B/state/loaded" ] \
-   && [ -f "$B/home/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged" ]; then
+   && [ -f "$B/fakehome/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged" ]; then
     ok "disable boots it out, removes the LaunchAgents plist, keeps the staged copy (rc 0)"
 else
     bad "disable left the agent live or deleted the staged copy (rc=${rc}): ${out}"
@@ -151,14 +151,14 @@ else
 fi
 
 echo "── nothing staged on this Mac: enable says so and does not pretend ──"
-B2="$(new_box nostage)"; rm -f "$B2/home/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged"
+B2="$(new_box nostage)"; rm -f "$B2/fakehome/Library/Application Support/Ostler RemoteCapture/${LABEL}.plist.staged"
 out="$(run_script "$B2" accepted enable)"; rc=$?
 if [ "$rc" -eq 2 ] && [ ! -f "$(live_plist "$B2")" ]; then
     ok "no staged plist: CANNOT-RUN (rc 2), nothing written"
 else
     bad "no staged plist did not report CANNOT-RUN (rc=${rc}): ${out}"
 fi
-B4="$(new_box noapp)"; rm -rf "$B4/home/Library/Application Support/Ostler"
+B4="$(new_box noapp)"; rm -rf "$B4/fakehome/Library/Application Support/Ostler"
 out="$(run_script "$B4" accepted enable)"; rc=$?
 if [ "$rc" -eq 2 ] && [ ! -f "$(live_plist "$B4")" ] && ! app_in "$B4"; then
     ok "no app anywhere: CANNOT-RUN (rc 2), agent not written, nothing faked into /Applications"
