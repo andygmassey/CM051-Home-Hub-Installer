@@ -40,4 +40,5 @@ jobs:
       - name: No customer string tells anyone to export a WhatsApp chat
         run: /bin/bash tests/test_no_whatsapp_chat_export_instruction.sh
       - name: A dropped WhatsApp chat export is parsed and persisted, not skipped
+        if: success() || failure()
         run: python3 tests/test_whatsapp_export_autoprocess.py
