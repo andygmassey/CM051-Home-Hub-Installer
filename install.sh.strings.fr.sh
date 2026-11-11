@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  Cloné dans %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture ne fonctionne que sur Apple Silicon. Installation ignorée sur cette machine."
 MSG_INFO_CM042_LOGS_AT="Journaux de RemoteCapture : %s/ostler-remotecapture.log (et .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Une installation précédente lançait Ostler RemoteCapture à l’ouverture de session. Il a été arrêté et ne redémarrera plus."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture n’a pas été installé : vous avez choisi de laisser la transcription vocale désactivée. Activez-la dans les réglages et relancez l’installateur si vous changez d’avis."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture reste désactivé tant que vous n’activez pas la transcription vocale : vous avez choisi de la laisser désactivée pour l’instant. Vous pouvez l’activer à tout moment dans les réglages d’Ostler ou dans RemoteCapture. Aucune réinstallation n’est nécessaire."
 MSG_INFO_CM042_TCC_PRE_PROMPT="Au premier lancement, Ostler RemoteCapture demandera à macOS l’autorisation Enregistrement de l’écran et Microphone. Accordez les deux pour que les appels et les réunions puissent être transcrits en local. Aucun indicateur violet d’enregistrement n’apparaît dans votre barre des menus : la capture audio est silencieuse par conception."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -716,6 +716,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Impossible de télécharger Ostler RemoteCapture
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Causes courantes : la version n'est pas encore publiée, le réseau est hors ligne ou la notarisation en amont est encore en cours. Relancez l'installateur une fois la version disponible."
 MSG_WARN_CM042_EXTRACT_FAILED="Impossible d'extraire l'archive tar d'Ostler RemoteCapture ; le LaunchAgent est ignoré."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Échec du chargement du LaunchAgent d'Ostler RemoteCapture. Consultez la sortie ci-dessus et ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Impossible d’installer le script de transcription vocale ; la transcription ne peut pas être activée dans les réglages du Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  L'enrichissement des conversations ne sera pas disponible. Le reste d'Ostler s'installe normalement ; relancez sans --allow-plaintext pour intégrer le moteur de mémoire des conversations."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Échec de l'installation du moteur de mémoire des conversations (clonage)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Recherché : %s/cm048_pipeline/pyproject.toml"

@@ -33514,6 +33514,8 @@ REMOTECAPTURE_LAUNCHAGENT_LABEL="com.creativemachines.ostler-remotecapture"
 REMOTECAPTURE_LAUNCHAGENT_PLIST="${HOME}/Library/LaunchAgents/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist"
 REMOTECAPTURE_BINARY_INSIDE_APP="${REMOTECAPTURE_APP_PATH}/Contents/MacOS/RemoteCapture"
 REMOTECAPTURE_APP_SUPPORT_DIR="${HOME}/Library/Application Support/Ostler RemoteCapture"
+# Hub Settings (ostler-assistant #677) runs this at ${OSTLER_DIR}/bin, the path its default names, and the assistant plist names it too. Every answer gets it; enable refuses without an accepted consent record.
+mkdir -p "${OSTLER_DIR}/bin" && install -m 755 "${SCRIPT_DIR}/scripts/remotecapture_transcription.sh" "${OSTLER_DIR}/bin/remotecapture_transcription.sh" || warn "$MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED"
 
 # Apple Silicon only. The Phase C release workflow only builds an
 # arm64 slice (WhisperKit + ScreenCaptureKit perform best on Apple
@@ -33524,80 +33526,80 @@ REMOTECAPTURE_ARCH_DETECTED="$(uname -m 2>/dev/null || echo unknown)"
 
 # ── RECORDING-CONSENT GATE (HR015 #940) ───────────────────────────
 #
-# THE CONSENT HAD NO HANDS. Measured on CM051 origin/main e0fb21bf,
-# 2026-09-16, with /usr/bin/grep over the whole tree:
+# CONSENT DECIDES PLACEMENT, NOT INSTALLATION. Andy, 2026-11-11: a customer
+# who left "spoken transcription" off got no RemoteCapture at all, and turning
+# it on later said "run the installer again". Now every answer stages the app
+# and its LaunchAgent plist. Only "accepted" puts the plist in
+# ~/Library/LaunchAgents, where launchd starts it at login. Any other answer
+# stages the same plist beside the app, in "Ostler RemoteCapture/", where
+# launchd never reads it. Nothing captures until consent is recorded.
+# scripts/remotecapture_transcription.sh enable then copies the plist across
+# and bootstraps it. No reinstall.
 #
-#   spoken_capture_recording_consent
-#     built     legal wording          vendor/legal/consent_strings.py:226
-#     shown     Phase-2 screen         install.sh 10893-10932
-#     recorded  consent_cli record     install.sh 15746-15755
-#     REFUSED   nothing, anywhere      0 sites
+# THREE STATES, NOT TWO. accepted places the agent live. declined and unknown
+# both stage it disabled. unknown also SAYS SO, via _ostler_warn_consent_unknown,
+# rather than treating a missing answer as a refusal in silence.
 #
-#   The only reader of a durable consent record in this file is
-#   _ostler_consent_state, and its two call sites both name
-#   third_party_data_personal_records. CONTROL, same shape and same
-#   predicate: `_ostler_consent_state third_party` is 2 -- so the search
-#   can find a call site, and the zero above is a real absence. (The
-#   call sites pass the tickbox UNQUOTED, so a pattern with a quote
-#   after the function name finds nothing; that is a wrong-shaped
-#   control, not an absence.)
+# THE MEASUREMENT THAT MADE THE GATE NECESSARY, CM051 e0fb21bf, 2026-09-16:
+# spoken_capture_recording_consent had no reader in install.sh except
+# _ostler_consent_state, and a declined answer still started the companion at
+# login. The placement rule above is the fix. Skipping the install was not.
 #
-# WHAT THE CUSTOMER WAS TOLD, AND WHAT THEN HAPPENED. The screen's
-# default is "n". Answering it -- or clicking straight through --
-# printed MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF, "Spoken transcription
-# will stay off." Roughly fifteen thousand lines later this phase then
-# ran unconditionally and, for that same customer:
+# NO NEW LATE TOTAL_STEPS DECREMENT: the ratchet stays pinned at six.
 #
-#   - pre-prompted them to grant Screen Recording and Microphone,
-#   - downloaded and staged Ostler RemoteCapture into /Applications,
-#   - cleared its quarantine xattr,
-#   - bootstrapped a LaunchAgent with RunAtLoad and KeepAlive both
-#     true, so the call/meeting transcription companion starts at
-#     login and is restarted if it exits.
+# WHAT "DISABLED" MEANS, PRECISELY. The staged plist is ordinary XML with
+# RunAtLoad and KeepAlive true. It is inert because launchd reads only
+# ~/Library/LaunchAgents at login and only what `launchctl bootstrap` is given.
+# A file in "Ostler RemoteCapture/" starts nothing. The enable script is the
+# only thing that copies it across, and it refuses without an ACCEPTED record
+# from `ostler_security.consent_cli check --tickbox spoken_capture_recording_consent`.
 #
-# HR015 #940 sets its own priority on the premise that "transcription
-# is OFF BY DEFAULT and opt-in ... a user who clicks straight through
-# records nobody". On this tree that premise was not true, and the
-# issue's WARN VERSUS ENFORCE section is the answer: stopping by
-# default is a materially better position than having said so.
+# WHAT THIS DOES NOT DO. A copy opened by hand from the staged folder still runs.
+# CM042 has NO gate that reads this consent record: ConsentChecker.check
+# (RemoteCapture/Consent/ConsentView.swift:240) shows a dialog per session and
+# never reads a persisted record. Measured 2026-11-11, CM042 main 4b4cab8.
 #
-# THREE STATES, NOT TWO. accepted installs. declined does not, and says
-# the customer's own answer back to them. unknown -- nobody was ever
-# asked, or the answer was lost -- also does not install, and SAYS SO
-# OUT LOUD via _ostler_warn_consent_unknown rather than silently
-# treating a missing answer as a refusal. The opt-in default for a
-# recording-consent question is off; what may not happen is that being
-# invisible.
+# TESTS. tests/test_recording_consent_gates_the_capture_companion.sh runs this
+# phase for each answer and asserts the effects. tests/test_remotecapture_enable_later_no_reinstall.sh
+# runs the enable and disable script against a stubbed launchctl.
 #
-# THE APP IS NOT DELETED. A customer may have installed RemoteCapture
-# themselves. What this refuses is Ostler staging it and starting it
-# for them, so a prior run's LaunchAgent is booted out and removed and
-# the bundle is left where it is.
+# COMMANDS. scripts/remotecapture_transcription.sh enable | disable | status
+#   enable   moves the app into /Applications/Ostler, copies the staged plist into ~/Library/LaunchAgents, bootstraps it.
+#            Refuses (rc 3) without an accepted spoken_capture_recording_consent record.
+#   disable  boots it out, removes the LaunchAgents plist, and parks the app back in staged/.
+#   status   reports consent, the live plist, the staged plist, the app, and whether launchd has it.
 #
-# NO NEW LATE TOTAL_STEPS DECREMENT, deliberately: the ratchet is
-# pinned at six and this step already keeps its slot on its existing
-# Apple-Silicon skip path. The denominator is unchanged either way.
+# STAGED IS NOT RUNNING. For a declined or unknown answer the installer never
+# starts the agent. The consent test asserts that: nothing live, nothing loaded.
+#
+# WHY THE APP IS PARKED. Not accepted: the verified app leaves /Applications for the
+# staged folder, where nothing opens it. The enable script moves it back.
+# Path mirrors scripts/remotecapture_transcription.sh STAGED_APP. A failed move
+# leaves the app in /Applications and says so (MSG_ERR_CM042_RENAME_FAILED).
+_ostler_remotecapture_park() {
+    [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && return 0; local s="${HOME}/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app"; mkdir -p "${s%/*}" && rm -rf "$s" && mv "$REMOTECAPTURE_APP_PATH" "$s" || err "$(printf "$MSG_ERR_CM042_RENAME_FAILED" "$REMOTECAPTURE_APP_PATH")"
+}
 _OSTLER_CONSENT_SPOKEN_CAPTURE="$(_ostler_consent_state spoken_capture_recording_consent "${OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION:-}")"
-if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" != "accepted" ]]; then
-    REMOTECAPTURE_INSTALLED=false
-    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "declined" ]]; then
-        info "$MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF"
-    else
-        _ostler_warn_consent_unknown "Ostler RemoteCapture (call and meeting transcripts)" spoken_capture_recording_consent
-    fi
-    # Stand down a previous run's agent. Without this, a customer who
-    # answered yes once and no later would keep the companion starting
-    # at every login, which is the same defect one level down.
-    if [[ -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" ]]; then
-        launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" >/dev/null 2>&1 || true
-        rm -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null || true
-        info "$MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED"
-    fi
-elif [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
+# Every consent answer stages the app. Only the agent's placement reads the answer (tail).
+if [[ "$REMOTECAPTURE_ARCH_DETECTED" != "arm64" && "$REMOTECAPTURE_ARCH_DETECTED" != "aarch64" ]]; then
     warn "$(printf "$MSG_WARN_CM042_APPLE_SILICON_ONLY" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_ARCH_DETECTED}")"
     info "$MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING"
     REMOTECAPTURE_INSTALLED=false
 else
+    REMOTECAPTURE_INSTALLED=false
+    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" != "accepted" ]]; then
+        if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "declined" ]]; then
+            info "$MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF"
+        else
+            _ostler_warn_consent_unknown "Ostler RemoteCapture (call and meeting transcripts)" spoken_capture_recording_consent
+        fi
+        # A previous run's live agent stands down: yes once, no later, must not keep starting.
+        if [[ -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" ]]; then
+            launchctl bootout "gui/$(id -u)/${REMOTECAPTURE_LAUNCHAGENT_LABEL}" >/dev/null 2>&1 || true
+            rm -f "$REMOTECAPTURE_LAUNCHAGENT_PLIST" 2>/dev/null || true
+            info "$MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED"
+        fi
+    fi
 
 # Customer-facing TCC pre-prompt. RemoteCapture requests Screen
 # Recording + Microphone on first launch via ScreenCaptureKit +
@@ -33752,7 +33754,7 @@ if curl -fSL --retry 2 --retry-delay 2 -o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTU
             # strip xattr when the verify chain passed.
             xattr -dr com.apple.quarantine "$REMOTECAPTURE_APP_PATH" 2>/dev/null || true
             ok "$(printf "$MSG_OK_CM042_INSTALLED" "${OSTLER_REMOTECAPTURE_VERSION}" "${REMOTECAPTURE_APP_PATH}")"
-            REMOTECAPTURE_INSTALLED=true
+            REMOTECAPTURE_INSTALLED=true; _ostler_remotecapture_park
         else
             err "$MSG_ERR_CM042_VERIFY_FAILED"
             if [[ -s "$REMOTECAPTURE_CODESIGN_LOG" ]]; then
@@ -33788,13 +33790,15 @@ fi
 rm -rf "$REMOTECAPTURE_TMPDIR"
 REMOTECAPTURE_TMPDIR=""
 
-# LaunchAgent: auto-start on login, KeepAlive across crashes. The
-# .app is a MenuBarExtra (LSUIElement) so the customer sees the
-# menu-bar icon appear on login. ProcessType=Interactive + Aqua
-# session is implicit for a user LaunchAgent under gui/<uid>.
+# The same plist is written either way. Only its location decides whether it runs.
+# LaunchAgent: live in ~/Library/LaunchAgents only on an accepted answer; otherwise staged disabled beside the app.
+REMOTECAPTURE_STAGED_PLIST="${REMOTECAPTURE_APP_SUPPORT_DIR}/${REMOTECAPTURE_LAUNCHAGENT_LABEL}.plist.staged"
 if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
-    mkdir -p "${HOME}/Library/LaunchAgents"
-    cat > "$REMOTECAPTURE_LAUNCHAGENT_PLIST" <<RCAPEOF
+    mkdir -p "${HOME}/Library/LaunchAgents" "$REMOTECAPTURE_APP_SUPPORT_DIR"
+    REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_STAGED_PLIST"; [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_LAUNCHAGENT_PLIST"
+    # RunAtLoad and KeepAlive describe a LIVE agent. Staged, they are inert:
+    # nothing reads this file until the enable script bootstraps it.
+    cat > "$REMOTECAPTURE_PLIST_TARGET" <<RCAPEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -33816,18 +33820,16 @@ if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
 </dict>
 </plist>
 RCAPEOF
-    chmod 0644 "$REMOTECAPTURE_LAUNCHAGENT_PLIST"
-
-    # bootout-then-bootstrap so re-runs of the installer reload
-    # the plist cleanly. bootout of a non-loaded label is a no-op.
-    if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
-        ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
-        info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
-    else
-        warn "$MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED"
+    chmod 0644 "$REMOTECAPTURE_PLIST_TARGET"
+    if [[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]]; then
+        if _ostler_launchagent_load_verified "$REMOTECAPTURE_LAUNCHAGENT_PLIST"; then
+            ok "$(printf "$MSG_OK_CM042_LAUNCHAGENT_LOADED" "${REMOTECAPTURE_LAUNCHAGENT_LABEL}")"
+            info "$(printf "$MSG_INFO_CM042_LOGS_AT" "${LOGS_DIR}")"
+        else
+            warn "$MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED"
+        fi
     fi
 fi
-
 fi  # end RemoteCapture Apple Silicon guard
 
 # ── 3.14g Ostler.app (Tauri Hub desktop) ────────────────────────

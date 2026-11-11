@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  تم الاستنساخ إلى %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture يعمل على Apple Silicon فقط. سيتم تخطي التثبيت على هذا الجهاز."
 MSG_INFO_CM042_LOGS_AT="سجلات RemoteCapture: %s/ostler-remotecapture.log (و.err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="كان تثبيت سابق قد ضبط Ostler RemoteCapture ليبدأ عند تسجيل الدخول. تم إيقافه ولن يبدأ مرة أخرى."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="لم يتم تثبيت Ostler RemoteCapture: اخترت إبقاء تفريغ الكلام نصيًا متوقفًا. فعّله في الإعدادات وشغّل المثبّت مرة أخرى إذا غيّرت رأيك."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="يبقى Ostler RemoteCapture متوقفًا حتى تشغّل تفريغ الكلام نصيًا: اخترت إبقاءه متوقفًا في الوقت الحالي. يمكنك تشغيله في أي وقت من إعدادات Ostler أو من RemoteCapture. لا حاجة لإعادة التثبيت."
 MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler RemoteCapture من macOS إذن تسجيل الشاشة والميكروفون. امنح الإذنين ليمكن تفريغ المكالمات والاجتماعات نصيًا محليًا. لا يظهر مؤشر تسجيل أرجواني في شريط القوائم – فالتقاط الصوت صامت بحسب التصميم."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -714,6 +714,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="تعذّر تنزيل Ostler RemoteCapture v%s �
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="الأسباب الشائعة: لم يُنشر وسم الإصدار بعد، أو لا يوجد اتصال بالشبكة، أو أن التوثيق (notarisation) لدى المصدر لم يكتمل. أعد تشغيل المثبّت عند إتاحة الإصدار."
 MSG_WARN_CM042_EXTRACT_FAILED="تعذّر استخراج أرشيف Ostler RemoteCapture. سيتم تخطي LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="فشل تحميل LaunchAgent الخاص بـ Ostler RemoteCapture. راجع المخرجات أعلاه و ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="تعذّر تثبيت نصّ تفريغ الكلام نصيًا؛ ولا يمكن تشغيل التفريغ من إعدادات Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  لن يتوفر إثراء المحادثات. يُثبَّت باقي Ostler بشكل طبيعي. أعد التشغيل من دون --allow-plaintext لتفعيل محرّك ذاكرة المحادثات."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="فشل تثبيت محرّك ذاكرة المحادثات (الاستنساخ)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  تم البحث عن: %s/cm048_pipeline/pyproject.toml"

@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  Clonado para %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="O Ostler RemoteCapture só funciona em Apple Silicon. A ignorar a instalação neste computador."
 MSG_INFO_CM042_LOGS_AT="Registos do RemoteCapture: %s/ostler-remotecapture.log (e .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Uma instalação anterior tinha o Ostler RemoteCapture a iniciar no arranque da sessão. Foi parado e não voltará a iniciar."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="O Ostler RemoteCapture não foi instalado: escolheu manter desativada a transcrição de voz. Ative-a nas Definições e execute o instalador novamente se mudar de ideias."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="O Ostler RemoteCapture permanece desativado até ativar a transcrição de voz: escolheu mantê-la desativada por agora. Pode ativá-la a qualquer momento nas Definições do Ostler ou no RemoteCapture. Não é necessário reinstalar."
 MSG_INFO_CM042_TCC_PRE_PROMPT="No primeiro arranque, o Ostler RemoteCapture pedirá ao macOS a permissão de Gravação do Ecrã e de Microfone. Conceda ambas para que as chamadas e reuniões possam ser transcritas localmente. Não aparece nenhum indicador roxo na barra de menus – a captação de áudio é silenciosa por conceção."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -715,6 +715,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Não foi possível transferir o Ostler RemoteCap
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Causas comuns: a etiqueta da versão ainda não foi publicada, a rede está desligada ou a notarização ainda está em curso. Execute novamente o instalador quando a versão estiver disponível."
 MSG_WARN_CM042_EXTRACT_FAILED="Não foi possível extrair o ficheiro tarball do Ostler RemoteCapture; o LaunchAgent será ignorado."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Falha ao carregar o LaunchAgent do Ostler RemoteCapture. Consulte o resultado acima e ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Não foi possível instalar o script de transcrição de voz; a transcrição não pode ser ativada nas Definições do Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  O enriquecimento de conversas não estará disponível. O resto do Ostler é instalado normalmente; execute novamente sem --allow-plaintext para integrar o motor de memória de conversas."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="A instalação do motor de memória de conversas falhou (clonagem)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Procurado em: %s/cm048_pipeline/pyproject.toml"

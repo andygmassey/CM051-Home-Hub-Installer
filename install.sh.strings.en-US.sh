@@ -83,7 +83,7 @@ MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture stays off until you turn spoken transcription on: you chose to keep it off for now. You can turn it on at any time in Ostler's Settings or in RemoteCapture. No reinstall is needed."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -709,6 +709,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarization still in flight. Re-run the installer once the release is live."
 MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Could not install the spoken-transcription script; Hub Settings cannot turn transcription on."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"

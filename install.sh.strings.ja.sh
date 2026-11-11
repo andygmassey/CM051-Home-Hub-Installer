@@ -86,7 +86,7 @@ MSG_INFO_CLONED="  %s にクローンしました。"
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCaptureはApple Silicon専用です。このMacではインストールをスキップします。"
 MSG_INFO_CM042_LOGS_AT="RemoteCaptureのログ: %s/ostler-remotecapture.log(および .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="以前のインストールでは、Ostler RemoteCaptureがログイン時に起動する設定でした。これは停止され、今後は起動しません。"
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="音声の文字起こしをオフにする設定を選択されたため、Ostler RemoteCaptureはインストールされませんでした。気が変わった場合は、設定でオンにして、インストーラをもう一度実行してください。"
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="音声の文字起こしをオンにするまで、Ostler RemoteCaptureはオフのままです。当面はオフにしておくことを選択されています。Ostlerの設定またはRemoteCaptureからいつでもオンにできます。再インストールは不要です。"
 MSG_INFO_CM042_TCC_PRE_PROMPT="初回起動時に、Ostler RemoteCaptureはmacOSに「画面収録」とマイクの権限を求めます。通話や会議をローカルで文字起こしできるよう、両方を許可してください。メニューバーに紫色の録音インジケータは表示されません。音声の取り込みは、設計上インジケータなしで行われます。"
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -714,6 +714,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s を %s からダウン�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="考えられる原因: リリースタグがまだ公開されていない、ネットワークがオフライン、または上流の公証が処理中です。リリースが公開されたら、インストーラをもう一度実行してください。"
 MSG_WARN_CM042_EXTRACT_FAILED="Ostler RemoteCapture の tarball を展開できませんでした。LaunchAgent をスキップします。"
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture の LaunchAgent を読み込めませんでした。上の出力と ~/Library/LaunchAgents/ を確認してください。"
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="音声の文字起こしスクリプトをインストールできませんでした；Hubの設定では文字起こしをオンにできません。"
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  会話の補強は利用できません。Ostler のそれ以外の部分は通常どおりインストールされます。会話メモリーエンジンを組み込むには、--allow-plaintext を付けずにもう一度実行してください。"
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="会話メモリーエンジンのインストールに失敗しました (クローン)。"
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  検索先: %s/cm048_pipeline/pyproject.toml"

@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  已複製到 %s。"
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture 僅支援 Apple 晶片。已在這部機器上略過安裝。"
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 日誌：%s/ostler-remotecapture.log（及 .err）"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="先前的安裝讓 Ostler RemoteCapture 在登入時啟動。它已停止，不會再次啟動。"
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="未安裝 Ostler RemoteCapture：你選擇了保持語音轉錄關閉。如果你改變主意，請在「設定」中開啟，然後再次執行安裝程式。"
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="在你開啟語音轉錄之前，Ostler RemoteCapture 保持關閉：你選擇暫時保持語音轉錄關閉。你可以隨時在 Ostler 的「設定」或 RemoteCapture 中開啟，無需重新安裝。"
 MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 macOS 要求「螢幕錄製」和「麥克風」權限。請同時允許，讓通話和會議可在本機轉錄。你的選單列不會出現紫色錄製指示燈，因為音訊擷取設計上是靜默的。"
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -712,6 +712,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="無法下載 Ostler RemoteCapture v%s（來源�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="常見原因：發行標籤尚未發佈、網絡已離線，或上游公證仍在處理中。待發行版本上線後，請重新執行安裝程式。"
 MSG_WARN_CM042_EXTRACT_FAILED="無法解壓縮 Ostler RemoteCapture tarball；略過 LaunchAgent。"
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent 載入失敗。請參閱上方輸出內容及 ~/Library/LaunchAgents/。"
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="無法安裝語音轉錄腳本；無法在 Hub 設定中開啟語音轉錄。"
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  對話強化功能將無法使用。Ostler 其餘部分會正常安裝；如要接入對話記憶引擎，請不加 --allow-plaintext 重新執行。"
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="對話記憶引擎安裝失敗（複製）。"
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  已尋找：%s/cm048_pipeline/pyproject.toml"

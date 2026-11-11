@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  %s에 복제했습니다."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture는 Apple 실리콘 전용입니다. 이 Mac에서는 설치를 건너뜁니다."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 로그: %s/ostler-remotecapture.log (및 .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="이전 설치에서 Ostler RemoteCapture가 로그인 시 시작되도록 설정되어 있었습니다. 이를 중지했으며 다시 시작되지 않습니다."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture가 설치되지 않았습니다. 음성 텍스트 변환을 끈 상태로 두기로 선택하셨습니다. 마음이 바뀌면 설정에서 켠 다음 설치 프로그램을 다시 실행하세요."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="음성 텍스트 변환을 켜기 전까지 Ostler RemoteCapture는 꺼진 상태로 있습니다. 당분간 꺼 두기로 선택하셨습니다. Ostler 설정 또는 RemoteCapture에서 언제든 켤 수 있습니다. 다시 설치할 필요는 없습니다."
 MSG_INFO_CM042_TCC_PRE_PROMPT="처음 실행하면 Ostler RemoteCapture가 macOS에 화면 기록 및 마이크 권한을 요청합니다. 통화와 회의를 이 Mac에서 텍스트로 변환할 수 있도록 두 가지 모두 허용하세요. 메뉴 막대에 보라색 기록 표시는 나타나지 않습니다. 오디오 캡처는 의도적으로 조용히 이루어집니다."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -713,6 +713,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s를 %s에서 다운로�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="흔한 원인: 릴리스 태그가 아직 게시되지 않았거나, 네트워크가 오프라인이거나, 상위 공증이 아직 진행 중일 수 있습니다. 릴리스가 공개된 후 설치 프로그램을 다시 실행하세요."
 MSG_WARN_CM042_EXTRACT_FAILED="Ostler RemoteCapture tarball을 추출하지 못했습니다. LaunchAgent를 건너뜁니다."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent를 불러오지 못했습니다. 위의 출력과 ~/Library/LaunchAgents/를 확인하세요."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="음성 텍스트 변환 스크립트를 설치하지 못했습니다. Hub 설정에서는 텍스트 변환을 켤 수 없습니다."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  대화 보강 기능을 사용할 수 없습니다. 나머지 Ostler는 정상적으로 설치됩니다. 대화 메모리 엔진을 연결하려면 --allow-plaintext 없이 다시 실행하세요."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="대화 메모리 엔진 설치에 실패했습니다(clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  확인한 경로: %s/cm048_pipeline/pyproject.toml"

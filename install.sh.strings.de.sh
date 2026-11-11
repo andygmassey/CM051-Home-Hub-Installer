@@ -85,7 +85,7 @@ MSG_INFO_CLONED="  Geklont nach %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture läuft nur auf Apple Silicon. Die Installation wird auf diesem Mac übersprungen."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture-Protokolle: %s/ostler-remotecapture.log (und .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Bei einer früheren Installation wurde Ostler RemoteCapture beim Anmelden gestartet. Es wurde gestoppt und startet nicht mehr."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture wurde nicht installiert: Du hast die Transkription gesprochener Sprache ausgeschaltet. Schalte sie in den Einstellungen ein und führe das Installationsprogramm erneut aus, falls du es dir anders überlegst."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture bleibt aus, bis du die Transkription gesprochener Sprache einschaltest: Du hast sie vorerst ausgeschaltet gelassen. Du kannst sie jederzeit in den Einstellungen von Ostler oder in RemoteCapture einschalten. Eine Neuinstallation ist nicht nötig."
 MSG_INFO_CM042_TCC_PRE_PROMPT="Beim ersten Start fragt Ostler RemoteCapture bei macOS die Berechtigungen für Bildschirmaufnahme und Mikrofon an. Erteile beide, damit Anrufe und Meetings lokal transkribiert werden können. In deiner Menüleiste erscheint kein violetter Aufnahmeindikator – die Audioerfassung läuft bewusst lautlos."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
@@ -715,6 +715,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Ostler RemoteCapture v%s konnte nicht von %s gel
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Häufige Ursachen: Release-Tag noch nicht veröffentlicht, Netzwerk offline oder Notarisierung noch nicht abgeschlossen. Führe den Installer erneut aus, sobald das Release verfügbar ist."
 MSG_WARN_CM042_EXTRACT_FAILED="Das Ostler-RemoteCapture-Tarball konnte nicht entpackt werden; LaunchAgent wird übersprungen."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Der Ostler-RemoteCapture-LaunchAgent konnte nicht geladen werden. Siehe die Ausgabe oben und ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Das Skript zur Transkription gesprochener Sprache konnte nicht installiert werden; in den Hub-Einstellungen lässt sich die Transkription nicht einschalten."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Die Anreicherung von Gesprächen ist nicht verfügbar. Der Rest von Ostler wird normal installiert; führe die Installation ohne --allow-plaintext erneut aus, um die Gesprächsgedächtnis-Engine einzubinden."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Installation der Gesprächsgedächtnis-Engine fehlgeschlagen (Klonen)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Gesucht wurde: %s/cm048_pipeline/pyproject.toml"
