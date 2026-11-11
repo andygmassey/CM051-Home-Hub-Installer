@@ -633,7 +633,7 @@ jobs:
         if: always()
         run: bash tests/test_time_machine_exclusion_is_measured.sh
       # NEW-121 (v1.0.120 box): Doctor's own python ran `tmutil isexcluded`
-      # on ~/Documents/Ostler, so TCC charged a NON-preflight Documents request
+      # on ~/Ostler, so TCC charged a NON-preflight Documents request
       # to python3.11. CALLS the Doctor rule under an audit hook (no spawn, no
       # stat under ~/Documents), runs the real fda-rerun writer into the real
       # reader, and pins every Doctor subprocess call site to the swept table.

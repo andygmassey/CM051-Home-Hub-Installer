@@ -91,7 +91,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="初回起動時に、Ostler RemoteCaptureはmacOS
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -99,7 +99,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="初回起動時に、Ostler RemoteCaptureはmacOS
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostlerは、あなたの個人用ウィキと会話の記録を、このMacの「書類」内のOstlerフォルダ(Documents/Ostler)に保存します。これらはあなたのものであり、このMacの外には出ません。書き込むには「書類」フォルダへのアクセスが必要なため、セットアップ中と、今日このあとOstlerが初めてウィキを整理するときに、macOSが許可を求めることがあります。要求は、Ostlerがファイルの書き込みに使う同梱ヘルパーのpython3.11からのものとして表示される場合があります。表示されたら、その都度「OK」をクリックしてください。見逃した場合や許可しなかった場合でも、システム設定の「プライバシーとセキュリティ」、「ファイルとフォルダ」からいつでもオンにでき、以降はウィキと会話の記録が書き込まれます。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostlerは、あなたの個人用ウィキと会話の記録を、このMacのホームフォルダ内のOstlerフォルダ(~/Ostler)に保存します。これらはあなたのものであり、このMacの外には出ません。このフォルダは意図的に「書類」の外に置かれているため、iCloud Driveにはアップロードされません。ただし、保存したデータの書き出しファイルを探すためなどに、Ostlerが「書類」フォルダへのアクセスを必要とする場合があり、その際はセットアップ中と、今日このあとにmacOSが許可を求めることがあります。要求は、Ostlerがファイルの書き込みに使う同梱ヘルパーのpython3.11からのものとして表示される場合があります。表示されたら、その都度「OK」をクリックしてください。見逃した場合や許可しなかった場合でも、システム設定の「プライバシーとセキュリティ」、「ファイルとフォルダ」からいつでもオンにできます。"
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Ostlerフォルダを%sから%sに移動しました。これにより、iCloud Driveの「デスクトップと書類」同期はこのフォルダに及ばなくなります。"
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="このMacではiCloud Driveの「デスクトップと書類」同期がオンになっているため、以前のOstlerのファイルのコピーがすでにiCloud Drive上にある可能性があります。Ostlerはそれらを削除していません。削除するには、FinderでiCloud Driveを開き、「書類」を開いて、そこにあるOstlerフォルダを削除してください。"
+MSG_WARN_USER_ROOT_NOT_MOVED="以前のOstlerフォルダ%sは、%sに移動できなかったため、そのまま残しています。移動先のフォルダがすでに存在するか、移動に失敗しました。何も削除していません。Ostlerは今後、新しいフォルダを使用します。そちらにファイルを置きたい場合は、ご自身で移動してください。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  会話メモリエンジンをvenvにインストールしました。"
 MSG_INFO_HUB_APP_VERIFYING="%s にあるOstler.appを検証中"
 MSG_INFO_HUB_APP_STAGING="%s からOstler.appを/Applicationsへ配置中"
@@ -1301,7 +1306,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="ディスクを暗号化しないまま続け�
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="本当によろしいですか？これはセキュリティ上のリスクです。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="このMacではFileVaultがオフのため、ディスクは保存時に暗号化されていません。
 
-続行した場合の影響:Ostlerが保存するすべてのデータ(~/Documents/Ostler 内の個人グラフ全体(Wiki、会話、ナレッジノート)、および ~/.ostler 内のサービスのシークレットとデータベース)が、暗号化されずにディスクへ書き込まれます。このドライブから起動できる人、ドライブを取り外せる人、ロック解除されたセッションにアクセスできる人は、そのすべてを読み取れます。Ostlerがデータベースの暗号化に使う鍵は同じディスク上に保存されているため、FileVaultがオフの状態では、ディスクを手にした人からデータを守ることはできません。
+続行した場合の影響:Ostlerが保存するすべてのデータ(~/Ostler 内の個人グラフ全体(Wiki、会話、ナレッジノート)、および ~/.ostler 内のサービスのシークレットとデータベース)が、暗号化されずにディスクへ書き込まれます。このドライブから起動できる人、ドライブを取り外せる人、ロック解除されたセッションにアクセスできる人は、そのすべてを読み取れます。Ostlerがデータベースの暗号化に使う鍵は同じディスク上に保存されているため、FileVaultがオフの状態では、ディスクを手にした人からデータを守ることはできません。
 
 FileVaultの使用を強くおすすめします。「システム設定」>「プライバシーとセキュリティ」>「FileVault」でいつでもオンにでき、再インストールせずにバックグラウンドで暗号化されます。
 

@@ -15,7 +15,7 @@ tick it:
      timestamps, the tier label, and any operator contact/group label).
   3. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
      emits the four artefacts under
-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 CM048 owns classification, enrichment, the L3 short-circuit, the
 WhatsApp privacy ladder, and the four-artefact write. This module only

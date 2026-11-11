@@ -88,7 +88,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask ma
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -96,7 +96,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask ma
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records in the Ostler folder in your home folder (~/Ostler), on this Mac. They are yours and they stay on this machine. The folder is deliberately outside Documents, so iCloud Drive does not upload it. Ostler may still need access to your Documents folder, for example to look for data exports you have saved there, so macOS may ask for it during setup, and again later today. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Moved your Ostler folder from %s to %s, so iCloud Drive's Desktop and Documents sync no longer reaches it."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="iCloud Drive's Desktop and Documents sync is on for this Mac, so earlier copies of your Ostler files may already be in iCloud Drive. Ostler has not deleted them. To remove them, open iCloud Drive in Finder, open Documents, and delete the Ostler folder there."
+MSG_WARN_USER_ROOT_NOT_MOVED="Your earlier Ostler folder %s was left in place, because it could not be moved to %s. Either that folder already exists or the move failed. Nothing was deleted. Ostler now uses the new folder: move your files across yourself if you want them there."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
@@ -1291,7 +1296,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
 
 FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
 

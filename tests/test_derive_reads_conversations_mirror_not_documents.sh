@@ -4,7 +4,7 @@
 #
 # THE DEFECT (v1.0.121 cold walk, Mini16): no_python_is_tcc_responsible FAIL.
 # The derive-preferences agent is bare launchd python, and its
-# stated_transcripts reader defaults to ~/Documents/Ostler/Conversations, so
+# stated_transcripts reader defaults to ~/Ostler/Conversations, so
 # TCC charged a Documents request to the bundled python3.11 as responsible.
 # The fix: the signed fda-rerun wrapper mirrors that folder into
 # ~/.ostler/state/conversations_mirror and the derive plist points
@@ -68,7 +68,7 @@ case "$root" in
     *) ok "1 derive plist reads conversations from ${root#"$H"/}" ;;
 esac
 
-CONV="${H}/Documents/Ostler/Conversations"
+CONV="${H}/Ostler/Conversations"
 mk() { # mk <name> <frontmatter line or ''>
     mkdir -p "${CONV}/2026-11-01/$1"
     if [ -n "$2" ]; then printf -- '---\nchannel: im\n%s\n---\nsynthetic owner line\n' "$2" > "${CONV}/2026-11-01/$1/transcript.md"

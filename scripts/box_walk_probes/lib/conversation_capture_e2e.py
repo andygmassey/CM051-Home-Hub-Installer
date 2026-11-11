@@ -4,7 +4,7 @@
 Andy, on conversation capture: CORE to the product. The four-artefact spec
 (CLAUDE.md, 2026-05-09) says every human conversation produces summary.md,
 transcript.md, todos.md and frontmatter metadata under
-~/Documents/Ostler/Conversations/<date>/<slug>-<id>/. Nothing on a box walk
+~/Ostler/Conversations/<date>/<slug>-<id>/. Nothing on a box walk
 had ever exercised the path a paired iPhone or Watch actually uses: POST
 through the TLS companion gateway (:8443, device bearer) to
 /api/v1/conversation/process, poll /api/v1/conversation/status/{id}, read the
@@ -446,7 +446,7 @@ def box_main(argv):
             device_token = open(os.path.expanduser(token_file)).read().strip()
         except OSError:
             device_token = ""
-    root = a.get("--conversations-root", os.path.expanduser("~/Documents/Ostler/Conversations"))
+    root = a.get("--conversations-root", os.path.expanduser("~/Ostler/Conversations"))
     date_hint = a.get("--date", "")
     budget = int(a.get("--status-budget-s", "180"))
     facts = {"seed_state": a.get("--seed-state", "unrun")}

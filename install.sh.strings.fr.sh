@@ -90,7 +90,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Au premier lancement, Ostler RemoteCapture demand
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Au premier lancement, Ostler RemoteCapture demand
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos comptes rendus de conversations dans Documents/Ostler, sur ce Mac. Ils vous appartiennent et restent sur cette machine. Pour les écrire, Ostler a besoin d’accéder à votre dossier Documents : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée, lorsque Ostler organisera votre wiki pour la première fois. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur OK chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers ; votre wiki et vos comptes rendus de conversations seront alors écrits à partir de ce moment."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler enregistre votre wiki personnel et vos comptes rendus de conversations dans le dossier Ostler de votre dossier personnel (~/Ostler), sur ce Mac. Ils vous appartiennent et restent sur cette machine. Ce dossier est volontairement placé hors de Documents : iCloud Drive ne le téléverse donc pas. Ostler peut néanmoins avoir besoin d’accéder à votre dossier Documents, par exemple pour y chercher les exports de données que vous y avez enregistrés : macOS peut donc vous le demander pendant la configuration, puis de nouveau plus tard dans la journée. La demande peut sembler provenir de python3.11, l’outil intégré qu’Ostler utilise pour écrire vos fichiers. Cliquez sur OK chaque fois qu’elle apparaît. Si vous la manquez ou la refusez, vous pouvez l’activer à tout moment dans Réglages Système, sous Confidentialité et sécurité, puis Fichiers et dossiers."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Votre dossier Ostler a été déplacé de %s vers %s : la synchronisation Bureau et Documents d’iCloud Drive ne l’atteint donc plus."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="La synchronisation Bureau et Documents d’iCloud Drive est activée sur ce Mac : des copies antérieures de vos fichiers Ostler se trouvent donc peut-être déjà dans iCloud Drive. Ostler ne les a pas supprimées. Pour les retirer, ouvrez iCloud Drive dans le Finder, ouvrez Documents, puis supprimez-y le dossier Ostler."
+MSG_WARN_USER_ROOT_NOT_MOVED="Votre ancien dossier Ostler %s a été laissé en place, car il n’a pas pu être déplacé vers %s. Soit ce dossier existe déjà, soit le déplacement a échoué. Rien n’a été supprimé. Ostler utilise désormais le nouveau dossier : déplacez vous-même vos fichiers si vous voulez les y avoir."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Moteur de mémoire des conversations installé dans venv."
 MSG_INFO_HUB_APP_VERIFYING="Vérification d’Ostler.app dans %s"
 MSG_INFO_HUB_APP_STAGING="Copie d’Ostler.app dans /Applications depuis %s"
@@ -1303,7 +1308,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuer avec votre disque NON CHIFFRÉ au rep
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Êtes-vous sûr ? C’est un risque pour la sécurité."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault est désactivé sur ce Mac : votre disque n’est donc pas chiffré au repos.
 
-Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Documents/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
+Ce que cela implique si vous continuez : tout ce qu’Ostler stocke, c’est-à-dire l’ensemble de votre graphe personnel (wiki, conversations, notes de connaissance) dans ~/Ostler, ainsi que les secrets des services et les bases de données dans ~/.ostler, est écrit sur le disque NON CHIFFRÉ. Toute personne pouvant démarrer depuis ce disque, le retirer ou accéder à une session déverrouillée peut tout lire. La clé avec laquelle Ostler chiffre ses bases de données est stockée sur ce même disque : sans FileVault, elle ne protège donc pas vos données contre quiconque a accès au disque.
 
 FileVault est fortement recommandé. Vous pouvez l’activer à tout moment dans Réglages Système > Confidentialité et sécurité > FileVault : le chiffrement s’effectue en arrière-plan, sans réinstallation.
 

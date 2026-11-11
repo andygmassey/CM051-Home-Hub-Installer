@@ -9,7 +9,7 @@ The CONVERSATION-MEMORY leg for email. It reads the Hub Mac's Apple
 Mail store, threads messages into conversation threads, renders a
 cleaned transcript plus CM048 metadata, and invokes CM048's
 `pwg-convo process` so the four artefacts land under
-`~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/`.
+`~/Ostler/Conversations/<date>/<slug>-<short-id>/`.
 
 It is SEPARATE from the existing `email-ingest/` LaunchAgent
 (`com.creativemachines.ostler.email-ingest`), which drains Apple Mail

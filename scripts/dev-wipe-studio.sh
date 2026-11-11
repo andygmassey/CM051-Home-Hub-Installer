@@ -108,7 +108,7 @@ pkill -f "Ostler|zeroclaw|RemoteCapture" 2>/dev/null || true
 # ── 1. The shipped uninstaller does the shared removal ───────────────────
 #
 # It removes the LaunchAgents, both .app bundles, the ostler-knowledge
-# symlink, the RemoteCapture support dir, ~/.ostler, ~/Documents/Ostler AND
+# symlink, the RemoteCapture support dir, ~/.ostler, ~/Ostler AND
 # the docker stores, in the right ORDER. Deleting ~/.ostler ourselves first
 # would take docker-compose.yml with it.
 UNINSTALLER_RAN=0
@@ -117,7 +117,7 @@ if [ -x "$UNINSTALLER" ]; then
   # An uninstaller written by an OLDER install may not know --remove-content
   # and exits 2 on an argument it does not recognise. Try the flag, and if it
   # is rejected fall back to the flagless form, which under assume-yes keeps
-  # ~/Documents/Ostler -- so we say so and remove that root ourselves below.
+  # ~/Ostler -- so we say so and remove that root ourselves below.
   if OSTLER_UNINSTALL_ASSUME_YES=1 "$UNINSTALLER" --remove-content; then
     UNINSTALLER_RAN=1
   elif OSTLER_UNINSTALL_ASSUME_YES=1 "$UNINSTALLER"; then
@@ -149,7 +149,7 @@ echo "[wipe] removing what the uninstaller preserves on purpose"
 rm -rf "${OSTLER_DIR}/data/knowledge-staging" \
        "${OSTLER_DIR}/power.conf"
 rm -rf "$OSTLER_DIR" \
-       "${HOME}/Documents/Ostler" \
+       "${HOME}/Ostler" \
        "${HOME}/Library/Application Support/Ostler" \
        "${HOME}/Library/Application Support/Ostler RemoteCapture"
 rm -rf "${HOME}/Library/Application Support/com.creativemachines."* 2>/dev/null || true
@@ -280,7 +280,7 @@ APPS="$(_apps_dir)"; BIN="$(_bin_dir)"; OD="$(_ostler_dir)"
 report() { printf '  %-8s %s\n' "$1" "$2"; }
 
 for path in "$OD" \
-            "${HOME}/Documents/Ostler" \
+            "${HOME}/Ostler" \
             "${HOME}/Library/Application Support/Ostler" \
             "${HOME}/Library/Application Support/Ostler RemoteCapture" \
             "${APPS}/Ostler.app" \

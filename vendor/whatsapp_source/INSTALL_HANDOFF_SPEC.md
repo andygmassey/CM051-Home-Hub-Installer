@@ -11,7 +11,7 @@ WhatsApp Desktop store (`ChatStorage.sqlite`), pulls message BODIES for
 the in-tier chats (T1 DM + T2 intimate/active group; T3 large-passive is
 skipped), renders a cleaned transcript plus CM048 metadata, and invokes
 CM048's `pwg-convo process` so the four artefacts land under
-`~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/`.
+`~/Ostler/Conversations/<date>/<slug>-<short-id>/`.
 
 It is SEPARATE from the existing `hydrate_whatsapp` install sub-phase
 (install.sh:9144+), which runs `python -m ostler_fda.whatsapp_history`

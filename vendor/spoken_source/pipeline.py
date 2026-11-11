@@ -6,14 +6,14 @@ ticks; see ``launchd/com.creativemachines.ostler.spoken-bundle.plist``).
 On each tick it:
 
   1. Reads CM042's finished transcript tree under
-     ``~/Documents/Ostler/Transcripts/YYYY/MM/`` (RemoteCapture writes
+     ``~/Ostler/Transcripts/YYYY/MM/`` (RemoteCapture writes
      one markdown file per finished recording session).
   2. Normalises each finished session into a cleaned speaker-labelled
      transcript + CM048 metadata (``channel="spoken"`` plus
      participants, source, capture timestamp, capture_source).
   3. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
      emits the four artefacts under
-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 Meetings / calls AND voice notes flow through this one feed; a voice
 note is just a short single-speaker spoken capture and needs no

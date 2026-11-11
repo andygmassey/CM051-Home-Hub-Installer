@@ -1339,7 +1339,7 @@ Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is 
 `vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
 `check_time_machine_exclusion()` (registered last in `ALL_RULES`);
 `vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
-`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Ostler`
 and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
 is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
 Time Machine" for `~/.ostler`), anything else is an info "could not check",
@@ -1352,7 +1352,7 @@ regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 
 MEASURED on the v1.0.120 box: the rule above ran `tmutil isexcluded` from
 Doctor's launchd python, so TCC charged the reads to python3.11, and the
-`~/Documents/Ostler` argv (plus the `os.path.isdir()` gating it) made a
+`~/Ostler` argv (plus the `os.path.isdir()` gating it) made a
 NON-preflight SystemPolicyDocumentsFolder request, the prompt-capable shape.
 
 `_tm_isexcluded()` is DELETED. `check_time_machine_exclusion()` now reads
@@ -1378,7 +1378,7 @@ back.
 ### 2026-10-30, v1.0.121 (NEW-121, Archie (b)): the Documents tile reads, never probes
 
 `vendor/doctor/agent/documents_access_posture.py` (VENDOR_ONLY) no longer
-probe-writes into `~/Documents/Ostler` from Doctor's python on every render.
+probe-writes into `~/Ostler` from Doctor's python on every render.
 `probe_documents_access` and `_default_write_probe` are DELETED;
 `read_documents_access()` reads `~/.ostler/state/documents_access.tsv`
 (`STATUS_FILE_REL`, `STATUS_MAX_AGE_SECONDS` = 6 h) and

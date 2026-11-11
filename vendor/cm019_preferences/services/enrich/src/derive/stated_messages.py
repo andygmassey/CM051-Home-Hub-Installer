@@ -3,7 +3,7 @@
 A second, higher-yield source for the stated-preference reader. CM048 turns a
 conversation into a few model-extracted facts; this scans the owner's OWN lines
 in the cleaned transcripts CM048 has already written
-(``~/Documents/Ostler/Conversations/<date>/<slug>/transcript.md``), with no model,
+(``~/Ostler/Conversations/<date>/<slug>/transcript.md``), with no model,
 using the same cue phrases, vocabulary, synonyms and polarity as ``stated.py``.
 
 This is a READ for derive evidence, not a conversation writer: it writes nothing

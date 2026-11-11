@@ -12,7 +12,7 @@
 # message bodies, renders each chat into a cleaned transcript + CM048
 # metadata, and hands it to CM048's pwg-convo processor, which emits
 # the four artefacts under
-# ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+# ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
 #
 # It is SEPARATE from the hydrate_whatsapp install sub-phase (which runs
 # ostler_fda.whatsapp_history for people-graph FACTS, metadata only).

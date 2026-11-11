@@ -113,6 +113,7 @@ jobs:
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
+            tests/test_user_root_is_home_ostler_not_documents.sh \
             tests/test_usr_local_bin_symlinks_gui_safe.sh \
             tests/test_v1010_at_rest_exclusions.sh \
             tests/test_v1010_ingest_reroute_plists.sh \

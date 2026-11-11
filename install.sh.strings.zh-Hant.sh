@@ -90,7 +90,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 mac
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 mac
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話紀錄儲存在這部 Mac 的「文件」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文件」檔案夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內建輔助程式。每當出現時，請按「好」。如果你錯過或拒絕了，可隨時在「系統設定」的「隱私權與安全性」中，選擇「檔案和檔案夾」開啟，之後你的維基和對話紀錄便會繼續寫入。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話紀錄儲存在這部 Mac 上你的個人檔案夾中的 Ostler 檔案夾（~/Ostler）裡。這些內容屬於你，並且只會留在這部機器上。該檔案夾刻意放在「文件」之外，因此 iCloud 雲碟不會上傳它。不過，Ostler 仍可能需要取用你的「文件」檔案夾，例如尋找你存放在那裡的資料匯出檔，因此 macOS 可能會在設定期間詢問，並在今天稍後再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內建輔助程式。每當出現時，請按「好」。如果你錯過或拒絕了，可隨時在「系統設定」的「隱私權與安全性」中，選擇「檔案和檔案夾」開啟。"
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="已將你的 Ostler 檔案夾從 %s 移到 %s，因此 iCloud 雲碟的「桌面與文件」同步不會再觸及它。"
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="這部 Mac 已開啟 iCloud 雲碟的「桌面與文件」同步，因此你先前的 Ostler 檔案副本可能已經在 iCloud 雲碟中。Ostler 沒有刪除它們。若要移除，請在 Finder 中打開 iCloud 雲碟，打開「文件」，並刪除其中的 Ostler 檔案夾。"
+MSG_WARN_USER_ROOT_NOT_MOVED="你先前的 Ostler 檔案夾 %s 已保持原位，因為無法將它移到 %s。不是該檔案夾已存在，就是移動失敗。沒有刪除任何內容。Ostler 現在使用新的檔案夾：如果想把檔案放在那裡，請自行移動。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  對話記憶引擎已安裝在 venv 中。"
 MSG_INFO_HUB_APP_VERIFYING="正在驗證位於 %s 的 Ostler.app"
 MSG_INFO_HUB_APP_STAGING="正在從 %s 將 Ostler.app 放置到 /Applications"
@@ -1296,7 +1301,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟未加密的情況下繼續嗎？"
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你確定嗎？這有安全風險。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未加密。
 
-如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務金鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的金鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。
+如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務金鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的金鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。
 
 強烈建議開啟 FileVault。你隨時可以在「系統設定」>「隱私權與安全性」> FileVault 中開啟，它會在背景加密，無需重新安裝。
 

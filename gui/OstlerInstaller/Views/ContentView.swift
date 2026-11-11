@@ -905,7 +905,7 @@ private struct FooterView: View {
 
             if coordinator.finished == .ok {
                 Button(ViewCopy.shared.string(for: "footer.reveal_in_finder_button")) {
-                    let url = URL(fileURLWithPath: ("~/Documents/Ostler" as NSString).expandingTildeInPath)
+                    let url = URL(fileURLWithPath: ("~/Ostler" as NSString).expandingTildeInPath)
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .buttonStyle(.ostlerGhost)

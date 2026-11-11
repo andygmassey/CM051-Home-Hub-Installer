@@ -26,7 +26,7 @@ set -uo pipefail
 PROBE_NAME="install_error_honesty"
 PROBE_QUESTION="does the installer's closing summary agree with the error count in its own log?"
 
-# OSTLER_DIR is ~/.ostler. The log is NOT under ~/Documents/Ostler/logs --
+# OSTLER_DIR is ~/.ostler. The log is NOT under ~/Ostler/logs --
 # that path was searched twice during the v1.0.31 walk and reported a false
 # absence. install.sh:962 is the authority.
 LOG_PATH="${OSTLER_INSTALL_LOG:-\$HOME/.ostler/logs/install.log}"
@@ -101,7 +101,7 @@ run_probe() {
     lines="${lines:-0}"
 
     if [ "$lines" -eq 0 ]; then
-        probe_cannot_run "no readable install log at $LOG_PATH (0 lines). The real path is \$HOME/.ostler/logs/install.log per install.sh:962; \$HOME/Documents/Ostler/logs is NOT it"
+        probe_cannot_run "no readable install log at $LOG_PATH (0 lines). The real path is \$HOME/.ostler/logs/install.log per install.sh:962; \$HOME/Ostler/logs is NOT it"
     fi
 
     probe_examined "$lines" "lines of $LOG_PATH"

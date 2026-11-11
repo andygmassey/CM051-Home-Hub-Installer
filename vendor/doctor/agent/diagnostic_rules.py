@@ -2855,12 +2855,12 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
 #
 # v1.0.121 (NEW-121, measured on the v1.0.120 box): this rule used to run
 # `tmutil isexcluded <folder>` from Doctor's own python, for ~/.ostler,
-# ~/Documents/Ostler and ~/.colima. Doctor is a launchd job whose program is
+# ~/Ostler and ~/.colima. Doctor is a launchd job whose program is
 # the bundled python, so TCC charged tmutil's reads to python3.11: two
 # preflights (SystemPolicyAllFiles, SystemPolicyDocumentsFolder) and one
 # NON-preflight SystemPolicyDocumentsFolder request, which is the shape that
 # shows a customer "python3 would like to access files in your Documents
-# folder". The Documents request comes from the ~/Documents/Ostler argv (and
+# folder". The Documents request comes from the ~/Ostler argv (and
 # the os.path.isdir() on it that gated the call); ~/.ostler and ~/.colima are
 # outside every TCC-protected folder.
 #
@@ -2944,9 +2944,9 @@ def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
         return []
     home = os.path.expanduser("~")
     secrets_dir = os.path.join(home, ".ostler")
-    # Path STRINGS only. Doctor must not stat ~/Documents/Ostler: the writer
+    # Path STRINGS only. Doctor must not stat ~/Ostler: the writer
     # records "absent" for a folder that does not exist.
-    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+    folders = [secrets_dir, os.path.join(home, "Ostler"),
                os.path.join(home, ".colima")]
     rows, reason = _tm_read_status()
     findings: list[dict] = []
