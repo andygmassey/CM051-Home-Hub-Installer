@@ -62,6 +62,7 @@ check" is never the same answer as "nothing owed".
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -186,6 +187,11 @@ class SourceRead:
     channel: str
     threads: list[Thread] = field(default_factory=list)
     excluded: dict[str, int] = field(default_factory=dict)
+    # Institution (school) mail: classified before the automated filter, kept
+    # out of reply debt, never dropped. The Parent skills read this list.
+    school: list[Thread] = field(default_factory=list)
+    # Which frequency-rule mode applied: "on" or "off:no_outbound_rows".
+    frequency_mode: str = ""
 
     def drop(self, reason: str) -> None:
         self.excluded[reason] = self.excluded.get(reason, 0) + 1
@@ -349,11 +355,182 @@ def _header(row: dict, name: str) -> str:
     return vals[0].strip() if vals else ""
 
 
-def email_automated_reason(row: dict) -> str:
-    """Why this message is not from a human writing personally, or ``""``."""
+# A calendar system's own mail: "Invitation: ...", "Updated invitation: ...",
+# "Accepted: ...", "Canceled event: ...". Its body asks "Going?" and offers
+# Yes/No/Maybe buttons; that is an RSVP the calendar takes, not a reply owed.
+_CALENDAR_SUBJECT = re.compile(
+    r"^\s*(?:updated\s+invitation|invitation|accepted|declined|tentatively\s+accepted"
+    r"|canceled|cancelled|canceled\s+event|cancelled\s+event)\s*:",
+    re.IGNORECASE,
+)
+
+
+def is_calendar_invite(row: dict) -> bool:
+    """A calendar-system message (iCalendar part, or an invitation subject)."""
+    if "text/calendar" in _header(row, "content-type").lower():
+        return True
+    if _CALENDAR_SUBJECT.match(str(row.get("subject") or "")):
+        return True
+    return "BEGIN:VCALENDAR" in str((row.get("last") or {}).get("text") or "")
+
+
+# Dates in a templated subject: month and weekday names, numbers.
+_DATE_WORDS = frozenset({
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept", "oct",
+    "nov", "dec", "january", "february", "march", "april", "june", "july",
+    "august", "september", "october", "november", "december",
+    "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+})
+
+
+# "22nd", "1st", "3rd", "4th": the suffix is part of the date, not a word.
+_ORDINAL = re.compile(r"(\d)(?:st|nd|rd|th)\b")
+
+
+def _template_key(row: dict) -> Optional[tuple[str, str]]:
+    """(sender, subject with dates, numbers and punctuation removed), or None.
+
+    "Your digest 12 Nov" and "Your digest 29 Oct" share a key: a mailing
+    platform's dated template is the same message sent again."""
+    sender = ((row.get("last") or {}).get("from_address") or "").strip().lower()
+    subject = _ORDINAL.sub(r"\1", str(row.get("subject") or "").lower())
+    words = re.sub(r"[\W\d_]+", " ", subject).split()
+    words = [w for w in words if w not in _DATE_WORDS]
+    if not sender or not words:
+        return None
+    return sender, " ".join(words)
+
+
+logger = logging.getLogger(__name__)
+
+TEMPLATE_WINDOW_DAYS = 30
+TEMPLATE_MIN_COUNT = 3
+
+
+def owner_written_to(rows: list) -> set[str]:
+    """Every address the owner has sent to: the to and cc of each outbound
+    message in the snapshot. A sender in this set has a human history with
+    the owner, so no bulk heuristic may treat them as a template."""
+    out: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        last = row.get("last") or {}
+        if not last.get("is_from_me"):
+            continue
+        for addr in list(last.get("to") or []) + list(last.get("cc") or []):
+            if isinstance(addr, str) and addr.strip():
+                out.add(addr.strip().lower())
+    return out
+
+
+def repeated_template_rows(rows: list) -> set[int]:
+    """Indexes of inbound rows that sit in a 30-day run of three or more
+    messages from one sender with the same templated subject."""
+    by_key: dict[tuple[str, str], list[tuple[int, datetime]]] = {}
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        last = row.get("last") or {}
+        if last.get("is_from_me"):
+            continue
+        key = _template_key(row)
+        ts = _parse_iso(last.get("timestamp"))
+        if key is None or ts is None:
+            continue
+        by_key.setdefault(key, []).append((i, ts))
+    window = TEMPLATE_WINDOW_DAYS * 86400
+    out: set[int] = set()
+    for members in by_key.values():
+        for i, ts in members:
+            near = sum(1 for _, other in members if abs((other - ts).total_seconds()) <= window)
+            if near >= TEMPLATE_MIN_COUNT:
+                out.add(i)
+    return out
+
+
+def has_outbound_rows(rows: list) -> bool:
+    """True when the feed carries at least one message the owner sent.
+
+    Every "has the owner written to this sender?" waiver reads outbound rows.
+    With none, the waiver is empty for everybody and a frequency rule would
+    treat a real person the owner writes to as a stranger. So frequency rules
+    run only when this is true."""
+    return any(
+        isinstance(r, dict) and bool((r.get("last") or {}).get("is_from_me"))
+        for r in rows
+    )
+
+
+# ---- institution (school) mail ----------------------------------------------
+
+# Sender domains: an education label (.edu, .sch, .edu.hk, .sch.uk, .school)
+# or a known school platform.
+_SCHOOL_DOMAIN = re.compile(
+    r"(?:^|\.)(?:edu|sch|school|schools)(?:\.[a-z]{2})?$", re.IGNORECASE
+)
+_SCHOOL_PLATFORMS = frozenset({
+    "parentmail.co.uk", "parentpay.com", "parentsapp.com", "schoolsbuddy.com",
+    "seesaw.me", "classdojo.com", "classroom.google.com", "schoology.com",
+    "isams.cloud", "bromcom.com", "arbor-education.com", "groupcall.com",
+    "weduc.co.uk", "tapestry.info", "showbie.com", "schoolcomms.com",
+    "parentscloud.com",
+})
+# Content cues. One alone proves nothing: two distinct ones are needed, and
+# only on mail that already looks automated.
+_SCHOOL_CUES = (
+    re.compile(r"\bparent communications?\b", re.I),
+    re.compile(r"\bschool\b", re.I),
+    re.compile(r"\b(?:pupils?|students?)\b", re.I),
+    re.compile(r"\b(?:headteacher|head teacher|principal|form tutor|year team)\b", re.I),
+    re.compile(r"\b(?:half term|parents'? evening|PTA|school bus)\b", re.I),
+    re.compile(r"\b(?:year|grade)\s*\d{1,2}\b", re.I),
+)
+_AUTOMATED_FOOTER = re.compile(
+    r"this is an automated|do not reply|please do not respond|unsubscribe", re.I
+)
+
+
+def _sender_domain(row: dict) -> str:
+    sender = ((row.get("last") or {}).get("from_address") or "").strip().lower()
+    return sender.rpartition("@")[2]
+
+
+def school_signal(row: dict) -> str:
+    """Why this looks like institution mail: ``platform``, ``domain``,
+    ``content`` or ``""``. Content counts only on mail that already carries an
+    automated footer or list header, so a friend writing about their child's
+    school is never swept in."""
+    dom = _sender_domain(row)
+    if dom:
+        if any(dom == p or dom.endswith("." + p) for p in _SCHOOL_PLATFORMS):
+            return "platform"
+        if _SCHOOL_DOMAIN.search(dom):
+            return "domain"
+    text = str((row.get("last") or {}).get("text") or "")
+    if (
+        _AUTOMATED_FOOTER.search(text)
+        or _header(row, "list-unsubscribe")
+        or _header(row, "list-id")
+    ):
+        hay = str(row.get("subject") or "") + "\n" + text
+        if sum(1 for c in _SCHOOL_CUES if c.search(hay)) >= 2:
+            return "content"
+    return ""
+
+
+def email_automated_reason(row: dict, *, owner_wrote_to: bool = False) -> str:
+    """Why this message is not from a human writing personally, or ``""``.
+
+    ``owner_wrote_to`` is accepted for the caller's signature only: every
+    automated signal here applies whether or not the owner has written to the
+    sender. The repeated-template rule is the one that is waived for them."""
     junk = _scam.junk_reason(row)
     if junk:
         return f"junk:{junk}"
+    if is_calendar_invite(row):
+        return "calendar_invite"
     if _header(row, "list-id"):
         return "mailing_list"
     if _header(row, "list-unsubscribe"):
@@ -412,7 +589,16 @@ def email_threads(
             return False
         return a in configured or bool(directory is not None and directory.is_owner(a))
 
-    for row in snap.get("threads") or []:
+    all_rows = snap.get("threads") or []
+    # The frequency rule (repeated template) waives senders the owner has
+    # written to. With no outbound rows that waiver is empty for everyone, so
+    # the rule could drop a real person: it runs only when the feed has them.
+    frequency_on = has_outbound_rows(all_rows)
+    out.frequency_mode = "on" if frequency_on else "off:no_outbound_rows"
+    logger.info("reply_debt email: frequency rules %s", out.frequency_mode)
+    repeated = repeated_template_rows(all_rows) if frequency_on else set()
+    written_to = owner_written_to(all_rows)
+    for idx, row in enumerate(all_rows):
         if not isinstance(row, dict):
             continue
         last = row.get("last") or {}
@@ -427,6 +613,30 @@ def email_threads(
         from_owner = bool(last.get("is_from_me")) or is_owner(sender)
         text = email_new_text(last.get("text") or "")
         if not from_owner:
+            # Institution mail is classified BEFORE every filter that could
+            # drop it unseen: the owner-address test (school mail is often
+            # BCC'd) and the automated filter (its footer test drops 68% of
+            # it). It goes to its own list. A school person asking something
+            # (no robot signal, a request) still reaches reply debt, as does
+            # anyone the owner has written to. Mail in a junk mailbox is junk.
+            wrote_to = sender in written_to
+            if not wrote_to and not _scam.junk_reason(row) and school_signal(row):
+                robotic = bool(email_automated_reason(row) or _AUTOMATED_FOOTER.search(text))
+                asks = _rd.owed_verdict(Thread(
+                    thread_id="probe", channel="email",
+                    messages=(Message(sender=sender, text=text, timestamp=ts, is_from_owner=False),),
+                ))[0] == "yes"
+                if robotic or not asks:
+                    out.school.append(Thread(
+                        thread_id=f"email:{row.get('thread_id')}",
+                        channel="email",
+                        messages=(Message(sender=sender, text=text, timestamp=ts, is_from_owner=False),),
+                        privacy_level=email_privacy(row),
+                        is_group=False,
+                        counterpart_name="",
+                    ))
+                    out.drop("school_comms")
+                    continue
             if not configured and directory is None:
                 # Nobody can say which address is the owner's, so "addressed
                 # to the owner" cannot be decided. Counted, never guessed.
@@ -435,9 +645,13 @@ def email_threads(
             if not any(is_owner(a) for a in (last.get("to") or [])):
                 out.drop("not_to_owner")
                 continue
-            why = email_automated_reason(row)
+            wrote_to = sender in written_to
+            why = email_automated_reason(row, owner_wrote_to=wrote_to)
             if why:
                 out.drop(why)
+                continue
+            if idx in repeated and not wrote_to:
+                out.drop("repeated_template")
                 continue
             if not text:
                 out.drop("no_text")
