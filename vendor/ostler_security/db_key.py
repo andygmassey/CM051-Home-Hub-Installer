@@ -185,6 +185,12 @@ def key_file_path() -> Path:
 # an item written by `security -i`) and the key never appears in argv: the
 # write goes in on stdin via `security -i`.
 #
+# Never a dialog: before any find/add the keychain must be positively
+# UNLOCKED (_keychain_lock_state); locked or undeterminable -> unavailable
+# without calling security. The calls also run with stdin=/dev/null and in a
+# new session (no controlling tty). SECURITYSESSIONID is left alone: changing
+# it would cut the process off from the login keychain.
+#
 # Isolation: the Keychain is consulted only for the DEFAULT install home. An
 # explicit OSTLER_DB_KEY_FILE, or a non-default OSTLER_HOME, keeps the old
 # file-only behaviour so a test or a one-off run can never read, overwrite or
@@ -226,6 +232,60 @@ def _keychain_missing() -> Optional[str]:
     return None
 
 
+LOCK_UNLOCKED, LOCK_LOCKED, LOCK_UNKNOWN = "unlocked", "locked", "unknown"
+_KSEC_UNLOCK_STATE_BIT = 1  # kSecUnlockStateStatus in SecKeychainGetStatus
+
+
+def _keychain_lock_state(path: str) -> str:
+    """Non-interactive lock probe: SecKeychainGetStatus via ctypes.
+
+    Measured (macOS, throwaway keychain, ssh session): status 7 unlocked,
+    2 locked; it never prompts. `security find-generic-password` on a locked
+    keychain exits 36 with no stderr here, but in a GUI session it can raise
+    the unlock-password dialog, and `show-keychain-info` fails with 36
+    "User interaction is not allowed" on a locked one, so neither is used to
+    DETECT. Anything not positively unlocked (framework missing, call fails)
+    is LOCK_UNKNOWN and treated as unavailable: fail closed.
+    """
+    try:
+        import ctypes
+        import ctypes.util
+        lib = ctypes.util.find_library("Security")
+        if not lib:
+            return LOCK_UNKNOWN
+        sf = ctypes.CDLL(lib)
+        sf.SecKeychainOpen.argtypes = [ctypes.c_char_p,
+                                       ctypes.POINTER(ctypes.c_void_p)]
+        sf.SecKeychainGetStatus.argtypes = [ctypes.c_void_p,
+                                            ctypes.POINTER(ctypes.c_uint32)]
+        ref = ctypes.c_void_p()
+        if sf.SecKeychainOpen(path.encode(), ctypes.byref(ref)) != 0 or not ref:
+            return LOCK_UNKNOWN
+        st = ctypes.c_uint32()
+        if sf.SecKeychainGetStatus(ref, ctypes.byref(st)) != 0:
+            return LOCK_UNKNOWN
+        return (LOCK_UNLOCKED if st.value & _KSEC_UNLOCK_STATE_BIT
+                else LOCK_LOCKED)
+    except Exception:
+        return LOCK_UNKNOWN
+
+
+def _keychain_unusable() -> Optional[str]:
+    """Reason string if the pinned keychain is absent OR not positively
+    unlocked, else None. Runs BEFORE every find/add so a locked keychain never
+    reaches a call that can raise the macOS unlock-password dialog."""
+    missing = _keychain_missing()
+    if missing:
+        return missing
+    state = _keychain_lock_state(keychain_path())
+    if state == LOCK_UNLOCKED:
+        return None
+    if state == LOCK_LOCKED:
+        return (f"keychain {keychain_path()} is locked; not calling security "
+                "(it could raise an unlock dialog)")
+    return f"could not determine whether keychain {keychain_path()} is locked"
+
+
 def keychain_available() -> bool:
     """True when the macOS `security` tool exists on this host."""
     return os.path.exists(_SECURITY_BIN)
@@ -251,7 +311,7 @@ def read_keychain_key() -> DbKey:
     REASON_KEYCHAIN_MALFORMED, and the caller must NOT fall through to
     plaintext on it.
     """
-    missing = _keychain_missing()
+    missing = _keychain_unusable()
     if missing:
         return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE, missing)
     try:
@@ -260,7 +320,7 @@ def read_keychain_key() -> DbKey:
              "-s", keychain_service(), "-a", KEYCHAIN_ACCOUNT, "-w",
              keychain_path()],
             capture_output=True, text=True, timeout=20,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL, start_new_session=True,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
@@ -289,14 +349,15 @@ def write_keychain_key(key_hex: str) -> None:
         raise OSError("refusing to store a key that is not 64 hex characters")
     if not keychain_available():
         raise OSError("the macOS security tool is not present")
-    missing = _keychain_missing()
+    missing = _keychain_unusable()
     if missing:
         raise OSError(missing)
     cmd = (f'add-generic-password -U -s "{keychain_service()}" '
            f'-a "{KEYCHAIN_ACCOUNT}" -w {key_hex.lower()} "{keychain_path()}"\n')
     try:
         proc = subprocess.run([_SECURITY_BIN, "-i"], input=cmd,
-                              capture_output=True, text=True, timeout=20)
+                              capture_output=True, text=True, timeout=20,
+                              start_new_session=True)
     except (OSError, subprocess.SubprocessError) as exc:
         raise OSError(f"could not run security: {exc.__class__.__name__}")
     back = read_keychain_key()

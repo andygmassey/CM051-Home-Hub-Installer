@@ -285,6 +285,8 @@ def main() -> int:
             dummy = work / "dummy.keychain-db"
             dummy.write_bytes(b"not a real keychain; the fake security never reads it")
             os.environ["OSTLER_KEYCHAIN_PATH"] = str(dummy)
+            real_lock = getattr(db_key, "_keychain_lock_state", None)
+            db_key._keychain_lock_state = lambda p: "unlocked"
             log3 = work / "h3.log"
             db_key._SECURITY_BIN = fake_security(work / "sec_h3", 44, log3)
             db_key.read_keychain_key()
@@ -315,6 +317,37 @@ def main() -> int:
                   f"H4: unreadable Keychain -> no key, reason keychain_unavailable (got {ru.reason!r})")
             check(ru.source != "file" and ru.key is None, "H4: and it does not fall back to the plaintext file")
             check((d / "db_key").exists(), "H4: ...and the key file is left exactly as it was")
+            # H6: a LOCKED (or undeterminable) keychain never reaches `security`
+            # (in a GUI session a find/add on a locked keychain can raise the
+            # unlock-password dialog). Control: when unlocked, security IS called.
+            for state in ("locked", "unknown"):
+                log6 = work / f"h6-{state}.log"
+                db_key._SECURITY_BIN = fake_security(work / f"sec6-{state}", 0, log6)
+                db_key._keychain_lock_state = lambda p, _s=state: _s
+                (d / "db_key").write_text(KEY + "\n")
+                (d / "db_key").chmod(0o600)
+                rk = db_key.read_keychain_key()
+                check(rk.key is None and rk.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE,
+                      f"H6 {state}: read -> keychain_unavailable (got {rk.reason!r})")
+                try:
+                    db_key.write_keychain_key(KEY)
+                    wrote = True
+                except OSError:
+                    wrote = False
+                check(not wrote, f"H6 {state}: write fails loudly (OSError)")
+                rr = db_key.resolve_db_key()
+                check(rr.key is None and rr.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE
+                      and rr.source != "file" and (d / "db_key").read_text().strip() == KEY,
+                      f"H6 {state}: resolve -> unavailable, no plaintext fallback, file untouched")
+                check(not log6.exists(),
+                      f"H6 {state}: NO security invocation was made (no dialog-capable call)")
+            log6u = work / "h6-unlocked.log"
+            db_key._SECURITY_BIN = fake_security(work / "sec6-u", 44, log6u)
+            db_key._keychain_lock_state = lambda p: "unlocked"
+            db_key.read_keychain_key()
+            check(log6u.exists(), "H6 (control): an unlocked keychain DOES reach security")
+            if real_lock is not None:
+                db_key._keychain_lock_state = real_lock
             db_key._SECURITY_BIN = real_bin
             os.environ.pop("OSTLER_KEYCHAIN_PATH", None)
             os.environ.pop("OSTLER_DB_KEY_KEYCHAIN_SERVICE", None)
@@ -364,6 +397,28 @@ def main() -> int:
                     (d / "db_key").chmod(0o600)
                     db_key.resolve_db_key()
                     check(not (d / "db_key").exists(), "K3: a leftover key file beside a Keychain item is removed")
+                    # K5: lock it; the real detector must say locked, and no read/write
+                    # may hang or reach security. Bounded by a wall-clock assert.
+                    import time
+                    check(db_key._keychain_lock_state(kc) == "unlocked",
+                          "K5 (control): detector reports the unlocked throwaway keychain as unlocked")
+                    subprocess.run(["/usr/bin/security", "lock-keychain", kc],
+                                   capture_output=True, stdin=subprocess.DEVNULL)
+                    t0 = time.monotonic()
+                    ls = db_key._keychain_lock_state(kc)
+                    r5 = db_key.resolve_db_key()
+                    try:
+                        db_key.write_keychain_key(KEY)
+                        w5 = True
+                    except OSError:
+                        w5 = False
+                    el = time.monotonic() - t0
+                    check(ls == "locked", f"K5: detector reports the locked keychain as locked (got {ls!r})")
+                    check(r5.key is None and r5.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE
+                          and "locked" in (r5.detail or ""),
+                          f"K5: resolve on a locked keychain -> keychain_unavailable naming the lock ({r5.reason!r}, {r5.detail!r})")
+                    check(not w5, "K5: write to a locked keychain fails loudly")
+                    check(el < 10, f"K5: no hang (took {el:.2f}s)")
             finally:
                 subprocess.run(["/usr/bin/security", "delete-keychain", kc],
                                capture_output=True, stdin=subprocess.DEVNULL)
