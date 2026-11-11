@@ -155,8 +155,13 @@ enum FDAHandoff {
         bundle.bundleURL
     }
 
-    /// The name as Finder and System Settings show it, without ".app".
+    /// The customer-facing name, as System Settings lists the app: the
+    /// display name ("Ostler Installer"), then the bundle name, then the
+    /// file name without ".app".
     static func displayName(_ bundle: Bundle = .main) -> String {
+        if let shown = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, !shown.isEmpty {
+            return shown
+        }
         if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty {
             return name
         }

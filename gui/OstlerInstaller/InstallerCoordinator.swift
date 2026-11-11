@@ -460,6 +460,14 @@ final class InstallerCoordinator: ObservableObject {
             OstlerLog.lifecycle.info("system requirements: NOT met -- memoryGB=\(s.readings.memoryGB, privacy: .public) macOS=\(s.readings.macOSVersion, privacy: .public) appleSilicon=\(s.readings.isAppleSilicon, privacy: .public); holding on first screen")
             return
         }
+        #if DEBUG
+        // Screenshot hook: land on the Full Disk Access screen with no probe,
+        // relocation or Settings window. Compiled out of Release.
+        if ProcessInfo.processInfo.environment["OSTLER_DEBUG_FDA_GATE"] == "1" {
+            needsFullDiskAccessUpfront = true
+            return
+        }
+        #endif
         relocate()
         gateFullDiskAccessThenStart()
     }

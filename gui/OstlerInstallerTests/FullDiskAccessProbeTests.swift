@@ -144,6 +144,72 @@ final class FDAHandoffTests: XCTestCase {
                       "a real drag source must offer a file URL to the Finder list")
     }
 
+    /// The customer sees "Ostler Installer" in System Settings, not the
+    /// bundle's internal CFBundleName ("OstlerInstaller").
+    func testDisplayNamePrefersCFBundleDisplayName() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fda-\(UUID().uuidString)/Fixture.app/Contents")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent().deletingLastPathComponent()) }
+        let plist: [String: Any] = ["CFBundleName": "FixtureInternal", "CFBundleDisplayName": "Fixture Shown",
+                                    "CFBundleIdentifier": "ai.test.fixture", "CFBundlePackageType": "APPL"]
+        try (plist as NSDictionary).write(to: dir.appendingPathComponent("Info.plist"))
+        let bundle = try XCTUnwrap(Bundle(url: dir.deletingLastPathComponent()))
+        XCTAssertEqual(FDAHandoff.displayName(bundle), "Fixture Shown")
+    }
+
+    // MARK: Hero timeline
+
+    func testHeroLoopIsAboutFourSeconds() {
+        XCTAssertEqual(FDAHeroTimeline.period, 4.4, accuracy: 0.6)
+    }
+
+    /// The loop must tell the story in order: row absent and toggle off at
+    /// the start, row in before the toggle turns on, both on during the
+    /// hold, and a clean reset so the next loop starts from the same frame.
+    func testHeroTimelineTellsTheStoryInOrder() {
+        let start = FDAHeroTimeline.frame(at: 0)
+        XCTAssertEqual(start.row, 0)
+        XCTAssertEqual(start.toggle, 0)
+        let drag = FDAHeroTimeline.frame(at: 0.35)
+        XCTAssertEqual(drag.row, 0, "the row must not appear before the drop")
+        XCTAssertGreaterThan(drag.tileOpacity, 0.9, "the tile is visible while dragged")
+        let dropped = FDAHeroTimeline.frame(at: 0.62)
+        XCTAssertEqual(dropped.row, 1, accuracy: 0.001)
+        XCTAssertEqual(dropped.toggle, 0, "the toggle turns on after the row lands")
+        let hold = FDAHeroTimeline.frame(at: 0.90)
+        XCTAssertEqual(hold.row, 1, accuracy: 0.001)
+        XCTAssertEqual(hold.toggle, 1, accuracy: 0.001)
+        let end = FDAHeroTimeline.frame(at: 0.9999)
+        XCTAssertEqual(end.row, 0, accuracy: 0.01)
+        XCTAssertEqual(end.toggle, 0, accuracy: 0.01)
+    }
+
+    /// Smooth: no jump between neighbouring instants anywhere in the loop.
+    func testHeroTimelineHasNoJumps() {
+        var prev = FDAHeroTimeline.frame(at: 0)
+        var t = 0.002
+        while t < 1 {
+            let f = FDAHeroTimeline.frame(at: t)
+            XCTAssertLessThan(abs(f.row - prev.row), 0.08, "row jumps at t=\(t)")
+            XCTAssertLessThan(abs(f.toggle - prev.toggle), 0.08, "toggle jumps at t=\(t)")
+            XCTAssertLessThan(hypot(f.tile.x - prev.tile.x, f.tile.y - prev.tile.y), 12, "tile jumps at t=\(t)")
+            XCTAssertLessThan(hypot(f.cursor.x - prev.cursor.x, f.cursor.y - prev.cursor.y), 12, "cursor jumps at t=\(t)")
+            prev = f
+            t += 0.002
+        }
+    }
+
+    func testReduceMotionStillIsTheFinalState() {
+        XCTAssertEqual(FDAHeroFrame.final.row, 1)
+        XCTAssertEqual(FDAHeroFrame.final.toggle, 1)
+        XCTAssertEqual(FDAHeroFrame.final.tileOpacity, 0)
+    }
+
+    /// The manual continue stays hidden for the first 20 seconds.
+    func testManualContinueDelayIsTwentySeconds() {
+        XCTAssertEqual(FullDiskAccessGateView.manualContinueDelay, 20)
+    }
+
     func testDisplayNameIsTheAppNameWithoutExtension() {
         XCTAssertFalse(FDAHandoff.displayName().hasSuffix(".app"))
         XCTAssertFalse(FDAHandoff.displayName().isEmpty)

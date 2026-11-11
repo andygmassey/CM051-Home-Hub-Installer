@@ -38,7 +38,7 @@ pass() { echo "PASS: $*"; }
 # ---------------------------------------------------------------------------
 # 1. Catalogues
 # ---------------------------------------------------------------------------
-NEW_KEYS="heading reveal_button drag_hint fallback_line waiting granted anim_drag anim_switch_on anim_done"
+NEW_KEYS="heading reveal_button instruction cant_drag manual_steps already_on_link waiting granted anim_drag anim_switch_on anim_done"
 
 CAT_OUT="$(python3 -I - "$RES" $NEW_KEYS <<'PY'
 import glob, json, os, sys
@@ -58,9 +58,11 @@ for path in files:
         if name in ("ViewCopy.json", "ViewCopy.en-US.json"):
             continue
         val, src = gate[k], en.get(k, "")
+        if not val.strip():
+            problems.append(f"{name}: {dotted} is empty")
         if val == src:
             problems.append(f"{name}: {dotted} is still the English")
-        for ph in ("{app}", "{path}"):
+        for ph in ("{app}",):
             if (ph in src) != (ph in val):
                 problems.append(f"{name}: {dotted} placeholder {ph} mismatch")
 print(f"catalogues={len(files)} keys={len(keys)}")
@@ -114,7 +116,7 @@ POLL_BODY="$(python3 -I - "$VIEW" <<'PY2'
 import sys
 src = open(sys.argv[1], encoding="utf-8").read()
 start = src.index("private func watchForGrant")
-end = src.index("private func loopIllustration")
+end = src.index("private func revealManualContinue")
 print(src[start:end])
 PY2
 )"
@@ -124,6 +126,77 @@ if grep -q 'FDAGrantWatch' <<< "$POLL_BODY" \
     pass "watchForGrant polls every 2 seconds and advances on grant"
 else
     fail "watchForGrant does not poll every 2 seconds and advance on grant"
+fi
+
+# ---------------------------------------------------------------------------
+# 4b. Redesign contract (Andy, v1 "a bit primitive looking")
+# ---------------------------------------------------------------------------
+# The retired v1 strings must be gone from every catalogue and the view.
+RETIRED="$(python3 -I - "$RES" <<'PY3'
+import glob, json, os, sys
+bad = []
+for path in sorted(glob.glob(os.path.join(sys.argv[1], "ViewCopy*.json"))):
+    gate = json.load(open(path, encoding="utf-8")).get("fda_gate", {})
+    for k in ("drag_hint", "fallback_line", "recheck_button"):
+        if k in gate:
+            bad.append(os.path.basename(path) + ":" + k)
+print("\n".join(bad))
+PY3
+)"
+if [ -z "$RETIRED" ]; then
+    pass "retired v1 strings (drag_hint, fallback_line, recheck_button) are out of every catalogue"
+else
+    fail "retired v1 strings still present: $RETIRED"
+fi
+if grep -q 'fda_gate\.recheck_button\|fda_gate\.fallback_line\|fda_gate\.drag_hint' "$VIEW"; then
+    fail "gate view still references a retired v1 string"
+else
+    pass "gate view references no retired v1 string"
+fi
+# No raw filesystem path is shown to the customer.
+if grep -q 'abbreviatingWithTildeInPath\|"path":' "$VIEW"; then
+    fail "gate view still builds a raw path for display"
+else
+    pass "no raw path text on the gate"
+fi
+# Exactly one primary button; the manual continue is a text link behind a delay.
+PRIMARY_N="$(grep -c 'buttonStyle(\.ostlerPrimary)' "$VIEW" || true)"
+if [ "$PRIMARY_N" = "1" ]; then
+    pass "exactly one primary button on the gate"
+else
+    fail "gate has $PRIMARY_N primary buttons, expected 1"
+fi
+if grep -q 'manualContinueDelay: Double = 20' "$VIEW" && grep -q 'fda_gate\.already_on_link' "$VIEW" \
+   && grep -q 'showAlreadyOn' "$VIEW"; then
+    pass "manual continue is the 'Already switched it on?' link, behind a 20 second delay"
+else
+    fail "manual continue link / 20 second delay missing"
+fi
+# The named app is the customer-facing display name, from the bundle.
+if grep -q 'CFBundleDisplayName' "$PROBE"; then
+    pass "app is named by CFBundleDisplayName"
+else
+    fail "app name does not come from CFBundleDisplayName"
+fi
+# The hero is a miniature of the real pane, driven by the pure timeline.
+if grep -q 'struct FDAMiniSettings' "$VIEW" && grep -q 'enum FDAHeroTimeline' "$VIEW" \
+   && grep -q 'NSCursor\.arrow' "$VIEW"; then
+    pass "hero is the System Settings miniature, driven by FDAHeroTimeline"
+else
+    fail "hero miniature / timeline missing"
+fi
+# Debug hooks must be inert in Release.
+if python3 -I - "$VIEW" <<'PY4'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+i = src.index("enum FDADebug")
+body = src[i:src.index("/// Docks the installer window")]
+assert "#if DEBUG" in body and "#else" in body and "static var active: Bool { false }" in body
+PY4
+then
+    pass "FDADebug hooks are DEBUG-only and inert in Release"
+else
+    fail "FDADebug hooks are not confined to DEBUG"
 fi
 
 # ---------------------------------------------------------------------------
