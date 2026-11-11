@@ -79,7 +79,7 @@ the ssh probe `call_audio_never_retained`; this item is the capture it needs.
 
 1. From the RemoteCapture menu bar item, start a capture, speak for about 30
    seconds, stop it.
-2. **Expected:** a transcript appears under `~/Documents/Ostler/Transcripts/YYYY/MM/`.
+2. **Expected:** a transcript appears under `~/Ostler/Transcripts/YYYY/MM/`.
 3. Re-run the walk probes (`scripts/post_walk_qa.sh <box-host>`).
    `call_audio_never_retained` must report `VERDICT: PASS -- 0 audio files after N transcript(s)`.
 

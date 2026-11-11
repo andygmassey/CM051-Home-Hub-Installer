@@ -353,7 +353,7 @@ QDRANT = os.environ.get("OSTLER_QDRANT_URL", "http://127.0.0.1:6333")
 OXIGRAPH = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query")
 HOME = os.path.expanduser("~")
 STORE_CONF = os.environ.get("OSTLER_PROBE_STORE_CURL_CONF", os.path.join(HOME, ".ostler/secrets/store-curl.conf"))
-WIKI_DIR = os.environ.get("OSTLER_WIKI_DIR", os.path.join(HOME, "Documents/Ostler/Wiki"))
+WIKI_DIR = os.environ.get("OSTLER_WIKI_DIR", os.path.join(HOME, "Ostler/Wiki"))
 LOG_DIR = os.environ.get("OSTLER_LOG_DIR", os.path.join(HOME, ".ostler/logs"))
 
 # collection -> (payload keys to tally one by one, [(keyA, keyB) pairs], display key candidates)
@@ -708,7 +708,7 @@ def collect_state(facts, meta):
     except (OSError, ValueError):
         meta["extraction_summary"] = "unreadable"
     # Bundle directories: one dir per conversation / capture.
-    conv = os.path.join(HOME, "Documents/Ostler/Conversations")
+    conv = os.path.join(HOME, "Ostler/Conversations")
     if os.path.isdir(conv):
         n = 0
         for day in os.listdir(conv):

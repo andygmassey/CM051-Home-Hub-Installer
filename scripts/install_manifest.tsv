@@ -96,8 +96,8 @@ cron_job	evening-wrap	required	evening-wrap	#619	written at install.sh:12803; de
 # ---- artefact_dir (per-row presence; required-present only) --------------------
 # Customer-facing roots install.sh creates (positive controls: present on any
 # finished install, fresh or upgrade).
-artefact_dir	~/Documents/Ostler (customer-facing root)	required	~/Documents/Ostler	baseline	install.sh:6586 USER_FACING_ROOT; the "Reveal in Finder" target at install end
-artefact_dir	~/Documents/Ostler/Wiki (compiled wiki)	required	~/Documents/Ostler/Wiki	baseline	install.sh:6587 USER_TREE_SUBDIRS; the compiled personal wiki
+artefact_dir	~/Ostler (customer-facing root)	required	~/Ostler	baseline	install.sh:6586 USER_FACING_ROOT; the "Reveal in Finder" target at install end
+artefact_dir	~/Ostler/Wiki (compiled wiki)	required	~/Ostler/Wiki	baseline	install.sh:6587 USER_TREE_SUBDIRS; the compiled personal wiki
 # #482: the usage-journal directory. MEASURED (2026-09-03): install.sh creates the
 # parent workspace (12881) but NOT the state/ leaf -- it is left to the wiki
 # compiler's Docker bind mount (15598, annotated "#482 RESIDUAL") or the daemon's

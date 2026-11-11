@@ -83,7 +83,7 @@ note "manifest parses; verifier loads it"
 
 # Build a COMPLETE synthetic install (box-observable types).
 H="$WORK/home"
-mkdir -p "$H/Library/LaunchAgents" "$H/.ostler/assistant-config" "$H/Documents/Ostler/Wiki" "$H/.ostler/assistant-config/workspace/state"
+mkdir -p "$H/Library/LaunchAgents" "$H/.ostler/assistant-config" "$H/Ostler/Wiki" "$H/.ostler/assistant-config/workspace/state"
 # The UNCONDITIONAL (required) launch agents (meeting-brief-sender joined at cut #16). A complete install has all of
 # them; declaring only these keeps the synthetic install free of UNDECLARED noise.
 REQ_AGENTS="com.ostler.stay-awake com.ostler.engine-supervisor com.ostler.ollama com.ostler.ollama-logrotate com.ostler.ollama-watchdog com.ostler.listener-watchdog com.ostler.export-scan com.ostler.doctor com.ostler.ical-server com.ostler.fda-rerun com.ostler.memory-hygiene com.creativemachines.ostler.assistant com.creativemachines.ostler.email-ingest com.creativemachines.ostler.wiki-recompile com.creativemachines.ostler.editor-frontpage com.creativemachines.ostler.context-refresh com.ostler.meeting-brief-sender"
@@ -165,14 +165,14 @@ fi
 printf '[[cron.jobs]]\nid = "morning-brief"\n[[cron.jobs]]\nid = "evening-wrap"\n' > "$CFG"
 
 # ── E. MISSING artefact_dir -> FAIL + NAMED (#482 family). ────────────
-rm -rf "$H/Documents/Ostler/Wiki"
+rm -rf "$H/Ostler/Wiki"
 out="$(_run --only-type artefact_dir)"; rc=$?
 if [ "$rc" -ne 0 ] && grep -q 'Wiki' <<< "$out"; then
-    pass "a missing required artefact_dir is NAMED (~/Documents/Ostler/Wiki)"
+    pass "a missing required artefact_dir is NAMED (~/Ostler/Wiki)"
 else
     bad "a missing artefact_dir was not caught+named (rc=$rc): $(printf '%s' "$out" | grep -i wiki || printf '(not named)')"
 fi
-mkdir -p "$H/Documents/Ostler/Wiki"
+mkdir -p "$H/Ostler/Wiki"
 
 # ── E2. QDRANT_COLLECTION: missing named, undeclared named, down = CANNOT-RUN. ──
 # The env assignment sits on the python3 SIMPLE command (reliably exported),

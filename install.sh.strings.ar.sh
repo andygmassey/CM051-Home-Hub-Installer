@@ -90,7 +90,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler Remo
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="عند أول تشغيل، سيطلب Ostler Remo
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="يحفظ Ostler ويكيك الشخصي وسجلات محادثاتك ضمن Documents/Ostler على هذا الـ Mac. هي ملكك وتبقى على هذا الجهاز. ولكتابتها يحتاج Ostler إلى الوصول إلى مجلد المستندات، لذا قد يطلب macOS ذلك أثناء الإعداد، ومرة أخرى لاحقًا اليوم عندما ينظّم Ostler ويكيك للمرة الأولى. قد يظهر الطلب وكأنه صادر من python3.11، وهي الأداة المضمّنة التي يستخدمها Ostler لكتابة ملفاتك. يُرجى النقر على موافق كلما ظهر. وإن فاتك أو رفضته، يمكنك تفعيله في أي وقت من إعدادات النظام، ضمن الخصوصية والأمن، ثم الملفات والمجلدات، وستُكتب ويكيك وسجلات محادثاتك من ذلك الحين فصاعدًا."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="يحفظ Ostler ويكيك الشخصي وسجلات محادثاتك في مجلد Ostler داخل مجلد المنزل (~/Ostler) على هذا الـ Mac. هي ملكك وتبقى على هذا الجهاز. المجلد خارج المستندات عمدًا، لذا لا يرفعه iCloud Drive. وقد يحتاج Ostler مع ذلك إلى الوصول إلى مجلد المستندات، مثلًا للبحث عن ملفات تصدير البيانات التي حفظتَها فيه، لذا قد يطلب macOS ذلك أثناء الإعداد، ومرة أخرى لاحقًا اليوم. قد يظهر الطلب وكأنه صادر من python3.11، وهي الأداة المضمّنة التي يستخدمها Ostler لكتابة ملفاتك. يُرجى النقر على موافق كلما ظهر. وإن فاتك أو رفضته، يمكنك تفعيله في أي وقت من إعدادات النظام، ضمن الخصوصية والأمن، ثم الملفات والمجلدات."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="تم نقل مجلد Ostler من %s إلى %s، فلم تعد مزامنة سطح المكتب والمستندات في iCloud Drive تصل إليه."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="مزامنة سطح المكتب والمستندات في iCloud Drive مفعّلة على هذا الـ Mac، لذا قد تكون نسخ سابقة من ملفات Ostler موجودة في iCloud Drive بالفعل. لم يحذفها Ostler. لإزالتها، افتح iCloud Drive في Finder، ثم افتح المستندات، واحذف مجلد Ostler هناك."
+MSG_WARN_USER_ROOT_NOT_MOVED="تُرك مجلد Ostler السابق %s في مكانه لأنه تعذّر نقله إلى %s. إما أن ذلك المجلد موجود بالفعل أو أن النقل فشل. لم يُحذف أي شيء. يستخدم Ostler الآن المجلد الجديد: انقل ملفاتك بنفسك إن أردتها هناك."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  تم تثبيت محرك ذاكرة المحادثات في venv."
 MSG_INFO_HUB_APP_VERIFYING="جارٍ التحقق من Ostler.app في %s"
 MSG_INFO_HUB_APP_STAGING="جارٍ نقل Ostler.app إلى /Applications من %s"
@@ -1305,7 +1310,7 @@ MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="هل أنت متأكد؟ هذا يشكل خ�
 # NEEDS REVIEW: Apple Arabic uses 'الخصوصية والأمن'; informed-consent/recorded choice wording should be checked by a lawyer.
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault متوقف على هذا الـ Mac، لذا فالقرص غير مشفّر أثناء التخزين.
 
-ماذا يعني ذلك إن تابعت: كل ما يخزّنه Ostler -- مخطط بياناتك الشخصي بالكامل (الويكي والمحادثات وملاحظات المعرفة) ضمن ~/Documents/Ostler، إضافةً إلى أسرار الخدمات وقواعد البيانات ضمن ~/.ostler -- يُكتب على القرص دون تشفير. يستطيع أي شخص يمكنه الإقلاع من هذا القرص أو إخراجه أو الوصول إلى جلسة مفتوحة أن يقرأ كل ذلك. يُخزَّن المفتاح الذي يشفّر به Ostler قواعد بياناته على القرص نفسه، لذلك عندما يكون FileVault متوقفًا لا يحمي هذا التشفير بياناتك من أي شخص يصل إلى القرص.
+ماذا يعني ذلك إن تابعت: كل ما يخزّنه Ostler -- مخطط بياناتك الشخصي بالكامل (الويكي والمحادثات وملاحظات المعرفة) ضمن ~/Ostler، إضافةً إلى أسرار الخدمات وقواعد البيانات ضمن ~/.ostler -- يُكتب على القرص دون تشفير. يستطيع أي شخص يمكنه الإقلاع من هذا القرص أو إخراجه أو الوصول إلى جلسة مفتوحة أن يقرأ كل ذلك. يُخزَّن المفتاح الذي يشفّر به Ostler قواعد بياناته على القرص نفسه، لذلك عندما يكون FileVault متوقفًا لا يحمي هذا التشفير بياناتك من أي شخص يصل إلى القرص.
 
 يوصى بشدة بتشغيل FileVault. يمكنك تشغيله في أي وقت من إعدادات النظام > الخصوصية والأمن > FileVault -- فهو يشفّر في الخلفية دون إعادة التثبيت.
 

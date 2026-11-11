@@ -141,7 +141,7 @@ conversation_capture_seed_forget() {
     printf -- '--- CONVERSATION CAPTURE SEED: removing the two synthetic conversations ---\n'
     local out
     out="$(_ccs_box "set -u
-ROOT=\$HOME/Documents/Ostler/Conversations
+ROOT=\$HOME/Ostler/Conversations
 PROC=\$HOME/.pwg/processing
 rm -f \"\$HOME/.ostler/walk-seed/.convcap-devtoken\"
 before=0

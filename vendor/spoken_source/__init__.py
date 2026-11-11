@@ -7,7 +7,7 @@ tree, normalises each FINISHED transcript into a cleaned
 speaker-labelled transcript plus CM048 metadata, and hands each session
 to the CM048 ConversationBundle processor (``pwg-convo process``).
 CM048 then emits the four artefacts under
-``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 It covers BOTH source types the brief calls out:
 

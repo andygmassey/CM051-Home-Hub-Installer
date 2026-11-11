@@ -81,7 +81,7 @@
 PROBE_NAME="owner_knowledge_score"
 PROBE_QUESTION="asked the way a customer asks, how many questions about the owner does the assistant answer correctly?"
 
-# WALK_WRITES: seeds a synthetic persona into the graph (Oxigraph) and ~/Documents/Ostler/Conversations under the ownerscoreseed_ namespace, and purges it again before returning
+# WALK_WRITES: seeds a synthetic persona into the graph (Oxigraph) and ~/Ostler/Conversations under the ownerscoreseed_ namespace, and purges it again before returning
 LIMIT="${OSTLER_OWNER_SCORE_LIMIT:-8}"
 SET="${OSTLER_OWNER_SCORE_SET:-visible}"
 # A read-only walk (--only, or --read-only) leaves the graph alone unless the seed is asked for by name.

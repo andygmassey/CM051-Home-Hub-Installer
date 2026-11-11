@@ -62,7 +62,7 @@ targets:
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
         NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."
         NSDownloadsFolderUsageDescription: "Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac."
-        NSDocumentsFolderUsageDescription: "Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac."
+        NSDocumentsFolderUsageDescription: "Ostler looks in your Documents folder for data exports you have saved there, such as a Google Takeout or LinkedIn export. Files stay on this Mac."
         NSPhotoLibraryUsageDescription: "Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac."
         NSRemindersFullAccessUsageDescription: "Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account."
         ATSApplicationFontsPath: Fonts
@@ -921,7 +921,7 @@ targets:
           # CM052 package, pip-installs it NON-editable into a dedicated
           # venv under ${OSTLER_DIR}/services/cm052/, and runs the
           # pwg-ai-convo producer to drain external-LLM chat history into
-          # ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).
+          # ~/Ostler/AI Conversations/ (the CM044 AI Chats wing).
           #
           # The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED
           # (OFF for v1.0.x -- the section ships dark), but the package is

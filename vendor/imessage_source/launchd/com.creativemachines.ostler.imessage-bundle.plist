@@ -11,7 +11,7 @@
         threads recent messages into conversation sessions, and hands
         each new session to CM048's pwg-convo processor, which emits
         the four artefacts under
-        ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+        ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
 
         Pieces:
           1. services/imessage_source/ is the threader + dispatcher.

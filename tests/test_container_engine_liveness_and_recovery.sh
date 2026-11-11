@@ -61,7 +61,7 @@
 # THE CONSTRAINT BOTH FILES SHARE, and it rules out the obvious repair:
 # a bare LaunchAgent has NO Full Disk Access, so a LaunchAgent-spawned
 # Colima cannot mount ~/Documents, and install.sh bind-mounts
-# ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki} into wiki-site and
+# ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki} into wiki-site and
 # wiki-compiler (v1.0.10 Group C, 6723acc). Writing an agent that runs
 # `colima start` would APPEAR to work and would bring the wiki up EMPTY
 # rather than DOWN -- a worse failure, because it is harder to notice. The

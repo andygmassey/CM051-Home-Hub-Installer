@@ -7,7 +7,7 @@ install time), threads the raw messages into per-conversation
 sessions, renders a cleaned transcript plus metadata, and hands each
 session to the CM048 ConversationBundle processor (``pwg-convo
 process``). CM048 then emits the four artefacts under
-``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 This is the product path. It does NOT use the ZeroClaw JSONL tail
 (``publisher/publisher.py``) which is the legacy personal dev

@@ -27,3 +27,12 @@ tests/test_group_followup_key_counts_silent_members.py.
 ## Owed upstream
 
 Yes: CM040 imessage source (`threader.py`, `pipeline.py`, `catchup.py`).
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), imessage_source
+
+The patch records only `__init__.py`'s docstring hunk (`imessage_source.patch`, changed in #3429). These two edits are NOT in the patch:
+
+- `pipeline.py` (1 line): `~/Documents/Ostler/Conversations/...` in a docstring becomes `~/Ostler/Conversations/...`.
+- `launchd/com.creativemachines.ostler.imessage-bundle.plist` (1 line): the root path in the plist text.
+
+Upstream: NO PR. The code lives only on `origin/feat/4-artefact-imessage-first` in andygmassey/conversation-memory (CM040), not on its default branch, so there is no main to PR against. Blocked until the base branch is decided.

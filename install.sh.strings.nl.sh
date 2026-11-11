@@ -90,7 +90,7 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Bij de eerste start vraagt Ostler RemoteCapture m
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="Bij de eerste start vraagt Ostler RemoteCapture m
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens onder Documenten/Ostler, op deze Mac. Ze zijn van jou en blijven op deze machine. Om ze te schrijven heeft Ostler toegang nodig tot je map Documenten, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw, wanneer Ostler je wiki voor het eerst ordent. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op OK wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen. Vanaf dan worden je wiki en gespreksgegevens geschreven."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler bewaart je persoonlijke wiki en je gespreksgegevens in de map Ostler in je thuismap (~/Ostler), op deze Mac. Ze zijn van jou en blijven op deze machine. De map staat bewust buiten Documenten, dus iCloud Drive uploadt hem niet. Ostler kan toch toegang nodig hebben tot je map Documenten, bijvoorbeeld om daar opgeslagen gegevensexports te zoeken, dus macOS kan hierom vragen tijdens de configuratie en later vandaag opnieuw. Het verzoek kan van python3.11 lijken te komen, het meegeleverde hulpprogramma waarmee Ostler je bestanden schrijft. Klik op OK wanneer het verschijnt. Als je het mist of weigert, kun je het op elk moment inschakelen in Systeeminstellingen, onder Privacy en beveiliging, dan Bestanden en mappen."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Je Ostler-map is verplaatst van %s naar %s, zodat de iCloud Drive-synchronisatie van Bureaublad en Documenten er niet meer bij kan."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="De iCloud Drive-synchronisatie van Bureaublad en Documenten staat aan op deze Mac, dus eerdere kopieën van je Ostler-bestanden staan mogelijk al in iCloud Drive. Ostler heeft ze niet verwijderd. Om ze te verwijderen open je iCloud Drive in de Finder, open je Documenten en verwijder je daar de map Ostler."
+MSG_WARN_USER_ROOT_NOT_MOVED="Je eerdere Ostler-map %s is op zijn plaats gelaten, omdat hij niet naar %s kon worden verplaatst. Die map bestaat al of het verplaatsen is mislukt. Er is niets verwijderd. Ostler gebruikt nu de nieuwe map: verplaats je bestanden zelf als je ze daar wilt hebben."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Geheugenengine voor gesprekken geïnstalleerd in venv."
 MSG_INFO_HUB_APP_VERIFYING="Ostler.app controleren op %s"
 MSG_INFO_HUB_APP_STAGING="Ostler.app vanuit %s in /Applications plaatsen"
@@ -1299,7 +1304,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Doorgaan terwijl je schijf in rust ONVERSLEUTEL
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Weet je het zeker? Dit is een beveiligingsrisico."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault staat UIT op deze Mac, dus je schijf is niet versleuteld in rust.
 
-Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Documents/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
+Wat dit betekent als je doorgaat: alles wat Ostler opslaat -- je hele persoonlijke graaf (wiki, gesprekken, kennisnotities) onder ~/Ostler, plus geheimen en databases van services onder ~/.ostler -- wordt ONVERSLEUTELD naar de schijf geschreven. Iedereen die vanaf deze schijf kan opstarten, de schijf kan uitbouwen of toegang heeft tot een ontgrendelde sessie, kan alles lezen. De sleutel waarmee Ostler zijn databases versleutelt, staat op dezelfde schijf. Zonder FileVault beschermt die je gegevens dus niet tegen iemand die de schijf in handen krijgt.
 
 FileVault wordt sterk aanbevolen. Je kunt het op elk moment aanzetten via Systeeminstellingen > Privacy en beveiliging > FileVault -- het versleutelt op de achtergrond, zonder opnieuw te installeren.
 
