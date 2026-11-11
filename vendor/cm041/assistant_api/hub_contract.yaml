@@ -5607,8 +5607,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "considered",
     "count",
     "degraded",
+    "filtered",
     "meetings",
     "reason",
     "within_minutes"
