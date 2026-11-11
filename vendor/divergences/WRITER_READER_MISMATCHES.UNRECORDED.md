@@ -1833,3 +1833,13 @@ the end-of-pass backlog grew on each of the last three passes. Guarded by
 `tests/test_people_index_embeds_only_what_changed.py` (workflow
 `dedupe-merge-rule-2.yml`), which also asserts the import, call and placeholder.
 Owed upstream: none until the writer itself is lifted into HR015 ostler_fda.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), doctor
+
+Regeneration REFUSED, measured 2026-11-11 (dry run): "doctor is marked regenerate_forbidden in VENDOR_MANIFEST.toml". Recorded here instead.
+
+- `agent/diagnostic_rules.py` (4 edits): comments naming the root; the `os.path.join(home, "Documents", "Ostler")` entry in the folders list becomes `os.path.join(home, "Ostler")`.
+- `agent/web_ui.py` (2 comment lines): probe comments.
+- `agent/documents_access_posture.py`: VENDOR_ONLY (no upstream file). Route (d) of the gate, not recorded here.
+
+Upstream: andygmassey/HR015-Gaming-PC has `doctor/agent/` at head, but the vendored lines are gone there in part. Upstream leftovers still name `Documents/Ostler` (`diagnostic_rules.py:1373,1374,1393`, `web_ui.py:2370`, `dashboard_components.py:1399`, `status_collector.py`, three test files). No upstream PR. The change is not made upstream yet.

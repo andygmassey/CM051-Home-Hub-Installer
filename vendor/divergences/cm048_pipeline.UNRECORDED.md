@@ -158,3 +158,16 @@ graft (CM048 #114, ec837ea4) are native at the new pin: the cm048_pipeline re-pi
 ec837ea4 found src/reply_debt.py, src/reply_debt_adapters.py, src/reply_debt_service.py
 and src/reply_debt_sources.py byte-identical to source@ec837ea4, so neither graft is
 carried here or in the patch any more.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), cm048_pipeline
+
+Regeneration REFUSED: the source has advanced past the pin (005ebd7, reply debt). A patch regenerated here would record upstream commits as local edits. The two hunks the PR added to `cm048_pipeline.patch` are hand edits to the patch file, not regenerated output. Every other path edit below is NOT in the patch and is recorded here.
+
+- `settings.yaml.example` (1 line): default root.
+- `src/capture_truth.py` (1 line): docstring path. No upstream counterpart at head, so the edit has no upstream PR.
+- `src/conversation_writer.py` (3 lines): default root and docstring paths.
+- `src/ostler_paths.py` (5 lines): `user_facing_root()` returns `Path.home() / "Ostler"`, plus comments.
+- `src/processor.py` (4 lines): docstring and comment paths.
+- `src/settings.py` (1 line): default path.
+
+Upstream: andygmassey/CM048-PWG-Conversation-Processing PR #117, not merged. Tests: full suite 1158 passed, 1 skipped, exit 0; the CM048 agent measured the old source against the new assertions as 4 failures.

@@ -994,6 +994,7 @@ test_uninstall_and_pristine_remove_webkit_chat_history.sh	WIRED	.github/workflow
 test_uninstall_cannot_claim_removal_it_did_not_do.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_colima_and_data_choices.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_uninstall_leaves_no_ostler_behind.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
+test_uninstall_legacy_documents_root.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_uninstall_removes_every_launchagent_plist.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_uninstall_stops_orphaned_ticks.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_uninstall_stops_what_it_deletes.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -1019,6 +1020,7 @@ test_usage_journal_producer_gate.sh	WIRED	.github/workflows/usage-journal-produc
 test_usage_journal_producer_parity_2472.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_usage_journal_readers_resolve_like_the_daemon.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_user_facing_tree.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_user_root_is_home_ostler_not_documents.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_usr_local_bin_symlinks_gui_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_at_rest_exclusions.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_v1010_daemon_signature_gate.sh	WIRED	.github/workflows/supply-chain-pins.yml

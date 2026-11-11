@@ -449,3 +449,12 @@ Tree `cm019_preferences`. Pin HELD at 5af9f5b5. Data only, no code change.
 - Effect: `sensitive.is_sensitive` and `surfaceable` now refuse a genetic or biometric value at every place the derive engine surfaces one (write side, derived reader, `/preferences/derived`, QueryClient).
 - Proof: `tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py` (wired in `derived-preferences.yml`). It FAILS on origin/main's yaml and passes here. It also checks that every Front Page term for the two classes classifies here, so the lists cannot drift apart.
 - Upstream owed: andygmassey/personal-world-graph `services/enrich/src/derive/sensitive_terms.yaml` needs the same two categories. Retire this section when a re-pin brings them in.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), cm019_preferences
+
+Not in the patch: this tree has `divergence_patch = ""`, so there is nothing to regenerate. Recorded here.
+
+- `services/enrich/src/derive/config.py` (1 line): default stated-transcripts root `Path.home() / "Documents" / "Ostler" / "Conversations"` becomes `Path.home() / "Ostler" / "Conversations"`.
+- `services/enrich/src/derive/stated_messages.py` (1 line): docstring path `~/Documents/Ostler/Conversations/...` becomes `~/Ostler/Conversations/...`.
+
+Upstream: andygmassey/personal-world-graph PR #469, not merged. Tests there: `test_real_home_guard.py` and `test_config.py` pass, 9 of 9 (system python, throwaway HOME). Five `test_representatives_first.py` tests fail on `No module named 'click'` in that environment, not on this change.

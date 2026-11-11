@@ -28557,6 +28557,36 @@ else
     KEEP_CONTENT_DECISION="keep"
 fi
 
+# ── Legacy root: ~/Documents/Ostler (installs before CM051 #3429) ──
+# Older installs wrote the user-facing root into ~/Documents, which iCloud uploads.
+# Removal happens only for an EMPTY folder (rmdir removes nothing else), or after
+# the customer types YES here. --yes and --remove-content do NOT cover it: they
+# consent to uninstalling Ostler and to removing ~/Ostler, not to deleting files
+# in the customer's Documents folder. Without a terminal it is kept.
+LEGACY_ROOT="${HOME}/Documents/Ostler"
+if [[ -d "$LEGACY_ROOT" && ! -L "$LEGACY_ROOT" ]]; then
+    if rmdir "$LEGACY_ROOT" 2>/dev/null; then
+        echo "  Removed the empty older folder ${LEGACY_ROOT}."
+    elif _assume_yes_granted; then
+        echo "  ${LEGACY_ROOT} is an older Ostler folder with files in it. --yes does not delete files in Documents, so it is kept."
+    else
+        echo ""
+        echo "  An older Ostler folder still has files in it: ${LEGACY_ROOT}"
+        echo "  Documents is synced to iCloud, so deleting it also deletes those iCloud copies."
+        LEGACY_REPLY=""
+        read -r -p "  Type YES to delete it, or press Enter to keep it: " LEGACY_REPLY || LEGACY_REPLY=""
+        if [[ "$LEGACY_REPLY" == "YES" ]]; then
+            if rm -rf -- "$LEGACY_ROOT"; then
+                echo "  Removed ${LEGACY_ROOT}."
+            else
+                echo "  Could not remove all of ${LEGACY_ROOT}; the rest is left in place."
+            fi
+        else
+            echo "  Kept ${LEGACY_ROOT}."
+        fi
+    fi
+fi
+
 echo ""
 # DELIBERATE-STOP MARKER, written FIRST, before any bootout or file removal.
 # The assistant LaunchAgent is KeepAlive PathState on this file (job stays
