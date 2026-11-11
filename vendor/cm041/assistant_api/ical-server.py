@@ -12532,7 +12532,27 @@ def _sparql_select_unscoped(sparql):
             for b in data.get("results", {}).get("bindings", [])]
 
 
+def _still_learning_note():
+    """While no derived preference is served yet (the first pass runs for tens
+    of minutes on a fresh box), say how many interests the profile holds so
+    the page is never blank. Counts the same non-sensitive records
+    api_preferences() serves."""
+    prof = api_preferences()
+    n = 0 if prof.get("degraded") else int(prof.get("count") or 0)
+    return {"interests_so_far": n, "text": f"Still learning: {n} interests found so far"}
+
+
 def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph; see _api_preferences_derived_core. An empty
+    answer also carries ``still_learning`` (see _still_learning_note)."""
+    result = _api_preferences_derived_core(limit=limit, min_confidence=min_confidence, tier=tier)
+    if not result.get("items"):
+        result["still_learning"] = _still_learning_note()
+    return result
+
+
+def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph, built through the CM019 producer builder
     (vendored verbatim in derived_preferences.py beside this file).

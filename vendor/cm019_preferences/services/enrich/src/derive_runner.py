@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,6 +86,63 @@ def _no_proxy_opener() -> None:
     )
 
 
+class _Progress:
+    """Counts-only progress, rewritten to the status file as each reader ends.
+
+    A first pass takes tens of minutes on a fresh box; before this the file
+    said nothing until the whole pass finished. Names are reader dimensions
+    and counts; no item, label or title is ever recorded.
+    """
+
+    def __init__(self, status: dict, path: Path, total: int):
+        self.status, self.path, self.total = status, path, total
+        self.done = 0
+        self.items = 0
+        status["reader_timings"] = []
+        self._sync()
+
+    def _sync(self) -> None:
+        self.status["progress"] = {
+            "readers_done": self.done,
+            "readers_total": self.total,
+            "items_so_far": self.items,
+        }
+        try:
+            _write_status(self.path, self.status)
+        except OSError as exc:  # progress is decoration; the pass goes on
+            print(f"derive: progress not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+    def reader_finished(self, name: str, seconds: float, items: int, ok: bool) -> None:
+        self.done += 1
+        self.items += items if ok else 0
+        self.status["reader_timings"].append(
+            {"name": name, "seconds": round(seconds, 2), "items": items, "ok": ok})
+        print(f"derive: reader {self.done}/{self.total} {name}: "
+              f"{'ok' if ok else 'FAILED'} in {seconds:.1f}s, {items} item(s)", flush=True)
+        self._sync()
+
+
+class _TimedReader:
+    """Wraps one reader to time its read and report it. Adds no behaviour: the
+    same items come back, and a failure is re-raised for the engine to record
+    exactly as before."""
+
+    def __init__(self, inner, progress: _Progress):
+        self._inner = inner
+        self._progress = progress
+        self.dimension = getattr(inner, "dimension", inner.__class__.__name__)
+
+    def read(self, user_id):
+        t0 = time.monotonic()
+        try:
+            items = list(self._inner.read(user_id))
+        except Exception:
+            self._progress.reader_finished(self.dimension, time.monotonic() - t0, 0, False)
+            raise
+        self._progress.reader_finished(self.dimension, time.monotonic() - t0, len(items), True)
+        return items
+
+
 def count_derived_nodes(store, graph_iri: str) -> int:
     rows = store._select(DERIVED_NODE_COUNT_QUERY % graph_iri)
     return int(rows[0]["c"]["value"]) if rows else 0
@@ -125,6 +183,9 @@ def run(
         dimensions = load_dimensions()
         aggregator = Aggregator(dimensions)
         status["derivation_version"] = aggregator._version
+        status["outcome"] = "in_progress"
+        progress = _Progress(status, status_path, len(readers))
+        readers = [_TimedReader(r, progress) for r in readers]
         # Trend, say-vs-do contradiction, time-of-day context: annotate the
         # aggregated nodes. A deriver that raises is reported below; the base
         # nodes still stand.
@@ -132,6 +193,7 @@ def run(
                                   derivers=default_derivers(dimensions))
         result = engine.run_result(user_id, now=now)
     except Exception as exc:  # noqa: BLE001 - recorded, never silent
+        status["outcome"] = "failed"
         status["reason"] = f"engine did not start: {type(exc).__name__}"
         _write_status(status_path, status)
         print(f"derive: {status['reason']}: {exc}", file=sys.stderr, flush=True)

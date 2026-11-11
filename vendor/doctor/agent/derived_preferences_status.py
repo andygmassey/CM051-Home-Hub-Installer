@@ -42,6 +42,9 @@ States, each distinct, none folded into another:
                      many ticks in a row had no pass, and the last completed
                      pass carried forward (its time and node count).
 * ``yielded``        the tick did not run the pass: the ingest slot was busy.
+* ``in_progress``    a pass is running now (or was killed part-way). The
+                     runner rewrites the file as each reader finishes; the
+                     reason carries how many readers are done.
 * ``unreadable``     a record exists and could not be parsed. "Could not
                      check", never "nothing".
 
@@ -114,13 +117,17 @@ def read_derived_preferences_status(
     outcome = str(rec.get("outcome") or "")
     out["status"] = outcome if outcome in {
         "written", "empty", "not_written", "cannot_start", "failed",
-        "deferred", "yielded"} else "unreadable"
+        "deferred", "yielded", "in_progress"} else "unreadable"
     if out["status"] == "failed":
         out["status"] = "not_written"
     out["last_run_at"] = rec.get("last_run_at")
     n = rec.get("graph_node_count")
     out["node_count"] = int(n) if isinstance(n, int) else None
     out["reason"] = str(rec.get("reason") or "")
+    prog = rec.get("progress")
+    if out["status"] == "in_progress" and isinstance(prog, dict):
+        out["reason"] = "{} of {} sources read so far".format(
+            _num_or(prog.get("readers_done")), _num_or(prog.get("readers_total")))
     c = rec.get("consecutive")
     out["consecutive"] = int(c) if isinstance(c, int) and not isinstance(c, bool) else None
     if not out["scheduled"]:
@@ -140,6 +147,7 @@ _WORDS = {
     "cannot_start": "could not start",
     "deferred": "waiting for a quieter moment",
     "yielded": "waiting for an import to finish",
+    "in_progress": "still learning",
     "unreadable": "record unreadable",
 }
 _COLOUR = {
@@ -151,6 +159,7 @@ _COLOUR = {
     "cannot_start": "#7A1F1F",
     "deferred": "#5C4611",
     "yielded": "#5C4611",
+    "in_progress": "#5C4611",
     "unreadable": "#7A1F1F",
 }
 _EXPLAIN = {
@@ -164,6 +173,10 @@ _EXPLAIN = {
     "not_written": "The previous results were kept.",
     "cannot_start": "Re-running the installer reinstalls what it needs.",
 }
+
+
+def _num_or(v) -> int:
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) else 0
 
 
 def _every(interval_s) -> str:
