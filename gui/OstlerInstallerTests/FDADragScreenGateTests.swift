@@ -177,7 +177,7 @@ final class FDADragScreenGateTests: XCTestCase {
 
     // MARK: Ostler's name
 
-    func testAssistantNameIsItsDisplayNameNotTheFileName() throws {
+    func testAssistantTileQuotesTheSettingsRowNameNotTheDisplayName() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fda-name-\(UUID().uuidString)")
         let app = dir.appendingPathComponent("OstlerAssistant.app/Contents")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
@@ -185,6 +185,18 @@ final class FDADragScreenGateTests: XCTestCase {
         let plist: [String: Any] = ["CFBundleIdentifier": "ai.ostler.assistant", "CFBundleName": "Ostler Assistant",
                                     "CFBundleDisplayName": "Ostler", "CFBundlePackageType": "APPL"]
         (plist as NSDictionary).write(to: app.appendingPathComponent("Info.plist"), atomically: true)
-        XCTAssertEqual(FDAHandoff.displayName(ofAppAt: dir.appendingPathComponent("OstlerAssistant.app")), "Ostler")
+        let url = dir.appendingPathComponent("OstlerAssistant.app")
+        // Info.plist says "Ostler", but Settings lists the file name (measured), and the tile must match Settings.
+        XCTAssertEqual(Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, "Ostler")
+        XCTAssertEqual(FDAHandoff.settingsRowName(ofAppAt: url), "OstlerAssistant")
+        // Same string install.sh quotes for the row (_ostler_fda_entry_name derives it from the file name).
+        XCTAssertEqual(FDAHandoff.settingsRowName(ofAppAt: URL(fileURLWithPath: "/x/Ostler.app")), "Ostler")
+    }
+
+    func testActiveTileFollowsTheStep() {
+        // Step 1: Ostler. Step 2 (Ostler granted): the installer. The view takes icon, name and instruction from this one id.
+        XCTAssertEqual(FDATileSequence.active(hasAssistant: true, assistantGranted: false, installerGranted: false), .assistant)
+        XCTAssertEqual(FDATileSequence.active(hasAssistant: true, assistantGranted: false, installerGranted: true), .assistant)
+        XCTAssertEqual(FDATileSequence.active(hasAssistant: true, assistantGranted: true, installerGranted: false), .installer)
     }
 }

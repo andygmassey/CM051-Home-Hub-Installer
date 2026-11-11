@@ -183,11 +183,14 @@ enum FDAHandoff {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// Customer-facing name of the app at `url` ("Ostler"), read from its own
-    /// Info.plist, falling back to the file name.
-    static func displayName(ofAppAt url: URL) -> String {
-        if let b = Bundle(url: url) { return displayName(b) }
-        return url.deletingPathExtension().lastPathComponent
+    /// The name System Settings shows for the background daemon bundle. Its
+    /// Info.plist already says CFBundleDisplayName "Ostler", yet the Privacy
+    /// row was measured reading the FILE name ("OstlerAssistant", install.sh
+    /// FDA row-name comment), so the tile quotes the file name: the customer
+    /// must see the same string in both places. (Daemon is LSBackgroundOnly,
+    /// so there is no foreground display name for Settings to use.)
+    static func settingsRowName(ofAppAt url: URL) -> String {
+        url.deletingPathExtension().lastPathComponent
     }
 
     /// The app's icon as a bitmap with `pixels` x `pixels` real pixels, shown

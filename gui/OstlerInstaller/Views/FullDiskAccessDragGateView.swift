@@ -56,7 +56,7 @@ struct FullDiskAccessDragGateView: View {
 
     /// Tile 1: Ostler (OstlerAssistant.app), the program that reads at runtime.
     private let assistantTile: Tile? = FDAHandoff.assistantBundleURL().map {
-        makeTile(.assistant, url: $0, name: FDAHandoff.displayName(ofAppAt: $0))
+        makeTile(.assistant, url: $0, name: FDAHandoff.settingsRowName(ofAppAt: $0))
     }
     /// Tile 2: this installer, whose child install.sh does the install-time reads.
     private let installerTile = makeTile(.installer, url: FDAHandoff.appBundleURL(), name: FDAHandoff.displayName())
@@ -767,7 +767,7 @@ enum FDADebug {
             rep.size = host.bounds.size
             host.cacheDisplay(in: host.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("fda_v4_\(name).png"))
+                try? png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("fda_v5_\(name).png"))
             }
             print("snapshot \(name): \(rep.pixelsWide)x\(rep.pixelsHigh)")
         }
