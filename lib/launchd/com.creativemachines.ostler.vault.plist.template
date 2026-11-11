@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Ostler vault LaunchAgent (PHASE 1 TEMPLATE -- NOT INSTALLED BY ANYTHING).
+        Off by default: install.sh does not render or load this. When it is
+        wired (Phase 2) the installer substitutes:
+          OSTLER_VAULT_LIB  -> directory holding ostler-vault.sh
+          OSTLER_HOME       -> $HOME
+          OSTLER_LOGS       -> $LOGS_DIR
+
+        Attaches the encrypted bundle at login, BEFORE Hub services. Hub
+        service agents must gate on the sentinel (KeepAlive.PathState on
+        <mountpoint>/.mounted, Phase 2) so that a failed attach leaves them
+        stopped rather than writing plaintext. No KeepAlive here: a wrong or
+        missing key must not crash-loop; ThrottleInterval caps any relaunch.
+
+        NOT INSTRUMENTED: whether a LaunchAgent at a FRESH login can read the
+        login Keychain without a prompt. Phase 1 only proves it from a shell.
+    -->
+    <key>Label</key>
+    <string>com.creativemachines.ostler.vault</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>OSTLER_VAULT_LIB/ostler-vault.sh</string>
+        <string>attach</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OSTLER_VAULT</key>
+        <string>1</string>
+        <key>HOME</key>
+        <string>OSTLER_HOME</string>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>OSTLER_LOGS/vault.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>OSTLER_LOGS/vault.err.log</string>
+</dict>
+</plist>
