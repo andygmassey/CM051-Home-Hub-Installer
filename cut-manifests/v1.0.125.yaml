@@ -6315,3 +6315,43 @@ open_issues:
     repo: CM051
     title: 'test_mutex_skips_when_another_tick_holds_the_lock writes the real ~/.ostler/state (no HOME isolation)'
     gate: 'NOT BLOCKING (Archie 2026-11-07): test-hygiene defect on the dev/CI box, not in the shipped artefact; expires after one cut; close needs the test run under an isolated HOME with a RED demo of the leak.'
+
+  - issue: 3383
+    repo: CM051
+    title: 'cut markers: no wiki 0.1.69 marker, so provenance gates pass the 0.1.68 image too'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): gap likely superseded: cut_markers.manifest gained wiki_image_grep rows CM044 #343-#357 since 11-07, which an older image fails; close needs the 0.1.68-digest swap RED demo.'
+
+  - issue: 3389
+    repo: CM051
+    title: 'OSTLER_ORPHAN_GATE_SKIP lists ''daemon'' but check-orphans still examines the daemon repo (skip key does not match gate repo key)'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): gate hygiene, preflight/cut parity holds; no artefact defect; close needs a RED demo after the skip key is fixed.'
+
+  - issue: 3396
+    repo: CM051
+    title: 'check-pr-age: review_by date is read differently on macOS (valid all day) and ubuntu (expired from 00:00Z)'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): exemptions re-dated to 11-14, none on review day now; CONDITION: cut before 2026-11-14 or fix the parser to one epoch reading first.'
+
+  - issue: 3397
+    repo: CM051
+    title: 'Triage the 67 PRs whose pr_exemptions were re-dated to 2026-11-14 (owner Archie, after the v1.0.128 walk)'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): Archie''s triage, due 2026-11-14; no artefact defect.'
+
+  - issue: 3402
+    repo: CM051
+    title: 'loopback guard: an assistant Mac account configured after install is never applied (assistant_uid is only written by installer-time install-root)'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): default flow configures the assistant account at install time; post-install config gap fixed in v1.0.130; read from source, not measured on a box.'
+
+  - issue: 3404
+    repo: CM051
+    title: 'ttywalk.sh:1459 derives the guard @OWNER@ from ${HOST%%@*}: a bare ssh alias becomes the owner'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): CONDITION for the v1.0.129 thin walk: run ttywalk with --host user@host, never a bare ssh alias.'
+
+  - issue: 3405
+    repo: CM051
+    title: 'Silent security fallback: corrections.db and assert_spool.db open as PLAINTEXT when db_key is missing'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): Archie ruling 2026-11-08, non-blocking for v1.0.'
+
+  - issue: 3407
+    repo: CM051
+    title: 'post_walk_qa reads cut-manifests/<v>.yaml from the harness checkout (main), not from the tag under test: phase 2 skipped as COVERAGE LOST'
+    gate: 'NOT BLOCKING (Archie 2026-11-11): CONDITION: cut-manifests/v1.0.129.yaml must be on main before the v1.0.129 walk, else post_walk_qa phase 2 silently does not run.'

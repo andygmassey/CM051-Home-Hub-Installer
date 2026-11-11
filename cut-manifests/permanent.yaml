@@ -489,7 +489,10 @@ entries:
       the Hub's Setting-up bar stalled below 100 (71 on a walk box) because
       producers never wrote an explicit terminal marker, so a finished source
       and a stuck one read the same. Each shard must carry complete or a
-      skip_reason, or be seen advancing between two samples
+      skip_reason, or be seen advancing between two samples.
+      SCOPE (Archie 2026-11-11): ADVISORY for v1.0.129 only, expires after that
+      one cut; BLOCKING from v1.0.130. It has never run on a walk, so it is not
+      yet shown it can fail correctly
     proof:
       kind: box_walk_probe
       probe: "setup_progress_advancing"
