@@ -186,9 +186,12 @@ jobs:
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
           python3 tests/test_derive_first_pass_progress.py
       - name: What you like is never blank while the first pass runs (still_learning from the interest profile)
-        # Real ical-server subprocess against a stub store; stdlib only.
+        # Real ical-server subprocess against a stub store. ical-server refuses
+        # to start without ostler_security (and its cryptography dependency).
         if: always()
-        run: python3 tests/test_derived_still_learning_surface.py
+        run: |
+          python3 -m pip install --quiet cryptography ./vendor/ostler_security
+          python3 tests/test_derived_still_learning_surface.py
       - name: A stated dislike is served alongside the capped list (any tier, bounded, no dupes)
         if: always()
         run: |
