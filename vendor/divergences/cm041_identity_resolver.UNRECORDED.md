@@ -406,4 +406,4 @@ Regeneration run as a dry run, and REFUSED: "the patch this would record carries
 - `identity_resolver/tests/test_compartment.py` in upstream only, not vendored.
 
 Upstream: andygmassey/CM041-People-Graph PR #246, not merged. Tests: `identity_resolver/tests/test_compartment.py`, 66 passed, rc 0 (system python, throwaway HOME).
-- Same tree, same PR, one table cell: the example `~/Ostler/Users/priya` became `~/Ostler/Users/<name>`. The PII-shape scan flagged the home-folder path shape (a lowercase name after the users folder) on the added line (CI, 23ff9b06). Upstream CM041 PR #246 gets the same edit.
+- Same tree, same PR, one table cell: the example `~/Ostler/Users/<name>` replaced a lowercase first name in the same place. The PII-shape scan flagged the home-folder path shape (a lowercase name after the users folder) on the added line (CI, 23ff9b06). Upstream CM041 PR #246 gets the same edit.
