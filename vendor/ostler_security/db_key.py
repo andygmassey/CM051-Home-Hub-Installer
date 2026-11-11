@@ -201,6 +201,31 @@ def keychain_service() -> str:
     return os.environ.get("OSTLER_DB_KEY_KEYCHAIN_SERVICE") or KEYCHAIN_SERVICE_DEFAULT
 
 
+def keychain_path() -> str:
+    """The keychain FILE every `security` call is pinned to.
+
+    Default is the login keychain. OSTLER_KEYCHAIN_PATH repoints it (tests use
+    a throwaway keychain). It is always passed explicitly: without a keychain
+    argument `security` consults the user's default/search list, and when that
+    is missing macOS raises the GUI "Keychain Not Found ... Reset To Defaults"
+    dialog, which can wipe a user's keychain.
+    """
+    return (os.environ.get("OSTLER_KEYCHAIN_PATH")
+            or os.path.expanduser("~/Library/Keychains/login.keychain-db"))
+
+
+def _keychain_missing() -> Optional[str]:
+    """Reason string if the pinned keychain file is absent, else None.
+
+    Checked BEFORE any `security` call, so a missing keychain never reaches a
+    dialog-capable code path.
+    """
+    kp = keychain_path()
+    if not os.path.isfile(kp):
+        return f"keychain file {kp} does not exist"
+    return None
+
+
 def keychain_available() -> bool:
     """True when the macOS `security` tool exists on this host."""
     return os.path.exists(_SECURITY_BIN)
@@ -226,11 +251,16 @@ def read_keychain_key() -> DbKey:
     REASON_KEYCHAIN_MALFORMED, and the caller must NOT fall through to
     plaintext on it.
     """
+    missing = _keychain_missing()
+    if missing:
+        return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE, missing)
     try:
         proc = subprocess.run(
             [_SECURITY_BIN, "find-generic-password",
-             "-s", keychain_service(), "-a", KEYCHAIN_ACCOUNT, "-w"],
+             "-s", keychain_service(), "-a", KEYCHAIN_ACCOUNT, "-w",
+             keychain_path()],
             capture_output=True, text=True, timeout=20,
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return DbKey(None, None, REASON_KEYCHAIN_UNAVAILABLE,
@@ -259,8 +289,11 @@ def write_keychain_key(key_hex: str) -> None:
         raise OSError("refusing to store a key that is not 64 hex characters")
     if not keychain_available():
         raise OSError("the macOS security tool is not present")
+    missing = _keychain_missing()
+    if missing:
+        raise OSError(missing)
     cmd = (f'add-generic-password -U -s "{keychain_service()}" '
-           f'-a "{KEYCHAIN_ACCOUNT}" -w {key_hex.lower()}\n')
+           f'-a "{KEYCHAIN_ACCOUNT}" -w {key_hex.lower()} "{keychain_path()}"\n')
     try:
         proc = subprocess.run([_SECURITY_BIN, "-i"], input=cmd,
                               capture_output=True, text=True, timeout=20)

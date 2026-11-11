@@ -19333,7 +19333,7 @@ fi
 # looking. A box whose key file was deleted after install is in the same
 # state and deserves the same warning.
 if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]] \
-   && ! /usr/bin/security find-generic-password -s "Ostler DB Key" -a ostler-db-key &>/dev/null; then
+   && ! /usr/bin/security find-generic-password -s "Ostler DB Key" -a ostler-db-key "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" &>/dev/null; then
     warn "$MSG_WARN_DB_KEY_MISSING_ON_RERUN"
 
     # SAY HOW MANY, NOT JUST THAT. "your databases are unencrypted" is a
@@ -29210,7 +29210,7 @@ echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _u_lg_live=0; _lg_src="${HOME}/.ostler/lib/ostler-loopback-guard.sh"; [ -f "$_lg_src" ] || _lg_src="/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh"; if [ -e "${OSTLER_LG_PLIST:-/Library/LaunchDaemons/com.ostler.loopback-guard.plist}" ] || [ -e "${OSTLER_LG_DIR:-/Library/Application Support/Ostler/loopback-guard}" ]; then if [ -f "$_lg_src" ] && source "$_lg_src" && ostler_lg_uninstall; then :; else _u_lg_live=1; echo "  ERROR: the privacy guard is STILL INSTALLED, so other accounts on this Mac are still cut off from local ports. Ostler is NOT fully uninstalled. Run: sudo /bin/bash \"/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh\" remove" >&2; fi; fi  # lib/ostler-loopback-guard.sh ostler_lg_uninstall: admin via sudo or the macOS dialog
 echo "  Removing Keychain entry..."
-security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
+security delete-generic-password -s "Ostler Recovery Key" "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" 2>/dev/null || true
 
 echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
 sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true

@@ -329,6 +329,21 @@ def main() -> int:
             "arm 4b (control): with no key file the same module resolves no "
             "key, which is the state every shipped install was in",
         )
+        # v1.0.129: with no key the service now REFUSES to open plaintext.
+        # Assert that first (the security property), then use the explicit,
+        # logged opt-in only to build the unkeyed control file below.
+        os.environ.pop("OSTLER_ALLOW_PLAINTEXT_DB", None)
+        refused = False
+        try:
+            ical_plain._memory_corrections_connect().close()
+        except ical_plain.DbKeyMissingError:
+            refused = True
+        check(
+            refused and not corrections_plain.exists(),
+            "arm 4b: with no key and no explicit opt-in the open is REFUSED "
+            "and no plaintext file is created",
+        )
+        os.environ["OSTLER_ALLOW_PLAINTEXT_DB"] = "1"
         conn = ical_plain._memory_corrections_connect()
         conn.execute("CREATE TABLE IF NOT EXISTS probe (body TEXT)")
         conn.execute("INSERT INTO probe VALUES (?)", (CANARY,))
@@ -342,6 +357,7 @@ def main() -> int:
             "file with the canary readable in it, so arm 4 is a measurement "
             "and this test can tell the two apart",
         )
+        os.environ.pop("OSTLER_ALLOW_PLAINTEXT_DB", None)
         posture_plain = posture_for(home4, "ical-server")
         check(
             posture_plain.get("encryption") == "disabled"

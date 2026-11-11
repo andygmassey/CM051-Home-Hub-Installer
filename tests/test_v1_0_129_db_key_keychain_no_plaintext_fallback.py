@@ -22,9 +22,14 @@ Four changes, each measured at the consumer, each with a matched control:
      the ical-server plist (an explicit file path switches the resolver to
      file-only and the services would never read the Keychain).
 
-Keychain isolation: every Keychain arm uses OSTLER_DB_KEY_KEYCHAIN_SERVICE with
-a unique service name and deletes it afterwards. The real item
-("Ostler DB Key") is never read, written or deleted.
+Keychain isolation: no arm touches the real login keychain, its items, the
+default keychain or the search list. Hermetic arms (H) use a fake `security`
+that records argv and need no keychain. Real-keychain arms (K) create a
+throwaway keychain with `security create-keychain` (which adds it to the
+search list, so they run only on CI or with OSTLER_TEST_THROWAWAY_KEYCHAIN=1),
+point the code at it with OSTLER_KEYCHAIN_PATH, delete it afterwards, and
+assert the search list is unchanged. Every `security` call is given an
+explicit keychain path.
 
 Exit codes: 0 all arms held, 1 an arm failed, 2 CANNOT-RUN (an arm could not
 obtain a verdict; nothing is claimed for it).
@@ -69,18 +74,30 @@ def tree_contains(root: Path, needle: str) -> bool:
     return False
 
 
-def kc_read(service: str):
-    """Independent reader: the macOS tool, not the resolver."""
+def kc_read(service: str, kc: str):
+    """Independent reader: the macOS tool, not the resolver. Explicit keychain."""
     r = subprocess.run(
         ["/usr/bin/security", "find-generic-password", "-s", service,
-         "-a", "ostler-db-key", "-w"], capture_output=True, text=True)
+         "-a", "ostler-db-key", "-w", kc],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-def kc_delete(service: str) -> None:
-    subprocess.run(
-        ["/usr/bin/security", "delete-generic-password", "-s", service,
-         "-a", "ostler-db-key"], capture_output=True)
+def search_list() -> str:
+    """READ-ONLY snapshot of the user search list (never written by tests)."""
+    r = subprocess.run(["/usr/bin/security", "list-keychains", "-d", "user"],
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    return r.stdout
+
+
+def throwaway_allowed() -> bool:
+    """`security create-keychain` ADDS the new keychain to the user's search
+    list, so it is only run where that list is disposable: a CI runner, or
+    when the operator opts in. On a developer Mac the real-keychain arms are
+    CANNOT-RUN and the hermetic arms (fake `security`, no keychain at all)
+    carry the argv/refusal assertions."""
+    return (os.environ.get("CI") == "true"
+            or os.environ.get("OSTLER_TEST_THROWAWAY_KEYCHAIN") == "1")
 
 
 def secdir(base: Path, with_key: bool) -> Path:
@@ -94,14 +111,24 @@ def secdir(base: Path, with_key: bool) -> Path:
     return d
 
 
-def fake_security(path: Path, rc: int) -> str:
-    path.write_text(f"#!/bin/sh\nexit {rc}\n")
+def fake_security(path: Path, rc: int, log: Path) -> str:
+    """A stand-in `security` that records every argv (and stdin for -i) to
+    `log` and exits `rc`. Used for the arms that must prove what the code
+    asks `security` to do, without any keychain existing."""
+    path.write_text(
+        "#!/bin/sh\n"
+        f'printf "ARGV %s\\n" "$*" >> "{log}"\n'
+        f'if [ "$1" = "-i" ]; then while IFS= read -r l; do printf "STDIN %s\\n" "$l" >> "{log}"; done; fi\n'
+        f"exit {rc}\n")
     path.chmod(0o755)
     return str(path)
 
 
 def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="ostler-h129-"))
+    # Nothing below may resolve ~ to the real home (and so the real keychain).
+    os.environ["HOME"] = str(work / "home")
+    (work / "home").mkdir()
     sec_site = work / "site"
     shutil.copytree(ROOT / "vendor" / "ostler_security",
                     sec_site / "ostler_security",
@@ -119,53 +146,139 @@ def main() -> int:
             return 2
         have_kc = hasattr(db_key, "keychain_available") and db_key.keychain_available()
 
-        # ---- K: key in the Keychain -------------------------------------
-        print("K. DB key in the Keychain")
-        h = work / "k1"
-        d = secdir(h, True)
+        # ---- H: HERMETIC keychain arms (fake `security`, no keychain) ----
+        print("H. every security call carries an explicit keychain; a missing keychain never reaches security")
+        h = work / "home" / ".ostler"
+        d = secdir(h, True)   # == the default key file location under the fake HOME
         os.environ["OSTLER_DB_KEY_FILE"] = str(d / "db_key")
         # Control: legacy file-only mode leaves the file, and the scan sees it.
         legacy = db_key.resolve_db_key()
         check(legacy.key == KEY and (d / "db_key").exists() and tree_contains(d, KEY),
               "K control: file-only mode keeps the plaintext key file and the scan finds it")
-        if not have_kc or not hasattr(db_key, "migrate_key_file_to_keychain"):
-            check(False, "K1: resolver has Keychain support (migrate_key_file_to_keychain)")
-        else:
-            os.environ["OSTLER_DB_KEY_KEYCHAIN_SERVICE"] = service
-            kc_delete(service)
-            r1 = db_key.resolve_db_key()
-            check(r1.key == KEY and r1.source == "keychain",
-                  f"K1: resolver returns the key from the Keychain (source={r1.source!r})")
-            check(not (d / "db_key").exists(), "K1: the plaintext key file is deleted after the move")
-            check(not tree_contains(d, KEY), "K1: the key's bytes are nowhere in the security folder")
-            check(kc_read(service) == KEY, "K1: an independent `security` read returns the key")
-            r2 = db_key.resolve_db_key()
-            check(r2.key == KEY and r2.source == "keychain",
-                  "K2: with no file at all, the reader still gets the key (from the Keychain)")
-            # leftover file next to an existing item is removed
+        os.environ.pop("OSTLER_DB_KEY_FILE", None)
+        have_api = all(hasattr(db_key, n) for n in
+                       ("keychain_available", "keychain_path", "migrate_key_file_to_keychain"))
+        check(have_api, "H0: resolver exposes keychain_path() and migrate_key_file_to_keychain")
+        if have_api:
+            real_bin = db_key._SECURITY_BIN
+            svc = f"Ostler DB Key TEST h129 {os.getpid()}"
+            os.environ["OSTLER_DB_KEY_KEYCHAIN_SERVICE"] = svc
+            os.environ.pop("OSTLER_KEYCHAIN_PATH", None)
+            default_kc = os.path.expanduser("~/Library/Keychains/login.keychain-db")
+            check(db_key.keychain_path() == default_kc,
+                  "H1: with no override the keychain is the login keychain, by explicit path")
+            # H2: nonexistent keychain -> keychain_unavailable, NO security call at all.
+            log = work / "h2.log"
+            db_key._SECURITY_BIN = fake_security(work / "sec_h2", 0, log)
+            ghost = str(work / "does-not-exist.keychain-db")
+            os.environ["OSTLER_KEYCHAIN_PATH"] = ghost
             (d / "db_key").write_text(KEY + "\n")
             (d / "db_key").chmod(0o600)
-            db_key.resolve_db_key()
-            check(not (d / "db_key").exists(), "K3: a leftover key file beside a Keychain item is removed")
-            # unreadable Keychain: do not guess, do not touch the file
+            rk = db_key.read_keychain_key()
+            check(rk.key is None and rk.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE,
+                  f"H2: nonexistent keychain file -> keychain_unavailable (got {rk.reason!r})")
+            try:
+                db_key.write_keychain_key(KEY)
+                wrote = True
+            except OSError:
+                wrote = False
+            check(not wrote, "H2: writing to a nonexistent keychain fails loudly (OSError), no fallback")
+            mg = db_key.migrate_key_file_to_keychain(d / "db_key")
+            check((d / "db_key").exists() and mg.source != "keychain",
+                  "H2: a failed move leaves the key file exactly as it was")
+            check(not log.exists(),
+                  "H2: NO security invocation was made for a nonexistent keychain (no dialog-capable call)")
+            # H3: with the keychain file present, EVERY invocation names it explicitly.
+            dummy = work / "dummy.keychain-db"
+            dummy.write_bytes(b"not a real keychain; the fake security never reads it")
+            os.environ["OSTLER_KEYCHAIN_PATH"] = str(dummy)
+            log3 = work / "h3.log"
+            db_key._SECURITY_BIN = fake_security(work / "sec_h3", 44, log3)
+            db_key.read_keychain_key()
+            try:
+                db_key.write_keychain_key(KEY)
+            except OSError:
+                pass
+            lines = log3.read_text().splitlines() if log3.exists() else []
+            argvs = [l[5:].split() for l in lines if l.startswith("ARGV ")]
+            stdin = [l[6:] for l in lines if l.startswith("STDIN ")]
+            check(len(argvs) >= 2, f"H3 (control): the fake security recorded the calls ({len(argvs)} argv)")
+            for a in argvs:
+                if a and a[0] == "-i":
+                    continue
+                check(a[-1] == str(dummy),
+                      f"H3: `security {a[0]}` carries the explicit keychain path as its last argument")
+            check(any(l.startswith("add-generic-password") and l.endswith(f'"{dummy}"') for l in stdin),
+                  "H3: the `security -i` add-generic-password command names the keychain explicitly")
+            check(not any(KEY in " ".join(a) for a in argvs),
+                  "H3: the key never appears in argv")
+            # H4: unreadable keychain (locked / no session): do not guess, do not touch the file.
+            log4 = work / "h4.log"
+            db_key._SECURITY_BIN = fake_security(work / "sec51", 51, log4)
             (d / "db_key").write_text(KEY + "\n")
             (d / "db_key").chmod(0o600)
-            real = db_key._SECURITY_BIN
-            db_key._SECURITY_BIN = fake_security(work / "sec51", 51)
             ru = db_key.resolve_db_key()
             check(ru.key is None and ru.reason == db_key.REASON_KEYCHAIN_UNAVAILABLE,
-                  f"K4: unreadable Keychain -> no key, reason keychain_unavailable (got {ru.reason!r})")
-            check((d / "db_key").exists(), "K4: ...and the key file is left exactly as it was")
-            db_key._SECURITY_BIN = real
-            kc_delete(service)
+                  f"H4: unreadable Keychain -> no key, reason keychain_unavailable (got {ru.reason!r})")
+            check(ru.source != "file" and ru.key is None, "H4: and it does not fall back to the plaintext file")
+            check((d / "db_key").exists(), "H4: ...and the key file is left exactly as it was")
+            db_key._SECURITY_BIN = real_bin
+            os.environ.pop("OSTLER_KEYCHAIN_PATH", None)
             os.environ.pop("OSTLER_DB_KEY_KEYCHAIN_SERVICE", None)
-            # safety: the real item was never ours to touch
             check(db_key.keychain_service() == "Ostler DB Key",
-                  "K5: default service name is 'Ostler DB Key'")
+                  "H5: default service name is 'Ostler DB Key'")
+            os.environ["OSTLER_DB_KEY_FILE"] = str(d / "db_key")
             check(not db_key.keychain_enabled(),
-                  "K5: explicit OSTLER_DB_KEY_FILE keeps file-only mode (no Keychain access from tests)")
-        os.environ.pop("OSTLER_DB_KEY_FILE", None)
-        os.environ.pop("OSTLER_DB_KEY_KEYCHAIN_SERVICE", None)
+                  "H5: explicit OSTLER_DB_KEY_FILE keeps file-only mode (no Keychain access from tests)")
+            os.environ.pop("OSTLER_DB_KEY_FILE", None)
+
+        # ---- K: key in a THROWAWAY keychain (CI / opt-in only) -------------
+        print("K. DB key in a throwaway Keychain")
+        if not (have_api and have_kc):
+            check(False, "K: resolver has Keychain support")
+        elif not throwaway_allowed():
+            skip("K1-K3", "creating a keychain edits the user's keychain search list; "
+                          "set OSTLER_TEST_THROWAWAY_KEYCHAIN=1 (or run on CI) to allow it")
+        else:
+            kc = str(work / "test.keychain-db")
+            pw = os.urandom(16).hex()
+            before = search_list()
+            cr = subprocess.run(["/usr/bin/security", "create-keychain", "-p", pw, kc],
+                                capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            ul = subprocess.run(["/usr/bin/security", "unlock-keychain", "-p", pw, kc],
+                                capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            try:
+                if cr.returncode != 0 or ul.returncode != 0:
+                    skip("K1-K3", f"could not create/unlock the throwaway keychain ({cr.stderr.strip()} {ul.stderr.strip()})")
+                else:
+                    h = work / "k1"
+                    d = secdir(h, True)
+                    os.environ["OSTLER_KEYCHAIN_PATH"] = kc
+                    os.environ["OSTLER_DB_KEY_KEYCHAIN_SERVICE"] = service
+                    os.environ["OSTLER_DB_KEY_FILE"] = str(d / "db_key")
+                    # An explicit file path switches the resolver to file-only unless the
+                    # service opt-in is set; the opt-in is set, so keychain mode is on.
+                    r1 = db_key.resolve_db_key()
+                    check(r1.key == KEY and r1.source == "keychain",
+                          f"K1: resolver returns the key from the throwaway Keychain (source={r1.source!r})")
+                    check(not (d / "db_key").exists(), "K1: the plaintext key file is deleted after the move")
+                    check(not tree_contains(d, KEY), "K1: the key's bytes are nowhere in the security folder")
+                    check(kc_read(service, kc) == KEY, "K1: an independent `security` read returns the key")
+                    r2 = db_key.resolve_db_key()
+                    check(r2.key == KEY and r2.source == "keychain",
+                          "K2: with no file at all, the reader still gets the key (from the Keychain)")
+                    (d / "db_key").write_text(KEY + "\n")
+                    (d / "db_key").chmod(0o600)
+                    db_key.resolve_db_key()
+                    check(not (d / "db_key").exists(), "K3: a leftover key file beside a Keychain item is removed")
+            finally:
+                subprocess.run(["/usr/bin/security", "delete-keychain", kc],
+                               capture_output=True, stdin=subprocess.DEVNULL)
+                os.environ.pop("OSTLER_KEYCHAIN_PATH", None)
+                os.environ.pop("OSTLER_DB_KEY_FILE", None)
+                os.environ.pop("OSTLER_DB_KEY_KEYCHAIN_SERVICE", None)
+            check(search_list() == before,
+                  "K4: the user keychain search list is identical before and after the test")
 
         # ---- R: no silent plaintext --------------------------------------
         print("R. corrections.db / assert_spool.db with no key")
@@ -272,7 +385,6 @@ def main() -> int:
         check("<key>OSTLER_DB_KEY_FILE</key>" not in plist,
               "I3: the ical-server plist does not set OSTLER_DB_KEY_FILE (would force file-only mode)")
     finally:
-        kc_delete(service)
         shutil.rmtree(work, ignore_errors=True)
 
     print("")
