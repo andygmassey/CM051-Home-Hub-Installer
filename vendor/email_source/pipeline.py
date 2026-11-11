@@ -523,6 +523,27 @@ def _write_snapshot_atomic(path: Path, payload: dict) -> None:
         raise
 
 
+def _is_sent_mailbox(mailbox: str) -> bool:
+    """True for an Apple Mail Sent folder: "Sent Messages" (iCloud), "Sent
+    Mail" (Gmail, under "[Google Mail]"), "Sent Items" (Exchange), "Sent"."""
+    leaf = (mailbox or "").rsplit("/", 1)[-1].strip().lower()
+    return leaf == "sent" or leaf.startswith("sent ")
+
+
+def owner_address_set(messages: list, user_address: str = "") -> set:
+    """Every address that is the owner's: the configured one(s) (comma
+    separated) plus the From of each message filed in a Sent folder. A mail
+    account's Sent folder holds only that account's outbound mail, so its
+    From is the owner's address even when no address was configured (the
+    tick env carries OSTLER_USER_EMAIL only when onboarding set it). Reads
+    nothing but the From header already parsed; no body is touched."""
+    owners = {a.strip().lower() for a in (user_address or "").split(",") if a.strip()}
+    for m in messages:
+        if _is_sent_mailbox(getattr(m, "mailbox", "")) and m.from_address:
+            owners.add(m.from_address.strip().lower())
+    return owners
+
+
 def build_reply_debt_snapshot(
     messages: list,
     *,
@@ -534,7 +555,7 @@ def build_reply_debt_snapshot(
     import hashlib
     from datetime import datetime, timezone
 
-    owner = (user_address or "").strip().lower()
+    owners = owner_address_set(messages, user_address)
     threads = []
     for thread in thread_messages(messages, min_thread_messages=1):
         dated = [m for m in thread.messages if m.timestamp is not None]
@@ -546,17 +567,20 @@ def build_reply_debt_snapshot(
             "subject": (thread.subject or "")[:200],
             "headers": dict(last.headers or {}),
             "mailbox": last.mailbox or "",
-            "owner_wrote": bool(owner) and any(m.from_address == owner for m in thread.messages),
+            "owner_wrote": any(m.from_address in owners for m in thread.messages),
             "last": {
                 "from_address": last.from_address,
                 "to": [a for _, a in last.to_addresses],
                 "cc": [a for _, a in last.cc_addresses],
                 "text": (last.body or "")[:_SNAPSHOT_TEXT_LIMIT],
-                "is_from_me": bool(owner) and last.from_address == owner,
+                "is_from_me": last.from_address in owners,
                 "timestamp": last.timestamp.isoformat(),
             },
         }
-        level = _level_for_addresses(thread.participant_addresses, privacy_map or {}, owner)
+        level = _level_for_addresses(
+            [a for a in thread.participant_addresses if (a or "").strip().lower() not in owners],
+            privacy_map or {}, "",
+        )
         if level:
             row["privacy_level"] = level
         threads.append(row)
@@ -566,7 +590,7 @@ def build_reply_debt_snapshot(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "producer": _PRODUCER,
         "lookback_days": lookback_days,
-        "owner_addresses": [owner] if owner else [],
+        "owner_addresses": sorted(owners),
         "threads": threads,
     }
 
