@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Région : États-Unis (source : %s)"
 MSG_INFO_REPO_URL="URL du dépôt : %s"
 MSG_INFO_REPO_URL_2="URL du dépôt : %s"
 MSG_INFO_REPO_URL_3="URL du dépôt : %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Choisissez maintenant la phrase secrète qui déverrouillera votre Hub. Vous la saisirez à chaque démarrage de l'interface du Hub."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Choisissez maintenant une phrase secrète. Ostler l'utilise pour configurer la clé de certains de ses enregistrements internes."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Phrase secrète de récupération ignorée. (Obsolète : la version 1.0 exige toujours une phrase secrète.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Réutilisation de l'installation existante de l'agent Doctor dans %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Réutilisation de l'installation existante d'email-ingest dans %s"
@@ -442,13 +442,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Impossible d'enregistrer votre choix
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Clé des enregistrements internes configurée. Les services du Hub lisent la clé dans un fichier protégé de votre dossier personnel, et démarrent donc sans rien vous demander."
-MSG_OK_DB_KEY_DELIVERED="Clé de base de données transmise aux services du Hub (%s, lisible uniquement par vous)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Clé des enregistrements internes configurée. Les services du Hub lisent la clé dans votre trousseau de session, et démarrent donc sans rien vous demander."
+MSG_OK_DB_KEY_DELIVERED="Clé de base de données transmise aux services du Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Impossible de transmettre la clé de base de données aux services du Hub. Ils ouvriront les bases de données sans chiffrement tant que ce ne sera pas corrigé."
 MSG_INFO_DB_KEY_RECOVER_HINT="Exécutez ceci pour la récupérer et la transmettre : %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Chiffrement des bases de données restantes d'une installation précédente"
 MSG_WARN_DB_MIGRATION_FAILED="Certaines bases de données existantes n'ont pas pu être chiffrées. Elles restent lisibles sur le disque."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="Cette installation n'a pas de fichier de clé de base de données, donc les services du Hub ouvrent les bases de données sans chiffrement."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Cette installation n'a pas de clé de base de données, donc les services du Hub n'ouvriront pas leurs bases de données chiffrées."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s base(s) de données de ce Mac sont actuellement lisibles sur le disque."
 MSG_INFO_DB_MIGRATE_HINT="Chiffrez ensuite ce qui existe déjà : %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Nouvelle tentative différée d'enregistrement de l'appareil installée (s'exécute toutes les heures jusqu'à ce que la file soit vide)"
@@ -1311,11 +1311,11 @@ Choisissez Oui pour continuer maintenant avec le disque non chiffré au repos (c
 Choisissez Non pour vous arrêter ici, activer d’abord FileVault, puis relancer l’installateur. Dans les deux cas, rien n’a mal tourné."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Prêt à configurer le chiffrement du disque"
-MSG_PROMPT_PASSKEY_ACK_HELP="Les bases de données sensibles d’Ostler sont chiffrées avec SQLCipher à l’aide d’une phrase secrète que vous choisirez à l’écran suivant. Vous la saisirez à chaque démarrage de l’interface du Hub. Une clé de récupération distincte est également générée et affichée une seule fois à la fin de l’installation. Pour protéger au repos tout le contenu de votre Mac, laissez FileVault de macOS activé. Cliquez sur Continuer quand vous êtes prêt."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler utilise une phrase secrète que vous choisissez à l'écran suivant pour configurer la clé de certains de ses enregistrements internes. Une clé de récupération distincte est également générée et affichée une seule fois à la fin de l'installation. L'ensemble de vos données Ostler est protégé par FileVault, le chiffrement intégral du disque d'Apple. Cliquez sur Continuer quand vous êtes prêt."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Définir aussi une phrase secrète de récupération ? (recommandé)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choisissez votre phrase secrète"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Cette phrase secrète chiffre votre graphe de connaissances et déverrouille l’interface du Hub à chaque démarrage. 16 caractères minimum. Nous ne pouvons pas la récupérer pour vous. Il est recommandé de la conserver dans un gestionnaire de mots de passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler utilise cette phrase secrète pour configurer la clé de certains de ses enregistrements internes. L'ensemble de vos données Ostler est protégé par FileVault, le chiffrement intégral du disque d'Apple."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirmez votre phrase secrète"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Saisissez à nouveau la même phrase secrète pour confirmer."
 

@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Região: Estados Unidos (origem: %s)"
 MSG_INFO_REPO_URL="URL do repositório: %s"
 MSG_INFO_REPO_URL_2="URL do repositório: %s"
 MSG_INFO_REPO_URL_3="URL do repositório: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Escolha agora a frase de acesso que irá desbloquear o seu Hub. Terá de a introduzir sempre que iniciar a interface do Hub."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Escolha agora uma frase-passe. O Ostler usa-a para configurar a chave de alguns dos seus registos internos."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Frase de acesso de recuperação ignorada. (Descontinuado: a v1.0 exige sempre uma frase de acesso.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="A reutilizar a instalação existente do agente Doctor em %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="A reutilizar a instalação existente de email-ingest em %s"
@@ -441,13 +441,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Não foi possível guardar a sua esc
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave de um ficheiro protegido na sua pasta pessoal, por isso arrancam sem pedir nada."
-MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub (%s, legível apenas por si)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave do seu porta-chaves de início de sessão, por isso arrancam sem pedir nada."
+MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Não foi possível entregar a chave da base de dados aos serviços do Hub. Estes abrirão as bases de dados sem encriptação até que seja corrigido."
 MSG_INFO_DB_KEY_RECOVER_HINT="Execute isto para a recuperar e entregar: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="A encriptar as bases de dados que restam de uma instalação anterior"
 MSG_WARN_DB_MIGRATION_FAILED="Não foi possível encriptar algumas bases de dados existentes. Continuam legíveis no disco."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="Esta instalação não tem ficheiro de chave da base de dados, pelo que os serviços do Hub estão a abrir as bases de dados sem encriptação."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Esta instalação não tem uma chave de base de dados, pelo que os serviços do Hub não vão abrir as bases de dados cifradas."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s base(s) de dados neste Mac estão atualmente legíveis no disco."
 MSG_INFO_DB_MIGRATE_HINT="Depois encripte o que já existe: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Nova tentativa diferida do registo de dispositivos instalada (é executada de hora a hora até a fila ficar vazia)"
@@ -1311,11 +1311,11 @@ Escolha Sim para continuar agora com o disco sem cifragem em repouso (é uma esc
 Escolha Não para parar aqui e ativar primeiro o FileVault; depois, execute novamente o instalador. Em qualquer dos casos, nada correu mal."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Pronto para configurar a cifragem do disco"
-MSG_PROMPT_PASSKEY_ACK_HELP="As bases de dados sensíveis do Ostler são cifradas com SQLCipher através de uma frase de acesso que escolhe no ecrã seguinte. Terá de a introduzir sempre que iniciar a IU do Hub. É também gerada uma chave de recuperação separada, apresentada uma só vez no fim da instalação. Para uma proteção total em repouso de tudo o que está no seu Mac, mantenha o FileVault do macOS ativado. Prima Continuar quando estiver pronto."
+MSG_PROMPT_PASSKEY_ACK_HELP="O Ostler usa uma frase-passe que escolhe no ecrã seguinte para configurar a chave de alguns dos seus registos internos. É também gerada uma chave de recuperação separada, que é mostrada uma única vez no final da instalação. Os seus dados do Ostler, no conjunto, estão protegidos pelo FileVault, a cifragem de disco completo da Apple. Prima Continuar quando estiver pronto."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Definir também uma frase de acesso de recuperação? (recomendado)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Escolha a sua frase-passe"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta frase-passe cifra o seu grafo de conhecimento e desbloqueia a interface do Hub em cada arranque. Mínimo de 16 caracteres. Não a conseguimos recuperar por si. Recomendamos guardá-la num gestor de palavras-passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="O Ostler usa esta frase-passe para configurar a chave de alguns dos seus registos internos. Os seus dados do Ostler, no conjunto, estão protegidos pelo FileVault, a cifragem de disco completo da Apple."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirme a sua frase-passe"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Introduza novamente a mesma frase-passe para confirmar."
 

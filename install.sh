@@ -19051,12 +19051,6 @@ try:
     from ostler_security.audit_log import log_event, EVENT_UNLOCK
     passphrase = os.environ['RECOVERY_PASSPHRASE_FOR_SETUP']
     result = setup_passphrase(passphrase, config_dir=Path('${SECURITY_CONFIG_DIR}'))
-    log_event(
-        EVENT_UNLOCK,
-        source='install.sh',
-        details={'action': 'passphrase_setup'},
-        db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db',
-    )
     # Emit recovery_key on stdout for the installer to show once
     # at Phase 4 keychain-save (line ~6373). Format is the
     # XXXX-XXXX-XXXX-XXXX-XXXX-XXXX recovery key, not BIP39.
@@ -19099,6 +19093,12 @@ try:
             _dek.hex(), Path('${SECURITY_CONFIG_DIR}') / 'db_key',
         )
         print('DB_KEY_FILE=' + str(_key_path))
+        # audit.db is created KEYED (v1.0.129); no key, no entry, never plaintext.
+        try:
+            log_event(EVENT_UNLOCK, source='install.sh', details={'action': 'passphrase_setup'},
+                      db_path=Path('${SECURITY_CONFIG_DIR}') / 'audit.db', encryption_key_hex=_dek.hex())
+        except Exception as _ae:
+            print('AUDIT_LOG_ERROR=' + str(_ae))
     except Exception as _e:
         print('DB_KEY_FILE_ERROR=' + str(_e))
 except SystemExit as e:
@@ -19332,8 +19332,8 @@ fi
 # there NOW, which is a question about the filesystem and is answered by
 # looking. A box whose key file was deleted after install is in the same
 # state and deserves the same warning.
-if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" \
-      && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then
+if [[ -f "${SECURITY_CONFIG_DIR}/keychain.json" && ! -f "${SECURITY_CONFIG_DIR}/db_key" ]] \
+   && ! /usr/bin/security find-generic-password -s "Ostler DB Key" -a ostler-db-key "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" &>/dev/null; then
     warn "$MSG_WARN_DB_KEY_MISSING_ON_RERUN"
 
     # SAY HOW MANY, NOT JUST THAT. "your databases are unencrypted" is a
@@ -24824,6 +24824,11 @@ COACHPY
     # END _ostler_init_coach_db
     if [[ -x "$CM048_VENV/bin/python" ]]; then
         _ostler_init_coach_db "$CM048_VENV/bin/python" "${OSTLER_DIR}/coach/observations.db" "${DB_KEY_FILE:-}"
+        # v1.0.129: the file was only the hand-off. Move the key into the login Keychain, delete the file.
+        if [[ -f "${SECURITY_CONFIG_DIR}/db_key" && "${SECURITY_CONFIG_DIR}" == "${HOME}/.ostler/security" ]]; then
+            _kc_out="$("$CM048_VENV/bin/python" -c 'import sys; from pathlib import Path; from ostler_security.db_key import migrate_key_file_to_keychain as m; r = m(Path(sys.argv[1])); print(r.source, r.detail)' "${SECURITY_CONFIG_DIR}/db_key" 2>&1)" || true
+            if [[ -f "${SECURITY_CONFIG_DIR}/db_key" ]]; then echo "    Database key is still in ${SECURITY_CONFIG_DIR}/db_key: ${_kc_out}"; fi  # i18n-exempt: diagnostic only
+        fi
     fi
 
     if [[ -x "$CM048_BIN" ]]; then
@@ -29205,7 +29210,7 @@ echo "  Restoring sleep settings..."
 sudo pmset -a sleep 1 2>/dev/null || true
 echo "  Removing the local AI privacy guard (pf anchor + daemon)..."; _u_lg_live=0; _lg_src="${HOME}/.ostler/lib/ostler-loopback-guard.sh"; [ -f "$_lg_src" ] || _lg_src="/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh"; if [ -e "${OSTLER_LG_PLIST:-/Library/LaunchDaemons/com.ostler.loopback-guard.plist}" ] || [ -e "${OSTLER_LG_DIR:-/Library/Application Support/Ostler/loopback-guard}" ]; then if [ -f "$_lg_src" ] && source "$_lg_src" && ostler_lg_uninstall; then :; else _u_lg_live=1; echo "  ERROR: the privacy guard is STILL INSTALLED, so other accounts on this Mac are still cut off from local ports. Ostler is NOT fully uninstalled. Run: sudo /bin/bash \"/Library/Application Support/Ostler/loopback-guard/ostler-loopback-guard.sh\" remove" >&2; fi; fi  # lib/ostler-loopback-guard.sh ostler_lg_uninstall: admin via sudo or the macOS dialog
 echo "  Removing Keychain entry..."
-security delete-generic-password -s "Ostler Recovery Key" 2>/dev/null || true
+security delete-generic-password -s "Ostler Recovery Key" "${OSTLER_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}" 2>/dev/null || true
 
 echo "  Removing /usr/local/bin/ostler-knowledge symlink..."
 sudo rm -f /usr/local/bin/ostler-knowledge 2>/dev/null || true
@@ -29879,43 +29884,38 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
              matching CM041's fix/v1010-ical-server-auth reader. -->
         <key>PWG_SERVICE_TOKEN</key>
         <string>${PWG_SERVICE_TOKEN}</string>
-        <!-- THE DATABASE KEY'S PATH, NOT THE DATABASE KEY.
-             ical-server.py opens the coach and memory-corrections
-             databases through ostler_security, and it used to get its
-             key from OSTLER_DB_KEY, which nothing on any install ever
-             set (17 mentions, 3 readers, 0 setters, measured with
-             OSTLER_AI_CONVERSATIONS_DIR as the positive control on the
-             same query). So it took its plaintext branch every time.
-             LaunchAgents inherit no environment, so the value has to
-             reach this agent from its plist one way or another.
-             ⛔ AND THE KEY ITSELF MUST NOT BE THE WAY.
-             SECURITY_MODEL.md lists "Time-Machine backup theft" as a
-             threat this product DEFENDS AGAINST, and names the defence:
-             key material does not travel in backups. That is why the
-             recovery-key save a few thousand lines below shells out to
-             swift purely to pin kSecAttrAccessibleWhenUnlockedThisDeviceOnly.
-             ~/Library/LaunchAgents IS backed up by default, so a DEK in
-             this file would put the unwrapped key in every backup beside
-             a copy of the database it opens, and delete that defence
-             without a line of code admitting it.
-             Two more surfaces a path survives and a key does not: a
-             launchctl print of this job renders EnvironmentVariables in
-             full, and that output gets pasted into support threads; and
-             rendered config reaches the diagnostics bundle, which is why
-             this repo has log-hygiene gates at all.
-             NOTE FOR THE NEXT EDITOR: this heredoc is UNQUOTED, so a
-             backtick in this comment is EXECUTED and its output replaces
-             the text (#873). The launchctl invocation above is spelled
-             without backticks for that reason, not by accident, and
-             tests/test_no_live_command_substitution_in_heredocs.sh
-             caught the first draft of this very comment doing it.
-             So the key lives at 0600 inside the 0700 security
-             directory, next to keychain.json, excluded from Time
-             Machine at the write site, and this variable says where.
-             The resolver and the full argument are in
-             vendor/ostler_security/db_key.py. -->
-        <key>OSTLER_DB_KEY_FILE</key>
-        <string>${SECURITY_CONFIG_DIR}/db_key</string>
+        <!-- THE DATABASE KEY IS NOT IN THIS FILE, AND NOT IN THE ENVIRONMENT.
+             ical-server.py opens its databases through ostler_security, which
+             reads the key from the login Keychain (item: Ostler DB Key) by
+             running the macOS security tool. Until v1.0.129 the key sat as
+             plain hex in a file in the security folder and this plist carried
+             that file's path; the file is now only a migration source and the
+             installer deletes it once the Keychain read-back matches.
+             Can a LaunchAgent read the item? Yes. Measured 2026-11-11 on
+             macOS 26.4.1: a throwaway agent in the user's login session read
+             an item written by the security tool and got the same bytes back.
+             It is deliberately not an EnvironmentVariables entry:
+               1. this plist lives in the LaunchAgents folder of the user's
+                  Library, which Time Machine backs up by default, so a key
+                  here would sit in every backup beside the database it opens;
+               2. the launchctl print output of a job renders its environment
+                  in full, and that output is pasted into support threads;
+               3. rendered config reaches the diagnostics bundle.
+             SECURITY_MODEL.md lists backup theft as a defended threat.
+             Do NOT set OSTLER_DB_KEY_FILE here. An explicit file path puts the
+             resolver in file-only mode, the Keychain is never read, and the
+             service would find no key at all.
+             What this does and does not buy: the key is no longer a plaintext
+             file. Any process running as this user can still ask the security
+             tool for the item, so it is not a gate against that. For a stolen
+             Mac the boundary remains FileVault.
+             If the Keychain cannot be read (locked, no login session) the
+             resolver returns an error and the services refuse to open their
+             keyed databases. They do not fall back to plaintext.
+             NOTE FOR THE NEXT EDITOR: this heredoc is UNQUOTED, so a backtick
+             in this comment is EXECUTED (#873). None are used on purpose.
+             tests/test_no_live_command_substitution_in_heredocs.sh guards it.
+             The resolver is vendor/ostler_security/db_key.py. -->
     </dict>
     <!-- Interactive: this job answers the Hub People and Timeline screens. -->
     <key>ProcessType</key>

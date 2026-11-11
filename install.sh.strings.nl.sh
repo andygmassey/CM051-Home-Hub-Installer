@@ -302,7 +302,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Regio: Verenigde Staten (bron: %s)"
 MSG_INFO_REPO_URL="Repo-URL: %s"
 MSG_INFO_REPO_URL_2="Repo-URL: %s"
 MSG_INFO_REPO_URL_3="Repo-URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Kies nu de wachtzin waarmee je je Hub ontgrendelt. Die typ je elke keer als je de Hub-interface start."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Kies nu een wachtzin. Ostler gebruikt die om de sleutel in te stellen voor een deel van de interne gegevens."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Herstelwachtzin overgeslagen. (Verouderd: v1.0 vereist altijd een wachtzin.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Bestaande installatie van de Doctor-agent wordt hergebruikt op %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Bestaande email-ingest-installatie wordt hergebruikt op %s"
@@ -441,13 +441,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Je keuze voor verrijking op de achte
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit een beveiligd bestand in je thuismap, dus ze starten zonder dat je iets hoeft in te voeren."
-MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd (%s, alleen door jou leesbaar)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Sleutel voor interne gegevens ingesteld. De Hub-services lezen de sleutel uit je inlogsleutelhanger, dus ze starten zonder dat je iets hoeft in te voeren."
+MSG_OK_DB_KEY_DELIVERED="Databasesleutel aan de Hub-services geleverd."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Kon de databasesleutel niet aan de Hub-services doorgeven. Ze openen databases onversleuteld totdat dit is opgelost."
 MSG_INFO_DB_KEY_RECOVER_HINT="Voer dit uit om hem te herstellen en door te geven: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Databases van een eerdere installatie worden versleuteld"
 MSG_WARN_DB_MIGRATION_FAILED="Sommige bestaande databases konden niet worden versleuteld. Ze blijven leesbaar op schijf."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="Deze installatie heeft geen databasesleutelbestand, dus de Hub-services openen databases onversleuteld."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Deze installatie heeft geen databasesleutel, dus de Hub-diensten kunnen hun versleutelde databases niet openen."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) op deze Mac zijn nu leesbaar op schijf."
 MSG_INFO_DB_MIGRATE_HINT="Versleutel daarna wat er al staat: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Uitgestelde herhaalpoging voor apparaatregistratie geïnstalleerd (draait elk uur totdat de wachtrij leeg is)"
@@ -1307,11 +1307,11 @@ Kies Ja om nu door te gaan met de schijf onversleuteld in rust (dit is een bewus
 Kies Nee om hier te stoppen, zodat je eerst FileVault kunt aanzetten en daarna het installatieprogramma opnieuw kunt starten. Er is in beide gevallen niets misgegaan."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Klaar om schijfversleuteling in te stellen"
-MSG_PROMPT_PASSKEY_ACK_HELP="De gevoelige databases van Ostler worden versleuteld met SQLCipher, met een wachtzin die je op het volgende scherm kiest. Je typt deze wachtzin elke keer dat je de Hub-interface start. Er wordt ook een aparte herstelsleutel gemaakt, die aan het eind van de installatie één keer wordt getoond. Laat macOS FileVault ingeschakeld voor volledige beveiliging in rust van alles op je Mac. Klik op Ga verder wanneer je klaar bent."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler gebruikt een wachtzin die je op het volgende scherm kiest om de sleutel in te stellen voor een deel van de interne gegevens. Er wordt ook een aparte herstelsleutel aangemaakt, die aan het einde van de installatie eenmalig wordt getoond. Je Ostler-gegevens zijn als geheel beschermd door FileVault, Apples volledige schijfversleuteling. Klik op Ga door als je er klaar voor bent."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Ook een herstelwachtzin instellen? (aanbevolen)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Kies je wachtzin"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Deze wachtzin versleutelt je kennisgraaf en ontgrendelt de Hub-interface bij elke start. Minimaal 16 tekens. Wij kunnen hem niet voor je herstellen. We raden aan hem in een wachtwoordmanager te bewaren."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler gebruikt deze wachtzin om de sleutel voor een deel van de interne gegevens in te stellen. Je Ostler-gegevens zijn als geheel beschermd door FileVault, Apples volledige schijfversleuteling."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Bevestig je wachtzin"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Voer dezelfde wachtzin nogmaals in ter bevestiging."
 

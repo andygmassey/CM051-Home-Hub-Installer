@@ -301,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="地区：美国（来源：%s）"
 MSG_INFO_REPO_URL="仓库 URL:%s"
 MSG_INFO_REPO_URL_2="仓库 URL:%s"
 MSG_INFO_REPO_URL_3="仓库 URL:%s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="现在请选择用于解锁你的 Hub 的口令。每次启动 Hub 界面时，你都需要输入这个口令。"
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="现在请设置一个口令。Ostler 会用它为部分内部记录设置密钥。"
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="已跳过恢复口令。（已弃用：v1.0 始终需要设置口令。）"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="正在复用位于 %s 的现有 Doctor 代理安装"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="正在复用位于 %s 的现有邮件导入安装"
@@ -439,13 +439,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="无法将你的后台扩充选择保
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="内部记录密钥已设置。Hub 服务从你主文件夹中的受保护文件读取密钥，因此无需提示即可启动。"
-MSG_OK_DB_KEY_DELIVERED="数据库密钥已交付给 Hub 服务（%s，仅你本人可读）。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="内部记录密钥已设置。Hub 服务从你的登录钥匙串读取密钥，因此无需提示即可启动。"
+MSG_OK_DB_KEY_DELIVERED="数据库密钥已交付给 Hub 服务。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="无法将数据库密钥交给 Hub 服务。在问题解决之前，它们将以未加密方式打开数据库。"
 MSG_INFO_DB_KEY_RECOVER_HINT="运行以下命令以恢复密钥并交付：%s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="正在加密早期安装遗留的数据库"
 MSG_WARN_DB_MIGRATION_FAILED="部分现有数据库无法加密，它们在磁盘上仍可被读取。"
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="此安装没有数据库密钥文件，因此 Hub 服务正在以未加密方式打开数据库。"
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="此安装没有数据库密钥，因此 Hub 服务将无法打开其加密数据库。"
 MSG_WARN_DB_PLAINTEXT_COUNT="这台 Mac 上目前有 %s 个数据库在磁盘上可被读取。"
 MSG_INFO_DB_MIGRATE_HINT="然后加密已有的数据库：%s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="已安装延迟的设备注册重试程序（每小时运行一次，直到队列清空）"
@@ -1306,11 +1306,11 @@ MSG_PROMPT_FILEVAULT_SKIP_HELP="这台 Mac 上的“文件保险箱”（FileVau
 选择“否”，将在此停止，以便你先开启“文件保险箱”，然后重新运行安装程序。无论哪种选择，都没有出错。"
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="准备设置磁盘加密"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 的敏感数据库使用 SQLCipher 加密，口令由你在下一个屏幕上设定。每次启动 Hub 界面时，你都需要输入此口令。安装结束时还会生成一个单独的恢复密钥，并仅显示一次。若要为 Mac 上的所有内容提供完整的静态加密保护，请保持 macOS 的“文件保险箱”开启。准备好后，请点按“继续”。"
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 会使用你在下一屏幕中设定的口令，为部分内部记录设置密钥。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。你在 Ostler 中的数据整体受 FileVault 保护，这是 Apple 的全盘加密功能。准备好后，请点按“继续”。"
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="同时设置恢复口令吗？（推荐）"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="选择你的口令"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="此口令用于加密你的知识图谱，并在每次启动时解锁 Hub 界面。至少 16 个字符。我们无法为你找回口令。建议将其保存在密码管理器中。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler 使用此口令为部分内部记录设置密钥。你在 Ostler 中的数据整体受 FileVault 保护，这是 Apple 的全盘加密功能。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="确认你的口令"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="请再次输入相同的口令以确认。"
 

@@ -268,9 +268,9 @@
   },
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Ostler 的敏感数据库使用 SQLCipher 加密，口令由你在下一屏幕中设定。每次启动 Hub 界面时，你都需要输入此口令。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。若要全面保护 Mac 上所有静态数据，请保持开启 macOS 的“文件保险箱”。准备好后，请点按“继续”。",
-    "help_optic_id": "Ostler 的敏感数据库使用 SQLCipher 加密，口令由你在下一屏幕中设定。每次启动 Hub 界面时，你都需要输入此口令。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。若要全面保护 Mac 上所有静态数据，请保持开启 macOS 的“文件保险箱”。准备好后，请点按“继续”。",
-    "help_password_or_watch": "Ostler 的敏感数据库使用 SQLCipher 加密，口令由你在下一屏幕中设定。每次启动 Hub 界面时，你都需要输入此口令。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。若要全面保护 Mac 上所有静态数据，请保持开启 macOS 的“文件保险箱”。准备好后，请点按“继续”。"
+    "help_touch_id": "Ostler 会使用你在下一屏幕中设定的口令，为部分内部记录设置密钥。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。你在 Ostler 中的数据整体受 FileVault 保护，这是 Apple 的全盘加密功能。准备好后，请点按“继续”。",
+    "help_optic_id": "Ostler 会使用你在下一屏幕中设定的口令，为部分内部记录设置密钥。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。你在 Ostler 中的数据整体受 FileVault 保护，这是 Apple 的全盘加密功能。准备好后，请点按“继续”。",
+    "help_password_or_watch": "Ostler 会使用你在下一屏幕中设定的口令，为部分内部记录设置密钥。安装结束时还会生成一个独立的恢复密钥，并且只显示一次。你在 Ostler 中的数据整体受 FileVault 保护，这是 Apple 的全盘加密功能。准备好后，请点按“继续”。"
   },
   "consent_third_party": {
     "_meta": "CX-18 (Studio retest #13, 2026-05-23): Q19 third-party-data acknowledgement was rendering as a wall of equal-weight body text with 'Legal note:' buried mid-paragraph and no visual separation between the customer-facing explanation and the GDPR fine-print. The SwiftUI view now overrides the default help-text render with two Text() views: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Bash-side MSG_PROMPT_CONSENT_THIRD_PARTY_HELP keeps the full text for TTY installs; the GUI uses these split strings instead. docs.ostler.ai/privacy/third-party-data link rendering is handled by the existing linkifyHelpText() Markdown post-processor.",
