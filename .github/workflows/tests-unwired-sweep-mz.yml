@@ -400,3 +400,24 @@ jobs:
       - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
         if: always()
         run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh
+
+      # Invoked BY NAME (an execution verb and the filename on one line), which
+      # is what scripts/verify_new_tests_are_wired.sh scores WIRED. The `for t`
+      # loop above only mentions these. The writers end-to-end test runs every
+      # settling writer over a synthetic input and reads the bar with the CM044
+      # reader; CI has no CM044 checkout, so there its bar assertions are
+      # CANNOT-RUN (a ::warning::, never a PASS) and the shard assertions run.
+      - name: Every Setting-up writer finishes with an explicit terminal marker
+        if: always()
+        env:
+          SETTLING_E2E_READER_OPTIONAL: "1"
+        run: |
+          rc=0
+          bash tests/test_settling_writers_end_to_end.sh || rc=1
+          python3 tests/test_settling_writers_end_to_end.py || rc=1
+          bash tests/test_settling_denominator_terminal_writes.sh || rc=1
+          bash tests/test_settling_zero_is_discovering.sh || rc=1
+          bash tests/test_settling_seed_fixture_terminal.sh || rc=1
+          bash tests/test_setup_progress_advancing.sh || rc=1
+          bash tests/test_emails_settling_terminal.sh || rc=1
+          exit "${rc}"
