@@ -30,6 +30,11 @@ mkdir -p "${FAKE_HOME}" "${WORK}/bin"
 HELPER="${WORK}/helper.sh"
 sed -n '/^            _ostler_tailnet_advertise_default() {$/,/^            }$/p' "$INSTALL" \
     | sed 's/^            //' > "$HELPER"
+# The helper kicks the agent through _ks_bounded (install.sh, column 0), so the
+# extracted helper needs it too. First definition only; the helper's own
+# kickstart is detached, so the test polls the stub log instead of reading it once.
+KS_LINE="$(grep -n '^_ks_bounded() {$' "$INSTALL" | head -1 | cut -d: -f1)"
+sed -n "${KS_LINE},/^}\$/p" "$INSTALL" >> "$HELPER"
 if [[ -s "$HELPER" ]]; then
     pass "helper defined in install.sh"
 else
@@ -95,7 +100,7 @@ if grep -q '^companion_advertise_tailnet = true$' "$CFG" \
 else
     fail "connected: key not set or lines lost ($rc_out)"; cat "$CFG"
 fi
-MODE="$(stat -f %Lp "$CFG" 2>/dev/null || stat -c %a "$CFG")"
+MODE="$(stat -c %a "$CFG" 2>/dev/null || stat -f %Lp "$CFG")"
 if [[ "$MODE" == "600" ]]; then pass "mode 0600 preserved"; else fail "mode changed to ${MODE}"; fi
 
 # 4. Idempotent: second run leaves the file byte-identical.
@@ -139,9 +144,11 @@ fi
 fixture_cfg
 : > "$STUB_LOG"
 LOADED=0 run_helper 100.64.0.9 >/dev/null
+sleep 2  # grace for the detached kick; a real kick lands within milliseconds
 if grep -q '^kickstart' "$STUB_LOG"; then fail "kickstart fired while agent not loaded"; else pass "not loaded: no kickstart"; fi
 fixture_cfg
 LOADED=1 run_helper 100.64.0.9 >/dev/null
+for _i in $(seq 1 50); do grep -q '^kickstart' "$STUB_LOG" && break; sleep 0.2; done
 if grep -q '^kickstart -k gui/.*com.creativemachines.ostler.assistant' "$STUB_LOG"; then
     pass "loaded: kickstart -k on the assistant label"
 else

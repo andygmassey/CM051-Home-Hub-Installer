@@ -42975,7 +42975,7 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
                 cat "$_tmp" > "$_cfg" || true; rm -f "$_tmp"
                 # Read at daemon start: kickstart only if the agent is already loaded.
                 if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
-                    launchctl kickstart -k "gui/$(id -u)/${_label}" >/dev/null 2>&1 || true
+                    _ks_bounded "gui/$(id -u)/${_label}" -k   # bounded: see _ks_bounded
                 fi
                 return 0
             }

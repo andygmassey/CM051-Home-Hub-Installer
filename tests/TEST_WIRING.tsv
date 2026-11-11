@@ -855,6 +855,7 @@ test_sudo_gate_accepts_passwordless_sudo.sh	WIRED	.github/workflows/colima-autos
 test_suppress_suggestions_loopback_reaches_the_store.py	WIRED	.github/workflows/suppress-suggestions-loopback.yml
 test_sync_vendor_pin_untouched_on_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_tagged_commit_is_green.sh	WIRED	.github/workflows/cut.yml
+test_tailnet_advertise_default.sh	WIRED	.github/workflows/install-abort-and-egress.yml
 test_tailnet_owner_resolution.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_tailscale_daemon_gate.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_tailscale_prompt_is_conditional_on_tailnet_state.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
