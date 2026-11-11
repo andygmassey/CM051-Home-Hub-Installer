@@ -170,6 +170,25 @@ settling_source_total() {
     return 0
 }
 
+# settling_complete <channel> [shard]
+#
+# Marks a channel TERMINAL: the writer finished it. done is raised to the
+# measured total (never lowered), complete=true. Reader: a complete shard is
+# counted as finished, so the Setting-up bar can reach 100%.
+settling_complete() {
+    OSTLER_SETTLING_TERMINAL=complete settling_report "${1:-}" 0 0 false "${2:-}"
+}
+
+# settling_skip <channel> <reason_code> [shard]
+#
+# Marks a channel TERMINAL without work: the source yielded nothing by design
+# (no contacts, no Notes data) or cannot be read. The reason is a stable code,
+# not prose, so the reader can show localised copy for it.
+settling_skip() {
+    OSTLER_SETTLING_TERMINAL=skip OSTLER_SETTLING_SKIP_REASON="${2:-nothing_to_read}" \
+        settling_report "${1:-}" 0 0 false "${3:-}"
+}
+
 # settling_report_measured <channel> <done> [needs_source] [shard]
 #
 # settling_report with the denominator measured from the source instead of
@@ -233,6 +252,8 @@ settling_report() {
     OSTLER_SETTLING_DONE="$done_n" \
     OSTLER_SETTLING_TOTAL="$total_n" \
     OSTLER_SETTLING_NEEDS="$needs_source" \
+    OSTLER_SETTLING_TERMINAL="${OSTLER_SETTLING_TERMINAL:-}" \
+    OSTLER_SETTLING_SKIP_REASON="${OSTLER_SETTLING_SKIP_REASON:-}" \
     python3 - <<'PYEOF' 2>/dev/null || true
 import json, os, tempfile
 from datetime import datetime, timezone
@@ -254,6 +275,7 @@ now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 # every tick makes the estimate reset forever and the bar stops falling.
 started = None
 prev_done = 0
+prev_total = 0
 try:
     with open(target, "r", encoding="utf-8") as fh:
         prev = json.load(fh)
@@ -263,8 +285,9 @@ try:
             started = cand
         try:
             prev_done = max(0, int(prev.get("done") or 0))
+            prev_total = max(0, int(prev.get("total") or 0))
         except (TypeError, ValueError):
-            prev_done = 0
+            prev_done = prev_total = 0
 except Exception:
     started = None
 
@@ -280,11 +303,38 @@ needs = os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower() in ("1"
 if done > 0:
     needs = False
 
+# TERMINAL STATE. A channel that has finished must say so, or the Setting-up
+# bar holds below 100% for ever: `needs_source` is a question to the customer,
+# not an end state, and an unfinished measured pass is never revisited.
+#   complete -> the writer finished this source: done = total (never backwards).
+#   skip     -> the source yielded nothing by design or cannot be read; the
+#               stable reason code is recorded so the reader can say why.
+terminal = os.environ.get("OSTLER_SETTLING_TERMINAL", "").strip().lower()
+skip_reason = ""
+complete = False
+if terminal == "complete":
+    total = max(total, prev_total, done)
+    done = total
+    needs = False
+    complete = True
+elif terminal == "skip":
+    complete = True
+    needs = False
+    if done == 0:
+        total = 0
+        skip_reason = (os.environ.get("OSTLER_SETTLING_SKIP_REASON", "").strip()
+                       or "nothing_to_read")
+    else:
+        total = max(total, prev_total, done)
+        done = total
+
 payload = {
     "key": key,
     "done": done,
     "total": total,
     "needs_source": needs,
+    "complete": complete,
+    "skip_reason": skip_reason,
     "started_at": started or now,
     "updated_at": now,
 }

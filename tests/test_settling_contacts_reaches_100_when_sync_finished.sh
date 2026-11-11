@@ -26,7 +26,7 @@ INSTALL_SH="$HERE/../install.sh"
 BLOCK="$(awk '
     /_HYDRATE_CONTACTS_COUNT="\$\($/ && !s { s=1 }
     s { print }
-    s && /settling_report contacts 0 0 true/ { z=1; next }
+    s && /settling_skip contacts/ { z=1; next }
     z && /^    fi$/ { exit }
 ' "$INSTALL_SH")"
 case "$BLOCK" in
@@ -42,6 +42,10 @@ run_arm() {
         _HYDRATE_CONTACTS_TIMED_OUT="$timed_out"
         settling_report_measured() { printf '%s' "$2"; }
         settling_report() { printf 'zero:%s' "$2"; }
+        # The finished-pass marker is terminal bookkeeping, not a done count.
+        settling_complete() { :; }
+        # A zero-yield pass is a terminal skip: zero done, with a reason code.
+        settling_skip() { printf 'zero:0'; }
         eval "$BLOCK"
     )"
     if [ "$got" = "$want" ]; then

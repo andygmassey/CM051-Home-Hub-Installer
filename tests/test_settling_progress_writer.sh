@@ -174,11 +174,11 @@ fi
 
 # The ships-dark check: both channels must have at least one real call site.
 for ch in contacts emails; do
-    n="$(grep -c "settling_report ${ch}" "$INSTALL" || true)"
+    n="$(grep -cE "settling_(report|report_measured|complete|skip) ${ch}" "$INSTALL" || true)"
     if [[ "${n:-0}" -ge 1 ]]; then
         ok "install.sh reports the '$ch' channel ($n call site(s))"
     else
-        bad "install.sh never calls settling_report for '$ch' -- ships blank"
+        bad "install.sh never calls a settling writer for '$ch' -- ships blank"
     fi
 done
 

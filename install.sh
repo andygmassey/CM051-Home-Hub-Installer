@@ -36408,10 +36408,15 @@ except Exception:
     # that had ingested 0.6% of its history. A zero count means we ran and
     # found nothing, so needs_source invites the customer to connect a source
     # rather than leaving a permanent 0%.
+    # TERMINAL either way. This pass is the contacts channel's only run at
+    # install time, so "needs_source" (a question, never revisited) would hold
+    # the Setting-up bar below 100% for good. A pass that read some cards is
+    # complete; a pass that found none records why, and the reason is shown.
     if [[ "$_HYDRATE_CONTACTS_COUNT" -gt 0 ]]; then
         settling_report_measured contacts "$_HYDRATE_CONTACTS_PROCESSED" false
+        settling_complete contacts
     else
-        settling_report contacts 0 0 true
+        settling_skip contacts no_contacts
     fi
 
     # FDA is the ONLY permission this path needs. Read the conservative
