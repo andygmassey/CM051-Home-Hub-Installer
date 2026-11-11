@@ -75,7 +75,7 @@ for p in problems:
 PY
 )"
 echo "$CAT_OUT" | head -1
-if echo "$CAT_OUT" | grep -q '^PROBLEM '; then
+if grep -q '^PROBLEM ' <<<"$CAT_OUT"; then
     echo "$CAT_OUT" | grep '^PROBLEM ' | sed 's/^PROBLEM /  /' >&2
     fail "catalogues: $(echo "$CAT_OUT" | grep -c '^PROBLEM ') problem(s) across the FDA-handoff keys"
 else
