@@ -12563,7 +12563,55 @@ def _sparql_select_unscoped(sparql):
             for b in data.get("results", {}).get("bindings", [])]
 
 
+# An in_progress derive record older than this has stopped moving (a killed
+# pass). Mirrors STALE_AFTER_S in vendor/doctor/agent/derived_preferences_status.py.
+_DERIVE_STALE_AFTER_S = 3 * 3600
+
+
+def _derive_pass_stale():
+    """True when the derive runner's status file says a pass is in progress and
+    its last stamp is more than _DERIVE_STALE_AFTER_S old, or has no usable
+    stamp. Any other state, or no file, is not stale."""
+    base = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+    try:
+        rec = json.loads(Path(base, "state", "derived-preferences.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - no file or unreadable: not a stale pass
+        return False
+    if not isinstance(rec, dict) or rec.get("outcome") != "in_progress":
+        return False
+    prog = rec.get("progress") if isinstance(rec.get("progress"), dict) else {}
+    stamp = _retry_parse_iso(prog.get("updated_at")) or _retry_parse_iso(prog.get("started_at")) \
+        or _retry_parse_iso(rec.get("last_run_at"))
+    if stamp is None:
+        return True
+    return datetime.now(timezone.utc) - stamp > timedelta(seconds=_DERIVE_STALE_AFTER_S)
+
+
+def _still_learning_note():
+    """While no derived preference is served yet (the first pass runs for tens
+    of minutes on a fresh box), say how many interests the profile holds so
+    the page is never blank. Counts the same non-sensitive records
+    api_preferences() serves. A pass that was killed part-way is reported as
+    stale, not as still learning."""
+    prof = api_preferences()
+    n = 0 if prof.get("degraded") else int(prof.get("count") or 0)
+    if _derive_pass_stale():
+        return {"status": "stale", "interests_so_far": n,
+                "text": "Last preferences pass did not finish"}
+    return {"interests_so_far": n, "text": f"Still learning: {n} interests found so far"}
+
+
 def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+    """GET /api/v1/preferences/derived -- derived affinities ("What you like")
+    from the derived named graph; see _api_preferences_derived_core. An empty
+    answer also carries ``still_learning`` (see _still_learning_note)."""
+    result = _api_preferences_derived_core(limit=limit, min_confidence=min_confidence, tier=tier)
+    if not result.get("items"):
+        result["still_learning"] = _still_learning_note()
+    return result
+
+
+def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph, built through the CM019 producer builder
     (vendored verbatim in derived_preferences.py beside this file).
