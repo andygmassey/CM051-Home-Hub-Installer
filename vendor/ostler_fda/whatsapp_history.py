@@ -109,6 +109,7 @@ def _emit_settling(
     total: int,
     needs_source: bool = False,
     started_at: Optional[str] = None,
+    skip_reason: str = "",
 ) -> None:
     """Best-effort settling-progress emit for the WhatsApp backfill.
 
@@ -123,6 +124,7 @@ def _emit_settling(
             needs_source=needs_source,
             started_at=started_at,
             shard=_SETTLING_SHARD,
+            skip_reason=skip_reason,
         )
     except Exception:  # noqa: BLE001 -- see docstring
         logger.warning(
@@ -479,7 +481,8 @@ def extract_conversations(
         # Emit a ready shard (needs_source=False -- the app is installed
         # and the DB is reachable, there is just nothing to backfill).
         conn.close()
-        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at)
+        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at,
+                       skip_reason="no_messages")
         logger.info("Extracted 0 WhatsApp chats (empty ChatStorage)")
         return []
 

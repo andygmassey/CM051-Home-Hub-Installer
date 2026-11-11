@@ -15,11 +15,12 @@
 # walk only needs to know the bar is MOVING where it is not finished, and that
 # every finished source is recorded as finished.
 #
-# TERMINAL (per shard, at the end sample):
+# TERMINAL (per shard, at the end sample). ONLY an explicit marker:
 #   complete:true                    the writer finished this source
 #   skip_reason:"<code>"             yielded nothing by design, or unreadable
-#   total>0 and done>=total          all the work it measured is done
-#   total==0 and needs_source false  nothing to measure, nothing queued
+# A count that reaches its total WITHOUT a marker is OPEN, and so is 0/0: a
+# producer that has not yet discovered its work has not finished, and reading
+# it as terminal let the bar touch 100% and fall back (tests/test_settling_zero_is_discovering.sh).
 #
 # ADVANCING (per shard, non-terminal): done at the END sample is strictly
 # greater than done at the START sample. A shard that is absent at the start
@@ -75,10 +76,6 @@ def terminal(r):
         return "complete"
     done = int(r.get("done") or 0)
     total = int(r.get("total") or 0)
-    if total > 0 and done >= total:
-        return "measured done %d/%d" % (done, total)
-    if total == 0 and not r.get("needs_source"):
-        return "nothing to measure"
     return None
 
 for path in sorted(glob.glob(os.path.join(d, "*.json"))):

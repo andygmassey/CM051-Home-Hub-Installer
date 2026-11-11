@@ -132,7 +132,7 @@ else
     GOOD="$TMP/probe-good"
     mkshard "$GOOD" contacts '{"key":"contacts","done":2443,"total":2443,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:01:16+00:00","updated_at":"2026-11-08T07:01:16+00:00"}'
     mkshard "$GOOD" emails '{"key":"emails","done":121262,"total":121262,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:04:58+00:00","updated_at":"2026-11-08T07:04:58+00:00"}'
-    mkshard "$GOOD" calendar '{"key":"calendar","done":4138,"total":4138,"needs_source":false,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-11T04:00:03+00:00"}'
+    mkshard "$GOOD" calendar '{"key":"calendar","done":4138,"total":4138,"needs_source":false,"complete":true,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-11T04:00:03+00:00"}'
     mkshard "$GOOD" notes '{"key":"notes","done":0,"total":0,"needs_source":false,"complete":true,"skip_reason":"no Notes data on this Mac","started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-08T06:50:47+00:00"}'
     OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/good.out" 2>&1
     rc=$?

@@ -178,6 +178,7 @@ def _emit_settling(
     total: int,
     needs_source: bool = False,
     started_at: Optional[str] = None,
+    skip_reason: str = "",
 ) -> None:
     """Best-effort settling-progress emit for the iMessage backfill.
 
@@ -194,6 +195,7 @@ def _emit_settling(
             needs_source=needs_source,
             started_at=started_at,
             shard=_SETTLING_SHARD,
+            skip_reason=skip_reason,
         )
     except Exception:  # noqa: BLE001 -- see docstring
         logger.warning(
@@ -293,7 +295,8 @@ def extract_conversations(
         # reader classifies as ready rather than waiting. iMessage's source
         # (chat.db) is always connected on macOS; a zero-row extract is
         # "you haven't messaged anyone", not "no source".
-        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at)
+        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at,
+                       skip_reason="no_messages")
         logger.info("Extracted 0 conversations from iMessage")
         return []
 

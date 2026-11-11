@@ -276,6 +276,7 @@ now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 started = None
 prev_done = 0
 prev_total = 0
+prev_complete = False
 try:
     with open(target, "r", encoding="utf-8") as fh:
         prev = json.load(fh)
@@ -283,6 +284,7 @@ try:
         cand = prev.get("started_at")
         if isinstance(cand, str) and cand.strip():
             started = cand
+        prev_complete = prev.get("complete") is True
         try:
             prev_done = max(0, int(prev.get("done") or 0))
             prev_total = max(0, int(prev.get("total") or 0))
@@ -297,8 +299,9 @@ except Exception:
 # needs_source=true over it, so the panel said "Mail: nothing found" for good.
 # A later, narrower writer can never walk the bar backwards, and a channel
 # that has already counted work is by definition not missing its source.
+req_total = _int("OSTLER_SETTLING_TOTAL")
 done = max(_int("OSTLER_SETTLING_DONE"), prev_done)
-total = max(_int("OSTLER_SETTLING_TOTAL"), done)
+total = max(req_total, done)
 needs = os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower() in ("1", "true", "yes")
 if done > 0:
     needs = False
@@ -327,6 +330,30 @@ elif terminal == "skip":
     else:
         total = max(total, prev_total, done)
         done = total
+elif prev_complete and terminal == "" and req_total <= prev_total:
+    # CARRY-FORWARD. A channel that completed on an earlier run and is re-run
+    # with no growth (0/0 or 0/N where N is what it already measured) is still
+    # complete. Without this the next hourly 0/0 write would reopen a finished
+    # channel and walk the bar back down. Growth (req_total > prev_total) is
+    # real new work and reopens the channel.
+    total = max(total, prev_total, done)
+    done = total
+    needs = False
+    complete = True
+
+# DISCOVERY STATUS. A producer that does not yet know its total writes
+# discovering (0/0, no marker); a known-empty source with a question to the
+# customer is needs_source. Only complete or skipped is terminal.
+if complete:
+    status = "complete"
+elif skip_reason:
+    status = "skipped"
+elif total == 0 and needs:
+    status = "needs_source"
+elif total == 0:
+    status = "discovering"
+else:
+    status = "measuring"
 
 payload = {
     "key": key,
@@ -335,6 +362,7 @@ payload = {
     "needs_source": needs,
     "complete": complete,
     "skip_reason": skip_reason,
+    "status": status,
     "started_at": started or now,
     "updated_at": now,
 }
