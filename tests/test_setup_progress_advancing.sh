@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test_setup_progress_reaches_done.sh
+# test_setup_progress_advancing.sh
 #
 # The Hub's "Setting up" percentage is done/total summed over the settling
 # shards in ~/.ostler/state/settling_progress.d/. A shard that never reaches a
@@ -15,21 +15,21 @@
 #   total>0 and done>=total     all the work it measured is done
 #   total==0 and not needs_source   nothing to measure, nothing queued
 #
-# Usage: bash tests/test_setup_progress_reaches_done.sh
+# Usage: bash tests/test_setup_progress_advancing.sh
 
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="$REPO_ROOT/lib/settling_progress.sh"
 INSTALL="$REPO_ROOT/install.sh"
-PROBE="$REPO_ROOT/scripts/box_walk_probes/probes/setup_progress_reaches_done.sh"
+PROBE="$REPO_ROOT/scripts/box_walk_probes/probes/setup_progress_advancing.sh"
 WORKFLOW="$REPO_ROOT/.github/workflows/tests-unwired-sweep-mz.yml"
 
 pass=0; fail=0
 ok()  { printf '  [PASS] %s\n' "$1"; pass=$((pass+1)); }
 bad() { printf '  [FAIL] %s\n' "$1"; fail=$((fail+1)); }
 
-printf '== test_setup_progress_reaches_done ==\n'
+printf '== test_setup_progress_advancing ==\n'
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
@@ -90,7 +90,7 @@ fi
 # ── 3. The probe: FAIL on any non-terminal shard, PASS only when all terminal
 
 if [[ ! -f "$PROBE" ]]; then
-    bad "probe missing: scripts/box_walk_probes/probes/setup_progress_reaches_done.sh"
+    bad "probe missing: scripts/box_walk_probes/probes/setup_progress_advancing.sh"
 else
     mkshard() {  # mkshard <dir> <name> <json>
         mkdir -p "$1/settling_progress.d"
@@ -103,7 +103,7 @@ else
     mkshard "$BAD" calendar '{"key":"calendar","done":4138,"total":4138,"needs_source":false,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-11T04:00:03+00:00"}'
     mkshard "$BAD" notes '{"key":"notes","done":0,"total":0,"needs_source":true,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-08T06:50:47+00:00"}'
 
-    OSTLER_SETTLING_DIR="$BAD/settling_progress.d" bash "$PROBE" >"$TMP/bad.out" 2>&1
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$BAD/settling_progress.d" bash "$PROBE" >"$TMP/bad.out" 2>&1
     rc=$?
     if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/bad.out" \
        && /usr/bin/grep -q 'emails' "$TMP/bad.out" && /usr/bin/grep -q 'contacts' "$TMP/bad.out" \
@@ -113,12 +113,28 @@ else
         bad "probe did not FAIL on non-terminal shards (rc=$rc): $(tr '\n' ' ' < "$TMP/bad.out")"
     fi
 
+    # Advancing: emails moves during the settle window (a live writer), contacts
+    # does not. The probe must PASS emails and FAIL only contacts.
+    ADV="$TMP/probe-advancing"
+    mkshard "$ADV" contacts '{"key":"contacts","done":2398,"total":2443,"needs_source":false}'
+    mkshard "$ADV" emails '{"key":"emails","done":17080,"total":121262,"needs_source":false}'
+    ( sleep 2; printf '%s\n' '{"key":"emails","done":17500,"total":121262,"needs_source":false}' > "$ADV/settling_progress.d/emails.json" ) &
+    OSTLER_STABILITY_INTERVAL_S=4 OSTLER_SETTLING_DIR="$ADV/settling_progress.d" bash "$PROBE" >"$TMP/adv.out" 2>&1
+    rc=$?
+    wait
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'emails.json|PASS|advancing: done 17080 -> 17500' "$TMP/adv.out" \
+       && /usr/bin/grep -q '1 of 2 settling source' "$TMP/adv.out" && /usr/bin/grep -q 'contacts' "$TMP/adv.out"; then
+        ok "probe PASSes an advancing emails shard and FAILs only the stalled contacts shard"
+    else
+        bad "probe did not separate advancing from stalled (rc=$rc): $(tr '\n' ' ' < "$TMP/adv.out")"
+    fi
+
     GOOD="$TMP/probe-good"
     mkshard "$GOOD" contacts '{"key":"contacts","done":2443,"total":2443,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:01:16+00:00","updated_at":"2026-11-08T07:01:16+00:00"}'
     mkshard "$GOOD" emails '{"key":"emails","done":121262,"total":121262,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:04:58+00:00","updated_at":"2026-11-08T07:04:58+00:00"}'
     mkshard "$GOOD" calendar '{"key":"calendar","done":4138,"total":4138,"needs_source":false,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-11T04:00:03+00:00"}'
     mkshard "$GOOD" notes '{"key":"notes","done":0,"total":0,"needs_source":false,"complete":true,"skip_reason":"no Notes data on this Mac","started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-08T06:50:47+00:00"}'
-    OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/good.out" 2>&1
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/good.out" 2>&1
     rc=$?
     if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'VERDICT: PASS' "$TMP/good.out" \
        && /usr/bin/grep -q 'no Notes data' "$TMP/good.out"; then
@@ -127,7 +143,7 @@ else
         bad "probe did not PASS an all-terminal fixture (rc=$rc): $(tr '\n' ' ' < "$TMP/good.out")"
     fi
 
-    OSTLER_SETTLING_DIR="$TMP/no-such-dir" bash "$PROBE" >"$TMP/none.out" 2>&1
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$TMP/no-such-dir" bash "$PROBE" >"$TMP/none.out" 2>&1
     rc=$?
     if [[ "$rc" -eq 78 ]]; then
         ok "probe reports CANNOT-RUN (78) when no settling directory exists, not PASS"
@@ -146,7 +162,7 @@ fi
 
 # ── 4. Wired into an existing CI workflow ────────────────────────────────────
 
-if /usr/bin/grep -q 'tests/test_setup_progress_reaches_done.sh' "$WORKFLOW"; then
+if /usr/bin/grep -q 'tests/test_setup_progress_advancing.sh' "$WORKFLOW"; then
     ok "test is wired into tests-unwired-sweep-mz.yml"
 else
     bad "test is not invoked by any workflow (unwired)"
