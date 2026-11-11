@@ -55,6 +55,9 @@ on:
       - 'tests/test_a_failed_import_is_not_announced_as_done.sh'
       # #30: the loose-file table both detectors read lives in the lib.
       - 'lib/ostler-detect-exports.sh'
+      # ChatGPT exports: the helper install.sh ships, and the scanner that calls it.
+      - 'lib/ostler-chatgpt-handoff.sh'
+      - 'tests/test_chatgpt_export_is_handed_to_cm052.sh'
       - 'tests/test_loose_exports_in_downloads_are_found_and_said.sh'
       # #30, the Doctor half: the row that reads the watcher's record.
       - 'vendor/doctor/agent/web_ui.py'
@@ -95,6 +98,11 @@ jobs:
       # Event once wedged this same export-scan -> import chain for 23h56m.
       - name: An export in Downloads must reach the importer
         run: bash tests/test_the_downloads_watcher_survives_a_real_export.sh
+
+      # A ChatGPT export in Downloads must reach CM052's drop folder, and the
+      # CM052 adapter must read it. Synthetic 2-conversation zip; RED on main.
+      - name: A ChatGPT export in Downloads reaches the CM052 drop folder
+        run: bash tests/test_chatgpt_export_is_handed_to_cm052.sh
 
       # #1571. Both branches of the watcher claimed an import: the else-branch
       # said "Imported your latest export. Some parts will finish in the
