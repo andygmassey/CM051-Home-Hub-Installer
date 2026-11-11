@@ -17,6 +17,7 @@ on:
       - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
       - 'vendor/cm048_pipeline/src/**'
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
+      - 'tests/test_imessage_catchup_can_import_ostler_fda.sh'
       - 'tests/test_catchup_first_48h_cadence.sh'
       - 'tests/test_first_window_adaptive.py'
       - 'tests/test_first_window_end_to_end.py'
@@ -44,6 +45,7 @@ on:
       - 'tests/test_cm048_exit_75_when_the_sink_is_unreachable.py'
       - 'vendor/cm048_pipeline/src/**'
       - 'tests/test_export_scan_runs_the_catchup_step.sh'
+      - 'tests/test_imessage_catchup_can_import_ostler_fda.sh'
       - 'tests/test_catchup_first_48h_cadence.sh'
       - 'tests/test_first_window_adaptive.py'
       - 'tests/test_first_window_end_to_end.py'
@@ -107,3 +109,6 @@ jobs:
         env:
           OSTLER_CATCHUP_MESSAGES_PY: vendor/imessage_source/catchup.py
         run: python -m pytest tests/test_first_window_end_to_end.py -v -rs
+      - name: the iMessage catch-up adapter can import ostler_fda
+        if: always()
+        run: /bin/bash tests/test_imessage_catchup_can_import_ostler_fda.sh
