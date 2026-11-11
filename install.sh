@@ -42958,6 +42958,30 @@ if [[ "${OSTLER_TS_SIGNIN_PENDING:-0}" == 1 ]]; then
         fi
 
         if [[ -n "$OSTLER_TAILSCALE_IP" ]]; then
+            # Tailnet advertise default (2026-11-11). Once Tailscale is up, set
+            # [gateway] companion_advertise_tailnet = true so the pairing QR carries
+            # the tailnet address. Absent or not connected: key left alone (default
+            # false). Idempotent. Never fails the install.
+            _ostler_tailnet_advertise_default() {
+                local _cfg="${OSTLER_DIR:-${HOME}/.ostler}/assistant-config/config.toml"
+                local _tmp="${_cfg}.tailnet.$$" _label="com.creativemachines.ostler.assistant"
+                [[ -n "${OSTLER_TAILSCALE_IP:-}" && -f "$_cfg" ]] || return 0
+                if grep -q '^companion_advertise_tailnet = true$' "$_cfg"; then return 0; fi
+                if grep -q '^companion_advertise_tailnet' "$_cfg"; then
+                    sed 's/^companion_advertise_tailnet.*/companion_advertise_tailnet = true/' "$_cfg" > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                elif grep -q '^\[gateway\]$' "$_cfg"; then
+                    awk '{print} /^\[gateway\]$/ && !d {print "companion_advertise_tailnet = true"; d=1}' "$_cfg" > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                else
+                    { cat "$_cfg"; printf '\n[gateway]\ncompanion_advertise_tailnet = true\n'; } > "$_tmp" || { rm -f "$_tmp"; return 0; }
+                fi
+                cat "$_tmp" > "$_cfg" || true; rm -f "$_tmp"
+                # Read at daemon start: kickstart only if the agent is already loaded.
+                if launchctl print "gui/$(id -u)/${_label}" >/dev/null 2>&1; then
+                    _ks_bounded "gui/$(id -u)/${_label}" -k   # bounded: see _ks_bounded
+                fi
+                return 0
+            }
+            _ostler_tailnet_advertise_default || true
             # ── Expose the Hub's local ports on the tailnet ─────────
             # In userspace mode the tailnet IP does not reach local
             # listeners without an explicit proxy, so serve each Hub
