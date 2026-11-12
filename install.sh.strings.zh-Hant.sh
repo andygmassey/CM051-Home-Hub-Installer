@@ -1261,8 +1261,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用「完整磁碟取用權」讀取你已�
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="要在 Apple Mail 加入電子郵件帳號嗎？"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="這部 Mac 上的 Apple Mail 尚未連接任何帳號，因此 Ostler 沒有電子郵件可讀取。選擇「是」會立即打開「系統設定」>「網際網路帳號」（你可以在那裡加入 iCloud、Gmail 或 Outlook）。選擇「否」則略過；你可以稍後再加入帳號，若 24 小時內仍沒有郵件送達，Doctor 會提醒你跟進。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="要擷取完整的 Apple Mail 記錄嗎？"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Ostler 預設會讀取你 Apple Mail 最近五年的郵件。如果你在這部 Mac 上保存的郵件超過五年，而且想把全部郵件放進你的知識圖譜，請選擇「是」立即擷取完整的本機記錄（郵件匣較大時可能需要多一點時間）。選擇「否」則維持五年範圍；你隨時可以在 Doctor 中延長。"
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同時設定自訂 IMAP+SMTP 伺服器？"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="僅適用於自行架設的郵件匣。如果你的帳號是 Gmail、iCloud 或 Outlook，請保持「否」，因為透過上述 Apple Mail 效果更好。"

@@ -4237,11 +4237,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9696) captures the path BY
+    # _ostler_write_store_curl_config (defined :9670) captures the path BY
     # VALUE and never re-reads it:
-    #     :9697   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9742   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9751 and :17678, both of which run
+    #     :9671   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9716   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9725 and :17652, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4223 above has just deleted
     # that tree and :4227 has just rebound OSTLER_DIR to the final one, so
@@ -4259,13 +4259,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18473, where the note reads
+    # WhatsApp Web session path did it again at :18447, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18490 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18464 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4274,13 +4274,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7021 against a definition at :9696. Top-level
+    # writer's own definition: :7021 against a definition at :9670. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9751, :17678) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9725, :17652) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20687 / :20865 / :21022 / :21467 path. There the
+    # :20661 / :20839 / :20996 / :21441 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -8716,32 +8716,6 @@ if [[ "$CHANNEL_EMAIL_ENABLED" == true ]]; then
        && "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" != true ]]; then
         warn "$MSG_WARN_NEITHER_APPLE_MAIL_NOR_CUSTOM_IMAP"
         CHANNEL_EMAIL_APPLE_MAIL_ENABLED=true
-    fi
-
-    # #260 / #639: collect the Mail history-window choice HERE, upfront in
-    # Phase 2, adjacent to the Apple Mail question. It was previously a
-    # blocking gui_read mid-install (~L6498), which stalled a walk-away
-    # install. Default keeps 5 years; "extend" pulls the full local
-    # mailbox. The choice is stored in OSTLER_MAIL_BACKFILL_DAYS and
-    # consumed by the first FDA extraction with no further prompt. Only
-    # relevant when Apple Mail is the email source.
-    if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]]; then
-        _mail_extend_answer="$(gui_read \
-            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE" \
-            yesno \
-            "N" \
-            "$MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP" \
-            "" \
-            "mail_extend_history")"
-        case "${_mail_extend_answer:-N}" in
-            y|Y|yes|YES|Yes)
-                # 50 years comfortably covers any realistic local mailbox
-                # without an unbounded query.
-                OSTLER_MAIL_BACKFILL_DAYS="18250"
-                ;;
-            *) : ;;  # leave unset -> defaults to 1825 (5y) at extract time
-        esac
-        unset _mail_extend_answer
     fi
 
     if [[ "$CHANNEL_EMAIL_CUSTOM_IMAP_ENABLED" == true ]]; then
@@ -21051,11 +21025,11 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     #                                 in extract_all.py, so a fresh
     #                                 customer only ever got the last 12
     #                                 months of mail in the graph. Now
-    #                                 configurable + defaults to 5 years
-    #                                 like the other sources. Customers
-    #                                 can extend further post-install via
-    #                                 `ostler-fda` with a larger value
-    #                                 (the "extend now?" affordance).
+    #                                 configurable + defaults to ALL history
+    #                                 (18250 days, founder ruling 2026-11-12;
+    #                                 no question is asked). Same default
+    #                                 for Safari and browser history.
+    #                                 `ostler-fda` can pass a smaller value.
     # iMessage is the ONE exception to the 5-year rule, and it is not a
     # preference -- it is arithmetic. (2026-08-08, FIX 1.)
     #
@@ -21124,10 +21098,10 @@ if [[ "$HAS_FDA_MODULE" == true ]]; then
     # the install rather than pass an empty value. resolve_backfill_days() does
     # `os.environ.get(var, "").strip()` and treats empty as absent, so an empty
     # pass-through is exactly equivalent to not setting it.
-    : "${OSTLER_BROWSER_BACKFILL_DAYS:=1825}"
-    : "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_BROWSER_BACKFILL_DAYS:=18250}"
+    : "${OSTLER_SAFARI_BACKFILL_DAYS:=18250}"
     : "${OSTLER_WHATSAPP_BACKFILL_DAYS:=1825}"
-    : "${OSTLER_MAIL_BACKFILL_DAYS:=1825}"
+    : "${OSTLER_MAIL_BACKFILL_DAYS:=18250}"
 
     # CM051 walk #27: the signed Apple Music helper sits beside install.sh in
     # the installer's Resources (gui/project.yml bundles it like
@@ -21276,8 +21250,8 @@ print(json.dumps(summary, default=str))
     fi
     set -e
 
-    # #260 / #639: the Mail history window was chosen UPFRONT in Phase 2
-    # (OSTLER_MAIL_BACKFILL_DAYS) and already applied by the FDA extraction
+    # #260 / #639: the Mail history window (OSTLER_MAIL_BACKFILL_DAYS,
+    # default all history) was already applied by the FDA extraction
     # above, so there is NO prompt here -- a walk-away install must never
     # block mid-run. Just confirm which window was applied, when Apple Mail
     # actually produced content (status "ok"). Bracket with set +e so a
@@ -21285,7 +21259,7 @@ print(json.dumps(summary, default=str))
     set +e
     if [[ "$CHANNEL_EMAIL_APPLE_MAIL_ENABLED" == true ]] \
        && printf '%s' "$FDA_OUTPUT" | grep -q '"apple_mail"[^}]*"status": "ok"'; then
-        if [[ "${OSTLER_MAIL_BACKFILL_DAYS:-1825}" -gt 1825 ]]; then
+        if [[ "${OSTLER_MAIL_BACKFILL_DAYS:-18250}" -gt 1825 ]]; then
             ok "$MSG_OK_MAIL_EXTENDING_FULL_HISTORY"
         else
             ok "$MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY"
@@ -30525,8 +30499,8 @@ if [[ -n "$OSTLER_FDA_SRC" ]]; then
         _ostler_catchup_register 20-browser \
             "${OSTLER_FINAL_DIR:-${HOME}/.ostler}/services/email-ingest/.venv/bin/python3" \
             "ostler_fda.catchup_browser:adapters" 1 "" \
-            "OSTLER_SAFARI_BACKFILL_DAYS=${OSTLER_SAFARI_BACKFILL_DAYS:-1825}" \
-            "OSTLER_BROWSER_BACKFILL_DAYS=${OSTLER_BROWSER_BACKFILL_DAYS:-1825}" \
+            "OSTLER_SAFARI_BACKFILL_DAYS=${OSTLER_SAFARI_BACKFILL_DAYS:-18250}" \
+            "OSTLER_BROWSER_BACKFILL_DAYS=${OSTLER_BROWSER_BACKFILL_DAYS:-18250}" \
             "OSTLER_FDA_SOURCES=${OSTLER_FDA_SOURCES:-}" \
             || warn "browser catch-up runner not registered; history older than the install window will not be read."  # i18n-exempt
     else

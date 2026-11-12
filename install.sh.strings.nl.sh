@@ -1264,8 +1264,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Leest elk e-mailaccount dat je aan Apple Mail 
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Een e-mailaccount aan Apple Mail toevoegen?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Er zijn nog geen accounts gekoppeld aan Apple Mail op deze Mac, dus Ostler heeft geen e-mail om te lezen. Kies Ja om Systeeminstellingen > Internetaccounts nu te openen (daar kun je iCloud, Gmail of Outlook toevoegen). Kies Nee om over te slaan; je kunt later een account toevoegen en Doctor meldt het als er binnen 24 uur geen e-mail binnenkomt."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Je volledige Apple Mail-geschiedenis ophalen?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Standaard leest Ostler de laatste vijf jaar van je Apple Mail. Bewaar je meer dan dat op deze Mac en wil je alles in je kennisgrafiek hebben, kies dan Ja om nu de volledige lokale geschiedenis op te halen (bij een grote mailbox kan dit wat langer duren). Kies Nee om bij de periode van vijf jaar te blijven; je kunt die later altijd verlengen via Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Ook een eigen IMAP+SMTP-server instellen?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Alleen voor zelfgehoste mailboxen. Laat dit op NEE staan als je accounts bij Gmail, iCloud of Outlook zitten: die werken beter via Apple Mail hierboven."

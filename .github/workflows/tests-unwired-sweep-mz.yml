@@ -99,6 +99,7 @@ jobs:
             tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
+            tests/test_ingest_all_history_no_mail_prompt.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
             tests/test_meeting_brief_sender.sh \
             tests/test_model_fit.sh \

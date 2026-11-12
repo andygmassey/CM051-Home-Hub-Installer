@@ -1262,8 +1262,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="전체 디스크 접근 권한을 사용하여
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Apple Mail에 메일 계정을 추가할까요?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="이 Mac의 Apple Mail에 연결된 계정이 아직 없어 Ostler가 읽을 이메일이 없습니다. 예를 선택하면 지금 시스템 설정 > 인터넷 계정이 열립니다(iCloud, Gmail, Outlook을 추가할 수 있습니다). 아니요를 선택하면 건너뜁니다. 나중에 계정을 추가할 수 있으며, 24시간 내에 메일이 도착하지 않으면 Doctor가 후속 안내를 표시합니다."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Apple Mail의 전체 기록을 가져올까요?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="기본적으로 Ostler는 Apple Mail의 최근 5년간 메일을 읽습니다. 이 Mac에 그보다 많은 메일이 있고 모두 지식 그래프에 넣고 싶다면 예를 선택하여 로컬 전체 기록을 지금 가져오세요(메일함이 크면 시간이 조금 더 걸릴 수 있습니다). 아니요를 선택하면 5년 범위를 유지하며, 나중에 Doctor에서 언제든 늘릴 수 있습니다."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="사용자 지정 IMAP+SMTP 서버도 설정할까요?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="자체 호스팅 메일함 전용입니다. Gmail, iCloud, Outlook 계정이라면 아니요로 두세요. 위의 Apple Mail을 통하는 편이 더 잘 작동합니다."

@@ -1268,8 +1268,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Lê qualquer conta de e-mail que tenha adicion
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Adicionar uma conta de correio ao Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="O Mail ainda não tem contas ligadas neste Mac, pelo que o Ostler não terá e-mails para ler. Escolha Sim para abrir agora as Definições do Sistema > Contas de Internet (aí pode adicionar iCloud, Gmail ou Outlook). Escolha Não para ignorar; pode adicionar uma conta mais tarde e o Doctor apresentará um aviso de seguimento se não chegar correio nas próximas 24 horas."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Importar todo o histórico do Mail?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Por predefinição, o Ostler lê os últimos cinco anos do seu Mail. Se tiver mais do que isso neste Mac e quiser tudo no seu grafo de conhecimento, escolha Sim para importar agora todo o histórico local (pode demorar um pouco mais numa caixa de correio grande). Escolha Não para manter a janela de cinco anos; pode sempre alargá-la mais tarde a partir do Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Configurar também um servidor IMAP+SMTP personalizado?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Apenas para caixas de correio alojadas por si. Mantenha NÃO se as suas contas forem do Gmail, iCloud ou Outlook – estas funcionam melhor através do Mail, acima."
