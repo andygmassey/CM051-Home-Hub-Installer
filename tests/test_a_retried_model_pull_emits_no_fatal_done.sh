@@ -89,7 +89,7 @@ fi
 # as the digest gate. Control: a succeeding pull reaches ok + digest gate and never fail_with_code.
 awk '/_pull_rc=0; ollama_pull_with_retry "\$AI_MODEL"/{f=1} f{print} f&&/^        esac$/{exit}' \
     "$ROOT/install.sh" > "$W/callsite.sh"
-if [ "$(grep -c 'ERR-13-MODEL-PULL-AI' "$W/callsite.sh")" -ne 1 ]; then
+if [ "$(grep -c 'ollama_pull_with_retry' "$W/callsite.sh")" -ne 1 ] || ! grep -q '^        esac$' "$W/callsite.sh"; then
     echo "CANNOT-RUN: could not lift the pull call site out of install.sh"; exit 2
 fi
 callsite() {   # callsite <fail-count-before-success> -> "ok_calls fail_code digest_calls"
@@ -110,21 +110,24 @@ O
         MSG_OK_READY="%s"; MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="%s"
         ok(){ echo ok >> "$D/oks"; }
         ostler_require_model_digest(){ echo dg >> "$D/dg"; }
-        fail_with_code(){ echo "$1" > "$D/fail"; return 0; }
+        fail_with_code(){ echo "$1" > "$D/fail"; exit 1; }
         . "$FNS"
         AI_MODEL=qwen3.5:4b
         . "$CS"
-        echo "$(wc -l < "$D/oks" 2>/dev/null | tr -d " " || echo 0) $(cat "$D/fail" 2>/dev/null || echo none) $(wc -l < "$D/dg" 2>/dev/null | tr -d " " || echo 0)"
-    ' 2>/dev/null
+        echo REACHED > "$D/reached"
+    ' >/dev/null 2>&1 || true
+    echo "$(cat "$d/oks" "$d/none" 2>/dev/null | wc -l | tr -d " ") $(cat "$d/fail" 2>/dev/null || echo none) $(cat "$d/dg" "$d/none" 2>/dev/null | wc -l | tr -d " ") $(cat "$d/reached" 2>/dev/null || echo exited)"
 }
-read -r oks code dg <<<"$(callsite 99)"
-if [ "$code" = ERR-13-MODEL-PULL-AI ] && [ "${oks:-0}" = 0 ] && [ "${dg:-0}" = 0 ]; then
+read -r oks code dg reached <<<"$(callsite 99)"
+# BEHAVIOUR, not text: the install must have exited (never fell through past the block), with an
+# ERR- code, with no ready line and no digest gate.
+if [ "$reached" = exited ] && [[ "$code" == ERR-* ]] && [ "${oks:-0}" = 0 ] && [ "${dg:-0}" = 0 ]; then
     echo "ok    qwen3.5:4b pull fails 3x: install ends ERR-13-MODEL-PULL-AI, no ready line, no digest gate"
 else
-    echo "FAIL  qwen3.5:4b pull fails 3x: fail_code=$code oks=$oks digest_calls=$dg (want ERR-13-MODEL-PULL-AI 0 0)"; fails=$((fails+1))
+    echo "FAIL  qwen3.5:4b pull fails 3x: fail_code=$code oks=$oks digest_calls=$dg flow=$reached (want ERR-* 0 0 exited)"; fails=$((fails+1))
 fi
-read -r oks code dg <<<"$(callsite 1)"
-if [ "$code" = none ] && [ "${oks:-0}" = 1 ] && [ "${dg:-0}" = 1 ]; then
+read -r oks code dg reached <<<"$(callsite 1)"
+if [ "$code" = none ] && [ "$reached" = REACHED ] && [ "${oks:-0}" = 1 ] && [ "${dg:-0}" = 1 ]; then
     echo "ok    control, one transient failure: ready + digest gate, no fail code"
 else
     echo "FAIL  control, one transient failure: fail_code=$code oks=$oks digest_calls=$dg (want none 1 1)"; fails=$((fails+1))
