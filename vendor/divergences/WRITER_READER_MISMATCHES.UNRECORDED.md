@@ -1659,7 +1659,7 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 
 ### What a future sync must preserve
 
-`check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+`check_ollama_pin` (including its repeated `model_unverified=<model>` key, appended by install.sh when a model is pulled under a deferred pin), `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy plus `OLLAMA_MODELS_UNVERIFIED_FMT`, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
 
 ## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
 
