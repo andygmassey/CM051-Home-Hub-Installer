@@ -191,6 +191,7 @@ from diagnostic_copy import (
     OLLAMA_NOT_PINNED_FIX,
     OLLAMA_NOT_PINNED_REASON_UNKNOWN,
     OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_MODELS_UNVERIFIED_FMT,
     OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
@@ -1892,10 +1893,13 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
     except OSError:
         return []
     kv = {}
+    unverified = []  # install.sh appends model_unverified=<model> per model pulled while deferred
     for line in text.splitlines():
         if "=" in line:
             k, _, v = line.partition("=")
             kv[k.strip()] = v.strip()
+            if k.strip() == "model_unverified" and v.strip():
+                unverified.append(v.strip())
     if kv.get("ollama_pin") != "deferred":
         return []
     rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
@@ -1904,7 +1908,8 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
         "severity": "warning",
         "title": OLLAMA_NOT_PINNED_TITLE,
         "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
-            version=kv.get("ollama_pin_version") or "?", reason=reason),
+            version=kv.get("ollama_pin_version") or "?", reason=reason)
+        + (OLLAMA_MODELS_UNVERIFIED_FMT.format(models=", ".join(unverified)) if unverified else ""),
         "fix": OLLAMA_NOT_PINNED_FIX,
         "risk": "low",
         "category": "installation",

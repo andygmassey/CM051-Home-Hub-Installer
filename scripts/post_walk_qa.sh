@@ -95,6 +95,18 @@ _resolve_instrument_rev
 BOX="${1:-}"
 CUT_VERSION="${2:-}"
 
+# TIER (OSTLER_WALK_TIER, set by ttywalk.sh --tier): full | smoke.
+#   full  everything. REQUIRED before any console walk and any public tag. Writes walks/<v>.tsv.
+#   smoke the BLOCKING probes + install-path probes + probes of components changed since the last FULL record
+#         (scripts/walk_smoke_select.py, scripts/box_walk_probes/smoke_scope.tsv). Cut-manifest runtime proofs are NOT
+#         run. It writes walks/<v>.smoke.tsv with `tier smoke` and a verdict of SMOKE-PASS / SMOKE-FAILED /
+#         SMOKE-PARTIAL, NEVER CLEAN, so it cannot satisfy the launch directive or scripts/verify_walk_record.sh.
+TIER="${OSTLER_WALK_TIER:-full}"
+if [[ "$TIER" != "full" && "$TIER" != "smoke" ]]; then
+    echo "usage: OSTLER_WALK_TIER must be full or smoke, not '${TIER}'." >&2
+    exit 3
+fi
+
 # ── WHO WAS AT THE BOX. THIS RECORD AUTHORISES THE CUSTOMER DOWNLOAD ──────
 #
 # scripts/verify_walk_record.sh gates the repoint of ostler.ai/install.dmg, and
@@ -205,6 +217,11 @@ echo "════════════════════════�
 echo " POST-WALK QA"
 echo "   box     : ${BOX}"
 echo "   cut     : ${CUT_VERSION:-(probes only, no manifest rows)}"
+if [[ "$TIER" == "smoke" ]]; then
+    echo "   tier    : smoke (NOT a full walk: cannot produce CLEAN; full is required before any console walk and any public tag)"
+else
+    echo "   tier    : full (required before any console walk and any public tag)"
+fi
 echo "   started : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "════════════════════════════════════════════════════════════"
 
@@ -278,6 +295,7 @@ else
         printf '# box_fp    %s\n' "$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
         printf '# version   %s\n' "${CUT_VERSION:-(none given)}"
         printf '# started   %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf '# tier      %s\n' "${TIER:-full}"
         printf '#\n'
     } > "$PROBE_LOG"
     echo "  probe detail will be kept at: ${PROBE_LOG}"
@@ -288,11 +306,57 @@ fi
 # below reads it instead of running the script again after the forgets.
 OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
 export OSTLER_PHASE1_VERDICTS
+# THIS WALK'S IDENTITY, written at the top of the verdicts file and re-measured
+# independently before the manifest replay (verify_cut_manifest.py, _live_reuse).
+# A live-state probe that PASSED in this full pass is reused by its manifest row
+# only if walk id, box and installed version all still match; anything else
+# re-runs the probe. The version is read off the box, not taken from the
+# argument. An empty read writes no header, which makes the replay re-run.
+_read_installed_version_for_reuse() {
+    local v
+    v="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+        'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+    if [[ -z "$v" ]]; then
+        v="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+            '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
+            | tr -d '[:space:]')"
+    fi
+    [[ "$v" =~ ^v?[0-9]+(\.[0-9]+)*$ ]] && printf '%s' "$v"
+    return 0
+}
+OSTLER_WALK_ID="$(basename "$PROBE_LOG")"
+OSTLER_WALK_BOX_FP="$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
+_walk_ver_p1="$(_read_installed_version_for_reuse)"
+export OSTLER_WALK_ID OSTLER_WALK_BOX_FP
+{
+    printf '# walk_id %s\n' "$OSTLER_WALK_ID"
+    printf '# box_fp %s\n' "$OSTLER_WALK_BOX_FP"
+    [[ -n "$_walk_ver_p1" ]] && printf '# installed_version %s\n' "$_walk_ver_p1"
+} >> "$OSTLER_PHASE1_VERDICTS"
+echo "  walk identity for verdict reuse: id=${OSTLER_WALK_ID} box_fp=${OSTLER_WALK_BOX_FP} installed_version=${_walk_ver_p1:-UNREADABLE (manifest rows will re-run)}"
 # This walk's own log exists by now; the runner's previous-FAIL promotion must not
 # mistake it for an unrecorded earlier walk. (Separate line: tests anchor on the
 # OSTLER_BOX_HOST= line below at column 0.)
 export OSTLER_CURRENT_WALK_LOG="$PROBE_LOG"
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" 2>&1 | tee -a "$PROBE_LOG"
+RUN_ARGS=()
+SMOKE_SELECTED=""
+SMOKE_NOTES=""
+if [[ "${TIER:-full}" == "smoke" ]]; then
+    _sel_err="$(mktemp)"
+    SMOKE_SELECTED="$(python3 "${REPO_ROOT}/scripts/walk_smoke_select.py" --repo-root "$REPO_ROOT" --target-version "${CUT_VERSION}" 2>"$_sel_err")"
+    _sel_rc=$?
+    tee -a "$PROBE_LOG" < "$_sel_err"
+    SMOKE_NOTES="$(cat "$_sel_err")"
+    rm -f "$_sel_err"
+    if [[ "$_sel_rc" -ne 0 || -z "$SMOKE_SELECTED" ]]; then
+        echo "CANNOT-RUN: the smoke scope could not be selected (rc=${_sel_rc}). Nothing was measured; this is not a pass." | tee -a "$PROBE_LOG"
+        exit 2
+    fi
+    printf '%s\n' "$SMOKE_SELECTED" | awk -F'\t' '{printf "  smoke probe: %s (%s)\n", $1, $3}' | tee -a "$PROBE_LOG"
+    # --allow-writes: the blocking probes need their seeds, and --only alone implies read-only (no seeds).
+    RUN_ARGS=(--allow-writes --only "$(printf '%s\n' "$SMOKE_SELECTED" | cut -f1 | paste -sd, -)")
+fi
+OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever
@@ -370,7 +434,11 @@ else
     echo "  probes: clean (pass=${n_pass})"
 fi
 
-if [[ -n "$CUT_VERSION" ]]; then
+if [[ -n "$CUT_VERSION" && "$TIER" == "smoke" ]]; then
+    echo
+    echo "──── 2. CUT MANIFEST, RUNTIME PROOFS: NOT RUN (tier smoke) ──"
+    echo "     A smoke walk does not replay the manifest rows. That is why it can never be CLEAN."
+elif [[ -n "$CUT_VERSION" ]]; then
     echo
     echo "──── 2. CUT MANIFEST, RUNTIME PROOFS ───────────────────────"
     echo "     (these rows returned SKIP on every cut before #713 -- SKIP is"
@@ -406,6 +474,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         # colour codes into MANIFEST_LOG -- the same reason run_box_walk.sh's
         # own PROBE_LOG capture above is plain text. PIPESTATUS[0] is the
         # gate's own exit code, not tee's.
+        OSTLER_WALK_INSTALLED_VERSION="$(_read_installed_version_for_reuse)"
+        export OSTLER_WALK_INSTALLED_VERSION
         OSTLER_BOX_HOST="$BOX" python3 "${REPO_ROOT}/scripts/verify_cut_manifest.py" \
             --version "$CUT_VERSION" --require-runtime-proofs 2>&1 | tee -a "$MANIFEST_LOG"
         manifest_rc="${PIPESTATUS[0]}"
@@ -483,6 +553,15 @@ case "$overall" in
     2) VERDICT=PARTIAL; echo " RESULT: PARTIAL — nothing failed, but not everything ran."
        echo "         Coverage was LOST. Do not report this as a clean walk." ;;
 esac
+if [[ "$TIER" == "smoke" ]]; then
+    # A smoke walk is never CLEAN, whatever it measured. The verdict word itself carries the tier, so no reader that
+    # looks only at `verdict` can mistake it for the launch directive's deliverable.
+    case "$VERDICT" in
+        CLEAN)   VERDICT=SMOKE-PASS;    echo " RESULT (tier smoke): SMOKE-PASS: the smoke scope passed. NOT a clean walk; a FULL walk is still required." ;;
+        FAILED)  VERDICT=SMOKE-FAILED ;;
+        PARTIAL) VERDICT=SMOKE-PARTIAL ;;
+    esac
+fi
 echo "   finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "════════════════════════════════════════════════════════════"
 
@@ -502,6 +581,8 @@ if [[ -n "$CUT_VERSION" ]]; then
     WALK_DIR="${OSTLER_WALK_RECORD_DIR:-${REPO_ROOT}/walks}"
     mkdir -p "$WALK_DIR"
     RECORD="${WALK_DIR}/${CUT_VERSION}.tsv"
+    # A smoke record can never overwrite, or stand in for, the full record.
+    [[ "$TIER" == "smoke" ]] && RECORD="${WALK_DIR}/${CUT_VERSION}.smoke.tsv"
 
     # THE HOST IS HASHED, NEVER RECORDED. This repo is PUBLIC and $BOX is an
     # ssh target -- routinely user@address. Writing it raw would commit an
@@ -862,7 +943,13 @@ if [[ -n "$CUT_VERSION" ]]; then
     # be invisible to it. DEDUPED against phase 1 with sort -u: the same probe
     # failing in both phases is one broken probe, not two, in the promote
     # scope's eyes.
-    FAILED_NAMES="$(printf '%s\n%s\n' "$FAILED_NAMES_P1" "${PHASE2_FAILED_NAMES:-}" | sed '/^$/d' | sort -u)"
+    # COUNT PROBES, NOT ROWS (v1.0.129: "7 of 11" was 7 distinct probes in 11 FAIL
+    # rows, 4 of them the same probe reported by the main pass AND the manifest,
+    # or by two manifest rows). Names are normalised (box-walk-, probe- prefixes
+    # and hyphens) so one probe is one name wherever it was reported, and every
+    # raw named row is kept as a failed_row so a reader can re-derive the count.
+    FAILED_ROWS="$(printf '%s\n%s\n' "$FAILED_NAMES_P1" "${PHASE2_FAILED_NAMES:-}" | sed '/^$/d' | sed -e 's/^box-walk-//' -e 's/^probe-//' -e 's/-/_/g')"
+    FAILED_NAMES="$(printf '%s\n' "$FAILED_ROWS" | sed '/^$/d' | sort -u)"
     NOTMEAS_NAMES="$(printf '%s\n%s\n' "$NOTMEAS_NAMES_P1" "${PHASE2_CANNOTRUN_NAMES:-}" | sed '/^$/d' | sort -u)"
     n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
     # The denominator below is phase 1's own FAIL count PLUS phase 2's, the
@@ -873,6 +960,13 @@ if [[ -n "$CUT_VERSION" ]]; then
     # (any manifest row that is not a box_walk_probe) still counts in
     # PHASE2_FAIL_TOTAL, so it shows up here as a gap instead of vanishing.
     n_fail_total=$(( ${n_fail:-0} + ${PHASE2_FAIL_TOTAL:-0} ))
+    n_fail_rows="$n_fail_total"
+    n_rows_named="$(printf '%s' "$FAILED_ROWS" | grep -c . || true)"
+    n_unnamed_rows=$(( n_fail_rows - ${n_rows_named:-0} ))
+    [ "$n_unnamed_rows" -lt 0 ] && n_unnamed_rows=0
+    # DISTINCT probes: every distinct named probe plus every FAIL row this parse
+    # could not attribute to a probe (each of those is its own unknown).
+    n_fail_total=$(( ${n_failed_named:-0} + n_unnamed_rows ))
 
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
@@ -910,8 +1004,19 @@ if [[ -n "$CUT_VERSION" ]]; then
         # authorise a promote. `thin` is what an ssh walk writes and it is the
         # default, so a record that predates this field, or one written by a
         # walk that declared nothing, can never read as console.
+        printf 'tier\t%s\n' "$TIER"
+        if [[ "$TIER" == "smoke" ]]; then
+            printf 'tier_note\tsmoke: blocking + install-path + changed-component probes only; cut-manifest runtime proofs NOT run; cannot be CLEAN; a full walk is required before any console walk and any public tag\n'
+            printf '%s\n' "${SMOKE_NOTES:-}" | while IFS= read -r _sn; do [ -n "$_sn" ] && printf 'smoke_note\t%s\n' "$(printf '%s' "$_sn" | tr '\t' ' ')"; done
+            printf '%s\n' "$SMOKE_SELECTED" | while IFS=$'\t' read -r _sp _sc _sw; do [ -n "$_sp" ] && printf 'smoke_probe\t%s\t%s\n' "$_sp" "$_sc"; done
+        else
+            printf 'tier_note\tfull: everything; required before any console walk and any public tag\n'
+        fi
         printf 'walk_kind\t%s\n'        "$WALK_KIND"
         printf 'walk_kind_source\t%s\n' "$WALK_KIND_SOURCE"
+        # Every change to a settle/wait budget, or removed wait, vs the previous instrument is stated in the record.
+        printf 'wait_changes\twiki-summaries: waited once before usage_journal_producers (kickstart early, no early wait), budget %ss, same predicate; was a blocking early wait of %ss plus a second wait of %ss on cannot-run. early pass: off by default (full pass makes every assertion it makes). CONVERGE predicate and budget unchanged.\n' \
+            "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" "${OSTLER_WIKI_WAIT_BUDGET_S:-900}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
         if [[ -n "${OSTLER_WALK_NOTES:-}" ]]; then printf 'walk_notes\t%s\n' "$(printf '%s' "$OSTLER_WALK_NOTES" | tr '\t\n\r' '   ')"; fi
         printf '#\n'
         printf '# instrument_rev answers the question this record has never\n'
@@ -1024,6 +1129,14 @@ if [[ -n "$CUT_VERSION" ]]; then
             printf 'measured\t%s of UNKNOWN (probe total not parseable from the run log, so coverage cannot be stated -- this is not a claim that coverage was full)\n' \
                    "$_measured"
         fi
+        # WHERE THE TIME GOES (names and seconds only, never probe output): the slowest phase-2 probes and the slowest
+        # manifest-replay rows, as printed by run_box_walk.sh and verify_cut_manifest.py. Absent = that phase did not print any.
+        sed -n 's/^ *TIMING top15 probe=\([A-Za-z0-9_]*\) seconds=\([0-9]*\).*/timing_phase2_probe\t\1\t\2/p' "$PROBE_LOG"
+        sed -n 's/^ *TIMING phase2_probes_total seconds=\([0-9]*\).*/timing_phase2_probes_total\t\1/p' "$PROBE_LOG"
+        if [[ -n "${MANIFEST_LOG:-}" && -r "${MANIFEST_LOG:-/nonexistent}" ]]; then
+            sed -n 's/^ *TIMING manifest_top15 probe=\([A-Za-z0-9_-]*\) seconds=\([0-9.]*\).*/timing_manifest_row\t\1\t\2/p' "$MANIFEST_LOG"
+            sed -n 's/^ *TIMING manifest_total rows=[0-9]* box_walk_rows=[0-9]* seconds=\([0-9.]*\).*/timing_manifest_total\t\1/p' "$MANIFEST_LOG"
+        fi
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
         # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.
@@ -1095,6 +1208,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         if [ -n "$NOTMEAS_NAMES" ]; then
             printf 'not_measured_reasons\twithheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate'"'"'s own log on the walked box, and any full_output=... path it names\n'
         fi
+        printf '%s\n' "$FAILED_ROWS" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_row\t%s\n' "$_n"; done
         printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"
@@ -1169,7 +1283,10 @@ if [[ -n "$CUT_VERSION" ]]; then
 
     echo
     echo "  walk record written: ${RECORD}"
-    if [[ "$overall" -eq 0 ]]; then
+    if [[ "$TIER" == "smoke" ]]; then
+        echo "  This is a SMOKE record (verdict ${VERDICT}). It does not release anything and is not a clean walk."
+        echo "  Run the FULL tier before any console walk and before any public tag."
+    elif [[ "$overall" -eq 0 ]]; then
         echo "  ⚠️  COMMIT IT. The customer download for ${CUT_VERSION} stays pointed at"
         echo "      the PREVIOUS release until this file is on main:"
         echo "          git add ${RECORD#"${REPO_ROOT}/"} && git commit"

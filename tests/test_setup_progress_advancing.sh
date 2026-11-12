@@ -95,6 +95,9 @@ else
     mkshard() {  # mkshard <dir> <name> <json>
         mkdir -p "$1/settling_progress.d"
         printf '%s\n' "$3" > "$1/settling_progress.d/$2.json"
+        # The installed channel set (#3426), so these fixtures model a box where
+        # install.sh placed it. The no-manifest case below removes it.
+        cp "$REPO_ROOT/lib/settling_channels.json" "$1/settling_channels.json"
     }
     ago() {  # ago <seconds>: an ISO updated_at that many seconds in the past
         python3 -I -c 'import sys,datetime as d;print((d.datetime.now(d.timezone.utc)-d.timedelta(seconds=int(sys.argv[1]))).isoformat(timespec="seconds"))' "$1"
@@ -319,6 +322,25 @@ else
         ok "absent settling_channels.json FAILs the probe instead of falling back"
     else
         bad "absent manifest did not FAIL (rc=$rc): $(tr '\n' ' ' < "$TMP/nomanifest.out")"
+    fi
+
+    # (12b) the DEFAULT lookup (no OSTLER_SETTLING_MANIFEST, as on a real box): the
+    #     file must sit beside the shard dir in the state dir. Absent there = FAIL
+    #     naming it (main's #3426 walk assertion, kept). Present there = PASS.
+    rm -f "$GOOD/settling_channels.json"
+    env -u OSTLER_SETTLING_MANIFEST OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/nomanifest-default.out" 2>&1; rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/nomanifest-default.out" \
+       && /usr/bin/grep -q 'settling_channels.json is absent' "$TMP/nomanifest-default.out"; then
+        ok "default lookup: all-terminal shards FAIL when settling_channels.json is absent beside them"
+    else
+        bad "default lookup did not FAIL an absent settling_channels.json (rc=$rc): $(tr '\n' ' ' < "$TMP/nomanifest-default.out")"
+    fi
+    cp "$REPO_ROOT/lib/settling_channels.json" "$GOOD/settling_channels.json"
+    env -u OSTLER_SETTLING_MANIFEST OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/manifest-default.out" 2>&1; rc=$?
+    if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'VERDICT: PASS' "$TMP/manifest-default.out"; then
+        ok "default lookup: the same shards PASS once settling_channels.json sits beside them"
+    else
+        bad "default lookup did not PASS with the manifest beside the shards (rc=$rc): $(tr '\n' ' ' < "$TMP/manifest-default.out")"
     fi
 
     # (13) the map names the real writers (guards a rename of the launchd labels).

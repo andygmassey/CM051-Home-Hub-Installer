@@ -81,6 +81,11 @@ _settling_dir() {
     fi
 }
 
+# The fixed channel set the bar divides by. install.sh must place it at
+# ~/.ostler/state/settling_channels.json (CM051 #3426); the wiki compiler reads
+# it from there. Absent, CM044 logs "settling channel manifest ABSENT" and uses
+# a built-in fallback, so the denominator silently stops being CM051's list.
+# Prints OK|<n channels>, or MISSING|<why>.
 _manifest_path() {
     if [ -n "${OSTLER_SETTLING_MANIFEST:-}" ]; then
         printf '%s' "$OSTLER_SETTLING_MANIFEST"
@@ -394,6 +399,11 @@ self_test() {
     if [ "$fail_n" -ne 2 ] || [ "$info_n" -ne 1 ] || [ "$cannot_n" -ne 1 ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: the stalled fixture gave $fail_n FAIL (want 2), $info_n INFO (want 1, notes), $cannot_n CANNOT (want 1, calendar). This probe cannot see a stalled bar."
     fi
+    local nm; nm="$(_manifest_verdict "$tmp/no-such/settling_channels.json")"
+    case "$nm" in
+        MISSING\|*) ;;
+        *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: an absent settling_channels.json read as: $nm" ;;
+    esac
     probe_fail "self-test: the stalled fixture gave 2 FAIL (stale hourly shards), 1 INFO (notes) and 1 CANNOT (unknown interval), so this probe returns FAIL on it as it must"
 }
 
