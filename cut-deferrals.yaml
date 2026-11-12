@@ -32,6 +32,16 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.129 prep, ORM 2026-11-12 on Archie's ruling (check-pr-age RED on #3357 #3365 #3374, CM051 scope, measured locally). FIRST so verify_pr_age.sh takes these rows. Each expires after v1.0.129.
+  - ref: "CM051-Home-Hub-Installer#3357"
+    reason: "EXEMPT (Archie 2026-11-12): open, ships nothing; expires after v1.0.129; no close tonight because closing loses work. Owner: Archie (v1.0.124 walk record, red gate taken after the cut)."
+    review_by: 2026-11-19
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "EXEMPT (Archie 2026-11-12): open, ships nothing; expires after v1.0.129; no close tonight because closing loses work. Owner: Archie (walk-harness fixes, review after the cut)."
+    review_by: 2026-11-19
+  - ref: "CM051-Home-Hub-Installer#3365"
+    reason: "EXEMPT (Archie 2026-11-12): open, ships nothing; expires after v1.0.129; no close tonight because closing loses work. Owner: Aesop (parked post-launch draft, colima resize)."
+    review_by: 2026-11-19
   # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
   # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
   - ref: "CM051-Home-Hub-Installer#3347"
