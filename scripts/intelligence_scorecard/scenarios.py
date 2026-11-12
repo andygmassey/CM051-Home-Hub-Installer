@@ -38,8 +38,14 @@ CHECK KINDS (each names the step key it reads)
   read_rows_equal(a, b)            two reads of the same route return equal row counts
   read_rows_min(key, n)            a read returns at least n rows
 
-A check may carry "control": True. A control that fails leaves the scenario
-CANNOT-RUN ("the predicate proves nothing without it"), not PASS and not FAIL.
+A check may carry a control. Two kinds, because a failed control means two
+different things:
+  "control": True       PRODUCT control. The output must show the thing the
+                        predicate is measured against. If it does not, the product
+                        omitted it: FAIL, and the predicate is vacuous.
+  "control": "premise"  PREMISE control. The setup had to produce a case for the
+                        scenario to mean anything. If it did not, the scenario did
+                        not reproduce its case: CANNOT-RUN, never PASS.
 """
 
 # Synthetic markers. Fictional, invented, and stable so checks can name them.
@@ -189,7 +195,7 @@ SCENARIOS = [
          {"id": "day2_no_rsvp_request", "kind": "brief_lacks_near", "brief": "day2",
           "needle": RSVP_EVT, "words": ["respond", "reply", "rsvp", "confirm"]},
          {"id": "day1_asked_it", "kind": "brief_has_near", "brief": "day1",
-          "needle": RSVP_EVT, "words": ["respond", "reply", "rsvp", "confirm"], "control": True},
+          "needle": RSVP_EVT, "words": ["respond", "reply", "rsvp", "confirm"], "control": "premise"},
      ]},
     {"id": "C03", "tag": "PLUMBING", "group": "current_state",
      "title": "a finished to-do leaves the open list",
@@ -203,7 +209,7 @@ SCENARIOS = [
      ],
      "checks": [
          {"id": "open_list_before_has_it", "kind": "read_has", "read": "before",
-          "any": ["harbour quote"], "control": True},
+          "any": ["harbour quote"], "control": "premise"},
          {"id": "open_list_after_lacks_it", "kind": "read_lacks", "read": "after",
           "none": ["harbour quote"]},
          {"id": "brief_lacks_it", "kind": "brief_lacks", "brief": "b1", "none": ["harbour quote"]},

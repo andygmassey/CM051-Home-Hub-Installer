@@ -6,8 +6,10 @@ PASS, FAIL or CANNOT-RUN. CANNOT-RUN is never a pass.
 
 Files: `scenarios.py` (the spec, data only), `scorecard.py` (runner, scorer,
 live driver), `stub_hub.py` (a canned Hub that proves the scorer works).
-Self-test: `tests/test_intelligence_scorecard_selftest.sh`, run by
-walk-record-gate.
+Self-test: `tests/test_intelligence_scorecard_selftest.sh`, run by its own
+workflow `intelligence-scorecard-selftest.yml` (path-scoped; not inside the walk
+record gate, not in any smoke tier). Scope row: `scripts/walk_promote_scope.tsv`,
+advisory.
 
 ## Run it on the box, after the walk
 
@@ -25,11 +27,26 @@ scenarios; without it they are CANNOT-RUN. Verbatim replies go to an owner-only
 evidence directory (`~/.ostler/state/intelligence-scorecard/<utc>/`), never to
 stdout. `--only P03,C02` runs a subset.
 
-Run time: 34 chat turns, 10 brief runs, 6 daemon restarts, 12 seeds. On a Mac
+Run time (live, unmeasured): 34 chat turns, 10 brief runs, 6 daemon restarts, 12 seeds. On a Mac
 mini expect roughly 2 to 4 hours (a chat turn takes 2 to 5 minutes there). Measure
 the first run and write the number here.
 
 Without the box, check the scorer: `python3 scripts/intelligence_scorecard/scorecard.py --self-test`.
+
+## Verdicts and controls
+
+- PASS: every check ran and held.
+- FAIL: a check ran and the Hub did not do the thing. A product control (the
+  output must show what the predicate is measured against) that is missing is
+  also FAIL: the product omitted it. A dumb assistant that drops the control
+  item too is therefore FAIL, not CANNOT-RUN.
+- CANNOT-RUN: a seed could not be made or read back, the box has no
+  writer or import dir, the model does not match, the assistant was
+  unreachable, or a premise control failed (the setup did not reproduce the
+  case, so there is nothing to grade).
+
+Timing: `--self-test` and the stub prints seconds per scenario and a total. A
+live run is dominated by chat turns and brief runs, not by the scorer.
 
 ## What the founder reads
 

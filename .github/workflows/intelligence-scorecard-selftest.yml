@@ -1,0 +1,32 @@
+name: intelligence-scorecard-selftest
+
+# The intelligence scorecard's scorer must be able to FAIL. This runs its
+# self-test on its OWN run: it is not inside walk-record-gate (the walk verdict)
+# and not in any per-push smoke set. It runs only when a PR touches the
+# scorecard's own files, and by hand via workflow_dispatch.
+#
+# The self-test grades the scorer against the stub Hub in every mode, and runs
+# a mutant whose FAIL verdict is switched off, which must go red. It never
+# contacts a box.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/intelligence_scorecard/**'
+      - 'tests/test_intelligence_scorecard_selftest.sh'
+      - '.github/workflows/intelligence-scorecard-selftest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  intelligence-scorecard-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: The scorer is green on the scripted-correct stub, red on the dumb stub and on a mutant
+        run: bash tests/test_intelligence_scorecard_selftest.sh

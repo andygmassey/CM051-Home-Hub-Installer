@@ -128,10 +128,6 @@ on:
       - 'scripts/lib_walk_lang.sh'
       - 'scripts/box_walk_probes/lib/gen_walk_answers_lang.py'
       - 'scripts/lib_walk_cm019_bundle.sh'
-      # The intelligence scorecard's scorer and its self-test. The test proves
-      # the scorer can go red (dumb stub) and cannot be left green by a mutant.
-      - 'scripts/intelligence_scorecard/**'
-      - 'tests/test_intelligence_scorecard_selftest.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
       # its test go in the watch set together, or a PR could narrow the lib
@@ -1151,9 +1147,3 @@ jobs:
       - name: no NEW cut puts its own pin in the BOM ref column
         if: always()
         run: bash tests/test_bom_ref_is_not_the_cut_pin.sh
-
-      # The intelligence scorecard's scorer must be able to FAIL: its self-test
-      # is red on a mutant that cannot fail, and green on the real scorer.
-      - name: The intelligence scorecard scorer goes red on a dumb stub and on a mutant
-        if: always()
-        run: bash tests/test_intelligence_scorecard_selftest.sh

@@ -42,7 +42,7 @@ esac
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/scorecard-mutant.XXXXXX")" || { echo "FAIL: no temp dir"; exit 1; }
 cp "${src}/scorecard.py" "${src}/scenarios.py" "${src}/stub_hub.py" "${tmp}/"
 # Switch the FAIL verdict off: a hard failure is reported as a PASS.
-sed 's/    if hard_fail:/    if False:  # MUTANT/' "${tmp}/scorecard.py" > "${tmp}/scorecard.mutant.py" && mv "${tmp}/scorecard.mutant.py" "${tmp}/scorecard.py"
+sed 's/    if hard_fail or prod_ctrl:/    if False:  # MUTANT/' "${tmp}/scorecard.py" > "${tmp}/scorecard.mutant.py" && mv "${tmp}/scorecard.mutant.py" "${tmp}/scorecard.py"
 if /usr/bin/grep -q 'MUTANT' "${tmp}/scorecard.py"; then
     echo "ok    the mutation applied to the copy (FAIL verdict switched off)"
 else

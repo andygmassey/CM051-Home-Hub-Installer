@@ -161,18 +161,29 @@ def evaluate(check, T):
 
 
 def verdict(scenario, T, results):
-    """results: list of (check, status, detail, cannot_reason_or_None). Pure: no I/O."""
+    """results: list of (check, status, detail, cannot_reason_or_None). Pure: no I/O.
+
+    A control is either "product" (True: the output must show the thing the
+    predicate is measured against; if it does not, the product omitted it, so
+    the run is a FAIL and the predicate is vacuous) or "premise" (the setup had to
+    produce something for the scenario to mean anything; if it did not, the run is
+    CANNOT-RUN, never a PASS and never a product FAIL)."""
     hard_fail = [c for c, st, _d, _r in results if st == "fail" and not c.get("control")]
+    prod_ctrl = [c for c, st, _d, _r in results if st == "fail" and c.get("control") is True]
     cannot = [(c, r) for c, st, _d, r in results if st == "cannot"]
-    ctrl_fail = [c for c, st, _d, _r in results if st == "fail" and c.get("control")]
+    prem_ctrl = [c for c, st, _d, _r in results if st == "fail" and c.get("control") == "premise"]
     examined = sum(1 for _c, st, _d, _r in results if st in ("ok", "fail"))
-    if hard_fail:
-        return FAIL, "failed: " + ", ".join(c["id"] for c in hard_fail)
+    if hard_fail or prod_ctrl:
+        names = [c["id"] for c in hard_fail + prod_ctrl]
+        why = "failed: " + ", ".join(names)
+        if prod_ctrl and not hard_fail:
+            why += " (a product control: the output omitted what the predicate is measured against)"
+        return FAIL, why
     if cannot:
         return CANNOT, cannot[0][1]
-    if ctrl_fail:
-        return CANNOT, ("control %s did not hold, so the predicate proves nothing"
-                        % ", ".join(c["id"] for c in ctrl_fail))
+    if prem_ctrl:
+        return CANNOT, ("premise %s did not hold, so the scenario did not reproduce its case"
+                        % ", ".join(c["id"] for c in prem_ctrl))
     if examined == 0:
         return CANNOT, "no check was examined (no denominator, so no verdict)"
     return PASS, "%d of %d checks examined and held" % (examined, len(results))
@@ -183,6 +194,13 @@ def verdict(scenario, T, results):
 # ---------------------------------------------------------------------------
 
 def run_scenario(sc, driver):
+    t0 = time.perf_counter()
+    r = _run_scenario(sc, driver)
+    r["seconds"] = round(time.perf_counter() - t0, 3)
+    return r
+
+
+def _run_scenario(sc, driver):
     T = new_transcript()
     driver.begin(sc["id"])
     try:
@@ -262,7 +280,7 @@ def print_report(results, meta, out=sys.stdout):
     w("intelligence scorecard  model=%s  size=%s  driver=%s  scenarios=%d\n"
       % (meta["model"], meta["size"], meta["driver"], len(results)))
     for r in results:
-        w("%-6s %-4s [%s] %s\n" % (r["verdict"], r["id"], r["tag"], r["title"]))
+        w("%-6s %-4s [%s] %6.2fs %s\n" % (r["verdict"], r["id"], r["tag"], r.get("seconds", 0.0), r["title"]))
         if r["verdict"] == CANNOT and not r["checks"]:
             w("         reason: %s\n" % r["why"])
         for c in r["checks"]:
@@ -271,7 +289,9 @@ def print_report(results, meta, out=sys.stdout):
         if r["verdict"] != PASS and r["checks"]:
             w("         why: %s\n" % r["why"])
     t = totals(results)
-    w("\nTOTALS  (PASS / FAIL / CANNOT-RUN)\n")
+    w("\nSECONDS  total %.2fs over %d scenario(s), tier %s\n"
+      % (sum(r.get("seconds", 0.0) for r in results), len(results), meta.get("tier", "unset")))
+    w("TOTALS  (PASS / FAIL / CANNOT-RUN)\n")
     for tag in ("PLUMBING", "REASONING", "ALL"):
         w("  %-10s %3d / %3d / %3d\n" % (tag, t[tag][PASS], t[tag][FAIL], t[tag][CANNOT]))
     w("  PLUMBING = state, memory or context bug class. REASONING = model capability.\n")
@@ -600,7 +620,7 @@ def self_test():
 
     expect = {
         "correct": lambda t: t[PASS] == len(SC.SCENARIOS),
-        "dumb": lambda t: t[FAIL] >= 3,
+        "dumb": lambda t: t[FAIL] == len(SC.SCENARIOS) and t[CANNOT] == 0 and t[PASS] == 0,
         "cold": lambda t: t[CANNOT] >= 5 and t[PASS] < len(SC.SCENARIOS),
         "silent": lambda t: t[PASS] == 0,
         "transport": lambda t: t[PASS] == 0 and t[FAIL] == 0 and t[CANNOT] == len(SC.SCENARIOS),
@@ -615,7 +635,7 @@ def self_test():
         print("  %s  stub:%-9s PASS %2d  FAIL %2d  CANNOT %2d  (%s)"
               % ("ok    " if good else "FAIL  ", mode, t["ALL"][PASS], t["ALL"][FAIL], t["ALL"][CANNOT],
                  {"correct": "scripted-correct must be all green",
-                  "dumb": "dumb stub must go red on at least 3",
+                  "dumb": "dumb stub must FAIL every scenario, none CANNOT-RUN",
                   "cold": "no seed writer: seeded scenarios CANNOT, never PASS",
                   "silent": "an empty assistant must never PASS",
                   "transport": "no reach: everything CANNOT, nothing FAIL or PASS"}[mode]))
@@ -640,8 +660,12 @@ def self_test():
         units.append((False, "a missing step must be CANNOT"))
     except Cannot:
         units.append((True, "a step that never ran is CANNOT"))
-    ctrl = {"id": "c", "kind": "brief_has", "control": True}
-    units.append((verdict({}, T, [(ctrl, "fail", "x", None)])[0] == CANNOT, "a failed control is CANNOT, not FAIL"))
+    prod = {"id": "p", "kind": "brief_has", "control": True}
+    prem = {"id": "q", "kind": "brief_has", "control": "premise"}
+    units.append((verdict({}, T, [(prod, "fail", "x", None)])[0] == FAIL,
+                  "a failed PRODUCT control is FAIL: the output omitted what it must show"))
+    units.append((verdict({}, T, [(prem, "fail", "x", None)])[0] == CANNOT,
+                  "a failed PREMISE control is CANNOT: the setup did not reproduce the case"))
     units.append((verdict({}, T, [({"id": "h", "kind": "reply_has"}, "ok", "x", None)])[0] == PASS,
                   "all-ok is PASS"))
     units.append((verdict({}, T, [])[0] == CANNOT, "zero examined checks is CANNOT"))
@@ -666,6 +690,8 @@ def main(argv):
     ap.add_argument("--evidence-dir", default="", help="live: owner-only directory for verbatim replies")
     ap.add_argument("--daemon-label", default=os.environ.get("OSTLER_SCORECARD_DAEMON_LABEL", "ai.ostler.assistant"))
     ap.add_argument("--list", action="store_true", help="print the scenario table and exit")
+    ap.add_argument("--tier", default="separate-run",
+                    help="where this run sits: separate-run (default, never inside the walk or smoke tier)")
     args = ap.parse_args(argv[1:])
     if args.list:
         for s in SC.SCENARIOS:
@@ -681,6 +707,7 @@ def main(argv):
         return EX_CANNOT
     try:
         meta = driver.model_info()
+        meta["tier"] = args.tier
         results = run_suite(driver, only or None)
     except Cannot as e:
         print("CANNOT-RUN: %s" % e)
