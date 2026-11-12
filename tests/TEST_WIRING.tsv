@@ -78,6 +78,7 @@ test_a_self_removing_agent_deletes_its_plist_before_it_dies.sh	WIRED	.github/wor
 test_a_self_test_denominator_counts_itself.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_sentinel_is_not_a_date_on_a_customer_surface.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_a_slow_step_is_not_a_wedged_one.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_a_smoke_walk_can_never_be_clean.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_a_staging_copy_is_guarded_on_its_source.py	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_a_status_read_is_guarded.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_a_step_that_measured_nothing_cannot_report_ok.sh	WIRED	.github/workflows/step-end-status-honesty.yml
@@ -1124,6 +1125,7 @@ test_walk_record_carries_no_home_path.sh	WIRED	.github/workflows/walk-record-gat
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_names_the_failing_probes.sh	WIRED	.github/workflows/cut-manifest.yml
 test_walk_record_states_measured_count.sh	WIRED	.github/workflows/cut-manifest.yml
+test_walk_smoke_scope.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_triage_never_baselines_a_vacuous_pass.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
