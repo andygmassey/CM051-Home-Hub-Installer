@@ -129,7 +129,7 @@ else
     }
 
     # (1) non-terminal emails and calendar with an old updated_at FAIL; an open
-    #     contacts shard has no periodic writer, so it reads CANNOT, not FAIL.
+    #     contacts shard is install-only (no job can complete it), so it FAILs too.
     BAD="$TMP/probe-bad"
     mkshard "$BAD" contacts '{"key":"contacts","done":2398,"total":2443,"needs_source":false,"updated_at":"2026-11-08T07:01:16+00:00"}'
     mkshard "$BAD" emails '{"key":"emails","done":17080,"total":121262,"needs_source":false,"updated_at":"2026-11-08T07:04:58+00:00"}'
@@ -139,10 +139,10 @@ else
     if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/bad.out" \
        && /usr/bin/grep -q 'emails.json|FAIL|not advancing' "$TMP/bad.out" \
        && /usr/bin/grep -q 'calendar.json|FAIL|not advancing' "$TMP/bad.out" \
-       && /usr/bin/grep -q 'contacts.json|CANNOT|' "$TMP/bad.out" \
+       && /usr/bin/grep -q 'contacts.json|FAIL|open with no writer that can complete it' "$TMP/bad.out" \
        && /usr/bin/grep -q 'notes.json|INFO|' "$TMP/bad.out" && ! /usr/bin/grep -q 'notes.json|FAIL|' "$TMP/bad.out" \
-       && /usr/bin/grep -q '2 of 3 settling source' "$TMP/bad.out"; then
-        ok "stale emails and calendar FAIL (2 of 3 judged), open contacts is CANNOT (no writer), notes is INFO"
+       && /usr/bin/grep -q '3 of 3 settling source' "$TMP/bad.out"; then
+        ok "stale emails and calendar FAIL, open install-only contacts FAILs (3 of 3 judged), notes is INFO"
     else
         bad "stale shards not judged as expected (rc=$rc): $(tr '\n' ' ' < "$TMP/bad.out")"
     fi
@@ -264,21 +264,41 @@ else
     else
         bad "unreadable plist was not CANNOT-RUN (rc=$rc): $(tr '\n' ' ' < "$TMP/badpl.out")"
     fi
+    # install-only: open contacts FAILs, complete contacts PASSes (GOOD above), and a
+    # channel absent from the writer map reads CANNOT (not FAIL, not PASS).
+    INST="$TMP/probe-install-only"
+    terminal_rest "$INST" calendar messages emails
+    mkshard "$INST" contacts "{\"key\":\"contacts\",\"done\":2,\"total\":9,\"updated_at\":\"$(ago 60)\"}"
+    probe "$INST" "$TMP/inst.out"; rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'contacts.json|FAIL|open with no writer that can complete it (written once at install.sh:36416)' "$TMP/inst.out"; then
+        ok "an OPEN install-only channel (contacts) is FAIL; its complete shard PASSes in the all-terminal arm"
+    else
+        bad "open install-only contacts was not FAIL (rc=$rc): $(tr '\n' ' ' < "$TMP/inst.out")"
+    fi
     UNMAP="$TMP/probe-unmapped"
-    terminal_rest "$UNMAP" calendar messages emails
-    mkshard "$UNMAP" contacts "{\"key\":\"contacts\",\"done\":2,\"total\":9,\"updated_at\":\"$(ago 60)\"}"
-    probe "$UNMAP" "$TMP/unmap.out"; rc=$?
-    if [[ "$rc" -eq 78 ]] && /usr/bin/grep -q 'contacts.json|CANNOT|channel contacts has no launchd writer label' "$TMP/unmap.out" \
-       && ! /usr/bin/grep -q 'contacts.json|\(PASS\|FAIL\)|' "$TMP/unmap.out"; then
-        ok "an open channel with no writer in the map reads CANNOT-RUN (not FAIL, not PASS)"
+    printf '%s\n' '{"schema":1,"channels":["contacts","calendar","messages","emails","photos"]}' > "$TMP/manifest-unmapped.json"
+    terminal_rest "$UNMAP" contacts calendar messages emails
+    mkshard "$UNMAP" photos "{\"key\":\"photos\",\"done\":2,\"total\":9,\"updated_at\":\"$(ago 60)\"}"
+    OSTLER_SETTLING_MANIFEST="$TMP/manifest-unmapped.json" probe "$UNMAP" "$TMP/unmap.out"; rc=$?
+    if [[ "$rc" -eq 78 ]] && /usr/bin/grep -q 'photos.json|CANNOT|channel photos has no launchd writer label' "$TMP/unmap.out" \
+       && ! /usr/bin/grep -q 'photos.json|\(PASS\|FAIL\)|' "$TMP/unmap.out"; then
+        ok "an open channel absent from the writer map reads CANNOT-RUN (not FAIL, not PASS)"
     else
         bad "unmapped channel was not CANNOT-RUN (rc=$rc): $(tr '\n' ' ' < "$TMP/unmap.out")"
     fi
 
     # (10) a FAIL outranks a CANNOT in the overall verdict.
-    probe "$BAD" "$TMP/bad2.out"; rc=$?
-    [[ "$rc" -eq 1 ]] && ok "FAIL (stale emails) outranks CANNOT (contacts) in the overall verdict" \
-        || bad "FAIL did not outrank CANNOT (rc=$rc)"
+    OUT="$TMP/probe-fail-and-cannot"
+    terminal_rest "$OUT" contacts messages
+    mkshard "$OUT" emails "{\"key\":\"emails\",\"done\":1,\"total\":9,\"updated_at\":\"$(ago 90000)\"}"
+    mkshard "$OUT" calendar "{\"key\":\"calendar\",\"done\":1,\"total\":9,\"updated_at\":\"$(ago 60)\"}"
+    mkplist "$TMP/agents-only-email" "$EMAIL_LABEL" 3600
+    probe "$OUT" "$TMP/fc.out" "$TMP/agents-only-email"; rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'emails.json|FAIL|' "$TMP/fc.out" && /usr/bin/grep -q 'calendar.json|CANNOT|' "$TMP/fc.out"; then
+        ok "a FAIL (stale emails) outranks a CANNOT (calendar plist absent) in the overall verdict"
+    else
+        bad "FAIL did not outrank CANNOT (rc=$rc): $(tr '\n' ' ' < "$TMP/fc.out")"
+    fi
 
     # (11) done going backwards on a fresh shard is FAIL.
     BACK="$TMP/probe-back"

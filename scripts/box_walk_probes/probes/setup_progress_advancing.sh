@@ -50,8 +50,18 @@
 #   emails    com.creativemachines.ostler.email-ingest  (hourly tick)
 #   calendar  com.ostler.fda-rerun  (extract_all.py:588 -> calendar.py:96)
 #   messages  com.ostler.fda-rerun  (imessage.py:192, whatsapp_history.py:121)
-#   contacts  no periodic writer (install.sh:36416, install time only)
-# A channel with no label, a missing plist or an unreadable plist is CANNOT-RUN
+#   contacts  INSTALL-ONLY (install.sh:36416). com.ostler.contact-resync (1800 s,
+#             install.sh:36267) does NOT write it: bin/ostler-contact-resync
+#             (install.sh:26748-26931) and oa release/ingest-ticks/contact-resync/
+#             tick.sh carry no settling write, and the vendored syncer has none
+#             (vendor/divergences/cm041_contact_syncer.UNRECORDED.md:336-339).
+# The fda-rerun chain (traced): the plist runs `ostler-assistant run-source
+# fda-rerun` (install.sh:21386), hub-v0.5.37 main.rs RunSource runs
+# Resources/ingest/fda-rerun/tick.sh (bash, env inherited), the sealed tick execs
+# ~/.ostler/bin/ostler-fda, which install.sh:26032 writes to run extract_all
+# with the venv python. install.sh:9880 states the same chain.
+# An OPEN install-only channel is FAIL (no writer can complete it). A channel
+# with no label in the map, a missing plist or an unreadable plist is CANNOT-RUN
 # for that channel, with the plist path printed. complete=true needs no interval.
 #
 # NO DIRECTORY = CANNOT-RUN, not PASS. Zero shards means nothing was measured.
@@ -105,6 +115,7 @@ _writer_label() {
         emails)   printf 'com.creativemachines.ostler.email-ingest' ;;
         calendar) printf 'com.ostler.fda-rerun' ;;
         messages) printf 'com.ostler.fda-rerun' ;;
+        contacts) printf 'INSTALL_ONLY' ;;
     esac
 }
 
@@ -115,6 +126,10 @@ _tick_intervals() {
     local ch label plist agents="${OSTLER_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
     for ch in $(printf '%s' "$1" | tr ',' ' '); do
         label="$(_writer_label "$ch")"
+        if [ "$label" = "INSTALL_ONLY" ]; then
+            printf '%s=INSTALLONLY|channel %s is written once at install (install.sh:36416); no periodic job writes it\n' "$ch" "$ch"
+            continue
+        fi
         if [ -z "$label" ]; then
             printf '%s=CANNOT|channel %s has no launchd writer label in the probe map (written at install time only or unmapped)\n' "$ch" "$ch"
             continue
@@ -232,7 +247,7 @@ try:
             head, _, why = line.partition("|")
             if "=" in head:
                 k, v = head.split("=", 1)
-                intervals[k] = (int(v), why) if v.isdigit() else (None, why)
+                intervals[k] = (int(v), why) if v.isdigit() else (v, why)
 except (OSError, ValueError):
     pass
 now = int(time.time())
@@ -263,7 +278,10 @@ for name in sorted(end):
     upd = int(p[5]) if len(p) > 5 else 0
     ivt = intervals.get(ch, (None, "channel %s has no entry in the interval table" % ch))
     iv = ivt[0]
-    if iv is None:
+    if iv == "INSTALLONLY":
+        print("%s|FAIL|open with no writer that can complete it (written once at install.sh:36416): done %d of %d" % (name, done_end, total_end))
+        continue
+    if not isinstance(iv, int):
         print("%s|CANNOT|%s" % (name, ivt[1]))
         continue
     if True:
@@ -306,6 +324,7 @@ run_probe() {
         [ -n "$iv_line" ] || continue
         case "${iv_line#*=}" in
             CANNOT\|*) probe_note "writer of ${iv_line%%=*}: interval unknown (${iv_line#*|})" ;;
+            INSTALLONLY\|*) probe_note "writer of ${iv_line%%=*}: install-only (${iv_line#*|})" ;;
             *) probe_note "writer of ${iv_line%%=*}: StartInterval=${iv_line#*=} (freshness window is 2x this)" ;;
         esac
     done < "$tmp/intervals.txt"
