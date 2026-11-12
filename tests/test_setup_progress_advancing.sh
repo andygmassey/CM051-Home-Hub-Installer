@@ -95,6 +95,9 @@ else
     mkshard() {  # mkshard <dir> <name> <json>
         mkdir -p "$1/settling_progress.d"
         printf '%s\n' "$3" > "$1/settling_progress.d/$2.json"
+        # The installed channel set (#3426), so these fixtures model a box where
+        # install.sh placed it. The no-manifest case below removes it.
+        cp "$REPO_ROOT/lib/settling_channels.json" "$1/settling_channels.json"
     }
 
     BAD="$TMP/probe-bad"
@@ -141,6 +144,18 @@ else
         ok "probe PASSes when every shard is complete, measured done, or skipped with a shown reason"
     else
         bad "probe did not PASS an all-terminal fixture (rc=$rc): $(tr '\n' ' ' < "$TMP/good.out")"
+    fi
+
+    # #3426 walk assertion: all-terminal shards but NO settling_channels.json in
+    # the state dir (the v1.0.129 walk box) must FAIL, naming the file.
+    rm -f "$GOOD/settling_channels.json"
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/nomanifest.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/nomanifest.out" \
+       && /usr/bin/grep -q 'settling_channels.json is absent' "$TMP/nomanifest.out"; then
+        ok "probe FAILs when settling_channels.json is absent from the state dir, even with every shard terminal"
+    else
+        bad "probe did not FAIL an absent settling_channels.json (rc=$rc): $(tr '\n' ' ' < "$TMP/nomanifest.out")"
     fi
 
     OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$TMP/no-such-dir" bash "$PROBE" >"$TMP/none.out" 2>&1

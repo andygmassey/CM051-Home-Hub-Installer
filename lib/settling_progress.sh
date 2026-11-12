@@ -301,7 +301,9 @@ except Exception:
 # that has already counted work is by definition not missing its source.
 req_total = _int("OSTLER_SETTLING_TOTAL")
 done = max(_int("OSTLER_SETTLING_DONE"), prev_done)
-total = max(req_total, done)
+# prev_total is kept too (B4): a later 0-of-0 report must not shrink a backlog
+# shard's denominator down to `done` and read as finished.
+total = max(req_total, done, prev_total)
 needs = os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower() in ("1", "true", "yes")
 if done > 0:
     needs = False

@@ -282,10 +282,41 @@ _undeclared="$(comm -23 <(ls "${REPO}/scripts/box_walk_probes/probes/" | sed 's/
 [ -z "$_undeclared" ] && ok "every probe on disk has a scope row" \
                       || bad "probe(s) on disk with no scope row: $(printf '%s' "$_undeclared" | tr '\n' ' ')"
 
-_orphan="$(comm -13 <(ls "${REPO}/scripts/box_walk_probes/probes/" | sed 's/\.sh$//' | sort) \
-                    <(awk -F'\t' '!/^#/ && NF==4 && $1!="probe"{print $1}' "$SCOPE" | sort))"
-[ -z "$_orphan" ] && ok "every scope row names a probe that exists" \
+# THE PROBE UNIVERSE is probes/*.sh PLUS every script a box_walk_probe row in a
+# cut manifest invokes. acceptance_gate_v1013 is invoked by cut-manifests
+# (permanent.yaml, v1.0.13.yaml: kind box_walk_probe, probe acceptance_gate_v1013)
+# and lives one directory up, at scripts/box_walk_probes/acceptance_gate_v1013.sh,
+# outside the collector's glob. Its row is kept (gate reason: its own :19-26).
+# A row naming a script that exists in NEITHER place is still an orphan.
+_bwp="$(awk '/kind: box_walk_probe/{f=1;next} f && /probe: "/{match($0,/"[^"]+"/); print substr($0,RSTART+1,RLENGTH-2); f=0}' "${REPO}"/cut-manifests/*.yaml | sort -u)"
+orphans_of() { # $1 = scope file to judge
+    local universe
+    universe="$( { ls "${REPO}/scripts/box_walk_probes/probes/" | sed 's/\.sh$//'
+                   while read -r _p; do [ -n "$_p" ] && [ -f "${REPO}/scripts/box_walk_probes/${_p}.sh" ] && echo "$_p"; done <<<"$_bwp"
+                 } | sort -u)"
+    comm -13 <(printf '%s\n' "$universe") <(awk -F'\t' '!/^#/ && NF==4 && $1!="probe"{print $1}' "$1" | sort -u)
+}
+[ -n "$_bwp" ] && ok "the cut manifests name $(printf '%s\n' "$_bwp" | grep -c .) box_walk_probe row(s) (universe input is non-empty)" \
+               || bad "no box_walk_probe rows found in cut-manifests/: the universe would be probes/ alone"
+_orphan="$(orphans_of "$SCOPE")"
+[ -z "$_orphan" ] && ok "every scope row names a probe that exists (probes/ plus manifest-invoked scripts)" \
                   || bad "scope row(s) naming no probe: $(printf '%s' "$_orphan" | tr '\n' ' ')"
+
+# POSITIVE ARM: the manifest-invoked script is in the universe, and its row is kept.
+[ -f "${REPO}/scripts/box_walk_probes/acceptance_gate_v1013.sh" ] \
+  && printf '%s\n' "$_bwp" | grep -qx 'acceptance_gate_v1013' \
+  && ! printf '%s\n' "$_orphan" | grep -qx 'acceptance_gate_v1013' \
+  && awk -F'\t' '$1=="acceptance_gate_v1013" && $2=="blocking"' "$SCOPE" | grep -q . \
+  && ok "POSITIVE: acceptance_gate_v1013 is a manifest-invoked probe, is blocking, and is not an orphan" \
+  || bad "POSITIVE arm: acceptance_gate_v1013 not recognised as a manifest-invoked blocking probe"
+
+# NEGATIVE ARM: a row naming a script that exists nowhere must still FAIL.
+_neg="${WORK}/scope_with_ghost.tsv"; cp "$SCOPE" "$_neg"
+printf 'zz_no_such_probe_anywhere\tblocking\tFIXTURE: negative control, must stay an orphan\tnot a real script\n' >> "$_neg"
+_neg_orphan="$(orphans_of "$_neg")"
+[ "$_neg_orphan" = "zz_no_such_probe_anywhere" ] \
+  && ok "NEGATIVE: a row naming a script that exists nowhere is still reported as an orphan" \
+  || bad "NEGATIVE arm: expected exactly zz_no_such_probe_anywhere, got: $(printf '%s' "$_neg_orphan" | tr '\n' ' ')"
 
 echo
 echo "== ${PASS} pass / ${FAIL} fail / ${CANT} cannot-run / $((PASS+FAIL+CANT)) total =="

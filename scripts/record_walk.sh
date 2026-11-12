@@ -195,6 +195,10 @@ fi
 
 WALK_DIR="${OSTLER_WALK_RECORD_DIR:-${REPO_ROOT}/walks}"
 RECORD="${WALK_DIR}/${VERSION}.tsv"
+# TIER (OSTLER_WALK_TIER from ttywalk.sh --tier). A smoke record goes to <v>.smoke.tsv, which verify_walk_record.sh never
+# reads, so it cannot replace or stand in for the full record.
+TIER="${OSTLER_WALK_TIER:-full}"
+[[ "$TIER" == "smoke" ]] && RECORD="${WALK_DIR}/${VERSION}.smoke.tsv"
 
 # ── THE CONTROL, TAKEN BEFORE THE ACT ────────────────────────────────────
 #
@@ -264,7 +268,9 @@ STORE="${OSTLER_WALK_STORE:-${HOME}/.ostler/walks}"
 STORE_COPY="${STORE}/${VERSION}-$(date -u +%Y%m%dT%H%M%SZ).tsv"
 # shellcheck source=lib_walk_store.sh
 . "${REPO_ROOT}/scripts/lib_walk_store.sh"
-if _why="$(walk_store_write_refusal "$VERSION")"; then
+if [[ "$TIER" == "smoke" ]]; then
+    status "NOT COPIED to the walk store: tier smoke. The store holds FULL walks only (the next walk's previous-record and smoke-scope readers rely on that)."
+elif _why="$(walk_store_write_refusal "$VERSION")"; then
     status "NOT COPIED to the walk store: ${_why}. The record at ${RECORD#${REPO_ROOT}/} is unaffected."
 elif mkdir -p "$STORE" 2>/dev/null && cp "$RECORD" "$STORE_COPY" 2>/dev/null; then
     status "COPIED record to ${STORE_COPY}"
