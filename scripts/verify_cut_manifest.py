@@ -53,6 +53,7 @@ import os
 import plistlib
 import re
 import subprocess
+import time
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -188,6 +189,24 @@ class Result:
     status: str          # "PASS" | "FAIL" | "SKIP"
     detail: str = ""
     source_pr: str = ""
+    seconds: float = 0.0   # wall time of this row's check; printed as a TIMING line
+
+
+def _timing_line(r: "Result") -> str:
+    m = re.search(r"probe=([A-Za-z0-9_]+)", r.detail or "")
+    reused = "yes" if "reused the PASS" in (r.detail or "") else "no"
+    return (f"  TIMING manifest_row id={r.id} probe={m.group(1) if m else '-'} "
+            f"status={r.status} reused={reused} seconds={r.seconds:.1f}")
+
+
+def _timing_summary(results: list) -> list:
+    timed = [r for r in results if r.kind == "box_walk_probe"]
+    tot = sum(r.seconds for r in results)
+    out = [f"  TIMING manifest_total rows={len(results)} box_walk_rows={len(timed)} seconds={tot:.1f}"]
+    for r in sorted(timed, key=lambda x: -x.seconds)[:15]:
+        m = re.search(r"probe=([A-Za-z0-9_]+)", r.detail or "")
+        out.append(f"  TIMING manifest_top15 probe={m.group(1) if m else r.id} seconds={r.seconds:.1f}")
+    return out
 
 
 def emit(res: Result, colour: bool) -> None:
@@ -1497,7 +1516,8 @@ def _phase1_summary_line() -> str:
             f"{seeded} marked seed-fixture; {len(_PHASE1_TAKEN)} row(s) took the phase 1 "
             f"verdict (fixture present then, forgotten since) and were not re-run: {taken}; "
             f"every other probe row was measured again"
-            + f"; live-state rows reused from this walk: {len(_LIVE_REUSE_SOURCES)}"
+            + f"; live-state rows not on the reuse allowlist (measured again): {len(_LIVE_NOT_ALLOWLISTED)}"
+            + f"; allowlisted rows reused from this walk: {len(_LIVE_REUSE_SOURCES)}"
             + (" (" + ", ".join(sorted(_LIVE_REUSE_SOURCES)) + ")" if _LIVE_REUSE_SOURCES else "")
             + ("; live-state rows NOT reused: " + "; ".join(_LIVE_REUSE_REFUSED)
                if _LIVE_REUSE_REFUSED else ""))
@@ -1563,7 +1583,7 @@ def _phase1_verdict(probe: str):
     return (status, when, why, "seed")
 
 
-# A live-state probe row may be reused from phase 1 ONLY when all of these hold.
+# A live-state probe row may be reused from phase 1 ONLY when it is on manifest_reuse_allowlist.tsv AND all of these hold.
 # Each is read from the SAME verdicts file header and compared with a value the
 # caller measured independently for THIS manifest run, so a file left over from
 # another walk, another box or another build can never satisfy it:
@@ -1577,6 +1597,7 @@ def _phase1_verdict(probe: str):
 # OSTLER_MANIFEST_REUSE_LIVE=0 switches the whole thing off.
 _LIVE_REUSE_REFUSED: list = []
 _LIVE_REUSE_SOURCES: list = []
+_LIVE_NOT_ALLOWLISTED: list = []
 
 
 def _verdict_file_headers(path: str) -> dict:
@@ -1604,11 +1625,33 @@ def _expected_walk_identity() -> dict:
     }
 
 
+def _reuse_allowlist() -> dict:
+    """probe -> one-line reason, from scripts/box_walk_probes/manifest_reuse_allowlist.tsv
+    (OSTLER_MANIFEST_REUSE_ALLOWLIST overrides the path; an unreadable file is an EMPTY allowlist = reuse nothing)."""
+    path = os.environ.get("OSTLER_MANIFEST_REUSE_ALLOWLIST") or str(
+        Path(__file__).resolve().parent / "box_walk_probes" / "manifest_reuse_allowlist.tsv")
+    out: dict = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                if not ln.strip() or ln.startswith("#"):
+                    continue
+                cols = ln.rstrip("\n").split("\t")
+                if len(cols) >= 2 and cols[0].strip() and cols[1].strip():
+                    out[cols[0].strip()] = cols[1].strip()
+    except OSError:
+        pass
+    return out
+
+
 def _live_reuse(probe: str, path: str, row: list):
     if os.environ.get("OSTLER_MANIFEST_REUSE_LIVE", "1") == "0":
         return None
     def refuse(why):
         _LIVE_REUSE_REFUSED.append(f"{probe}: {why}")
+        return None
+    if probe not in _reuse_allowlist():
+        _LIVE_NOT_ALLOWLISTED.append(probe)
         return None
     status = row[1].strip() if len(row) > 1 else ""
     if status != "PASS":
@@ -3395,8 +3438,12 @@ def main() -> int:
                                       "skipped by --skip-source-at-sha", entry.get("source_pr", "")))
                 emit(results[-1], colour) if not args.json else None
                 continue
+            _t0 = time.monotonic()
             r = check_entry(entry, ctx)
+            r.seconds = round(time.monotonic() - _t0, 3)
             results.append(r)
+            if r.kind == "box_walk_probe":
+                print(_timing_line(r), file=(sys.stderr if args.json else sys.stdout), flush=True)
             if not args.json:
                 emit(r, colour)
                 if args.verbose and r.status == "PASS" and r.detail:
@@ -3430,6 +3477,9 @@ def main() -> int:
             cannot_run.append(
                 f"--require-kind {kind}: {len(of_kind)} entr(y/ies) of that kind, "
                 f"{len(ran)} RAN, {len(of_kind) - len(ran)} SKIPPED. {reasons}")
+
+    for _l in _timing_summary(results):
+        print(_l, file=(sys.stderr if args.json else sys.stdout), flush=True)
 
     passes = sum(1 for r in results if r.status == "PASS")
     fails = sum(1 for r in results if r.status == "FAIL")

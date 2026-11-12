@@ -1057,6 +1057,14 @@ if [[ -n "$CUT_VERSION" ]]; then
             printf 'measured\t%s of UNKNOWN (probe total not parseable from the run log, so coverage cannot be stated -- this is not a claim that coverage was full)\n' \
                    "$_measured"
         fi
+        # WHERE THE TIME GOES (names and seconds only, never probe output): the slowest phase-2 probes and the slowest
+        # manifest-replay rows, as printed by run_box_walk.sh and verify_cut_manifest.py. Absent = that phase did not print any.
+        sed -n 's/^ *TIMING top15 probe=\([A-Za-z0-9_]*\) seconds=\([0-9]*\).*/timing_phase2_probe\t\1\t\2/p' "$PROBE_LOG"
+        sed -n 's/^ *TIMING phase2_probes_total seconds=\([0-9]*\).*/timing_phase2_probes_total\t\1/p' "$PROBE_LOG"
+        if [[ -n "${MANIFEST_LOG:-}" && -r "${MANIFEST_LOG:-/nonexistent}" ]]; then
+            sed -n 's/^ *TIMING manifest_top15 probe=\([A-Za-z0-9_-]*\) seconds=\([0-9.]*\).*/timing_manifest_row\t\1\t\2/p' "$MANIFEST_LOG"
+            sed -n 's/^ *TIMING manifest_total rows=[0-9]* box_walk_rows=[0-9]* seconds=\([0-9.]*\).*/timing_manifest_total\t\1/p' "$MANIFEST_LOG"
+        fi
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
         # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.

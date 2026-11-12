@@ -1,0 +1,16 @@
+# manifest_reuse_allowlist.tsv -- probes whose PASS in this walk's full pass may be REUSED by the cut-manifest replay
+# (scripts/verify_cut_manifest.py, _live_reuse). Everything NOT listed here is measured AGAIN at manifest time, because a
+# full-pass PASS is not a PASS at manifest time (v1.0.89: the graph and vector store diverged by 44 between the two).
+# Matching walk id / box / installed version proves the same walk, not the same state, so this list is the only door.
+#
+# A probe belongs here ONLY if its subject cannot change after the install finishes. Anything touching stores, people,
+# contacts, ingest, the assistant, briefs, latency or egress RE-RUNS, explicitly including people_stores_reconcile,
+# people_count_agreement, no_person_holds_two_contact_cards and data_conservation
+# (tests/test_verify_cut_manifest.py::test_reuse_allowlist_names_no_state_probe fails if one is added).
+#
+# Columns: probe <TAB> reason (one line)
+installed_bundle_seal_intact	the signed bundle on disk; nothing at runtime rewrites it
+app_signature_survives_first_run	the code signature of the installed app, fixed once first run has happened
+install_manifest_complete	the file list the installer laid down; runtime writes do not change it
+image_pulls_match_pins	the pinned image digests recorded at install; a runtime pull cannot change the pin file
+launchd_no_ephemeral_paths	the installed plists' paths; static after install

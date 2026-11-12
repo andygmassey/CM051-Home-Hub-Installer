@@ -147,6 +147,8 @@ on:
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
       - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
       - 'tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh'
+      - 'tests/test_walk_timing_reaches_the_record.sh'
+      - 'scripts/box_walk_probes/manifest_reuse_allowlist.tsv'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -1060,6 +1062,10 @@ jobs:
       - name: The early pass adds no assertion the full pass lacks (so it is off by default)
         if: always()
         run: /bin/bash tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh
+
+      - name: Per-probe and per-manifest-row seconds reach the walk record
+        if: always()
+        run: /bin/bash tests/test_walk_timing_reaches_the_record.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
