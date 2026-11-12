@@ -30,7 +30,7 @@ out="$(sel --walk-store "$WORK/store0" --os003-dir "$WORK/none")"
 # fake OS003 with origin/main. BOMs are CUMULATIVE, as on real data (v1.0.128: 180 rows, v1.0.129: 190, each with ~50
 # capability_id=none rows and all three components): v1.0.6 = every v1.0.5 row + whatever is new.
 OS3="$WORK/os003"; mkdir -p "$OS3/manifest" "$OS3/cuts/v1.0.5" "$OS3/cuts/v1.0.6" && cd "$OS3" && git init -q .
-printf 'id\tname\trepo\tmethod\tpath\tpattern\texpect\trequired\tticket\ncap_wiki\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_wiki2\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_daemon\td\tassistant\tsource\t.\tx\tpresent\tyes\tt\ncap_inst\ti\tcm051\tsource\t.\tx\tpresent\tyes\tt\n' > manifest/capability_manifest.tsv
+printf 'id\tname\trepo\tmethod\tpath\tpattern\texpect\trequired\tticket\ncap_wiki\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_wiki2\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_daemon\td\tassistant\tsource\t.\tx\tpresent\tyes\tt\ncap_inst\ti\tcm051\tsource\t.\tx\tpresent\tyes\tt\ninstaller_version_stamp\ts\tcm051\tsource\t.\tx\tpresent\tyes\tt\n' > manifest/capability_manifest.tsv
 bomfile() { # $1 = version, rest = "what|repo|ref|capability" rows
     local v="$1"; shift; printf 'what\trepo\tref\tlanded\tcapability_id\tverify\tticket\n' > "$OS3/cuts/$v/MUST_CONTAIN.tsv"
     for r in "$@"; do IFS='|' read -r w rp rf c <<<"$r"; printf '%s\t%s\t%s\tno\t%s\tv\tt\n' "$w" "$rp" "$rf" "$c" >> "$OS3/cuts/$v/MUST_CONTAIN.tsv"; done; }
@@ -47,11 +47,23 @@ bomfile v1.0.6 "${BASE[@]}" "new wiki fix|CM044|f6|cap_wiki2"; commit_os3
 out="$(sel1)"
 inout usage_journal_producers && ! inout todos_reach_reminders && ! inout fda_tick_can_import
 arm "CUMULATIVE BOMs, one new cm044 row (old none rows present in both): cm044 only, no widening" $? "$(cat "$WORK/err")"
-grep -q 'smoke delta: 6 rows in v1.0.6, 5 in v1.0.5, 1 new' "$WORK/err"; arm "the delta is printed (6 vs 5 rows, 1 new)" $? "$(cat "$WORK/err")"
+grep -q 'smoke delta: 6 rows in v1.0.6, 5 in v1.0.5, 1 new, 0 removed' "$WORK/err"; arm "the delta is printed (6 vs 5 rows, 1 new, 0 removed)" $? "$(cat "$WORK/err")"
 grep -qE 'OS003 origin/main read: [0-9a-f]+ 20[0-9]{2}-' "$WORK/err"; arm "the OS003 origin/main commit and date that were read are printed" $? "$(cat "$WORK/err")"
 for p in no_store_port_is_tcp_reachable assistant_answers_grounded no_person_holds_two_contact_cards people_stores_reconcile app_signature_survives_first_run; do
     inout "$p"; arm "always selected: $p" $? "$out"
 done
+bomfile v1.0.6 "${BASE[@]}" "installer version stamped 1.0.6 (10600), ten sites|CM051|f7|installer_version_stamp"; commit_os3
+out="$(sel1)"
+inout fda_tick_can_import && ! inout usage_journal_producers && ! inout todos_reach_reminders && ! grep -q 'fail wide' "$WORK/err"
+arm "a version-stamp row carrying installer_version_stamp maps to cm051 only: no widening, no special case" $? "$(cat "$WORK/err")"
+bomfile v1.0.6 "${BASE[@]:0:1}" "${BASE[@]:2}"; commit_os3     # the cm044 row (BASE[1]) is REMOVED, nothing added
+out="$(sel1)"
+inout usage_journal_producers && ! inout todos_reach_reminders && ! inout fda_tick_can_import && grep -q '0 new, 1 removed' "$WORK/err"
+arm "a REMOVED cm044 row with nothing added selects cm044 (removals are changes)" $? "$(cat "$WORK/err")"
+bomfile v1.0.6 "${BASE[@]:0:3}" "${BASE[@]:4}"; commit_os3     # an old none row REMOVED
+out="$(sel1)"
+[ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q "REMOVED v1.0.5 BOM row has capability 'none'" "$WORK/err"
+arm "a REMOVED none row widens to ALL (an unexplained none still widens, in either direction)" $? "$(cat "$WORK/err")"
 bomfile v1.0.6 "${BASE[@]}" "new daemon fix|ostler-assistant|f6|cap_daemon"; commit_os3
 out="$(sel1)"
 inout todos_reach_reminders && ! inout usage_journal_producers; arm "one new assistant row: assistant probes yes, cm044 probes no" $? "$(cat "$WORK/err")"

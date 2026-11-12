@@ -15,6 +15,9 @@
 #              unreadable BOM, or no FULL record in the walk store, widens to ALL components (fail wide, never narrow).
 #              The selector prints the OS003 origin/main commit and date it read.
 #
+# KNOWN LIMIT: installer commits that have no BOM row are invisible to the delta. That is why the install-path probes
+# ALWAYS run, and why a smoke walk can never be CLEAN (a FULL walk is still required before any console walk or tag).
+#
 # EVERY probe on disk must appear exactly once below (tests/test_walk_smoke_scope_covers_every_probe.sh): a new probe
 # cannot silently fall out of smoke.
 blocking	directive-5	no_store_port_is_tcp_reachable,assistant_answers_grounded,no_person_holds_two_contact_cards,people_stores_reconcile

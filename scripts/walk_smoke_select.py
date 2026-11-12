@@ -120,14 +120,19 @@ def main():
             th, trows = tb; fh, frows = fb
             key = lambda h, r: tuple(r[h.index(c)] if len(r) > h.index(c) else "" for c in ("what", "repo", "ref"))
             old = {key(fh, r) for r in frows}
+            now = {key(th, r) for r in trows}
             new = [r for r in trows if key(th, r) not in old]
+            # A row that is in the last-FULL BOM and gone from the target is a change too (something was removed or
+            # replaced), counted against its own capability.
+            gone = [("REMOVED", full, fh, r) for r in frows if key(fh, r) not in now]
             ci = th.index("capability_id")
-            say(f"smoke delta: {len(trows)} rows in {a.target_version}, {len(frows)} in {full}, {len(new)} new")
-            for r in new:
+            say(f"smoke delta: {len(trows)} rows in {a.target_version}, {len(frows)} in {full}, {len(new)} new, {len(gone)} removed")
+            for tag, ver, h, r in [("NEW", a.target_version, th, x) for x in new] + gone:
+                ci = h.index("capability_id")
                 c = r[ci] if len(r) > ci else ""
                 comp = capmap.get(c)
                 if comp not in comps:
-                    widen_reason = f"a NEW {a.target_version} BOM row has capability {c or '(empty)'!r}, which maps to no component"
+                    widen_reason = f"a {tag} {ver} BOM row has capability {c or '(empty)'!r}, which maps to no component"
                     break
                 changed.add(comp)
     if widen_reason:
