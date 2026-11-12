@@ -86,6 +86,10 @@ jobs:
         if: always()
         run: bash tests/test_owner_name_id_never_empty.sh
 
+      - name: No mail extend-history prompt; mail, Safari and browser default to all history
+        if: always()
+        run: bash tests/test_ingest_all_history_no_mail_prompt.sh
+
       - name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
         if: always()
         run: bash tests/test_tier48_picks_9b.sh
@@ -99,7 +103,6 @@ jobs:
             tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
-            tests/test_ingest_all_history_no_mail_prompt.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
             tests/test_meeting_brief_sender.sh \
             tests/test_model_fit.sh \
