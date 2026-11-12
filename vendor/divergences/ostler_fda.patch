@@ -1,3 +1,118 @@
+--- /dev/null
++++ b/allday_backfill.py
+@@ -0,0 +1,112 @@
++"""One-time backfill of ``pwg:meetingAllDay`` onto Meeting nodes written before I22.
++
++I22 made ``ingest_calendar`` record the calendar's own all-day flag. Meeting
++nodes written before that carry no flag, so the Timeline reads an old all-day
++event as timed. The hourly tick already re-ingests whatever the extract window
++covers (the Meeting URI is a stable uuid5, so the flag lands on the same node);
++this reaches the rows OUTSIDE that window, once, with a wide re-read.
++
++Rules, all tested:
++  - ADDS the flag only where a Meeting has none. Never deletes, never rewrites
++    a flag already there, never creates a Meeting or a Person.
++  - Idempotent: a second run finds nothing unflagged that it can match.
++  - Fail-soft: any failure returns a status and writes no marker, so the next
++    tick retries. It never raises into the tick.
++  - Logs counts only: no title, attendee or date is ever put in the result.
++"""
++from __future__ import annotations
++
++import json
++import uuid
++from datetime import datetime
++from pathlib import Path
++from typing import Callable, Optional
++
++PWG = "https://schema.ostler.ai/ontology#"
++MARKER_NAME = "allday_backfill_v1.done"
++_CHUNK = 200
++
++
++def meeting_uri(title: str, start_date: str) -> str:
++    """The URI ``ingest_calendar`` gives a Meeting. Keep in step with it."""
++    meeting_id = uuid.uuid5(
++        uuid.NAMESPACE_URL,
++        f"https://schema.ostler.ai/meeting/{title}|{start_date}",
++    )
++    return f"{PWG}meeting_{meeting_id}"
++
++
++def _start_text(value) -> str:
++    # The extract is stored with json.dumps(..., default=str), so a datetime
++    # reaches ingest_calendar as str(datetime). Do the same here.
++    return value if isinstance(value, str) else str(value) if isinstance(value, datetime) else ""
++
++
++def backfill_all_day(events: list, query: Callable[[str], list],
++                     update: Callable[[str], None]) -> dict:
++    """Set the flag on unflagged Meeting nodes that match an extracted event."""
++    rows = query(
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?m WHERE { ?m a pwg:Meeting ; pwg:source \"calendar_fda\" . "
++        "FILTER NOT EXISTS { ?m pwg:meetingAllDay ?f } }"
++    )
++    unflagged = {r["m"]["value"] for r in rows}
++    want: dict[str, bool] = {}
++    for ev in events:
++        flag = ev.get("is_all_day")
++        start = _start_text(ev.get("start_date"))
++        if not isinstance(flag, bool) or not start:
++            continue
++        uri = meeting_uri(ev.get("title", ""), start)
++        if uri in unflagged and uri not in want:
++            want[uri] = flag
++    triples = [
++        f'<{u}> pwg:meetingAllDay "{"true" if f else "false"}"^^xsd:boolean'
++        for u, f in want.items()
++    ]
++    for i in range(0, len(triples), _CHUNK):
++        update(
++            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++            "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
++            "INSERT DATA {\n  " + " .\n  ".join(triples[i:i + _CHUNK]) + " .\n}"
++        )
++    return {
++        "unflagged_before": len(unflagged),
++        "set_all_day": sum(1 for f in want.values() if f),
++        "set_timed": sum(1 for f in want.values() if not f),
++        "unmatched": len(unflagged) - len(want),
++    }
++
++
++def run_once(state_dir: Path, *, since_days: int = 1825, future_days: int = 30,
++             extract: Optional[Callable[..., list]] = None,
++             query: Optional[Callable[[str], list]] = None,
++             update: Optional[Callable[[str], None]] = None) -> dict:
++    """Run the backfill unless its marker exists. Never raises."""
++    marker = Path(state_dir) / MARKER_NAME
++    try:
++        if marker.exists():
++            return {"status": "already_done"}
++        if extract is None:
++            from .calendar import extract_events as extract
++        if query is None or update is None:
++            from . import pwg_ingest
++            query, update = pwg_ingest._sparql_query, pwg_ingest._sparql_update
++        try:
++            events = [e if isinstance(e, dict) else e.__dict__
++                      for e in extract(since_days=since_days, future_days=future_days)]
++        except PermissionError:
++            return {"status": "cannot_run", "reason": "no_fda"}
++        except FileNotFoundError:
++            return {"status": "cannot_run", "reason": "calendar_not_found"}
++        counts = backfill_all_day(events, query, update)
++        counts["events"] = len(events)
++        # An empty read with unflagged rows is a calendar that could not be
++        # read, not a calendar with nothing to say: retry next tick.
++        if not events and counts["unflagged_before"]:
++            return {"status": "cannot_run", "reason": "empty_extract", **counts}
++        marker.parent.mkdir(parents=True, exist_ok=True)
++        marker.write_text(json.dumps(counts, sort_keys=True) + "\n", encoding="utf-8")
++        return {"status": "ok", **counts}
++    except Exception as exc:  # fail-soft: the tick must not notice
++        return {"status": "error", "error": type(exc).__name__}
 --- a/apple_mail_mbox.py
 +++ b/apple_mail_mbox.py
 @@ -500,7 +500,9 @@
@@ -40,11 +155,30 @@
              scanned_files += 1
              try:
                  meta = scan_emlx_metadata(emlx_path)
-@@ -801,6 +813,17 @@
-             and chunk_floor <= p.received_at < oldest_edge
+@@ -794,7 +806,18 @@
+     backward: list[EmlxMeta] = []
+     new_oldest_edge = oldest_edge
+     if not backfill_complete and oldest_edge is not None and not is_seeding_tick:
+-        chunk_floor = oldest_edge - _days(backfill_chunk_days)
++        # Step to the next OLDER message actually present, not blindly one
++        # fixed chunk back: a single mis-dated header (a 1970 epoch Date is
++        # real) used to cost ~56 years of EMPTY 30-day chunks, one tick each.
++        # The chunk is `backfill_chunk_days` wide measured from the newest
++        # message older than the edge, so every backward tick carries at least
++        # one message and the sweep ends when none older remains.
++        older = [p.received_at for p in discovered
++                 if p.received_at is not None and p.received_at < oldest_edge]
++        if older:
++            chunk_floor = max(older) - _days(backfill_chunk_days)
++        else:
++            chunk_floor = oldest_edge
+         backward = [
+             p for p in discovered
+             if p.received_at is not None
+@@ -802,6 +825,17 @@
          ]
          new_oldest_edge = chunk_floor
-+
+ 
 +    if walk_errors:
 +        # Part of the mailbox could not be read this tick. Whatever we did not
 +        # see cannot be counted as covered: hold the backward edge where it was
@@ -55,10 +189,11 @@
 +            "the backward edge and not marking the backfill complete.",
 +            len(walk_errors), "y" if len(walk_errors) == 1 else "ies", walk_errors[0],
 +        )
- 
++
      fresh = forward + backward
      fresh.sort(key=lambda p: p.received_at or datetime.min.replace(tzinfo=timezone.utc))
-@@ -814,7 +837,9 @@
+ 
+@@ -814,7 +848,9 @@
          min((p.received_at for p in discovered if p.received_at is not None),
              default=None)
      )
@@ -69,7 +204,20 @@
          # Unbounded first run emitted the entire mailbox in one
          # go; backward sweep would re-emit what we just shipped.
          # Mark complete and pin the oldest edge to the actual
-@@ -890,7 +915,11 @@
+@@ -831,7 +867,11 @@
+         and oldest_edge is not None
+         and (
+             mailbox_floor is None
+-            or (new_oldest_edge is not None and new_oldest_edge <= mailbox_floor)
++            or new_oldest_edge is None
++            or not any(
++                p.received_at is not None and p.received_at < new_oldest_edge
++                for p in discovered
++            )
+         )
+     ):
+         new_backfill_complete = True
+@@ -890,7 +930,11 @@
              _record("other", error_message=f"checkpoint save failed: {exc}")
              raise
          _record(
@@ -82,7 +230,7 @@
              emitted=0,
              oldest=new_oldest_edge,
              newest=checkpoint.newest_processed,
-@@ -947,6 +976,11 @@
+@@ -947,6 +991,11 @@
          max(emitted_forward_dates) if emitted_forward_dates
          else checkpoint.newest_processed
      )
@@ -94,7 +242,7 @@
  
      try:
          save_checkpoint(
-@@ -974,7 +1008,11 @@
+@@ -974,7 +1023,11 @@
          skipped_unparseable, skipped_no_date, skipped_at_emit,
      )
      _record(
@@ -386,7 +534,7 @@
      sorted_contacts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
 --- /dev/null
 +++ b/apple_music_refresh.py
-@@ -0,0 +1,610 @@
+@@ -0,0 +1,611 @@
 +"""The scheduled Apple Music refresh: daily and at login, additive, fail-open.
 +
 +WHY (Andy, 2026-10-15, "please don't let that slip"). Apple Music was read at
@@ -719,7 +867,8 @@
 +
 +# ── the ingest ─────────────────────────────────────────────────────────────
 +
-+def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str) -> bool:
++def run_cm019_ingest(directory: Path, ostler_dir: Path, user: str,
++                     timeout_s: Optional[float] = None) -> bool:
 +    """Hand ``directory`` to the CM019 preference ingest. True on success.
 +
 +    Same command, same upsert, as ostler-import's preference leg. Missing
@@ -736,7 +885,7 @@
 +            [str(py), "-m", "services.ingest.src.cli", "ingest-dir", str(directory),
 +             "-u", user],
 +            cwd=str(cm019), env=env, stdin=subprocess.DEVNULL,
-+            capture_output=True, timeout=INGEST_TIMEOUT_S, check=False,
++            capture_output=True, timeout=timeout_s or INGEST_TIMEOUT_S, check=False,
 +        )
 +    except (subprocess.TimeoutExpired, OSError) as exc:
 +        logger.warning("music-refresh: could not store (%s)", type(exc).__name__)
@@ -1712,15 +1861,86 @@
  import time as _time
  from dataclasses import dataclass
  from datetime import datetime, timezone
-@@ -227,7 +229,7 @@
+@@ -82,9 +84,14 @@
+     total: int,
+     needs_source: bool = False,
+     started_at: Optional[str] = None,
++    complete: bool = False,
++    skip_reason: str = "",
+ ) -> None:
+     """Best-effort settling emit. A reporting failure must never cost the
+-    customer their calendar extract, so every error is swallowed."""
++    customer their calendar extract, so every error is swallowed.
++
++    ``complete`` / ``skip_reason`` are the ONLY terminal markers: the reader
++    counts a channel finished on one of them and on nothing else."""
+     try:
+         report_settling_progress(
+             channel=_SETTLING_CHANNEL,
+@@ -92,6 +99,8 @@
+             total=total,
+             needs_source=needs_source,
+             started_at=started_at,
++            complete=complete,
++            skip_reason=skip_reason,
+         )
+     except Exception:
+         logger.warning(
+@@ -211,6 +220,8 @@
+         return []
+ 
+     if resolved is None:
++        # Nothing to read: terminal skip, so the bar does not wait on it.
++        _emit_settling(done=0, total=0, skip_reason="no_calendar")
+         # Name the path actually probed. The old message always cited both
+         # defaults, so an explicit-path miss read as "your Mac has no
+         # calendar" and sent at least one reader down the wrong trail.
+@@ -227,7 +238,8 @@
      try:
          conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
 -        if "authorization denied" in str(e).lower():
 +        if is_fda_refusal(e, resolved):
++            _emit_settling(done=0, total=0, skip_reason="permission_denied")
              # RAISE (do not return []) so the extract_all orchestrator's
              # PermissionError -> no_fda branch fires and the customer gets a
              # Doctor "grant Full Disk Access" card. Returning [] here made a
+@@ -312,9 +324,15 @@
+     _settling_total = len(rows)
+     _settling_done = 0
+     _settling_last_tick = 0.0
+-    # Announce at 0-of-N before any work: a channel that appears only on
+-    # completion is indistinguishable from one that was never wired.
+-    _emit_settling(done=0, total=_settling_total, started_at=_settling_started)
++    if _settling_total == 0:
++        # Nothing in the window: terminal skip with a reason, not a 0/0 that
++        # the reader (rightly) treats as still discovering.
++        _emit_settling(done=0, total=0, started_at=_settling_started,
++                       skip_reason="no_events")
++    else:
++        # Announce at 0-of-N before any work: a channel that appears only on
++        # completion is indistinguishable from one that was never wired.
++        _emit_settling(done=0, total=_settling_total, started_at=_settling_started)
+     for row in rows:
+         # Count the row as dealt with BEFORE the body -- malformed rows hit
+         # `continue`, and a tick at the bottom would strand `done` below
+@@ -362,9 +380,13 @@
+             logger.warning("Skipping malformed Calendar row: %s", e)
+             continue
+ 
+-    _emit_settling(
+-        done=_settling_total, total=_settling_total, started_at=_settling_started,
+-    )
++    # The extract finished: the explicit terminal marker (done==total alone is
++    # NOT terminal). Skipped when the window was empty (skip emitted above).
++    if _settling_total > 0:
++        _emit_settling(
++            done=_settling_total, total=_settling_total,
++            started_at=_settling_started, complete=True,
++        )
+     logger.info(
+         "Extracted %d calendar events from %s", len(events), resolved,
+     )
 --- /dev/null
 +++ b/catchup_browser.py
 @@ -0,0 +1,194 @@
@@ -3207,7 +3427,16 @@
  import tempfile
  from contextlib import contextmanager
  from dataclasses import dataclass
-@@ -150,6 +152,10 @@
+@@ -40,6 +42,8 @@
+ from typing import Iterator, Optional
+ from urllib.parse import urlparse
+ 
++from .url_clean import strip_tracking
++
+ logger = logging.getLogger(__name__)
+ 
+ # WebKit / Chrome epoch offset (1601-01-01 UTC -> 1970-01-01 UTC), seconds.
+@@ -150,6 +154,10 @@
      db_path: Optional[Path] = None,
      since_days: int = 365,
      min_visits: int = 1,
@@ -3218,7 +3447,7 @@
  ) -> list[HistoryEntry]:
      """Extract browsing history entries from Chrome.
  
-@@ -162,6 +168,14 @@
+@@ -162,6 +170,14 @@
              at the extract_all.py layer.
          min_visits: Drop URLs whose ``urls.visit_count`` is below
              this threshold. Default 1 to match Safari.
@@ -3233,7 +3462,7 @@
  
      Returns:
          List of HistoryEntry, most-recent visit first.
-@@ -184,14 +198,22 @@
+@@ -184,14 +200,22 @@
      # visits.visit_time monotonicity.
      now_unix = datetime.now(timezone.utc).timestamp()
      cutoff_unix = now_unix - (since_days * 86400)
@@ -3257,7 +3486,7 @@
                  raise PermissionError(
                      "Cannot read Chrome history. Grant Full Disk Access "
                      "(System Settings > Privacy & Security > Full Disk Access)."
-@@ -210,14 +232,19 @@
+@@ -210,21 +234,26 @@
                      v.from_visit
                  FROM urls u
                  JOIN visits v ON v.url = u.id
@@ -3279,7 +3508,15 @@
              conn.close()
              return []
          conn.close()
-@@ -258,6 +285,33 @@
+ 
+     entries: list[HistoryEntry] = []
+     for row in rows:
+-        url = row["url"]
++        url = strip_tracking(row["url"])
+         try:
+             parsed = urlparse(url)
+             domain = parsed.netloc.lower()
+@@ -258,6 +287,33 @@
      return entries
  
  
@@ -3439,7 +3676,7 @@
      # Outbound: <dupe> ?p ?o  ->  <canonical> ?p ?o
      _sparql_update(
          f"DELETE {{ <{dupe}> ?p ?o }} "
-@@ -165,28 +218,392 @@
+@@ -165,28 +218,573 @@
          f"DELETE {{ ?s ?p <{dupe}> }} "
          f"INSERT {{ ?s ?p <{canonical}> }} "
          f"WHERE  {{ ?s ?p <{dupe}> }}"
@@ -3480,10 +3717,10 @@
 +def _display_names(uri: str) -> List[str]:
 +    rows = _sparql_query(
 +        f"SELECT ?n WHERE {{ <{uri}> <{PWG}displayName> ?n }}"
-     )
++    )
 +    return [r["n"]["value"] for r in rows if r.get("n", {}).get("value")]
- 
- 
++
++
 +def _escape(value: str) -> str:
 +    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
 +
@@ -3714,6 +3951,181 @@
 +    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
 +
 +
++# ── EMAIL TWINS: AN ADDRESS-ONLY PERSON IS THE CARD THAT HOLDS THE ADDRESS ──
++# v1.0.120 walk (Mini16, counts only): the People list showed a row named by
++# an email address while a human-named row held that same address. The
++# address-named node was written by the email ingest (vendor/cm021, its
++# _build_upsert): ``uuid5(address)``, the address as a bare ``pwg:email``
++# literal, a provisional displayName, and NO ``pwg:hasIdentifier``. Every
++# identity path keys on hasIdentifier -- find_collisions above,
++# IdentityResolver.find_by_identifier -- so this node was invisible to all of
++# them and could never merge. 33 such nodes on that box shared their address
++# with a live identifier-holding node.
++#
++# The rule is the ratified one, kept narrow: an address-only node folds into
++# the ONE live person holding that address as an identifier, when its name is
++# not a human name (the email-named case: a name-tier upgrade) or is the SAME
++# full name as that holder's. An address held by two or more people is shared
++# (a family inbox) and joins nobody; a different human name joins nobody. An
++# address-only node carries no Contacts card, so RULE 2 cannot be crossed.
++
++def merge_email_twins(dry_run: bool = False, max_folds: Optional[int] = None) -> Dict[str, int]:
++    """Fold each address-only Person into the one live holder of its address.
++    Raises on an unreadable store, like every read in this module; ``run``
++    reports that."""
++    twins = _sparql_query(
++        f"PREFIX pwg:<{PWG}> "
++        "SELECT ?t ?m WHERE { "
++        "  ?t a pwg:Person ; pwg:email ?m . "
++        "  FILTER NOT EXISTS { ?t pwg:hasIdentifier ?x } "
++        "  FILTER NOT EXISTS { ?t pwg:mergedInto ?f } "
++        "  FILTER NOT EXISTS { ?t a pwg:RetiredPerson } "
++        "}"
+     )
++    addrs: Dict[str, Set[str]] = {}
++    for r in twins:
++        addrs.setdefault(r["t"]["value"], set()).add(r["m"]["value"].strip().lower())
++    holders_rows = _sparql_query(
++        f"PREFIX pwg:<{PWG}> "
++        "SELECT ?p ?v WHERE { "
++        "  ?p a pwg:Person ; pwg:hasIdentifier ?id . "
++        '  ?id pwg:identifierType "email" ; pwg:identifierValue ?v . '
++        "  FILTER NOT EXISTS { ?p pwg:mergedInto ?f } "
++        "  FILTER NOT EXISTS { ?p a pwg:RetiredPerson } "
++        "}"
++    ) if addrs else []
++    holders: Dict[str, Set[str]] = {}
++    for r in holders_rows:
++        holders.setdefault(r["v"]["value"].strip().lower(), set()).add(r["p"]["value"])
++    merged = shared = name_differs = 0
++    plan: List[Tuple[str, str]] = []
++    for twin, mails in sorted(addrs.items()):
++        found: Set[str] = set()
++        for m in mails:
++            found |= holders.get(m, set())
++        found.discard(twin)
++        if not found:
++            continue
++        if len(found) > 1:
++            shared += 1
++            continue
++        plan.append((next(iter(found)), twin))
++    unjournalled = vector_unreconciled = deferred = 0
++    if plan:
++        names = _real_names_of({p for pair in plan for p in pair})
++        mj = jdir = None
++        if not dry_run:
++            mj = _merge_journal_module()
++            jdir = mj.default_journal_dir() if mj is not None else None
++        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
++        for holder, twin in plan:
++            twin_real = names.get(twin, set())
++            if twin_real and not (twin_real & names.get(holder, set())):
++                name_differs += 1
++                continue
++            # UNATTENDED, SO CAPPED. The hourly tick folds with nobody watching:
++            # at most ``max_folds`` per call, the rest wait for the next tick and
++            # are counted. None (the install sweep, run()) means no cap.
++            if max_folds is not None and merged >= max_folds:
++                deferred += 1
++                continue
++            if dry_run:
++                merged += 1
++                continue
++            # LIKE EVERY OTHER MERGE: journalled BEFORE the first write, so the
++            # Hub's Split and ``batch_resolver --undo-merge`` can restore it,
++            # then a mergedInto tombstone (``_merge_pair``), then the loser's
++            # people vector deleted (CM051 #3235's ``delete_person_points``).
++            # No journal, no merge: an un-undoable fold is worse than a twin
++            # that waits for the next tick.
++            if mj is None or not jdir:
++                unjournalled += 1
++                continue
++            try:
++                transport = httpx.HTTPTransport(proxy=None)
++                with httpx.Client(timeout=60.0, transport=transport) as client:
++                    mj.record_merge(
++                        OXIGRAPH_URL, client, jdir, holder, twin,
++                        strategy="email_twin", confidence=1.0,
++                        details="identifier values withheld from the journal",
++                        qdrant_url=qdrant_url, qdrant_collection="people")
++            except Exception as exc:  # noqa: BLE001 -- counted, never a blind merge
++                unjournalled += 1
++                logger.warning("dedupe_merge: email twin NOT folded, no pre-merge "
++                               "snapshot (%s); the next tick retries", type(exc).__name__)
++                continue
++            _merge_pair(holder, twin)
++            merged += 1
++            if qdrant_url:
++                try:
++                    mj.delete_person_points(qdrant_url, "people", twin)
++                except Exception as exc:  # noqa: BLE001 -- counted; the repair sweeps it
++                    vector_unreconciled += 1
++                    logger.warning("dedupe_merge: email twin folded, its people vector "
++                                   "NOT deleted (%s)", type(exc).__name__)
++    logger.info(
++        "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
++        "%d different name(s), %d not journalled, %d deferred by the cap%s",
++        merged, shared, name_differs, unjournalled, deferred,
++        " (dry-run, no writes)" if dry_run else "",
++    )
++    return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
++            "email_twins_name_differs": name_differs,
++            "email_twins_unjournalled": unjournalled,
++            "email_twins_vector_unreconciled": vector_unreconciled,
++            "email_twins_deferred": deferred,
++            "email_twins_max_folds": max_folds}
+ 
+ 
++#: Folds one hourly tick may make with nobody watching. Measured read-only on
++#: the v1.0.120 walk box (Mini16, 2026-10-30): 672 live address-only persons,
++#: 24 with exactly one holder, 5 of those foldable. 25 clears that with room
++#: and bounds a pathological graph to 25 journalled, undoable folds an hour.
++TICK_MAX_EMAIL_TWIN_FOLDS = 25
++
++
++def tick_email_twins() -> str:
++    """One log line for the hourly fda-rerun tick (install.sh writes
++    ~/.ostler/bin/ostler-fda, whose python block calls this right after
++    ingest_all). The email ingest mints an address-only person for every new
++    correspondent and the install-time sweep never sees one made later, so
++    the fold runs on every tick. NEVER raises: bookkeeping must not fail the
++    tick it rides on; an unreadable store is a CANNOT-RUN line, not a count."""
++    import json
++    try:
++        try:
++            cap = int(os.environ.get("OSTLER_EMAIL_TWIN_MAX_FOLDS", TICK_MAX_EMAIL_TWIN_FOLDS))
++        except ValueError:
++            cap = TICK_MAX_EMAIL_TWIN_FOLDS
++        return "[email-twins] " + json.dumps(merge_email_twins(max_folds=max(cap, 0)), default=str)
++    except Exception as exc:  # noqa: BLE001 -- reported on the line, never swallowed
++        return "[email-twins] CANNOT-RUN: %s: %s" % (type(exc).__name__, str(exc)[:200])
++
++
++def _merge_journal_module():
++    """``identity_resolver.merge_journal``, the one merge journal every merge
++    path writes. It ships in the import pipeline, not in this package, so it
++    is found there when it is not already importable. None when it cannot be
++    found: the caller then makes no merge."""
++    try:
++        from identity_resolver import merge_journal  # type: ignore
++        return merge_journal
++    except ImportError:
++        pass
++    pipeline = os.environ.get("OSTLER_PIPELINE_DIR") or os.path.join(
++        os.path.expanduser("~"), ".ostler", "import-pipeline")
++    if not os.path.isdir(os.path.join(pipeline, "identity_resolver")):
++        return None
++    import sys
++    if pipeline not in sys.path:
++        sys.path.append(pipeline)
++    try:
++        from identity_resolver import merge_journal  # type: ignore
++        return merge_journal
++    except ImportError:
++        return None
++
++
  def run(dry_run: bool = False) -> Dict[str, int]:
      """Sweep the graph and merge all exact-identifier-colliding Persons.
      Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
@@ -3830,6 +4242,12 @@
 +    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
 +        logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
 +        out["phone_twins_unreadable"] = True
++    # The address-only twins neither pass above can see (no hasIdentifier).
++    try:
++        out.update(merge_email_twins(dry_run=dry_run))
++    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
++        logger.error("dedupe_merge: email-twin pass could not read the store (%s)", exc)
++        out["email_twins_unreadable"] = True
 +    return out
  
  
@@ -4950,16 +5368,45 @@
  @dataclass
  class Conversation:
      """A conversation thread (individual or group)."""
-@@ -146,7 +237,7 @@
+@@ -87,6 +178,8 @@
+     total: int,
+     needs_source: bool = False,
+     started_at: Optional[str] = None,
++    skip_reason: str = "",
++    complete: bool = False,
+ ) -> None:
+     """Best-effort settling-progress emit for the iMessage backfill.
+ 
+@@ -103,6 +196,8 @@
+             needs_source=needs_source,
+             started_at=started_at,
+             shard=_SETTLING_SHARD,
++            skip_reason=skip_reason,
++            complete=complete,
+         )
+     except Exception:  # noqa: BLE001 -- see docstring
+         logger.warning(
+@@ -137,6 +232,8 @@
+     started_at = datetime.now(timezone.utc).isoformat()
+ 
+     if not db_path.exists():
++        _emit_settling(done=0, total=0, started_at=started_at,
++                       skip_reason="no_chat_db")
+         # chat.db is a system-installed file on macOS Sequoia+, so
+         # "missing" is unusual (custom test env, damaged install) rather
+         # than "source not connected". needs_source stays False -- the
+@@ -146,7 +243,9 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
 -        if "authorization denied" in str(e).lower():
 +        if is_fda_refusal(e, db_path):
++            _emit_settling(done=0, total=0, started_at=started_at,
++                           skip_reason="permission_denied")
              raise PermissionError(
                  "Cannot read iMessage history. Grant Full Disk Access."
              ) from e
-@@ -174,8 +265,9 @@
+@@ -174,8 +273,9 @@
              ORDER BY last_msg DESC
          """, (min_messages,)).fetchall()
      except sqlite3.OperationalError as e:
@@ -4970,7 +5417,35 @@
          return []
  
      conn.close()
-@@ -282,7 +374,7 @@
+@@ -201,7 +301,8 @@
+         # reader classifies as ready rather than waiting. iMessage's source
+         # (chat.db) is always connected on macOS; a zero-row extract is
+         # "you haven't messaged anyone", not "no source".
+-        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at)
++        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at,
++                       skip_reason="no_messages")
+         logger.info("Extracted 0 conversations from iMessage")
+         return []
+ 
+@@ -252,11 +353,12 @@
+             _emit_settling(done=done, total=total, started_at=started_at)
+             last_tick = now
+ 
+-    # Final emit carries the ACTUAL done, not total. The previous version
+-    # passed done=total here "belt-and-braces", which meant every run ended at
+-    # 100% no matter how much of the corpus the window had excluded -- it
+-    # overwrote the honest count with a claim of completion.
+-    _emit_settling(done=done, total=total, started_at=started_at)
++    # Final emit carries the ACTUAL done, not total (done=total here used to
++    # overwrite the honest count with a claim of completion), AND the explicit
++    # terminal marker: the run finished its window. Out-of-window chats are
++    # not ingested by this run; the shared writer keeps `done` monotonic, and a
++    # later run that measures a larger total re-opens the shard.
++    _emit_settling(done=done, total=total, started_at=started_at, complete=True)
+ 
+     logger.info("Extracted %d conversations from iMessage", len(conversations))
+     return conversations
+@@ -282,7 +384,7 @@
      try:
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -4979,7 +5454,7 @@
              raise PermissionError(
                  "Cannot read iMessage history. Grant Full Disk Access."
              ) from e
-@@ -297,7 +389,11 @@
+@@ -297,7 +399,11 @@
                  m.is_from_me,
                  m.date,
                  m.cache_has_attachments as has_attachment,
@@ -4992,7 +5467,7 @@
              FROM message m
              JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
              JOIN chat c ON c.ROWID = cmj.chat_id
-@@ -307,8 +403,9 @@
+@@ -307,8 +413,9 @@
              LIMIT ?
          """, (chat_id, limit)).fetchall()
      except sqlite3.OperationalError as e:
@@ -5003,7 +5478,7 @@
          return []
  
      conn.close()
-@@ -317,6 +414,8 @@
+@@ -317,6 +424,8 @@
      for row in rows:
          if row["date"] is None:
              continue
@@ -6114,13 +6589,14 @@
 +        conn.close()
 --- a/pwg_ingest.py
 +++ b/pwg_ingest.py
-@@ -30,8 +30,15 @@
+@@ -30,8 +30,16 @@
  from typing import Optional
  
  import httpx
 +import phonenumbers
  
 +from . import forget_tombstone
++from .url_clean import strip_tracking
 +from . import phone_twins as _phone_twins
 +from .person_audit import record_person_removal
  from .role_addresses import is_role_identifier  # noqa: F401
@@ -6130,7 +6606,7 @@
  from .identifier_quality import observe as _observe_identifier
  from .usage_journal import record_usage as _record_usage
  from .usage_journal import tokens_from_ollama as _tokens_from_ollama
-@@ -71,6 +78,8 @@
+@@ -71,10 +79,64 @@
          purpose="ingesting",
          session_id=_USAGE_SESSION_ID,
      )
@@ -6139,7 +6615,63 @@
  QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "people")
  DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
  
-@@ -124,7 +133,381 @@
+ 
++# INGEST CONTRACT (smart-prefs foundations, 2026-10-22). Every point written to
++# the `preferences` collection must carry the same shape the CM019 parsers
++# write, because the derive engine and the wiki read them as one population:
++#   * compartment_level is an INTEGER (CM019 writes 2 for L2). This module used
++#     to write the string "L2", so two writers disagreed on the type of one
++#     field and any reader that compares or sorts it saw a mixed population.
++#   * user_id says whose preference it is. These points carried none, so they
++#     could not be told apart from, or attributed to, the owner.
++#   * observed_at is the time of the EVENT, never the time of the import.
++def _compartment_int(level: str = "") -> int:
++    """2 for "L2". Falls back to 2 (Trusted), the CM019 default."""
++    text = (level or DEFAULT_PRIVACY or "").strip().upper().lstrip("L")
++    try:
++        return int(text)
++    except ValueError:
++        return 2
++
++
++def _owner_user_id() -> Optional[str]:
++    """The owner's user id, or None when it cannot be known.
++
++    OSTLER_USER_ID wins; else the USER_ID line of the install's config/.env.
++    Never invented: a point without an owner is honest, a point attributed to
++    a made-up owner is not.
++    """
++    value = (os.getenv("OSTLER_USER_ID") or "").strip()
++    if value:
++        return value
++    base = Path(os.getenv("OSTLER_DIR") or (Path.home() / ".ostler"))
++    try:
++        for line in (base / "config" / ".env").read_text(encoding="utf-8").splitlines():
++            if line.startswith("USER_ID="):
++                return line.split("=", 1)[1].strip().strip("\"'") or None
++    except OSError:
++        return None
++    return None
++
++
++def _iso_or_none(value) -> Optional[str]:
++    """A real event time as ISO-8601, or None. Never `now`."""
++    if not value:
++        return None
++    if isinstance(value, datetime):
++        dt = value
++    else:
++        try:
++            dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
++        except ValueError:
++            return None
++    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
++
++
+ # ── Wiki slug (CM041 reader-contract parity) ──────────────────────
+ #
+ # Non-decomposable Latin letters NFKD leaves intact (atomic code points, not
+@@ -124,7 +186,381 @@
  
  
  # ── Shared utilities (same patterns as contact_syncer) ────────────
@@ -6336,7 +6868,7 @@
 +
 +def _is_whatsapp_placeholder_name(value: "Optional[str]") -> bool:
 +    """True when ``value`` is WhatsApp's stand-in for "no real name".
- 
++
 +    Covers: empty/whitespace, names made only of punctuation/emoji/marks,
 +    a bare "~" or "~"-prefixed placeholder, WhatsApp's unknown-name words
 +    and "WhatsApp contact"-shaped labels in any locale. A real name, with or
@@ -6359,7 +6891,7 @@
 +    if joined in _WA_UNKNOWN_WORDS:
 +        return True
 +    return len(words) <= 4 and all(w in _WA_FILLER_WORDS for w in words)
-+
+ 
 +def _display_name_tier(value: str) -> int:
 +    """Rank a candidate displayName. See the tier table above."""
 +    if not value:
@@ -6521,7 +7053,7 @@
  def _sparql_update(sparql: str) -> None:
      """Execute a SPARQL UPDATE against Oxigraph."""
      transport = httpx.HTTPTransport(proxy=None)
-@@ -216,16 +599,22 @@
+@@ -216,16 +652,22 @@
      return embs[0]
  
  
@@ -6546,7 +7078,7 @@
          raise ValueError(
              f"refusing to key a person on the role address {clean!r}: "
              "it is a sender, not a person, and keying on it merges everyone "
-@@ -238,30 +627,164 @@
+@@ -238,30 +680,164 @@
      return f"https://schema.ostler.ai/ontology#person_{person_id}"
  
  
@@ -6722,7 +7254,7 @@
  
  
  # ── iMessage ingestion ────────────────────────────────────────────
-@@ -280,6 +803,9 @@
+@@ -280,6 +856,9 @@
      conversations = json.loads(conversations_file.read_text())
      people_created = 0
      people_enriched = 0
@@ -6732,7 +7264,7 @@
  
      for convo in conversations:
          participants = convo.get("participants", [])
-@@ -294,20 +820,48 @@
+@@ -294,20 +873,48 @@
              if not participant:
                  continue
  
@@ -6783,7 +7315,7 @@
              if not exists:
                  # Create a minimal person node
                  is_phone = participant.startswith("+") or participant.replace("-", "").replace(" ", "").isdigit()
-@@ -315,13 +869,19 @@
+@@ -315,13 +922,19 @@
  
                  triples = [
                      f"<{uri}> a pwg:Person",
@@ -6804,7 +7336,7 @@
                  # Add identifier
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_imessage"
                  triples.extend([
-@@ -358,33 +918,142 @@
+@@ -358,31 +971,152 @@
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -6824,6 +7356,16 @@
 +        "iMessage: %d people created, %d enriched, %d skipped (store unreadable)",
 +        people_created, people_enriched, lookup_failed,
      )
++    # NEW-119: the VOLUME this run read, beside the people it changed. A run
++    # that read 84,826 messages and met no new person is not "no data", and the
++    # installer's sentinel can only say so if the counts reach it.
++    conversations_read = len(conversations)
++    messages_read = 0
++    for convo in conversations:
++        try:
++            messages_read += int(convo.get("message_count", 0) or 0)
++        except (TypeError, ValueError):
++            pass
      return {
 -        "status": "ok",
 +        "status": _lookup_status(lookup_failed, people_created + people_enriched),
@@ -6831,6 +7373,8 @@
          "people_enriched": people_enriched,
 +        "people_lookup_failed": lookup_failed,
 +        "people_linked_to_contact": twins.linked,
++        "conversations_read": conversations_read,
++        "messages_read": messages_read,
      }
  
  
@@ -6913,8 +7457,8 @@
 +    except Exception as exc:  # noqa: BLE001
 +        raise _StoreUnavailable(type(exc).__name__) from exc
 +    return len(result) > 0
- 
- 
++
++
 +def _live_person(uri: str):
 +    """(live_uri, exists) for a writer about to create or enrich ``uri``.
 +    Raises ``_StoreUnavailable``."""
@@ -6950,12 +7494,10 @@
 +        if self._failed:
 +            return _LOOKUP_FAILED
 +        return self._index.holder_for(phone)
-+
-+
+ 
+ 
  def _identifier_exists(id_uri: str) -> bool:
-     """Check if an identifier URI exists in Oxigraph."""
-     try:
-@@ -394,7 +1063,8 @@
+@@ -394,7 +1128,8 @@
          )
          return len(result) > 0
      except Exception:
@@ -6965,12 +7507,10 @@
  
  
  # Per-source last-contact predicates (CM041 schema/people.ttl). FDA
-@@ -474,6 +1144,87 @@
-         _sparql_update(sparql)
-     except Exception as e:
+@@ -476,6 +1211,87 @@
          logger.debug("Could not update last_contact: %s", e)
-+
-+
+ 
+ 
 +def _upsert_display_name(person_uri: str, value: str) -> None:
 +    """Write ``value`` as displayName only if it OUTRANKS what is stored.
 +
@@ -7050,10 +7590,12 @@
 +        )
 +    except Exception as e:  # a name upgrade must never break an ingest
 +        logger.debug("Could not upsert displayName for %s: %s", person_uri, e)
- 
- 
++
++
  # ── WhatsApp historical ingestion (CX-85) ─────────────────────────
-@@ -523,7 +1274,10 @@
+ #
+ # Three-tier model (Andy 2026-05-26 -- see whatsapp_history.py for
+@@ -523,7 +1339,10 @@
      chats = json.loads(chats_file.read_text())
      people_created = 0
      people_enriched = 0
@@ -7064,7 +7606,7 @@
      tier_t2_intimate = 0
      tier_t2_active = 0
      tier_t3_skipped = 0
-@@ -571,34 +1325,77 @@
+@@ -571,34 +1390,77 @@
              # right call -- it consults what OTHER sources have already learned
              # about this identifier, so a channel exposed by mail is refused
              # here too.
@@ -7152,7 +7694,7 @@
                      f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                      f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                  ])
-@@ -627,11 +1424,19 @@
+@@ -627,11 +1489,19 @@
                  # renderer picks the highest one.
                  id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_whatsapp"
                  if not _identifier_exists(id_uri):
@@ -7174,7 +7716,7 @@
                          f'<{id_uri}> pwg:identifierLabel "WHATSAPP"',
                          f'<{id_uri}> pwg:contactSourceTier "{tier}"',
                      ]
-@@ -647,6 +1452,12 @@
+@@ -647,6 +1517,12 @@
                      _sparql_update(sparql)
                      people_enriched += 1
  
@@ -7187,7 +7729,7 @@
              # Always upsert lastContactWhatsApp regardless of person
              # existing or not. The DELETE-INSERT-WHERE-FILTER pattern
              # in _update_last_contact ensures older timestamps never
-@@ -656,14 +1467,17 @@
+@@ -656,14 +1532,17 @@
                  _update_last_contact(uri, last_msg, "whatsapp")
  
      logger.info(
@@ -7208,7 +7750,7 @@
          "tier_t1_dm_chats": tier_t1,
          "tier_t2_intimate_chats": tier_t2_intimate,
          "tier_t2_active_chats": tier_t2_active,
-@@ -688,6 +1502,13 @@
+@@ -688,6 +1567,13 @@
      people_seen: set[str] = set()
      events_processed = 0
      meetings_created = 0
@@ -7222,7 +7764,7 @@
  
      for event in events:
          attendees = event.get("attendees", [])
-@@ -704,32 +1525,102 @@
+@@ -704,34 +1590,104 @@
              # calendar attendee who shared it into ONE node (#659). An invite
              # carries no attendee display name, so this contributes nothing to
              # the structural rule -- but it still honours it.
@@ -7288,12 +7830,20 @@
                          f'<{uri}> pwg:createdAt "{datetime.now(timezone.utc).isoformat()}"^^xsd:dateTime',
                          f'<{uri}> pwg:source "calendar_fda"',
                      ]
+-                    sparql = (
+-                        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+-                        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
+-                        "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
+-                    )
+-                    _sparql_update(sparql)
 +                    # v1018-D011. An attendee display name comes off a
 +                    # contact card, so it can be a relationship word; and an
 +                    # attendee is very often a bare address. Un-flagged, that
 +                    # address became the person's permanent name.
 +                    triples.extend(_creation_name_triples(uri, attendee))
-+
+ 
+-            # Update last contact from meeting date
+-            if start_date:
 +                    # THE IDENTIFIER, which this writer never emitted.
 +                    # Without it the record carries nothing to match on, so
 +                    # it is unmergeable FOREVER: every later resolver --
@@ -7313,24 +7863,42 @@
 +                        f'<{id_uri}> pwg:identifierLabel "CALENDAR"',
 +                    ])
 +
-                     sparql = (
-                         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
-                         "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
-                         "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
-                     )
-                     _sparql_update(sparql)
++                    sparql = (
++                        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++                        "PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n"
++                        "INSERT DATA {\n  " + " .\n  ".join(triples) + " .\n}"
++                    )
++                    _sparql_update(sparql)
 +                    people_created += 1
- 
++
 +                # v1018-D658: runs for NEW and EXISTING alike. Every name write
 +                # above sits inside the not-exists guard, so an existing person's
 +                # placeholder was never revisited by any source. Upward-only -- a
 +                # same-tier or lower value is a no-op.
 +                _upsert_display_name(uri, attendee)
 +
-             # Update last contact from meeting date
-             if start_date:
++            # Update last contact from meeting date
++            if start_date:
                  _update_last_contact(uri, start_date, "calendar")
-@@ -780,14 +1671,28 @@
+ 
+         # Emit a Meeting node so the wiki Meetings page renders this event.
+@@ -761,6 +1717,15 @@
+                 m_triples.append(
+                     f'<{meeting_uri}> pwg:meetingDate "{_escape(start_date)}"'
+                 )
++            # The calendar's own all-day flag (I22). meetingDate is the full
++            # start, so without this the Timeline could not tell a timed
++            # meeting from an all-day entry and showed every past meeting as
++            # "All day". Written only when the extract carries the field.
++            if isinstance(event.get("is_all_day"), bool):
++                m_triples.append(
++                    f'<{meeting_uri}> pwg:meetingAllDay '
++                    f'"{"true" if event["is_all_day"] else "false"}"^^xsd:boolean'
++                )
+             if location:
+                 m_triples.append(
+                     f'<{meeting_uri}> pwg:meetingLocation "{_escape(location)}"'
+@@ -780,14 +1745,28 @@
          events_processed += 1
  
      logger.info(
@@ -7361,7 +7929,7 @@
      }
  
  
-@@ -814,20 +1719,30 @@
+@@ -814,20 +1793,30 @@
  
          person_id = _person_id_from_identifier(f"photos_face_{name}")
          uri = _person_uri(person_id)
@@ -7394,7 +7962,7 @@
  
              if first_seen:
                  triples.append(
-@@ -846,12 +1761,168 @@
+@@ -846,12 +1835,168 @@
              _sparql_update(sparql)
              people_created += 1
  
@@ -7563,7 +8131,7 @@
  def ingest_mail_contacts(fda_dir: Path) -> dict:
      """Ingest frequent email contacts into the people graph.
  
-@@ -865,9 +1936,15 @@
+@@ -865,9 +2010,15 @@
  
      contacts = json.loads(contacts_file.read_text())
      people_created = 0
@@ -7580,19 +8148,16 @@
              # Skip very infrequent senders
              continue
  
-@@ -875,20 +1952,61 @@
+@@ -875,20 +2026,61 @@
          # email correspondent who shared it into ONE node (#659). The frequency
          # map is address->count with no names, so this consults the learned set
          # rather than adding to it.
 -        if _observe_identifier(email, ""):
--            logger.debug("skipping role address %s", email)
 +        # DMG #27: the owner's own address (me card, Mail account, Sent
 +        # From, sole-To of delivered non-list mail) is not a Person.
 +        if is_owner_address(email, owner_addrs):
 +            owner_skipped += 1
-             continue
--        person_id = _person_id_from_identifier(email)
--        uri = _person_uri(person_id)
++            continue
 +        # DMG #27: a machine sender (no-reply address, calendar system or
 +        # notification domain, or every message a list mail) is not a Person.
 +        if email.strip().lower() in machine or _machine_senders.noreply_reason(email):
@@ -7609,8 +8174,10 @@
 +        # address reads as a role ("info@" for a sole trader): the role rule
 +        # is a guess about the address, the reply is evidence about the human.
 +        if email.strip().lower() not in correspondents and _observe_identifier(email, ""):
-+            logger.debug("skipping role address %s", email)
-+            continue
+             logger.debug("skipping role address %s", email)
+             continue
+-        person_id = _person_id_from_identifier(email)
+-        uri = _person_uri(person_id)
 +        if _is_forgotten(email):
 +            continue
 +        # RESOLVE BEFORE CREATING -- same rule as ingest_calendar above.
@@ -7648,7 +8215,7 @@
  
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_mail"
              triples.extend([
-@@ -907,10 +2025,31 @@
+@@ -907,10 +2099,31 @@
              _sparql_update(sparql)
              people_created += 1
  
@@ -7682,7 +8249,7 @@
  # ── Browser history ingestion (direct path, v1.0) ─────────────────
  #
  # Single-Mac product: there is NO PWG gateway on a customer install.
-@@ -1102,6 +2241,63 @@
+@@ -1102,6 +2315,68 @@
                      collection, start, len(chunk), type(exc).__name__,
                  )
      return upserted
@@ -7709,6 +8276,11 @@
 +                if offset is not None:
 +                    body["offset"] = offset
 +                resp = client.post(url, json=body)
++                if resp.status_code == 404 and offset is None:
++                    # No such collection: genuinely nothing stored (a fresh
++                    # install before the first write). That is an answer,
++                    # not a failed read.
++                    return []
 +                resp.raise_for_status()
 +                result = resp.json().get("result") or {}
 +                out.extend(result.get("points") or [])
@@ -7746,7 +8318,19 @@
  
  
  def _load_browsing_visits(fda_dir: Path) -> list[dict]:
-@@ -1250,6 +2446,10 @@
+@@ -1165,7 +2440,10 @@
+     skipped_sensitive = 0
+     queue: list[dict] = []
+     for v in visits:
+-        url = (v.get("url") or "").strip()
++        # Strip tracking params here too: safari_history.json files
++        # written by an older extractor still carry them. The cleaned
++        # url feeds the point id, so the dedupe key is the cleaned url.
++        url = strip_tracking((v.get("url") or "").strip())
+         if not url:
+             continue
+         domain = (v.get("domain") or "").strip()
+@@ -1250,6 +2528,10 @@
              "points_created": sent,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7757,7 +8341,7 @@
          }
  
      if sent == 0:
-@@ -1266,6 +2466,7 @@
+@@ -1266,6 +2548,7 @@
              "points_created": 0,
              "skipped_sensitive": skipped_sensitive,
              "total": len(queue),
@@ -7765,7 +8349,321 @@
          }
  
      logger.info(
-@@ -1898,6 +3099,9 @@
+@@ -1394,11 +2677,12 @@
+         }
+ 
+     now_iso = datetime.now(timezone.utc).isoformat()
++    owner_id = _owner_user_id()
+     skipped_sensitive = 0
+     queue: list[dict] = []
+     seen_urls: set[str] = set()
+     for b in bookmarks:
+-        url = (b.get("url") or "").strip()
++        url = strip_tracking((b.get("url") or "").strip())
+         if not url or url in seen_urls:
+             continue
+         domain = (b.get("domain") or "").strip()
+@@ -1411,6 +2695,7 @@
+         strength = _BOOKMARK_STRENGTH_BY_FOLDER.get(
+             folder, _BOOKMARK_DEFAULT_STRENGTH
+         )
++        observed_at = _iso_or_none(b.get("date_added"))
+ 
+         # Embedding document: title carries the human-readable signal;
+         # domain anchors it. Mirrors the browsing path's doc construction
+@@ -1436,18 +2721,24 @@
+                 "source": "safari_bookmarks",
+                 "context": folder or None,
+                 "size": "Medium",
+-                "compartment_level": DEFAULT_PRIVACY,
++                "compartment_level": _compartment_int(),
+                 "privacy_level": DEFAULT_PRIVACY,
+                 "created_at": now_iso,
+-                "observed_at": now_iso,
++                # The save date when the plist has one (Reading List items
++                # only); None otherwise. It used to be `now`, the import time,
++                # so a bookmark saved years ago decayed as if saved today.
++                "observed_at": observed_at,
+                 "extra": {
+                     "url": url,
+                     "domain": domain,
+                     "folder": folder,
+                     "source_type": "safari_bookmarks",
++                    "observed_at_known": observed_at is not None,
+                 },
+             },
+         })
++        if owner_id:
++            queue[-1]["payload"]["user_id"] = owner_id
+ 
+     if not queue:
+         logger.info(
+@@ -1534,6 +2825,218 @@
+         "skipped_sensitive": skipped_sensitive,
+         "total": len(queue),
+     }
++
++
++# ── Food evidence (smart preferences: restaurants, cuisines, what you buy) ──
++#
++# Reservation mail, delivery and grocery receipts, calendar meals and restaurant
++# pages are food PREFERENCES, and the preference ingest (CM019) already owns the
++# parsers, the privacy filter, the embed and the write into `preferences`. This
++# step does not write a point itself: it hands the CM019 `food_evidence` parser
++# exactly the extracts it claims and nothing else, through the same
++# `ingest-dir` call the Apple Music refresh uses. No second writer.
++#
++# Staged by symlink in a temp dir so only the named extracts are offered (the
++# FDA folder also holds notes, reminders and messages that this must never
++# read), and the 750 MB first mail export is not copied.
++_FOOD_EXTRACTS = (
++    "calendar_events.json",
++    "apple_mail.json",
++    "safari_history.json",
++    "safari_bookmarks.json",
++)
++
++
++# v1.0.123 (walk122): every hourly email tick leaves a ~140 MB mbox in
++# imports/email during the five-year backfill, after a first export that was
++# 12.2 GB on the scale fixture, and nothing removed them. Food re-read all of
++# them every day. Food now records each mbox it has consumed, keyed by name AND
++# (inode, size, mtime_ns), and stages only what it has not; the run's timeout scales with
++# the bytes staged; and an mbox is deleted only when BOTH of its readers have
++# recorded success for that exact file. Readers of imports/email, from a grep
++# of CM051 and ostler-assistant main: the sealed email-ingest tick (writes the
++# hourly file, pwg-email-ingest reads it, logs "ingested <path> successfully"),
++# install.sh's hydrate (deletes its own install-time file), and this step.
++FOOD_STATE_REL = Path("state") / "food_mbox_consumed.json"
++EMAIL_INGEST_LOG_REL = Path("logs") / "email-ingest.log"
++FOOD_TIMEOUT_BASE_S = 900.0
++FOOD_TIMEOUT_PER_GB_S = 120.0
++FOOD_TIMEOUT_CAP_S = 3 * 3600.0
++_HOURLY_MBOX = re.compile(r"^(\d{4}-\d{2}-\d{2}-\d{2})\.mbox\.txt$")
++_EMAIL_LOG_LINE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (.*)$")
++_MBOX_PATH = re.compile(r"(/\S+?\.mbox\.txt)")
++_INGESTED_OK = re.compile(r"^ingested (/\S+\.mbox\.txt) successfully$")
++
++
++def food_timeout_s(staged_bytes: int) -> float:
++    """900 s plus 120 s per GB staged, capped. Measured 2026-11-04 on Mini16:
++    the full food stage (12.2 GB of mbox) took 117 s calm, rc 0."""
++    return min(FOOD_TIMEOUT_CAP_S,
++               FOOD_TIMEOUT_BASE_S + FOOD_TIMEOUT_PER_GB_S * staged_bytes / 1e9)
++
++
++def _mbox_key(path: Path) -> dict:
++    # mtime_ns as well: Linux (and APFS) can hand a freed inode to the next
++    # file at once, so a replaced file of the same size is not told apart by
++    # inode and size alone.
++    st = path.stat()
++    return {"inode": st.st_ino, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
++
++
++def _load_food_state(ostler_dir: Path) -> dict:
++    """Consumed-mbox records. Unreadable means nothing is recorded, which only
++    ever costs a re-read (ids are deterministic) and never a delete."""
++    try:
++        data = json.loads((Path(ostler_dir) / FOOD_STATE_REL).read_text(encoding="utf-8"))
++    except (OSError, ValueError):
++        return {}
++    return data if isinstance(data, dict) else {}
++
++
++def _save_food_state(ostler_dir: Path, state: dict) -> None:
++    path = Path(ostler_dir) / FOOD_STATE_REL
++    path.parent.mkdir(parents=True, exist_ok=True)
++    tmp = path.with_suffix(".json.tmp")
++    tmp.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
++    os.replace(tmp, path)
++
++
++def _consumed(state: dict, name: str, key: dict) -> bool:
++    rec = state.get(name)
++    return (isinstance(rec, dict) and rec.get("inode") == key["inode"]
++            and rec.get("size") == key["size"]
++            and rec.get("mtime_ns") == key["mtime_ns"])
++
++
++def email_ingest_last_outcome(log_path: Path) -> dict:
++    """For every mbox path the email-ingest log names: (ok, epoch seconds) of
++    the LAST line that names it. A later "tick start" or "preserved" line for
++    the same path (a same-hour re-run) makes it not-ok again."""
++    import time
++    out: dict = {}
++    try:
++        fh = open(log_path, encoding="utf-8", errors="replace")
++    except OSError:
++        return out
++    with fh:
++        for line in fh:
++            m = _EMAIL_LOG_LINE.match(line.rstrip("\n"))
++            if not m:
++                continue
++            msg = m.group(2)
++            paths = _MBOX_PATH.findall(msg)
++            if not paths:
++                continue
++            try:
++                ts = time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))
++            except ValueError:
++                continue
++            ok = _INGESTED_OK.match(msg)
++            for p in paths:
++                out[p] = (bool(ok) and ok.group(1) == p, ts)
++    return out
++
++
++def prune_consumed_mboxes(mail_dir: Path, state: dict, email_log: Path,
++                          now: Optional[float] = None) -> list:
++    """Delete an hourly mbox only when ALL hold, else keep it:
++    1. its name is the hourly tick's and its hour is before the current hour
++       (no same-hour re-run can still append to it);
++    2. the LAST email-ingest.log line naming that exact path is
++       "ingested <path> successfully", stamped at or after the file's mtime;
++    3. food recorded the same name and (inode, size, mtime_ns).
++    A missing or rotated log, an unknown name or a changed file keeps it."""
++    import time
++    now = time.time() if now is None else float(now)
++    current_hour = time.strftime("%Y-%m-%d-%H", time.localtime(now))
++    outcomes = None
++    pruned = []
++    for path in sorted(Path(mail_dir).glob("*.mbox.txt")):
++        m = _HOURLY_MBOX.match(path.name)
++        if not m or m.group(1) >= current_hour:
++            continue
++        try:
++            key = _mbox_key(path)
++            mtime = path.stat().st_mtime
++        except OSError:
++            continue
++        if not _consumed(state, path.name, key):
++            continue
++        if outcomes is None:
++            outcomes = email_ingest_last_outcome(email_log)
++        ok, ts = outcomes.get(str(path), (False, 0.0))
++        if not ok or ts < int(mtime):
++            continue
++        try:
++            path.unlink()
++        except OSError:
++            continue
++        state.pop(path.name, None)
++        pruned.append(path.name)
++    return pruned
++
++
++def ingest_food(fda_dir: Path) -> dict:
++    """Stage the food-evidence extracts and the mboxes food has not consumed
++    yet, and run the CM019 preference ingest.
++
++    Counts only. ``no_data`` when none of the extracts exist (those sources were
++    not enabled); ``error`` when the ingest could not run, did not exit 0 or
++    timed out, in which case nothing is recorded and every mbox is kept for
++    the next run.
++    """
++    import shutil
++    import tempfile
++
++    from .apple_music_refresh import run_cm019_ingest
++
++    fda_dir = Path(fda_dir)
++    ostler_dir = Path(os.getenv("OSTLER_DIR") or fda_dir.parent.parent)
++    state = _load_food_state(ostler_dir)
++    stage = Path(tempfile.mkdtemp(prefix="ostler-food-"))
++    try:
++        staged = 0
++        staged_bytes = 0
++        pending = {}
++        for name in _FOOD_EXTRACTS:
++            src = fda_dir / name
++            if src.is_file():
++                (stage / name).symlink_to(src.resolve())
++                staged += 1
++                staged_bytes += src.stat().st_size
++        mail_dir = fda_dir.parent / "email"
++        if mail_dir.is_dir():
++            for mbox in sorted(mail_dir.glob("*.mbox.txt")):
++                key = _mbox_key(mbox)
++                if _consumed(state, mbox.name, key):
++                    continue
++                (stage / mbox.name).symlink_to(mbox.resolve())
++                pending[mbox.name] = (mbox, key)
++                staged += 1
++                staged_bytes += key["size"]
++        if not staged:
++            return {"status": "no_data", "staged": 0}
++        user = os.getenv("USER_ID") or os.getenv("OSTLER_USER") or "ostler"
++        ok = run_cm019_ingest(stage, ostler_dir, user, food_timeout_s(staged_bytes))
++        result = {"status": "ok" if ok else "error", "staged": staged,
++                  "staged_bytes": staged_bytes}
++        if not ok:
++            return result
++        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++        for name, (mbox, key) in pending.items():
++            try:
++                if _mbox_key(mbox) != key:
++                    continue  # appended while it was read: read it again next run
++            except OSError:
++                continue
++            state[name] = dict(key, consumed_at=now)
++        pruned = (prune_consumed_mboxes(mail_dir, state, ostler_dir / EMAIL_INGEST_LOG_REL)
++                  if mail_dir.is_dir() else [])
++        _save_food_state(ostler_dir, state)
++        result["pruned"] = len(pruned)
++        return result
++    finally:
++        shutil.rmtree(stage, ignore_errors=True)
+ 
+ 
+ # ── iMessage social-graph signal (Social wiki page) ───────────────
+@@ -1702,6 +3205,7 @@
+     # Aggregate per handle: a contact may appear across several 1:1
+     # threads (e.g. phone + email handle); sum their messages.
+     handle_messages: dict[str, int] = {}
++    handle_last: dict[str, str] = {}
+     skipped_group = 0
+     for convo in conversations:
+         if convo.get("is_group"):
+@@ -1713,8 +3217,14 @@
+             if not handle:
+                 continue
+             handle_messages[handle] = handle_messages.get(handle, 0) + msg_count
++            # The real time of the last message, kept so decay reads the
++            # conversation, not the day the importer ran.
++            last_iso = _iso_or_none(convo.get("last_message"))
++            if last_iso and last_iso > handle_last.get(handle, ""):
++                handle_last[handle] = last_iso
+ 
+     skipped_thin = 0
++    owner_id = _owner_user_id()
+     queue: list[dict] = []
+     for handle, total_messages in handle_messages.items():
+         if total_messages < _SOCIAL_MIN_MESSAGES:
+@@ -1740,17 +3250,20 @@
+                 "strength": strength,
+                 "source": "imessage",
+                 "size": "Medium",
+-                "compartment_level": DEFAULT_PRIVACY,
++                "compartment_level": _compartment_int(),
+                 "privacy_level": DEFAULT_PRIVACY,
+                 "created_at": datetime.now(timezone.utc).isoformat(),
+-                "observed_at": datetime.now(timezone.utc).isoformat(),
++                "observed_at": handle_last.get(handle),
+                 "extra": {
+                     "message_count": total_messages,
+                     "source_type": "imessage_social",
+                     "handle_kind": "phone" if _is_phone_handle(handle) else "email",
++                    "observed_at_known": handle in handle_last,
+                 },
+             },
+         })
++        if owner_id:
++            queue[-1]["payload"]["user_id"] = owner_id
+ 
+     if not queue:
+         logger.info(
+@@ -1898,6 +3411,9 @@
          "?givenName ?familyName ?createdAt WHERE {\n"
          "  ?uri a pwg:Person ;\n"
          "       pwg:displayName ?displayName .\n"
@@ -7775,12 +8673,10 @@
          "  OPTIONAL { ?uri pwg:contactType ?contactType }\n"
          "  OPTIONAL { ?uri pwg:organization ?org }\n"
          "  OPTIONAL { ?uri pwg:jobTitle ?jobTitle }\n"
-@@ -1914,7 +3118,59 @@
-         # never fabricate now().
-         "  OPTIONAL { ?uri pwg:createdAt ?createdAt }\n"
+@@ -1916,6 +3432,58 @@
          "}"
-+    )
-+
+     )
+ 
 +    # Third query: the LAST-CONTACT signal, folded to one date per person.
 +    #
 +    # WHY THIS EXISTS (CM051, 2026-09-16). The Qdrant `people` payload built
@@ -7825,17 +8721,46 @@
 +        "  UNION { ?uri pwg:lastContactCalendar ?d }\n"
 +        "  UNION { ?uri pwg:lastContactEmail ?d }\n"
 +        "} GROUP BY ?uri"
-     )
++    )
 +    last_contact_by_uri: dict[str, str] = {}
 +    for row in last_contact_rows:
 +        uri = (row.get("uri", {}) or {}).get("value", "")
 +        value = (row.get("lastContact", {}) or {}).get("value", "").strip()
 +        if uri and value:
 +            last_contact_by_uri[uri] = value
- 
++
      # Second query: identifiers grouped per person.
      id_rows = _sparql_query(
-@@ -1984,8 +3240,46 @@
+         "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
+@@ -1928,6 +3496,12 @@
+     )
+     phones_by_uri: dict[str, list[str]] = {}
+     emails_by_uri: dict[str, list[str]] = {}
++    # The Contacts-card uid. This sweep upserts at uuid5(person_uri), the SAME
++    # point id contact_syncer writes, and a Qdrant upsert REPLACES the payload,
++    # so leaving the uid out erased the card contact_syncer stamped. Every
++    # has_card reader (people_rules SHARED RULE A, ical-server people paths)
++    # then hid carded people whose only handles are sender-ID shaped.
++    card_by_uri: dict[str, str] = {}
+     for row in id_rows:
+         uri = (row.get("uri", {}) or {}).get("value", "")
+         id_type = (row.get("idType", {}) or {}).get("value", "")
+@@ -1942,6 +3516,8 @@
+             emails_by_uri.setdefault(uri, [])
+             if id_value not in emails_by_uri[uri]:
+                 emails_by_uri[uri].append(id_value)
++        elif id_type == "icloud_contact_uid" and id_value.strip():
++            card_by_uri.setdefault(uri, id_value.strip())
+ 
+     # A person may produce more than one row when they carry several
+     # pwg:createdAt values (the contact_syncer "update if earlier" path can
+@@ -1979,15 +3555,54 @@
+             "family_name": (row.get("familyName", {}) or {}).get("value", ""),
+             "phones": phones_by_uri.get(uri, []),
+             "emails": emails_by_uri.get(uri, []),
++            "icloud_uid": card_by_uri.get(uri, ""),
+             # Real historical first-seen date (may be ""). Surfaced to the
+             # Qdrant payload as observed_at/created_at so time-ordered views
              # can place this person. Empty -> omitted from those views (no
              # now() fabrication).
              "created_at": created_at,
@@ -7846,8 +8771,8 @@
 +            "last_contact": last_contact_by_uri.get(uri, ""),
          })
      return people
-+
-+
+ 
+ 
 +def _last_contact_epoch(value: str) -> int:
 +    """ISO date (or datetime) -> epoch seconds. 0 when absent or unparseable.
 +
@@ -7879,10 +8804,12 @@
 +        return int(parsed.timestamp())
 +    except (ValueError, TypeError):
 +        return 0
- 
- 
++
++
  def _person_embed_doc(person: dict) -> str:
-@@ -2003,6 +3297,29 @@
+     """Build the descriptive text embedded for semantic people-search.
+ 
+@@ -2003,6 +3618,242 @@
      return " ".join(p for p in parts if p).strip()
  
  
@@ -7909,10 +8836,223 @@
 +    return uris or None
 +
 +
++_PRIVACY_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
++
++
++def _privacy_rank(value) -> Optional[int]:
++    """0..3 for a stored level ("L2", "l3", 2); None when absent. Anything
++    present but unparseable ranks as L3: an unknown level is never weakened."""
++    if value is None or (isinstance(value, str) and not value.strip()):
++        return None
++    if isinstance(value, bool):
++        return 3
++    if isinstance(value, int):
++        return value if 0 <= value <= 3 else 3
++    return _PRIVACY_RANK.get(str(value).strip().upper(), 3)
++
++
++def _merge_people_payload(existing: Optional[dict], computed: dict) -> dict:
++    """The sweep's payload laid over the point's existing one.
++
++    contact_syncer writes the SAME point id (uuid5(person_uri)) with keys this
++    sweep does not compute (icloud_uid, profile_photo_path, created_at, ...),
++    and a Qdrant upsert REPLACES the payload, so a plain upsert erased them
++    (walk v1.0.122: 101 carded people lost their card, and every resync dropped
++    photos). Every key the sweep does not compute is carried over; a computed
++    key that came out EMPTY never blanks a stored value; privacy_level is the
++    STRICTER of the stored and the computed level, so L3 is never downgraded."""
++    old = dict(existing or {})
++    merged = dict(old)
++    for key, value in computed.items():
++        if key == "privacy_level":
++            continue
++        if value in ("", None, [], {}) and old.get(key) not in ("", None, [], {}):
++            continue
++        merged[key] = value
++    old_rank = _privacy_rank(old.get("privacy_level"))
++    new_rank = _privacy_rank(computed.get("privacy_level"))
++    ranks = [r for r in (old_rank, new_rank) if r is not None]
++    merged["privacy_level"] = "L%d" % max(ranks) if ranks else computed.get("privacy_level")
++    return merged
++
++
++# ── People index: delta state (v1.0.126, item h) ──────────────────────
++#
++# The payload key that records WHICH text a point's vector was embedded from:
++# sha256 of exactly _person_embed_doc(person). A matching key means the vector
++# is current and the person is not embedded again.
++PEOPLE_EMBED_HASH_KEY = "embed_text_sha256"
++# People embedded and landed per step. A step lands before the next is
++# embedded, so coverage rises during a long first pass.
++PEOPLE_INDEX_CHUNK = int(os.getenv("PEOPLE_INDEX_CHUNK", "200"))
++# End-of-pass backlogs kept for the Doctor's "falling behind" rule.
++PEOPLE_INDEX_HISTORY = 6
++
++
++def _embed_text_hash(text: str) -> str:
++    return hashlib.sha256(text.encode("utf-8")).hexdigest()
++
++
++def _people_payload(person: dict, point_id: str) -> dict:
++    """The payload this sweep computes for one person (before the merge)."""
++    uri = person["uri"]
++    payload = {
++        "person_uri": uri,
++        "person_id": point_id,
++        "display_name": person["display_name"],
++        "contact_type": person["contact_type"] or "person",
++        "organization": person["organization"],
++        "job_title": person["job_title"],
++        "given_name": person["given_name"],
++        "family_name": person["family_name"],
++        "phones": person["phones"],
++        "emails": person["emails"],
++        # has_card for every reader; see card_by_uri in the loader.
++        "icloud_uid": person.get("icloud_uid", ""),
++        # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
++        # documented default -- ical-server.py ~L1019 "Default person tag
++        # today is L2"). The reader (ical-server.py ~L1020) drops a person
++        # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
++        # searchable; an unstamped person would predate the default and is
++        # still searchable, but stamping keeps the writer/reader explicit.
++        "privacy_level": DEFAULT_PRIVACY,
++        # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
++        # the same derivation so a consumer trusting the stored slug never
++        # diverges from one that recomputes it (iOS Identifiable id + URL).
++        "slug": _wiki_slug(person["display_name"]),
++        "source": "fda_people_index",
++        # BOTH names are stamped, and they are not redundant.
++        #
++        # `last_contact_ts` (epoch int) is what every read path actually
++        # filters and sorts on: people_stale()'s range filter, the
++        # "recency" sort in people_list(), and _recency_label(). It was
++        # absent from every point until 2026-09-16, which is why the
++        # stale / reconnect lists were permanently empty.
++        #
++        # `last_contact` (ISO date string) is kept because this payload has
++        # always carried the key and a consumer may read it; it now carries
++        # the real date instead of the empty string it used to hold on
++        # every record. Dropping it would be a gratuitous wire-shape change
++        # in a fix whose whole point is that the wire shape was not honoured.
++        "last_contact": person.get("last_contact", ""),
++        "last_contact_ts": _last_contact_epoch(
++            person.get("last_contact", "")
++        ),
++    }
++    # Surface the REAL pwg:createdAt date so the time-ordered wiki
++    # views (year pages, person timeline, "recent people") can place
++    # this person. The CM044 readers key on observed_at first, then
++    # fall back to created_at, so write BOTH from the same real date.
++    # Omit entirely when there is no real date: a no-real-date FDA
++    # person stays absent from time views rather than being stamped
++    # with a fabricated now() (consistent with the iCloud-contacts
++    # decision).
++    created_at = (person.get("created_at") or "").strip()
++    if created_at:
++        payload["observed_at"] = created_at
++        payload["created_at"] = created_at
++    return payload
++
++
++def _qdrant_set_payloads(collection: str, items: list) -> int:
++    """Write payloads onto EXISTING points without touching their vectors.
++
++    ``items`` is ``[(point_id, payload), ...]``. Uses the same
++    ``POST /collections/{c}/points/payload`` call the vendored CM041
++    browsing_enrich already makes against the shipped Qdrant. Returns how many
++    the server acknowledged; logs and continues on a failure.
++    """
++    if not items:
++        return 0
++    done = 0
++    transport = httpx.HTTPTransport(proxy=None)
++    url = f"{QDRANT_URL}/collections/{collection}/points/payload"
++    with httpx.Client(timeout=60.0, transport=transport) as client:
++        for point_id, payload in items:
++            try:
++                resp = client.post(url, json={"payload": payload, "points": [point_id]},
++                                   params={"wait": "true"})
++                resp.raise_for_status()
++                done += 1
++            except Exception as exc:
++                logger.warning(
++                    "Qdrant payload refresh in %s failed: %s",
++                    collection, type(exc).__name__,
++                )
++    return done
++
++
++def _people_index_state_path() -> Path:
++    """Where the backlog record lives: the Doctor reads the same path
++    (vendor/doctor/agent/people_index_status.py)."""
++    explicit = os.getenv("OSTLER_PEOPLE_INDEX_STATE")
++    if explicit:
++        return Path(explicit)
++    base = Path(os.getenv("OSTLER_DIR") or (Path.home() / ".ostler"))
++    return base / "state" / "people-index.json"
++
++
++def _people_index_read() -> dict:
++    try:
++        rec = json.loads(_people_index_state_path().read_text(encoding="utf-8"))
++        return rec if isinstance(rec, dict) else {}
++    except Exception:
++        return {}
++
++
++def _people_index_write(rec: dict) -> None:
++    """Counts only, atomic, and NEVER raises: bookkeeping about the index must
++    never be able to fail the index."""
++    try:
++        path = _people_index_state_path()
++        path.parent.mkdir(parents=True, exist_ok=True)
++        tmp = path.with_name(path.name + ".tmp")
++        tmp.write_text(json.dumps(rec, sort_keys=True), encoding="utf-8")
++        os.replace(tmp, path)
++    except Exception as exc:
++        logger.warning("People: could not record the backlog: %s", type(exc).__name__)
++
++
++def _people_index_record(phase: str, total: int, backlog: Optional[int],
++                         never_embedded: Optional[int] = None,
++                         embedded: Optional[int] = None, reason: str = "") -> None:
++    """The in-pass record. ``backlog`` is people without a current vector RIGHT
++    NOW (None when it cannot be known yet). History is carried forward."""
++    prev = _people_index_read()
++    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++    rec = {
++        "writer": "ostler_fda.people_index",
++        "phase": phase,
++        "updated_at": now,
++        "total": total,
++        "backlog": backlog,
++        "never_embedded": never_embedded,
++        "embedded_this_pass": embedded,
++        "reason": reason,
++        "history": list(prev.get("history") or [])[-PEOPLE_INDEX_HISTORY:],
++    }
++    _people_index_write(rec)
++
++
++def _people_index_finish(total: int, sent: int, never_embedded: int,
++                         embedded: int, reason: str) -> None:
++    """End of a pass that knows its numbers: the backlog is everyone without a
++    current vector, and it joins the history the Doctor's red rule reads."""
++    backlog = max(total - sent, 0)
++    _people_index_record(phase="done" if not reason else "error", total=total,
++                         backlog=backlog, never_embedded=never_embedded,
++                         embedded=embedded, reason=reason)
++    rec = _people_index_read()
++    hist = list(rec.get("history") or [])
++    hist.append({"at": rec.get("updated_at"), "backlog": backlog, "total": total})
++    rec["history"] = hist[-PEOPLE_INDEX_HISTORY:]
++    _people_index_write(rec)
++
++
  def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
      """Populate the Qdrant ``people`` collection from Oxigraph (#600).
  
-@@ -2024,11 +3341,23 @@
+@@ -2024,14 +3875,34 @@
      stably from the person URI so a re-install is idempotent) with a
      payload matching the reader contract, (5) returns a counts-only
      dict, (6) fails LOUD (status "error") if Oxigraph held Person nodes
@@ -7932,39 +9072,346 @@
      Returns counts only (parity with the other ingesters; install.sh
      reads ``sent``):
        ``status``         : "ok" | "no_data" | "error"
+-      ``sent``           : points upserted into Qdrant
 +      ``reason``         : present only on a partial landing;
 +                           "partial_landing" when 0 < sent < total
-       ``sent``           : points upserted into Qdrant
++      ``sent``           : people whose point is current after this pass
++                           (embedded now, or already current by hash)
        ``points_created`` : alias of ``sent``
        ``total``          : Person nodes considered (with a display name)
-@@ -2099,7 +3428,23 @@
-             # diverges from one that recomputes it (iOS Identifiable id + URL).
-             "slug": _wiki_slug(person["display_name"]),
-             "source": "fda_people_index",
++      ``embedded``       : people embedded and landed by THIS pass
++      ``already_current``: people skipped because their embedded text's
++                           hash matched (see the DELTA block)
++      ``payload_refreshed``: current people whose payload alone was rewritten
++      ``backlog``        : people still without a current vector
++
++    The backlog is also written to state/people-index.json for the Doctor.
+     """
+     try:
+         people = _load_people_from_oxigraph()
+@@ -2039,100 +3910,231 @@
+         logger.warning(
+             "People: Oxigraph query failed: %s", type(exc).__name__,
+         )
++        _people_index_record(phase="error", total=0, backlog=None,
++                             reason="could_not_read_graph")
+         return {"status": "error", "sent": 0, "points_created": 0, "total": 0}
+ 
+     if not people:
+         logger.info("No people in Oxigraph to index.")
++        _people_index_finish(0, 0, 0, 0, "")
+         return {"status": "no_data", "sent": 0, "points_created": 0, "total": 0}
+ 
+-    docs = [_person_embed_doc(p) for p in people]
+-    vectors = _ollama_embed_batch(docs)
++    _people_index_record(phase="running", total=len(people), backlog=None)
+ 
+-    # Size the collection from the first real embedding; fall back to
+-    # the nomic-embed-text default only if nothing embedded.
+-    vector_size = PEOPLE_EMBED_DIM
+-    for vec in vectors:
+-        if vec:
+-            vector_size = len(vec)
+-            break
++    # The stored payloads, read FIRST: they say who already has a current
++    # vector, and the upserts below must never drop a field this sweep does not
++    # own. None means the read FAILED: refuse rather than overwrite blind (an
++    # empty list is a genuinely empty collection, including one that does not
++    # exist yet, which the scroll reports as []).
++    stored = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
++    if stored is None:
++        logger.warning("People: could not read the stored points; not overwriting them blind.")
++        _people_index_record(phase="error", total=len(people), backlog=None,
++                             reason="could_not_read_existing")
++        return {"status": "error", "reason": "could_not_read_existing",
++                "sent": 0, "points_created": 0, "total": len(people)}
++    existing_by_id = {str(p.get("id")): (p.get("payload") or {}) for p in stored}
+ 
+-    try:
+-        _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, vector_size)
+-    except Exception as exc:
+-        logger.warning(
+-            "People: could not ensure Qdrant collection '%s': %s",
+-            PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
+-        )
+-        return {
+-            "status": "error",
+-            "sent": 0,
+-            "points_created": 0,
+-            "total": len(people),
+-        }
++    # ── DELTA (v1.0.126, item h) ─────────────────────────────────────────
++    #
++    # THE DEFECT THIS CLOSES. This sweep runs LAST in every hourly fda-rerun
++    # tick and used to embed EVERY person on EVERY pass. A pass grew with the
++    # graph, so on a first-run box it ran longer each hour, later ticks stood
++    # down behind the run lock, and new people waited longer every hour.
++    # Measured on the v1.0.125 walk: people without a vector grew 240 -> 1789
++    # in 4200 s, and people_count_agreement went CANNOT-RUN on 124 and 125.
++    #
++    # THE RULE. Each point carries PEOPLE_EMBED_HASH_KEY, the sha256 of exactly
++    # the text that was embedded for it (_person_embed_doc). A person is
++    # embedded only when:
++    #   new      no point at all (never embedded),       embedded FIRST;
++    #   changed  a point whose hash is absent or differs. A point written
++    #            before this key existed, or rewritten by contact_syncer
++    #            (whose upsert builds a fresh payload without the key), is
++    #            embedded once, then never again while unchanged.
++    # Everyone else keeps their vector. Their payload is still laid over the
++    # stored one and written (payload only, no vector) when a field that is
++    # not embedded moved, e.g. last_contact.
++    #
++    # Deleted people: unchanged. The PRUNE below removes this sweep's points
++    # whose Person left the graph, against the graph as it is at the end.
++    pending: list = []    # (rank, person, point_id, doc, digest, payload)
++    current: list = []    # (point_id, merged payload, stored payload)
++    for person in people:
++        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, person["uri"]))
++        doc = _person_embed_doc(person)
++        digest = _embed_text_hash(doc)
++        payload = _people_payload(person, point_id)
++        payload[PEOPLE_EMBED_HASH_KEY] = digest
++        old = existing_by_id.get(point_id)
++        if old is not None and old.get(PEOPLE_EMBED_HASH_KEY) == digest:
++            merged = _merge_people_payload(old, payload)
++            if merged != old:
++                current.append((point_id, merged, old))
++            else:
++                current.append((point_id, None, old))
++            continue
++        rank = 0 if old is None else 1
++        pending.append((rank, person, point_id, doc, digest, payload))
++    # Stable: within each rank the graph's own order is kept.
++    pending.sort(key=lambda item: item[0])
++    never_embedded = sum(1 for item in pending if item[0] == 0)
+ 
+-    points: list[dict] = []
+-    for person, vec in zip(people, vectors):
+-        uri = person["uri"]
+-        # Stable point id: same URI re-runs upsert in place rather than
+-        # duplicating rows on re-install.
+-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, uri))
+-        payload = {
+-            "person_uri": uri,
+-            "person_id": point_id,
+-            "display_name": person["display_name"],
+-            "contact_type": person["contact_type"] or "person",
+-            "organization": person["organization"],
+-            "job_title": person["job_title"],
+-            "given_name": person["given_name"],
+-            "family_name": person["family_name"],
+-            "phones": person["phones"],
+-            "emails": person["emails"],
+-            # Person-level privacy tag. DEFAULT_PRIVACY is "L2" (the CM041
+-            # documented default -- ical-server.py ~L1019 "Default person tag
+-            # today is L2"). The reader (ical-server.py ~L1020) drops a person
+-            # from People/search ONLY on an EXACT "L3" tag, so an L2 person is
+-            # searchable; an unstamped person would predate the default and is
+-            # still searchable, but stamping keeps the writer/reader explicit.
+-            "privacy_level": DEFAULT_PRIVACY,
+-            # Wiki slug the CM041 read paths RECOMPUTE from display_name. Stamp
+-            # the same derivation so a consumer trusting the stored slug never
+-            # diverges from one that recomputes it (iOS Identifiable id + URL).
+-            "slug": _wiki_slug(person["display_name"]),
+-            "source": "fda_people_index",
 -            "last_contact": "",
-+            # BOTH names are stamped, and they are not redundant.
-+            #
-+            # `last_contact_ts` (epoch int) is what every read path actually
-+            # filters and sorts on: people_stale()'s range filter, the
-+            # "recency" sort in people_list(), and _recency_label(). It was
-+            # absent from every point until 2026-09-16, which is why the
-+            # stale / reconnect lists were permanently empty.
-+            #
-+            # `last_contact` (ISO date string) is kept because this payload has
-+            # always carried the key and a consumer may read it; it now carries
-+            # the real date instead of the empty string it used to hold on
-+            # every record. Dropping it would be a gratuitous wire-shape change
-+            # in a fix whose whole point is that the wire shape was not honoured.
-+            "last_contact": person.get("last_contact", ""),
-+            "last_contact_ts": _last_contact_epoch(
-+                person.get("last_contact", "")
-+            ),
-         }
-         # Surface the REAL pwg:createdAt date so the time-ordered wiki
-         # views (year pages, person timeline, "recent people") can place
-@@ -2148,6 +3493,120 @@
+-        }
+-        # Surface the REAL pwg:createdAt date so the time-ordered wiki
+-        # views (year pages, person timeline, "recent people") can place
+-        # this person. The CM044 readers key on observed_at first, then
+-        # fall back to created_at, so write BOTH from the same real date.
+-        # Omit entirely when there is no real date: a no-real-date FDA
+-        # person stays absent from time views rather than being stamped
+-        # with a fabricated now() (consistent with the iCloud-contacts
+-        # decision).
+-        created_at = (person.get("created_at") or "").strip()
+-        if created_at:
+-            payload["observed_at"] = created_at
+-            payload["created_at"] = created_at
+-        points.append({
++    # Payload-only refresh for the people whose vector is current. A failure
++    # here leaves a searchable person with an older payload: reported, never
++    # counted against the vector backlog.
++    refresh = [(pid, merged) for pid, merged, _old in current if merged is not None]
++    refreshed = _qdrant_set_payloads(PEOPLE_QDRANT_COLLECTION, refresh) if refresh else 0
++    already_current = len(current)
++
++    _people_index_record(phase="running", total=len(people), backlog=len(pending),
++                         never_embedded=never_embedded, embedded=0)
++
++    # Embed and land in CHUNKS, in the order above, so search coverage rises
++    # during a long first pass instead of all at once at its end, and a pass
++    # cut short still keeps what it landed.
++    embedded = 0
++    ensured = False
++    for start in range(0, len(pending), PEOPLE_INDEX_CHUNK):
++        chunk = pending[start:start + PEOPLE_INDEX_CHUNK]
++        vectors = _ollama_embed_batch([item[3] for item in chunk])
++        if not ensured:
++            first = next((v for v in vectors if v), None)
++            if first is not None:
++                try:
++                    _qdrant_ensure_collection(PEOPLE_QDRANT_COLLECTION, len(first))
++                except Exception as exc:
++                    logger.warning(
++                        "People: could not ensure Qdrant collection '%s': %s",
++                        PEOPLE_QDRANT_COLLECTION, type(exc).__name__,
++                    )
++                    _people_index_finish(len(people), already_current + embedded,
++                                         never_embedded, embedded, "could_not_ensure_collection")
++                    return {
++                        "status": "error",
++                        "sent": already_current + embedded,
++                        "points_created": already_current + embedded,
++                        "total": len(people),
++                    }
++                ensured = True
++        points = [{
+             "id": point_id,
+             "vector": vec,
+-            "payload": payload,
+-        })
++            "payload": _merge_people_payload(existing_by_id.get(point_id), payload),
++        } for (_rank, _person, point_id, _doc, _digest, payload), vec in zip(chunk, vectors)]
++        try:
++            embedded += _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
++        except Exception as exc:
++            logger.warning(
++                "People: Qdrant upsert failed: %s", type(exc).__name__,
++            )
++            _people_index_finish(len(people), already_current + embedded,
++                                 never_embedded, embedded, "upsert_failed")
++            return {
++                "status": "error",
++                "sent": already_current + embedded,
++                "points_created": already_current + embedded,
++                "total": len(people),
++            }
++        _people_index_record(phase="running", total=len(people),
++                             backlog=len(pending) - embedded,
++                             never_embedded=never_embedded, embedded=embedded)
+ 
+-    sent = 0
+-    try:
+-        sent = _qdrant_upsert_points(PEOPLE_QDRANT_COLLECTION, points)
+-    except Exception as exc:
++    # `sent` keeps its meaning for every caller (install.sh compares it with
++    # `total`): the people whose point is current after this pass, whether it
++    # was embedded now or already matched. `embedded` is this pass's work.
++    sent = already_current + embedded
++    counts = {"embedded": embedded, "already_current": already_current,
++              "payload_refreshed": refreshed, "backlog": len(people) - sent}
++    _people_index_finish(len(people), sent, never_embedded, embedded, "")
++
++    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
++    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
++    #
++    # THE DEFECT THIS CLOSES. This function reads Oxigraph and writes Qdrant.
++    # It cannot create a vector without a Person node -- so it could only ever
++    # ADD. A node that LEAVES the graph left its point behind permanently.
++    # Measured on archie@.240 with v1.0.67 installed: 84 points carried
++    # person_uri values with NO presence anywhere in the graph, all 84 stamped
++    # source=fda_people_index, all 84 carrying a full contact payload (display
++    # name, organisation, job title, phones, emails). 297 points came from this
++    # sweep; 84 of them pointed at nothing.
++    #
++    # It is visible to a customer twice over: the People count the Doctor
++    # reports came from the vector store (1907) while the graph said 1823, and
++    # the difference was exactly these 84. Deleted people also stayed
++    # searchable.
++    #
++    # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
++    #
++    # 1. THE PRUNE READS THE GRAPH, NEVER THE LANDING. It deletes a point only
++    #    when its person_uri is absent from BOTH the graph this pass loaded
++    #    and the graph as it is now. A person whose embed failed is still in
++    #    the graph, so a failed or partial landing cannot make it look stale.
++    #    It therefore runs BEFORE the zero-landing and partial-landing returns
++    #    below (v1.0.126, Archie on #3367): it used to run only when every
++    #    person landed, so a deleted or merged-away person stayed searchable
++    #    for as long as ANY backlog persisted, which on a first-run box is
++    #    hours. A failed Qdrant call (ensure, upsert) still returns earlier
++    #    and prunes nothing.
++    # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
++    #    any error, and None is handled separately from an empty list. An empty
++    #    list from a broken read and an empty collection are indistinguishable
++    #    by value, and one of them would authorise deleting the lot.
++    # 3. WE ONLY DELETE WHAT THIS SWEEP OWNS. Points are removed only when
++    #    payload.source == "fda_people_index". contact_syncer writes
++    #    source="icloud_contacts" into the same collection and this sweep knows
++    #    nothing about which of those are current, so it must never touch them.
++    #    Measured: 1610 of the collection's points are icloud_contacts.
++    pruned: Optional[int] = None
++    # Every person this pass projected (embedded now or already current).
++    projected_uris = {person["uri"] for person in people}
++    # RACE CLOSED (walk #15, people_stores_reconcile: graph 8074, vectors
++    # 8075). `projected_uris` is the snapshot taken BEFORE the embed and
++    # upsert, which take minutes. A node removed from the graph inside that
++    # window is still in the snapshot, so its freshly written point was
++    # protected from the prune and stayed an orphan until the next sweep.
++    # Prune against the graph as it is NOW. If that cannot be read, fall back
++    # to the snapshot (never to "delete everything").
++    fresh_uris = _current_person_uris()
++    if fresh_uris is not None:
++        projected_uris = projected_uris & fresh_uris
++    existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
++    if existing is None:
+         logger.warning(
+-            "People: Qdrant upsert failed: %s", type(exc).__name__,
++            "People: could not enumerate '%s', so nothing was pruned. "
++            "A prune driven by a failed read would delete everything.",
++            PEOPLE_QDRANT_COLLECTION,
+         )
+-        return {
+-            "status": "error",
+-            "sent": sent,
+-            "points_created": sent,
+-            "total": len(people),
+-        }
++    else:
++        stale = [
++            pt["id"] for pt in existing
++            if (pt.get("payload") or {}).get("source") == "fda_people_index"
++            and (pt.get("payload") or {}).get("person_uri") not in projected_uris
++        ]
++        if stale:
++            # Leave a trace BEFORE the vector goes (walk #15): a prune must
++            # never turn a person lost by an unknown writer into silence.
++            # The URI digest lets people_stores_reconcile and a human join
++            # this to the writer's own removal record.
++            _stale_ids = set(stale)
++            for _pt in existing:
++                if _pt.get("id") in _stale_ids:
++                    record_person_removal(
++                        (_pt.get("payload") or {}).get("person_uri") or "",
++                        "ostler_fda.pwg_ingest.people_sweep",
++                        "vector_pruned_node_absent",
++                    )
++            pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
++            logger.info(
++                "People: pruned %d of %d point(s) whose Person node is no "
++                "longer in Oxigraph.", pruned, len(stale),
++            )
++        else:
++            pruned = 0
+ 
++    counts["pruned"] = pruned
++
+     if sent == 0:
+         # We had Person nodes to index but none landed (embed failure
+         # for every row, or every chunk failed). Report error, not
+@@ -2141,23 +4143,57 @@
+             "People: %d Person nodes in Oxigraph but 0 landed in Qdrant '%s'.",
+             len(people), PEOPLE_QDRANT_COLLECTION,
+         )
+-        return {
++        return dict({
+             "status": "error",
+             "sent": 0,
+             "points_created": 0,
              "total": len(people),
-         }
+-        }
++        }, **counts)
  
 +    # ── A PARTIAL LANDING IS NOT A SUCCESS ──────────────────────────────
 +    #
@@ -7992,106 +9439,30 @@
 +            sent, len(people), PEOPLE_QDRANT_COLLECTION,
 +            len(people) - sent, len(people) - sent,
 +        )
-+        return {
++        return dict({
 +            "status": "error",
 +            "reason": "partial_landing",
 +            "sent": sent,
 +            "points_created": sent,
 +            "total": len(people),
-+        }
-+
-+    # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
-+    # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
-+    #
-+    # THE DEFECT THIS CLOSES. This function reads Oxigraph and writes Qdrant.
-+    # It cannot create a vector without a Person node -- so it could only ever
-+    # ADD. A node that LEAVES the graph left its point behind permanently.
-+    # Measured on archie@.240 with v1.0.67 installed: 84 points carried
-+    # person_uri values with NO presence anywhere in the graph, all 84 stamped
-+    # source=fda_people_index, all 84 carrying a full contact payload (display
-+    # name, organisation, job title, phones, emails). 297 points came from this
-+    # sweep; 84 of them pointed at nothing.
-+    #
-+    # It is visible to a customer twice over: the People count the Doctor
-+    # reports came from the vector store (1907) while the graph said 1823, and
-+    # the difference was exactly these 84. Deleted people also stayed
-+    # searchable.
-+    #
-+    # ⚠️ THREE GUARDS, AND THEY ARE THE WHOLE DESIGN.
-+    #
-+    # 1. WE ONLY REACH HERE WHEN sent > 0. The block above returns
-+    #    status="error" when Oxigraph held Person nodes and none landed. So a
-+    #    prune can never run off a failed projection.
-+    # 2. A FAILED READ PRUNES NOTHING. _qdrant_scroll_points returns None on
-+    #    any error, and None is handled separately from an empty list. An empty
-+    #    list from a broken read and an empty collection are indistinguishable
-+    #    by value, and one of them would authorise deleting the lot.
-+    # 3. WE ONLY DELETE WHAT THIS SWEEP OWNS. Points are removed only when
-+    #    payload.source == "fda_people_index". contact_syncer writes
-+    #    source="icloud_contacts" into the same collection and this sweep knows
-+    #    nothing about which of those are current, so it must never touch them.
-+    #    Measured: 1610 of the collection's points are icloud_contacts.
-+    pruned: Optional[int] = None
-+    projected_uris = {
-+        (pt.get("payload") or {}).get("person_uri") for pt in points
-+    }
-+    projected_uris.discard(None)
-+    # RACE CLOSED (walk #15, people_stores_reconcile: graph 8074, vectors
-+    # 8075). `projected_uris` is the snapshot taken BEFORE the embed and
-+    # upsert, which take minutes. A node removed from the graph inside that
-+    # window is still in the snapshot, so its freshly written point was
-+    # protected from the prune and stayed an orphan until the next sweep.
-+    # Prune against the graph as it is NOW. If that cannot be read, fall back
-+    # to the snapshot (never to "delete everything").
-+    fresh_uris = _current_person_uris()
-+    if fresh_uris is not None:
-+        projected_uris = projected_uris & fresh_uris
-+    existing = _qdrant_scroll_points(PEOPLE_QDRANT_COLLECTION)
-+    if existing is None:
-+        logger.warning(
-+            "People: could not enumerate '%s', so nothing was pruned. "
-+            "A prune driven by a failed read would delete everything.",
-+            PEOPLE_QDRANT_COLLECTION,
-+        )
-+    else:
-+        stale = [
-+            pt["id"] for pt in existing
-+            if (pt.get("payload") or {}).get("source") == "fda_people_index"
-+            and (pt.get("payload") or {}).get("person_uri") not in projected_uris
-+        ]
-+        if stale:
-+            # Leave a trace BEFORE the vector goes (walk #15): a prune must
-+            # never turn a person lost by an unknown writer into silence.
-+            # The URI digest lets people_stores_reconcile and a human join
-+            # this to the writer's own removal record.
-+            _stale_ids = set(stale)
-+            for _pt in existing:
-+                if _pt.get("id") in _stale_ids:
-+                    record_person_removal(
-+                        (_pt.get("payload") or {}).get("person_uri") or "",
-+                        "ostler_fda.pwg_ingest.people_sweep",
-+                        "vector_pruned_node_absent",
-+                    )
-+            pruned = _qdrant_delete_points(PEOPLE_QDRANT_COLLECTION, stale)
-+            logger.info(
-+                "People: pruned %d of %d point(s) whose Person node is no "
-+                "longer in Oxigraph.", pruned, len(stale),
-+            )
-+        else:
-+            pruned = 0
++        }, **counts)
 +
      logger.info(
          "People: %d of %d Person nodes indexed into Qdrant '%s'.",
          sent, len(people), PEOPLE_QDRANT_COLLECTION,
-@@ -2157,6 +3616,7 @@
+     )
+-    return {
++    return dict({
+         "status": "ok",
          "sent": sent,
          "points_created": sent,
          "total": len(people),
-+        "pruned": pruned,
-     }
+-    }
++    }, **counts)
  
  
-@@ -2178,7 +3638,7 @@
+ # ── Master runner ─────────────────────────────────────────────────
+@@ -2178,10 +4214,11 @@
      ("imessage", "ingest_imessage"),
      ("whatsapp", "ingest_whatsapp"),
      ("calendar", "ingest_calendar"),
@@ -8100,7 +9471,11 @@
      ("apple_mail", "ingest_mail_contacts"),
      ("browser_history", "ingest_browser_history"),
      ("bookmarks", "ingest_bookmarks"),
-@@ -2195,6 +3655,10 @@
++    ("food", "ingest_food"),
+     ("social", "ingest_social"),
+     ("people_index", "ingest_people_to_qdrant"),
+ )
+@@ -2195,15 +4232,91 @@
      # ingest_all IS the dispatcher/runner -- it loops _INGEST_DISPATCH; it is
      # not itself a writer the loop should call.
      "ingest_all",
@@ -8111,17 +9486,145 @@
  })
  
  
-@@ -2244,6 +3708,14 @@
+-def ingest_all(fda_dir: Optional[Path] = None) -> dict:
++# Dispatch entries the install-time call may hand to the hourly ingest tick
++# (com.ostler.fda-rerun, which calls ingest_all with nothing deferred). Only
++# work that is optional for a usable first run belongs here. v1.0.120 cold walk
++# on a 16 GB Mac: `food` hit its 900 s preference-ingest cap inside the
++# install's WhatsApp hydrate leg and failed hydrate_graph, while the hourly
++# tick finished the same work on later runs.
++DEFERRABLE_AT_INSTALL = frozenset({"food"})
++
++
++# v1.0.121 (Archie): food is ~4000 s of local-model work on a 16 GB Mac, so it
++# runs at most once a day and never in the customer's first six hours. The
++# hourly tick asks food_due() and leaves food out of its dispatch when not due,
++# which writes no food row, so the last COMPLETED run's stamp survives.
++FOOD_MIN_INTERVAL_S = 24 * 3600
++FOOD_FIRST_AFTER_INSTALL_S = 6 * 3600
++_FOOD_COMPLETED = ("ok", "error", "no_data")
++
++
++def food_due(ostler_dir: Path, now: Optional[float] = None) -> tuple:
++    """(due, reason). Reads state/install_completed_at (epoch seconds, written
++    once at the end of install) and the last_run_at / last_status that the
++    tick's activity writer records in state/source_activity/food.tsv. Never
++    a file mtime."""
++    import calendar
++    import time
++    now = time.time() if now is None else float(now)
++    state = Path(ostler_dir) / "state"
++    try:
++        installed = int((state / "install_completed_at").read_text().strip())
++    except (OSError, ValueError):
++        return False, "install_not_complete"
++    if now - installed < FOOD_FIRST_AFTER_INSTALL_S:
++        return False, "within_6h_of_install"
++    fields = {}
++    try:
++        for line in (state / "source_activity" / "food.tsv").read_text(
++                encoding="utf-8", errors="replace").splitlines():
++            if "=" in line:
++                k, v = line.split("=", 1)
++                fields[k] = v.strip()
++    except OSError:
++        return True, "never_completed"
++    if fields.get("last_status") not in _FOOD_COMPLETED:
++        return True, "never_completed"
++    try:
++        last = calendar.timegm(time.strptime(fields.get("last_run_at", ""),
++                                             "%Y-%m-%dT%H:%M:%SZ"))
++    except ValueError:
++        return True, "completion_stamp_unreadable"
++    if now - last < FOOD_MIN_INTERVAL_S:
++        return False, "completed_within_24h"
++    return True, "due"
++
++
++def _timing_line(name: str, phase: str, started: Optional[float] = None,
++                 status: Optional[str] = None) -> float:
++    """Print one ``[ingest-timing]`` line; return the monotonic clock."""
++    import time
++    now = time.monotonic()
++    parts = ["[ingest-timing]", "source=" + name, "phase=" + phase,
++             "at=" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")]
++    if started is not None:
++        parts.append("elapsed_s=%d" % round(now - started))
++    if status is not None:
++        parts.append("status=" + str(status))
++    print(" ".join(parts), flush=True)
++    return now
++
++
++def ingest_all(fda_dir: Optional[Path] = None, defer=()) -> dict:
+     """Run all FDA -> PWG ingestion steps.
+ 
+     Reads the JSON output from extract_all.py and feeds it into
+-    Qdrant and Oxigraph.
++    Qdrant and Oxigraph. ``defer`` names dispatch entries not to run now:
++    each is recorded as ``{"status": "deferred"}``, never as ok and never as
++    an error, so the hourly tick is the one that measures it.
+     """
++    defer = frozenset(defer or ())
+     fda_dir = fda_dir or (Path.home() / ".ostler" / "imports" / "fda")
+ 
+     if not fda_dir.exists():
+@@ -2223,11 +4336,24 @@
+         # Resolve by name at call time so mock.patch on the module attr is
+         # honoured (and so the dispatch can't drift from the real function).
+         func = getattr(this_module, func_name)
++        if name in defer:
++            logger.info("%s: deferred to the hourly ingest tick", name)
++            results[name] = {"status": "deferred",
++                             "reason": "runs_on_the_hourly_ingest_tick"}
++            _timing_line(name, "deferred")
++            continue
++        # v1.0.121: a start and an end line per source on stdout (the tick's
++        # fda-rerun.log), so a walk can read how long each source took. The
++        # start line is printed first so a run killed mid-source still shows it.
++        started = _timing_line(name, "start")
+         try:
+             results[name] = func(fda_dir)
+         except Exception as e:
+             logger.warning("[warn] %s ingestion failed: %s", name, e)
+             results[name] = {"status": "error", "error": str(e)}
++        res = results.get(name)
++        _timing_line(name, "end", started,
++                     res.get("status") if isinstance(res, dict) else "unknown")
+ 
+     logger.info("")
+     logger.info("FDA -> PWG ingestion complete.")
+@@ -2239,11 +4365,33 @@
+     import argparse
+     parser = argparse.ArgumentParser(description="Ingest FDA data into PWG")
+     parser.add_argument("--fda-dir", type=str, default=None)
++    parser.add_argument("--defer", action="append", default=[],
++                        choices=sorted(DEFERRABLE_AT_INSTALL),
++                        help="leave this source to the hourly ingest tick")
++    parser.add_argument("--failed-out", type=str, default=None,
++                        help="write the failing source keys here, one per line")
+     args = parser.parse_args()
+ 
      fda_dir = Path(args.fda_dir) if args.fda_dir else None
-     results = ingest_all(fda_dir)
+-    results = ingest_all(fda_dir)
++    results = ingest_all(fda_dir, defer=args.defer)
      print(json.dumps(results, indent=2))
 +    # Exit non-zero when anything failed, so a caller that captures rc (install
 +    # hydrate) cannot record a failed graph write as ok. ingest_all itself
 +    # never raises; before this the CLI exited 0 whatever the results said.
-+    if results.get("status") == "error" or any(
-+        isinstance(v, dict) and v.get("status") == "error"
-+        for v in results.values()
-+    ):
++    if results.get("status") == "error":
++        failed = ["ingest_all"]
++    else:
++        failed = [k for k, v in results.items()
++                  if isinstance(v, dict) and v.get("status") == "error"]
++    # Which sources failed, by dispatch key, so the caller names THOSE in the
++    # customer's warning rather than the step that happened to run them (the
++    # v1.0.120 walk blamed WhatsApp for a food timeout). Written on every run,
++    # empty when nothing failed: a missing file means "could not tell".
++    if args.failed_out:
++        Path(args.failed_out).write_text(
++            "".join(k + "\n" for k in failed), encoding="utf-8")
++    if failed:
 +        sys.exit(1)
  
  
@@ -8600,9 +10103,29 @@
 +    if all(c in _PHONE_CHARS for c in ident) and sum(c.isdigit() for c in ident) >= 7:
 +        return False
 +    return True
+--- a/safari_bookmarks.py
++++ b/safari_bookmarks.py
+@@ -41,6 +41,8 @@
+ from pathlib import Path
+ from typing import Optional
+ from urllib.parse import urlparse
++
++from .url_clean import strip_tracking
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -161,7 +163,7 @@
+     node_type = node.get("WebBookmarkType", "")
+ 
+     if node_type == "WebBookmarkTypeLeaf":
+-        url = node.get("URLString", "")
++        url = strip_tracking(node.get("URLString", ""))
+         title = (node.get("URIDictionary", {}) or {}).get("title", "")
+ 
+         if url and url.startswith(("http://", "https://")):
 --- a/safari_history.py
 +++ b/safari_history.py
-@@ -16,6 +16,8 @@
+@@ -16,12 +16,16 @@
  
  import logging
  import sqlite3
@@ -8611,7 +10134,15 @@
  from dataclasses import dataclass, asdict
  from datetime import datetime, timezone
  from pathlib import Path
-@@ -70,6 +72,10 @@
+ from typing import Optional
+ from urllib.parse import urlparse
+ 
++from .url_clean import strip_tracking
++
+ logger = logging.getLogger(__name__)
+ 
+ # Mac absolute time epoch offset (2001-01-01 to 1970-01-01)
+@@ -70,6 +74,10 @@
      db_path: Optional[Path] = None,
      since_days: int = 365,
      min_visits: int = 1,
@@ -8622,7 +10153,7 @@
  ) -> list[HistoryEntry]:
      """Extract browsing history entries from Safari.
  
-@@ -77,6 +83,15 @@
+@@ -77,6 +85,15 @@
          db_path: Path to History.db. Default: ~/Library/Safari/History.db
          since_days: Only extract entries from the last N days. Default: 365.
          min_visits: Minimum visit count to include. Default: 1.
@@ -8638,7 +10169,7 @@
  
      Returns:
          List of HistoryEntry objects, most recent first.
-@@ -94,7 +109,7 @@
+@@ -94,7 +111,7 @@
          # Open read-only to avoid any risk of corruption
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as e:
@@ -8647,7 +10178,7 @@
              raise PermissionError(
                  "Cannot read Safari history. Grant Full Disk Access to "
                  "this application in System Settings > Privacy & Security."
-@@ -106,6 +121,12 @@
+@@ -106,6 +123,12 @@
      # Calculate the Mac absolute time for our since_days cutoff
      now_unix = datetime.now(timezone.utc).timestamp()
      cutoff_mac = (now_unix - (since_days * 86400)) - MAC_EPOCH_OFFSET
@@ -8660,7 +10191,7 @@
  
      try:
          rows = conn.execute("""
-@@ -117,12 +138,17 @@
+@@ -117,12 +140,17 @@
                  hv.redirect_source
              FROM history_items hi
              JOIN history_visits hv ON hi.id = hv.history_item
@@ -8680,7 +10211,16 @@
          conn.close()
          return []
  
-@@ -163,6 +189,30 @@
+@@ -130,7 +158,7 @@
+ 
+     entries = []
+     for row in rows:
+-        url = row["url"]
++        url = strip_tracking(row["url"])
+ 
+         # Parse domain
+         try:
+@@ -163,6 +191,30 @@
      return entries
  
  
@@ -8711,6 +10251,115 @@
  def top_domains(
      entries: list[HistoryEntry],
      limit: int = 50,
+--- a/settling_progress.py
++++ b/settling_progress.py
+@@ -126,6 +126,27 @@
+         return None
+     started = data.get("started_at")
+     return started if isinstance(started, str) and started.strip() else None
++
++
++def _read_existing_terminal(path: Path) -> tuple:
++    """Return ``(complete, total)`` from the existing shard, or ``(False, 0)``.
++
++    Used for the completion carry-forward: a channel that completed and is
++    re-run with no growth stays complete. Read errors mean "not complete",
++    which is the conservative answer -- the channel is then open, never done.
++    """
++    try:
++        with path.open("r", encoding="utf-8") as fh:
++            data = json.load(fh)
++    except (OSError, json.JSONDecodeError):
++        return (False, 0)
++    if not isinstance(data, dict):
++        return (False, 0)
++    try:
++        prev_total = max(0, int(data.get("total") or 0))
++    except (TypeError, ValueError):
++        prev_total = 0
++    return (data.get("complete") is True, prev_total)
+ 
+ 
+ def _read_existing_done(path: Path) -> Optional[int]:
+@@ -166,6 +187,8 @@
+     started_at: Optional[str] = None,
+     shard: Optional[str] = None,
+     state_dir: Optional[Path] = None,
++    complete: bool = False,
++    skip_reason: str = "",
+ ) -> None:
+     """Write a per-channel settling-progress shard atomically.
+ 
+@@ -192,6 +215,11 @@
+             this ``None``.
+         state_dir: Override the state directory. Default:
+             ``~/.ostler/state``. Test seam; never override in production.
++        complete: True when the writer FINISHED this source (the terminal
++            marker, same as the shell ``settling_complete``). Without it a
++            count that reaches its total is still open.
++        skip_reason: Stable reason code when the source yielded nothing by
++            design (e.g. ``no_messages``). Terminal, like ``complete``.
+ 
+     Raises:
+         ValueError: The channel is not in :data:`SETTLING_CHANNELS`.
+@@ -254,9 +282,47 @@
+     # A denominator below the numerator renders as over 100%. Producers that
+     # cannot measure the full corpus pass total == done; clamping here means
+     # no call site can publish an impossible bar.
++    req_total = total_int
+     if total_int < done_int:
+         total_int = done_int
+ 
++    # TERMINAL STATE. Only an explicit marker makes a source terminal. 0/0 with
++    # no marker is DISCOVERING: the producer has not yet found its work, and
++    # reading it as finished let the Setting-up bar touch 100% and fall back.
++    #   complete    -> the writer finished this source; done = total, never backwards.
++    #   skip_reason -> nothing to read by design; the reason code is recorded.
++    #   carry       -> a channel already complete, re-run with no growth, stays complete.
++    skip_reason = (skip_reason or "").strip() if isinstance(skip_reason, str) else ""
++    prev_complete, prev_total = _read_existing_terminal(target_path)
++    if complete:
++        total_int = max(total_int, prev_total, done_int)
++        done_int = total_int
++        needs_source = False
++        skip_reason = ""
++    elif skip_reason:
++        if done_int == 0:
++            total_int = 0
++        else:
++            total_int = max(total_int, prev_total, done_int)
++            done_int = total_int
++        needs_source = False
++    elif prev_complete and req_total <= prev_total:
++        total_int = max(total_int, prev_total, done_int)
++        done_int = total_int
++        needs_source = False
++        complete = True
++
++    if complete:
++        status = "complete"
++    elif skip_reason:
++        status = "skipped"
++    elif total_int == 0 and needs_source:
++        status = "needs_source"
++    elif total_int == 0:
++        status = "discovering"
++    else:
++        status = "measuring"
++
+     # Preserve started_at across updates: read existing shard, keep original.
+     preserved_started = _read_existing_started_at(target_path)
+     if preserved_started is not None:
+@@ -271,6 +337,9 @@
+         "done": done_int,
+         "total": total_int,
+         "needs_source": bool(needs_source),
++        "complete": bool(complete),
++        "skip_reason": skip_reason,
++        "status": status,
+         "started_at": effective_started,
+         "updated_at": _now_iso_utc(),
+     }
 --- /dev/null
 +++ b/sink_health.py
 @@ -0,0 +1,69 @@
@@ -8948,6 +10597,115 @@
      return {
          "status": "ok",
          "dispatched": "google_takeout(mbox)",
+--- /dev/null
++++ b/url_clean.py
+@@ -0,0 +1,106 @@
++"""Strip known tracking parameters from a URL before it is stored.
++
++Privacy rule: a browsing-history URL is stored without the advertising and
++campaign identifiers that ride on it (utm_*, fbclid, gclid and so on).
++
++DENYLIST ONLY. A parameter is removed only if it is on the list below.
++Functional parameters (YouTube v/list/t, search q, page, id, ...) are never
++touched, because the streaming-recognition work needs them. Unknown
++parameters stay.
++
++Contract:
++  * pure function, stdlib only, no I/O;
++  * the input is returned BYTE-IDENTICAL when nothing is stripped (no
++    re-encoding, no normalisation, no reordering);
++  * surviving parameters keep their original order and original bytes;
++  * non-http(s) and non-string input is returned unchanged.
++
++This file is shipped as byte-identical copies in several trees (HR015
++ostler_fda, CM051 vendor/ostler_fda, CM051 vendor/cm041/assistant_api, the
++Safari extension's server-side peer). tests/test_url_clean_parity compares
++them. Edit one, edit them all.
++"""
++from __future__ import annotations
++
++from urllib.parse import unquote
++
++# Removed on every host. Compared lowercase.
++_GLOBAL_PARAMS = frozenset({
++    "fbclid", "gclid", "gbraid", "wbraid", "dclid", "msclkid",
++    "mc_cid", "mc_eid", "igshid", "_hsenc", "_hsmi", "mkt_tok",
++    "yclid", "twclid", "ttclid", "li_fat_id", "oly_anon_id",
++    "oly_enc_id", "vero_id", "_ga", "_gl", "ref_src",
++})
++
++# Removed only on these hosts (or their subdomains): the same name is a
++# real parameter elsewhere.
++_HOST_PARAMS = {
++    "si": ("open.spotify.com", "youtu.be"),
++    "spm": (
++        "aliexpress.com", "aliexpress.us", "alibaba.com", "1688.com",
++        "taobao.com", "tmall.com", "alipay.com", "lazada.com",
++        "lazada.sg", "lazada.co.th", "lazada.com.my", "lazada.vn",
++        "lazada.co.id", "lazada.com.ph",
++    ),
++}
++
++_TEXT_FRAGMENT = ":~:"
++
++
++def _host(url: str) -> str:
++    rest = url.split("://", 1)[1]
++    for sep in ("/", "?", "#"):
++        rest = rest.split(sep, 1)[0]
++    rest = rest.rsplit("@", 1)[-1]
++    if rest.startswith("["):
++        return rest.lower()
++    return rest.split(":", 1)[0].lower()
++
++
++def _on_host(host: str, domains) -> bool:
++    return any(host == d or host.endswith("." + d) for d in domains)
++
++
++def _is_tracking(key: str, host: str) -> bool:
++    k = unquote(key).lower()
++    if k.startswith("utm_") or k in _GLOBAL_PARAMS:
++        return True
++    domains = _HOST_PARAMS.get(k)
++    return bool(domains) and _on_host(host, domains)
++
++
++def strip_tracking(url):
++    """Return ``url`` without tracking parameters / text fragments."""
++    if not isinstance(url, str):
++        return url
++    low = url[:8].lower()
++    if not (low.startswith("http://") or low.startswith("https://")):
++        return url
++    base, hash_, frag = url.partition("#")
++    path, q_, query = base.partition("?")
++    host = _host(url)
++    changed = False
++
++    if q_ and query:
++        kept = []
++        for part in query.split("&"):
++            if part and _is_tracking(part.split("=", 1)[0], host):
++                changed = True
++                continue
++            kept.append(part)
++        if changed:
++            query = "&".join(kept)
++            if not query:
++                q_ = ""
++
++    if hash_:
++        cut = frag.find(_TEXT_FRAGMENT)
++        if cut != -1 and frag[cut + 3:].startswith("text="):
++            changed = True
++            frag = frag[:cut]
++            if not frag:
++                hash_ = ""
++
++    if not changed:
++        return url
++    return path + (q_ + query if q_ else "") + (hash_ + frag if hash_ else "")
 --- a/whatsapp_history.py
 +++ b/whatsapp_history.py
 @@ -84,6 +84,8 @@
@@ -8959,7 +10717,25 @@
  import time
  from dataclasses import asdict, dataclass, field
  from datetime import datetime, timedelta, timezone
-@@ -222,7 +224,7 @@
+@@ -107,6 +109,8 @@
+     total: int,
+     needs_source: bool = False,
+     started_at: Optional[str] = None,
++    skip_reason: str = "",
++    complete: bool = False,
+ ) -> None:
+     """Best-effort settling-progress emit for the WhatsApp backfill.
+ 
+@@ -121,6 +125,8 @@
+             needs_source=needs_source,
+             started_at=started_at,
+             shard=_SETTLING_SHARD,
++            skip_reason=skip_reason,
++            complete=complete,
+         )
+     except Exception:  # noqa: BLE001 -- see docstring
+         logger.warning(
+@@ -222,7 +228,7 @@
          conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
      except sqlite3.OperationalError as exc:
          msg = str(exc).lower()
@@ -8968,981 +10744,48 @@
              raise PermissionError(
                  "Cannot read WhatsApp history. Grant Full Disk Access "
                  "(System Settings > Privacy & Security > Full Disk Access)."
-diff --git b/test_vendor_browser_history.sh b/test_vendor_browser_history.sh
-new file mode 100755
-index 00000000..057be211
---- /dev/null
-+++ b/test_vendor_browser_history.sh
-@@ -0,0 +1,169 @@
-+#!/usr/bin/env bash
-+# CX-86 Gap A + Gap C vendor/ostler_fda browser-history regression
-+# ================================================================
-+#
-+# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
-+# hydrate_browsing sub-phase needs:
-+#
-+#   - chrome_history.py       Chrome SQLite extractor (NEW in CX-86 Gap C)
-+#   - safari_history.py       Safari extractor (guards re-vendor loss)
-+#   - pwg_ingest.py           with ingest_browser_history + dispatcher entry
-+#   - extract_all.py          with chrome_history in ALL_SOURCES + wiring
-+
-+set -euo pipefail
-+
-+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-+
-+# Structural check.
-+missing=""
-+for path in chrome_history.py safari_history.py pwg_ingest.py extract_all.py; do
-+    if [ ! -f "$SCRIPT_DIR/$path" ]; then
-+        missing="$missing $path"
-+    fi
-+done
-+if [ -n "$missing" ]; then
-+    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
-+    echo "      Re-sync from HR015 ostler_fda/ (see CX-86 Gap A + Gap C)." >&2
-+    exit 1
-+fi
-+echo "structural check: vendor/ostler_fda/ contains chrome_history.py + safari_history.py + pwg_ingest.py + extract_all.py"
-+
-+# chrome_history.py must expose the symbols install.sh + extract_all rely on.
-+for symbol in "CHROME_EPOCH_OFFSET" "DEFAULT_HISTORY_PATH" "_copy_history_db" "def extract_history" "def top_domains" "def to_timeline_entries"; do
-+    if ! grep -q -- "$symbol" "$SCRIPT_DIR/chrome_history.py"; then
-+        echo "FAIL: vendor/ostler_fda/chrome_history.py missing symbol: $symbol" >&2
-+        exit 1
-+    fi
-+done
-+echo "symbol check: chrome_history.py exposes WebKit epoch + copy-to-tempdir + extractor + helpers"
-+
-+# WebKit timestamp constant must be exactly 11644473600.
-+if ! grep -qE "^CHROME_EPOCH_OFFSET = 11644473600\b" "$SCRIPT_DIR/chrome_history.py"; then
-+    echo "FAIL: CHROME_EPOCH_OFFSET must be exactly 11644473600 (WebKit -> Unix)" >&2
-+    exit 1
-+fi
-+echo "timestamp constant check: CHROME_EPOCH_OFFSET = 11644473600"
-+
-+# Lock-during-running workaround must be invoked in extract_history.
-+if ! grep -q "with _copy_history_db" "$SCRIPT_DIR/chrome_history.py"; then
-+    echo "FAIL: chrome_history.extract_history must use _copy_history_db (lock workaround)" >&2
-+    exit 1
-+fi
-+echo "lock-workaround check: extract_history uses _copy_history_db context manager"
-+
-+# pwg_ingest must register ingest_browser_history in the dispatcher.
-+# (Direct Ollama -> Qdrant writer since HR015 PR #138: no gateway.)
-+if ! grep -qE "def ingest_browser_history" "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest.py missing ingest_browser_history()" >&2
-+    exit 1
-+fi
-+if ! grep -q '"browser_history", "ingest_browser_history"' "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest.ingest_all dispatcher missing browser_history entry" >&2
-+    echo "      Expected tuple form (key, name-as-string): ('browser_history', 'ingest_browser_history')" >&2
-+    echo "      _INGEST_DISPATCH holds names as strings for late-binding." >&2
-+    exit 1
-+fi
-+echo "pwg_ingest check: ingest_browser_history defined + registered in dispatcher"
-+
-+# Direct-Qdrant writer must self-create its collection. On a fresh
-+# single-Mac install nothing else creates safari_history, and an upsert
-+# into a missing collection 404s into zero rows -- a blank Browsing page
-+# that looks "installed". Guards against re-vendoring a writer that
-+# dropped the ensure (the exact disease browsing-at-v1.0 fixed).
-+if ! grep -qE "def _qdrant_ensure_collection" "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest.py missing _qdrant_ensure_collection (direct writer must self-create its collection)" >&2
-+    exit 1
-+fi
-+if ! grep -q "_qdrant_ensure_collection(BROWSING_QDRANT_COLLECTION" "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: ingest_browser_history must call _qdrant_ensure_collection before upsert" >&2
-+    exit 1
-+fi
-+echo "self-create check: ingest_browser_history ensures safari_history before upsert"
-+
-+# Direct-path writer must NOT carry the retired gateway POST machinery.
-+# (The direct writer's explanatory comment mentions /api/safari/ingest
-+# to say it does NOT use it, so we sentinel on the gateway config
-+# constant that only the old POST writer defined.)
-+if grep -qE "_GATEWAY_ENDPOINT_DEFAULT|OSTLER_GATEWAY_URL" "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest.py still carries the retired gateway POST machinery (stale vendor pre-PR #138)" >&2
-+    exit 1
-+fi
-+echo "no-gateway check: pwg_ingest.py carries no gateway POST machinery"
-+
-+# Privacy AC: return dict must contain counts only -- key set is pinned
-+# to the direct contract (status + sent + points_created + skipped +
-+# total; the gateway-era errored/safari_entries/chrome_entries are gone).
-+for key in '"status":' '"sent":' '"points_created":' '"skipped_sensitive":' '"total":'; do
-+    if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
-+        echo "FAIL: pwg_ingest.py missing return-dict key in ingest_browser_history: $key" >&2
-+        exit 1
-+    fi
-+done
-+echo "privacy contract check: ingest_browser_history returns counts-only dict"
-+
-+# extract_all must wire chrome_history (opt-in, default OFF).
-+# ALL_SOURCES is a multi-line set literal, so grep-E on a single line
-+# does not match. Use a small Python check that reads the block from
-+# ALL_SOURCES to its closing brace and verifies chrome_history is inside.
-+if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PY'
-+import re, sys
-+content = open(sys.argv[1]).read()
-+match = re.search(r'ALL_SOURCES\s*=[^}]*chrome_history', content, re.DOTALL)
-+sys.exit(0 if match else 1)
-+PY
-+then
-+    echo "FAIL: extract_all.ALL_SOURCES missing chrome_history" >&2
-+    echo "      Expected the set literal opened by ALL_SOURCES= to contain 'chrome_history'." >&2
-+    exit 1
-+fi
-+if ! grep -q 'if "chrome_history" in sources:' "$SCRIPT_DIR/extract_all.py"; then
-+    echo "FAIL: extract_all.run_all missing chrome_history conditional block" >&2
-+    exit 1
-+fi
-+echo "extract_all check: chrome_history in ALL_SOURCES + run_all block present"
-+
-+# Safari extractor must remain importable (guard against re-vendor drop).
-+if ! grep -q "def extract_history" "$SCRIPT_DIR/safari_history.py"; then
-+    echo "FAIL: safari_history.py extractor was lost during re-vendor" >&2
-+    exit 1
-+fi
-+echo "safari_history check: still present + extract_history defined"
-+
-+# Optional import-time check.
-+PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
-+import sys, importlib
-+sys.path.insert(0, sys.argv[1])
-+try:
-+    chrome = importlib.import_module("ostler_fda.chrome_history")
-+    assert chrome.CHROME_EPOCH_OFFSET == 11644473600
-+    assert callable(chrome._copy_history_db)
-+    print("OK")
-+except AssertionError as exc:
-+    print(f"FAIL: constant value mismatch ({exc})")
-+    sys.exit(2)
-+except ImportError as exc:
-+    msg = str(exc)
-+    if "No module named 'ostler_fda.chrome_history'" in msg:
-+        print(f"FAIL: {msg}")
-+        sys.exit(2)
-+    print(f"INCONCLUSIVE: external dep missing ({msg})")
-+PY
-+)
-+case "$PY_IMPORT_CHECK" in
-+    "OK")
-+        echo "import check: chrome_history imports cleanly + WebKit constant matches"
-+        ;;
-+    INCONCLUSIVE:*)
-+        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
-+        ;;
-+    FAIL:*)
-+        echo "$PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+    *)
-+        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+esac
-+
-+echo "vendor/ostler_fda browser-history regression: PASS"
-diff --git b/test_vendor_imessage_history.sh b/test_vendor_imessage_history.sh
-new file mode 100755
-index 00000000..3f5a9229
---- /dev/null
-+++ b/test_vendor_imessage_history.sh
-@@ -0,0 +1,165 @@
-+#!/usr/bin/env bash
-+# CX-84 vendor/ostler_fda iMessage hydration regression
-+# =====================================================
-+#
-+# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
-+# hydrate_imessage sub-phase needs:
-+#
-+#   - imessage.py        chat.db extractor (already vendored pre-CX-84)
-+#   - pwg_ingest.py      with ingest_imessage + dispatcher entry
-+#   - extract_all.py     with imessage in ALL_SOURCES + the
-+#                        OSTLER_IMESSAGE_BACKFILL_DAYS env override
-+#                        added by CX-84
-+#
-+# Pins the privacy contract: ingest_imessage's return dict surfaces
-+# people-count keys only (status / people_created / people_enriched).
-+# install.sh sums created + enriched for the customer-facing line.
-+
-+set -euo pipefail
-+
-+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-+
-+# Structural check.
-+missing=""
-+for path in imessage.py pwg_ingest.py extract_all.py; do
-+    if [ ! -f "$SCRIPT_DIR/$path" ]; then
-+        missing="$missing $path"
-+    fi
-+done
-+if [ -n "$missing" ]; then
-+    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
-+    echo "      Re-sync from HR015 ostler_fda/ (see CX-84)." >&2
-+    exit 1
-+fi
-+echo "structural check: vendor/ostler_fda/ contains imessage.py + pwg_ingest.py + extract_all.py"
-+
-+# imessage.py must expose the chat.db reader install.sh implicitly
-+# relies on (via extract_all -> imessage_conversations.json).
-+for symbol in "def extract_conversations" "def conversation_stats" "since_days"; do
-+    if ! grep -q -- "$symbol" "$SCRIPT_DIR/imessage.py"; then
-+        echo "FAIL: vendor/ostler_fda/imessage.py missing symbol: $symbol" >&2
-+        exit 1
-+    fi
-+done
-+echo "symbol check: imessage.py exposes extract_conversations + conversation_stats + since_days"
-+
-+# pwg_ingest must register ingest_imessage in the dispatcher.
-+if ! grep -qE "def ingest_imessage" "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest.py missing ingest_imessage()" >&2
-+    exit 1
-+fi
-+# Parse the module rather than grep a spelling. This check went FALSE RED for
-+# an unknown period because the dispatcher entry was refactored from
-+#   ("imessage", ingest_imessage)     -> bare name
-+# to
-+#   ("imessage", "ingest_imessage")   -> string, for lazy import
-+# The capability never left; only the formatting changed. A gate keyed to a
-+# spelling reports a defect that does not exist, which costs exactly as much
-+# trust as missing one that does.
-+if ! python3 - "$SCRIPT_DIR/pwg_ingest.py" <<'PYEOF'; then
-+import ast, sys
-+src = open(sys.argv[1]).read()
-+tree = ast.parse(src)
-+# any tuple/list literal pairing "imessage" with something naming ingest_imessage
-+found = False
-+for node in ast.walk(tree):
-+    if isinstance(node, (ast.Tuple, ast.List)) and len(node.elts) == 2:
-+        a, b = node.elts
-+        a_is = isinstance(a, ast.Constant) and a.value == "imessage"
-+        b_is = ((isinstance(b, ast.Constant) and b.value == "ingest_imessage")
-+                or (isinstance(b, ast.Name) and b.id == "ingest_imessage"))
-+        if a_is and b_is:
-+            found = True; break
-+if not found:
-+    sys.exit(1)
-+PYEOF
-+    echo "FAIL: pwg_ingest dispatcher has no ('imessage', ingest_imessage) pair" >&2
-+    exit 1
-+fi
-+
-+# POSITIVE CONTROL: the same parse must FAIL on a copy with the pair removed.
-+_probe="$(mktemp)"; grep -v 'ingest_imessage' "$SCRIPT_DIR/pwg_ingest.py" > "$_probe"
-+if python3 - "$_probe" <<'PYEOF'; then
-+import ast, sys
-+tree = ast.parse(open(sys.argv[1]).read())
-+found = any(isinstance(n,(ast.Tuple,ast.List)) and len(n.elts)==2
-+            and isinstance(n.elts[0],ast.Constant) and n.elts[0].value=="imessage"
-+            and ((isinstance(n.elts[1],ast.Constant) and n.elts[1].value=="ingest_imessage")
-+                 or (isinstance(n.elts[1],ast.Name) and n.elts[1].id=="ingest_imessage"))
-+            for n in ast.walk(tree))
-+sys.exit(0 if found else 1)
-+PYEOF
-+    rm -f "$_probe"
-+    echo "POSITIVE CONTROL FAILED: the dispatcher check still passes with the" >&2
-+    echo "  entry stripped. It is not checking anything." >&2
-+    exit 1
-+fi
-+rm -f "$_probe"
-+echo "pwg_ingest check: ingest_imessage defined + registered in dispatcher"
-+
-+# Privacy contract: return dict must surface people_created + people_enriched.
-+# install.sh's hydrate_imessage block sums these two keys for the
-+# customer-facing count, so renaming them silently would land an
-+# install with always-zero counts. Pin the key set.
-+for key in '"status":' '"people_created":' '"people_enriched":'; do
-+    if ! grep -q -- "$key" "$SCRIPT_DIR/pwg_ingest.py"; then
-+        echo "FAIL: pwg_ingest.py missing return-dict key in ingest_imessage: $key" >&2
-+        exit 1
-+    fi
-+done
-+echo "privacy contract check: ingest_imessage returns counts-only dict (status + people_created + people_enriched)"
-+
-+# extract_all must include imessage in ALL_SOURCES and honour the
-+# CX-84 OSTLER_IMESSAGE_BACKFILL_DAYS env override.
-+if ! grep -qE 'ALL_SOURCES.*\bimessage\b' "$SCRIPT_DIR/extract_all.py" \
-+   && ! grep -qE '"imessage"' "$SCRIPT_DIR/extract_all.py"; then
-+    echo "FAIL: extract_all.ALL_SOURCES missing imessage" >&2
-+    exit 1
-+fi
-+if ! grep -q 'if "imessage" in sources:' "$SCRIPT_DIR/extract_all.py"; then
-+    echo "FAIL: extract_all.run_all missing imessage conditional block" >&2
-+    exit 1
-+fi
-+if ! grep -q 'OSTLER_IMESSAGE_BACKFILL_DAYS' "$SCRIPT_DIR/extract_all.py"; then
-+    echo "FAIL: extract_all.py missing OSTLER_IMESSAGE_BACKFILL_DAYS env override (CX-84)" >&2
-+    exit 1
-+fi
-+echo "extract_all check: imessage source + OSTLER_IMESSAGE_BACKFILL_DAYS env override present"
-+
-+# Optional import-time check.
-+PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
-+import sys, importlib
-+sys.path.insert(0, sys.argv[1])
-+try:
-+    ingest = importlib.import_module("ostler_fda.pwg_ingest")
-+    assert callable(ingest.ingest_imessage), "ingest_imessage is not callable"
-+    print("OK")
-+except AssertionError as exc:
-+    print(f"FAIL: {exc}")
-+    sys.exit(2)
-+except ImportError as exc:
-+    msg = str(exc)
-+    if "No module named 'ostler_fda.pwg_ingest'" in msg or "No module named 'ostler_fda.imessage'" in msg:
-+        print(f"FAIL: {msg}")
-+        sys.exit(2)
-+    print(f"INCONCLUSIVE: external dep missing ({msg})")
-+PY
-+)
-+case "$PY_IMPORT_CHECK" in
-+    "OK")
-+        echo "import check: pwg_ingest.ingest_imessage imports cleanly + is callable"
-+        ;;
-+    INCONCLUSIVE:*)
-+        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
-+        ;;
-+    FAIL:*)
-+        echo "$PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+    *)
-+        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+esac
-+
-+echo "vendor/ostler_fda iMessage hydration regression: PASS"
-diff --git b/test_vendor_whatsapp_history.sh b/test_vendor_whatsapp_history.sh
-new file mode 100755
-index 00000000..2f976bac
---- /dev/null
-+++ b/test_vendor_whatsapp_history.sh
-@@ -0,0 +1,205 @@
-+#!/usr/bin/env bash
-+# CX-85 vendor/ostler_fda whatsapp_history import regression
-+# ===========================================================
-+#
-+# Asserts that vendor/ostler_fda/ ships the pieces install.sh's
-+# hydrate_whatsapp sub-phase needs at customer install time:
-+#
-+#   - whatsapp_history.py     extractor + 3-tier classifier + main() CLI
-+#   - pwg_ingest.py           with ingest_whatsapp + the whatsapp entry
-+#                             in _SOURCE_PREDICATE
-+#   - extract_all.py          with whatsapp_history in ALL_SOURCES
-+#
-+# Before CX-85 only iMessage + calendar + photos + apple_mail had
-+# ingest_* functions. If a future refactor drops the whatsapp_history
-+# module or breaks the pwg_ingest.ingest_whatsapp registration,
-+# install.sh's hydrate_whatsapp block silently degrades to
-+# MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING. This script catches
-+# that regression at CI time so we surface it BEFORE a customer
-+# install.
-+#
-+# Network-free, env-var-free, dependency-free for the structural
-+# check. The optional import-time check exercises the same module
-+# path install.sh runs ("python -m ostler_fda.whatsapp_history")
-+# and falls back to inconclusive when the runtime deps the rest
-+# of ostler_fda needs are missing in CI.
-+
-+set -euo pipefail
-+
-+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-+
-+# Structural check -- always runs, deps-free.
-+missing=""
-+for path in \
-+    whatsapp_history.py \
-+    pwg_ingest.py \
-+    extract_all.py
-+do
-+    if [ ! -f "$SCRIPT_DIR/$path" ]; then
-+        missing="$missing $path"
-+    fi
-+done
-+if [ -n "$missing" ]; then
-+    echo "FAIL: vendor/ostler_fda/ missing files:$missing" >&2
-+    echo "      Re-sync from HR015 ostler_fda/ (see CX-85)." >&2
-+    exit 1
-+fi
-+echo "structural check: vendor/ostler_fda/ contains whatsapp_history.py + pwg_ingest.py + extract_all.py"
-+
-+# whatsapp_history.py must expose the load-bearing 3-tier symbols
-+# the install.sh hydrate_whatsapp block + classifier consumers rely on.
-+for symbol in \
-+    "TIER_T1_DM" \
-+    "TIER_T2_INTIMATE" \
-+    "TIER_T2_ACTIVE" \
-+    "TIER_T3_SKIP" \
-+    "T2_CONFIDENCE" \
-+    "INTIMATE_PARTICIPANT_MAX" \
-+    "ENGAGEMENT_WINDOW_DAYS" \
-+    "ENGAGEMENT_FLOOR_ABSOLUTE" \
-+    "ENGAGEMENT_FLOOR_RELATIVE" \
-+    "def classify_chat" \
-+    "def extract_conversations" \
-+    "def conversation_stats" \
-+    "def main"
-+do
-+    if ! grep -q -- "$symbol" "$SCRIPT_DIR/whatsapp_history.py"; then
-+        echo "FAIL: vendor/ostler_fda/whatsapp_history.py missing symbol: $symbol" >&2
-+        echo "      The 3-tier classifier or CLI is incomplete; install.sh's" >&2
-+        echo "      hydrate_whatsapp block will silently degrade or crash." >&2
-+        exit 1
-+    fi
-+done
-+echo "symbol check: whatsapp_history.py exposes 3-tier classifier + CLI"
-+
-+# Andy's threshold lock-ins (do not tune without sign-off). The
-+# regression test pins the actual numeric values so a refactor
-+# cannot silently shift them. The intimate cutoff was the
-+# load-bearing addition vs. the original engagement-only model.
-+if ! grep -qE "^INTIMATE_PARTICIPANT_MAX = 10\b" "$SCRIPT_DIR/whatsapp_history.py"; then
-+    echo "FAIL: INTIMATE_PARTICIPANT_MAX must be exactly 10 (Andy 2026-05-26 lock-in)." >&2
-+    exit 1
-+fi
-+if ! grep -qE "^ENGAGEMENT_WINDOW_DAYS = 90\b" "$SCRIPT_DIR/whatsapp_history.py"; then
-+    echo "FAIL: ENGAGEMENT_WINDOW_DAYS must be exactly 90 (lock-in)." >&2
-+    exit 1
-+fi
-+if ! grep -qE "^ENGAGEMENT_FLOOR_ABSOLUTE = 20\b" "$SCRIPT_DIR/whatsapp_history.py"; then
-+    echo "FAIL: ENGAGEMENT_FLOOR_ABSOLUTE must be exactly 20 (lock-in)." >&2
-+    exit 1
-+fi
-+if ! grep -qE "^ENGAGEMENT_FLOOR_RELATIVE = 0\.02\b" "$SCRIPT_DIR/whatsapp_history.py"; then
-+    echo "FAIL: ENGAGEMENT_FLOOR_RELATIVE must be exactly 0.02 (lock-in)." >&2
-+    exit 1
-+fi
-+if ! grep -qE "^T2_CONFIDENCE = 0\.7\b" "$SCRIPT_DIR/whatsapp_history.py"; then
-+    echo "FAIL: T2_CONFIDENCE must be exactly 0.7 (lock-in)." >&2
-+    exit 1
-+fi
-+echo "threshold lock-in check: < 10 / 90d / >= 20 / >= 0.02 / 0.7 all match"
-+
-+# pwg_ingest must register the whatsapp source predicate. Without
-+# this the SPARQL upsert silently skips lastContactWhatsApp updates.
-+if ! grep -qE '"whatsapp":\s*"pwg:lastContactWhatsApp"' "$SCRIPT_DIR/pwg_ingest.py"; then
-+    echo "FAIL: pwg_ingest._SOURCE_PREDICATE missing whatsapp entry." >&2
-+    echo "      ingest_whatsapp will call _update_last_contact with no predicate" >&2
-+    echo "      and silently drop the freshness signal." >&2
-+    exit 1
-+fi
-+echo "pwg_ingest check: whatsapp entry in _SOURCE_PREDICATE"
-+
-+# extract_all must include whatsapp_history in ALL_SOURCES (NOT
-+# DEFAULT_SOURCES per Q3b sign-off -- opt-in only).
-+# ALL_SOURCES is a MULTI-LINE set literal:
-+#     ALL_SOURCES = DEFAULT_SOURCES | {
-+#         "photos_faces", "google_takeout", "whatsapp_history", ...
-+#     }
-+# so a single-line `grep -E 'ALL_SOURCES.*whatsapp_history'` can NEVER match and
-+# this gate was permanently, silently FALSE RED. Evaluate the module instead.
-+if ! python3 - "$SCRIPT_DIR/extract_all.py" <<'PYEOF'; then
-+import ast, sys
-+tree = ast.parse(open(sys.argv[1]).read())
-+for node in ast.walk(tree):
-+    if isinstance(node, ast.Assign) and any(
-+            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
-+        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
-+                 and isinstance(n.value, str)}
-+        sys.exit(0 if "whatsapp_history" in names else 1)
-+sys.exit(1)
-+PYEOF
-+    echo "FAIL: extract_all.ALL_SOURCES missing whatsapp_history." >&2
-+    echo "      The Phase 2 picker tickbox will be unwireable." >&2
-+    exit 1
-+fi
-+echo "extract_all check: whatsapp_history in ALL_SOURCES"
-+
-+# POSITIVE CONTROL: the same evaluation must FAIL when the member is removed.
-+_probe="$(mktemp)"; sed 's/"whatsapp_history", //' "$SCRIPT_DIR/extract_all.py" > "$_probe"
-+if python3 - "$_probe" <<'PYEOF'; then
-+import ast, sys
-+tree = ast.parse(open(sys.argv[1]).read())
-+for node in ast.walk(tree):
-+    if isinstance(node, ast.Assign) and any(
-+            isinstance(t, ast.Name) and t.id == "ALL_SOURCES" for t in node.targets):
-+        names = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant)
-+                 and isinstance(n.value, str)}
-+        sys.exit(0 if "whatsapp_history" in names else 1)
-+sys.exit(1)
-+PYEOF
-+    rm -f "$_probe"
-+    echo "POSITIVE CONTROL FAILED: ALL_SOURCES check passes with the member" >&2
-+    echo "  removed -- it is not checking anything." >&2
-+    exit 1
-+fi
-+rm -f "$_probe"
-+echo "positive control: ALL_SOURCES check detects a missing member"
-+
-+# Optional import-time check. Mirrors how install.sh invokes the
-+# CLI ("python -m ostler_fda.whatsapp_history --json"). Falls back
-+# to inconclusive when bs4 / httpx / other ostler_fda runtime deps
-+# are missing -- those are pip-installed by install.sh's email-ingest
-+# venv setup, not by the structural test runner.
-+PY_IMPORT_CHECK=$(/usr/bin/env python3 - "$SCRIPT_DIR/.." <<'PY'
-+import sys, importlib
-+sys.path.insert(0, sys.argv[1])
-+try:
-+    mod = importlib.import_module("ostler_fda.whatsapp_history")
-+    # Spot-check the 3-tier constants are the actual values, not strings.
-+    assert mod.INTIMATE_PARTICIPANT_MAX == 10
-+    assert mod.ENGAGEMENT_WINDOW_DAYS == 90
-+    assert mod.ENGAGEMENT_FLOOR_ABSOLUTE == 20
-+    assert abs(mod.ENGAGEMENT_FLOOR_RELATIVE - 0.02) < 1e-9
-+    assert abs(mod.T2_CONFIDENCE - 0.7) < 1e-9
-+    assert mod.TIER_T1_DM == "whatsapp_dm"
-+    assert mod.TIER_T2_INTIMATE == "whatsapp_group_intimate"
-+    assert mod.TIER_T2_ACTIVE == "whatsapp_group_active"
-+    print("OK")
-+except AssertionError as exc:
-+    print(f"FAIL: tier constant value mismatch ({exc})")
-+    sys.exit(2)
-+except ImportError as exc:
-+    msg = str(exc)
-+    if "No module named 'ostler_fda.whatsapp_history'" in msg:
-+        print(f"FAIL: {msg}")
-+        sys.exit(2)
-+    print(f"INCONCLUSIVE: external dep missing ({msg})")
-+PY
-+)
-+case "$PY_IMPORT_CHECK" in
-+    "OK")
-+        echo "import check: whatsapp_history imports cleanly + tier constants match lock-ins"
-+        ;;
-+    INCONCLUSIVE:*)
-+        echo "import check: skipped (${PY_IMPORT_CHECK#INCONCLUSIVE: })"
-+        ;;
-+    FAIL:*)
-+        echo "$PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+    *)
-+        echo "import check: unexpected output: $PY_IMPORT_CHECK" >&2
-+        exit 1
-+        ;;
-+esac
-+
-+echo "vendor/ostler_fda whatsapp_history regression: PASS"
-diff --git b/tests/test_provisional_display_name.py b/tests/test_provisional_display_name.py
-new file mode 100644
-index 00000000..c9958180
---- /dev/null
-+++ b/tests/test_provisional_display_name.py
-@@ -0,0 +1,111 @@
-+"""#576: WhatsApp/iMessage chat-only contacts get a raw phone/handle as
-+their displayName because the extractor reads JIDs/handles only. Those
-+placeholders must be FLAGGED provisional so the resolver may overwrite
-+them and surfaces can suppress the "+44 7700 900123 as a name" leak.
-+"""
-+from ostler_fda import pwg_ingest as p
-+from ostler_fda import pwg_ingest as p_mod
-+from ostler_fda.whatsapp_history import JID_SUFFIX_PERSON
-+
-+
-+def test_bare_e164_is_provisional():
-+    assert p._is_provisional_display_name("+447700900123") is True
-+    assert p._is_provisional_display_name("447700900123") is True
-+    assert p._is_provisional_display_name("+44 7700 900123") is True
-+
-+
-+def test_bare_email_is_provisional():
-+    assert p._is_provisional_display_name("someone@example.com") is True
-+
-+
-+def test_real_name_is_not_provisional():
-+    assert p._is_provisional_display_name("Sam Wang") is False
-+    assert p._is_provisional_display_name("Alex Brown") is False
-+    # A human nickname with a few digits is still a name, not a phone.
-+    assert p._is_provisional_display_name("Agent 3-2-1") is False
-+
-+
-+def test_empty_is_provisional():
-+    assert p._is_provisional_display_name("") is True
-+    assert p._is_provisional_display_name("   ") is True
-+
-+
-+def test_whatsapp_display_name_placeholder_is_flagged_provisional():
-+    # End-to-end: the WhatsApp placeholder produced for an un-named JID
-+    # is exactly the value the provisional guard rejects as a name.
-+    #
-+    # CM051 #2543: _whatsapp_display_name now validates with
-+    # phonenumbers.is_valid_number before formatting a JID's local part as a
-+    # phone (an LID can arrive all-digits through this same suffix). The UK
-+    # mobile OFCOM drama range (+44 7700 900xxx) used elsewhere in this file
-+    # is reserved but NOT phonenumbers-valid (checked, not assumed), so it
-+    # would now read as "WhatsApp contact" rather than the number -- this
-+    # test needs the OFCOM LANDLINE drama range instead (020 7946 0xxx),
-+    # which is both reserved AND valid.
-+    #
-+    # Composed via JID_SUFFIX_PERSON, not written as one literal "...@..."
-+    # run: a JID's <digits>@<domain> shape matches the repo's PII email
-+    # pattern on shape alone, same reasoning as test_whatsapp_lid_not_phone.py.
-+    _ofcom_landline_jid = "44" + "2079460958" + JID_SUFFIX_PERSON
-+    display = p._whatsapp_display_name(_ofcom_landline_jid)
-+    assert display == "+442079460958"
-+    assert p._is_provisional_display_name(display) is True
-+
-+
-+# ---------------------------------------------------------------------------
-+# v1018-D659, composed shape: "<kinship word> <surname>".
-+#
-+# Reported on a real box: a spouse rendering with a kinship word in place of
-+# her given name, on a machine where the owner's mother had died the previous
-+# year. `_is_relationship_label` matched the WHOLE label only, so the bare
-+# word was refused and the composed form scored tier 2 -- a real human name --
-+# and every guard downstream then behaved correctly on a value that should
-+# never have been written.
-+#
-+# THE REFUSAL IS AT THE WRITE PATH, NOT IN THE TIER, and that is load-bearing.
-+# repair_placeholder_names.py DELETES any stored name whose tier is below
-+# PLACEHOLDER. Folding this shape into the tier makes it delete "Auntie Emma",
-+# including where that is somebody's ONLY name. The repair suite pins that
-+# case and caught it when this was first written as one predicate.
-+#
-+# All names below are SYNTHETIC.
-+# ---------------------------------------------------------------------------
-+
-+def test_composed_kinship_is_refused_at_the_write_path():
-+    for label in ("Mum Okonjo", "Dad Smith", "Mummy Jones", "Grandad Brown",
-+                  "Auntie Pat", "Uncle Bob", "Stepdad Clarke",
-+                  "Godmother Clare", "Hubby Wilson"):
-+        assert p_mod._is_kinship_composed_label(label) is True, label
-+
-+
-+def test_composed_kinship_keeps_a_delete_safe_tier():
-+    # The repair pass must still see these as names, or it deletes them.
-+    for label in ("Mum Okonjo", "Auntie Emma", "Mum Zhang", "Papa Okonkwo"):
-+        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
-+        assert p_mod._is_relationship_label(label) is False, label
-+
-+
-+def test_apostrophe_surname_does_not_reopen_the_hole():
-+    # The punctuation strip yields three tokens. A len == 2 test passes every
-+    # example above and lets this one through, which the first fix did.
-+    assert p_mod._is_kinship_composed_label("Grandma O'Rourke") is True
-+
-+
-+def test_kinship_words_that_double_as_real_names_survive():
-+    for label in ("Nan Goldin", "Ma Rainey", "Pop Smith", "Sis Jones",
-+                  "Aunt Sally", "Boy George", "Son Volt", "House Wilson"):
-+        assert p_mod._is_kinship_composed_label(label) is False, label
-+        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
-+
-+
-+def test_an_ordinary_name_is_never_touched():
-+    for label in ("Fenella Okonjo", "Zhang Wei", "Marta Ilves",
-+                  "Ciaran O'Rourke", "Sam Wang"):
-+        assert p_mod._is_kinship_composed_label(label) is False, label
-+        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_NAME, label
-+
-+
-+def test_a_bare_kinship_word_is_still_refused_and_still_deletable():
-+    for label in ("Mum", "mum", "  Mum  ", "my mum", "big sis", "Nan"):
-+        assert p_mod._is_relationship_label(label) is True, label
-+        assert p_mod._display_name_tier(label) == p_mod._NAME_TIER_REFUSED, label
-diff --git b/tests/test_whatsapp_lid_not_phone.py b/tests/test_whatsapp_lid_not_phone.py
-new file mode 100644
-index 00000000..5655063c
---- /dev/null
-+++ b/tests/test_whatsapp_lid_not_phone.py
-@@ -0,0 +1,196 @@
-+"""CM051 #2543: a WhatsApp LID presented through the ordinary phone-JID
-+suffix must never become a "phone" identifier or a digit-shaped displayName.
-+
-+Run against THIS vendored copy of pwg_ingest.py (the one that actually ships
-+in the DMG), not HR015's -- this tree carries its own grafts (e.g.
-+_creation_name_triples / _upsert_display_name, v1018-D658/D659) that HR015's
-+copy does not, so a test proven against HR015 alone does not prove anything
-+about what a customer runs. See HR015 PR #1017 for the upstream-converging
-+fix this mirrors.
-+
-+Synthetic data only.
-+"""
-+from __future__ import annotations
-+
-+import json
-+from unittest.mock import patch
-+
-+from ostler_fda import pwg_ingest as p
-+from ostler_fda.whatsapp_history import JID_SUFFIX_PERSON
-+
-+# NANP reserved fictional exchange (555-01xx) with a real area code, so
-+# phonenumbers accepts it as VALID -- these tests need a genuinely valid
-+# number to exercise _whatsapp_jid_is_genuine_phone's "yes" branch. Composed
-+# from fragments so the repo's PII guard (phone-shape regex over the literal
-+# source text) never fires. Local part only (no "+").
-+_NANP_RESERVED = "1" + "415" + "555" + "0100"
-+
-+# A WhatsApp LID is 14-15 digits with no genuine country-code structure.
-+# Composed, not written as one literal run: the repo's PII guard flags any
-+# bare 15+ digit sequence, and a long numeric id has no reserved range to
-+# swap to -- "compose them at runtime" is the guard's own prescribed fix.
-+_LID_SHAPED = "1" + "0" * 13 + "1"
-+
-+# For the discriminator proof below: a 15-digit string whose LEADING digits
-+# are "44" (a real, allocated country code -- the UK's) but whose total
-+# length is still LID-shaped (15 digits), not a length any real UK number
-+# reaches (UK numbers top out at country code + 10 digits = 12 total).
-+# Composed for the same PII-guard reason as above.
-+_LID_WITH_REAL_LEADING_COUNTRY_CODE = "44" + "1" * 13
-+
-+
-+class TestWhatsappJidIsGenuinePhone:
-+    def test_genuine_phone_is_accepted(self):
-+        assert p._whatsapp_jid_is_genuine_phone(_NANP_RESERVED) is True
-+
-+    def test_lid_shaped_digits_are_rejected(self):
-+        assert p._whatsapp_jid_is_genuine_phone(_LID_SHAPED) is False
-+
-+    def test_leading_real_country_code_does_not_rescue_a_lid_shaped_number(self):
-+        """THE DISCRIMINATOR, PROVEN NOT ASSUMED. A naive "does it start with
-+        a real country code" check would wrongly accept this value --
-+        phonenumbers.is_valid_number does not, because validity depends on
-+        the FULL number matching an allocated length/pattern for that
-+        country, not merely sharing its calling code prefix. A 15-digit
-+        string starting with "44" is 3-5 digits longer than any real UK
-+        number (country code + at most 10 national digits = 12 total), so
-+        it is invalid on length and pattern alone, exactly like an LID with
-+        no plausible leading digits at all."""
-+        assert _LID_WITH_REAL_LEADING_COUNTRY_CODE.startswith("44")
-+        assert len(_LID_WITH_REAL_LEADING_COUNTRY_CODE) == 15
-+        assert p._whatsapp_jid_is_genuine_phone(
-+            _LID_WITH_REAL_LEADING_COUNTRY_CODE
-+        ) is False
-+
-+    def test_empty_and_non_digit_are_rejected(self):
-+        assert p._whatsapp_jid_is_genuine_phone("") is False
-+        assert p._whatsapp_jid_is_genuine_phone("not-digits") is False
-+
-+
-+class TestWhatsappDisplayName:
-+    def test_formats_a_genuine_phone(self):
-+        suffix = JID_SUFFIX_PERSON
-+        assert p._whatsapp_display_name(_NANP_RESERVED + suffix) == "+" + _NANP_RESERVED
-+
-+    def test_non_numeric_local_part_unchanged(self):
-+        assert p._whatsapp_display_name("alice@example.com") == "alice"
-+
-+    def test_lid_shaped_digits_are_not_rendered_as_a_number(self):
-+        suffix = JID_SUFFIX_PERSON
-+        assert p._whatsapp_display_name(_LID_SHAPED + suffix) == "WhatsApp contact"
-+
-+
-+class TestWhatsappPhoneE164:
-+    def test_genuine_phone_formats_to_e164(self):
-+        suffix = JID_SUFFIX_PERSON
-+        assert p._whatsapp_phone_e164(_NANP_RESERVED + suffix) == "+" + _NANP_RESERVED
-+
-+    def test_lid_shaped_digits_return_none(self):
-+        """The writer-level contract: callers must not write this under
-+        identifierType "phone" when None comes back."""
-+        suffix = JID_SUFFIX_PERSON
-+        assert p._whatsapp_phone_e164(_LID_SHAPED + suffix) is None
-+
-+    def test_non_numeric_passes_through(self):
-+        assert p._whatsapp_phone_e164("alice@example.com") == "alice@example.com"
-+
-+
-+from ostler_fda.phone_twins import PhoneTwinIndex as _PhoneTwinIndex  # noqa: E402
-+
-+_EMPTY_TWIN_INDEX = _PhoneTwinIndex(())
-+
-+
-+class TestIngestWhatsapp:
-+    """Integration-level: the actual writer, against THIS vendored module."""
-+
-+    _REAL_PHONE_JID = _NANP_RESERVED + JID_SUFFIX_PERSON
-+    _LID_SHAPED_JID = _LID_SHAPED + JID_SUFFIX_PERSON
-+
-+    @staticmethod
-+    def _chats(jid: str) -> list:
-+        return [{
-+            "tier": "whatsapp_dm",
-+            "participants": [jid],
-+            "last_message": "2025-06-15T00:00:00+00:00",
-+            "confidence": 1.0,
-+        }]
-+
-+    @patch("ostler_fda.pwg_ingest._update_last_contact")
-+    @patch("ostler_fda.pwg_ingest._sparql_update")
-+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
-+    # existence, and skips the person when the store cannot be read. No
-+    # store here, so that lookup is stubbed to "never merged".
-+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
-+    # P13: the writer asks who already holds a phone number (phone_twins).
-+    # No store here, so that read is faked as "nobody holds it".
-+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
-+    @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
-+    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
-+    def test_lid_shaped_participant_is_never_tagged_phone(
-+        self, mock_observe, mock_exists, mock_update, mock_last_contact, tmp_path
-+    ):
-+        (tmp_path / "whatsapp_conversations.json").write_text(
-+            json.dumps(self._chats(self._LID_SHAPED_JID))
-+        )
-+        result = p.ingest_whatsapp(tmp_path)
-+        assert result["status"] == "ok"
-+        assert result["people_created"] == 1
-+
-+        sparql_text = " ".join(str(c) for c in mock_update.call_args_list)
-+        assert 'identifierType "phone"' not in sparql_text
-+        assert 'identifierType "whatsapp_lid"' in sparql_text
-+        assert "+" + _LID_SHAPED not in sparql_text
-+
-+    @patch("ostler_fda.pwg_ingest._update_last_contact")
-+    @patch("ostler_fda.pwg_ingest._sparql_update")
-+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
-+    # existence, and skips the person when the store cannot be read. No
-+    # store here, so that lookup is stubbed to "never merged".
-+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
-+    # P13: the writer asks who already holds a phone number (phone_twins).
-+    # No store here, so that read is faked as "nobody holds it".
-+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
-+    @patch("ostler_fda.pwg_ingest._person_exists", return_value=False)
-+    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
-+    def test_genuine_phone_participant_is_tagged_phone(
-+        self, mock_observe, mock_exists, mock_update, mock_last_contact, tmp_path
-+    ):
-+        """CONTROL: the ordinary, resolved case is unaffected."""
-+        (tmp_path / "whatsapp_conversations.json").write_text(
-+            json.dumps(self._chats(self._REAL_PHONE_JID))
-+        )
-+        result = p.ingest_whatsapp(tmp_path)
-+        assert result["status"] == "ok"
-+        assert result["people_created"] == 1
-+
-+        sparql_text = " ".join(str(c) for c in mock_update.call_args_list)
-+        assert 'identifierType "phone"' in sparql_text
-+        assert "+" + _NANP_RESERVED in sparql_text
-+
-+    @patch("ostler_fda.pwg_ingest._update_last_contact")
-+    @patch("ostler_fda.pwg_ingest._sparql_update")
-+    # DMG #27 S2: the writer follows pwg:mergedInto before it checks
-+    # existence, and skips the person when the store cannot be read. No
-+    # store here, so that lookup is stubbed to "never merged".
-+    @patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda uri: uri)
-+    # P13: the writer asks who already holds a phone number (phone_twins).
-+    # No store here, so that read is faked as "nobody holds it".
-+    @patch("ostler_fda.phone_twins.load_index", new=lambda *a, **k: _EMPTY_TWIN_INDEX)
-+    @patch("ostler_fda.pwg_ingest._person_exists", return_value=True)
-+    @patch("ostler_fda.pwg_ingest._identifier_exists", return_value=False)
-+    @patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False)
-+    def test_enrich_branch_also_normalises_and_never_tags_lid_as_phone(
-+        self, mock_observe, mock_id_exists, mock_exists, mock_update,
-+        mock_last_contact, tmp_path,
-+    ):
-+        """The "person already exists" branch wrote the raw JID local-part
-+        (no "+", never normalised) instead of _whatsapp_phone_e164's output,
-+        so the same real number from the create path and the enrich path
-+        could disagree in format."""
-+        (tmp_path / "whatsapp_conversations.json").write_text(
-+            json.dumps(self._chats(self._REAL_PHONE_JID))
-+        )
-+        p.ingest_whatsapp(tmp_path)
-+        sparql_text = " ".join(str(c) for c in mock_update.call_args_list)
-+        assert "+" + _NANP_RESERVED in sparql_text
-+        assert _NANP_RESERVED + JID_SUFFIX_PERSON not in sparql_text
-diff --git b/tests/test_whatsapp_placeholder_not_a_name.py b/tests/test_whatsapp_placeholder_not_a_name.py
-new file mode 100644
-index 00000000..bd17e3cd
---- /dev/null
-+++ b/tests/test_whatsapp_placeholder_not_a_name.py
-@@ -0,0 +1,96 @@
-+"""CM051 #30 batch 3: WhatsApp's default / unknown-name token must not
-+CREATE a named person. 13 records on one box shared "WhatsApp contact".
-+
-+The person (tier 0, phone handle, provisional) still appears; only the
-+name is withheld. Synthetic data only.
-+"""
-+from __future__ import annotations
-+
-+import json
-+from unittest.mock import patch
-+
-+import pytest
-+
-+from ostler_fda import pwg_ingest as p
-+from ostler_fda.whatsapp_history import JID_SUFFIX_PERSON
-+from ostler_fda.phone_twins import PhoneTwinIndex  # P13: no store here; nobody holds the number
-+
-+_NANP = "1" + "415" + "555" + "0100"
-+_LID = "1" + "0" * 13 + "1"
-+
-+PLACEHOLDERS = [
-+    "WhatsApp contact", "WhatsApp Contact", "~WhatsApp contact", "~", "~ ",
-+    "", "   ", "‎", "...", "-", "?!", "\U0001F600", "\U0001F600\U0001F44D",
-+    "~\U0001F600", "Unknown", "unknown", "~Unknown", "Unknown contact",
-+    "WhatsApp user", "WhatsApp",
-+    # locale variants (best-effort, not verified against WhatsApp tables).
-+    # Written lower-case: the predicate casefolds (the capitalised English
-+    # forms above prove that), and a capitalised foreign word in this STRICT
-+    # path reads as a name to the PII guard.
-+    "desconocido", "contacto de WhatsApp", "usuario de WhatsApp", "inconnu",
-+    "contact WhatsApp", "utilisateur WhatsApp", "unbekannt", "WhatsApp-kontakt",
-+    "WhatsApp-nutzer", "sconosciuto", "contatto WhatsApp", "utente WhatsApp",
-+    "desconhecido", "contato do WhatsApp", "onbekend", "WhatsApp-contact",
-+    "Неизвестный",
-+    "未知", "不明", "알 수 없음",
-+]
-+REAL = ["Sam Wang", "~Sam Wang", "Alex Brown", "Agent 3-2-1", "Mary Smith",
-+        "Jo O'Doe", "王明"]
-+
-+
-+@pytest.mark.parametrize("v", PLACEHOLDERS)
-+def test_placeholder_shapes_are_not_names(v):
-+    assert p._is_whatsapp_placeholder_name(v) is True
-+    assert p._display_name_tier(v) == p._NAME_TIER_PLACEHOLDER
-+    triples = p._creation_name_triples("urn:x:1", v)
-+    assert not any("pwg:displayName " in t for t in triples)
-+    assert any("displayNameProvisional" in t for t in triples)
-+
-+
-+@pytest.mark.parametrize("v", REAL)
-+def test_real_names_still_names(v):
-+    assert p._is_whatsapp_placeholder_name(v) is False
-+    assert p._display_name_tier(v) == p._NAME_TIER_NAME
-+    assert any("pwg:displayName " in t for t in p._creation_name_triples("urn:x:1", v))
-+
-+
-+def test_none_is_placeholder():
-+    assert p._is_whatsapp_placeholder_name(None) is True
-+
-+
-+def test_upsert_never_writes_a_placeholder():
-+    with patch("ostler_fda.pwg_ingest._sparql_update") as upd:
-+        p._upsert_display_name("urn:x:1", "WhatsApp contact")
-+        upd.assert_not_called()
-+        p._upsert_display_name("urn:x:1", "Sam Wang")
-+        assert upd.call_count == 1
-+
-+
-+class TestIngest:
-+    @staticmethod
-+    def _run(tmp_path, jid):
-+        (tmp_path / "whatsapp_conversations.json").write_text(json.dumps([{
-+            "tier": "whatsapp_dm", "participants": [jid],
-+            "last_message": "2025-06-15T00:00:00+00:00", "confidence": 1.0}]))
-+        with patch("ostler_fda.pwg_ingest._update_last_contact"), \
-+             patch("ostler_fda.pwg_ingest._sparql_update") as upd, \
-+             patch("ostler_fda.pwg_ingest._resolve_merged", new=lambda u: u), \
-+             patch("ostler_fda.phone_twins.load_index",
-+                   new=lambda *a, **k: PhoneTwinIndex(())), \
-+             patch("ostler_fda.pwg_ingest._person_exists", return_value=False), \
-+             patch("ostler_fda.pwg_ingest._observe_identifier", return_value=False):
-+            result = p.ingest_whatsapp(tmp_path)
-+        return result, " ".join(str(c) for c in upd.call_args_list)
-+
-+    def test_placeholder_creates_person_without_a_name(self, tmp_path):
-+        result, text = self._run(tmp_path, _LID + JID_SUFFIX_PERSON)
-+        assert result["people_created"] == 1          # tier-0 person appears
-+        assert "a pwg:Person" in text and "whatsapp_lid" in text
-+        assert "WhatsApp contact" not in text         # but no name
-+        assert "displayNameProvisional" in text
-+
-+    def test_phone_person_keeps_phone_handle_name(self, tmp_path):
-+        result, text = self._run(tmp_path, _NANP + JID_SUFFIX_PERSON)
-+        assert result["people_created"] == 1
-+        assert f'pwg:displayName "+{_NANP}"' in text
-+        assert "displayNameProvisional" in text
+@@ -404,7 +410,8 @@
+         # connect the source rather than showing a stalled bar. Then
+         # re-raise so callers (extract_all, main) keep their existing
+         # skip semantics.
+-        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
++        _emit_settling(done=0, total=0, started_at=started_at,
++                       skip_reason="whatsapp_not_installed")
+         raise FileNotFoundError(
+             f"WhatsApp ChatStorage.sqlite not found at {db_path}. "
+             "Install WhatsApp Desktop from the Mac App Store, then re-run."
+@@ -416,7 +423,8 @@
+     except PermissionError:
+         # FDA not granted -- from the customer's perspective the source is
+         # not yet connected. Emit needs_source=True and re-raise.
+-        _emit_settling(done=0, total=0, needs_source=True, started_at=started_at)
++        _emit_settling(done=0, total=0, started_at=started_at,
++                       skip_reason="permission_denied")
+         raise
+     try:
+         # Pull a minimal session row -- we resolve participants per
+@@ -477,7 +485,8 @@
+         # Emit a ready shard (needs_source=False -- the app is installed
+         # and the DB is reachable, there is just nothing to backfill).
+         conn.close()
+-        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at)
++        _emit_settling(done=0, total=0, needs_source=False, started_at=started_at,
++                       skip_reason="no_messages")
+         logger.info("Extracted 0 WhatsApp chats (empty ChatStorage)")
+         return []
+ 
+@@ -526,10 +535,10 @@
+ 
+     conn.close()
+ 
+-    # Final emit carries the ACTUAL done. The previous version passed
+-    # done=total here "belt-and-braces", which overwrote the honest count with
+-    # a claim of completion on every single run.
+-    _emit_settling(done=done, total=total, started_at=started_at)
++    # Final emit carries the ACTUAL done (done=total here used to overwrite the
++    # honest count with a claim of completion) AND the explicit terminal
++    # marker: the run finished its window. See imessage.py for the window note.
++    _emit_settling(done=done, total=total, started_at=started_at, complete=True)
+     logger.info(
+         "Extracted %d WhatsApp chats (t1_dm=%d, t2_intimate=%d, t2_active=%d, t3_skip=%d)",
+         len(chats),
