@@ -27,7 +27,7 @@
 # ===========================================================================
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SUBJECT="$REPO/scripts/walk_cold_wipe_state.sh"
+SUBJECT="${COLD_WIPE_SH:-$REPO/scripts/walk_cold_wipe_state.sh}"
 ALLOW="$REPO/scripts/walk_cold_allowlist.tsv"
 TTYWALK="$REPO/scripts/ttywalk.sh"
 PASS=0; FAIL=0
@@ -107,8 +107,36 @@ b64="$(base64 < "$ALLOW" | tr -d '\n')"
 COLD_ALLOWLIST_FILE="" COLD_ALLOWLIST_B64="$b64" run_script "$SUBJECT" "$H4" wipe >/dev/null 2>&1; rc6=$?
 [ "$rc6" = 0 ] && ok "ALLOWLIST: the base64 form the driver sends decodes and wipes (rc 0)" || bad "ALLOWLIST: b64 rc=$rc6"
 
+
+# ---- UNREADABLE: a find that errors must never read as cold (Archie, #3459) ----
+# The first version piped find into wc -l, so the exit status was wc's: a
+# permission error left after=0 and the box read cold PROVEN without looking.
+H8="$WORK/h8"; mkbox "$H8"; mkdir -p "$H8/Documents/Ostler/sealed"; printf 'x\n' > "$H8/Documents/Ostler/sealed/f"; chmod 000 "$H8/Documents/Ostler/sealed"
+run_script "$SUBJECT" "$H8" before >/dev/null 2>&1
+out8="$(run_script "$SUBJECT" "$H8" wipe 2>&1)"; rc8=$?
+chmod 755 "$H8/Documents/Ostler/sealed"
+[ "$rc8" = 2 ] && ok "UNREADABLE: a chmod 000 subdir under a root makes the wipe rc 2, not cold" || bad "UNREADABLE: rc=$rc8: $out8"
+grep -q 'PROVEN' "$H8/.walk-cold-run" && bad "UNREADABLE: the run file says PROVEN" || ok "UNREADABLE: the run file does not say PROVEN ($(cut -c1-40 "$H8/.walk-cold-run"))"
+grep -q 'Documents/Ostler' <<< "$out8" && grep -qi 'permission denied\|WIPE ERROR\|CANNOT LOOK' <<< "$out8" && ok "UNREADABLE: the root and find's own error line are printed" || bad "UNREADABLE: no root/error line: $out8"
+H9="$WORK/h9"; mkbox "$H9"; mkdir -p "$H9/.ostler/state/sealed"; chmod 000 "$H9/.ostler/state/sealed"
+run_script "$SUBJECT" "$H9" before >/dev/null 2>&1; rcb9=$?
+chmod 755 "$H9/.ostler/state/sealed"
+[ "$rcb9" = 2 ] && ok "UNREADABLE: the BEFORE count also refuses (rc 2) on an unreadable subdir" || bad "UNREADABLE: before rc=$rcb9"
+# A root whose parent cannot be listed is not "absent".
+H10="$WORK/h10"; mkbox "$H10"; rm -rf "$H10/Documents/Ostler"; chmod 000 "$H10/Documents"
+run_script "$SUBJECT" "$H10" before >/dev/null 2>&1; rc10=$?
+chmod 755 "$H10/Documents"
+[ "$rc10" = 2 ] && ok "ABSENT: a root under an unreadable parent is CANNOT-LOOK (rc 2), not absent-so-0" || bad "ABSENT: rc=$rc10"
+H11="$WORK/h11"; mkbox "$H11"; rm -rf "$H11/Documents/Ostler"
+run_script "$SUBJECT" "$H11" before 2>&1 | grep -q 'BEFORE teardown: 0 files under .*Documents/Ostler' && ok "ABSENT: a genuinely absent root under a readable parent counts 0" || bad "ABSENT: control failed"
+# Positive control: a find that sees nothing at all must be caught.
+mkdir -p "$WORK/blindbin"; printf '#!/bin/sh\nexit 0\n' > "$WORK/blindbin/find"; chmod +x "$WORK/blindbin/find"
+H12="$WORK/h12"; mkbox "$H12"
+PATH="$WORK/blindbin:$PATH" run_script "$SUBJECT" "$H12" before >/dev/null 2>&1; rc12=$?
+[ "$rc12" = 2 ] && ok "CONTROL: a find that returns nothing fails the planted-file positive control (rc 2)" || bad "CONTROL: blind find was believed (rc=$rc12)"
+
 # ---- MUTANT: refusal neutered ----
-sed 's/\[ "\$after" -ne 0 \] && bad=1/:/' "$SUBJECT" > "$WORK/mutant.sh"
+sed -e 's/\[ "\$after" -ne 0 \] && bad=1/:/' -e 's/^bad="\$wipe_err"$/bad=0/' "$SUBJECT" > "$WORK/mutant.sh"
 cmp -s "$SUBJECT" "$WORK/mutant.sh" && { echo "CANNOT-RUN: the mutation did not apply"; exit 2; }
 H5="$WORK/h5"; mkbox "$H5"; plant "$H5" 1
 run_script "$WORK/mutant.sh" "$H5" before >/dev/null 2>&1
