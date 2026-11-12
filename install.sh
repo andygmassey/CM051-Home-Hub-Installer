@@ -28745,6 +28745,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.imessage-bundle
     com.creativemachines.ostler.wiki-recompile
     com.creativemachines.ostler.wiki-recompile-catchup
+    com.creativemachines.ostler.settling-refresh
     com.creativemachines.ostler.editor-frontpage
     com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
