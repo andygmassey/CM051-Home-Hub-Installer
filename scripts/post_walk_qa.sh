@@ -912,6 +912,9 @@ if [[ -n "$CUT_VERSION" ]]; then
         # walk that declared nothing, can never read as console.
         printf 'walk_kind\t%s\n'        "$WALK_KIND"
         printf 'walk_kind_source\t%s\n' "$WALK_KIND_SOURCE"
+        # Every change to a settle/wait budget, or removed wait, vs the previous instrument is stated in the record.
+        printf 'wait_changes\twiki-summaries: waited once before usage_journal_producers (kickstart early, no early wait), budget %ss, same predicate; was a blocking early wait of %ss plus a second wait of %ss on cannot-run. early pass: off by default (full pass makes every assertion it makes). CONVERGE predicate and budget unchanged.\n' \
+            "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" "${OSTLER_WIKI_WAIT_BUDGET_S:-900}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
         if [[ -n "${OSTLER_WALK_NOTES:-}" ]]; then printf 'walk_notes\t%s\n' "$(printf '%s' "$OSTLER_WALK_NOTES" | tr '\t\n\r' '   ')"; fi
         printf '#\n'
         printf '# instrument_rev answers the question this record has never\n'
