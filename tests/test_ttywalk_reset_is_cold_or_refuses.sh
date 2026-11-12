@@ -75,7 +75,7 @@ out_w="$(run_script "$SUBJECT" "$H1" wipe 2>&1)"; rc_w=$?
 grep -q 'BEFORE teardown: 9 files under .*\.ostler$' <<< "$out_b" && ok "CLEAN: before count for ~/.ostler is 9 (8 state files + config; licence is allowlisted, not counted)" || bad "CLEAN: before count wrong: $out_b"
 grep -q 'before=9 after=0' <<< "$out_w" && ok "CLEAN: wipe prints before=9 after=0 for ~/.ostler" || bad "CLEAN: wipe line missing: $out_w"
 grep -q 'Ostler: before=1 after=0' <<< "$out_w" && ok "CLEAN: ~/Documents/Ostler counted before=1 after=0" || bad "CLEAN: Documents/Ostler line missing"
-grep -q 'Ostler-Synth: before=1 after=0' <<< "$out_w" && ok "CLEAN: Application Support/Ostler* glob root counted" || bad "CLEAN: App Support glob root missing"
+grep -q 'Ostler-Synth: before=1 after=0' <<< "$out_w" && ok "CLEAN: the Library glob root counted" || bad "CLEAN: the Library glob root missing"
 [ -f "$H1/.ostler/license/license.json" ] && ok "CLEAN: the licence (allowlisted) survived" || bad "CLEAN: the licence was deleted"
 [ ! -e "$H1/.ostler/state/conversations_mirror" ] && [ ! -e "$H1/.ostler/config/.env" ] && ok "CLEAN: state and config are gone" || bad "CLEAN: state or config survived"
 [ -f "$H1/$AS/Other App/keep.db" ] && ok "CLEAN: a non-Ostler app dir is untouched" || bad "CLEAN: a non-Ostler app dir was deleted"
