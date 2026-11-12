@@ -170,6 +170,25 @@ settling_source_total() {
     return 0
 }
 
+# settling_complete <channel> [shard]
+#
+# Marks a channel TERMINAL: the writer finished it. done is raised to the
+# measured total (never lowered), complete=true. Reader: a complete shard is
+# counted as finished, so the Setting-up bar can reach 100%.
+settling_complete() {
+    OSTLER_SETTLING_TERMINAL=complete settling_report "${1:-}" 0 0 false "${2:-}"
+}
+
+# settling_skip <channel> <reason_code> [shard]
+#
+# Marks a channel TERMINAL without work: the source yielded nothing by design
+# (no contacts, no Notes data) or cannot be read. The reason is a stable code,
+# not prose, so the reader can show localised copy for it.
+settling_skip() {
+    OSTLER_SETTLING_TERMINAL=skip OSTLER_SETTLING_SKIP_REASON="${2:-nothing_to_read}" \
+        settling_report "${1:-}" 0 0 false "${3:-}"
+}
+
 # settling_report_measured <channel> <done> [needs_source] [shard]
 #
 # settling_report with the denominator measured from the source instead of
@@ -233,6 +252,8 @@ settling_report() {
     OSTLER_SETTLING_DONE="$done_n" \
     OSTLER_SETTLING_TOTAL="$total_n" \
     OSTLER_SETTLING_NEEDS="$needs_source" \
+    OSTLER_SETTLING_TERMINAL="${OSTLER_SETTLING_TERMINAL:-}" \
+    OSTLER_SETTLING_SKIP_REASON="${OSTLER_SETTLING_SKIP_REASON:-}" \
     python3 - <<'PYEOF' 2>/dev/null || true
 import json, os, tempfile
 from datetime import datetime, timezone
@@ -254,6 +275,8 @@ now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 # every tick makes the estimate reset forever and the bar stops falling.
 started = None
 prev_done = 0
+prev_total = 0
+prev_complete = False
 try:
     with open(target, "r", encoding="utf-8") as fh:
         prev = json.load(fh)
@@ -261,10 +284,12 @@ try:
         cand = prev.get("started_at")
         if isinstance(cand, str) and cand.strip():
             started = cand
+        prev_complete = prev.get("complete") is True
         try:
             prev_done = max(0, int(prev.get("done") or 0))
+            prev_total = max(0, int(prev.get("total") or 0))
         except (TypeError, ValueError):
-            prev_done = 0
+            prev_done = prev_total = 0
 except Exception:
     started = None
 
@@ -274,17 +299,70 @@ except Exception:
 # needs_source=true over it, so the panel said "Mail: nothing found" for good.
 # A later, narrower writer can never walk the bar backwards, and a channel
 # that has already counted work is by definition not missing its source.
+req_total = _int("OSTLER_SETTLING_TOTAL")
 done = max(_int("OSTLER_SETTLING_DONE"), prev_done)
-total = max(_int("OSTLER_SETTLING_TOTAL"), done)
+total = max(req_total, done)
 needs = os.environ.get("OSTLER_SETTLING_NEEDS", "false").strip().lower() in ("1", "true", "yes")
 if done > 0:
     needs = False
+
+# TERMINAL STATE. A channel that has finished must say so, or the Setting-up
+# bar holds below 100% for ever: `needs_source` is a question to the customer,
+# not an end state, and an unfinished measured pass is never revisited.
+#   complete -> the writer finished this source: done = total (never backwards).
+#   skip     -> the source yielded nothing by design or cannot be read; the
+#               stable reason code is recorded so the reader can say why.
+terminal = os.environ.get("OSTLER_SETTLING_TERMINAL", "").strip().lower()
+skip_reason = ""
+complete = False
+if terminal == "complete":
+    total = max(total, prev_total, done)
+    done = total
+    needs = False
+    complete = True
+elif terminal == "skip":
+    complete = True
+    needs = False
+    if done == 0:
+        total = 0
+        skip_reason = (os.environ.get("OSTLER_SETTLING_SKIP_REASON", "").strip()
+                       or "nothing_to_read")
+    else:
+        total = max(total, prev_total, done)
+        done = total
+elif prev_complete and terminal == "" and req_total <= prev_total:
+    # CARRY-FORWARD. A channel that completed on an earlier run and is re-run
+    # with no growth (0/0 or 0/N where N is what it already measured) is still
+    # complete. Without this the next hourly 0/0 write would reopen a finished
+    # channel and walk the bar back down. Growth (req_total > prev_total) is
+    # real new work and reopens the channel.
+    total = max(total, prev_total, done)
+    done = total
+    needs = False
+    complete = True
+
+# DISCOVERY STATUS. A producer that does not yet know its total writes
+# discovering (0/0, no marker); a known-empty source with a question to the
+# customer is needs_source. Only complete or skipped is terminal.
+if complete:
+    status = "complete"
+elif skip_reason:
+    status = "skipped"
+elif total == 0 and needs:
+    status = "needs_source"
+elif total == 0:
+    status = "discovering"
+else:
+    status = "measuring"
 
 payload = {
     "key": key,
     "done": done,
     "total": total,
     "needs_source": needs,
+    "complete": complete,
+    "skip_reason": skip_reason,
+    "status": status,
     "started_at": started or now,
     "updated_at": now,
 }

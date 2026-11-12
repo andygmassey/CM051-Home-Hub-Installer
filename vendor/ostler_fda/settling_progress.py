@@ -128,6 +128,27 @@ def _read_existing_started_at(path: Path) -> Optional[str]:
     return started if isinstance(started, str) and started.strip() else None
 
 
+def _read_existing_terminal(path: Path) -> tuple:
+    """Return ``(complete, total)`` from the existing shard, or ``(False, 0)``.
+
+    Used for the completion carry-forward: a channel that completed and is
+    re-run with no growth stays complete. Read errors mean "not complete",
+    which is the conservative answer -- the channel is then open, never done.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return (False, 0)
+    if not isinstance(data, dict):
+        return (False, 0)
+    try:
+        prev_total = max(0, int(data.get("total") or 0))
+    except (TypeError, ValueError):
+        prev_total = 0
+    return (data.get("complete") is True, prev_total)
+
+
 def _read_existing_done(path: Path) -> Optional[int]:
     """Return the existing ``done`` on this shard, or ``None``.
 
@@ -166,6 +187,8 @@ def report_settling_progress(
     started_at: Optional[str] = None,
     shard: Optional[str] = None,
     state_dir: Optional[Path] = None,
+    complete: bool = False,
+    skip_reason: str = "",
 ) -> None:
     """Write a per-channel settling-progress shard atomically.
 
@@ -192,6 +215,11 @@ def report_settling_progress(
             this ``None``.
         state_dir: Override the state directory. Default:
             ``~/.ostler/state``. Test seam; never override in production.
+        complete: True when the writer FINISHED this source (the terminal
+            marker, same as the shell ``settling_complete``). Without it a
+            count that reaches its total is still open.
+        skip_reason: Stable reason code when the source yielded nothing by
+            design (e.g. ``no_messages``). Terminal, like ``complete``.
 
     Raises:
         ValueError: The channel is not in :data:`SETTLING_CHANNELS`.
@@ -254,8 +282,46 @@ def report_settling_progress(
     # A denominator below the numerator renders as over 100%. Producers that
     # cannot measure the full corpus pass total == done; clamping here means
     # no call site can publish an impossible bar.
+    req_total = total_int
     if total_int < done_int:
         total_int = done_int
+
+    # TERMINAL STATE. Only an explicit marker makes a source terminal. 0/0 with
+    # no marker is DISCOVERING: the producer has not yet found its work, and
+    # reading it as finished let the Setting-up bar touch 100% and fall back.
+    #   complete    -> the writer finished this source; done = total, never backwards.
+    #   skip_reason -> nothing to read by design; the reason code is recorded.
+    #   carry       -> a channel already complete, re-run with no growth, stays complete.
+    skip_reason = (skip_reason or "").strip() if isinstance(skip_reason, str) else ""
+    prev_complete, prev_total = _read_existing_terminal(target_path)
+    if complete:
+        total_int = max(total_int, prev_total, done_int)
+        done_int = total_int
+        needs_source = False
+        skip_reason = ""
+    elif skip_reason:
+        if done_int == 0:
+            total_int = 0
+        else:
+            total_int = max(total_int, prev_total, done_int)
+            done_int = total_int
+        needs_source = False
+    elif prev_complete and req_total <= prev_total:
+        total_int = max(total_int, prev_total, done_int)
+        done_int = total_int
+        needs_source = False
+        complete = True
+
+    if complete:
+        status = "complete"
+    elif skip_reason:
+        status = "skipped"
+    elif total_int == 0 and needs_source:
+        status = "needs_source"
+    elif total_int == 0:
+        status = "discovering"
+    else:
+        status = "measuring"
 
     # Preserve started_at across updates: read existing shard, keep original.
     preserved_started = _read_existing_started_at(target_path)
@@ -271,6 +337,9 @@ def report_settling_progress(
         "done": done_int,
         "total": total_int,
         "needs_source": bool(needs_source),
+        "complete": bool(complete),
+        "skip_reason": skip_reason,
+        "status": status,
         "started_at": effective_started,
         "updated_at": _now_iso_utc(),
     }
