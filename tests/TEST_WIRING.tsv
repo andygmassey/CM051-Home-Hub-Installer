@@ -436,6 +436,7 @@ test_exports_and_folder_prompts_explain_themselves.sh	WIRED	.github/workflows/co
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
 test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
+test_failed_probe_count_is_distinct_probes.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_fda_assist_ordering.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_fda_deps_are_installed_not_just_copied.sh	WIRED	.github/workflows/fda-deps-installed.yml

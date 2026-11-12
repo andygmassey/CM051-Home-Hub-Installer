@@ -862,7 +862,13 @@ if [[ -n "$CUT_VERSION" ]]; then
     # be invisible to it. DEDUPED against phase 1 with sort -u: the same probe
     # failing in both phases is one broken probe, not two, in the promote
     # scope's eyes.
-    FAILED_NAMES="$(printf '%s\n%s\n' "$FAILED_NAMES_P1" "${PHASE2_FAILED_NAMES:-}" | sed '/^$/d' | sort -u)"
+    # COUNT PROBES, NOT ROWS (v1.0.129: "7 of 11" was 7 distinct probes in 11 FAIL
+    # rows, 4 of them the same probe reported by the main pass AND the manifest,
+    # or by two manifest rows). Names are normalised (box-walk-, probe- prefixes
+    # and hyphens) so one probe is one name wherever it was reported, and every
+    # raw named row is kept as a failed_row so a reader can re-derive the count.
+    FAILED_ROWS="$(printf '%s\n%s\n' "$FAILED_NAMES_P1" "${PHASE2_FAILED_NAMES:-}" | sed '/^$/d' | sed -e 's/^box-walk-//' -e 's/^probe-//' -e 's/-/_/g')"
+    FAILED_NAMES="$(printf '%s\n' "$FAILED_ROWS" | sed '/^$/d' | sort -u)"
     NOTMEAS_NAMES="$(printf '%s\n%s\n' "$NOTMEAS_NAMES_P1" "${PHASE2_CANNOTRUN_NAMES:-}" | sed '/^$/d' | sort -u)"
     n_failed_named="$(printf '%s' "$FAILED_NAMES" | grep -c . || true)"
     # The denominator below is phase 1's own FAIL count PLUS phase 2's, the
@@ -873,6 +879,13 @@ if [[ -n "$CUT_VERSION" ]]; then
     # (any manifest row that is not a box_walk_probe) still counts in
     # PHASE2_FAIL_TOTAL, so it shows up here as a gap instead of vanishing.
     n_fail_total=$(( ${n_fail:-0} + ${PHASE2_FAIL_TOTAL:-0} ))
+    n_fail_rows="$n_fail_total"
+    n_rows_named="$(printf '%s' "$FAILED_ROWS" | grep -c . || true)"
+    n_unnamed_rows=$(( n_fail_rows - ${n_rows_named:-0} ))
+    [ "$n_unnamed_rows" -lt 0 ] && n_unnamed_rows=0
+    # DISTINCT probes: every distinct named probe plus every FAIL row this parse
+    # could not attribute to a probe (each of those is its own unknown).
+    n_fail_total=$(( ${n_failed_named:-0} + n_unnamed_rows ))
 
     {
         printf '# Ostler walk record -- written by scripts/post_walk_qa.sh\n'
@@ -1098,6 +1111,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         if [ -n "$NOTMEAS_NAMES" ]; then
             printf 'not_measured_reasons\twithheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate'"'"'s own log on the walked box, and any full_output=... path it names\n'
         fi
+        printf '%s\n' "$FAILED_ROWS" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'failed_row\t%s\n' "$_n"; done
         printf '%s\n' "$NOTMEAS_NAMES" | while IFS= read -r _n; do [ -n "$_n" ] && printf 'not_measured_probe\t%s\n' "$_n"; done
         printf '%s\n' "$BROKEN_NAMES"  | while IFS= read -r _n; do [ -n "$_n" ] && printf 'broken_probe\t%s\n' "$_n"; done
     } > "$RECORD"

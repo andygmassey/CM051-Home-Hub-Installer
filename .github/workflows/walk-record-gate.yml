@@ -96,6 +96,7 @@ on:
       - 'scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
+      - 'tests/test_failed_probe_count_is_distinct_probes.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
@@ -276,6 +277,12 @@ jobs:
       - name: The customer download cannot be repointed to an unwalked build
         if: always()
         run: bash tests/test_walk_record_gates_customer_download.sh
+
+      # v1.0.129 was refused as "7 of 11" when 11 FAIL rows were 7 distinct
+      # probes; the count is now of probes, and every refusal prints the cold row.
+      - name: The failed-probe count is of distinct probes and refusals print cold
+        if: always()
+        run: bash tests/test_failed_probe_count_is_distinct_probes.sh
 
       # A probe that reads an absent path as a definite answer is worse than a
       # probe that fails: it reports a confident verdict about something it
