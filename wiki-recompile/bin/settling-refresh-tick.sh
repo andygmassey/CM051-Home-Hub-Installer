@@ -4,7 +4,7 @@
 #
 # Every 15 minutes (com.creativemachines.ostler.settling-refresh, StartInterval
 # 900) refresh settling.json only, so the setup status screen (wiki panel and
-# Hub Home card) is not frozen for the 24 h between full wiki compiles.
+# home card) is not frozen for the 24 h between full wiki compiles.
 #
 # Runs exactly the CM044 settling-only contract command (no LLM, no Oxigraph,
 # no page rendering, target under 10 s):
