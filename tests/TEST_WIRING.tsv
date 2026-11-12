@@ -817,6 +817,7 @@ test_send_safety_probes.sh	WIRED	.github/workflows/send-safety-probes.yml
 test_sensitive_artefacts_guard_fires.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_sensitive_artefacts_not_world_readable.sh	WIRED	.github/workflows/sensitive-artefact-exposure.yml
 test_service_senders_get_no_reconnect_card.py	WIRED	.github/workflows/privacy-spine.yml
+test_settling_channels_survive_promote.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_contacts_reaches_100_when_sync_finished.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_denominator_terminal_writes.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_emails_tells_the_truth.sh	WIRED	.github/workflows/settling-truth.yml
