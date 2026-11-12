@@ -38,6 +38,8 @@ trap 'rm -rf "$TMP"' EXIT
 export OSTLER_STATE_DIR="$TMP/state"
 export HOME="$TMP/home"
 export OSTLER_STABILITY_INTERVAL_S=0
+# The probe judges only the manifest channels; notes is not one, so section 3 uses calendar.
+export OSTLER_SETTLING_MANIFEST="$REPO_ROOT/lib/settling_channels.json"
 mkdir -p "$HOME"
 SHARD_DIR="$OSTLER_STATE_DIR/settling_progress.d"
 
@@ -99,11 +101,11 @@ v="$(probe_verdict "$SHARD_DIR")"
 # ── 3. 0/0 with settling_skip <reason> is terminal, reason recorded ────────
 
 rm -rf "$SHARD_DIR"
-rep notes 0 0 false
-skip notes no_contacts
-[ "$(field "$SHARD_DIR/notes.json" skip_reason)" = '"no_contacts"' ] \
+rep calendar 0 0 false
+skip calendar no_contacts
+[ "$(field "$SHARD_DIR/calendar.json" skip_reason)" = '"no_contacts"' ] \
     && ok "settling_skip: skip_reason recorded" \
-    || bad "settling_skip: skip_reason=$(field "$SHARD_DIR/notes.json" skip_reason)"
+    || bad "settling_skip: skip_reason=$(field "$SHARD_DIR/calendar.json" skip_reason)"
 v="$(probe_verdict "$SHARD_DIR")"
 [ "$v" = "PASS" ] \
     && ok "settling_skip: probe judges it TERMINAL (PASS)" \

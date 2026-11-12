@@ -22,7 +22,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="$REPO_ROOT/lib/settling_progress.sh"
 INSTALL="$REPO_ROOT/install.sh"
-PROBE="$REPO_ROOT/scripts/box_walk_probes/probes/setup_progress_advancing.sh"
+PROBE="${PROBE_UNDER_TEST:-$REPO_ROOT/scripts/box_walk_probes/probes/setup_progress_advancing.sh}"
 WORKFLOW="$REPO_ROOT/.github/workflows/tests-unwired-sweep-mz.yml"
 
 pass=0; fail=0
@@ -97,6 +97,11 @@ else
         printf '%s\n' "$3" > "$1/settling_progress.d/$2.json"
     }
 
+    MANIFEST="$TMP/settling_channels.json"
+    printf '%s\n' '{"schema":1,"channels":["contacts","calendar","messages","emails"]}' > "$MANIFEST"
+    export OSTLER_SETTLING_MANIFEST="$MANIFEST"
+    export OSTLER_LAUNCHAGENTS_DIR="$TMP/no-launchagents"
+
     BAD="$TMP/probe-bad"
     mkshard "$BAD" contacts '{"key":"contacts","done":2398,"total":2443,"needs_source":false,"started_at":"2026-11-08T07:01:16+00:00","updated_at":"2026-11-08T07:01:16+00:00"}'
     mkshard "$BAD" emails '{"key":"emails","done":17080,"total":121262,"needs_source":false,"started_at":"2026-11-08T07:04:58+00:00","updated_at":"2026-11-08T07:04:58+00:00"}'
@@ -107,10 +112,12 @@ else
     rc=$?
     if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/bad.out" \
        && /usr/bin/grep -q 'emails' "$TMP/bad.out" && /usr/bin/grep -q 'contacts' "$TMP/bad.out" \
-       && /usr/bin/grep -q 'notes' "$TMP/bad.out"; then
-        ok "probe FAILs on a non-terminal emails, contacts and waiting notes shard, naming each"
+       && /usr/bin/grep -q 'notes.json|INFO|' "$TMP/bad.out" \
+       && ! /usr/bin/grep -q 'notes.json|FAIL|' "$TMP/bad.out" \
+       && /usr/bin/grep -q '3 of 3 settling source' "$TMP/bad.out"; then
+        ok "probe FAILs on non-terminal emails, contacts and calendar (3 of 3 judged), and lists the waiting notes shard as INFO, not judged"
     else
-        bad "probe did not FAIL on non-terminal shards (rc=$rc): $(tr '\n' ' ' < "$TMP/bad.out")"
+        bad "probe did not FAIL on non-terminal shards or judged a non-manifest shard (rc=$rc): $(tr '\n' ' ' < "$TMP/bad.out")"
     fi
 
     # Advancing: emails moves during the settle window (a live writer), contacts
@@ -133,14 +140,126 @@ else
     mkshard "$GOOD" contacts '{"key":"contacts","done":2443,"total":2443,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:01:16+00:00","updated_at":"2026-11-08T07:01:16+00:00"}'
     mkshard "$GOOD" emails '{"key":"emails","done":121262,"total":121262,"needs_source":false,"complete":true,"started_at":"2026-11-08T07:04:58+00:00","updated_at":"2026-11-08T07:04:58+00:00"}'
     mkshard "$GOOD" calendar '{"key":"calendar","done":4138,"total":4138,"needs_source":false,"complete":true,"started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-11T04:00:03+00:00"}'
-    mkshard "$GOOD" notes '{"key":"notes","done":0,"total":0,"needs_source":false,"complete":true,"skip_reason":"no Notes data on this Mac","started_at":"2026-11-08T06:50:47+00:00","updated_at":"2026-11-08T06:50:47+00:00"}'
+    mkshard "$GOOD" messages.imessage '{"key":"messages","shard":"imessage","done":10,"total":10,"needs_source":false,"skip_reason":"no_messages","complete":true}'
     OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/good.out" 2>&1
     rc=$?
     if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'VERDICT: PASS' "$TMP/good.out" \
-       && /usr/bin/grep -q 'no Notes data' "$TMP/good.out"; then
+       && /usr/bin/grep -q 'no_messages' "$TMP/good.out"; then
         ok "probe PASSes when every shard is complete, measured done, or skipped with a shown reason"
     else
         bad "probe did not PASS an all-terminal fixture (rc=$rc): $(tr '\n' ' ' < "$TMP/good.out")"
+    fi
+
+    # ── 3b. Manifest scoping and hourly-writer freshness (this PR) ───────────
+    ago() {  # ago <seconds>: an ISO updated_at that many seconds in the past
+        python3 -I -c 'import sys,datetime as d;print((d.datetime.now(d.timezone.utc)-d.timedelta(seconds=int(sys.argv[1]))).isoformat(timespec="seconds"))' "$1"
+    }
+    AGENTS="$TMP/agents"; mkdir -p "$AGENTS"
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>com.creativemachines.ostler.email-ingest</string><key>StartInterval</key><integer>3600</integer></dict></plist>' \
+        > "$AGENTS/com.creativemachines.ostler.email-ingest.plist"
+    terminal_rest() {  # terminal contacts, calendar, messages shards so only emails decides
+        mkshard "$1" contacts '{"key":"contacts","done":5,"total":5,"complete":true}'
+        mkshard "$1" calendar '{"key":"calendar","done":5,"total":5,"complete":true}'
+        mkshard "$1" messages.imessage '{"key":"messages","shard":"imessage","done":5,"total":5,"complete":true}'
+        mkshard "$1" messages.whatsapp '{"key":"messages","shard":"whatsapp","done":5,"total":5,"complete":true}'
+    }
+
+    # (a) a notes 0/0 open shard and an emails.history shard are NOT judged.
+    NOTES="$TMP/probe-notes"
+    terminal_rest "$NOTES"
+    mkshard "$NOTES" emails '{"key":"emails","done":4,"total":4,"complete":true}'
+    mkshard "$NOTES" notes '{"key":"notes","done":0,"total":0,"needs_source":false}'
+    mkshard "$NOTES" emails.history '{"key":"emails.history","done":3,"total":90,"needs_source":false}'
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$NOTES/settling_progress.d" bash "$PROBE" >"$TMP/notes.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'VERDICT: PASS' "$TMP/notes.out" \
+       && /usr/bin/grep -q 'notes.json|INFO|' "$TMP/notes.out" && /usr/bin/grep -q 'emails.history.json|INFO|' "$TMP/notes.out"; then
+        ok "a notes 0/0 shard and an emails.history shard are listed as INFO and do not fail the probe"
+    else
+        bad "probe judged a shard outside settling_channels.json (rc=$rc): $(tr '\n' ' ' < "$TMP/notes.out")"
+    fi
+
+    # (b) an hourly emails shard updated 10 minutes ago, no done delta in the window: PASS.
+    FRESH="$TMP/probe-fresh"
+    terminal_rest "$FRESH"
+    mkshard "$FRESH" emails "{\"key\":\"emails\",\"done\":17441,\"total\":121893,\"needs_source\":false,\"updated_at\":\"$(ago 600)\"}"
+    OSTLER_LAUNCHAGENTS_DIR="$AGENTS" OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$FRESH/settling_progress.d" bash "$PROBE" >"$TMP/fresh.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'emails.json|PASS|fresh: updated' "$TMP/fresh.out" \
+       && /usr/bin/grep -q 'StartInterval=3600' "$TMP/fresh.out"; then
+        ok "hourly emails shard updated 10 min ago with no delta in the window PASSes on freshness, StartInterval printed"
+    else
+        bad "fresh hourly emails shard did not PASS (rc=$rc): $(tr '\n' ' ' < "$TMP/fresh.out")"
+    fi
+
+    # (c) the same shard updated 3 h ago: FAIL "not advancing".
+    STALE="$TMP/probe-stale"
+    terminal_rest "$STALE"
+    mkshard "$STALE" emails "{\"key\":\"emails\",\"done\":17441,\"total\":121893,\"needs_source\":false,\"updated_at\":\"$(ago 10800)\"}"
+    OSTLER_LAUNCHAGENTS_DIR="$AGENTS" OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$STALE/settling_progress.d" bash "$PROBE" >"$TMP/stale.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'emails.json|FAIL|not advancing: updated' "$TMP/stale.out"; then
+        ok "hourly emails shard updated 3 h ago FAILs as not advancing"
+    else
+        bad "stale hourly emails shard did not FAIL (rc=$rc): $(tr '\n' ' ' < "$TMP/stale.out")"
+    fi
+
+    # (d) manifest absent is a FAIL (the #3453 wiring check), never a fallback.
+    OSTLER_SETTLING_MANIFEST="$TMP/absent/settling_channels.json" OSTLER_STABILITY_INTERVAL_S=1 \
+        OSTLER_SETTLING_DIR="$GOOD/settling_progress.d" bash "$PROBE" >"$TMP/nomanifest.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'VERDICT: FAIL' "$TMP/nomanifest.out" && /usr/bin/grep -q 'settling_channels.json is absent' "$TMP/nomanifest.out"; then
+        ok "absent settling_channels.json FAILs the probe instead of falling back"
+    else
+        bad "absent manifest did not FAIL (rc=$rc): $(tr '\n' ' ' < "$TMP/nomanifest.out")"
+    fi
+
+    # (e) done going backwards on an otherwise fresh hourly shard is FAIL.
+    BACK="$TMP/probe-back"
+    terminal_rest "$BACK"
+    mkshard "$BACK" emails "{\"key\":\"emails\",\"done\":9000,\"total\":121893,\"updated_at\":\"$(ago 60)\"}"
+    ( sleep 1; printf '%s\n' "{\"key\":\"emails\",\"done\":8000,\"total\":121893,\"updated_at\":\"$(ago 1)\"}" > "$BACK/settling_progress.d/emails.json" ) &
+    OSTLER_LAUNCHAGENTS_DIR="$AGENTS" OSTLER_STABILITY_INTERVAL_S=3 OSTLER_SETTLING_DIR="$BACK/settling_progress.d" bash "$PROBE" >"$TMP/back.out" 2>&1
+    rc=$?
+    wait
+    if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'done went backwards' "$TMP/back.out"; then
+        ok "a fresh hourly shard whose done decreased FAILs"
+    else
+        bad "decreasing done on an hourly shard did not FAIL (rc=$rc): $(tr '\n' ' ' < "$TMP/back.out")"
+    fi
+
+
+    # (f) updated_at is the claim, never file mtime: a 1.5x-tick-old updated_at PASSes
+    #     and a >2x updated_at FAILs even though the file itself was just written.
+    F15="$TMP/probe-15x"
+    terminal_rest "$F15"
+    mkshard "$F15" emails "{\"key\":\"emails\",\"done\":17441,\"total\":121893,\"complete\":false,\"updated_at\":\"$(ago 5400)\"}"
+    OSTLER_LAUNCHAGENTS_DIR="$AGENTS" OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$F15/settling_progress.d" bash "$PROBE" >"$TMP/f15.out" 2>&1
+    rc15=$?
+    OLD="$TMP/probe-old-updated-at"
+    terminal_rest "$OLD"
+    mkshard "$OLD" emails "{\"key\":\"emails\",\"done\":17441,\"total\":121893,\"complete\":false,\"updated_at\":\"$(ago 7500)\"}"
+    touch "$OLD/settling_progress.d/emails.json"
+    OSTLER_LAUNCHAGENTS_DIR="$AGENTS" OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$OLD/settling_progress.d" bash "$PROBE" >"$TMP/old.out" 2>&1
+    rcold=$?
+    if [[ "$rc15" -eq 0 ]] && /usr/bin/grep -q 'emails.json|PASS|fresh' "$TMP/f15.out" \
+       && [[ "$rcold" -eq 1 ]] && /usr/bin/grep -q 'emails.json|FAIL|not advancing: updated' "$TMP/old.out"; then
+        ok "freshness reads updated_at: 1.5x tick PASSes; >2x tick with complete=false FAILs although the file mtime is now"
+    else
+        bad "updated_at freshness wrong (1.5x rc=$rc15, >2x rc=$rcold): $(tr '\n' ' ' < "$TMP/f15.out") // $(tr '\n' ' ' < "$TMP/old.out")"
+    fi
+
+    # (g) a done==total never-complete notes shard (the Evernote writer's shape) is not judged.
+    NDT="$TMP/probe-notes-dt"
+    terminal_rest "$NDT"
+    mkshard "$NDT" emails '{"key":"emails","done":4,"total":4,"complete":true}'
+    mkshard "$NDT" notes '{"key":"notes","done":37,"total":37,"needs_source":false,"complete":false}'
+    OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$NDT/settling_progress.d" bash "$PROBE" >"$TMP/ndt.out" 2>&1
+    rc=$?
+    if [[ "$rc" -eq 0 ]] && /usr/bin/grep -q 'notes.json|INFO|' "$TMP/ndt.out" && ! /usr/bin/grep -q 'notes.json|FAIL|' "$TMP/ndt.out"; then
+        ok "a done==total, never-complete notes shard is INFO and does not change the verdict"
+    else
+        bad "done==total notes shard affected the verdict (rc=$rc): $(tr '\n' ' ' < "$TMP/ndt.out")"
     fi
 
     OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$TMP/no-such-dir" bash "$PROBE" >"$TMP/none.out" 2>&1
