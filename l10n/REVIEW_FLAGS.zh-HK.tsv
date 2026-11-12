@@ -60,3 +60,4 @@ gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_r
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; word order depends on how it is concatenated in Chinese. Check in context.
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
+install.sh.strings.zh-HK.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending

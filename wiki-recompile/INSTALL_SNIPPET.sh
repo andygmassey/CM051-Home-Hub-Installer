@@ -96,3 +96,35 @@ else
     echo "wiki-recompile install: bootstrap returned $rc; check ${RENDERED_PLIST} and ${LOGS_DIR}/wiki-recompile.err" >&2
     exit "$rc"
 fi
+
+# ---------------------------------------------------------------------------
+# 5. Settling-refresh agent (every 15 minutes, settling.json only)
+#
+# Same stage / render / bootout / bootstrap shape as the wiki-recompile agent
+# above. Its absence is non-fatal to the daily agent (an older bundle without
+# the files simply skips it) but a bootstrap failure is reported.
+# ---------------------------------------------------------------------------
+
+SETTLING_BIN_SRC="$WIKI_RECOMPILE_INSTALL_ROOT/bin/settling-refresh-tick.sh"
+SETTLING_PLIST_SRC="$WIKI_RECOMPILE_INSTALL_ROOT/launchd/com.creativemachines.ostler.settling-refresh.plist"
+
+if [ -f "$SETTLING_BIN_SRC" ] && [ -f "$SETTLING_PLIST_SRC" ]; then
+    cp "$SETTLING_BIN_SRC" "$OSTLER_BIN_DIR/settling-refresh-tick.sh"
+    chmod 0755 "$OSTLER_BIN_DIR/settling-refresh-tick.sh"
+    SETTLING_PLIST="$USER_LAUNCH_AGENTS/com.creativemachines.ostler.settling-refresh.plist"
+    sed \
+        -e "s/OSTLER_BIN/$esc_bin/g" \
+        -e "s/OSTLER_HOME/$esc_home/g" \
+        -e "s/OSTLER_LOGS/$esc_logs/g" \
+        "$SETTLING_PLIST_SRC" > "$SETTLING_PLIST"
+    chmod 0644 "$SETTLING_PLIST"
+    SETTLING_LABEL="com.creativemachines.ostler.settling-refresh"
+    launchctl bootout "$DOMAIN/$SETTLING_LABEL" 2>/dev/null || true
+    if launchctl bootstrap "$DOMAIN" "$SETTLING_PLIST"; then
+        echo "wiki-recompile install: LaunchAgent bootstrapped ($SETTLING_LABEL)"
+    else
+        rc=$?
+        echo "wiki-recompile install: settling-refresh bootstrap returned $rc; check ${SETTLING_PLIST} and ${LOGS_DIR}/settling-refresh.err" >&2
+        exit "$rc"
+    fi
+fi
