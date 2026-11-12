@@ -71,6 +71,13 @@
 #   scripts/verify_walk_record.sh reads. Until 2026-09-23 nothing did, and two
 #   walks on real hardware left no evidence any gate could read.
 #
+#   --tier smoke|full    default full. full = everything; REQUIRED before any
+#                        console walk and any public tag. smoke = cold reset +
+#                        install + the 4 BLOCKING probes + install-path probes +
+#                        probes of components changed since the last full record
+#                        (scripts/box_walk_probes/smoke_scope.tsv). Writes
+#                        walks/<v>.smoke.tsv, `tier smoke`, verdict SMOKE-PASS at
+#                        best, NEVER CLEAN: it cannot satisfy the launch directive.
 #   --no-record          skip it. ANNOUNCED, never silent. The probe suite
 #                        writes to the live store, so a box mid-demo is a real
 #                        reason to decline.
@@ -128,6 +135,7 @@ STAGE_ONLY=0
 # person into the LIVE store, #829), so a box mid-demo is a real reason to
 # decline. Declining is ANNOUNCED, never silent.
 NO_RECORD=0
+WALK_TIER="${OSTLER_WALK_TIER:-full}"
 # The early repeat-failure pass (scripts/early_repeat_fail_pass.sh) is OFF by
 # default: it re-asks probes the full pass asks again (see tests/test_the_early_
 # pass_adds_no_assertion_the_full_pass_lacks.sh). --early-pass runs it. Read-only,
@@ -153,11 +161,12 @@ while [[ $# -gt 0 ]]; do
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --no-record)    NO_RECORD=1; shift ;;
+        --tier)         WALK_TIER="${2:-}"; shift 2 ;;
         --no-early-pass) NO_EARLY_PASS=1; shift ;; --early-pass) NO_EARLY_PASS=0; shift ;;
         --lang)         WALK_LANG="${2:-}"; shift 2 ;;
         --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
-        -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)      sed -n '2,100p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
 done
@@ -165,6 +174,10 @@ done
 [[ -n "$HOST" ]] || die "--host is required (user@host)"
 
 # ARGUMENT-TIME, before any ssh: an unknown language is a usage error.
+if [[ "$WALK_TIER" != "full" && "$WALK_TIER" != "smoke" ]]; then
+    die "--tier must be smoke or full, not '${WALK_TIER}'"
+fi
+export OSTLER_WALK_TIER="$WALK_TIER"
 if [[ -n "$WALK_LANG" ]] && ! walk_lang_valid "$WALK_LANG"; then
     die "--lang '${WALK_LANG}' is not an installer locale (one of: ${WALK_LANGS})."
 fi
@@ -1476,6 +1489,11 @@ fi
 # ── Run ──────────────────────────────────────────────────────────────
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"
 say "started $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ "$WALK_TIER" == "smoke" ]]; then
+    say "tier smoke: NOT a full walk. It can never record verdict CLEAN; a FULL walk is required before any console walk and any public tag."
+else
+    say "tier full: everything. Required before any console walk and any public tag."
+fi
 
 # ARCHIVE THE PREVIOUS RUN'S EVIDENCE BEFORE THIS ONE STARTS, so the report at
 # the end can only be describing this run. Archived, not deleted: the previous

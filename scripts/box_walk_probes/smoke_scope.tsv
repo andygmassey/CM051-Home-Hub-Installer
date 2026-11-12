@@ -1,0 +1,27 @@
+# smoke_scope.tsv -- which probes a `--tier smoke` walk runs.   (scripts/walk_smoke_select.py reads it)
+#
+# A smoke walk is cold reset + install + the probes below. It can NEVER produce `verdict CLEAN`
+# (post_walk_qa.sh writes SMOKE-PASS / SMOKE-FAILED / SMOKE-PARTIAL into walks/<v>.smoke.tsv). FULL is required before any
+# console walk and any public tag.
+#
+# Columns: class <TAB> key <TAB> probes (comma separated, exact probe names, no substrings)
+#   blocking   LAUNCH DIRECTIVE item 5, always run.
+#   install    install-path probes, always run.
+#   component  run only when that component CHANGED since the last FULL walk record. BOMs are CUMULATIVE (each cut lists
+#              everything shipped so far), so "changed" is the DELTA: rows of the target cut's OS003
+#              cuts/<v>/MUST_CONTAIN.tsv that the last-FULL walk's BOM does not have, keyed on (what, repo, ref). Each new
+#              row's capability_id maps to a component through OS003 manifest/capability_manifest.tsv `repo`
+#              (assistant | cm044 | cm051). A NEW row with capability_id none, or one the manifest does not know, or an
+#              unreadable BOM, or no FULL record in the walk store, widens to ALL components (fail wide, never narrow).
+#              The selector prints the OS003 origin/main commit and date it read.
+#
+# KNOWN LIMIT: installer commits that have no BOM row are invisible to the delta. That is why the install-path probes
+# ALWAYS run, and why a smoke walk can never be CLEAN (a FULL walk is still required before any console walk or tag).
+#
+# EVERY probe on disk must appear exactly once below (tests/test_walk_smoke_scope_covers_every_probe.sh): a new probe
+# cannot silently fall out of smoke.
+blocking	directive-5	no_store_port_is_tcp_reachable,assistant_answers_grounded,no_person_holds_two_contact_cards,people_stores_reconcile
+install	install-path	app_signature_survives_first_run,install_error_honesty,install_log_error_lines,install_manifest_complete,installed_bundle_seal_intact,image_pulls_match_pins,launchagents_resolve_their_tools,launchd_no_ephemeral_paths,ostler_launchd_jobs_loaded_and_exit_clean,running_config_matches_disk,daemon_is_listening,setup_progress_advancing,converge_kill_is_recorded,db_key_reaches_every_service,the_recovery_key_reached_the_customer,gateway_not_exposed_on_lan,no_python_is_tcc_responsible
+component	assistant	assistant_grounds_the_opening_turn,assistant_prompt_names_every_pwg_tool,assistant_self_description_is_clean,assistant_sends_over_whatsapp_and_email,care_rules_present_in_workspace_agents_md,chat_latency_baseline,chat_reminder_routes_to_home,companion_listener_refuses_unauthenticated,core_memory_holds_no_prefetch_block,cron_run_makes_no_sends,email_channel_round_trip,followup_keys_match_chat_threads,l3_not_prefetched,listener_watchdog_recovers_a_wedged_listener,meeting_brief_text_is_grounded,morning_brief_catches_me_up,dislike_respected_in_brief,needs_you_now_birthdays_survive_fallback,pair_endpoints_refuse_off_window,pair_state_agreement,pairing_recovers_without_a_repair_storm,reply_debt_is_answered,scheduled_brief_reaches_messages,stranger_cannot_trigger_send,tainted_owner_send_needs_exact_approval,todos_reach_reminders,call_audio_never_retained,conversation_capture_end_to_end,owner_digest_knows_the_owner,owner_knowledge_score,ostler_unlock_reachable_by_name
+component	cm044	doctor_page_renders_for_a_customer,freshness_panel_has_dates,front_page_not_me_is_saved,hub_screens_customer_read,hub_screens_render_for_a_customer,source_status_artefact_is_served,status_api_dates_are_sane,usage_journal_producers,wiki_maps_links_carry_no_join_secret
+component	cm051	apple_music_library_reaches_preferences,apple_music_refresh_runs_under_the_grant,derived_preferences_breadth,derived_preferences_dislike,derived_preferences_not_others,derived_preferences_reach_digest_and_tool,derived_preferences_runs,fda_rerun_second_tick_lands_a_new_row,fda_tick_can_import,ingest_coverage,identity_layer_is_importable,people_count_agreement,people_seed_and_retrieval,qdrant_has_fd_headroom_and_writes_land,data_conservation,gateway_never_serves_a_stored_secret,no_unexpected_egress,third_party_telemetry_off

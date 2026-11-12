@@ -150,6 +150,10 @@ on:
       - 'tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh'
       - 'tests/test_walk_timing_reaches_the_record.sh'
       - 'scripts/box_walk_probes/manifest_reuse_allowlist.tsv'
+      - 'tests/test_a_smoke_walk_can_never_be_clean.sh'
+      - 'tests/test_walk_smoke_scope.sh'
+      - 'scripts/walk_smoke_select.py'
+      - 'scripts/box_walk_probes/smoke_scope.tsv'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -1073,6 +1077,13 @@ jobs:
       - name: Per-probe and per-manifest-row seconds reach the walk record
         if: always()
         run: /bin/bash tests/test_walk_timing_reaches_the_record.sh
+      - name: A smoke-tier walk can never record CLEAN, and the release gate refuses it
+        if: always()
+        run: /bin/bash tests/test_a_smoke_walk_can_never_be_clean.sh
+
+      - name: The smoke scope is explicit, covers every probe, and fails wide
+        if: always()
+        run: /bin/bash tests/test_walk_smoke_scope.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
