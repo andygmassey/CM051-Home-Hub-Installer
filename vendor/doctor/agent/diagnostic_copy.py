@@ -741,9 +741,11 @@ OLLAMA_NOT_PINNED_TITLE = "Ollama is not on Ostler's pinned version"
 OLLAMA_NOT_PINNED_DETAIL_FMT = (
     "The last installer run could not install Ostler's tested copy of "
     "Ollama ({version}) because {reason}, so the copy that was already "
-    "running was kept. Your assistant keeps working. Until this is fixed "
-    "Ostler downloads no new AI models, because a different Ollama could "
-    "fetch the wrong build."
+    "running was kept. Your assistant keeps working."
+)
+OLLAMA_MODELS_UNVERIFIED_FMT = (
+    " AI models downloaded in this state were not checked against Ostler's "
+    "recorded fingerprints: {models}."
 )
 OLLAMA_NOT_PINNED_FIX = (
     "Run the Ostler installer again while you are online. It tries the "

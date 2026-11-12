@@ -124,6 +124,18 @@ MSG
     exit 2
 fi
 
+# EVERY EXIT THAT IS NOT ACCEPTANCE PRINTS THE COLD ROW AS RECORDED, so a reader
+# sees both reasons (v1.0.129 was FAILED and NOT_COLD, and the gate named one).
+_print_cold_on_refusal() {
+    local rc=$?
+    if [[ "$rc" -ne 0 && -r "${RECORD:-}" ]]; then
+        local c; c="$(awk -F'\t' '$1=="cold" { print $2; exit }' "$RECORD")"
+        if [[ -n "$c" ]]; then echo "[walk-gate] cold: ${c}" >&2
+        else echo "[walk-gate] cold: ABSENT from this record (nothing says the box was empty before the install)" >&2; fi
+    fi
+}
+trap _print_cold_on_refusal EXIT
+
 field() {
     # Tab-separated key/value. grep -q is deliberately NOT used here: this
     # file's own guard sets pipefail, and `producer | grep -q` lets grep exit
@@ -504,6 +516,26 @@ _adjudicate_scoped() {
     if [[ -n "$rec_complete" ]]; then
         local got want
         got="${rec_complete%% of *}"; want="${rec_complete##* of }"
+        # A record written before the counter counted PROBES says "7 of 11" for
+        # 11 FAIL rows that are 7 distinct probes. failed_row rows (one per raw
+        # FAIL row) let that be re-derived instead of trusted: normalise the
+        # box-walk-/probe- prefixes, require the rows to account for the whole
+        # denominator, and require every distinct row name to have a
+        # failed_probe row. Anything short of that is still refused.
+        if [[ "$got" != "$want" ]]; then
+            local _rows=0 _distinct _unnamed=0 _r
+            _rows="$(awk -F'\t' '$1=="failed_row"' "$RECORD" | grep -c . || true)"
+            if [[ "${_rows:-0}" -gt 0 && "$_rows" == "$want" ]]; then
+                _distinct="$(awk -F'\t' '$1=="failed_row"{print $2}' "$RECORD" | sed -e 's/^box-walk-//' -e 's/^probe-//' -e 's/-/_/g' | sort -u)"
+                while IFS= read -r _r; do
+                    [[ -z "$_r" ]] && continue
+                    if ! awk -F'\t' -v n="$_r" '$1=="failed_probe" && $2==n {f=1} END{exit f?0:1}' "$RECORD"; then _unnamed=$((_unnamed + 1)); fi
+                done <<< "$_distinct"
+                if [[ "$_unnamed" -eq 0 && "$(printf '%s\n' "$_distinct" | grep -c .)" == "$got" ]]; then
+                    got="$want"
+                fi
+            fi
+        fi
         if [[ "$got" != "$want" ]]; then
             echo "[walk-gate] REFUSED: ${RECORD} names ${rec_complete} failed probes." >&2
             echo "            An unnamed failure cannot be checked against the promote scope." >&2
