@@ -820,6 +820,7 @@ test_settling_contacts_reaches_100_when_sync_finished.sh	WIRED	.github/workflows
 test_settling_denominator_terminal_writes.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_emails_tells_the_truth.sh	WIRED	.github/workflows/settling-truth.yml
 test_settling_progress_writer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_settling_refresh_agent.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_seed_fixture_terminal.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_writers_end_to_end.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_settling_writers_end_to_end.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
