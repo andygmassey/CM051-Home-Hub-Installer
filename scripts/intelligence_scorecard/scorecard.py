@@ -353,17 +353,107 @@ def build_entry(results, meta):
             "scenarios": [{k: v for k, v in r.items() if k != "transcript"} for r in results]}
 
 
+TIER_ORDER = ["<16 (below install floor)", "16-23", "24-47", "48+", "unknown"]
+TAG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*$")
+CANDIDATES_PATH = os.path.join(HERE, "candidates.tsv")
+CAND_COLS = ["name", "ollama_tag", "obtain", "quantisation", "on_disk", "licence", "origin",
+             "ram_tier_target", "source_note"]
+
+
+def load_candidates(path=CANDIDATES_PATH):
+    """-> list of row dicts from candidates.tsv. Refuses a malformed row rather than guessing."""
+    rows, header = [], None
+    with open(path, encoding="utf-8") as f:
+        for ln in f:
+            ln = ln.rstrip("\n")
+            if not ln or ln.startswith("#"):
+                continue
+            cells = ln.split("\t")
+            if header is None:
+                if cells != CAND_COLS:
+                    raise ValueError("candidates.tsv header must be %s" % "\t".join(CAND_COLS))
+                header = cells
+                continue
+            if len(cells) != len(CAND_COLS):
+                raise ValueError("candidates.tsv row has %d columns, want %d: %r" % (len(cells), len(CAND_COLS), cells[0]))
+            rows.append(dict(zip(CAND_COLS, cells)))
+    names = [r["name"] for r in rows]
+    if len(names) != len(set(names)):
+        raise ValueError("candidates.tsv has duplicate names")
+    for r in rows:
+        if r["ram_tier_target"].split(" ")[0] not in ("16", "24", "48+"):
+            raise ValueError("candidates.tsv: %r targets no RAM tier (16 / 24 / 48+)" % r["name"])
+        if r["ollama_tag"] != "not on Ollama" and not TAG_RE.match(r["ollama_tag"]):
+            raise ValueError("candidates.tsv: %r has a tag that is not a tag: %r" % (r["name"], r["ollama_tag"]))
+        if not r["source_note"].strip():
+            raise ValueError("candidates.tsv: %r has no source note" % r["name"])
+    return rows
+
+
+def candidate_plan(rows):
+    """-> (tags to run, {tag: row}, skipped entries). A row is runnable only with a
+    confirmed Ollama tag; everything else is a CANNOT-RUN row that says why."""
+    run, by_tag, skipped = [], {}, []
+    for r in rows:
+        meta = {"model": r["name"], "candidate": r["name"], "target": r["ram_tier_target"]}
+        if r["ollama_tag"] == "not on Ollama":
+            skipped.append({"meta": meta, "error": "not on Ollama; obtain: %s" % r["obtain"]})
+        else:
+            run.append(r["ollama_tag"])
+            by_tag[r["ollama_tag"]] = r
+    return run, by_tag, skipped
+
+
+def best_by_tier(entries):
+    """-> [(tier, entry)] for each RAM tier with runs. Best = most PASS, then fewest CANNOT,
+    then lowest median total. Ties are printed, not broken silently."""
+    out = []
+    for tier in TIER_ORDER:
+        ran = [e for e in entries if not e.get("error") and (e.get("meta") or {}).get("tier") == tier]
+        if not ran:
+            continue
+        def key(e):
+            t = e["totals"]["ALL"]
+            med = (e.get("latency") or {}).get("median_total_s")
+            return (-t[PASS], t[CANNOT], med if isinstance(med, (int, float)) else float("inf"))
+        ranked = sorted(ran, key=key)
+        out.append((tier, ranked[0], ranked))
+    return out
+
+
 def comparison_table(entries):
-    """One row per model. Entries with an "error" are CANNOT-RUN rows, never blank or zero."""
-    head = ["model", "quant", "on-disk", "RAM", "RAM tier", "PLUMBING P/F/C", "REASONING P/F/C",
+    """Rows grouped by the RAM tier of the box each model ran on, with a best-per-tier line.
+    Entries with an "error" are CANNOT-RUN rows, never blank or zero."""
+    head = ["model", "target tier", "quant", "on-disk", "RAM", "PLUMBING P/F/C", "REASONING P/F/C",
             "ALL P/F/C", "peak model mem", "steady model mem", "peak RSS", "cpu avg %", "median ttft",
             "median total"]
+    out = []
+    best = best_by_tier(entries)
+    if best:
+        out.append("BEST BY RAM TIER (the box's tier, most PASS of %d)" % len(SC.SCENARIOS))
+        for tier, top, ranked in best:
+            m = top.get("meta") or {}
+            t = top["totals"]["ALL"]
+            med = (top.get("latency") or {}).get("median_total_s")
+            tie = [e for e in ranked if e["totals"]["ALL"][PASS] == t[PASS]
+                   and e["totals"]["ALL"][CANNOT] == t[CANNOT]]
+            note = "" if len(tie) == 1 else "  (TIE with %d others: not broken silently)" % (len(tie) - 1)
+            out.append("  %-26s best: %-22s PASS %2d  FAIL %2d  CANNOT %2d  median total %s%s"
+                       % (tier + " GB tier", m.get("model", "?"), t[PASS], t[FAIL], t[CANNOT], _s(med), note))
+        out.append("")
     rows = [head]
-    for e in entries:
+    order = {tier: i for i, tier in enumerate(TIER_ORDER + ["not run"])}
+
+    def sort_key(e):
+        m = e.get("meta") or {}
+        tier = "not run" if e.get("error") else m.get("tier", "unknown")
+        pas = -e["totals"]["ALL"][PASS] if not e.get("error") else 0
+        return (order.get(tier, len(order)), pas)
+    for e in sorted(entries, key=sort_key):
         m = e.get("meta") or {}
         if e.get("error"):
-            rows.append([str(m.get("model", "?")), "-", "-", "-", "-"] + ["CANNOT-RUN: %s" % e["error"]]
-                        + [""] * (len(head) - 6))
+            rows.append([str(m.get("model", "?")), str(m.get("target", "-")), "-", "-", "-"]
+                        + ["CANNOT-RUN: %s" % e["error"]] + [""] * (len(head) - 6))
             continue
         tel = m.get("telemetry") or {}
         lat = e.get("latency") or {}
@@ -372,14 +462,15 @@ def comparison_table(entries):
         def pfc(tag):
             c = t.get(tag, {})
             return "%s/%s/%s" % (c.get(PASS, 0), c.get(FAIL, 0), c.get(CANNOT, 0))
-        rows.append([str(m.get("model")), str(m.get("quant", TM.NI)), _gb(m.get("disk_bytes", TM.NI)),
-                     "%s GB" % m.get("ram_gb", TM.NI), str(m.get("tier", "unknown")),
+        rows.append([str(m.get("model")), str(m.get("target", "-")), str(m.get("quant", TM.NI)),
+                     _gb(m.get("disk_bytes", TM.NI)), "%s GB (tier %s)" % (m.get("ram_gb", TM.NI), m.get("tier", "unknown")),
                      pfc("PLUMBING"), pfc("REASONING"), pfc("ALL"),
                      _gb(tel.get("peak_model_bytes", TM.NI)), _gb(tel.get("steady_model_bytes", TM.NI)),
                      _gb(tel.get("peak_rss_bytes", TM.NI)), str(tel.get("cpu_pct_avg", TM.NI)),
                      _s(lat.get("median_ttft_s")), _s(lat.get("median_total_s"))])
     widths = [max(len(r[i]) for r in rows) for i in range(len(head))]
-    return ["  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip() for r in rows]
+    out += ["  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip() for r in rows]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -817,14 +908,59 @@ def self_test():
          "the header prints RAM, and NOT INSTRUMENTED where a source is dark"),
     ]
     rows = comparison_table([entry, dark_entry, {"meta": {"model": "absent-model"}, "error": "switch failed"}])
-    tf.append((len(rows) == 4 and rows[1].startswith("stub-9b") and "NOT INSTRUMENTED" in rows[2]
-               and "0.00 GB" not in rows[2] and rows[3].startswith("absent-model") and "CANNOT-RUN" in rows[3],
+    row_ok = {}
+    for ln in rows:
+        for name in ("stub-9b", "stub-dark", "absent-model"):
+            if ln.lstrip().startswith(name):
+                row_ok[name] = ln
+    tf.append((set(row_ok) == {"stub-9b", "stub-dark", "absent-model"}
+               and "NOT INSTRUMENTED" in row_ok["stub-dark"] and "0.00 GB" not in row_ok["stub-dark"]
+               and "CANNOT-RUN" in row_ok["absent-model"] and "CANNOT-RUN" not in row_ok["stub-9b"],
                "the comparison table: one row per model, dark = NOT INSTRUMENTED, error = CANNOT-RUN"))
     os.environ.pop("OSTLER_SCORECARD_SET_MODEL_CMD", None)
     nohook = run_models(["absent-model"], argparse.Namespace(tier="separate-run", evidence_dir="",
                                                              daemon_label="x", json_dir=""), None)
     tf.append((nohook[0].get("error", "").startswith("OSTLER_SCORECARD_SET_MODEL_CMD") and exit_code(nohook) == EX_CANNOT,
                "--models without a switch hook is a CANNOT-RUN row, never a silent run"))
+    # Candidates: the checked-in file loads, the planner runs only confirmed tags, a bad row is refused,
+    # and the tier grouping picks a best per tier and reports ties.
+    cands = load_candidates(CANDIDATES_PATH)
+    run_tags, by_tag, skipped = candidate_plan(cands)
+    tf.append((len(cands) == 7 and "gemma4:e2b" in run_tags and "qwen3.5:9b" in run_tags
+               and len(run_tags) == 6 and len(skipped) == 1 and "hf.co/ConwayResearch" in skipped[0]["error"],
+               "candidates.tsv: 7 rows; 6 runnable tags; Saluki skipped with its obtain path"))
+    bad_rows = {
+        "a tier that targets nothing": "gemma4:e2b\tgemma4:e2b\tollama pull\tQ4\t1 GB\tApache\tG\t8\tnote",
+        "a value that is not a tag": "gemma4:e2b\tNOT FOUND\tollama pull\tQ4\t1 GB\tApache\tG\t16\tnote",
+        "a missing source note": "gemma4:e2b\tgemma4:e2b\tollama pull\tQ4\t1 GB\tApache\tG\t16\t",
+    }
+    import tempfile as _tf
+    refused = []
+    for label, row in bad_rows.items():
+        fd, bad_path = _tf.mkstemp(suffix=".tsv")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\t".join(CAND_COLS) + "\n" + row + "\n")
+        try:
+            load_candidates(bad_path)
+            refused.append(False)
+        except ValueError:
+            refused.append(True)
+        finally:
+            os.unlink(bad_path)
+    tf.append((all(refused), "a malformed candidate row (bad tier, not-a-tag, no note) is refused, not guessed"))
+    fake = []
+    for tier_name, mode in (("16-23", "correct"), ("16-23", "dumb"), ("24-47", "dumb")):
+        drv = stub_hub.StubDriver(mode, model="%s-%s" % (mode, tier_name), ram_gb=24)
+        r2, t2 = run_suite(drv, only={"P01", "P02", "C01"})
+        fake.append(build_entry(r2, dict(drv.model_info(), tier=tier_name, telemetry=t2,
+                                         latency=latency_summary(r2))))
+    best = best_by_tier(fake)
+    tf.append((len(best) == 2 and best[0][0] == "16-23" and best[0][1]["meta"]["model"] == "correct-16-23"
+               and best[1][0] == "24-47", "the per-tier best is the model with most PASS, grouped by RAM tier"))
+    tie_run = fake[:1] + [dict(fake[0], meta=dict(fake[0]["meta"], model="correct-twin"))]
+    tie_lines = "\n".join(comparison_table(tie_run))
+    tf.append(("TIE with 1 others" in tie_lines and "BEST BY RAM TIER" in tie_lines,
+               "two equal runs in one tier print a TIE, not a silent pick"))
     for good, label in tf:
         print("  %s  memory tier: %s" % ("ok    " if good else "FAIL  ", label))
         ok &= good
@@ -906,6 +1042,9 @@ def main(argv):
     ap.add_argument("--models", default="", help="comma-separated models: run each, then print one table")
     ap.add_argument("--table", nargs="+", default=None, metavar="RESULT.json",
                     help="print the comparison table from saved --json results and exit")
+    ap.add_argument("--candidates", nargs="?", const=CANDIDATES_PATH, default=None, metavar="TSV",
+                    help="run every candidate in candidates.tsv with a confirmed Ollama tag; "
+                         "the rest are CANNOT-RUN rows that say how to obtain them")
     ap.add_argument("--only", default="", help="comma-separated scenario ids")
     ap.add_argument("--json", default="", help="also write the scorecard as JSON to this path")
     ap.add_argument("--json-dir", default="", help="with --models: one JSON per model in this directory")
@@ -929,9 +1068,24 @@ def main(argv):
         print("\n".join(comparison_table(entries)))
         return exit_code(entries)
     only = set(x.strip() for x in args.only.split(",") if x.strip())
-    if args.models:
-        models = [m.strip() for m in args.models.split(",") if m.strip()]
-        entries = run_models(models, args, only)
+    if args.candidates is not None or args.models:
+        if args.candidates is not None:
+            try:
+                rows = load_candidates(args.candidates)
+            except (OSError, ValueError) as e:
+                print("CANNOT-RUN: %s" % e)
+                return EX_CANNOT
+            run_tags, by_tag, skipped = candidate_plan(rows)
+            models = run_tags
+        else:
+            models, by_tag, skipped = [m.strip() for m in args.models.split(",") if m.strip()], {}, []
+        entries = run_models(models, args, only) if models else []
+        for e in entries:
+            row = by_tag.get((e.get("meta") or {}).get("model"))
+            if row:
+                e["meta"]["candidate"] = row["name"]
+                e["meta"]["target"] = row["ram_tier_target"]
+        entries += skipped
         print("")
         print("\n".join(comparison_table(entries)))
         if args.json:

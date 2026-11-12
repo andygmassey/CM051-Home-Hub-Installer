@@ -79,6 +79,25 @@ result is read against the model that tier actually gets.
 Caveat: the telemetry readers are stub-tested only. Their live field names
 (`/api/ps` size, `/api/tags` details) and the `ps` filter are unverified on a box.
 
+## Candidates (checked-in list)
+
+`candidates.tsv` is the list `--candidates` runs. One row per model: name, exact
+Ollama tag (or `not on Ollama` with how to obtain it), quantisation, on-disk
+size, licence, origin, the RAM tier it targets (16, 24 or 48+), and a source note
+naming the primary source. A value no primary source showed is `NOT FOUND`, never
+guessed. A row with no confirmed tag is a CANNOT-RUN row in the table, with the
+reason, and is not run.
+
+    python3 scripts/intelligence_scorecard/scorecard.py --candidates --json-dir DIR
+
+It needs the switch hook (see above). Without it every runnable row is a
+CANNOT-RUN row saying the hook is not set. The table is grouped by the RAM tier
+of the box each model ran on, and a `BEST BY RAM TIER` block names the model
+with the most PASS in each tier. Equal results print as a TIE.
+
+Candidate research was from the Ollama tag pages, the Hugging Face model cards
+and the vendor pages. Nothing was run on a box.
+
 ## What the founder reads
 
 1. The TOTALS block: PASS / FAIL / CANNOT-RUN, split PLUMBING and REASONING.

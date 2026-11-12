@@ -40,7 +40,7 @@ case "${out}" in
 esac
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/scorecard-mutant.XXXXXX")" || { echo "FAIL: no temp dir"; exit 1; }
-cp "${src}/scorecard.py" "${src}/scenarios.py" "${src}/stub_hub.py" "${src}/telemetry.py" "${tmp}/"
+cp "${src}/scorecard.py" "${src}/scenarios.py" "${src}/stub_hub.py" "${src}/telemetry.py" "${src}/candidates.tsv" "${tmp}/"
 # Switch the FAIL verdict off: a hard failure is reported as a PASS.
 sed 's/    if hard_fail or prod_ctrl:/    if False:  # MUTANT/' "${tmp}/scorecard.py" > "${tmp}/scorecard.mutant.py" && mv "${tmp}/scorecard.mutant.py" "${tmp}/scorecard.py"
 if /usr/bin/grep -q 'MUTANT' "${tmp}/scorecard.py"; then
