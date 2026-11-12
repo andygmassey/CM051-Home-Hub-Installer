@@ -59,21 +59,40 @@ DECLARED = [
 ]
 
 
-# ATTRIBUTION BY OUR OWN LAUNCHD JOB (harness-only; no product change).
+# ATTRIBUTION BY A CLONE OF THE SHIPPED JOB (harness-only; no product change).
 # The posture marker does not record who wrote it, and an ssh process cannot
 # read the login Keychain: the harness's own ssh pwg-convo run (CONVERSATION
 # SEED) writes disabled/keychain_unavailable over the service's true marker.
 # No shipped LaunchAgent imports src.ingest (the marker writer,
-# vendor/cm048_pipeline/src/ingest.py:70-90) on every run: it is reached only
-# lazily, from the sink path (processor.py:2727), when a non-L3 conversation is
-# ingested. So the probe bootstraps ONE throwaway LaunchAgent in gui/<uid> that
-# does exactly what install.sh:24862 does, `python -c "import src.ingest"` in
-# the CM048 venv, writing no data. That job runs in launchd context, which CAN
-# read the login Keychain. The marker is then FORCED, so:
+# vendor/cm048_pipeline/src/ingest.py:70-90) on every run; it is reached lazily
+# from the sink path (processor.py:2727). So the probe bootstraps ONE throwaway
+# LaunchAgent whose launch context is CLONED, at probe time, from the INSTALLED
+# ~/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist: its
+# EnvironmentVariables, UserName, WorkingDirectory, ProcessType (and the other
+# keys) are copied verbatim; ONLY Label, ProgramArguments (interpreter, -c,
+# "import src.ingest"), the schedule keys and the log paths differ. The
+# interpreter is the CM048 venv python the shipped job's pwg-convo runs under
+# (PWG_CONVO_CMD, rendered by install.sh:30800+ into the plist env;
+# vendor/email_source/bin/email-bundle-tick.sh exports no env of its own, it
+# only reads OSTLER_PYTHON/OSTLER_SOURCE_DIR/OSTLER_USER_DISPLAY_NAME, lines
+# 46-50, and pipeline.py:805 runs PWG_CONVO_CMD). What the ostler-assistant
+# `run-source` daemon adds on top is NOT readable from this repo: NOT
+# INSTRUMENTED. Hand-writing the context would encode the property under test.
+# The marker is then FORCED, so:
 #   marker rewritten after a SUCCESSFUL bootstrap -> graded (PASS / FAIL by content)
 #   no marker after a successful bootstrap        -> FAIL (job ran, never wrote it)
-#   bootstrap failed / box unreachable            -> CANNOT-RUN
+#   bootstrap failed / box unreachable / installed plist unreadable or absent /
+#   env parity not identical                      -> CANNOT-RUN
 #   timestamp stale or unparseable                -> CANNOT-RUN
+SHIPPED_LABEL = "com.creativemachines.ostler.email-bundle"
+# Keys install.sh renders into that plist's EnvironmentVariables (template:
+# vendor/email_source/launchd/com.creativemachines.ostler.email-bundle.plist).
+# A shipped plist missing one is not the job the template describes: refuse.
+TEMPLATE_ENV_KEYS = ("OSTLER_PYTHON", "PWG_CONVO_CMD", "OSTLER_SOURCE_DIR",
+                     "OSTLER_USER_DISPLAY_NAME", "OSTLER_USER_ID")
+# Copied verbatim from the shipped plist when present.
+CLONED_KEYS = ("EnvironmentVariables", "UserName", "GroupName", "WorkingDirectory",
+               "ProcessType", "Nice", "LowPriorityIO", "AbandonProcessGroup")
 KICK_LABEL_DEFAULT = "com.ostler.walkprobe.dbkey-posture"
 KICK_WAIT_DEFAULT_S = 120
 KICK_POLL_S = 3
@@ -227,6 +246,91 @@ def _read_marker(name, home=None):
 
 def measure_posture(home=None):
     return {name: _read_marker(name, home) for name in SERVICES}
+
+
+def _h(v):
+    import hashlib
+    return hashlib.sha256(str(v).encode("utf-8")).hexdigest()[:8]
+
+
+def _parity_items(d):
+    """name -> hash for every cloned element. Values are NEVER returned."""
+    out = {}
+    for k, v in (d.get("EnvironmentVariables") or {}).items():
+        out["env:" + k] = _h(v)
+    for k in CLONED_KEYS:
+        if k != "EnvironmentVariables" and k in d:
+            out["plist:" + k] = _h(d[k])
+    return out
+
+
+def build_clone(shipped, label, log_path):
+    """Pure. (clone_dict_or_None, reason). The clone is the shipped job's launch
+    context with only Label, ProgramArguments, schedule and log paths replaced."""
+    import os as _os
+    if not isinstance(shipped, dict):
+        return None, "the installed email-bundle plist is not a dict"
+    env = dict(shipped.get("EnvironmentVariables") or {})
+    missing = [k for k in TEMPLATE_ENV_KEYS if k not in env]
+    if missing:
+        return None, "the installed plist lacks env key(s) the template renders: " + ", ".join(missing)
+    toks = str(env["PWG_CONVO_CMD"]).split()
+    if not toks:
+        return None, "PWG_CONVO_CMD is empty in the installed plist"
+    first = toks[0]
+    interp = first if _os.path.basename(first).startswith("python") else _os.path.join(_os.path.dirname(first), "python3")
+    if not _os.access(interp, _os.X_OK):
+        return None, "the CM048 interpreter derived from PWG_CONVO_CMD is not executable: " + interp
+    clone = {k: shipped[k] for k in CLONED_KEYS if k in shipped}
+    clone["Label"] = label
+    clone["ProgramArguments"] = [interp, "-c", "import src.ingest"]
+    clone["RunAtLoad"] = True
+    clone["StandardOutPath"] = log_path
+    clone["StandardErrorPath"] = log_path
+    return clone, None
+
+
+def clone_main(argv):
+    """Box half of the clone step: read the INSTALLED plist, build, write, re-read
+    what was written, print key-name + hash parity (never values), refuse unless
+    identical. Last line is RESULT <json>."""
+    import plistlib
+    a = dict(zip(argv[0::2], argv[1::2]))
+    shipped_path = os.path.expanduser("~/Library/LaunchAgents/{}.plist".format(a.get("--shipped-label") or SHIPPED_LABEL))
+    out_path, label, log_path = a["--out"], a["--label"], a["--log"]
+    res = {"ok": False}
+
+    def done(reason=None):
+        if reason:
+            res["reason"] = reason
+        print("RESULT " + json.dumps(res))
+        return 0
+    try:
+        with open(shipped_path, "rb") as fh:
+            shipped = plistlib.load(fh)
+    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
+        return done("installed plist unreadable or absent at {} ({})".format(shipped_path, exc.__class__.__name__))
+    clone, why = build_clone(shipped, label, log_path)
+    if clone is None:
+        return done(why)
+    with open(out_path, "wb") as fh:
+        plistlib.dump(clone, fh)
+    try:
+        with open(out_path, "rb") as fh:
+            written = plistlib.load(fh)
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return done("the clone plist could not be re-read after writing")
+    sp, cp = _parity_items(shipped), _parity_items(written)
+    same = sp == cp
+    for k in sorted(set(sp) | set(cp)):
+        print("  parity: {:<34} shipped={} clone={}{}".format(k, sp.get(k, "-"), cp.get(k, "-"), "" if sp.get(k) == cp.get(k) else "  MISMATCH"))
+    res.update(ok=same, interpreter=written["ProgramArguments"][0], keys=len(sp))
+    if not same:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+    return done(None if same else "env/key parity between the installed plist and the clone is not identical")
 
 
 def job_diagnosis(label):
@@ -686,6 +790,8 @@ def main(argv):
         return report(judge(json.load(open(argv[1]))))
     if argv[:1] == ["box"]:
         return box_main(argv[1:])
+    if argv[:1] == ["clone"]:
+        return clone_main(argv[1:])
     if argv[:1] == ["forget"]:
         return box_forget(argv[1:])
     print(__doc__)
