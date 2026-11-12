@@ -16,6 +16,12 @@
 #
 # Runs on the WALK DRIVER: forwards the box's Hub (127.0.0.1:8000) over ssh and
 # drives headless Chromium (Playwright) at it with the box's own admin token.
+# The HUB HOME SETUP CARD (hub-v0.5.38) is judged against GET /api/v1/box-status
+# on the same box: shown while settling is incomplete, hidden when complete, bar
+# equal to the aggregate percent, unmeasured progress shows no bar, and See
+# details goes to /wiki. Only enforced when OSTLER_SETUP_CARD_EXPECTED=1 (set it
+# on walks of a build that carries the card). NOT covered: the done-but-history-
+# still-filling line (no hub-v0.5.37 box-status field carries it).
 # "Not me" persistence WRITES a correction, so it runs only when
 # OSTLER_SCREENS_ALLOW_WRITE=1 (walk boxes); on a customer's box it is skipped
 # and named as skipped.
@@ -35,10 +41,10 @@ self_test() {
     # of which must go red, so "every mutant caught" is reported as the FAIL
     # the harness requires, and a mutant that slips through is the BROKEN case.
     if python3 "${_HERE}/lib/hub_screens.py" --self-test; then
-        probe_examined 30 "mutated screen facts"
-        probe_fail "negative control behaved: all 30 known-bad screen fixtures went red, and an unmeasured person link or people API is an explicit CANNOT-RUN row"
+        probe_examined 36 "mutated screen facts"
+        probe_fail "negative control behaved: all 36 known-bad screen fixtures went red, and an unmeasured person link or people API is an explicit CANNOT-RUN row"
     fi
-    probe_examined 30 "mutated screen facts"
+    probe_examined 36 "mutated screen facts"
     probe_pass "SELF-TEST BROKEN: the screen judge let a known-bad fixture through (see above), so its verdicts mean nothing"
 }
 
