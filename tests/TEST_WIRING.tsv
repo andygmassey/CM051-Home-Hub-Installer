@@ -547,6 +547,7 @@ test_installer_output_buffer_is_bounded.sh	WIRED	.github/workflows/installer-mem
 test_installer_output_keeps_the_tail.sh	WIRED	.github/workflows/installer-memory-bounds.yml
 test_installer_version_consistency.sh	WIRED	.github/workflows/installer-version-consistency.yml
 test_installer_version_matches_the_cut.sh	WIRED	.github/workflows/cut.yml
+test_intelligence_scorecard_selftest.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_interest_card_says_what_and_where.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_interval_agents_are_quiesced_before_their_programs_move.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_invoked_tests_are_watched_gate.sh	WIRED	.github/workflows/invoked-tests-are-watched.yml
