@@ -666,7 +666,9 @@ fi
 # (DMG #23); sourced here, called late, right before that probe.
 . "$HERE/lib/real_person_choose.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
-wiki_summaries_wait || true
+printf -- '--- WAIT CHANGE vs before: the wiki-summaries recompile is kickstarted HERE with no wait; it is waited for ONCE, before usage_journal_producers, with the same predicate and a budget of %ss (was: a blocking wait of %ss here, plus a second wait of %ss when the first ended cannot-run) ---\n' \
+    "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" "${OSTLER_WIKI_WAIT_BUDGET_S:-900}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+OSTLER_WIKI_WAIT_MODE=kick wiki_summaries_wait || true
 else
     printf '  SKIPPED (read-only): wiki recompile LaunchAgent not kickstarted.\n\n'
 fi
@@ -892,10 +894,10 @@ for p in $PROBES; do
         # top-of-file wait gates on READ_ONLY -- it must obey the same gate,
         # or `--only usage_journal_producers` alone would still kickstart a
         # write the top-level skip just refused.
-        if [ "$READ_ONLY" -eq 0 ] && [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
-            printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
-                "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
-            OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
+        if [ "$READ_ONLY" -eq 0 ]; then
+            printf '\n  wiki summaries: the one wait for the recompile kicked off earlier in this walk, before the only probe that needs it, budget %ss\n' \
+                "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+            OSTLER_WIKI_WAIT_MODE=wait OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
         fi
         export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
         export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"

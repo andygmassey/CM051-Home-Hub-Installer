@@ -146,6 +146,7 @@ on:
       # finished compile) without running the test that guards it.
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
       - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
+      - 'tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -1055,6 +1056,10 @@ jobs:
       - name: The walk waits for the wiki summary backfill, so cm044_wiki_compiler has written before the journal is read
         if: always()
         run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
+
+      - name: The early pass adds no assertion the full pass lacks (so it is off by default)
+        if: always()
+        run: /bin/bash tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh
 
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
