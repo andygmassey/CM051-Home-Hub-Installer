@@ -389,6 +389,7 @@ test_email_named_twin_folds_into_the_card_holder.py	WIRED	.github/workflows/dedu
 test_email_only_people_get_a_provisional_name.py	WIRED	.github/workflows/privacy-spine.yml
 test_email_password_never_in_config.sh	WIRED	.github/workflows/email-channel.yml
 test_email_settling_numerator_is_messages.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_email_thread_id_stable_across_ticks.py	WIRED	.github/workflows/email-thread-id-stable.yml
 test_emails_settling_terminal.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
