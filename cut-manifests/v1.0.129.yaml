@@ -2,8 +2,7 @@
 # v1.0.129 PREP (ORM, 12 Nov 2026): CARRIED from cut-manifests/v1.0.128.yaml (cut/v1.0.128 d84c0b40), with every open_issues
 # row taken from main's live register cut-manifests/v1.0.125.yaml at cbe46060 (Archie re-ruled 2026-11-11: 3383 3389 3396
 # 3397 3402 3404 3405 3407, NOT BLOCKING with conditions). Version key changed. Issue 3366's NOT BLOCKING ruling said
-# 'expires after one cut (v1.0.128)' and is expired here: the issue is OPEN, so the row stays and reads DECISION REQUIRED until
-# Archie re-rules. setup_progress_advancing is ADVISORY for v1.0.129 only (permanent.yaml and walk_promote_scope.tsv, #3426).
+# 'expires after one cut (v1.0.128)'; Archie re-ruled it 2026-11-12 NOT BLOCKING, expiring after v1.0.129. setup_progress_advancing is ADVISORY for v1.0.129 only (permanent.yaml and walk_promote_scope.tsv, #3426).
 # NO verdict_129 is written: per-cut rulings are Archie's.
 # ============================================================================
 # cut-manifests/v1.0.128.yaml
@@ -6337,7 +6336,7 @@ open_issues:
   - issue: 3366
     repo: CM051
     title: 'test_mutex_skips_when_another_tick_holds_the_lock writes the real ~/.ostler/state (no HOME isolation)'
-    gate: 'DECISION REQUIRED (ORM 2026-11-12): the NOT BLOCKING ruling (Archie 2026-11-07: test-hygiene defect on the dev/CI box, not in the shipped artefact) carried one cut and expired after v1.0.128; the issue is still OPEN, so the row stays registered. Archie to re-rule for v1.0.129. Close needs the test run under an isolated HOME with a RED demo of the leak.'
+    gate: 'NOT BLOCKING (Archie 2026-11-12): test-hygiene defect on the dev/CI box (the test writes the real ~/.ostler/state), not in the shipped artefact; expires after v1.0.129.'
 
   - issue: 3383
     repo: CM051
