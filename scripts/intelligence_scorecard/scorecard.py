@@ -527,15 +527,15 @@ class LiveDriver:
         return True, ""
 
     def model_info(self):
+        # Read the size from Ollama's HTTP API, never by calling an ollama binary:
+        # check_no_bare_ollama.py forbids reaching Ollama by name on PATH.
         size = "NOT INSTRUMENTED"
-        try:
-            out = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=20).stdout
-            for ln in out.splitlines()[1:]:
-                cols = ln.split()
-                if cols and cols[0] == self.model and len(cols) >= 4:
-                    size = cols[2] + " " + cols[3]
-        except (OSError, subprocess.SubprocessError):
-            pass
+        code, body = self.wm._http("GET", "http://127.0.0.1:11434/api/tags", timeout=10)
+        for m in (body or {}).get("models") or []:
+            if m.get("name") == self.model and isinstance(m.get("size"), int):
+                size = "%.1f GB" % (m["size"] / 1e9)
+        if code != 200:
+            size = "NOT INSTRUMENTED (ollama /api/tags answered %s)" % code
         return {"model": self.model or "unknown", "size": size, "driver": "live"}
 
     def close(self):
