@@ -42,7 +42,9 @@ A re-run install over a box that already has a backlog shard hits this. The
 fix is one line (`total = max(total_in, prev_total, done)`), outside this PR's
 scope.
 
-**B5. Notes has no writer in any reachable repo.** No producer in CM051,
+**B5. STALE (corrected 2026-11-12): notes DOES have a writer, and it never marks the shard terminal.** The Evernote import writes `notes.json` (`vendor/doctor/agent/import_evernote_runner.py:~271`, `vendor/doctor/agent/import_evernote.py:339`) with `done == total` and no `complete=True`, so the shard stays open after a successful import. The probe no longer judges it (notes is not in `lib/settling_channels.json`); the writer fix is owed to v1.0.131. The original text follows and is wrong about "no writer".
+
+**B5 (original, superseded). Notes has no writer in any reachable repo.** No producer in CM051,
 CM044 or CM041 writes `notes.json`. The Evernote producer, if any, lives in
 HR015, which is not checked out here. Absent shard = not in the denominator.
 If HR015 writes `notes` with `needs_source:true` and `total:0`, it does not
