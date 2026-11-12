@@ -1,1 +1,2 @@
 file	key	state	reason
+install.sh.strings.en-US.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
