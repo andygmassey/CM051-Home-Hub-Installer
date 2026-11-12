@@ -55,7 +55,7 @@ probe_verdict() {
     case $? in
         0) echo PASS ;;
         1) echo FAIL ;;
-        2) echo CANNOT-RUN ;;
+        2|78) echo CANNOT-RUN ;;
         *) echo "ERR:$?" ;;
     esac
 }
@@ -81,9 +81,11 @@ F="$SHARD_DIR/contacts.json"
 # Judge twice (start and end sample are the same shard): nothing moves, so the
 # probe must FAIL it as open. A PASS here means 0/0 is being read as terminal.
 v="$(probe_verdict "$SHARD_DIR")"
-[ "$v" = "FAIL" ] \
-    && ok "0/0 unmarked: probe judges it OPEN (FAIL, not terminal)" \
-    || bad "0/0 unmarked: probe verdict=$v, want FAIL (0/0 read as terminal)"
+# contacts has no periodic writer, so an open contacts shard reads CANNOT-RUN
+# (78) rather than FAIL; either way it must not be PASS.
+[ "$v" = "CANNOT-RUN" ] || [ "$v" = "FAIL" ] \
+    && ok "0/0 unmarked: probe judges it OPEN ($v, not terminal)" \
+    || bad "0/0 unmarked: probe verdict=$v, want CANNOT-RUN or FAIL (0/0 read as terminal)"
 
 # ── 2. 0/0 with settling_complete is terminal ──────────────────────────────
 
