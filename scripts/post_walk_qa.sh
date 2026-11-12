@@ -585,6 +585,20 @@ if [[ -n "$CUT_VERSION" ]]; then
     esac
     echo "  stores: ${STORES_PROVENANCE}"
 
+    # COLD PROOF. ttywalk.sh --reset counts the files under ~/.ostler,
+    # ~/Documents/Ostler and ~/Library/Application Support/Ostler* before and
+    # after wiping them and writes PROVEN(...) only when 0 remain outside the
+    # allowlist. v1.0.129 was walked on 123,775 carried-over files and nothing
+    # in the record said so. Unreadable is NOT_COLD, never a clean value.
+    COLD="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+        'cat ~/.walk-cold 2>/dev/null' 2>/dev/null | tr -d '\n\t')"
+    case "$COLD" in
+        PROVEN\(*|NOT_COLD\(*) : ;;
+        '') COLD="NOT_COLD(no ~/.walk-cold on the box; this walk predates the marker or the read failed)" ;;
+        *)  COLD="NOT_COLD(marker held an unrecognised value)" ;;
+    esac
+    echo "  cold:   ${COLD}"
+
     # GROUNDING SEED STATE. Same discipline as stores_provenance directly
     # above, and for the same reason one step further on: an unseeded box and a
     # broken product produce the SAME red from assistant_answers_grounded, and
@@ -962,6 +976,12 @@ if [[ -n "$CUT_VERSION" ]]; then
         # why the estate looks clean: the denominator of records that COULD
         # carry the value is 2, and 2 of 2 are wrong.
         printf 'stores_provenance\t%s\n' "$STORES_PROVENANCE"
+        printf '#\n'
+        printf '# cold answers whether the box held NO Ostler state before the install:\n'
+        printf '# PROVEN(...) carries the per-root file counts before and after the wipe;\n'
+        printf '# NOT_COLD(...) means carried-over state may sit under every count in this\n'
+        printf '# record. verify_walk_record.sh refuses verdict CLEAN without cold PROVEN.\n'
+        printf 'cold\t%s\n' "$COLD"
         printf '#\n'
         printf '# grounding_seed answers the one question assistant_answers_grounded\n'
         printf '# begs and has never stated: was this box SEEDED before the probe\n'

@@ -662,6 +662,26 @@ _adjudicate_scoped() {
 
 case "$VERDICT" in
     CLEAN)
+        # A CLEAN WALK MUST HAVE BEEN COLD (v1.0.129: 123,775 carried-over files
+        # under ~/.ostler/state made every conversation and people count
+        # history). Absent field = no evidence = CANNOT-RUN (2); NOT_COLD = a
+        # measured contaminated box = 1.
+        _cold="$(field cold)"
+        case "${_cold}" in
+            PROVEN\(*)
+                : ;;
+            NOT_COLD*)
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row is NOT_COLD: ${_cold}" >&2
+                echo "            The box carried state from an earlier install. Walk again on a cold box." >&2
+                exit 1 ;;
+            '')
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but carries no 'cold' row." >&2
+                echo "            Without cold PROVEN nothing says the box was empty before the install." >&2
+                exit 2 ;;
+            *)
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row '${_cold}' is not PROVEN(...)." >&2
+                exit 2 ;;
+        esac
         _require_console_walk
         echo "[walk-gate] OK: ${VERSION} walked clean at the console on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0
