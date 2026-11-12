@@ -115,8 +115,9 @@ self_test() {
     local tmp; tmp="$(mktemp -d)"
     local now t1 t2
     now="$(date -u +%s)"
-    t1="$(date -u -r $((now - 600)) +%Y-%m-%dT%H:%M:%SZ)"
-    t2="$(date -u -r $((now - 60)) +%Y-%m-%dT%H:%M:%SZ)"
+    # python, not `date -r`: BSD and GNU date disagree on -r.
+    t1="$(python3 -I -c 'import sys,datetime as D;print(D.datetime.fromtimestamp(int(sys.argv[1]),D.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' $((now - 600)))"
+    t2="$(python3 -I -c 'import sys,datetime as D;print(D.datetime.fromtimestamp(int(sys.argv[1]),D.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))' $((now - 60)))"
     mk() { printf '{"percent":40,"history_filling":true,"eta_seconds":null,"eta_display":null,"computed_at":"%s","basis":"synthetic"}\n' "$1" > "$2"; }
     mk "$t1" "$tmp/old"; mk "$t2" "$tmp/new"
     printf '{"percent":40}\n' > "$tmp/thin"; printf 'not found\n' > "$tmp/nf"

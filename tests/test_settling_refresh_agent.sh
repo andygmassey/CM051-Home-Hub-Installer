@@ -52,11 +52,15 @@ printf '== test_settling_refresh_agent ==\n'
 HOME="$H" PATH="$STUB:$PATH" OSTLER_DIR="$H/.ostler" OSTLER_INSTALL_ROOT="$REPO_ROOT/wiki-recompile" \
     LOGS_DIR="$H/.ostler/logs" bash "$SNIPPET" >"$TMP/install.out" 2>&1
 PLIST="$H/Library/LaunchAgents/$LABEL.plist"
+# plistlib, not plutil: this test also runs on the ubuntu runner.
+plist_get() {  # plist_get <file> <python expr over d>
+    python3 -I -c 'import plistlib,sys;d=plistlib.load(open(sys.argv[1],"rb"));print(eval(sys.argv[2]))' "$1" "$2" 2>/dev/null
+}
 if [ -f "$PLIST" ]; then ok "install renders $LABEL.plist"; else bad "install did not render $PLIST"; fi
-if [ -f "$PLIST" ] && [ "$(plutil -extract StartInterval raw "$PLIST" 2>/dev/null)" = "900" ]; then
+if [ -f "$PLIST" ] && [ "$(plist_get "$PLIST" "d['StartInterval']")" = "900" ]; then
     ok "plist StartInterval is 900"
 else bad "plist StartInterval is not 900"; fi
-if [ -f "$PLIST" ] && [ "$(plutil -extract ProgramArguments.1 raw "$PLIST" 2>/dev/null)" = "$H/.ostler/bin/settling-refresh-tick.sh" ]; then
+if [ -f "$PLIST" ] && [ "$(plist_get "$PLIST" "d['ProgramArguments'][1]")" = "$H/.ostler/bin/settling-refresh-tick.sh" ]; then
     ok "plist runs the staged tick by absolute path"
 else bad "plist ProgramArguments does not name the staged tick"; fi
 if [ -f "$PLIST" ] && ! /usr/bin/grep -q 'OSTLER_\(BIN\|HOME\|LOGS\)' "$PLIST"; then
