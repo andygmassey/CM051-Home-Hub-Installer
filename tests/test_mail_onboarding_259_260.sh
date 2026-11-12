@@ -69,7 +69,7 @@ echo "PASS [#260]: apple_mail.py default window extended beyond one year"
 
 # ── #260 axis 4: SUPERSEDED 2026-11-12 (founder ruling: all history by default,
 #    no "extend?" question). The prompt must be GONE; the default is 18250.
-if grep -vE '^[[:space:]]*#' "$INSTALL_SH" | grep -q 'mail_extend_history'; then
+if grep -q 'mail_extend_history' <<<"$(grep -vE '^[[:space:]]*#' "$INSTALL_SH")"; then
     fail "#260: the mail_extend_history prompt is back in install.sh"
 fi
 grep -q ':=18250}"' "$INSTALL_SH" \
