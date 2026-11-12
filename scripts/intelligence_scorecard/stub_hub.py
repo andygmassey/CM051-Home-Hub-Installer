@@ -24,6 +24,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import scenarios as SC  # noqa: E402
+import telemetry as TM  # noqa: E402
 
 CANNOT_SEED_KINDS = ("calendar_event", "rsvp_invite", "conversation")
 
@@ -179,11 +180,25 @@ def coverage_problems():
 
 
 class StubDriver:
-    def __init__(self, mode):
+    """A canned Hub with canned memory and latency, so the new fields are tested too.
+
+    telemetry "ok"   samples like a loaded 7 GB model, CPU advancing 2 s over the run
+    telemetry "dark" the sources answer nothing: every field must read NOT INSTRUMENTED
+    latency_s        total seconds per chat turn (time-to-first-token is a quarter of it)
+    """
+
+    def __init__(self, mode, model="stub-model", ram_gb=24, latency_s=6.0, telemetry="ok"):
         if mode not in ("correct", "dumb", "cold", "silent", "transport"):
             raise ValueError("unknown stub mode %r" % mode)
+        if telemetry not in ("ok", "dark"):
+            raise ValueError("unknown stub telemetry %r" % telemetry)
         self.mode = mode
+        self.model = model
+        self.ram_gb = ram_gb
+        self.latency_s = latency_s
+        self.telemetry_mode = telemetry
         self.sid = None
+        self._samples = []
 
     def begin(self, sid):
         self.sid = sid
@@ -201,10 +216,11 @@ class StubDriver:
     def say(self, key, session, text):
         if self.mode == "transport":
             raise ConnectionRefusedError("assistant unreachable (stub transport mode)")
+        timing = {"ttft_s": round(self.latency_s * 0.25, 2), "total_s": self.latency_s}
         if self.mode == "silent":
-            return {"text": "", "tools": [], "error": "timeout"}
+            return dict({"text": "", "tools": [], "error": "timeout"}, **timing)
         body, tools = self._table()[self.sid]["say"][key]
-        return {"text": body, "tools": tools, "error": None}
+        return dict({"text": body, "tools": tools, "error": None}, **timing)
 
     def brief(self, key):
         if self.mode == "transport":
@@ -231,7 +247,31 @@ class StubDriver:
         return True, ""
 
     def model_info(self):
-        return {"model": "stub", "size": "n/a (stub)", "driver": "stub:%s" % self.mode}
+        dark = self.telemetry_mode == "dark"
+        return {"model": self.model, "quant": TM.NI if dark else "q4_K_M",
+                "parameter_size": TM.NI if dark else "9.0B",
+                "disk_bytes": TM.NI if dark else 6600000000,
+                "ram_gb": self.ram_gb, "tier": TM.tier_label(self.ram_gb), "driver": "stub:%s" % self.mode}
+
+    def telemetry_start(self):
+        self._samples = []
+
+    def telemetry_stop(self):
+        if self.telemetry_mode == "dark":
+            samples = [{"t": i, "model_bytes": None, "procs": None} for i in range(3)]
+        else:
+            mb = [6.8e9, 7.1e9, 6.9e9, 6.9e9, 6.8e9]
+            cpu = [10.0, 10.5, 11.0, 11.5, 12.0]
+            samples = [{"t": i, "model_bytes": int(mb[i]),
+                        "procs": {101: (int(2.0e9), cpu[i])}} for i in range(5)]
+        return TM.summarise(samples, wall_s=10.0, model=self.model)
 
     def close(self):
         return None
+
+
+def tel_stub_model_facts(model):
+    """model_facts() over a canned /api/tags, so the parser is exercised without a box."""
+    tags = {"models": [{"name": model, "size": 6600000000,
+                        "details": {"quantization_level": "Q4_K_M", "parameter_size": "9.0B"}}]}
+    return TM.model_facts(lambda path: (200, tags), model)

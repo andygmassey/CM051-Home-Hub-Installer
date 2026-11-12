@@ -47,6 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "box_walk_probes", "lib"))
 import scenarios as SC  # noqa: E402
+import telemetry as TM  # noqa: E402
 
 PASS, FAIL, CANNOT = "PASS", "FAIL", "CANNOT"
 EX_PASS, EX_FAIL, EX_CANNOT = 0, 1, 78
@@ -197,6 +198,9 @@ def run_scenario(sc, driver):
     t0 = time.perf_counter()
     r = _run_scenario(sc, driver)
     r["seconds"] = round(time.perf_counter() - t0, 3)
+    r["turn_timing"] = [{"key": k, "ttft_s": v.get("ttft_s"), "total_s": v.get("total_s"),
+                         "error": v.get("error")}
+                        for k, v in (r.get("transcript") or {}).get("turn", {}).items()]
     return r
 
 
@@ -258,12 +262,24 @@ def _run_scenario(sc, driver):
 
 
 def run_suite(driver, only=None):
+    """-> (results, telemetry). The telemetry brackets the whole suite."""
+    driver.telemetry_start()
     out = []
-    for sc in SC.SCENARIOS:
-        if only and sc["id"] not in only:
-            continue
-        out.append(run_scenario(sc, driver))
-    return out
+    try:
+        for sc in SC.SCENARIOS:
+            if only and sc["id"] not in only:
+                continue
+            out.append(run_scenario(sc, driver))
+    finally:
+        tel = driver.telemetry_stop()
+    return out, tel
+
+
+def latency_summary(results):
+    tt = [t for r in results for t in r.get("turn_timing", []) if t.get("total_s") is not None]
+    return {"turns": len(tt),
+            "median_ttft_s": TM.median([t.get("ttft_s") for t in tt]),
+            "median_total_s": TM.median([t.get("total_s") for t in tt])}
 
 
 def totals(results):
@@ -275,12 +291,45 @@ def totals(results):
     return t
 
 
+def _gb(x):
+    if isinstance(x, (int, float)):
+        return "%.2f GB" % (x / 1e9)
+    return str(x if x is not None else TM.NI)
+
+
+def _s(x):
+    return "n/a" if x is None else ("%.2f s" % x if isinstance(x, (int, float)) else str(x))
+
+
+def header_lines(meta):
+    tel = meta.get("telemetry") or {}
+    lat = meta.get("latency") or {}
+    return [
+        "intelligence scorecard  model=%s  quant=%s  on-disk=%s  params=%s  driver=%s  run=%s"
+        % (meta.get("model"), meta.get("quant", TM.NI), _gb(meta.get("disk_bytes", TM.NI)),
+           meta.get("parameter_size", TM.NI), meta.get("driver"), meta.get("run_tier", "unset")),
+        "box      RAM %s GB  (RAM tier %s)" % (meta.get("ram_gb", TM.NI), meta.get("tier", "unknown")),
+        "memory   model resident: peak %s, steady %s  |  ollama RSS: peak %s, steady %s"
+        % (_gb(tel.get("peak_model_bytes", TM.NI)), _gb(tel.get("steady_model_bytes", TM.NI)),
+           _gb(tel.get("peak_rss_bytes", TM.NI)), _gb(tel.get("steady_rss_bytes", TM.NI))),
+        "cpu      %s s of ollama CPU over %s s wall (avg %s %%), %s samples"
+        % (tel.get("cpu_seconds", TM.NI), tel.get("wall_s", TM.NI), tel.get("cpu_pct_avg", TM.NI),
+           tel.get("samples", 0)),
+        "latency  median time-to-first-token %s, median total %s, over %s turns"
+        % (_s(lat.get("median_ttft_s")), _s(lat.get("median_total_s")), lat.get("turns", 0)),
+    ]
+
+
 def print_report(results, meta, out=sys.stdout):
     w = out.write
-    w("intelligence scorecard  model=%s  size=%s  driver=%s  scenarios=%d\n"
-      % (meta["model"], meta["size"], meta["driver"], len(results)))
+    for ln in header_lines(meta):
+        w(ln + "\n")
     for r in results:
         w("%-6s %-4s [%s] %6.2fs %s\n" % (r["verdict"], r["id"], r["tag"], r.get("seconds", 0.0), r["title"]))
+        tt = [t for t in r.get("turn_timing", []) if t.get("total_s") is not None]
+        if tt:
+            w("         turns %d  median ttft %s  median total %s\n"
+              % (len(tt), _s(TM.median([t.get("ttft_s") for t in tt])), _s(TM.median([t["total_s"] for t in tt]))))
         if r["verdict"] == CANNOT and not r["checks"]:
             w("         reason: %s\n" % r["why"])
         for c in r["checks"]:
@@ -290,12 +339,47 @@ def print_report(results, meta, out=sys.stdout):
             w("         why: %s\n" % r["why"])
     t = totals(results)
     w("\nSECONDS  total %.2fs over %d scenario(s), tier %s\n"
-      % (sum(r.get("seconds", 0.0) for r in results), len(results), meta.get("tier", "unset")))
+      % (sum(r.get("seconds", 0.0) for r in results), len(results), meta.get("run_tier", "unset")))
     w("TOTALS  (PASS / FAIL / CANNOT-RUN)\n")
     for tag in ("PLUMBING", "REASONING", "ALL"):
         w("  %-10s %3d / %3d / %3d\n" % (tag, t[tag][PASS], t[tag][FAIL], t[tag][CANNOT]))
     w("  PLUMBING = state, memory or context bug class. REASONING = model capability.\n")
     return t
+
+
+def build_entry(results, meta):
+    """The JSON shape one model's run is saved in, and that the comparison table reads."""
+    return {"meta": meta, "totals": totals(results), "latency": meta.get("latency") or latency_summary(results),
+            "scenarios": [{k: v for k, v in r.items() if k != "transcript"} for r in results]}
+
+
+def comparison_table(entries):
+    """One row per model. Entries with an "error" are CANNOT-RUN rows, never blank or zero."""
+    head = ["model", "quant", "on-disk", "RAM", "RAM tier", "PLUMBING P/F/C", "REASONING P/F/C",
+            "ALL P/F/C", "peak model mem", "steady model mem", "peak RSS", "cpu avg %", "median ttft",
+            "median total"]
+    rows = [head]
+    for e in entries:
+        m = e.get("meta") or {}
+        if e.get("error"):
+            rows.append([str(m.get("model", "?")), "-", "-", "-", "-"] + ["CANNOT-RUN: %s" % e["error"]]
+                        + [""] * (len(head) - 6))
+            continue
+        tel = m.get("telemetry") or {}
+        lat = e.get("latency") or {}
+        t = e.get("totals") or {}
+
+        def pfc(tag):
+            c = t.get(tag, {})
+            return "%s/%s/%s" % (c.get(PASS, 0), c.get(FAIL, 0), c.get(CANNOT, 0))
+        rows.append([str(m.get("model")), str(m.get("quant", TM.NI)), _gb(m.get("disk_bytes", TM.NI)),
+                     "%s GB" % m.get("ram_gb", TM.NI), str(m.get("tier", "unknown")),
+                     pfc("PLUMBING"), pfc("REASONING"), pfc("ALL"),
+                     _gb(tel.get("peak_model_bytes", TM.NI)), _gb(tel.get("steady_model_bytes", TM.NI)),
+                     _gb(tel.get("peak_rss_bytes", TM.NI)), str(tel.get("cpu_pct_avg", TM.NI)),
+                     _s(lat.get("median_ttft_s")), _s(lat.get("median_total_s"))])
+    widths = [max(len(r[i]) for r in rows) for i in range(len(head))]
+    return ["  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip() for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +441,9 @@ class WsSession:
         m = os.urandom(4)
         mk = bytes(b ^ m[i % 4] for i, b in enumerate(d))
         hdr = struct.pack("!BB", 0x81, 0x80 | len(d)) if len(d) < 126 else struct.pack("!BBH", 0x81, 0x80 | 126, len(d))
+        t_sent = time.time()
         self.sock.sendall(hdr + m + mk)
-        text_out, tools, err = "", [], None
+        text_out, tools, err, ttft = "", [], None, None
         while time.time() < deadline:
             try:
                 op, pay = self._frame(deadline)
@@ -376,6 +461,8 @@ class WsSession:
                 continue
             t = ev.get("type")
             if t == "chunk":
+                if ttft is None and ev.get("content"):
+                    ttft = time.time() - t_sent
                 text_out += ev.get("content") or ""
             elif t == "chunk_reset":
                 text_out = ""
@@ -388,7 +475,9 @@ class WsSession:
             elif t == "error":
                 err = "error frame"
                 break
-        return {"text": text_out, "tools": tools, "error": err}
+        return {"text": text_out, "tools": tools, "error": err,
+                "ttft_s": round(ttft, 2) if ttft is not None else None,
+                "total_s": round(time.time() - t_sent, 2)}
 
     def close(self):
         try:
@@ -546,17 +635,22 @@ class LiveDriver:
         self._log(key, {"wrote": "Connections.csv"})
         return True, ""
 
+    def _get(self, path):
+        return self.wm._http("GET", "http://127.0.0.1:11434" + path, timeout=10)
+
     def model_info(self):
-        # Read the size from Ollama's HTTP API, never by calling an ollama binary:
-        # check_no_bare_ollama.py forbids reaching Ollama by name on PATH.
-        size = "NOT INSTRUMENTED"
-        code, body = self.wm._http("GET", "http://127.0.0.1:11434/api/tags", timeout=10)
-        for m in (body or {}).get("models") or []:
-            if m.get("name") == self.model and isinstance(m.get("size"), int):
-                size = "%.1f GB" % (m["size"] / 1e9)
-        if code != 200:
-            size = "NOT INSTRUMENTED (ollama /api/tags answered %s)" % code
-        return {"model": self.model or "unknown", "size": size, "driver": "live"}
+        facts = TM.model_facts(self._get, self.model or "unknown")
+        ram = TM.physical_ram_gb()
+        return {"model": facts["model"], "quant": facts["quant"], "parameter_size": facts["parameter_size"],
+                "disk_bytes": facts["disk_bytes"], "ram_gb": ram if ram is not None else TM.NI,
+                "tier": TM.tier_label(ram), "driver": "live"}
+
+    def telemetry_start(self):
+        self._tel = TM.LiveTelemetry(self._get, self.model or "unknown")
+        self._tel.start()
+
+    def telemetry_stop(self):
+        return self._tel.stop() if getattr(self, "_tel", None) else {"note": "telemetry never started"}
 
     def close(self):
         for s in self.sessions.values():
@@ -601,6 +695,14 @@ def make_driver(spec, args):
     raise Cannot("unknown driver %r" % spec)
 
 
+def _raises(fn):
+    try:
+        fn()
+    except ValueError:
+        return True
+    return False
+
+
 def self_test():
     """Every stub mode, scored by the same engine. The suite must go red where it should."""
     import stub_hub
@@ -627,7 +729,7 @@ def self_test():
     }
     counts = {}
     for mode, check in expect.items():
-        res = run_suite(stub_hub.StubDriver(mode))
+        res, _tel = run_suite(stub_hub.StubDriver(mode))
         t = totals(res)
         counts[mode] = t["ALL"]
         good = check(t["ALL"])
@@ -671,6 +773,61 @@ def self_test():
     units.append((verdict({}, T, [])[0] == CANNOT, "zero examined checks is CANNOT"))
     units.append((verdict({}, T, [({"id": "h", "kind": "reply_has"}, "fail", "x", None)])[0] == FAIL,
                   "a hard fail is FAIL"))
+    # Memory-tier fields: the stub's canned telemetry must come out as the numbers it
+    # was built from, and a dark source must read NOT INSTRUMENTED, never 0.
+    drv = stub_hub.StubDriver("correct", model="stub-9b", ram_gb=24)
+    res, tel = run_suite(drv)
+    entry = build_entry(res, dict(drv.model_info(), tier=TM.tier_label(24), telemetry=tel,
+                                  latency=latency_summary(res)))
+    m = entry["meta"]
+    lat = entry["latency"]
+    dark_res, dark_tel = run_suite(stub_hub.StubDriver("correct", model="stub-dark", ram_gb=48,
+                                                       telemetry="dark"))
+    dark_meta = dict(stub_hub.StubDriver("correct", model="stub-dark", ram_gb=48, telemetry="dark").model_info(),
+                     telemetry=dark_tel, latency=latency_summary(dark_res), tier=TM.tier_label(48))
+    dark_entry = build_entry(dark_res, dark_meta)
+    tf = [
+        (m["tier"] == "24-47" and m["ram_gb"] == 24, "RAM 24 GB is tier 24-47 in the meta"),
+        (m["telemetry"]["peak_model_bytes"] == 7.1e9, "peak model memory is the sampled peak (7.1 GB)"),
+        (m["telemetry"]["steady_model_bytes"] == 6.9e9, "steady model memory is the median of the second half"),
+        (m["telemetry"]["cpu_seconds"] == 2.0 and m["telemetry"]["cpu_pct_avg"] == 20.0,
+         "CPU is the ollama process delta (2 s over 10 s wall = 20 %)"),
+        (m["quant"] == "q4_K_M" and m["disk_bytes"] == 6600000000, "quantisation and on-disk bytes are recorded"),
+        (lat["turns"] > 0 and lat["median_total_s"] == 6.0 and lat["median_ttft_s"] == 1.5,
+         "latency: median total 6.0 s and ttft 1.5 s over every turn"),
+        (all(t.get("total_s") == 6.0 for r in res for t in r.get("turn_timing", [])),
+         "every turn carries its own total_s"),
+        (dark_entry["meta"]["telemetry"]["peak_model_bytes"] == TM.NI
+         and dark_entry["meta"]["telemetry"]["cpu_seconds"] == TM.NI
+         and dark_entry["meta"]["telemetry"]["peak_rss_bytes"] == TM.NI,
+         "a dark telemetry source reads NOT INSTRUMENTED, never 0"),
+        (TM.tier_label(15).startswith("<16") and TM.tier_label(16) == "16-23" and TM.tier_label(24) == "24-47"
+         and TM.tier_label(48) == "48+" and TM.tier_label(None) == "unknown",
+         "RAM tiers: <16, 16-23, 24-47, 48+, unknown when the box cannot say"),
+        (TM.parse_cputime("0:05.20") == 5.2 and TM.parse_cputime("1:02:03.00") == 3723.0
+         and TM.parse_cputime("1-02:03:04") == 93784.0, "ps cputime parses m:s, h:m:s and d-h:m:s"),
+        (_raises(lambda: TM.parse_cputime("garbage")), "an unparseable cputime is refused, not zero"),
+        (TM.summarise([], 5.0, "x")["peak_model_bytes"] == TM.NI, "no samples at all reads NOT INSTRUMENTED"),
+        (TM.model_facts(lambda p: (503, None), "x")["quant"] == TM.NI,
+         "Ollama answering 503 reads NOT INSTRUMENTED, not a blank quant"),
+        (stub_hub.tel_stub_model_facts("stub-9b")["quant"] == "Q4_K_M"
+         and stub_hub.tel_stub_model_facts("stub-9b")["disk_bytes"] == 6600000000,
+         "model facts come from /api/tags: quant and on-disk bytes"),
+        (any("RAM 24 GB" in ln for ln in header_lines(m)) and any(TM.NI in ln for ln in header_lines(dark_meta)),
+         "the header prints RAM, and NOT INSTRUMENTED where a source is dark"),
+    ]
+    rows = comparison_table([entry, dark_entry, {"meta": {"model": "absent-model"}, "error": "switch failed"}])
+    tf.append((len(rows) == 4 and rows[1].startswith("stub-9b") and "NOT INSTRUMENTED" in rows[2]
+               and "0.00 GB" not in rows[2] and rows[3].startswith("absent-model") and "CANNOT-RUN" in rows[3],
+               "the comparison table: one row per model, dark = NOT INSTRUMENTED, error = CANNOT-RUN"))
+    os.environ.pop("OSTLER_SCORECARD_SET_MODEL_CMD", None)
+    nohook = run_models(["absent-model"], argparse.Namespace(tier="separate-run", evidence_dir="",
+                                                             daemon_label="x", json_dir=""), None)
+    tf.append((nohook[0].get("error", "").startswith("OSTLER_SCORECARD_SET_MODEL_CMD") and exit_code(nohook) == EX_CANNOT,
+               "--models without a switch hook is a CANNOT-RUN row, never a silent run"))
+    for good, label in tf:
+        print("  %s  memory tier: %s" % ("ok    " if good else "FAIL  ", label))
+        ok &= good
     for good, label in units:
         print("  %s  scorer: %s" % ("ok    " if good else "FAIL  ", label))
         ok &= good
@@ -680,13 +837,78 @@ def self_test():
     return EX_PASS if ok else EX_FAIL
 
 
+def _write_json(path, entry):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(entry, f, indent=2, default=str)
+
+
+def run_one(driver, args, only):
+    """Run the suite on one driver and return its entry (meta, totals, latency, scenarios)."""
+    results, tel = run_suite(driver, only or None)
+    meta = driver.model_info()
+    meta["run_tier"] = args.tier
+    meta["telemetry"] = tel
+    meta["latency"] = latency_summary(results)
+    print_report(results, meta)
+    return build_entry(results, meta), results
+
+
+def exit_code(entries):
+    if any(e.get("error") for e in entries):
+        return EX_CANNOT
+    t = [e["totals"]["ALL"] for e in entries if e.get("totals")]
+    if any(x[FAIL] for x in t):
+        return EX_FAIL
+    if any(x[CANNOT] for x in t) or not t:
+        return EX_CANNOT
+    return EX_PASS
+
+
+def run_models(models, args, only):
+    """Run the same suite once per model. The operator's hook switches the box's model
+    (OSTLER_SCORECARD_SET_MODEL_CMD, called as: <cmd> <model>); the runner then refuses
+    to score unless the box really runs that model. A failed switch is a CANNOT-RUN row."""
+    import shlex
+    hook = os.environ.get("OSTLER_SCORECARD_SET_MODEL_CMD", "")
+    entries = []
+    for model in models:
+        if not hook:
+            entries.append({"meta": {"model": model}, "error": "OSTLER_SCORECARD_SET_MODEL_CMD is not set"})
+            continue
+        sw = subprocess.run(shlex.split(hook) + [model], capture_output=True, text=True, timeout=1800)
+        if sw.returncode != 0:
+            entries.append({"meta": {"model": model},
+                            "error": "model switch hook exited %d" % sw.returncode})
+            continue
+        try:
+            driver, ev = make_driver("live", argparse.Namespace(model=model, evidence_dir=args.evidence_dir,
+                                                                daemon_label=args.daemon_label))
+        except Cannot as e:
+            entries.append({"meta": {"model": model}, "error": str(e)})
+            continue
+        try:
+            entry, _res = run_one(driver, args, only)
+        except Cannot as e:
+            entry = {"meta": {"model": model}, "error": str(e)}
+        finally:
+            driver.close()
+        entries.append(entry)
+        if args.json_dir:
+            _write_json(os.path.join(args.json_dir, re.sub(r"[^A-Za-z0-9._-]", "_", model) + ".json"), entry)
+    return entries
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--self-test", action="store_true", help="score the stub modes and check the scorer")
     ap.add_argument("--driver", default="stub:correct", help="live | stub:<correct|dumb|cold|silent|transport>")
     ap.add_argument("--model", default="", help="the model the box must be running (refused on mismatch)")
+    ap.add_argument("--models", default="", help="comma-separated models: run each, then print one table")
+    ap.add_argument("--table", nargs="+", default=None, metavar="RESULT.json",
+                    help="print the comparison table from saved --json results and exit")
     ap.add_argument("--only", default="", help="comma-separated scenario ids")
     ap.add_argument("--json", default="", help="also write the scorecard as JSON to this path")
+    ap.add_argument("--json-dir", default="", help="with --models: one JSON per model in this directory")
     ap.add_argument("--evidence-dir", default="", help="live: owner-only directory for verbatim replies")
     ap.add_argument("--daemon-label", default=os.environ.get("OSTLER_SCORECARD_DAEMON_LABEL", "ai.ostler.assistant"))
     ap.add_argument("--list", action="store_true", help="print the scenario table and exit")
@@ -694,33 +916,43 @@ def main(argv):
                     help="where this run sits: separate-run (default, never inside the walk or smoke tier)")
     args = ap.parse_args(argv[1:])
     if args.list:
-        for s in SC.SCENARIOS:
-            print("%-4s %-10s %-14s %s" % (s["id"], s["tag"], s["group"], s["title"]))
+        for sc in SC.SCENARIOS:
+            print("%-4s %-10s %-14s %s" % (sc["id"], sc["tag"], sc["group"], sc["title"]))
         return EX_PASS
     if args.self_test:
         return self_test()
+    if args.table:
+        entries = []
+        for path in args.table:
+            with open(path, encoding="utf-8") as f:
+                entries.append(json.load(f))
+        print("\n".join(comparison_table(entries)))
+        return exit_code(entries)
     only = set(x.strip() for x in args.only.split(",") if x.strip())
+    if args.models:
+        models = [m.strip() for m in args.models.split(",") if m.strip()]
+        entries = run_models(models, args, only)
+        print("")
+        print("\n".join(comparison_table(entries)))
+        if args.json:
+            _write_json(args.json, entries)
+        return exit_code(entries)
     try:
         driver, ev = make_driver(args.driver, args)
     except Cannot as e:
         print("CANNOT-RUN: %s" % e)
         return EX_CANNOT
     try:
-        meta = driver.model_info()
-        meta["tier"] = args.tier
-        results = run_suite(driver, only or None)
+        entry, results = run_one(driver, args, only)
     except Cannot as e:
         print("CANNOT-RUN: %s" % e)
         return EX_CANNOT
     finally:
         if hasattr(driver, "close"):
             driver.close()
-    t = print_report(results, meta)
     if args.json:
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump({"meta": meta, "totals": t,
-                       "scenarios": [{k: v for k, v in r.items() if k != "transcript"} for r in results]},
-                      f, indent=2)
+        _write_json(args.json, entry)
+    t = entry["totals"]
     if t["ALL"][FAIL]:
         return EX_FAIL
     if t["ALL"][CANNOT]:

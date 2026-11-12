@@ -48,6 +48,37 @@ Without the box, check the scorer: `python3 scripts/intelligence_scorecard/score
 Timing: `--self-test` and the stub prints seconds per scenario and a total. A
 live run is dominated by chat turns and brief runs, not by the scorer.
 
+## Memory-tier comparison (documented mode)
+
+Every run records the box's physical RAM and RAM tier, the model's quantisation
+and on-disk size, the resident model memory (peak and steady, from Ollama
+`/api/ps`), ollama process RSS and CPU time (from `ps`, sampled every 2 s), and
+time-to-first-token and total time per chat turn. A source that does not answer
+prints `NOT INSTRUMENTED`, never 0.
+
+One table, one row per model:
+
+    # 1. save each model's run (the box runs ONE model at a time)
+    python3 scripts/intelligence_scorecard/scorecard.py --driver live --model qwen3.5:9b --json r-qwen.json
+    # 2. or let the runner do the switch for a list of models:
+    export OSTLER_SCORECARD_SET_MODEL_CMD='/path/to/operator-switch-model.sh'   # called as: <cmd> <model>
+    python3 scripts/intelligence_scorecard/scorecard.py --driver live --models qwen3.5:9b,gemma4:e2b --json-dir DIR
+    # 3. the table, from saved runs
+    python3 scripts/intelligence_scorecard/scorecard.py --table r-qwen.json r-gemma.json
+
+The switch hook is the operator's: it must change the box's model and restart the
+daemon. The runner then refuses to score unless the box really runs the named
+model. A failed switch is a CANNOT-RUN row, never a silent run.
+
+The RAM tiers come from what the installer does today: below 16 GB the install
+aborts (install.sh:6472); 16 to 23 GB installs gemma4:e2b; 24 GB and up installs
+qwen3.5:9b (lib/ostler-model-fit.sh:76-93, picker at :173, called at
+install.sh:10223). The table prints the tier next to every score, so a 16 GB
+result is read against the model that tier actually gets.
+
+Caveat: the telemetry readers are stub-tested only. Their live field names
+(`/api/ps` size, `/api/tags` details) and the `ps` filter are unverified on a box.
+
 ## What the founder reads
 
 1. The TOTALS block: PASS / FAIL / CANNOT-RUN, split PLUMBING and REASONING.
