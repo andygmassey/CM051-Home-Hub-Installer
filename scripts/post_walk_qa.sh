@@ -312,11 +312,13 @@ export OSTLER_PHASE1_VERDICTS
 export OSTLER_CURRENT_WALK_LOG="$PROBE_LOG"
 RUN_ARGS=()
 SMOKE_SELECTED=""
+SMOKE_NOTES=""
 if [[ "${TIER:-full}" == "smoke" ]]; then
     _sel_err="$(mktemp)"
     SMOKE_SELECTED="$(python3 "${REPO_ROOT}/scripts/walk_smoke_select.py" --repo-root "$REPO_ROOT" --target-version "${CUT_VERSION}" 2>"$_sel_err")"
     _sel_rc=$?
     tee -a "$PROBE_LOG" < "$_sel_err"
+    SMOKE_NOTES="$(cat "$_sel_err")"
     rm -f "$_sel_err"
     if [[ "$_sel_rc" -ne 0 || -z "$SMOKE_SELECTED" ]]; then
         echo "CANNOT-RUN: the smoke scope could not be selected (rc=${_sel_rc}). Nothing was measured; this is not a pass." | tee -a "$PROBE_LOG"
@@ -962,6 +964,7 @@ if [[ -n "$CUT_VERSION" ]]; then
         printf 'tier\t%s\n' "$TIER"
         if [[ "$TIER" == "smoke" ]]; then
             printf 'tier_note\tsmoke: blocking + install-path + changed-component probes only; cut-manifest runtime proofs NOT run; cannot be CLEAN; a full walk is required before any console walk and any public tag\n'
+            printf '%s\n' "${SMOKE_NOTES:-}" | while IFS= read -r _sn; do [ -n "$_sn" ] && printf 'smoke_note\t%s\n' "$(printf '%s' "$_sn" | tr '\t' ' ')"; done
             printf '%s\n' "$SMOKE_SELECTED" | while IFS=$'\t' read -r _sp _sc _sw; do [ -n "$_sp" ] && printf 'smoke_probe\t%s\t%s\n' "$_sp" "$_sc"; done
         else
             printf 'tier_note\tfull: everything; required before any console walk and any public tag\n'

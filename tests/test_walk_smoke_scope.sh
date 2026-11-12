@@ -27,35 +27,51 @@ mkdir -p "$WORK/store0"
 out="$(sel --walk-store "$WORK/store0" --os003-dir "$WORK/none")"
 [ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q 'fail wide' "$WORK/err"; arm "no FULL record in the store: all probes, and it says fail wide" $? "$(cat "$WORK/err")"
 
-# fake OS003 with origin/main
-OS3="$WORK/os003"; mkdir -p "$OS3/manifest" "$OS3/cuts/v1.0.6" && cd "$OS3" && git init -q . 
-printf 'id\tname\trepo\tmethod\tpath\tpattern\texpect\trequired\tticket\ncap_wiki\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_daemon\td\tassistant\tsource\t.\tx\tpresent\tyes\tt\n' > manifest/capability_manifest.tsv
-bom() { printf 'what\trepo\tref\tlanded\tcapability_id\tverify\tticket\n' > "$OS3/cuts/v1.0.6/MUST_CONTAIN.tsv"; for c in "$@"; do printf 'x\tCM051\tabc\tno\t%s\tv\tt\n' "$c" >> "$OS3/cuts/v1.0.6/MUST_CONTAIN.tsv"; done
-  git -C "$OS3" add -A; git -C "$OS3" -c user.name=t -c user.email=t@example.invalid commit -q -m b --allow-empty; git -C "$OS3" update-ref refs/remotes/origin/main HEAD; }
+# fake OS003 with origin/main. BOMs are CUMULATIVE, as on real data (v1.0.128: 180 rows, v1.0.129: 190, each with ~50
+# capability_id=none rows and all three components): v1.0.6 = every v1.0.5 row + whatever is new.
+OS3="$WORK/os003"; mkdir -p "$OS3/manifest" "$OS3/cuts/v1.0.5" "$OS3/cuts/v1.0.6" && cd "$OS3" && git init -q .
+printf 'id\tname\trepo\tmethod\tpath\tpattern\texpect\trequired\tticket\ncap_wiki\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_wiki2\tw\tcm044\tsource\t.\tx\tpresent\tyes\tt\ncap_daemon\td\tassistant\tsource\t.\tx\tpresent\tyes\tt\ncap_inst\ti\tcm051\tsource\t.\tx\tpresent\tyes\tt\n' > manifest/capability_manifest.tsv
+bomfile() { # $1 = version, rest = "what|repo|ref|capability" rows
+    local v="$1"; shift; printf 'what\trepo\tref\tlanded\tcapability_id\tverify\tticket\n' > "$OS3/cuts/$v/MUST_CONTAIN.tsv"
+    for r in "$@"; do IFS='|' read -r w rp rf c <<<"$r"; printf '%s\t%s\t%s\tno\t%s\tv\tt\n' "$w" "$rp" "$rf" "$c" >> "$OS3/cuts/$v/MUST_CONTAIN.tsv"; done; }
+commit_os3() { git -C "$OS3" add -A; git -C "$OS3" -c user.name=t -c user.email=t@example.invalid commit -q -m b --allow-empty; git -C "$OS3" update-ref refs/remotes/origin/main HEAD; }
+BASE=("old daemon fix|ostler-assistant|a1|cap_daemon" "old wiki fix|CM044|b2|cap_wiki" "old installer fix|CM051|c3|cap_inst" "old unguarded 1|CM051|d4|none" "old unguarded 2|CM051|e5|none")
 cd "$REPO"
 mkdir -p "$WORK/store1"
 printf 'version\tv1.0.5\nverdict\tCLEAN\n' > "$WORK/store1/v1.0.5-20261101T000000Z.tsv"          # legacy record, no tier row = full
-bom cap_wiki
-out="$(sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.6)"
-echo "$out" | names | grep -qx usage_journal_producers && ! echo "$out" | names | grep -qx todos_reach_reminders && ! echo "$out" | names | grep -qx fda_tick_can_import
-arm "cm044 changed since the last FULL: cm044 probes yes, assistant and cm051 probes no" $? "$(cat "$WORK/err")"
+sel1() { sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.6; }
+inout() { echo "$out" | names | grep -qx "$1"; }
+
+bomfile v1.0.5 "${BASE[@]}"
+bomfile v1.0.6 "${BASE[@]}" "new wiki fix|CM044|f6|cap_wiki2"; commit_os3
+out="$(sel1)"
+inout usage_journal_producers && ! inout todos_reach_reminders && ! inout fda_tick_can_import
+arm "CUMULATIVE BOMs, one new cm044 row (old none rows present in both): cm044 only, no widening" $? "$(cat "$WORK/err")"
+grep -q 'smoke delta: 6 rows in v1.0.6, 5 in v1.0.5, 1 new' "$WORK/err"; arm "the delta is printed (6 vs 5 rows, 1 new)" $? "$(cat "$WORK/err")"
+grep -qE 'OS003 origin/main read: [0-9a-f]+ 20[0-9]{2}-' "$WORK/err"; arm "the OS003 origin/main commit and date that were read are printed" $? "$(cat "$WORK/err")"
 for p in no_store_port_is_tcp_reachable assistant_answers_grounded no_person_holds_two_contact_cards people_stores_reconcile app_signature_survives_first_run; do
-    echo "$out" | names | grep -qx "$p"; arm "always selected: $p" $? "$out"
+    inout "$p"; arm "always selected: $p" $? "$out"
 done
-bom cap_daemon
-out="$(sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.6)"
-echo "$out" | names | grep -qx todos_reach_reminders && ! echo "$out" | names | grep -qx usage_journal_producers; arm "assistant changed: assistant probes yes, cm044 probes no" $? "$(cat "$WORK/err")"
-bom none
-out="$(sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.6)"
-[ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q 'fail wide' "$WORK/err"; arm "a BOM row whose capability maps to nothing widens to ALL" $? "$(cat "$WORK/err")"
-bom cap_wiki
+bomfile v1.0.6 "${BASE[@]}" "new daemon fix|ostler-assistant|f6|cap_daemon"; commit_os3
+out="$(sel1)"
+inout todos_reach_reminders && ! inout usage_journal_producers; arm "one new assistant row: assistant probes yes, cm044 probes no" $? "$(cat "$WORK/err")"
+bomfile v1.0.6 "${BASE[@]}" "new unguarded|CM051|f6|none"; commit_os3
+out="$(sel1)"
+[ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q "NEW v1.0.6 BOM row has capability 'none'" "$WORK/err"; arm "a NEW none row widens to ALL" $? "$(cat "$WORK/err")"
+bomfile v1.0.6 "${BASE[@]}" "new unmapped|CM051|f6|cap_not_in_manifest"; commit_os3
+out="$(sel1)"
+[ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q 'maps to no component' "$WORK/err"; arm "a NEW row whose capability is not in the manifest widens to ALL" $? "$(cat "$WORK/err")"
+bomfile v1.0.6 "${BASE[@]}" "new wiki fix|CM044|f6|cap_wiki2"; rm "$OS3/cuts/v1.0.5/MUST_CONTAIN.tsv"; commit_os3
+out="$(sel1)"
+[ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q 'last FULL walk v1.0.5 unreadable' "$WORK/err"; arm "an unreadable last-FULL BOM widens to ALL (no delta possible)" $? "$(cat "$WORK/err")"
+bomfile v1.0.5 "${BASE[@]}"; bomfile v1.0.6 "${BASE[@]}" "new wiki fix|CM044|f6|cap_wiki2"; commit_os3
 out="$(sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.7)"
 [ "$(wc -l <<<"$out" | tr -d ' ')" = "$(wc -l <<<"$ondisk" | tr -d ' ')" ] && grep -q 'unreadable' "$WORK/err"; arm "a target cut whose BOM cannot be read widens to ALL" $? "$(cat "$WORK/err")"
 
 # 5. a newer SMOKE record must not count as the last FULL walk
-bom cap_wiki
+bomfile v1.0.6 "${BASE[@]}" "new wiki fix|CM044|f6|cap_wiki2"; commit_os3
 printf 'version\tv1.0.6\ntier\tsmoke\nverdict\tSMOKE-PASS\n' > "$WORK/store1/v1.0.6-20261110T000000Z.tsv"
-out="$(sel --walk-store "$WORK/store1" --os003-dir "$OS3" --target-version v1.0.6)"
+out="$(sel1)"
 grep -q 'last FULL record v1.0.5' "$WORK/err"; arm "a newer smoke record in the store is ignored; last FULL stays v1.0.5" $? "$(cat "$WORK/err")"
 
 # MUTATION: if smoke records counted as FULL the previous arm must fail

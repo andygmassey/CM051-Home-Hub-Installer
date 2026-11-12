@@ -7,11 +7,13 @@
 # Columns: class <TAB> key <TAB> probes (comma separated, exact probe names, no substrings)
 #   blocking   LAUNCH DIRECTIVE item 5, always run.
 #   install    install-path probes, always run.
-#   component  run only when that component CHANGED since the last FULL walk record. Components are the `repo` column of
-#              OS003 manifest/capability_manifest.tsv, reached through the capability_id of each OS003
-#              cuts/<v>/MUST_CONTAIN.tsv row of every cut after the last FULL record. A BOM row with capability_id none,
-#              or a capability absent from the manifest, or a cut whose BOM cannot be read, widens to ALL components
-#              (fail wide, never narrow). No FULL record in the walk store also means ALL components.
+#   component  run only when that component CHANGED since the last FULL walk record. BOMs are CUMULATIVE (each cut lists
+#              everything shipped so far), so "changed" is the DELTA: rows of the target cut's OS003
+#              cuts/<v>/MUST_CONTAIN.tsv that the last-FULL walk's BOM does not have, keyed on (what, repo, ref). Each new
+#              row's capability_id maps to a component through OS003 manifest/capability_manifest.tsv `repo`
+#              (assistant | cm044 | cm051). A NEW row with capability_id none, or one the manifest does not know, or an
+#              unreadable BOM, or no FULL record in the walk store, widens to ALL components (fail wide, never narrow).
+#              The selector prints the OS003 origin/main commit and date it read.
 #
 # EVERY probe on disk must appear exactly once below (tests/test_walk_smoke_scope_covers_every_probe.sh): a new probe
 # cannot silently fall out of smoke.

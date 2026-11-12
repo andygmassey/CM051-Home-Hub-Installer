@@ -48,6 +48,7 @@ v="$(awk -F'\t' '$1=="verdict"{print $2}' "$REC")"
 [ "$v" = "SMOKE-PASS" ]; arm "all-green smoke verdict is SMOKE-PASS (got '$v')" $? "$out"
 ! grep -qP '^verdict\tCLEAN' "$REC" 2>/dev/null && ! awk -F'\t' '$1=="verdict" && $2=="CLEAN"{f=1} END{exit !f}' "$REC"
 arm "and never CLEAN" $? "$(grep verdict "$REC")"
+grep -q $'^smoke_note\tOS003 origin/main read' "$REC"; arm "the record carries the OS003 read line (smoke_note)" $? "$(grep smoke_note "$REC")"
 grep -q -- '--only' "$WORK/argv" && grep -q -- '--allow-writes' "$WORK/argv"; arm "run_box_walk.sh was invoked with --only <scope> --allow-writes" $? "$(cat "$WORK/argv")"
 for p in no_store_port_is_tcp_reachable assistant_answers_grounded no_person_holds_two_contact_cards people_stores_reconcile; do
     grep -q "$p" "$WORK/argv"; arm "BLOCKING probe $p is in the executed scope" $? "$(cat "$WORK/argv")"

@@ -76,49 +76,60 @@ def main():
 
     full = last_full(a.walk_store)
     changed, widen_reason = set(), None
+    os003 = a.os003_dir
+    # Say which OS003 commit was read. A stale clone widens (safe) but must be visible.
+    if os003 and os.path.isdir(os003):
+        r = subprocess.run(["git", "-C", os003, "log", "-1", "--format=%h %cI", "origin/main"], capture_output=True, text=True)
+        say("OS003 origin/main read: " + (r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else f"UNREADABLE ({r.stderr.strip()[:120]})"))
+    else:
+        say("OS003 origin/main read: NO OS003 clone given (BOMs fall back to the vendored cuts/ copies)")
     if full is None:
         widen_reason = "no FULL walk record in the walk store"
+    elif not a.target_version:
+        widen_reason = "no target version given, so no delta can be computed"
     else:
-        os003 = a.os003_dir
+        # BOMs are CUMULATIVE (each cut lists everything shipped so far, ~50 capability_id=none rows and all three
+        # components), so the question is the DELTA: target-BOM rows that the last-FULL-walk BOM does not have,
+        # keyed on (what, repo, ref). Only a NEW row that is none or unmapped widens.
+        def bom(v):
+            txt = git_show(os003, f"cuts/{v}/MUST_CONTAIN.tsv")
+            if txt is None:
+                p = os.path.join(root, "cuts", v, "MUST_CONTAIN.tsv")
+                txt = open(p, encoding="utf-8").read() if os.path.isfile(p) else None
+            if txt is None:
+                return None
+            rows = read_tsv(txt)
+            if not rows or "capability_id" not in rows[0]:
+                return None
+            h = rows[0]
+            return h, rows[1:]
+        tb, fb = bom(a.target_version), bom(full)
         cap = git_show(os003, "manifest/capability_manifest.tsv")
         capmap = {}
         if cap:
             for r in read_tsv(cap):
                 if len(r) > 2 and r[0] != "id":
                     capmap[r[0]] = r[2]
-        # cuts after the last full record, up to and including the target
-        vers = set()
-        for src in [os.path.join(root, "cuts")]:
-            if os.path.isdir(src):
-                vers |= {d for d in os.listdir(src) if re.match(r"^v[\d.]+$", d)}
-        tree = subprocess.run(["git", "-C", os003, "ls-tree", "-r", "--name-only", "origin/main"], capture_output=True, text=True) if os003 and os.path.isdir(os003) else None
-        if tree is not None and tree.returncode == 0:
-            vers |= set(re.findall(r"^cuts/(v[\d.]+)/MUST_CONTAIN\.tsv$", tree.stdout, re.M))
-        later = sorted((v for v in vers if vkey(v) > vkey(full) and (not a.target_version or vkey(v) <= vkey(a.target_version))), key=vkey)
-        if a.target_version and vkey(a.target_version) > vkey(full) and a.target_version not in later:
-            later.append(a.target_version)
-        if not later:
-            widen_reason = f"no cut BOM found after the last FULL record {full}"
-        for v in later:
-            txt = git_show(os003, f"cuts/{v}/MUST_CONTAIN.tsv")
-            if txt is None:
-                p = os.path.join(root, "cuts", v, "MUST_CONTAIN.tsv")
-                txt = open(p, encoding="utf-8").read() if os.path.isfile(p) else None
-            if txt is None:
-                widen_reason = f"BOM for {v} unreadable"; break
-            rows = read_tsv(txt)
-            hdr = rows[0] if rows else []
-            if "capability_id" not in hdr:
-                widen_reason = f"BOM for {v} has no capability_id column"; break
-            ci = hdr.index("capability_id")
-            for r in rows[1:]:
+        if tb is None:
+            widen_reason = f"BOM for {a.target_version} unreadable"
+        elif fb is None:
+            widen_reason = f"BOM for the last FULL walk {full} unreadable, so no delta"
+        elif not capmap:
+            widen_reason = "OS003 capability_manifest.tsv unreadable"
+        else:
+            th, trows = tb; fh, frows = fb
+            key = lambda h, r: tuple(r[h.index(c)] if len(r) > h.index(c) else "" for c in ("what", "repo", "ref"))
+            old = {key(fh, r) for r in frows}
+            new = [r for r in trows if key(th, r) not in old]
+            ci = th.index("capability_id")
+            say(f"smoke delta: {len(trows)} rows in {a.target_version}, {len(frows)} in {full}, {len(new)} new")
+            for r in new:
                 c = r[ci] if len(r) > ci else ""
                 comp = capmap.get(c)
                 if comp not in comps:
-                    widen_reason = f"{v} BOM row with capability {c or '(empty)'!r} does not map to a component"; break
+                    widen_reason = f"a NEW {a.target_version} BOM row has capability {c or '(empty)'!r}, which maps to no component"
+                    break
                 changed.add(comp)
-            if widen_reason:
-                break
     if widen_reason:
         say(f"smoke scope: ALL components (fail wide): {widen_reason}")
         changed = set(comps)
