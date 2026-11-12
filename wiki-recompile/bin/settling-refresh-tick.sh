@@ -14,12 +14,17 @@
 # Overlap rules (exit 0 and a log line when skipped, never an error):
 #   1. Its own lock, so a slow run is never doubled up by the next tick.
 #   2. The wiki-recompile tick lock (${OSTLER_DIR}/.wiki-recompile.lock, the
-#      same atomic mkdir + pid mutex): while the baseline compile holds it, the
-#      baseline is writing settling.json itself. Only CHECKED here, never
-#      taken, so this agent can never delay the daily recompile.
-#   The shared background-LLM slot is deliberately NOT taken: this mode calls
-#   no LLM, and the full compile holds that slot for hours, which would freeze
-#   the very file this agent exists to keep fresh.
+#      same atomic mkdir + pid mutex): only CHECKED here, never taken, so this
+#      agent can never delay the daily recompile.
+#   settling.json itself is NOT locked here. CM044's --settling-only is the one
+#   writer and serialises every write under <output_dir>/.settling.lock
+#   (fcntl.flock) inside the compiler; a second lock on the file from this
+#   script would compete with it. The shared background-LLM slot is not taken
+#   either: no LLM is used, and the full compile holds that slot for hours.
+#
+# RunAtLoad is on in the plist: the daily full compile no longer writes
+# settling.json, so on a first install the file does not exist until the first
+# tick, and that tick runs at install bootstrap.
 #
 # It keeps running after setup completes, on purpose: the compiler decides
 # completeness (a new channel or a changed population re-opens the bar), and a

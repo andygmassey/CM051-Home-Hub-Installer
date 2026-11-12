@@ -63,6 +63,9 @@ else bad "plist StartInterval is not 900"; fi
 if [ -f "$PLIST" ] && [ "$(plist_get "$PLIST" "d['ProgramArguments'][1]")" = "$H/.ostler/bin/settling-refresh-tick.sh" ]; then
     ok "plist runs the staged tick by absolute path"
 else bad "plist ProgramArguments does not name the staged tick"; fi
+if [ -f "$PLIST" ] && [ "$(plist_get "$PLIST" "d['RunAtLoad']")" = "True" ]; then
+    ok "plist RunAtLoad is true (one tick at install bootstrap, so settling.json exists before the screens open)"
+else bad "plist RunAtLoad is not true"; fi
 if [ -f "$PLIST" ] && ! /usr/bin/grep -q 'OSTLER_\(BIN\|HOME\|LOGS\)' "$PLIST"; then
     ok "no unrendered placeholder left in the plist"
 else bad "unrendered placeholder (or no plist)"; fi
