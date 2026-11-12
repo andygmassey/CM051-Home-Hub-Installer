@@ -9,6 +9,8 @@ on:
       - 'vendor/whatsapp_source/**'
       - 'tests/test_apple_mail_refused_walk_is_not_complete.py'
       - 'tests/test_apple_mail_backward_sweep_steps_to_present_mail.py'
+      - 'tests/test_extract_all_default_history_is_all_history.py'
+      - 'vendor/ostler_fda/extract_all.py'
       - '.github/workflows/status-honesty-ingest.yml'
   pull_request:
     paths:
@@ -16,6 +18,8 @@ on:
       - 'vendor/whatsapp_source/**'
       - 'tests/test_apple_mail_refused_walk_is_not_complete.py'
       - 'tests/test_apple_mail_backward_sweep_steps_to_present_mail.py'
+      - 'tests/test_extract_all_default_history_is_all_history.py'
+      - 'vendor/ostler_fda/extract_all.py'
       - '.github/workflows/status-honesty-ingest.yml'
 
 jobs:
@@ -38,6 +42,7 @@ jobs:
           }
           check tests/test_apple_mail_refused_walk_is_not_complete.py 3
           check tests/test_apple_mail_backward_sweep_steps_to_present_mail.py 2
+          check tests/test_extract_all_default_history_is_all_history.py 2
           check vendor/whatsapp_source/tests/test_whatsapp_clamp_window.py 3
-          python -m pytest tests/test_apple_mail_refused_walk_is_not_complete.py tests/test_apple_mail_backward_sweep_steps_to_present_mail.py -v
+          python -m pytest tests/test_apple_mail_refused_walk_is_not_complete.py tests/test_apple_mail_backward_sweep_steps_to_present_mail.py tests/test_extract_all_default_history_is_all_history.py -v
           cd vendor/whatsapp_source/tests && python -m pytest test_whatsapp_clamp_window.py test_whatsapp_source.py -v

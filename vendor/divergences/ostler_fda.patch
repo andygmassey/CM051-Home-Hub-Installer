@@ -363,7 +363,7 @@
      db_path: Optional[Path] = None,
 -    since_days: int = 365,
 -    limit: int = 10000,
-+    since_days: int = 1825,
++    since_days: int = 18250,   # all history (50 years); callers pass a narrower window
 +    limit: int = 100000,
  ) -> list[EmailMessage]:
      """Extract email metadata from the Mail Envelope Index.
@@ -1943,7 +1943,7 @@
      )
 --- /dev/null
 +++ b/catchup_browser.py
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,193 @@
 +"""Full-history catch-up for Safari and Chrome browsing history (v1.0.108).
 +
 +The install reads OSTLER_SAFARI_BACKFILL_DAYS / OSTLER_BROWSER_BACKFILL_DAYS
@@ -1993,11 +1993,10 @@
 +
 +DAY = 86400
 +DEFAULT_WINDOW_DAYS = 30
-+# install.sh resolves both backfill windows to 1825 when unset
-+# (install.sh `: "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"`); extract_all's own
-+# fallback (365) is never the shipped value, so the catch-up edge follows
++# install.sh resolves both backfill windows to 18250 (all history) when unset;
++# extract_all's own fallback is the same value (ALL_HISTORY_DAYS), so the catch-up edge follows
 +# install.sh, never extract_all's dead default.
-+DEFAULT_INSTALL_DAYS = 1825
++DEFAULT_INSTALL_DAYS = 18250
 +
 +
 +def _env_int(name: str, default: int) -> int:
@@ -4254,7 +4253,20 @@
  def main() -> int:
 --- a/extract_all.py
 +++ b/extract_all.py
-@@ -103,9 +103,41 @@
+@@ -79,6 +79,12 @@
+     return DEFAULT_SOURCES
+ 
+ 
++# History is ALL history by default (50 years), the same value install.sh passes.
++# These are the fallbacks used when the env var is absent; a hidden 365 or 1825
++# here silently capped a customer who ran the extractor outside the installer.
++ALL_HISTORY_DAYS = 18250
++
++
+ def _env_days(name: str, default: int) -> int:
+     """A day-count from the environment, or `default`.
+ 
+@@ -103,9 +109,41 @@
          return default
  
  
@@ -4296,7 +4308,7 @@
  ) -> dict:
      """Run enabled extractors and save results.
  
-@@ -115,6 +147,17 @@
+@@ -115,6 +153,17 @@
          enabled_sources: Iterable of source names to run. None means
              "use the env var or fall back to DEFAULT_SOURCES" – see
              _resolve_enabled_sources.
@@ -4314,7 +4326,7 @@
  
      Returns:
          A summary dict suitable for the installer's completion screen.
-@@ -134,7 +177,16 @@
+@@ -134,7 +183,16 @@
      if "safari_history" in sources:
          try:
              from .safari_history import extract_history, top_domains, to_timeline_entries
@@ -4327,12 +4339,12 @@
 +            # OSTLER_IMESSAGE_BACKFILL_DAYS + OSTLER_BROWSER_BACKFILL_DAYS
 +            # shape so install.sh can pass one number for all three
 +            # browsing sources if needed.
-+            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", "365"))
++            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", str(ALL_HISTORY_DAYS)))
 +            entries = extract_history(since_days=safari_backfill_days)
              domains = top_domains(entries, limit=100)
  
              timeline = to_timeline_entries(entries)
-@@ -160,17 +212,15 @@
+@@ -160,17 +218,15 @@
              summary["sources"]["safari_history"] = {"status": "not_found"}
              logger.info("[skip] Safari History: database not found")
          except Exception as e:
@@ -4354,7 +4366,16 @@
      if "chrome_history" in sources:
          try:
              from .chrome_history import (
-@@ -192,9 +242,6 @@
+@@ -178,7 +234,7 @@
+                 top_domains as _chrome_top,
+                 to_timeline_entries as _chrome_timeline,
+             )
+-            backfill_days = int(os.environ.get("OSTLER_BROWSER_BACKFILL_DAYS", "365"))
++            backfill_days = int(os.environ.get("OSTLER_BROWSER_BACKFILL_DAYS", str(ALL_HISTORY_DAYS)))
+             chrome_entries = _chrome_extract(since_days=backfill_days)
+             chrome_domains = _chrome_top(chrome_entries, limit=100)
+ 
+@@ -192,9 +248,6 @@
                  "status": "ok",
                  "visits": len(chrome_entries),
                  "unique_domains": len(chrome_domains),
@@ -4364,7 +4385,7 @@
                  "top_3": [d.domain for d in chrome_domains[:3]],
              }
              logger.info(
-@@ -208,7 +255,7 @@
+@@ -208,7 +261,7 @@
              summary["sources"]["chrome_history"] = {"status": "not_found"}
              logger.info("[skip] Chrome History: Chrome not installed")
          except Exception as e:
@@ -4373,7 +4394,7 @@
              logger.warning("[warn] Chrome History: %s", e)
      else:
          summary["sources"]["chrome_history"] = {"status": "disabled_by_user"}
-@@ -238,7 +285,7 @@
+@@ -238,7 +291,7 @@
          except FileNotFoundError:
              summary["sources"]["safari_bookmarks"] = {"status": "not_found"}
          except Exception as e:
@@ -4382,7 +4403,7 @@
              logger.warning("[warn] Safari Bookmarks: %s", e)
      else:
          summary["sources"]["safari_bookmarks"] = {"status": "disabled_by_user"}
-@@ -259,11 +306,18 @@
+@@ -259,11 +312,18 @@
              # still arrives, over the settle-in period rather than during
              # onboarding. An explicit env value pins the window and disables
              # the ladder. Andy's call.
@@ -4403,7 +4424,7 @@
              stats = conversation_stats(conversations)
  
              (output_dir / "imessage_conversations.json").write_text(
-@@ -287,7 +341,7 @@
+@@ -287,7 +347,7 @@
          except FileNotFoundError:
              summary["sources"]["imessage"] = {"status": "not_found"}
          except Exception as e:
@@ -4412,7 +4433,7 @@
              logger.warning("[warn] iMessage: %s", e)
      else:
          summary["sources"]["imessage"] = {"status": "disabled_by_user"}
-@@ -306,7 +360,20 @@
+@@ -306,7 +366,20 @@
                  chat_to_dict as _wa_to_dict,
                  TIER_T3_SKIP,
              )
@@ -4434,7 +4455,7 @@
              stats = _wa_stats(chats)
  
              # Drop T3 chats before writing the JSON -- they contain
-@@ -338,7 +405,7 @@
+@@ -338,7 +411,7 @@
              summary["sources"]["whatsapp_history"] = {"status": "not_found"}
              logger.info("[skip] WhatsApp: ChatStorage.sqlite not found (install WhatsApp Desktop)")
          except Exception as e:
@@ -4443,7 +4464,7 @@
              logger.warning("[warn] WhatsApp: %s", e)
      else:
          summary["sources"]["whatsapp_history"] = {"status": "disabled_by_user"}
-@@ -423,7 +490,7 @@
+@@ -423,7 +496,7 @@
              summary["sources"]["facebook_messenger"] = {"status": "not_found"}
              logger.info("[skip] Facebook Messenger: %s", e)
          except Exception as e:
@@ -4452,7 +4473,7 @@
              logger.warning("[warn] Facebook Messenger: %s", e)
      else:
          summary["sources"]["facebook_messenger"] = {"status": "disabled_by_user"}
-@@ -452,7 +519,7 @@
+@@ -452,7 +525,7 @@
          except FileNotFoundError:
              summary["sources"]["apple_notes"] = {"status": "not_found"}
          except Exception as e:
@@ -4461,7 +4482,7 @@
              logger.warning("[warn] Apple Notes: %s", e)
      else:
          summary["sources"]["apple_notes"] = {"status": "disabled_by_user"}
-@@ -482,6 +549,14 @@
+@@ -482,6 +555,14 @@
                      since_days=365,
                      with_people_only=("photos_faces" in sources),
                  )
@@ -4476,7 +4497,7 @@
                  (output_dir / "photos_events.json").write_text(
                      json.dumps([asdict(e) for e in events], indent=2, default=str)
                  )
-@@ -504,7 +579,7 @@
+@@ -504,7 +585,7 @@
          except FileNotFoundError:
              summary["sources"]["photos"] = {"status": "not_found"}
          except Exception as e:
@@ -4485,7 +4506,7 @@
              logger.warning("[warn] Photos: %s", e)
      else:
          summary["sources"]["photos"] = {"status": "disabled_by_user"}
-@@ -599,12 +674,29 @@
+@@ -599,12 +680,29 @@
              summary["sources"]["calendar"] = {"status": "no_fda"}
              logger.info("[skip] Calendar: Full Disk Access not granted")
          except FileNotFoundError:
@@ -4517,7 +4538,7 @@
  
      # ── Reminders ───────────────────────────────────────────────────
      if "reminders" in sources:
-@@ -633,7 +725,7 @@
+@@ -633,7 +731,7 @@
              summary["sources"]["reminders"] = {"status": "not_found"}
              logger.info("[skip] Reminders: database not found")
          except Exception as e:
@@ -4526,7 +4547,7 @@
              logger.warning("[warn] Reminders: %s", e)
      else:
          summary["sources"]["reminders"] = {"status": "disabled_by_user"}
-@@ -643,23 +735,68 @@
+@@ -643,23 +741,68 @@
      # signal (top artists/genres, playlist counts). extract_library()
      # degrades to an empty library rather than raising when no XML is
      # present, so "not_found" surfaces as ok-with-zero-tracks.
@@ -4599,7 +4620,7 @@
              )
  
          except PermissionError:
-@@ -669,7 +806,7 @@
+@@ -669,7 +812,7 @@
              summary["sources"]["apple_music"] = {"status": "not_found"}
              logger.info("[skip] Apple Music: library XML not found")
          except Exception as e:
@@ -4608,7 +4629,7 @@
              logger.warning("[warn] Apple Music: %s", e)
      else:
          summary["sources"]["apple_music"] = {"status": "disabled_by_user"}
-@@ -766,7 +903,7 @@
+@@ -766,7 +909,7 @@
              summary["sources"]["google_takeout"] = {"status": "not_found", "error": str(e)}
              logger.info("[skip] Google Takeout: %s", e)
          except Exception as e:
@@ -4617,7 +4638,7 @@
              logger.warning("[warn] Google Takeout: %s", e)
      else:
          summary["sources"]["google_takeout"] = {"status": "disabled_by_user"}
-@@ -775,8 +912,45 @@
+@@ -775,8 +918,45 @@
      if "apple_mail" in sources:
          try:
              from .apple_mail import extract_messages, email_stats, frequent_contacts
@@ -4634,7 +4655,7 @@
 +            # window so a multi-year backfill is not clipped at the old
 +            # 10k cap.
 +            mail_backfill_days = int(
-+                os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", "1825")
++                os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", str(ALL_HISTORY_DAYS))
 +            )
 +            mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
 +            # #30: widen on the first run when the window holds too little.
@@ -4664,7 +4685,7 @@
              contacts = frequent_contacts(messages)
  
              (output_dir / "apple_mail.json").write_text(
-@@ -785,15 +959,37 @@
+@@ -785,15 +965,37 @@
              (output_dir / "apple_mail_contacts.json").write_text(
                  json.dumps(contacts, indent=2, default=str)
              )
@@ -4710,7 +4731,7 @@
  
          except PermissionError:
              summary["sources"]["apple_mail"] = {"status": "no_fda"}
-@@ -802,11 +998,24 @@
+@@ -802,11 +1004,24 @@
              summary["sources"]["apple_mail"] = {"status": "not_found"}
              logger.info("[skip] Apple Mail: not configured on this Mac")
          except Exception as e:
@@ -4736,7 +4757,7 @@
      # ── Save summary ────────────────────────────────────────────────
      (output_dir / "extraction_summary.json").write_text(
          json.dumps(summary, indent=2, default=str)
-@@ -852,7 +1061,11 @@
+@@ -852,7 +1067,11 @@
      if args.include_faces:
          enabled = (enabled or set(DEFAULT_SOURCES)) | {"photos_faces"}
  
