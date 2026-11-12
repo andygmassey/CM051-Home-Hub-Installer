@@ -49,7 +49,7 @@ print(json.dumps(d[sys.argv[2]]) if sys.argv[2] in d else "missing")' "$1" "$2" 
 
 # probe_verdict <dir> -> "PASS" | "FAIL" | "CANNOT-RUN" | "ERR:<rc>"
 probe_verdict() {
-    OSTLER_SETTLING_DIR="$1" bash "$PROBE" >"$TMP/probe.out" 2>&1
+    OSTLER_SETTLING_MANIFEST="$REPO_ROOT/lib/settling_channels.json" OSTLER_SETTLING_DIR="$1" bash "$PROBE" >"$TMP/probe.out" 2>&1
     case $? in
         0) echo PASS ;;
         1) echo FAIL ;;

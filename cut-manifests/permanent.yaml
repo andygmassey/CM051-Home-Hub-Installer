@@ -498,6 +498,20 @@ entries:
       probe: "setup_progress_advancing"
 
   # ==========================================================================
+  - id: box-walk-settling-json-refreshes
+    title: settling.json, served through the gateway, is refreshed on the 15-minute settling-refresh cadence
+    incident: >-
+      the setup status screen reads settling.json, written only by the daily
+      full wiki compile (hours long), so the screen could freeze for 24 h. The
+      settling-refresh LaunchAgent runs the CM044 settling-only mode every 15
+      minutes. SCOPE: ADVISORY for its first cut (see walk_promote_scope.tsv);
+      it has never run on a walk box and depends on CM044 shipping
+      --settling-only and the gateway serving /wiki/settling.json
+    proof:
+      kind: box_walk_probe
+      probe: "settling_json_refreshes"
+
+  # ==========================================================================
   - id: box-walk-ostler-unlock-reachable-by-name
     title: ostler-unlock must resolve by bare name in the shell a customer's Terminal actually opens
     incident: >-

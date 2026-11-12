@@ -1,0 +1,160 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+#
+# artefact_sha256 is the build this box was walked with. A version does
+# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so
+# this is the field the publish gate binds on. artefact_sha256_source
+# reads measured(...) only when the DMG was found on the box and hashed
+# there; that establishes WHICH BUILD, not that it was the one mounted.
+#
+# counts_scope says WHICH population pass/fail/cannot_run/broken describe.
+# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut
+# manifest runtime proofs) contributes to verdict and qa_exit but emits no
+# counts, so it is deliberately absent from these four numbers.
+# failed_probe_names_recorded and the failed_probe/not_measured_probe rows
+# below are the EXCEPTION: those DO cover both phases, because a phase-2-
+# only failure still has to reach scripts/verify_walk_record.sh by name or
+# its promote gate cannot scope its decision and refuses unscoped.
+# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are
+# a subset and summing them will not reconcile against the console tally --
+# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours
+# as an unexplained discrepancy in a v1.0.44 verdict that was correct all
+# along, because these keys were unqualified.
+version	v1.0.129
+version_source	measured(CFBundleShortVersionString, matches argument)
+artefact_sha256	2f53a5caf6ac617b395d5e55b4ffc8fef0891c5befb308c6fccbad83bb2f1a3f
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.129.dmg on the walked box, the DMG the walk staged per its walk-dmg marker; re-hash equals the staged sha)
+walked_at	2026-11-12T13:02:47Z
+box_fp	f0a5e4fd0536754c
+walk_kind	thin
+walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
+walk_notes	guard root half driven by harness replica of AuthorizationHelper, NOT the dialog (install-root rc=0)
+#
+# instrument_rev answers the question this record has never
+# answered: WHICH PROBES graded that artefact. The subject is
+# named six ways above -- version, version_source,
+# artefact_sha256, artefact_sha256_source, box_fp, walked_at --
+# and the instrument was named nowhere.
+#
+# It matters because the probes do NOT come from the artefact. In
+# --from-dmg mode ttywalk.sh copies the .app Resources verbatim,
+# and gui/project.yml bundles box_walk_probes ZERO times, so the
+# suite that runs is the one in THIS checkout. A walk is therefore
+# artefact X judged by instrument Y, and only X was recorded.
+#
+# The case that forced it: no_person_holds_two_contact_cards
+# gained a collision-opportunity measure in #1549. Before it, a
+# clean graph printed a bare pass; after it, the same graph prints
+# EARNED or UNEXERCISED. BOTH WRITE THE SAME `pass` HERE. Reading
+# this file later, nobody could tell an earned zero from a vacuous
+# one -- which is the exact distinction that probe exists to make.
+#
+# instrument_source says HOW the value was obtained, same idiom as
+# version_source. A sha that does not describe the probes that ran
+# is worse than no sha, so local edits under box_walk_probes are
+# named rather than hidden behind a clean-looking commit id.
+#
+# 🔴 A CLEAN SHA DOES NOT MEAN main. It means the probes are EXACTLY
+# that commit, which may be a branch, a tag or a detached head. The
+# v1.0.71 walk ran from a harness branch that was main plus five
+# reset fixes: a correct, clean, committed sha that was nonetheless
+# not main. Resolve the sha before assuming the lineage -- this
+# field answers WHICH probes ran, never WHERE they came from.
+instrument_rev	d63fd6893010e4c792c19bd86d94d2bff3d9ab0e
+instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
+#
+# stores_provenance answers the question every store-reading probe
+# begs and none of them state: was the graph this walk measured
+# CREATED by this artefact, or CARRIED OVER from a previous install?
+# A red from no_person_holds_two_contact_cards, people_stores_reconcile
+# or people_count_agreement means something different in each case. A
+# reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can
+# find one and says so when it cannot.
+stores_provenance	wiped-by-explicit-store-wipe(colimadelete--data,datadiskabsent;nouninstalleronthebox)
+#
+# cold: NOT_COLD. ~/.ostler/state/conversations_mirror held 123,775 files (2026-05-15..2026-11-11) with birth and mtime before the reset. The reset logged "NO SHIPPED UNINSTALLER FOUND. This reset did NOT uninstall." and ran only the config-only teardown (#1828); free space 65730716 KB before, 65730696 KB after (unchanged).
+# every 129 number about conversations, people, dedupe and email counts is tainted by the carried-over state
+cold	NOT_COLD(~/.ostler/state/conversations_mirror held 123775 pre-reset files; reset printed NO SHIPPED UNINSTALLER FOUND, this reset did NOT uninstall; free space 65730716 KB before and 65730696 KB after, unchanged)
+#
+# grounding_seed answers the one question assistant_answers_grounded
+# begs and has never stated: was this box SEEDED before the probe
+# asked? An unseeded box and a broken product produce the SAME red.
+# That probe is red on 17 of the 21 committed records, and not one
+# of them says which kind of red it was. Five states: seeded,
+# skipped, absent, failed, unrun -- plus not-recorded when the
+# marker could not be read, which is NOT the same as unrun.
+grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
+counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
+pass	57
+fail	5
+cannot_run	15
+broken	0
+advisory	2
+advisory_probe	install_log_error_lines
+advisory_probe	owner_knowledge_score
+measured	79 of 79 (pass+fail+cannot_run+advisory; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	7 of 11
+failed_probe	acceptance_gate_v1013
+failed_probe	db_key_reaches_every_service
+failed_probe	followup_keys_match_chat_threads
+failed_probe	hub_screens_customer_read
+failed_probe	morning_brief_catches_me_up
+failed_probe	setup_progress_advancing
+failed_probe	todos_reach_reminders
+#
+# ROWS ADDED AFTER THE WRITER RAN; no writer-produced row above is edited. failed_probe_names_recorded reads "7 of 11" because the counter counted FAIL ROWS.
+# failed_row = one per FAIL row in ~/walkdriver/WALK129.driver.log (5 main pass at lines 93967-93996, 6 manifest at 94087-94237); the gate re-derives distinct probes from them.
+note	11 FAIL rows = 7 distinct probes (5 main-pass + 6 manifest duplicates); the counter counted rows; fixed in #3462
+# Causes, one per distinct probe:
+#   hub_screens_customer_read: /wiki/ returned 503 while another compile ran; Hub vs people API 7534 vs 7532; 1 notification-phrasing row among 7532 People rows (counts on carried-over state, see cold). Cause of the 503 NOT INVESTIGATED.
+#   db_key_reaches_every_service: ssh session has no keychain (cm048-ingest keychain_unavailable); probe fixed in #3454.
+#   morning_brief_catches_me_up: the brief listed one item twice (1 repeated). Cause NOT INVESTIGATED.
+#   setup_progress_advancing: email shard frozen (6 of 6 sources open and not advancing); sealed tick lacked a writer, fixed in oa #681.
+#   todos_reach_reminders: harness: osascript over ssh and a reminder left behind needing manual deletion.
+#   followup_keys_match_chat_threads: 0 of 4 keys matched; likely the walk seeds. Not confirmed.
+#   acceptance_gate_v1013: A8 wiki-recompile exit 130.
+failed_row	hub_screens_customer_read
+failed_row	db_key_reaches_every_service
+failed_row	morning_brief_catches_me_up
+failed_row	setup_progress_advancing
+failed_row	todos_reach_reminders
+failed_row	box-walk-setup-progress-advancing
+failed_row	box-walk-todos-reach-reminders
+failed_row	box-walk-acceptance-gate-v1013
+failed_row	box-walk-followup-keys-match-chat-threads
+failed_row	box-walk-morning-brief-catches-me-up
+failed_row	probe-todos-reach-reminders
+failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+not_measured_probe	apple_music_library_reaches_preferences
+not_measured_probe	apple_music_refresh_runs_under_the_grant
+not_measured_probe	assistant_sends_over_whatsapp_and_email
+not_measured_probe	call_audio_never_retained
+not_measured_probe	data_conservation
+not_measured_probe	db_key_reaches_every_service
+not_measured_probe	derived_preferences_breadth
+not_measured_probe	derived_preferences_dislike
+not_measured_probe	derived_preferences_not_others
+not_measured_probe	derived_preferences_reach_digest_and_tool
+not_measured_probe	dislike_respected_in_brief
+not_measured_probe	fda_rerun_second_tick_lands_a_new_row
+not_measured_probe	followup_keys_match_chat_threads
+not_measured_probe	hub_screens_customer_read
+not_measured_probe	hub_screens_render_for_a_customer
+not_measured_probe	needs_you_now_birthdays_survive_fallback
+not_measured_probe	owner_digest_knows_the_owner
+not_measured_probe	owner_knowledge_score
+not_measured_probe	pair_state_agreement
+not_measured_probe	scheduled_brief_reaches_messages
+regression_of	acceptance_gate_v1013	v1.0.125
+regression_of	db_key_reaches_every_service	v1.0.125
+regression_of	followup_keys_match_chat_threads	v1.0.123
+regression_of	hub_screens_customer_read	v1.0.106
+regression_of	morning_brief_catches_me_up	v1.0.123
+regression_of	setup_progress_advancing	v1.0.125
+regression_of	todos_reach_reminders	v1.0.106

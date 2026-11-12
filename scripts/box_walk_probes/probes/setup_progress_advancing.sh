@@ -51,6 +51,38 @@ _settling_dir() {
     fi
 }
 
+# The fixed channel set the bar divides by. install.sh must place it at
+# ~/.ostler/state/settling_channels.json (CM051 #3426); the wiki compiler reads
+# it from there. Absent, CM044 logs "settling channel manifest ABSENT" and uses
+# a built-in fallback, so the denominator silently stops being CM051's list.
+# Prints OK|<n channels>, or MISSING|<why>.
+_manifest_path() {
+    if [ -n "${OSTLER_SETTLING_MANIFEST:-}" ]; then
+        printf '%s' "$OSTLER_SETTLING_MANIFEST"
+    else
+        printf '%s/settling_channels.json' "$(dirname "$1")"
+    fi
+}
+
+_manifest_verdict() {
+    local m="$1"
+    if [ ! -f "$m" ]; then
+        printf 'MISSING|settling_channels.json is absent at %s; #3426 shipped in the DMG but install.sh never placed it, so CM044 uses its built-in fallback' "$m"
+        return 0
+    fi
+    python3 -I - "$m" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        ch = json.load(fh)["channels"]
+    if not isinstance(ch, list) or not ch:
+        raise ValueError("channels is empty")
+    print("OK|%d" % len(ch))
+except (OSError, ValueError, KeyError, TypeError) as exc:
+    print("MISSING|settling_channels.json at %s is unusable (%s)" % (sys.argv[1], type(exc).__name__))
+PY
+}
+
 _settle_window_s() {
     local w="${OSTLER_STABILITY_INTERVAL_S:-60}"
     case "$w" in ''|*[!0-9]*) w=60 ;; esac
@@ -145,6 +177,13 @@ run_probe() {
         probe_cannot_run "no settling shard directory at $dir; nothing was measured, so the bar cannot be judged (this is not a pass)"
     fi
 
+    local mv; mv="$(_manifest_verdict "$(_manifest_path "$dir")")"
+    case "$mv" in
+        OK\|*) probe_note "settling_channels.json present: ${mv#OK|} channel(s)" ;;
+        *) probe_examined 1 "settling_channels.json in the state dir beside $dir"
+           probe_fail "${mv#MISSING|}" ;;
+    esac
+
     local tmp; tmp="$(mktemp -d)" || probe_cannot_run "could not create a scratch directory for the two samples"
     local window; window="$(_settle_window_s)"
 
@@ -204,6 +243,11 @@ self_test() {
     if [ "$fail_n" -ne 3 ]; then
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: the stalled fixture produced $fail_n FAIL verdicts, not 3. This probe cannot see a stalled bar."
     fi
+    local nm; nm="$(_manifest_verdict "$tmp/no-such/settling_channels.json")"
+    case "$nm" in
+        MISSING\|*) ;;
+        *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: an absent settling_channels.json read as: $nm" ;;
+    esac
     probe_fail "self-test: the stalled fixture (contacts 2398/2443 and emails 17080/121262 unmoved, notes waiting with no work) gave 3 FAIL verdicts, so this probe returns FAIL on it as it must"
 }
 

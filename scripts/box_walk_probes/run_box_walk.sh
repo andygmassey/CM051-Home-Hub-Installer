@@ -754,9 +754,10 @@ CANNOT_REASONS="$(mktemp)"
 # grounded cost across walks 9 and 10, red both times and undiagnosed both
 # times.
 FAIL_REASONS="$(mktemp)"
+PROBE_TIMINGS="$(mktemp)"
 # Removed by _walk_exit_trap (one EXIT trap: a second `trap ... EXIT` here
 # would replace the cleanup trap above).
-WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
+WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS $PROBE_TIMINGS"
 
 # OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
 # appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
@@ -910,7 +911,9 @@ for p in $PROBES; do
         # needs it, rather than in front of all of phase 2.
         if [ "$_CONVERGE_WAIT_DONE" -eq 0 ]; then
             printf '\n'
+            _cw_t0=$SECONDS
             converge_wait || true
+            printf '  TIMING wait=converge seconds=%s\n' "$((SECONDS - _cw_t0))"
             _CONVERGE_WAIT_DONE=1
         fi
         if [ "$CONVERGE_STATE" != "stable" ]; then
@@ -924,9 +927,13 @@ for p in $PROBES; do
     fi
 
     printf '\n[%s]\n' "$b"
+    _probe_t0=$SECONDS
     out="$(bash "$p" 2>&1)"
     rc=$?
     printf '%s\n' "$out" | sed 's/^/  /'
+    # Seconds this probe took (phase 2). One line per probe, a sorted top 15 below.
+    printf '  TIMING probe=%s seconds=%s\n' "$b" "$((SECONDS - _probe_t0))"
+    printf '%s\t%s\n' "$((SECONDS - _probe_t0))" "$b" >> "$PROBE_TIMINGS"
 
     if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^VERDICT: ADVISORY -- ')" -gt 0 ]; then
         ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
@@ -1015,6 +1022,9 @@ fi
 # REPORT -- four numbers, never one.
 # -------------------------------------------------------------------------
 printf '\n============================================================\n'
+printf '\n--- TIMING: the slowest probes of phase 2 (seconds) ---\n'
+sort -rn "$PROBE_TIMINGS" | head -15 | awk -F'\t' '{printf "  TIMING top15 probe=%s seconds=%s\n", $2, $1}'
+awk -F'\t' '{t+=$1} END {printf "  TIMING phase2_probes_total seconds=%d (probes only; waits are not in it)\n", t}' "$PROBE_TIMINGS"
 printf 'RESULT\n'
 printf '  PASS        %s\n' "$PASS"
 printf '  FAIL        %s\n' "$FAIL"
