@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """db_key_reaches_every_service grades only a posture marker written after ITS OWN
-launchd kickstart (harness-only; no product code is touched).
+throwaway launchd job (harness-only; no product code is touched).
 
 v1.0.129 walk: the harness runs pwg-convo over ssh, which cannot read the login
 Keychain, so it wrote disabled/keychain_unavailable over the service's true
 marker and the probe FAILed a healthy box. The probe now kickstarts the launchd
-job, waits (bounded) for the marker mtime to pass the kickstart, grades it at
-once. Absent, unchanged-after-the-wait, unparseable, stale or kickstart-failed
-= CANNOT-RUN, never PASS, never FAIL.
+job, waits (bounded) for the marker mtime to pass the bootstrap, grades it at
+once. The marker is FORCED (the job imports src.ingest), so no marker after a
+successful bootstrap is a FAIL; a failed bootstrap, a stale or unparseable
+timestamp is CANNOT-RUN. Never PASS by omission.
 
-Arms: A fresh post-kickstart enabled -> PASS; B ssh keychain_unavailable marker
-only (mtime predates kickstart) -> CANNOT-RUN; C no marker -> CANNOT-RUN; D stale
--> CANNOT-RUN; E post-kickstart marker saying disabled -> FAIL. H: the box half
+Arms: A fresh post-job enabled -> PASS; B ssh keychain_unavailable marker only
+(mtime predates the job) -> FAIL (job ran, wrote nothing); C no marker -> FAIL;
+D stale timestamp -> CANNOT-RUN; E post-job marker saying disabled -> FAIL;
+K bootstrap failed -> CANNOT-RUN; I: `import src.ingest` really writes the
+marker with no pending work (CANNOT-RUN if the venv lacks deps). H: the box half
 with a real temp state dir and a fake clock. S: the probe script kickstarts BEFORE
 it reads and passes the epoch. M: mutants. CM051_ROOT grades another tree.
 """
@@ -71,17 +74,18 @@ def verdict(f, mod=dbp):
 
 ssh_bad = marker(encryption="disabled", backend="plaintext", reason="keychain_unavailable", key_source=None)
 arm("A post-kickstart enabled marker -> PASS", verdict(facts(marker()))[0] is True)
-arm("B ssh keychain_unavailable marker only (not rewritten after kickstart) -> CANNOT-RUN", verdict(facts(ssh_bad, written_after_kick=False))[0] is None)
-arm("B2 ssh marker that says enabled, not rewritten after kickstart -> not graded", verdict(facts(marker(), written_after_kick=False))[0] is None)
-arm("C no marker -> CANNOT-RUN", verdict(facts(None, written_after_kick=False, prior_marker_age_s=None))[0] is None)
+arm("B ssh keychain_unavailable marker only (not rewritten by the job) -> FAIL, not PASS", verdict(facts(ssh_bad, written_after_kick=False))[0] is False)
+arm("B2 ssh marker that says enabled, not rewritten by the job -> FAIL, never graded as PASS", verdict(facts(marker(), written_after_kick=False))[0] is False)
+arm("C no marker after a successful bootstrap -> FAIL", verdict(facts(None, written_after_kick=False, prior_marker_age_s=None))[0] is False)
+arm("C3 the FAIL row names the job, its exit and its log", all(x in verdict(facts(None, written_after_kick=False, prior_marker_age_s=None, job_exit="1", job_log="Traceback boom"))[1] for x in ("job_exit=1", "Traceback boom", "never wrote")))
 arm("D stale marker (age 9999s > wait 9s + slack) -> CANNOT-RUN", verdict(facts(marker(age=9999)))[0] is None)
 arm("D2 the stale row prints the age", "age 9999s" in verdict(facts(marker(age=9999)))[1])
 arm("E post-kickstart marker saying disabled -> FAIL", verdict(facts(marker(encryption="disabled", backend="plaintext", reason="no_key")))[0] is False)
-arm("K kickstart not performed -> CANNOT-RUN", verdict(facts(marker(), attempted=False, error="rc=113"))[0] is None)
+arm("K bootstrap failed -> CANNOT-RUN", verdict(facts(marker(), attempted=False, error="rc=113"))[0] is None)
 arm("U unparseable timestamp -> CANNOT-RUN", verdict(facts(marker(timestamp="yesterday")))[0] is None)
 arm("U2 future-dated marker -> CANNOT-RUN", verdict(facts(marker(age=-4000)))[0] is None)
 arm("U3 marker that is not a JSON object -> CANNOT-RUN", verdict(facts("garbage"))[0] is None)
-arm("C2 the unchanged-after-wait row prints the wait and the last marker's age", "within the 9s wait" in verdict(facts(ssh_bad, written_after_kick=False))[1] and "5s old" in verdict(facts(ssh_bad, written_after_kick=False))[1])
+arm("C2 the no-marker row prints the wait and the last marker's age", "within the 9s wait" in verdict(facts(ssh_bad, written_after_kick=False))[1] and "5s old" in verdict(facts(ssh_bad, written_after_kick=False))[1])
 
 # Box half, real files, fake clock: the mtime rule is what keeps an ssh marker out.
 with tempfile.TemporaryDirectory() as h:
@@ -110,9 +114,23 @@ with tempfile.TemporaryDirectory() as h:
 
 # Probe script ordering: kickstart is issued, then its epoch is handed to the box half.
 sh = (ROOT / "scripts/box_walk_probes/probes/db_key_reaches_every_service.sh").read_text()
-ki, bi = sh.find("launchctl kickstart -k"), sh.find("box --token")
-arm("S1 the probe kickstarts the launchd job before it runs the box half", 0 <= ki < bi)
-arm("S2 the kickstart epoch and wait are passed to the box half", "--kick-epoch" in sh and "--kick-wait" in sh)
+ki, bi = sh.find("launchctl bootstrap"), sh.find("box --token")
+arm("S1 the probe bootstraps the launchd job before it runs the box half", 0 <= ki < bi)
+arm("S2 the epoch and wait are passed to the box half", "--kick-epoch" in sh and "--kick-wait" in sh)
+arm("S3 the probe declares # WALK_WRITES: so promote_order never moves it", re.search(r"^# WALK_WRITES:", sh, re.M) is not None)
+arm("S4 the throwaway job is booted out and its files removed", "launchctl bootout" in sh and "walkprobe-dbkey-posture.plist" in sh)
+
+# I: the premise. Importing src.ingest, with no conversation pending, writes the marker.
+import subprocess
+with tempfile.TemporaryDirectory() as h:
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": h, "OSTLER_HOME": h,
+           "OSTLER_DB_KEY": "ab" * 32, "PYTHONPATH": str(ROOT / "vendor")}
+    r = subprocess.run([sys.executable, "-c", "import src.ingest"], cwd=str(ROOT / "vendor/cm048_pipeline"), env=env, capture_output=True, text=True)
+    mk = Path(h) / "security-posture" / "cm048-ingest.json"
+    if r.returncode != 0 and not mk.exists():
+        print("  CANNOT-RUN  I import src.ingest writes the marker (import failed: {})".format(r.stderr.strip().splitlines()[-1][:120] if r.stderr.strip() else "no stderr"))
+    else:
+        arm("I importing src.ingest with nothing pending writes cm048-ingest.json", mk.exists())
 
 # Mutants: each removed check must let a bad marker through, proving the arm above detects it.
 src = LIB.read_text()
@@ -132,11 +150,11 @@ if m:
     arm("M1 without the freshness check a stale marker PASSES (arm D detects it)", verdict(facts(marker(age=99999)), m)[0] is True)
 m = mutant('if marker is None or not k.get("written_after_kick"):', "if marker is None:", "M2")
 if m:
-    arm("M2 without the written-after-kickstart check an ssh marker is graded (arm B detects it)", verdict(facts(ssh_bad, written_after_kick=False), m)[0] is False)
-    arm("M2b ...and a pre-kickstart enabled marker PASSES by omission", verdict(facts(marker(), written_after_kick=False), m)[0] is True)
+    arm("M2 without the written-by-the-job check an ssh keychain_unavailable marker is graded as the service's (arm B detects it)", verdict(facts(ssh_bad, written_after_kick=False), m)[0] is False and verdict(facts(ssh_bad, written_after_kick=False), m)[1].startswith("FAIL") is False)
+    arm("M2b ...and a pre-job enabled marker PASSES by omission", verdict(facts(marker(), written_after_kick=False), m)[0] is True)
 m = mutant('if not k.get("attempted"):', "if False:", "M3")
 if m:
-    arm("M3 without the kickstart-performed check an unkicked read is graded (arm K detects it)", verdict(facts(marker(), attempted=False), m)[0] is True)
+    arm("M3 without the bootstrap-performed check an unstarted job's marker is graded (arm K detects it)", verdict(facts(marker(), attempted=False), m)[0] is True)
 m = mutant("if mtime > kick_epoch:", "if True:", "M4")
 if m:
     with tempfile.TemporaryDirectory() as h:

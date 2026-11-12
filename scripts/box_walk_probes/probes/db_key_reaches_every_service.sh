@@ -22,6 +22,8 @@
 #       isolation;
 #   (e) the database file is not openable as plain SQLite without any key.
 #
+# WALK_WRITES: bootstraps then boots out one throwaway LaunchAgent (com.ostler.walkprobe.dbkey-posture) that imports src.ingest, which rewrites ~/.ostler/security-posture/cm048-ingest.json; seeds and forgets one synthetic coach-db row
+#
 # The seed, the read-back and the cleanup all happen inside this one probe
 # run; nothing is left on the box unless OSTLER_DB_KEY_PROBE_KEEP=1, and the
 # delete prints the row count before and after so a delete that matched
@@ -67,23 +69,29 @@ run_probe() {
     # POSTURE ATTRIBUTION. The CONVERSATION SEED (and anything else run over
     # ssh) writes cm048-ingest.json as disabled/keychain_unavailable, because an
     # ssh process cannot read the login Keychain. So this probe does not rely on
-    # walk ordering and does not trust what is on disk: it kickstarts the job
-    # that runs pwg-convo under launchd (the GUI session), records the epoch on
-    # the box, and the box half waits (bounded, printed) for the marker to be
-    # rewritten AFTER that epoch and grades it at once. Label override:
-    # OSTLER_DB_KEY_POSTURE_LABEL; wait: OSTLER_DB_KEY_POSTURE_WAIT_S (default 120).
+    # walk ordering and does not trust what is on disk. No shipped LaunchAgent
+    # imports src.ingest (the marker writer, ingest.py:70-90) on every run, so it
+    # bootstraps ONE throwaway LaunchAgent in gui/<uid> that runs exactly what
+    # install.sh:24862 runs, `python -c 'import src.ingest'` in the CM048 venv,
+    # writing no data. The box half waits (bounded, printed) for the marker to be
+    # rewritten after that moment and grades it at once. No marker after a
+    # successful bootstrap is a FAIL; a failed bootstrap is CANNOT-RUN.
+    # Wait: OSTLER_DB_KEY_POSTURE_WAIT_S (default 120).
     local kick_label kick_wait kick_out kick_epoch kick_args
-    kick_label="${OSTLER_DB_KEY_POSTURE_LABEL:-com.creativemachines.ostler.email-bundle}"
+    kick_label="com.ostler.walkprobe.dbkey-posture"
     kick_wait="${OSTLER_DB_KEY_POSTURE_WAIT_S:-120}"
-    case "${kick_label}${kick_wait}" in *[!A-Za-z0-9._-]*) probe_cannot_run "unsafe kickstart label or wait value" ;; esac
-    kick_out="$(box_run "E=\$(date +%s); /bin/launchctl kickstart -k gui/\$(id -u)/${kick_label} 2>&1; echo KICKRC=\$? EPOCH=\$E")"
+    case "${kick_wait}" in ''|*[!0-9]*) probe_cannot_run "unsafe wait value" ;; esac
+    kick_out="$(box_run 'D="${OSTLER_DIR:-$HOME/.ostler}"; L='"${kick_label}"'; P="$D/walkprobe-dbkey-posture.plist"; U=$(id -u); V="$D/services/cm048/.venv/bin/python3"
+/bin/launchctl bootout "gui/$U/$L" >/dev/null 2>&1; rm -f "$D/walkprobe-dbkey-posture.log"
+printf "%s\n" "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>Label</key><string>$L</string><key>ProgramArguments</key><array><string>$V</string><string>-c</string><string>import src.ingest</string></array><key>WorkingDirectory</key><string>$D/services/cm048</string><key>RunAtLoad</key><true/><key>StandardOutPath</key><string>$D/walkprobe-dbkey-posture.log</string><key>StandardErrorPath</key><string>$D/walkprobe-dbkey-posture.log</string></dict></plist>" > "$P"
+E=$(date +%s); /bin/launchctl bootstrap "gui/$U" "$P" 2>&1; echo KICKRC=$? EPOCH=$E')"
     kick_epoch="$(printf '%s\n' "${kick_out}" | sed -n 's/.*KICKRC=0 EPOCH=\([0-9]*\).*/\1/p' | tail -1)"
     if [ -n "${kick_epoch}" ]; then
-        probe_note "kickstarted ${kick_label} at epoch ${kick_epoch}; waiting up to ${kick_wait}s for a rewritten cm048-ingest marker"
+        probe_note "bootstrapped throwaway launchd job ${kick_label} at epoch ${kick_epoch} (imports src.ingest, writes no data); waiting up to ${kick_wait}s for a rewritten cm048-ingest marker"
         kick_args="--kick-epoch '${kick_epoch}' --kick-wait '${kick_wait}' --kick-label '${kick_label}'"
     else
-        probe_note "kickstart of ${kick_label} did not succeed: $(printf '%s' "${kick_out}" | tr '\n' ' ' | cut -c1-160)"
-        kick_args="--kick-error 'kickstart rc!=0'"
+        probe_note "bootstrap of ${kick_label} did not succeed: $(printf '%s' "${kick_out}" | tr '\n' ' ' | cut -c1-160)"
+        kick_args="--kick-error 'bootstrap rc!=0'"
     fi
     box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}' ${kick_args}" > "${facts}" 2>/dev/null
 
@@ -96,6 +104,8 @@ run_probe() {
     else
         probe_note "kept on the box (OSTLER_DB_KEY_PROBE_KEEP=1): ${token}"
     fi
+    # The throwaway job and its files are removed on every path.
+    box_run 'D="${OSTLER_DIR:-$HOME/.ostler}"; /bin/launchctl bootout "gui/$(id -u)/'"${kick_label}"'" >/dev/null 2>&1; rm -f "$D/walkprobe-dbkey-posture.plist" "$D/walkprobe-dbkey-posture.log"' >/dev/null 2>&1
     box_run "rm -f ${remote}" >/dev/null 2>&1
 
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${facts}" 2>/dev/null \

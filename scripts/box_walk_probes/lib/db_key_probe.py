@@ -59,18 +59,22 @@ DECLARED = [
 ]
 
 
-# ATTRIBUTION BY OUR OWN KICKSTART (harness-only; no product change).
+# ATTRIBUTION BY OUR OWN LAUNCHD JOB (harness-only; no product change).
 # The posture marker does not record who wrote it, and an ssh process cannot
 # read the login Keychain: the harness's own ssh pwg-convo run (CONVERSATION
 # SEED) writes disabled/keychain_unavailable over the service's true marker.
-# So the probe does not trust whatever is on disk. It runs
-#   launchctl kickstart -k gui/<uid>/<label>
-# over ssh (the job then runs in the launchd GUI session, which CAN read the
-# login Keychain), waits a bounded, printed time for the marker's mtime to move
-# past the kickstart, and grades that marker at once. A marker not written after
-# our kickstart is not attributed to launchd: CANNOT-RUN, never PASS, never
-# FAIL. Stale = the marker's own timestamp older than the wait plus slack.
-KICK_LABEL_DEFAULT = "com.creativemachines.ostler.email-bundle"
+# No shipped LaunchAgent imports src.ingest (the marker writer,
+# vendor/cm048_pipeline/src/ingest.py:70-90) on every run: it is reached only
+# lazily, from the sink path (processor.py:2727), when a non-L3 conversation is
+# ingested. So the probe bootstraps ONE throwaway LaunchAgent in gui/<uid> that
+# does exactly what install.sh:24862 does, `python -c "import src.ingest"` in
+# the CM048 venv, writing no data. That job runs in launchd context, which CAN
+# read the login Keychain. The marker is then FORCED, so:
+#   marker rewritten after a SUCCESSFUL bootstrap -> graded (PASS / FAIL by content)
+#   no marker after a successful bootstrap        -> FAIL (job ran, never wrote it)
+#   bootstrap failed / box unreachable            -> CANNOT-RUN
+#   timestamp stale or unparseable                -> CANNOT-RUN
+KICK_LABEL_DEFAULT = "com.ostler.walkprobe.dbkey-posture"
 KICK_WAIT_DEFAULT_S = 120
 KICK_POLL_S = 3
 STALE_SLACK_S = 300
@@ -114,14 +118,14 @@ def _cm048_row(facts):
     k = facts.get("kick") or {}
     label, waited = k.get("label"), k.get("waited_s")
     if not k.get("attempted"):
-        return (None, "CANNOT-RUN: the launchd kickstart was not performed ({}); without it a marker cannot be attributed to a launchd-run process, and an ssh run writes keychain_unavailable".format(k.get("error", "no detail")))
+        return (None, "CANNOT-RUN: the throwaway launchd job was not bootstrapped ({}); without it a marker cannot be attributed to a launchd-run process, and an ssh run writes keychain_unavailable".format(k.get("error", "no detail")))
     marker = (facts.get("posture") or {}).get(name)
     if marker is not None and not isinstance(marker, dict):
         return (None, "CANNOT-RUN: posture marker for {} is not readable JSON".format(name))
     if marker is None or not k.get("written_after_kick"):
         last = k.get("prior_marker_age_s")
-        return (None, "CANNOT-RUN: no {} marker written after `launchctl kickstart -k {}` within the {}s wait (last marker on disk is {}); the job may have had nothing to ingest, or the marker on disk is an ssh run's, which is not graded".format(
-            name, label, waited, "absent" if last is None else "{}s old".format(last)))
+        return (False, "FAIL: the launchd job {} was bootstrapped successfully (job_exit={}, log={!r}) but no {} marker was written within the {}s wait (last marker on disk is {}; an ssh-written one is not graded): the job ran and never wrote its posture".format(
+            label, k.get("job_exit"), k.get("job_log"), name, waited, "absent" if last is None else "{}s old".format(last)))
     ts, now = _parse_ts(marker.get("timestamp")), k.get("now", facts.get("now"))
     if ts is None or not isinstance(now, int):
         return (None, "CANNOT-RUN: {} marker age cannot be computed (timestamp={!r} now={!r})".format(name, marker.get("timestamp"), now))
@@ -223,6 +227,28 @@ def _read_marker(name, home=None):
 
 def measure_posture(home=None):
     return {name: _read_marker(name, home) for name in SERVICES}
+
+
+def job_diagnosis(label):
+    """Why a job that ran wrote nothing: launchd's last exit code and the tail
+    of the job's own log. Read, never assumed; unreadable says so."""
+    import re
+    import subprocess
+    out = {"job_exit": "unreadable", "job_log": ""}
+    try:
+        r = subprocess.run(["/bin/launchctl", "print", "gui/{}/{}".format(os.getuid(), label)],
+                           capture_output=True, text=True, timeout=10)
+        m = re.search(r"last exit code = (\S+)", r.stdout)
+        out["job_exit"] = m.group(1) if m else "no last exit code in launchctl print"
+    except (OSError, subprocess.SubprocessError) as exc:
+        out["job_exit"] = "launchctl print failed: {}".format(str(exc)[:60])
+    try:
+        d = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+        with open(os.path.join(d, "walkprobe-dbkey-posture.log"), errors="replace") as fh:
+            out["job_log"] = fh.read()[-160:].strip()
+    except OSError:
+        pass
+    return out
 
 
 def wait_for_marker_after(kick_epoch, wait_s, home=None, name="cm048-ingest",
@@ -431,12 +457,15 @@ def box_main(argv):
     kick_epoch = float(a.get("--kick-epoch") or 0)
     wait_s = int(a.get("--kick-wait") or KICK_WAIT_DEFAULT_S)
     kick = {"attempted": bool(kick_epoch), "label": a.get("--kick-label") or KICK_LABEL_DEFAULT}
+
     if not kick_epoch:
         kick["error"] = a.get("--kick-error") or "kickstart not run"
     posture = measure_posture()
     if kick_epoch:
         marker, info = wait_for_marker_after(kick_epoch, wait_s)
         kick.update(info)
+        if not info["written_after_kick"]:
+            kick.update(job_diagnosis(kick["label"]))
         kick["now"] = int(time.time())
         posture["cm048-ingest"] = marker if info["written_after_kick"] else posture.get("cm048-ingest")
     facts = {"posture": posture, "kick": kick, "now": int(time.time())}
@@ -556,9 +585,9 @@ def self_test():
         ("cross-process read-back did not find the row", 3, False, lambda f: f["readback"].update(found=False)),
         ("the database opened as plain SQLite with no key", 4, False, lambda f: f["raw_open"].update(opened_as_sqlite=True)),
         ("ical-server posture marker missing", 0, None, lambda f: f["posture"].update(**{"ical-server": None})),
-        ("ssh-written keychain_unavailable marker already on disk, nothing written after the kickstart", 1, None, lambda f: (f["posture"].update(**{"cm048-ingest": _marker(encryption="disabled", backend="plaintext", reason="keychain_unavailable", key_source=None)}), f["kick"].update(written_after_kick=False))),
-        ("ssh marker that LOOKS enabled but predates the kickstart", 1, None, lambda f: f["kick"].update(written_after_kick=False)),
-        ("kickstart not performed", 1, None, lambda f: f["kick"].update(attempted=False, error="rc=113")),
+        ("ssh-written keychain_unavailable marker already on disk, nothing written after the job ran", 1, False, lambda f: (f["posture"].update(**{"cm048-ingest": _marker(encryption="disabled", backend="plaintext", reason="keychain_unavailable", key_source=None)}), f["kick"].update(written_after_kick=False))),
+        ("ssh marker that LOOKS enabled but predates the job", 1, False, lambda f: f["kick"].update(written_after_kick=False)),
+        ("job not bootstrapped", 1, None, lambda f: f["kick"].update(attempted=False, error="rc=113")),
         ("stale marker (timestamp older than wait + slack)", 1, None, lambda f: f["posture"].update(**{"cm048-ingest": _marker(age=9999)})),
         ("unparseable timestamp", 1, None, lambda f: f["posture"]["cm048-ingest"].update(timestamp="yesterday")),
         ("launchd-written marker saying disabled", 1, False, lambda f: f["posture"]["cm048-ingest"].update(encryption="disabled", backend="plaintext", reason="no_key")),
