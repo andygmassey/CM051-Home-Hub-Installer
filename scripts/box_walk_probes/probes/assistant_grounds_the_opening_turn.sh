@@ -455,7 +455,7 @@ PYEOF
 # (install.sh:14421), i.e. $HOME/.ostler/.env.
 #
 # Measured on the walk box after a real install: that file carries exactly one
-# AI_MODEL line and its value is gemma4:e2b; $HOME/.ostler/config/ holds only
+# AI_MODEL line and its value is qwen3.5:4b (gemma4:e2b before the 16 GB tier moved); $HOME/.ostler/config/ holds only
 # .env, with zero AI_MODEL lines; $HOME/.ostler/config/ai.env does not exist.
 # CONTROL, the same reader against an invented key name on the same file,
 # returns 0, so those zeros are real absences and not a broken predicate.
@@ -731,8 +731,8 @@ run_probe() {
 
     # The fit-table cross-check. A DISAGREEMENT is reported and does not stop
     # the run: what is running is what is running, and the probe records it.
-    if [ -n "$RAM_GB" ] && [ "$RAM_GB" -le 23 ] 2>/dev/null && [ "$MODEL_TAG" != "gemma4:e2b" ]; then
-        probe_note "NOTE: ${RAM_GB}GB should give gemma4:e2b by the fit table, and the live config says ${MODEL_TAG}. Recorded as measured; the table is not the authority here."
+    if [ -n "$RAM_GB" ] && [ "$RAM_GB" -le 23 ] 2>/dev/null && [ "$MODEL_TAG" != "qwen3.5:4b" ]; then
+        probe_note "NOTE: ${RAM_GB}GB should give qwen3.5:4b by the fit table, and the live config says ${MODEL_TAG}. Recorded as measured; the table is not the authority here."
     fi
 
     _mem="$(_memory_mentions_person)"
