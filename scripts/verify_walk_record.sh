@@ -674,6 +674,13 @@ case "$VERDICT" in
                 echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row is NOT_COLD: ${_cold}" >&2
                 echo "            The box carried state from an earlier install. Walk again on a cold box." >&2
                 exit 1 ;;
+            NOT_RECORDED*)
+                # PRE-COLD-ERA RECORD: written before the cold proof existed. It is
+                # refused for promotion (nothing says the box was empty) but it is
+                # NOT malformed, and the message must not call it so.
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row is ${_cold}." >&2
+                echo "            A record from before the cold proof existed. Not malformed; not promotable. Walk again." >&2
+                exit 2 ;;
             '')
                 echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but carries no 'cold' row." >&2
                 echo "            Without cold PROVEN nothing says the box was empty before the install." >&2

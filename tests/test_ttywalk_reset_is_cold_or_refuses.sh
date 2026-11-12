@@ -51,6 +51,7 @@ mkbox() {  # mkbox <home>
     printf '{}\n' > "$h/.ostler/license/license.json"
     printf 'K=v\n' > "$h/.ostler/config/.env"
     printf 'note\n' > "$h/Documents/Ostler/Conversations/c1.md"
+    mkdir -p "$h/Ostler/Wiki"; printf 'page\n' > "$h/Ostler/Wiki/p.md"
     printf 'db\n' > "$h/$AS/Ostler-Synth/x.db"
     printf 'keep\n' > "$h/$AS/Other App/keep.db"
 }
@@ -75,6 +76,7 @@ out_w="$(run_script "$SUBJECT" "$H1" wipe 2>&1)"; rc_w=$?
 grep -q 'BEFORE teardown: 9 files under .*\.ostler$' <<< "$out_b" && ok "CLEAN: before count for ~/.ostler is 9 (8 state files + config; licence is allowlisted, not counted)" || bad "CLEAN: before count wrong: $out_b"
 grep -q 'before=9 after=0' <<< "$out_w" && ok "CLEAN: wipe prints before=9 after=0 for ~/.ostler" || bad "CLEAN: wipe line missing: $out_w"
 grep -q 'Ostler: before=1 after=0' <<< "$out_w" && ok "CLEAN: ~/Documents/Ostler counted before=1 after=0" || bad "CLEAN: Documents/Ostler line missing"
+grep -q 'h1/Ostler: before=1 after=0' <<< "$out_w" && ok "CLEAN: ~/Ostler (the current user root) counted before=1 after=0" || bad "CLEAN: ~/Ostler root missing"
 grep -q 'Ostler-Synth: before=1 after=0' <<< "$out_w" && ok "CLEAN: the Library glob root counted" || bad "CLEAN: the Library glob root missing"
 [ -f "$H1/.ostler/license/license.json" ] && ok "CLEAN: the licence (allowlisted) survived" || bad "CLEAN: the licence was deleted"
 [ ! -e "$H1/.ostler/state/conversations_mirror" ] && [ ! -e "$H1/.ostler/config/.env" ] && ok "CLEAN: state and config are gone" || bad "CLEAN: state or config survived"

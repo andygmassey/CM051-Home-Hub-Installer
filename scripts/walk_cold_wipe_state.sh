@@ -19,7 +19,7 @@
 # On success it writes ~/.walk-cold-run (consumed into ~/.walk-cold by ttywalk.sh
 # and read by post_walk_qa.sh into the record's `cold` row).
 #
-# ROOTS: ~/.ostler, ~/Documents/Ostler, ~/Library/Application Support/Ostler*
+# ROOTS: ~/.ostler, ~/Documents/Ostler (legacy), ~/Ostler (the current user root), ~/Library/Application Support/Ostler*
 # ALLOWLIST: COLD_ALLOWLIST_B64 (base64 of scripts/walk_cold_allowlist.tsv, set
 # by the driver) or COLD_ALLOWLIST_FILE. Rows: path relative to HOME, TAB, reason.
 # A trailing slash means that whole subtree. A row without a reason is refused.
@@ -93,7 +93,7 @@ is_absent() {
 LIB="${HOME_DIR}/Library/Application Support"
 ls -A "$LIB" > "$TMPD/lib.out" 2> "$TMPD/lib.err" || cannot_look "cannot list Library/Application Support (the Ostler* glob root)" "$LIB" "$TMPD/lib.err"
 ROOTS=()
-ROOTS+=("${HOME_DIR}/.ostler" "${HOME_DIR}/Documents/Ostler")
+ROOTS+=("${HOME_DIR}/.ostler" "${HOME_DIR}/Documents/Ostler" "${HOME_DIR}/Ostler")
 while IFS= read -r _n; do
     case "$_n" in Ostler*) ROOTS+=("${LIB}/${_n}") ;; esac
 done < "$TMPD/lib.out"

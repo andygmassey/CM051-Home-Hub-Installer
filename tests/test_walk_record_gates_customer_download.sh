@@ -605,6 +605,12 @@ COLD_ROW='YES' write_record "v1.0.73.tsv" "v1.0.73" "CLEAN" 14 0 0 0
 rc="$(run_gate v1.0.73)"
 [[ "$rc" == "2" ]] && ok "COLD: CLEAN with an unrecognised cold value is refused (rc=2), not read as cold" \
                    || bad "COLD: unrecognised cold value returned rc=${rc}, expected 2"
+COLD_ROW='NOT_RECORDED(record predates the cold proof)' write_record "v1.0.74.tsv" "v1.0.74" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.74)"
+[[ "$rc" == "2" ]] && ok "COLD: a pre-cold-era record (cold NOT_RECORDED) is refused for promotion (rc=2), not called malformed" \
+                   || bad "COLD: NOT_RECORDED returned rc=${rc}, expected 2"
+"$GATE" v1.0.74 "$FIXTURE_SHA" 2> "${TMP}/nr.err" >/dev/null
+grep -q 'Not malformed' "${TMP}/nr.err" && ok "COLD: and the message says it is not malformed" || bad "COLD: NOT_RECORDED message wrong: $(head -2 "${TMP}/nr.err")"
 n="$(sed 's/[[:space:]]*#.*$//' "$QA" | grep -cF "printf 'cold\t")"
 [[ "$n" -ge 1 ]] && ok "COLD: post_walk_qa.sh writes the cold row (${n} site)" \
                  || bad "COLD: post_walk_qa.sh never writes a cold row; the gate would refuse every CLEAN record"
