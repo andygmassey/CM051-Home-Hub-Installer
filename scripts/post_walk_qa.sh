@@ -288,6 +288,34 @@ fi
 # below reads it instead of running the script again after the forgets.
 OSTLER_PHASE1_VERDICTS="$(mktemp -t ostler-phase1-verdicts)"
 export OSTLER_PHASE1_VERDICTS
+# THIS WALK'S IDENTITY, written at the top of the verdicts file and re-measured
+# independently before the manifest replay (verify_cut_manifest.py, _live_reuse).
+# A live-state probe that PASSED in this full pass is reused by its manifest row
+# only if walk id, box and installed version all still match; anything else
+# re-runs the probe. The version is read off the box, not taken from the
+# argument. An empty read writes no header, which makes the replay re-run.
+_read_installed_version_for_reuse() {
+    local v
+    v="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+        'cat ~/.walk-artefact-version 2>/dev/null' 2>/dev/null | tr -d '[:space:]')"
+    if [[ -z "$v" ]]; then
+        v="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$BOX" \
+            '/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" /Applications/OstlerInstaller.app/Contents/Info.plist 2>/dev/null' 2>/dev/null \
+            | tr -d '[:space:]')"
+    fi
+    [[ "$v" =~ ^v?[0-9]+(\.[0-9]+)*$ ]] && printf '%s' "$v"
+    return 0
+}
+OSTLER_WALK_ID="$(basename "$PROBE_LOG")"
+OSTLER_WALK_BOX_FP="$(printf '%s' "$BOX" | shasum -a 256 | cut -c1-16)"
+_walk_ver_p1="$(_read_installed_version_for_reuse)"
+export OSTLER_WALK_ID OSTLER_WALK_BOX_FP
+{
+    printf '# walk_id %s\n' "$OSTLER_WALK_ID"
+    printf '# box_fp %s\n' "$OSTLER_WALK_BOX_FP"
+    [[ -n "$_walk_ver_p1" ]] && printf '# installed_version %s\n' "$_walk_ver_p1"
+} >> "$OSTLER_PHASE1_VERDICTS"
+echo "  walk identity for verdict reuse: id=${OSTLER_WALK_ID} box_fp=${OSTLER_WALK_BOX_FP} installed_version=${_walk_ver_p1:-UNREADABLE (manifest rows will re-run)}"
 # This walk's own log exists by now; the runner's previous-FAIL promotion must not
 # mistake it for an unrecorded earlier walk. (Separate line: tests anchor on the
 # OSTLER_BOX_HOST= line below at column 0.)
@@ -406,6 +434,8 @@ if [[ -n "$CUT_VERSION" ]]; then
         # colour codes into MANIFEST_LOG -- the same reason run_box_walk.sh's
         # own PROBE_LOG capture above is plain text. PIPESTATUS[0] is the
         # gate's own exit code, not tee's.
+        OSTLER_WALK_INSTALLED_VERSION="$(_read_installed_version_for_reuse)"
+        export OSTLER_WALK_INSTALLED_VERSION
         OSTLER_BOX_HOST="$BOX" python3 "${REPO_ROOT}/scripts/verify_cut_manifest.py" \
             --version "$CUT_VERSION" --require-runtime-proofs 2>&1 | tee -a "$MANIFEST_LOG"
         manifest_rc="${PIPESTATUS[0]}"
@@ -1039,6 +1069,14 @@ if [[ -n "$CUT_VERSION" ]]; then
         else
             printf 'measured\t%s of UNKNOWN (probe total not parseable from the run log, so coverage cannot be stated -- this is not a claim that coverage was full)\n' \
                    "$_measured"
+        fi
+        # WHERE THE TIME GOES (names and seconds only, never probe output): the slowest phase-2 probes and the slowest
+        # manifest-replay rows, as printed by run_box_walk.sh and verify_cut_manifest.py. Absent = that phase did not print any.
+        sed -n 's/^ *TIMING top15 probe=\([A-Za-z0-9_]*\) seconds=\([0-9]*\).*/timing_phase2_probe\t\1\t\2/p' "$PROBE_LOG"
+        sed -n 's/^ *TIMING phase2_probes_total seconds=\([0-9]*\).*/timing_phase2_probes_total\t\1/p' "$PROBE_LOG"
+        if [[ -n "${MANIFEST_LOG:-}" && -r "${MANIFEST_LOG:-/nonexistent}" ]]; then
+            sed -n 's/^ *TIMING manifest_top15 probe=\([A-Za-z0-9_-]*\) seconds=\([0-9.]*\).*/timing_manifest_row\t\1\t\2/p' "$MANIFEST_LOG"
+            sed -n 's/^ *TIMING manifest_total rows=[0-9]* box_walk_rows=[0-9]* seconds=\([0-9.]*\).*/timing_manifest_total\t\1/p' "$MANIFEST_LOG"
         fi
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
