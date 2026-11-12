@@ -3053,3 +3053,93 @@ def test_box_walk_probe_phase1_summary_silent_without_box_rows(fake_cm051, fake_
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert "OSTLER_PHASE1_VERDICTS" not in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Live-state rows reuse THIS walk's full-pass PASS, keyed on walk id, box and
+# installed version (WALK-SPEED PR 1). A mismatch, a missing header, or any
+# verdict other than PASS re-runs the probe.
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib
+
+_LIVE_BOX = "192.0.2.7"
+_LIVE_FP = _hashlib.sha256(_LIVE_BOX.encode()).hexdigest()[:16]
+
+
+def _live_setup(cm051, tmp_path, monkeypatch, probe, rows, headers, expect, body="exit 0"):
+    marker = _phase1_setup(cm051, tmp_path, monkeypatch, probe, [], body=body)
+    vf = tmp_path / "phase1.tsv"
+    vf.write_text("".join(h + "\n" for h in headers) + "".join(r + "\n" for r in rows))
+    monkeypatch.setenv("OSTLER_BOX_HOST", _LIVE_BOX)
+    for k in ("OSTLER_WALK_ID", "OSTLER_WALK_BOX_FP", "OSTLER_WALK_INSTALLED_VERSION"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in expect.items():
+        monkeypatch.setenv(k, v)
+    return marker
+
+
+_GOOD_HEADERS = ["# walk_id v1.0.9-20260101T000000Z.log", f"# box_fp {_LIVE_FP}", "# installed_version v1.0.9"]
+_GOOD_EXPECT = {"OSTLER_WALK_ID": "v1.0.9-20260101T000000Z.log", "OSTLER_WALK_INSTALLED_VERSION": "1.0.9"}
+
+
+def test_live_row_pass_from_same_walk_box_build_is_reused(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livegreen",
+                         ["livegreen\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT,
+                         body="exit 1")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "REUSED probe=livegreen" in r.stderr and "phase1.tsv" in r.stderr, r.stderr
+    assert "reused the PASS" in r.stdout and "phase1.tsv" in r.stdout, r.stdout
+    assert not marker.exists(), "probe re-ran although identity matched"
+
+
+def test_live_row_from_a_different_walk_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "liveother",
+                         ["liveother\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS,
+                         {**_GOOD_EXPECT, "OSTLER_WALK_ID": "v1.0.9-20260202T000000Z.log"})
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists(), "mismatched walk id must re-run the probe"
+    assert "reused the PASS" not in r.stdout and "walk_id mismatch" in r.stdout, r.stdout
+
+
+def test_live_row_from_a_different_build_or_box_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livebuild",
+                         ["livebuild\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS,
+                         {**_GOOD_EXPECT, "OSTLER_WALK_INSTALLED_VERSION": "1.0.10"})
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "installed_version mismatch" in r.stdout, r.stdout
+    marker.unlink()
+    monkeypatch.setenv("OSTLER_WALK_INSTALLED_VERSION", "1.0.9")
+    monkeypatch.setenv("OSTLER_WALK_BOX_FP", "0" * 16)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "box_fp mismatch" in r.stdout, r.stdout
+
+
+def test_live_row_missing_result_or_non_pass_is_rerun_never_reused(fake_cm051, fake_app, tmp_path, monkeypatch):
+    # No row at all for the probe.
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livemissing",
+                         ["someother\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "reused the PASS" not in r.stdout, r.stdout
+    # CANNOT-RUN, FAIL, BROKEN and an unknown word: all re-run, none reused as PASS.
+    for word in ("CANNOT-RUN", "FAIL", "BROKEN", "ADVISORY", "WAT"):
+        marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livenonpass",
+                             [f"livenonpass\t{word}\t2026-01-01T00:10:00Z\tx\tlive"], _GOOD_HEADERS, _GOOD_EXPECT)
+        r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+        assert marker.exists(), f"{word} row must re-run"
+        assert "reused the PASS" not in r.stdout, (word, r.stdout)
+
+
+def test_live_row_without_header_or_expected_identity_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "liveheaderless",
+                         ["liveheaderless\tPASS\t2026-01-01T00:10:00Z\t\tlive"], [], _GOOD_EXPECT)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "no walk_id header" in r.stdout, r.stdout
+    marker.unlink()
+    for k in _GOOD_EXPECT:
+        monkeypatch.delenv(k)
+    (tmp_path / "phase1.tsv").write_text("".join(h + "\n" for h in _GOOD_HEADERS)
+                                         + "liveheaderless\tPASS\t2026-01-01T00:10:00Z\t\tlive\n")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "this run has no walk_id" in r.stdout, r.stdout
