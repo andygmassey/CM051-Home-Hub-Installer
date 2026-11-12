@@ -8,9 +8,11 @@
 # people_count_agreement, no_person_holds_two_contact_cards and data_conservation
 # (tests/test_verify_cut_manifest.py::test_reuse_allowlist_names_no_state_probe fails if one is added).
 #
+# image_pulls_match_pins is deliberately NOT here: it checks the digests the box pulled and RUNS, and a container restart
+# or compose pull changes the running image (runtime state, not the pin file).
+#
 # Columns: probe <TAB> reason (one line)
 installed_bundle_seal_intact	the signed bundle on disk; nothing at runtime rewrites it
 app_signature_survives_first_run	the code signature of the installed app, fixed once first run has happened
 install_manifest_complete	the file list the installer laid down; runtime writes do not change it
-image_pulls_match_pins	the pinned image digests recorded at install; a runtime pull cannot change the pin file
 launchd_no_ephemeral_paths	the installed plists' paths; static after install

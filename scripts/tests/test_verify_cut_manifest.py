@@ -3161,6 +3161,8 @@ _FORBIDDEN_REUSE = {
     "assistant_answers_grounded", "chat_latency_baseline", "no_unexpected_egress", "ingest_coverage",
     "no_store_port_is_tcp_reachable", "people_seed_and_retrieval", "morning_brief_catches_me_up",
     "qdrant_has_fd_headroom_and_writes_land", "usage_journal_producers",
+    # runs-state: the digests the box pulled AND RUNS change on a container restart or a compose pull (Archie, #3450)
+    "image_pulls_match_pins",
 }
 _FORBIDDEN_WORDS = ("people", "person", "store", "ingest", "assistant", "brief", "latency", "egress", "contact", "conservation")
 _REAL_ALLOWLIST = Path(__file__).resolve().parents[1] / "box_walk_probes" / "manifest_reuse_allowlist.tsv"
@@ -3228,3 +3230,13 @@ def test_every_box_walk_row_prints_its_seconds(fake_cm051, fake_app, tmp_path, m
     assert re.search(r"TIMING manifest_row id=\S+ probe=timed status=PASS reused=no seconds=\d", r.stderr), r.stderr
     assert re.search(r"TIMING manifest_total rows=\d+ box_walk_rows=1 seconds=", r.stderr), r.stderr
     assert "TIMING manifest_top15 probe=timed" in r.stderr, r.stderr
+
+
+def test_image_pulls_match_pins_reruns_even_with_a_matching_full_pass_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Real allowlist, matching walk/box/version, PASS recorded: it is runtime state, so it is measured again."""
+    m = _live_setup(fake_cm051, tmp_path, monkeypatch, "image_pulls_match_pins",
+                    ["image_pulls_match_pins\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT, body="exit 0")
+    monkeypatch.delenv("OSTLER_MANIFEST_REUSE_ALLOWLIST")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert m.exists(), "image_pulls_match_pins must re-run"
+    assert "REUSED" not in r.stderr and "reused the PASS" not in r.stdout, r.stdout
