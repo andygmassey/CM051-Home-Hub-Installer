@@ -40,7 +40,7 @@ def _msg(mail, name, mid, days_ago, *, mine=False, parent=None, refs=None,
     _write_emlx(mail, name, _emlx_bytes(
         message_id=mid,
         from_addr=USER_ADDRESS if mine else PEER,
-        from_name="Operator Synthetic" if mine else "Casey Synthetic",
+        from_name="Operator Synthetic" if mine else "Alex Synthetic",
         to_addr=PEER if mine else USER_ADDRESS,
         subject=subject if not parent else f"Re: {subject}",
         dt=dt, body=f"body of {mid}",
@@ -159,7 +159,7 @@ def test_unrelated_thread_sharing_only_a_subject_stays_separate(tmp_path):
     dt = datetime.now(tz=timezone.utc) - timedelta(days=1)
     _write_emlx(mail, "s2", _emlx_bytes(
         message_id="inv2@other.test", from_addr="robin@other.test",
-        from_name="Robin Synthetic", to_addr=USER_ADDRESS, subject="Invoice",
+        from_name="Sam Synthetic", to_addr=USER_ADDRESS, subject="Invoice",
         dt=dt, body="a different invoice from a different person",
     ))
     stub = _StubDispatch()
