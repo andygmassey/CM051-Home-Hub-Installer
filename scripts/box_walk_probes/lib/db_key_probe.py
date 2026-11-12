@@ -59,17 +59,79 @@ DECLARED = [
 ]
 
 
-def _posture_row(name, facts):
-    marker = (facts.get("posture") or {}).get(name)
-    if marker is None:
-        return (None, "no posture marker found for {}; it may not have started since this box was installed".format(name))
-    if not isinstance(marker, dict):
-        return (None, "posture marker for {} is not readable JSON".format(name))
+# ATTRIBUTION BY OUR OWN KICKSTART (harness-only; no product change).
+# The posture marker does not record who wrote it, and an ssh process cannot
+# read the login Keychain: the harness's own ssh pwg-convo run (CONVERSATION
+# SEED) writes disabled/keychain_unavailable over the service's true marker.
+# So the probe does not trust whatever is on disk. It runs
+#   launchctl kickstart -k gui/<uid>/<label>
+# over ssh (the job then runs in the launchd GUI session, which CAN read the
+# login Keychain), waits a bounded, printed time for the marker's mtime to move
+# past the kickstart, and grades that marker at once. A marker not written after
+# our kickstart is not attributed to launchd: CANNOT-RUN, never PASS, never
+# FAIL. Stale = the marker's own timestamp older than the wait plus slack.
+KICK_LABEL_DEFAULT = "com.creativemachines.ostler.email-bundle"
+KICK_WAIT_DEFAULT_S = 120
+KICK_POLL_S = 3
+STALE_SLACK_S = 300
+FUTURE_SLACK_S = 300
+
+
+def _parse_ts(ts):
+    import calendar
+    import time
+    try:
+        return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _marker_content(name, marker, age_note):
     enc = marker.get("encryption")
     backend = marker.get("backend")
     if enc == "enabled" and backend == "sqlcipher":
-        return (True, "{}: encryption=enabled backend=sqlcipher key_source={}".format(name, marker.get("key_source")))
-    return (False, "{}: encryption={} backend={} reason={}".format(name, enc, backend, marker.get("reason")))
+        return (True, "{}: encryption=enabled backend=sqlcipher key_source={}; {}".format(name, marker.get("key_source"), age_note))
+    return (False, "{}: encryption={} backend={} reason={}; {}".format(name, enc, backend, marker.get("reason"), age_note))
+
+
+def _ical_row(facts):
+    """ical-server runs only under launchd (KeepAlive job), never over ssh, so
+    its marker needs no kickstart; its age is printed (a service-lifetime
+    marker has no tick interval to be stale against)."""
+    name = "ical-server"
+    marker = (facts.get("posture") or {}).get(name)
+    if marker is None:
+        return (None, "CANNOT-RUN: no posture marker found for {}; the service may not have started since this box was installed".format(name))
+    if not isinstance(marker, dict):
+        return (None, "CANNOT-RUN: posture marker for {} is not readable JSON".format(name))
+    ts, now = _parse_ts(marker.get("timestamp")), facts.get("now")
+    note = "launchd-only service, marker age {}s".format(now - ts) if ts is not None and isinstance(now, int) else "marker age unknown"
+    return _marker_content(name, marker, note)
+
+
+def _cm048_row(facts):
+    name = "cm048-ingest"
+    k = facts.get("kick") or {}
+    label, waited = k.get("label"), k.get("waited_s")
+    if not k.get("attempted"):
+        return (None, "CANNOT-RUN: the launchd kickstart was not performed ({}); without it a marker cannot be attributed to a launchd-run process, and an ssh run writes keychain_unavailable".format(k.get("error", "no detail")))
+    marker = (facts.get("posture") or {}).get(name)
+    if marker is not None and not isinstance(marker, dict):
+        return (None, "CANNOT-RUN: posture marker for {} is not readable JSON".format(name))
+    if marker is None or not k.get("written_after_kick"):
+        last = k.get("prior_marker_age_s")
+        return (None, "CANNOT-RUN: no {} marker written after `launchctl kickstart -k {}` within the {}s wait (last marker on disk is {}); the job may have had nothing to ingest, or the marker on disk is an ssh run's, which is not graded".format(
+            name, label, waited, "absent" if last is None else "{}s old".format(last)))
+    ts, now = _parse_ts(marker.get("timestamp")), k.get("now", facts.get("now"))
+    if ts is None or not isinstance(now, int):
+        return (None, "CANNOT-RUN: {} marker age cannot be computed (timestamp={!r} now={!r})".format(name, marker.get("timestamp"), now))
+    age = now - ts
+    limit = (waited if isinstance(waited, int) else KICK_WAIT_DEFAULT_S) + STALE_SLACK_S
+    if age < -FUTURE_SLACK_S:
+        return (None, "CANNOT-RUN: {} marker is dated {}s in the future".format(name, -age))
+    if age > limit:
+        return (None, "CANNOT-RUN: {} marker is STALE: timestamp age {}s > {}s (wait {}s + slack {}s) although its file moved after the kickstart".format(name, age, limit, waited, STALE_SLACK_S))
+    return _marker_content(name, marker, "written after our kickstart of {}, age {}s <= {}s".format(label, age, limit))
 
 
 def judge(f):
@@ -78,9 +140,9 @@ def judge(f):
     def add(name, ok, detail=""):
         out.append((name, ok if ok is None or ok == NA else bool(ok), detail))
 
-    ok, detail = _posture_row("ical-server", f)
+    ok, detail = _ical_row(f)
     add(DECLARED[0], ok, detail)
-    ok, detail = _posture_row("cm048-ingest", f)
+    ok, detail = _cm048_row(f)
     add(DECLARED[1], ok, detail)
 
     seed = f.get("seed") or {}
@@ -146,16 +208,50 @@ def judge(f):
 # as the real services see them). Prints counts and booleans only.
 # ---------------------------------------------------------------------------
 
-def measure_posture():
-    out = {}
-    base = os.path.join(os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")), "security-posture")
-    for name in SERVICES:
+def _posture_path(home=None):
+    base = home or os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler"))
+    return os.path.join(base, "security-posture")
+
+
+def _read_marker(name, home=None):
+    try:
+        with open(os.path.join(_posture_path(home), name + ".json")) as fh:
+            return json.load(fh)
+    except (IOError, ValueError):
+        return None
+
+
+def measure_posture(home=None):
+    return {name: _read_marker(name, home) for name in SERVICES}
+
+
+def wait_for_marker_after(kick_epoch, wait_s, home=None, name="cm048-ingest",
+                          now_fn=None, sleep_fn=None, poll_s=KICK_POLL_S):
+    """Poll (bounded) until the marker file's mtime is later than kick_epoch.
+    Returns (marker_or_None, info). The marker is read IMMEDIATELY once it
+    moves; one that never moves is not returned, so an ssh-written marker that
+    was already on disk can never be graded."""
+    import time
+    now_fn = now_fn or time.time
+    sleep_fn = sleep_fn or time.sleep
+    path = os.path.join(_posture_path(home), name + ".json")
+    start = now_fn()
+    info = {"waited_s": 0, "written_after_kick": False, "prior_marker_age_s": None}
+    while True:
         try:
-            with open(os.path.join(base, name + ".json")) as fh:
-                out[name] = json.load(fh)
-        except (IOError, ValueError):
-            out[name] = None
-    return out
+            mtime = os.stat(path).st_mtime
+        except OSError:
+            mtime = None
+        if mtime is not None:
+            info["prior_marker_age_s"] = max(0, int(now_fn() - mtime))
+            if mtime > kick_epoch:
+                info["written_after_kick"] = True
+                info["waited_s"] = int(now_fn() - start)
+                return _read_marker(name, home), info
+        if now_fn() - start >= wait_s:
+            info["waited_s"] = int(wait_s)
+            return None, info
+        sleep_fn(poll_s)
 
 
 from pathlib import Path  # noqa: E402
@@ -331,7 +427,19 @@ def box_main(argv):
     token = a.get("--token", "ostler-walk-dbkey-{}".format(os.getpid()))
     service_token = a.get("--service-token", "")
     api_base = a.get("--api-base") or ICAL_SERVER_BASE_DEFAULT
-    facts = {"posture": measure_posture()}
+    import time
+    kick_epoch = float(a.get("--kick-epoch") or 0)
+    wait_s = int(a.get("--kick-wait") or KICK_WAIT_DEFAULT_S)
+    kick = {"attempted": bool(kick_epoch), "label": a.get("--kick-label") or KICK_LABEL_DEFAULT}
+    if not kick_epoch:
+        kick["error"] = a.get("--kick-error") or "kickstart not run"
+    posture = measure_posture()
+    if kick_epoch:
+        marker, info = wait_for_marker_after(kick_epoch, wait_s)
+        kick.update(info)
+        kick["now"] = int(time.time())
+        posture["cm048-ingest"] = marker if info["written_after_kick"] else posture.get("cm048-ingest")
+    facts = {"posture": posture, "kick": kick, "now": int(time.time())}
     seed, rb, raw = seed_and_readback(token, service_token, api_base)
     facts["install"] = install_facts()
     facts["seed"] = seed
@@ -397,12 +505,32 @@ def box_forget(argv):
 # self-test
 # ---------------------------------------------------------------------------
 
+_NOW = 1_800_000_000
+
+
+def _ts(age):
+    import time
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_NOW - age))
+
+
+def _marker(age=60, **kw):
+    m = {"encryption": "enabled", "backend": "sqlcipher", "key_source": "keychain", "timestamp": _ts(age)}
+    m.update(kw)
+    return m
+
+
+def _kick(**kw):
+    k = {"attempted": True, "label": KICK_LABEL_DEFAULT, "written_after_kick": True,
+         "waited_s": 9, "prior_marker_age_s": 5, "now": _NOW}
+    k.update(kw)
+    return k
+
+
 def _good():
     return {
-        "posture": {
-            "ical-server": {"encryption": "enabled", "backend": "sqlcipher", "key_source": "OSTLER_DB_KEY_FILE"},
-            "cm048-ingest": {"encryption": "enabled", "backend": "sqlcipher", "key_source": "OSTLER_DB_KEY_FILE"},
-        },
+        "now": _NOW,
+        "kick": _kick(),
+        "posture": {"ical-server": _marker(), "cm048-ingest": _marker()},
         "seed": {"attempted": True, "pre_count": 0, "post_count": 1},
         "readback": {"attempted": True, "found": True, "http_status": 200},
         "raw_open": {"attempted": True, "opened_as_sqlite": False},
@@ -428,6 +556,12 @@ def self_test():
         ("cross-process read-back did not find the row", 3, False, lambda f: f["readback"].update(found=False)),
         ("the database opened as plain SQLite with no key", 4, False, lambda f: f["raw_open"].update(opened_as_sqlite=True)),
         ("ical-server posture marker missing", 0, None, lambda f: f["posture"].update(**{"ical-server": None})),
+        ("ssh-written keychain_unavailable marker already on disk, nothing written after the kickstart", 1, None, lambda f: (f["posture"].update(**{"cm048-ingest": _marker(encryption="disabled", backend="plaintext", reason="keychain_unavailable", key_source=None)}), f["kick"].update(written_after_kick=False))),
+        ("ssh marker that LOOKS enabled but predates the kickstart", 1, None, lambda f: f["kick"].update(written_after_kick=False)),
+        ("kickstart not performed", 1, None, lambda f: f["kick"].update(attempted=False, error="rc=113")),
+        ("stale marker (timestamp older than wait + slack)", 1, None, lambda f: f["posture"].update(**{"cm048-ingest": _marker(age=9999)})),
+        ("unparseable timestamp", 1, None, lambda f: f["posture"]["cm048-ingest"].update(timestamp="yesterday")),
+        ("launchd-written marker saying disabled", 1, False, lambda f: f["posture"]["cm048-ingest"].update(encryption="disabled", backend="plaintext", reason="no_key")),
     ]
     for name, i, want, mutate in mutants:
         f = copy.deepcopy(g)

@@ -36,10 +36,10 @@ _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/db_key_probe.py" --self-test; then
-        probe_examined 5 "mutated db-key facts"
-        probe_fail "negative control behaved: each mutant (disabled posture, a seed that did not increase the count, a cross-process read-back that found nothing, a database that opened unkeyed, and a missing posture marker) was caught by its own assertion"
+        probe_examined 11 "mutated db-key facts"
+        probe_fail "negative control behaved: each mutant (disabled posture, a seed that did not increase the count, a cross-process read-back that found nothing, a database that opened unkeyed, a missing posture marker, an ssh-written marker that predates the kickstart, a kickstart that failed, a stale marker and an unparseable timestamp) was caught by its own assertion"
     fi
-    probe_examined 5 "mutated db-key facts"
+    probe_examined 11 "mutated db-key facts"
     probe_pass "SELF-TEST BROKEN: the db-key judge let a known-bad fixture through"
 }
 
@@ -64,7 +64,28 @@ run_probe() {
     # ical-server's base comes from the harness variable every other ical-server
     # caller here already reads (README env table), not a literal: walk #11 hit
     # :8089 (the Doctor), which refuses the service token.
-    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}'" > "${facts}" 2>/dev/null
+    # POSTURE ATTRIBUTION. The CONVERSATION SEED (and anything else run over
+    # ssh) writes cm048-ingest.json as disabled/keychain_unavailable, because an
+    # ssh process cannot read the login Keychain. So this probe does not rely on
+    # walk ordering and does not trust what is on disk: it kickstarts the job
+    # that runs pwg-convo under launchd (the GUI session), records the epoch on
+    # the box, and the box half waits (bounded, printed) for the marker to be
+    # rewritten AFTER that epoch and grades it at once. Label override:
+    # OSTLER_DB_KEY_POSTURE_LABEL; wait: OSTLER_DB_KEY_POSTURE_WAIT_S (default 120).
+    local kick_label kick_wait kick_out kick_epoch kick_args
+    kick_label="${OSTLER_DB_KEY_POSTURE_LABEL:-com.creativemachines.ostler.email-bundle}"
+    kick_wait="${OSTLER_DB_KEY_POSTURE_WAIT_S:-120}"
+    case "${kick_label}${kick_wait}" in *[!A-Za-z0-9._-]*) probe_cannot_run "unsafe kickstart label or wait value" ;; esac
+    kick_out="$(box_run "E=\$(date +%s); /bin/launchctl kickstart -k gui/\$(id -u)/${kick_label} 2>&1; echo KICKRC=\$? EPOCH=\$E")"
+    kick_epoch="$(printf '%s\n' "${kick_out}" | sed -n 's/.*KICKRC=0 EPOCH=\([0-9]*\).*/\1/p' | tail -1)"
+    if [ -n "${kick_epoch}" ]; then
+        probe_note "kickstarted ${kick_label} at epoch ${kick_epoch}; waiting up to ${kick_wait}s for a rewritten cm048-ingest marker"
+        kick_args="--kick-epoch '${kick_epoch}' --kick-wait '${kick_wait}' --kick-label '${kick_label}'"
+    else
+        probe_note "kickstart of ${kick_label} did not succeed: $(printf '%s' "${kick_out}" | tr '\n' ' ' | cut -c1-160)"
+        kick_args="--kick-error 'kickstart rc!=0'"
+    fi
+    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}' ${kick_args}" > "${facts}" 2>/dev/null
 
     # Cleanup runs regardless of the verdict: a left-behind synthetic row is a
     # tidiness bug, not a measurement, so it is removed before this function
