@@ -173,7 +173,7 @@ def normalise_sender(sender: str) -> str:
 
 def extract_messages(
     db_path: Optional[Path] = None,
-    since_days: int = 1825,
+    since_days: int = 18250,   # all history (50 years); callers pass a narrower window
     limit: int = 100000,
 ) -> list[EmailMessage]:
     """Extract email metadata from the Mail Envelope Index.

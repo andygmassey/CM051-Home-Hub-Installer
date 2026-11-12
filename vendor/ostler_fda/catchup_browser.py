@@ -47,11 +47,10 @@ logger = logging.getLogger(__name__)
 
 DAY = 86400
 DEFAULT_WINDOW_DAYS = 30
-# install.sh resolves both backfill windows to 1825 when unset
-# (install.sh `: "${OSTLER_SAFARI_BACKFILL_DAYS:=1825}"`); extract_all's own
-# fallback (365) is never the shipped value, so the catch-up edge follows
+# install.sh resolves both backfill windows to 18250 (all history) when unset;
+# extract_all's own fallback is the same value (ALL_HISTORY_DAYS), so the catch-up edge follows
 # install.sh, never extract_all's dead default.
-DEFAULT_INSTALL_DAYS = 1825
+DEFAULT_INSTALL_DAYS = 18250
 
 
 def _env_int(name: str, default: int) -> int:

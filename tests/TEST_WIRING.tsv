@@ -133,6 +133,7 @@ test_appcast_debt_is_collected.sh	WIRED	.github/workflows/cut.yml
 test_appcast_publish_cannot_destroy_the_dmg.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
 test_appcast_publish_is_fail_closed.sh	WIRED	.github/workflows/appcast-fail-closed.yml
 test_apple_is_registered_before_appletv.py	WIRED	.github/workflows/parser-claim-separation.yml
+test_apple_mail_backward_sweep_steps_to_present_mail.py	WIRED	.github/workflows/status-honesty-ingest.yml
 test_apple_mail_refused_walk_is_not_complete.py	WIRED	.github/workflows/status-honesty-ingest.yml
 test_apple_music_library_reader.py	WIRED	.github/workflows/apple-music-library.yml
 test_apple_music_scheduled_refresh.py	WIRED	.github/workflows/apple-music-library.yml
@@ -434,6 +435,7 @@ test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent
 test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
 test_exports_and_folder_prompts_explain_themselves.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
+test_extract_all_default_history_is_all_history.py	WIRED	.github/workflows/status-honesty-ingest.yml
 test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
 test_facebook_export_imports_once.py	WIRED	.github/workflows/forget-tombstone.yml
 test_fallback_pin_moves_with_the_version.sh	WIRED	.github/workflows/supply-chain-pins.yml

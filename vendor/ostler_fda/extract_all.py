@@ -79,6 +79,12 @@ def _resolve_enabled_sources(
     return DEFAULT_SOURCES
 
 
+# History is ALL history by default (50 years), the same value install.sh passes.
+# These are the fallbacks used when the env var is absent; a hidden 365 or 1825
+# here silently capped a customer who ran the extractor outside the installer.
+ALL_HISTORY_DAYS = 18250
+
+
 def _env_days(name: str, default: int) -> int:
     """A day-count from the environment, or `default`.
 
@@ -185,7 +191,7 @@ def run_all(
             # OSTLER_IMESSAGE_BACKFILL_DAYS + OSTLER_BROWSER_BACKFILL_DAYS
             # shape so install.sh can pass one number for all three
             # browsing sources if needed.
-            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", "365"))
+            safari_backfill_days = int(os.environ.get("OSTLER_SAFARI_BACKFILL_DAYS", str(ALL_HISTORY_DAYS)))
             entries = extract_history(since_days=safari_backfill_days)
             domains = top_domains(entries, limit=100)
 
@@ -228,7 +234,7 @@ def run_all(
                 top_domains as _chrome_top,
                 to_timeline_entries as _chrome_timeline,
             )
-            backfill_days = int(os.environ.get("OSTLER_BROWSER_BACKFILL_DAYS", "365"))
+            backfill_days = int(os.environ.get("OSTLER_BROWSER_BACKFILL_DAYS", str(ALL_HISTORY_DAYS)))
             chrome_entries = _chrome_extract(since_days=backfill_days)
             chrome_domains = _chrome_top(chrome_entries, limit=100)
 
@@ -924,7 +930,7 @@ def run_all(
             # window so a multi-year backfill is not clipped at the old
             # 10k cap.
             mail_backfill_days = int(
-                os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", "1825")
+                os.environ.get("OSTLER_MAIL_BACKFILL_DAYS", str(ALL_HISTORY_DAYS))
             )
             mail_limit = int(os.environ.get("OSTLER_MAIL_BACKFILL_LIMIT", "100000"))
             # #30: widen on the first run when the window holds too little.
