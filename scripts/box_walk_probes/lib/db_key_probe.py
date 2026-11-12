@@ -59,17 +59,102 @@ DECLARED = [
 ]
 
 
-def _posture_row(name, facts):
-    marker = (facts.get("posture") or {}).get(name)
-    if marker is None:
-        return (None, "no posture marker found for {}; it may not have started since this box was installed".format(name))
-    if not isinstance(marker, dict):
-        return (None, "posture marker for {} is not readable JSON".format(name))
+# ATTRIBUTION BY A CLONE OF THE SHIPPED JOB (harness-only; no product change).
+# The posture marker does not record who wrote it, and an ssh process cannot
+# read the login Keychain: the harness's own ssh pwg-convo run (CONVERSATION
+# SEED) writes disabled/keychain_unavailable over the service's true marker.
+# No shipped LaunchAgent imports src.ingest (the marker writer,
+# vendor/cm048_pipeline/src/ingest.py:70-90) on every run; it is reached lazily
+# from the sink path (processor.py:2727). So the probe bootstraps ONE throwaway
+# LaunchAgent whose launch context is CLONED, at probe time, from the INSTALLED
+# ~/Library/LaunchAgents/com.creativemachines.ostler.email-bundle.plist: its
+# EnvironmentVariables, UserName, WorkingDirectory, ProcessType (and the other
+# keys) are copied verbatim; ONLY Label, ProgramArguments (interpreter, -c,
+# "import src.ingest"), the schedule keys and the log paths differ. The
+# interpreter is the CM048 venv python the shipped job's pwg-convo runs under
+# (PWG_CONVO_CMD, rendered by install.sh:30800+ into the plist env;
+# vendor/email_source/bin/email-bundle-tick.sh exports no env of its own, it
+# only reads OSTLER_PYTHON/OSTLER_SOURCE_DIR/OSTLER_USER_DISPLAY_NAME, lines
+# 46-50, and pipeline.py:805 runs PWG_CONVO_CMD). What the ostler-assistant
+# `run-source` daemon adds on top is NOT readable from this repo: NOT
+# INSTRUMENTED. Hand-writing the context would encode the property under test.
+# The marker is then FORCED, so:
+#   marker rewritten after a SUCCESSFUL bootstrap -> graded (PASS / FAIL by content)
+#   no marker after a successful bootstrap        -> FAIL (job ran, never wrote it)
+#   bootstrap failed / box unreachable / installed plist unreadable or absent /
+#   env parity not identical                      -> CANNOT-RUN
+#   timestamp stale or unparseable                -> CANNOT-RUN
+SHIPPED_LABEL = "com.creativemachines.ostler.email-bundle"
+# Keys install.sh renders into that plist's EnvironmentVariables (template:
+# vendor/email_source/launchd/com.creativemachines.ostler.email-bundle.plist).
+# A shipped plist missing one is not the job the template describes: refuse.
+TEMPLATE_ENV_KEYS = ("OSTLER_PYTHON", "PWG_CONVO_CMD", "OSTLER_SOURCE_DIR",
+                     "OSTLER_USER_DISPLAY_NAME", "OSTLER_USER_ID")
+# Copied verbatim from the shipped plist when present.
+CLONED_KEYS = ("EnvironmentVariables", "UserName", "GroupName", "WorkingDirectory",
+               "ProcessType", "Nice", "LowPriorityIO", "AbandonProcessGroup")
+KICK_LABEL_DEFAULT = "com.ostler.walkprobe.dbkey-posture"
+KICK_WAIT_DEFAULT_S = 120
+KICK_POLL_S = 3
+STALE_SLACK_S = 300
+FUTURE_SLACK_S = 300
+
+
+def _parse_ts(ts):
+    import calendar
+    import time
+    try:
+        return calendar.timegm(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _marker_content(name, marker, age_note):
     enc = marker.get("encryption")
     backend = marker.get("backend")
     if enc == "enabled" and backend == "sqlcipher":
-        return (True, "{}: encryption=enabled backend=sqlcipher key_source={}".format(name, marker.get("key_source")))
-    return (False, "{}: encryption={} backend={} reason={}".format(name, enc, backend, marker.get("reason")))
+        return (True, "{}: encryption=enabled backend=sqlcipher key_source={}; {}".format(name, marker.get("key_source"), age_note))
+    return (False, "{}: encryption={} backend={} reason={}; {}".format(name, enc, backend, marker.get("reason"), age_note))
+
+
+def _ical_row(facts):
+    """ical-server runs only under launchd (KeepAlive job), never over ssh, so
+    its marker needs no kickstart; its age is printed (a service-lifetime
+    marker has no tick interval to be stale against)."""
+    name = "ical-server"
+    marker = (facts.get("posture") or {}).get(name)
+    if marker is None:
+        return (None, "CANNOT-RUN: no posture marker found for {}; the service may not have started since this box was installed".format(name))
+    if not isinstance(marker, dict):
+        return (None, "CANNOT-RUN: posture marker for {} is not readable JSON".format(name))
+    ts, now = _parse_ts(marker.get("timestamp")), facts.get("now")
+    note = "launchd-only service, marker age {}s".format(now - ts) if ts is not None and isinstance(now, int) else "marker age unknown"
+    return _marker_content(name, marker, note)
+
+
+def _cm048_row(facts):
+    name = "cm048-ingest"
+    k = facts.get("kick") or {}
+    label, waited = k.get("label"), k.get("waited_s")
+    if not k.get("attempted"):
+        return (None, "CANNOT-RUN: the throwaway launchd job was not bootstrapped ({}); without it a marker cannot be attributed to a launchd-run process, and an ssh run writes keychain_unavailable".format(k.get("error", "no detail")))
+    marker = (facts.get("posture") or {}).get(name)
+    if marker is not None and not isinstance(marker, dict):
+        return (None, "CANNOT-RUN: posture marker for {} is not readable JSON".format(name))
+    if marker is None or not k.get("written_after_kick"):
+        last = k.get("prior_marker_age_s")
+        return (False, "FAIL: the launchd job {} was bootstrapped successfully (job_exit={}, log={!r}) but no {} marker was written within the {}s wait (last marker on disk is {}; an ssh-written one is not graded): the job ran and never wrote its posture".format(
+            label, k.get("job_exit"), k.get("job_log"), name, waited, "absent" if last is None else "{}s old".format(last)))
+    ts, now = _parse_ts(marker.get("timestamp")), k.get("now", facts.get("now"))
+    if ts is None or not isinstance(now, int):
+        return (None, "CANNOT-RUN: {} marker age cannot be computed (timestamp={!r} now={!r})".format(name, marker.get("timestamp"), now))
+    age = now - ts
+    limit = (waited if isinstance(waited, int) else KICK_WAIT_DEFAULT_S) + STALE_SLACK_S
+    if age < -FUTURE_SLACK_S:
+        return (None, "CANNOT-RUN: {} marker is dated {}s in the future".format(name, -age))
+    if age > limit:
+        return (None, "CANNOT-RUN: {} marker is STALE: timestamp age {}s > {}s (wait {}s + slack {}s) although its file moved after the kickstart".format(name, age, limit, waited, STALE_SLACK_S))
+    return _marker_content(name, marker, "written after our kickstart of {}, age {}s <= {}s".format(label, age, limit))
 
 
 def judge(f):
@@ -78,9 +163,9 @@ def judge(f):
     def add(name, ok, detail=""):
         out.append((name, ok if ok is None or ok == NA else bool(ok), detail))
 
-    ok, detail = _posture_row("ical-server", f)
+    ok, detail = _ical_row(f)
     add(DECLARED[0], ok, detail)
-    ok, detail = _posture_row("cm048-ingest", f)
+    ok, detail = _cm048_row(f)
     add(DECLARED[1], ok, detail)
 
     seed = f.get("seed") or {}
@@ -146,16 +231,157 @@ def judge(f):
 # as the real services see them). Prints counts and booleans only.
 # ---------------------------------------------------------------------------
 
-def measure_posture():
+def _posture_path(home=None):
+    base = home or os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler"))
+    return os.path.join(base, "security-posture")
+
+
+def _read_marker(name, home=None):
+    try:
+        with open(os.path.join(_posture_path(home), name + ".json")) as fh:
+            return json.load(fh)
+    except (IOError, ValueError):
+        return None
+
+
+def measure_posture(home=None):
+    return {name: _read_marker(name, home) for name in SERVICES}
+
+
+def _h(v):
+    import hashlib
+    return hashlib.sha256(str(v).encode("utf-8")).hexdigest()[:8]
+
+
+def _parity_items(d):
+    """name -> hash for every cloned element. Values are NEVER returned."""
     out = {}
-    base = os.path.join(os.environ.get("OSTLER_HOME", os.path.expanduser("~/.ostler")), "security-posture")
-    for name in SERVICES:
-        try:
-            with open(os.path.join(base, name + ".json")) as fh:
-                out[name] = json.load(fh)
-        except (IOError, ValueError):
-            out[name] = None
+    for k, v in (d.get("EnvironmentVariables") or {}).items():
+        out["env:" + k] = _h(v)
+    for k in CLONED_KEYS:
+        if k != "EnvironmentVariables" and k in d:
+            out["plist:" + k] = _h(d[k])
     return out
+
+
+def build_clone(shipped, label, log_path):
+    """Pure. (clone_dict_or_None, reason). The clone is the shipped job's launch
+    context with only Label, ProgramArguments, schedule and log paths replaced."""
+    import os as _os
+    if not isinstance(shipped, dict):
+        return None, "the installed email-bundle plist is not a dict"
+    env = dict(shipped.get("EnvironmentVariables") or {})
+    missing = [k for k in TEMPLATE_ENV_KEYS if k not in env]
+    if missing:
+        return None, "the installed plist lacks env key(s) the template renders: " + ", ".join(missing)
+    toks = str(env["PWG_CONVO_CMD"]).split()
+    if not toks:
+        return None, "PWG_CONVO_CMD is empty in the installed plist"
+    first = toks[0]
+    interp = first if _os.path.basename(first).startswith("python") else _os.path.join(_os.path.dirname(first), "python3")
+    if not _os.access(interp, _os.X_OK):
+        return None, "the CM048 interpreter derived from PWG_CONVO_CMD is not executable: " + interp
+    clone = {k: shipped[k] for k in CLONED_KEYS if k in shipped}
+    clone["Label"] = label
+    clone["ProgramArguments"] = [interp, "-c", "import src.ingest"]
+    clone["RunAtLoad"] = True
+    clone["StandardOutPath"] = log_path
+    clone["StandardErrorPath"] = log_path
+    return clone, None
+
+
+def clone_main(argv):
+    """Box half of the clone step: read the INSTALLED plist, build, write, re-read
+    what was written, print key-name + hash parity (never values), refuse unless
+    identical. Last line is RESULT <json>."""
+    import plistlib
+    a = dict(zip(argv[0::2], argv[1::2]))
+    shipped_path = os.path.expanduser("~/Library/LaunchAgents/{}.plist".format(a.get("--shipped-label") or SHIPPED_LABEL))
+    out_path, label, log_path = a["--out"], a["--label"], a["--log"]
+    res = {"ok": False}
+
+    def done(reason=None):
+        if reason:
+            res["reason"] = reason
+        print("RESULT " + json.dumps(res))
+        return 0
+    try:
+        with open(shipped_path, "rb") as fh:
+            shipped = plistlib.load(fh)
+    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
+        return done("installed plist unreadable or absent at {} ({})".format(shipped_path, exc.__class__.__name__))
+    clone, why = build_clone(shipped, label, log_path)
+    if clone is None:
+        return done(why)
+    with open(out_path, "wb") as fh:
+        plistlib.dump(clone, fh)
+    try:
+        with open(out_path, "rb") as fh:
+            written = plistlib.load(fh)
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return done("the clone plist could not be re-read after writing")
+    sp, cp = _parity_items(shipped), _parity_items(written)
+    same = sp == cp
+    for k in sorted(set(sp) | set(cp)):
+        print("  parity: {:<34} shipped={} clone={}{}".format(k, sp.get(k, "-"), cp.get(k, "-"), "" if sp.get(k) == cp.get(k) else "  MISMATCH"))
+    res.update(ok=same, interpreter=written["ProgramArguments"][0], keys=len(sp))
+    if not same:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+    return done(None if same else "env/key parity between the installed plist and the clone is not identical")
+
+
+def job_diagnosis(label):
+    """Why a job that ran wrote nothing: launchd's last exit code and the tail
+    of the job's own log. Read, never assumed; unreadable says so."""
+    import re
+    import subprocess
+    out = {"job_exit": "unreadable", "job_log": ""}
+    try:
+        r = subprocess.run(["/bin/launchctl", "print", "gui/{}/{}".format(os.getuid(), label)],
+                           capture_output=True, text=True, timeout=10)
+        m = re.search(r"last exit code = (\S+)", r.stdout)
+        out["job_exit"] = m.group(1) if m else "no last exit code in launchctl print"
+    except (OSError, subprocess.SubprocessError) as exc:
+        out["job_exit"] = "launchctl print failed: {}".format(str(exc)[:60])
+    try:
+        d = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
+        with open(os.path.join(d, "walkprobe-dbkey-posture.log"), errors="replace") as fh:
+            out["job_log"] = fh.read()[-160:].strip()
+    except OSError:
+        pass
+    return out
+
+
+def wait_for_marker_after(kick_epoch, wait_s, home=None, name="cm048-ingest",
+                          now_fn=None, sleep_fn=None, poll_s=KICK_POLL_S):
+    """Poll (bounded) until the marker file's mtime is later than kick_epoch.
+    Returns (marker_or_None, info). The marker is read IMMEDIATELY once it
+    moves; one that never moves is not returned, so an ssh-written marker that
+    was already on disk can never be graded."""
+    import time
+    now_fn = now_fn or time.time
+    sleep_fn = sleep_fn or time.sleep
+    path = os.path.join(_posture_path(home), name + ".json")
+    start = now_fn()
+    info = {"waited_s": 0, "written_after_kick": False, "prior_marker_age_s": None}
+    while True:
+        try:
+            mtime = os.stat(path).st_mtime
+        except OSError:
+            mtime = None
+        if mtime is not None:
+            info["prior_marker_age_s"] = max(0, int(now_fn() - mtime))
+            if mtime > kick_epoch:
+                info["written_after_kick"] = True
+                info["waited_s"] = int(now_fn() - start)
+                return _read_marker(name, home), info
+        if now_fn() - start >= wait_s:
+            info["waited_s"] = int(wait_s)
+            return None, info
+        sleep_fn(poll_s)
 
 
 from pathlib import Path  # noqa: E402
@@ -331,7 +557,22 @@ def box_main(argv):
     token = a.get("--token", "ostler-walk-dbkey-{}".format(os.getpid()))
     service_token = a.get("--service-token", "")
     api_base = a.get("--api-base") or ICAL_SERVER_BASE_DEFAULT
-    facts = {"posture": measure_posture()}
+    import time
+    kick_epoch = float(a.get("--kick-epoch") or 0)
+    wait_s = int(a.get("--kick-wait") or KICK_WAIT_DEFAULT_S)
+    kick = {"attempted": bool(kick_epoch), "label": a.get("--kick-label") or KICK_LABEL_DEFAULT}
+
+    if not kick_epoch:
+        kick["error"] = a.get("--kick-error") or "kickstart not run"
+    posture = measure_posture()
+    if kick_epoch:
+        marker, info = wait_for_marker_after(kick_epoch, wait_s)
+        kick.update(info)
+        if not info["written_after_kick"]:
+            kick.update(job_diagnosis(kick["label"]))
+        kick["now"] = int(time.time())
+        posture["cm048-ingest"] = marker if info["written_after_kick"] else posture.get("cm048-ingest")
+    facts = {"posture": posture, "kick": kick, "now": int(time.time())}
     seed, rb, raw = seed_and_readback(token, service_token, api_base)
     facts["install"] = install_facts()
     facts["seed"] = seed
@@ -397,12 +638,32 @@ def box_forget(argv):
 # self-test
 # ---------------------------------------------------------------------------
 
+_NOW = 1_800_000_000
+
+
+def _ts(age):
+    import time
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_NOW - age))
+
+
+def _marker(age=60, **kw):
+    m = {"encryption": "enabled", "backend": "sqlcipher", "key_source": "keychain", "timestamp": _ts(age)}
+    m.update(kw)
+    return m
+
+
+def _kick(**kw):
+    k = {"attempted": True, "label": KICK_LABEL_DEFAULT, "written_after_kick": True,
+         "waited_s": 9, "prior_marker_age_s": 5, "now": _NOW}
+    k.update(kw)
+    return k
+
+
 def _good():
     return {
-        "posture": {
-            "ical-server": {"encryption": "enabled", "backend": "sqlcipher", "key_source": "OSTLER_DB_KEY_FILE"},
-            "cm048-ingest": {"encryption": "enabled", "backend": "sqlcipher", "key_source": "OSTLER_DB_KEY_FILE"},
-        },
+        "now": _NOW,
+        "kick": _kick(),
+        "posture": {"ical-server": _marker(), "cm048-ingest": _marker()},
         "seed": {"attempted": True, "pre_count": 0, "post_count": 1},
         "readback": {"attempted": True, "found": True, "http_status": 200},
         "raw_open": {"attempted": True, "opened_as_sqlite": False},
@@ -428,6 +689,12 @@ def self_test():
         ("cross-process read-back did not find the row", 3, False, lambda f: f["readback"].update(found=False)),
         ("the database opened as plain SQLite with no key", 4, False, lambda f: f["raw_open"].update(opened_as_sqlite=True)),
         ("ical-server posture marker missing", 0, None, lambda f: f["posture"].update(**{"ical-server": None})),
+        ("ssh-written keychain_unavailable marker already on disk, nothing written after the job ran", 1, False, lambda f: (f["posture"].update(**{"cm048-ingest": _marker(encryption="disabled", backend="plaintext", reason="keychain_unavailable", key_source=None)}), f["kick"].update(written_after_kick=False))),
+        ("ssh marker that LOOKS enabled but predates the job", 1, False, lambda f: f["kick"].update(written_after_kick=False)),
+        ("job not bootstrapped", 1, None, lambda f: f["kick"].update(attempted=False, error="rc=113")),
+        ("stale marker (timestamp older than wait + slack)", 1, None, lambda f: f["posture"].update(**{"cm048-ingest": _marker(age=9999)})),
+        ("unparseable timestamp", 1, None, lambda f: f["posture"]["cm048-ingest"].update(timestamp="yesterday")),
+        ("launchd-written marker saying disabled", 1, False, lambda f: f["posture"]["cm048-ingest"].update(encryption="disabled", backend="plaintext", reason="no_key")),
     ]
     for name, i, want, mutate in mutants:
         f = copy.deepcopy(g)
@@ -523,6 +790,8 @@ def main(argv):
         return report(judge(json.load(open(argv[1]))))
     if argv[:1] == ["box"]:
         return box_main(argv[1:])
+    if argv[:1] == ["clone"]:
+        return clone_main(argv[1:])
     if argv[:1] == ["forget"]:
         return box_forget(argv[1:])
     print(__doc__)

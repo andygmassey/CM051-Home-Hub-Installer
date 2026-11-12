@@ -2547,15 +2547,13 @@ ollama_pull_with_retry() {
     local model="$1"
     local attempt=1
     local backoff=10
-    # rc 3 = HELD, not failed (Archie, #2977). While the Ollama pin is
-    # DEFERRED the engine may be a drifted, self-updated one (0.40.x pulls
-    # MLX builds, not the GGUF builds the model pins describe), so nothing is
-    # pulled until the pin lands; the next installer run retries both.
-    # Inline on purpose: no helper this wrapper could be lifted without.
+    # A DEFERRED pin no longer HOLDS the pull (it used to return 3, pulled
+    # nothing, and let an install finish "ready" with no chat model). The model
+    # is pulled UNPINNED, loudly, and ostler_require_model_digest records it as
+    # "not verified against pin" for the Doctor. A failed pull is an honest ERR-13.
     if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then
-        warn "$(printf "$MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED" "${model}" "${OLLAMA_PIN_VERSION:-?}")"
-        echo "model_pull=held model=${model} reason=ollama_unpinned" >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
-        return 3
+        warn "$(printf "$MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED" "${model}" "${OLLAMA_PIN_VERSION:-?}")"
+        echo "model_pull=unpinned_engine model=${model} reason=ollama_unpinned" >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
     fi
     while (( attempt <= 3 )); do
         if _gui_ollama_pull "$model"; then
@@ -2741,7 +2739,13 @@ PY
 #   install with a code that says which of the three things went wrong. There
 #   is no warn-and-continue branch on purpose.
 ostler_require_model_digest() {
-    local model="$1" rc=0
+    local model="$1" rc=0 _pf
+    if [[ "${OLLAMA_PIN_OUTCOME:-}" == "deferred" ]]; then  # pulled by a non-pinned engine: record, do not fail
+        _pf="${OLLAMA_PIN_STATE_FILE:-${HOME}/.ostler/state/ollama-pin}"; mkdir -p "$(dirname "$_pf")" 2>/dev/null || true
+        printf 'model_unverified=%s\n' "$model" >> "$_pf" 2>/dev/null || true  # the Doctor ollama-pin row reads this
+        echo "model_pin=${model} pin_check=skipped not_verified_against_pin=1 reason=ollama_unpinned" >> "${INSTALL_LOG:-/dev/null}" 2>/dev/null || true
+        return 0
+    fi
     ostler_verify_model_digest "$model" || rc=$?
     case "$rc" in
         0) ok "$(printf "$MSG_OK_MODEL_DIGEST_VERIFIED" "${model}" "${OSTLER_MODEL_DIGEST_GOT}")" ;;
@@ -4237,14 +4241,14 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9696) captures the path BY
+    # _ostler_write_store_curl_config (defined :9700) captures the path BY
     # VALUE and never re-reads it:
-    #     :9697   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9742   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9751 and :17678, both of which run
+    #     :9701   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9746   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9755 and :17682, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
-    # /tmp/ostler-prelaunch-<pid> staging tree. :4223 above has just deleted
-    # that tree and :4227 has just rebound OSTLER_DIR to the final one, so
+    # /tmp/ostler-prelaunch-<pid> staging tree. :4227 above has just deleted
+    # that tree and :4231 has just rebound OSTLER_DIR to the final one, so
     # from this point the armed array held `-K <a path that no longer exists>`.
     #
     # WHAT THAT LOOKS LIKE FROM THE OUTSIDE, and why it cost three agents a
@@ -4259,13 +4263,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18473, where the note reads
+    # WhatsApp Web session path did it again at :18477, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18490 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18494 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4274,13 +4278,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7021 against a definition at :9696. Top-level
+    # writer's own definition: :7025 against a definition at :9700. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9751, :17678) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9755, :17682) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20687 / :20865 / :21022 / :21467 path. There the
+    # :20691 / :20869 / :21026 / :21471 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10409,7 +10413,7 @@ fi
 # the unbounded fallback mutex. _ostler_set_paths rebinds OSTLER_DIR at the
 # promote, so it is the only spelling correct on both sides of the move.
 # Guarded by tests/test_prelaunch_libs_survive_promote.sh.
-mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ] && cp "${SCRIPT_DIR}/lib/settling_progress.sh" "${OSTLER_DIR}/lib/" 2>/dev/null || true ; mkdir -p "${HOME}/.ostler/state" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_channels.json" ] && cp "${SCRIPT_DIR}/lib/settling_channels.json" "${HOME}/.ostler/state/" 2>/dev/null || true
+mkdir -p "${OSTLER_DIR}/lib" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_progress.sh" ] && cp "${SCRIPT_DIR}/lib/settling_progress.sh" "${OSTLER_DIR}/lib/" 2>/dev/null || true ; mkdir -p "${OSTLER_DIR}/state" 2>/dev/null || true; [ -f "${SCRIPT_DIR}/lib/settling_channels.json" ] && cp "${SCRIPT_DIR}/lib/settling_channels.json" "${OSTLER_DIR}/state/" 2>/dev/null || true
 cat > "${OSTLER_DIR}/lib/ostler-detect-exports.sh" <<'OSTLER_DETECT_EXPORTS_EOF'
 #!/usr/bin/env bash
 # Bulletproof GDPR-export detection for Ostler's import.
@@ -22154,7 +22158,7 @@ services:
   #     AND the Obsidian vault at ~/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:169e949ff63c1895b37adc2c92fb3257564faa4c03953ed5ac6acd414080e1e2
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:ccd149c0f38c2ab970c7c34948859196571f918093756c0ef794596ecdddf7a6
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22197,7 +22201,7 @@ services:
   # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
   # content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:5eeb6176bb3816ba47d2a12fe188ca0aca31ea0e276f832abed24ea3ed75fa27
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:a489813f982ebb86775edf46abbd1913ebdddb946b914a97b11d8929849bb838
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
@@ -24241,7 +24245,6 @@ else
     case "$_pull_rc" in
         0) ok "$MSG_OK_EMBEDDING_MODEL_READY"
            ostler_require_model_digest nomic-embed-text ;;
-        3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
         *) fail_with_code "ERR-13-MODEL-PULL-NOMIC" "$MSG_FAIL_COULD_NOT_PULL_NOMIC_EMBED_TEXT" ;;
     esac
 fi
@@ -24321,7 +24324,6 @@ if [[ "${PULL_MODEL}" != "n" && "${PULL_MODEL}" != "N" ]]; then
         case "$_pull_rc" in
             0) ok "$(printf "$MSG_OK_READY" "${AI_MODEL}")"
                ostler_require_model_digest "${AI_MODEL}" ;;
-            3) : ;;  # held: Ollama pin deferred, warned and logged by the wrapper
             *) fail_with_code "ERR-13-MODEL-PULL-AI" "$(printf "$MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS" "${AI_MODEL}")" ;;
         esac
     fi
@@ -28745,6 +28747,7 @@ OSTLER_LAUNCHAGENT_LABELS=(
     com.creativemachines.ostler.imessage-bundle
     com.creativemachines.ostler.wiki-recompile
     com.creativemachines.ostler.wiki-recompile-catchup
+    com.creativemachines.ostler.settling-refresh
     com.creativemachines.ostler.editor-frontpage
     com.creativemachines.ostler.editor-frontpage-catchup
     com.creativemachines.ostler.dedupe-catchup
