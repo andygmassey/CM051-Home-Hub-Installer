@@ -97,12 +97,6 @@ _sq() {
     printf "'%s'" "$out"
 }
 
-# _box_sh_to <outfile> <command>: run a shell command on the box, stdin closed.
-# stdout to <outfile>, stderr to <outfile>.err. Returns the transport's exit code.
-_box_sh_to() {
-    box_run_v "$2" </dev/null > "$1" 2> "$1.err"
-}
-
 # _box_py_to <outfile> <quoted args>: run the python program read from THIS
 # function's stdin (a heredoc at the call site) on the box. stdout to <outfile>,
 # stderr to <outfile>.err. Returns the transport's exit code.
@@ -122,15 +116,6 @@ _box_cannot() {
 
 _probe_cleanup() {
     if [ -n "${_PROBE_TMP}" ] && [ -d "${_PROBE_TMP}" ]; then rm -rf "${_PROBE_TMP}"; fi
-}
-
-# The settling shard directory, ON THE BOX.
-_settling_dir() {
-    if [ -n "${OSTLER_SETTLING_DIR:-}" ]; then
-        printf '%s' "$OSTLER_SETTLING_DIR"
-    else
-        printf '%s/settling_progress.d' "${OSTLER_STATE_DIR:-$_PROBE_BOX_HOME/.ostler/state}"
-    fi
 }
 
 # The fixed channel set the bar divides by. install.sh must place it at
@@ -238,17 +223,25 @@ PY
     return 0
 }
 
-# _snapshot <dir on the box> <outfile>
-# One line per shard in <dir>, read ON THE BOX:
-#   <file>|<done>|<total>|TERMINAL|<why>|<updated epoch>
-#   <file>|<done>|<total>|OPEN|<why>|<updated epoch>
-#   <file>|UNREADABLE|<why>
-# Returns the transport's exit code. A python failure is non-zero too.
-_snapshot() {
-    _box_py_to "$2" "$(_sq "$1")" <<'PY'
+# _first_sample <outfile> <settling-dir override> <state-dir override>
+# ONE call to the box that answers three things: its HOME, the settling directory
+# that HOME resolves (or the override, which names a box path), and the shard lines
+# of that directory. The start sample of the settle window is this call, and it is
+# the first thing the probe asks the box, so nothing else is read before it.
+# Output: HOME|<home>, DIR|<dir>|yes|no, then shard lines (see _shards_only).
+# Returns the transport's exit code.
+_first_sample() {
+    _box_py_to "$1" "$(_sq "$2") $(_sq "$3")" <<'PY'
 import glob, json, os, sys
 
-d = sys.argv[1]
+override, state = sys.argv[1], sys.argv[2]
+home = os.path.expanduser("~")
+d = override or os.path.join(state or os.path.join(home, ".ostler", "state"), "settling_progress.d")
+print("HOME|" + home)
+present = os.path.isdir(d)
+print("DIR|%s|%s" % (d, "yes" if present else "no"))
+if not present:
+    sys.exit(0)
 
 def epoch(r):
     from datetime import datetime, timezone
@@ -289,6 +282,18 @@ for path in sorted(glob.glob(os.path.join(d, "*.json"))):
     else:
         print("%s|%d|%d|TERMINAL|%s|%d" % (name, done, total, why, epoch(r)))
 PY
+}
+
+# _shards_only <raw sample> <outfile>: the shard lines of a _first_sample, without
+# its HOME and DIR header. grep exits 1 when nothing matches, which is a valid
+# answer here (an empty directory); only exit 2 is a failure to read.
+_shards_only() {
+    /usr/bin/grep -v -E '^(HOME|DIR)\|' "$1" > "$2"
+    local rc=$?
+    if [ "$rc" -gt 1 ]; then
+        return "$rc"
+    fi
+    return 0
 }
 
 # _judge <start-snapshot> <end-snapshot> <channels,...> <intervals-file>
@@ -377,35 +382,31 @@ PY
 run_probe() {
     _PROBE_TMP="$(mktemp -d)" || probe_cannot_run "could not create a scratch directory for the samples"
     local tmp="${_PROBE_TMP}"
+    local window; window="$(_settle_window_s)"
 
-    # 1. THE BOX'S HOME. Also the reachability check: if the box does not
-    #    answer, nothing below can be measured, and that is CANNOT-RUN.
-    if ! _box_sh_to "$tmp/home" 'printf %s "$HOME"'; then
-        _box_cannot "the box did not answer, so the Setting-up bar was not read" "$tmp/home.err"
+    # 1. THE FIRST CALL TO THE BOX IS THE START SAMPLE, and it is also the
+    #    reachability check. An unreachable box is CANNOT-RUN here, with the
+    #    transport's stderr as the reason.
+    if ! _first_sample "$tmp/start.raw" "${OSTLER_SETTLING_DIR:-}" "${OSTLER_STATE_DIR:-}"; then
+        _box_cannot "the box did not answer, so the Setting-up bar was not read" "$tmp/start.raw.err"
     fi
-    _PROBE_BOX_HOME="$(cat "$tmp/home")"
-    if [ -z "${_PROBE_BOX_HOME}" ]; then
-        _box_cannot "the box answered with an empty HOME" "$tmp/home.err"
+    _PROBE_BOX_HOME="$(sed -E -n 's/^HOME\|(.*)$/\1/p' "$tmp/start.raw")"
+    local dir present
+    dir="$(sed -E -n 's/^DIR\|(.*)\|(yes|no)$/\1/p' "$tmp/start.raw")"
+    present="$(sed -E -n 's/^DIR\|.*\|(yes|no)$/\1/p' "$tmp/start.raw")"
+    if [ -z "${_PROBE_BOX_HOME}" ] || [ -z "${dir}" ]; then
+        _box_cannot "the box answered without its HOME or the settling directory it resolves" "$tmp/start.raw.err"
     fi
-
-    # 2. THE SHARD DIRECTORY, on the box.
-    local dir; dir="$(_settling_dir)"
-    if ! _box_sh_to "$tmp/dir" "if [ -d $(_sq "$dir") ]; then printf DIR; else printf NODIR; fi"; then
-        _box_cannot "could not look for the settling directory $dir on the box" "$tmp/dir.err"
-    fi
-    if [ "$(cat "$tmp/dir")" != "DIR" ]; then
+    if [ "${present}" != "yes" ]; then
         _probe_cleanup
         probe_cannot_run "no settling shard directory at $dir on the box; nothing was measured, so the bar cannot be judged (this is not a pass)"
     fi
-
-    # 2b. THE START SAMPLE, on the box, taken first so the settle window starts
-    #     with the first read. The shards do not depend on the manifest.
-    local window; window="$(_settle_window_s)"
-    if ! _snapshot "$dir" "$tmp/start.txt"; then
-        _box_cannot "could not read the shards in $dir on the box at the start sample (python3 failed there)" "$tmp/start.txt.err"
+    if ! _shards_only "$tmp/start.raw" "$tmp/start.txt"; then
+        _probe_cleanup
+        probe_cannot_run "could not split the start sample from $dir on the box (not a pass)"
     fi
 
-    # 3. THE MANIFEST, on the box. Absent or unusable is a FAIL (the #3453 check).
+    # 2. THE MANIFEST, on the box. Absent or unusable is a FAIL (the #3453 check).
     local mpath mv channels
     mpath="$(_manifest_path "$dir")"
     if ! _manifest_verdict "$mpath" "$tmp/mv"; then
@@ -420,7 +421,7 @@ run_probe() {
     esac
     probe_note "judging the channels in $mpath on the box: $channels"
 
-    # 4. THE WRITER PLISTS, on the box.
+    # 3. THE WRITER PLISTS, on the box.
     if ! _tick_intervals "$channels" "$tmp/intervals.txt"; then
         _box_cannot "could not read the writer plists under $(_launchagents_dir) on the box" "$tmp/intervals.txt.one.err"
     fi
@@ -434,12 +435,13 @@ run_probe() {
         esac
     done < "$tmp/intervals.txt"
 
-    # 5. THE END SAMPLE, after the settle window. The start sample was taken above,
+    # 4. THE END SAMPLE, after the settle window. The start sample was taken above,
     #    before the manifest and plist reads, so the window starts at the first sample.
     sleep "$window"
-    if ! _snapshot "$dir" "$tmp/end.txt"; then
-        _box_cannot "could not read the shards in $dir on the box at the end sample (python3 failed there)" "$tmp/end.txt.err"
+    if ! _first_sample "$tmp/end.raw" "${OSTLER_SETTLING_DIR:-}" "${OSTLER_STATE_DIR:-}"; then
+        _box_cannot "could not read the shards in $dir on the box at the end sample (python3 failed there)" "$tmp/end.raw.err"
     fi
+    _shards_only "$tmp/end.raw" "$tmp/end.txt"
 
     local verdicts; verdicts="$(_judge "$tmp/start.txt" "$tmp/end.txt" "$channels" "$tmp/intervals.txt")"
     local n_total n_info open_fail="" n_fail=0 n_cannot=0 cannot_list=""
@@ -525,8 +527,8 @@ STUB
     outB="$(env -i PATH="$stub_path" HOME="$drv" OSTLER_BOX_HOST=stub-box STUB_BOX_HOME="$box" SSH_STUB_LOG="$log" OSTLER_STABILITY_INTERVAL_S=0 /bin/bash "$_PROBE_SELF" 2>&1)"; rcB=$?
     if [ "$rcB" -ne 0 ] || ! /usr/bin/grep -q 'VERDICT: PASS' <<< "$outB"; then
         fails="${fails}; box-only fixture: want rc 0 and VERDICT: PASS, got rc ${rcB}: $(printf '%s' "$outB" | tr '\n' ' ' | cut -c1-400)"
-    elif ! /usr/bin/grep -q 'settling_progress.d' "$log" 2>/dev/null; then
-        fails="${fails}; box-only fixture: PASS, but the ssh stub recorded no read of the box's shard directory, so the verdict cannot be credited to the box"
+    elif ! /usr/bin/grep -q 'python3 -I -' "$log" 2>/dev/null; then
+        fails="${fails}; box-only fixture: PASS, but the ssh stub recorded no python3 call to the box, so the verdict cannot be credited to the box"
     fi
 
     # ARM C. Box does not answer: CANNOT-RUN (78), never PASS or FAIL.
@@ -557,7 +559,8 @@ STUB
     printf '{"key":"calendar","done":10,"total":50,"needs_source":false,"updated_at":"%s"}\n' "$old" > "$tmp/d/calendar.json"
     printf '%s\n' '{"key":"notes","done":0,"total":0,"needs_source":true}' > "$tmp/d/notes.json"
     local sa="$tmp/s"
-    _snapshot "$tmp/d" "$sa"
+    _first_sample "$tmp/e.raw" "$tmp/d" ""
+    _shards_only "$tmp/e.raw" "$sa"
     printf 'contacts=3600|x\nemails=3600|x\ncalendar=CANNOT|no plist\n' > "$tmp/iv.txt"
     local out; out="$(_judge "$sa" "$sa" "contacts,calendar,messages,emails" "$tmp/iv.txt")"
     local fail_n info_n cannot_n
