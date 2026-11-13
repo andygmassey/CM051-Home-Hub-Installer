@@ -576,33 +576,95 @@ def _norm_item(t):
     return " ".join(re.sub(r"[^\w' ]+", " ", t.casefold()).split())
 
 
-def brief_repeats(text):
-    """How many lines, or list items within one line, the brief says twice.
+def brief_repeat_events(text):
+    """Every repeat in the brief, one dict each: line (1-based), first_line (the
+    line it first appeared on; the same line for an item repeated inside one
+    line), kind ("line" or "item"), and norm (the normalised text, which is
+    hashed before anything is written to disk).
 
     The v1.0.120 walk listed one person's birthday three times (three Person
-    nodes for one human). A repeat is a COUNT, so it can leave the box; the
-    text itself stays there. Only items of 2+ words count, and never an
+    nodes for one human). Only items of 2+ words count, and never an
     empty-section phrase ("nothing overdue"), so a heading or a "none" line
     repeated across sections is not a repeat."""
-    seen_lines, seen_items, repeats = set(), set(), 0
-    for line in (text or "").splitlines():
+    seen_lines, first_at, events = set(), {}, []
+    for lno, line in enumerate((text or "").splitlines(), 1):
         n = _norm_item(line)
         if PROVENANCE_LINE.match(n):
             continue
         if len(n.split()) >= 2 and not NONE_WORDS.search(n):
             if n in seen_lines:
-                repeats += 1
+                events.append({"line": lno, "first_line": first_at[n], "kind": "line", "norm": n})
                 continue
             seen_lines.add(n)
+            first_at[n] = lno
         items = [_norm_item(i) for i in _ITEM_SPLIT.split(line)]
         items = [i for i in items if len(i.split()) >= 2 and not NONE_WORDS.search(i)]
         local = set()
         for i in items:
             if i in local:
-                repeats += 1
+                events.append({"line": lno, "first_line": lno, "kind": "item", "norm": i})
             local.add(i)
-        seen_items |= local
-    return repeats
+    return events
+
+
+def brief_repeats(text):
+    """How many lines, or list items within one line, the brief says twice. A
+    repeat is a COUNT, so it can leave the box; see brief_repeat_events."""
+    return len(brief_repeat_events(text))
+
+
+def _source_strings(*bodies):
+    """Every string inside the source rows the brief was built from (Hub
+    commitments, reply debts, calendar), flattened, for the in_sources check."""
+    out = []
+
+    def walk(x):
+        if isinstance(x, str):
+            out.append(x)
+        elif isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    for b in bodies:
+        walk(b)
+    return out
+
+
+def write_repeat_evidence(events, source_texts):
+    """On a repeated line, keep the evidence ON THE BOX, owner-only: the sha256
+    of each repeated line, its line numbers, and whether the line also appears
+    in the source rows. The line text itself is never written. The facts block
+    is NOT INSTRUMENTED: no daemon route or log exposes it (ostler-assistant
+    brief/catchup.rs renders it into the model prompt only).
+
+    Returns {"path", "error", "in_sources"}; error is None when written."""
+    import hashlib
+    if not events:
+        return {"path": None, "error": None, "in_sources": 0}
+    norm_sources = " \n ".join(_norm_item(s) for s in source_texts)
+    rows = []
+    for ev in events:
+        n = ev["norm"]
+        rows.append({"line": ev["line"], "first_line": ev["first_line"], "kind": ev["kind"],
+                     "sha256": hashlib.sha256(n.encode("utf-8")).hexdigest(),
+                     "in_sources": bool(n) and n in norm_sources,
+                     "in_facts": "NOT INSTRUMENTED"})
+    blob = {"repeats": len(rows), "events": rows,
+            "source_strings": len(source_texts),
+            "facts_block": "NOT INSTRUMENTED: no daemon route or log exposes the catch-up facts block"}
+    d = os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(OSTLER, "walks", "probe-evidence")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "morning_brief_repeats_%s_%s.json" % (
+            time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), os.urandom(4).hex()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh, sort_keys=True)
+        return {"path": path, "error": None, "in_sources": sum(1 for r in rows if r["in_sources"])}
+    except OSError as exc:
+        return {"path": None, "error": "%s: %s" % (type(exc).__name__, exc), "in_sources": 0}
 
 
 def export_brief_text(text):
@@ -677,6 +739,7 @@ def box_morning(wait_s=600):
     job_id = None
     try:
         code, body = _hub("/api/v1/commitments?owner=user&status=open")
+        commit_body = body
         seeded_visible = code == 200 and any(OWNER_PROMISE == (c.get("action") or "")
                                              for c in (body or {}).get("commitments") or [])
         if not seeded_visible:
@@ -716,7 +779,11 @@ def box_morning(wait_s=600):
             return out
         out["answered"] = bool(text.strip())
         out.update(brief_shape(text))
-        out["repeats"] = brief_repeats(text)
+        events = brief_repeat_events(text)
+        out["repeats"] = len(events)
+        ev_out = write_repeat_evidence(events, _source_strings(commit_body, rbody, cbody))
+        out["repeat_evidence_path"], out["repeat_evidence_error"] = ev_out["path"], ev_out["error"]
+        out["repeat_in_sources"] = ev_out["in_sources"]
         p, h, err = export_brief_text(text)
         out["brief_text_path"], out["brief_text_sha256"], out["brief_text_export_error"] = p, h, err
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
@@ -751,6 +818,10 @@ def judge_morning(c):
     check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
     if "repeats" in c:
         check("the brief lists nobody and nothing twice (%d repeated)" % c["repeats"], c["repeats"] == 0)
+        if c["repeats"]:
+            lines.append("  note   repeated lines kept on the box: %s (%s in the source rows; facts block NOT INSTRUMENTED)"
+                         % (c.get("repeat_evidence_path") or "NOT WRITTEN: %s" % c.get("repeat_evidence_error"),
+                            c.get("repeat_in_sources", "NOT MEASURED")))
     else:
         lines.append("  note   NOT MEASURED: this capture predates the repeat count")
     if c.get("brief_text_path"):
