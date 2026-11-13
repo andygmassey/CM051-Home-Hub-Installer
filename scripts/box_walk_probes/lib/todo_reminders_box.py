@@ -293,11 +293,17 @@ def _as_quote(v):
     return v.replace('\\', '\\\\').replace('"', '\\"')
 
 
+# A cold Reminders launch can take longer than 20 s. The walk measured a 20 s
+# budget expiring on the delete (walk 130, todos_reach_reminders), leaving the
+# reminder to sync back via iCloud into the next walk.
+_OSA_TIMEOUT_S = 60
+
+
 def _osa(script, runner=None):
     """Run one AppleScript. Returns (rc, stdout, stderr); never raises."""
     runner = runner or subprocess.run
     try:
-        p = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
+        p = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=_OSA_TIMEOUT_S)
         return p.returncode, (p.stdout or ""), (p.stderr or "")
     except Exception as exc:
         return 1, "", "osascript could not run: {}".format(exc)
@@ -321,7 +327,12 @@ def delete_reminder(ident, runner=None):
         return {"state": "none_to_delete"}
     q = _as_quote(ident)
     sel = 'every reminder whose id contains "%s"' % q
-    rc, out, err = _osa('tell application "Reminders" to delete (%s)' % sel, runner)
+    delete = 'tell application "Reminders" to delete (%s)' % sel
+    rc, out, err = _osa(delete, runner)
+    if rc != 0 and "timed out" in err.lower():
+        # The delete may land late; retry once, and let the verifying count
+        # below decide whether the reminder is actually gone.
+        rc, out, err = _osa(delete, runner)
     if rc != 0:
         blocked = any(m in err.lower() for m in _TCC_MARKERS)
         return {"state": "blocked_tcc" if blocked else "failed", "error": err.strip()[:200]}

@@ -34,6 +34,7 @@ on:
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'tests/test_container_runtime_precondition.sh'
+      - 'tests/test_docker_cli_presence_gates_the_colima_install.sh'
       - '.github/workflows/container-runtime-precondition.yml'
       # Watched because the step below RUNS it. A run: without a
       # matching path entry means editing this file does not trigger
@@ -59,6 +60,12 @@ jobs:
 
       - name: An install may not report success with no container runtime
         run: /bin/bash tests/test_container_runtime_precondition.sh
+
+      # Runs the live colima block under a stub PATH: the docker CLI is
+      # installed when colima is the only runtime (2026-11-14 defect).
+      - name: A colima-only Mac installs the docker CLI before colima starts
+        if: always()
+        run: /bin/bash tests/test_docker_cli_presence_gates_the_colima_install.sh
 
       # if: always() so a failure above cannot silence this one.
       - name: install.sh and its catalogue parse under bash 3.2
