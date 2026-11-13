@@ -195,8 +195,11 @@ for f in files:
         continue
     stem = os.path.basename(f)[:-5] if f.endswith('.json') else os.path.basename(f)
     if '.' in stem:
-        # messages.imessage -> imessage: the file names the panel row itself.
-        keys.add(stem.split('.', 1)[1])
+        # messages.imessage -> imessage: the second part names the panel row.
+        # emails.history -> email: the FIRST part names the row (FLAT_ALIASES),
+        # and the second part is a sub-shard. Walk 130 read it as 'history'.
+        first, _, second = stem.partition('.')
+        keys.add(FLAT_ALIASES[first] if first in FLAT_ALIASES else second)
     else:
         k = doc.get('key')
         if k:

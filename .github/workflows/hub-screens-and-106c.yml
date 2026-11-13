@@ -76,6 +76,8 @@ on:
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
       - 'tests/test_todo_reminders_cleanup_deletes_what_it_created.py'
+      - 'tests/test_freshness_shard_keys.py'
+      - 'scripts/box_walk_probes/probes/freshness_panel_has_dates.sh'
       - 'tests/test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py'
       - 'tests/test_todos_probe_text_fits_the_product_title_limit.sh'
       - 'scripts/box_walk_probes/probes/todos_reach_reminders.sh'
@@ -293,6 +295,9 @@ jobs:
           printf '%s\n' "$out"
           if [ "$rc" -ne 1 ]; then echo "self-test exit $rc, expected 1 (known-bad input must FAIL)"; exit 1; fi
           if ! printf '%s\n' "$out" | grep -c 'negative control behaved' >/dev/null; then echo "exit 1 but no 'negative control behaved' verdict"; exit 1; fi
+      - name: The freshness panel derives each source row from its shard name (emails.history is the email row)
+        if: always()
+        run: python3 tests/test_freshness_shard_keys.py
       - name: The todo-reminders cleanup deletes what it created, or says it could not
         if: always()
         run: python3 tests/test_todo_reminders_cleanup_deletes_what_it_created.py

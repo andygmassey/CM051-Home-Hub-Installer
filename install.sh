@@ -14985,8 +14985,8 @@ else
         ENGINE_PRESENT=true
         info "container runtime present: Docker Desktop"
     fi
-
-    if [[ "$ENGINE_PRESENT" == false ]]; then
+    DOCKER_CLI_PRESENT=false; { command -v docker &>/dev/null && { docker compose version &>/dev/null || command -v docker-compose &>/dev/null; }; } && DOCKER_CLI_PRESENT=true
+    if [[ "$ENGINE_PRESENT" == false || "$DOCKER_CLI_PRESENT" == false ]]; then
         info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose
         # Re-eval Homebrew PATH so newly installed commands are found
@@ -15054,7 +15054,7 @@ else
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
                 # Sized by lib/ostler-vm-size.sh (see above), not a fixed 4 GiB.
-                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>/dev/null \
+                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>>"${INSTALL_LOG:-/dev/null}" \
                     && docker info &>/dev/null 2>&1; then
                     colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
                     break
@@ -15073,7 +15073,7 @@ else
                 if [[ -d "/Applications/Docker.app" ]]; then
                     open -a Docker 2>/dev/null || true
                 else
-                    fail_with_code "ERR-06-DOCKER-COLIMA-FAIL" "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD"
+                    fail_with_code "ERR-06-DOCKER-COLIMA-FAIL" "$MSG_FAIL_NEITHER_COLIMA_NOR_DOCKER_DESKTOP_COULD colima said: $(grep -E 'FATA|fatal' "${INSTALL_LOG:-/dev/null}" | tail -n 1)"
                 fi
             fi
         fi
