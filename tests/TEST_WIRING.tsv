@@ -309,6 +309,7 @@ test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling
 test_daemon_hold_registers_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_daemon_warmup_loads_at_chat_num_ctx.sh	WIRED	.github/workflows/model-download-honesty.yml
+test_data_conservation_row_evidence.py	WIRED	.github/workflows/data-conservation-probe-tests.yml
 test_db_key_probe_judges_only_launchd_posture.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_dead_tarball_url_is_not_advertised.sh	WIRED	.github/workflows/download-urls-resolve.yml
@@ -345,6 +346,7 @@ test_dispatch_timeout.sh	WIRED	.github/workflows/dispatch-timeout.yml
 test_dispatch_timing.sh	WIRED	.github/workflows/dispatch-timing.yml
 test_display_name_tiers.sh	WIRED	.github/workflows/display-name-tiers.yml
 test_dmg_contains_bundled_python.sh	UNWIRED	-
+test_docker_cli_presence_gates_the_colima_install.sh	WIRED	.github/workflows/container-runtime-precondition.yml
 test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_doctor_credential_routes_owner_only.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
@@ -468,6 +470,7 @@ test_food_mbox_consumed_and_pruned.py	WIRED	.github/workflows/derived-preference
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
 test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
+test_freshness_shard_keys.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_front_page_not_me_probe_end_to_end.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_triggers_wiki_recompile_on_change.sh	WIRED	.github/workflows/vendor-integrity.yml
@@ -615,6 +618,7 @@ test_model_download_size_honesty.sh	WIRED	.github/workflows/model-download-hones
 test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_pull_progress_is_one_overall_bar.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_model_pull_uses_the_pinned_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_morning_brief_repeat_evidence.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_morning_reply_naming_top_n.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml

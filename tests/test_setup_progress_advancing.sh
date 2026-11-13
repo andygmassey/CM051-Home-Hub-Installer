@@ -304,11 +304,24 @@ else
     fi
 
     # (11) done going backwards on a fresh shard is FAIL.
+    #      The decrease is written AFTER the probe holds its start sample, signalled
+    #      by the probe touching BACK_MARK (OSTLER_PROBE_START_MARKER). Never a fixed
+    #      sleep: on a slow runner the probe can take longer than any sleep to reach
+    #      sample 1, and a decrease that lands before it reads the same value twice
+    #      and waves the regression through. OSTLER_PROBE_START_DELAY_S delays sample 1
+    #      on purpose, so this arm is exercised with a slow first sample.
     BACK="$TMP/probe-back"
+    BACK_MARK="$TMP/back.start-sampled"
     terminal_rest "$BACK" contacts calendar messages
     mkshard "$BACK" emails "{\"key\":\"emails\",\"done\":9000,\"total\":121893,\"updated_at\":\"$(ago 60)\"}"
-    ( sleep 0.3; printf '%s\n' "{\"key\":\"emails\",\"done\":8000,\"total\":121893,\"updated_at\":\"$(ago 1)\"}" > "$BACK/settling_progress.d/emails.json" ) &
-    OSTLER_STABILITY_INTERVAL_S=3 probe "$BACK" "$TMP/back.out"; rc=$?
+    BACK_NEW="{\"key\":\"emails\",\"done\":8000,\"total\":121893,\"updated_at\":\"$(ago 1)\"}"
+    (
+        w=0
+        while [[ ! -e "$BACK_MARK" && "$w" -lt 400 ]]; do sleep 0.05; w=$((w+1)); done
+        printf '%s\n' "$BACK_NEW" > "$BACK/settling_progress.d/emails.json"
+    ) &
+    OSTLER_PROBE_START_DELAY_S=1 OSTLER_PROBE_START_MARKER="$BACK_MARK" \
+        OSTLER_STABILITY_INTERVAL_S=3 probe "$BACK" "$TMP/back.out"; rc=$?
     wait
     if [[ "$rc" -eq 1 ]] && /usr/bin/grep -q 'done went backwards' "$TMP/back.out"; then
         ok "a fresh shard whose done decreased FAILs"

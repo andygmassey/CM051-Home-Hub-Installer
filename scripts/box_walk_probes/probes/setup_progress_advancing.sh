@@ -387,6 +387,11 @@ run_probe() {
     # 1. THE FIRST CALL TO THE BOX IS THE START SAMPLE, and it is also the
     #    reachability check. An unreachable box is CANNOT-RUN here, with the
     #    transport's stderr as the reason.
+    # TEST SEAM ONLY: a startup delay before sample 1, so a test can prove a
+    # writer that races the first sample is caught. Unset on a real box.
+    if [ -n "${OSTLER_PROBE_START_DELAY_S:-}" ]; then
+        sleep "$OSTLER_PROBE_START_DELAY_S"
+    fi
     if ! _first_sample "$tmp/start.raw" "${OSTLER_SETTLING_DIR:-}" "${OSTLER_STATE_DIR:-}"; then
         _box_cannot "the box did not answer, so the Setting-up bar was not read" "$tmp/start.raw.err"
     fi
@@ -404,6 +409,11 @@ run_probe() {
     if ! _shards_only "$tmp/start.raw" "$tmp/start.txt"; then
         _probe_cleanup
         probe_cannot_run "could not split the start sample from $dir on the box (not a pass)"
+    fi
+    # TEST SEAM ONLY: a test that must change shards after sample 1 names a marker
+    # file here; it is touched once the start sample is held. Unset on a real box.
+    if [ -n "${OSTLER_PROBE_START_MARKER:-}" ]; then
+        : > "$OSTLER_PROBE_START_MARKER"
     fi
 
     # 2. THE MANIFEST, on the box. Absent or unusable is a FAIL (the #3453 check).
