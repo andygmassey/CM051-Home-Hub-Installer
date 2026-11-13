@@ -14985,7 +14985,7 @@ else
         ENGINE_PRESENT=true
         info "container runtime present: Docker Desktop"
     fi
-    DOCKER_CLI_PRESENT=false; { command -v docker &>/dev/null && { command -v docker-compose &>/dev/null || [[ -x /opt/homebrew/lib/docker/cli-plugins/docker-compose ]]; }; } && DOCKER_CLI_PRESENT=true
+    DOCKER_CLI_PRESENT=false; { command -v docker &>/dev/null && { docker compose version &>/dev/null || command -v docker-compose &>/dev/null; }; } && DOCKER_CLI_PRESENT=true
     if [[ "$ENGINE_PRESENT" == false || "$DOCKER_CLI_PRESENT" == false ]]; then
         info "$MSG_INFO_INSTALLING_COLIMA_DOCKER_CLI"
         brew install colima docker docker-compose

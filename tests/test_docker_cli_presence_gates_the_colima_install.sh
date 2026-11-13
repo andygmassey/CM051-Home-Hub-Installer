@@ -120,10 +120,13 @@ EOF
     cat > "$stub/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "docker $*" >> "${STUB}/docker.calls"
+# Compose as the CLI sees it: a plugin in ~/.docker/cli-plugins. Local, no daemon.
+if [[ "${1:-}" == compose && "${2:-}" == version ]]; then [[ -x "${HOME}/.docker/cli-plugins/docker-compose" ]] && exit 0 || exit 1; fi
 # The daemon answers only once colima has started, as on a real box.
 if [[ "${1:-}" == info ]]; then [[ -f "${STUB}/colima.running" ]] && exit 0 || exit 1; fi
 exit 0
 EOF
+    printf '#!/usr/bin/env bash\necho "open $*" >> "${STUB}/open.calls"; exit 0\n' > "$stub/bin/open"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/bin/docker-compose"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/bin/sleep"
     # brew: `install` creates each named binary (docker only when
@@ -151,12 +154,19 @@ EOF
 # Sets RC, OUT, LOG, BREW_CALLED (yes|no), COLIMA_CALLED (yes|no).
 run_arm() {
     local name="$1" src="$2" has_colima="$3" has_docker="$4" has_compose="$5"
-    local brew_delivers="$6" fatal="$7"
+    local brew_delivers="$6" fatal="$7" desktop="${8:-0}"
     local stub="${WORK}/arm-${name}"
     rm -rf "$stub"; write_stubs "$stub"
     [[ "$has_colima"  == 1 ]] || rm -f "$stub/bin/colima"
     [[ "$has_docker"  == 1 ]] || rm -f "$stub/bin/docker"
     [[ "$has_compose" == 1 ]] || rm -f "$stub/bin/docker-compose"
+    # Docker Desktop: its app bundle exists, and compose is only the plugin in
+    # ~/.docker/cli-plugins (no Homebrew compose binary, no Homebrew plugin).
+    if [[ "$desktop" == 1 ]]; then
+        mkdir -p "$stub/Docker.app" "$stub/home/.docker/cli-plugins"
+        printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/home/.docker/cli-plugins/docker-compose"
+        chmod +x "$stub/home/.docker/cli-plugins/docker-compose"
+    fi
     if ! extract_slice "$src" "$stub/slice.raw"; then
         echo "CANNOT-RUN: colima block not found in ${src} for arm ${name}. NOT a pass." >&2
         exit 2
@@ -200,6 +210,18 @@ if [[ "$RC" -eq 0 && "$BREW_CALLED" == no ]] && grep -q 'REACHED_END' <<< "$OUT"
     ok "both: no brew call, block completes (control)"
 else
     bad "both: unexpected brew call or failure" "rc=${RC} brew=${BREW_CALLED}"
+fi
+
+# Docker Desktop: docker CLI on PATH, compose ONLY as the plugin in
+# ~/.docker/cli-plugins, no Homebrew compose, no colima. Desktop's engine is
+# present, so nothing may be installed. The current branch predicate asks for
+# a docker-compose binary and so reinstalls over Desktop: this arm goes red.
+run_arm desktop "$INSTALL_SH" 0 1 0 1 "" 1
+if [[ "$RC" -eq 0 && "$BREW_CALLED" == no ]] && grep -q 'REACHED_END' <<< "$OUT"; then
+    ok "Docker Desktop (compose plugin only): no brew call, block completes"
+else
+    bad "Docker Desktop (compose plugin only): brew would shadow Desktop's CLI" \
+        "rc=${RC} brew=${BREW_CALLED} out: $(tr '\n' ' ' <<< "$OUT" | cut -c1-200)"
 fi
 
 # neither: a clean machine installs the lot.
