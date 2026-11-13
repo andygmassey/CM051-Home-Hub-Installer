@@ -140,6 +140,13 @@ jobs:
         if: always()
         run: bash tests/test_homebrew_bootstrap_is_pinned.sh
 
+      # INDIVIDUAL STEP, same reason as the one above: new-tests-wired needs the
+      # test's path and an execution verb on one line. Pause gates on the contact
+      # re-index and the hourly email import (the tester scenario, 2026-11-13).
+      - name: Paused means no contact re-index and no email import; unpaused means work
+        if: always()
+        run: bash tests/test_background_pause_gates_contact_and_email.sh
+
       # INDIVIDUAL STEP for the same reason as the one above: the care rules
       # (AGENTS.md + local helpline) are written into the daemon workspace.
       - name: The care rules and the local helpline are written into the assistant workspace
