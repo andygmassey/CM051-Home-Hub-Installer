@@ -222,7 +222,7 @@ PYTHON_BUNDLE_TARBALL  := $(BUILD_DIR)/python-bundle.tar.gz
 # DAEMON_VERSION + DAEMON_SHA256 and run `make download-daemon` to
 # verify the fetch + checksum still pass.
 # ---------------------------------------------------------------------------
-DAEMON_VERSION       ?= 0.5.38
+DAEMON_VERSION       ?= 0.5.39
 # SHA-256 of the published hub-v$(DAEMON_VERSION) tarball
 # (ostler-assistant-aarch64-apple-darwin-v$(DAEMON_VERSION).tar.gz). Verified
 # fail-closed in download-daemon: a mismatch deletes the file + aborts the cut,
@@ -316,7 +316,7 @@ DAEMON_VERSION       ?= 0.5.38
 # has been published at ostler-ai/ostler-assistant. Cutting v1.0.91 before
 # that second artefact exists will fail exactly as v1.0.81 did (see the
 # v1.0.81 note above) -- out of scope for this pin, flagged for whoever cuts.
-DAEMON_SHA256        ?= 6a6597e0e77ebf115fddd8f42b918df7ad8661c529c9f80df201e6c3e80b4b33
+DAEMON_SHA256        ?= d64a2517253667d0d5a4756c71c2ff8bab599dd1bdf32cfe77ca6b03e89fc438
 DAEMON_REPO          ?= ostler-ai/ostler-releases
 DAEMON_TARGET        ?= aarch64-apple-darwin
 DAEMON_TARBALL_NAME  := ostler-assistant-$(DAEMON_TARGET)-v$(DAEMON_VERSION).tar.gz
@@ -437,7 +437,7 @@ HUB_APP_TARBALL_CACHE := $(BUILD_DIR)/$(HUB_APP_TARBALL_NAME)
 # produced is byte-identical (sha256 2b65537ee0...) to the copy already
 # grepped and differentially proven inside the hub-v0.4.80 daemon tarball,
 # and both binaries carry the same *_FRONTEND_COMMIT marker.
-HUB_APP_SHA256       ?= aa98c3168b47cc2537ab8062ad749c958909dcc61b8aa8693ec0d96f7a23dbb8
+HUB_APP_SHA256       ?= 5925df693023af486157db6de08adc2bda06524010afcfbf85939b878b3b925d
 
 # ---------------------------------------------------------------------------
 # SAFARI EXTENSION (CM020) -- the third artefact the cut cannot build itself.
