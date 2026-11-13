@@ -356,7 +356,7 @@ if [[ "${TIER:-full}" == "smoke" ]]; then
     # --allow-writes: the blocking probes need their seeds, and --only alone implies read-only (no seeds).
     RUN_ARGS=(--allow-writes --only "$(printf '%s\n' "$SMOKE_SELECTED" | cut -f1 | paste -sd, -)")
 fi
-OSTLER_BOX_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1 | tee -a "$PROBE_LOG"
+OSTLER_BOX_HOST="$BOX" OSTLER_WALK_REMOTE_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
 # THE COUNTS, NOT THE RETURN CODE. run_box_walk.sh exits 0 whenever

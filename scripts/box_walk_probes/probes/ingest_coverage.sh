@@ -153,7 +153,10 @@ PROBE_NAME="ingest_coverage"
 PROBE_QUESTION="of the nine ingest sources, how many have landed data, and is any store EMPTY?"
 
 QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
-BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${HOME}/.ostler/state/ingest_coverage_baseline.tsv}"
+# RUNNER-OWNED, NOT PRODUCT STATE. The baseline belongs to the walk runner, so it
+# lives under the runner's XDG state dir, never under the product's ~/.ostler (a path
+# the driver-home gate must never see). Override: OSTLER_RUNNER_STATE_DIR.
+BASELINE_FILE="${OSTLER_INGEST_BASELINE:-${OSTLER_RUNNER_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ostler-walk}/ingest_coverage_baseline.tsv}"
 
 # ---------------------------------------------------------------------------
 # THE DISCRIMINATOR THIS PROBE SAID IT DID NOT HAVE (#851).
