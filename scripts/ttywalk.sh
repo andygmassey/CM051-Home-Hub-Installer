@@ -722,6 +722,24 @@ printf '%s\n' "$_tcc_declared" | while IFS= read -r _l; do say "$_l"; done
 # directive walks there is no graph to dump. The flag remains an alias.
 
 
+# ── COLD PROOF, step 1 of 2 (v1.0.129 walk): count BEFORE any teardown ──
+# The v1.0.129 reset was not cold: 123,775 files under
+# ~/.ostler/state/conversations_mirror predated it, because the #1828
+# config-only teardown never touched state. scripts/walk_cold_wipe_state.sh
+# counts the files under ~/.ostler, ~/Documents/Ostler and
+# ~/Library/Application Support/Ostler* here, and wipes + re-counts below.
+if (( DO_RESET == 1 )); then
+    rule "COLD PROOF 1/2: file counts per root BEFORE the teardown"
+    _cold_script="$(dirname "${BASH_SOURCE[0]}")/walk_cold_wipe_state.sh"
+    _cold_allow="$(dirname "${BASH_SOURCE[0]}")/walk_cold_allowlist.tsv"
+    [[ -f "$_cold_script" ]] || die "cold proof: ${_cold_script} is missing; the reset cannot prove the box cold"
+    [[ -f "$_cold_allow" ]] || die "cold proof: ${_cold_allow} is missing; an unlisted wipe is refused"
+    _cold_b64="$(base64 < "$_cold_allow" | tr -d '\n')"
+    if ! "${SSH[@]}" "COLD_MODE=before COLD_ALLOWLIST_B64=${_cold_b64} /bin/bash -s" < "$_cold_script" 2>&1; then
+        die "cold proof: the before-count failed (see above); refusing to reset"
+    fi
+fi
+
 if [[ "$DO_RESET" -eq 1 ]]; then
     rule "RESET (uninstall + bootout + VM and data disk delete + port check)"
     if ! "${SSH[@]}" 'set -u
@@ -1083,6 +1101,20 @@ if [[ "$DO_RESET" -eq 1 ]]; then
     fi
 fi
 
+# ── COLD PROOF, step 2 of 2: wipe every Ostler root, REFUSE unless 0 remain ──
+# After the VM, the launchd jobs and the foreign-ollama check, so nothing is
+# writing into the roots. Wipes everything under ~/.ostler, ~/Documents/Ostler
+# and ~/Library/Application Support/Ostler* except scripts/walk_cold_allowlist.tsv
+# (one reason per row), prints before and after per root, and exits 2 unless the
+# after-count outside the allowlist is 0, listing up to 20 offending paths.
+# HARNESS ONLY: the installer never deletes conversations_mirror on a reinstall.
+if (( DO_RESET == 1 )); then
+    rule "COLD PROOF 2/2: wipe the Ostler roots and count AFTER"
+    if ! "${SSH[@]}" "COLD_MODE=wipe COLD_ALLOWLIST_B64=${_cold_b64} /bin/bash -s" < "$_cold_script" 2>&1; then
+        die "cold proof: NOT COLD, files survived the wipe outside the allowlist (see above); refusing to stage or walk"
+    fi
+fi
+
 # ── Stage: the REPO by default, or the ARTEFACT with --from-dmg ──────
 #
 # 🔴 EVERY WALK THIS HARNESS HAS EVER RUN MEASURED THE REPO, NOT THE DMG, and
@@ -1355,6 +1387,12 @@ fi
         mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance
     else
         printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
+    fi
+    # COLD PROOF, consumed the same way: a walk with no --reset has no proof.
+    if [ -f ~/.walk-cold-run ]; then
+        mv ~/.walk-cold-run ~/.walk-cold
+    else
+        printf 'NOT_COLD(no reset step ran, so nothing wiped or counted the Ostler roots)\n' > ~/.walk-cold
     fi
     # THE HUB PASSPHRASE PROMPT HAS NO WAY PAST, so the walk must be able
     # to answer it or the install re-prompts for ever (install.sh:8032-8051

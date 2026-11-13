@@ -1148,6 +1148,8 @@ jobs:
           printf 'broken\t0\n'                   >> walks/v0.0.0-citest.tsv
           printf 'verdict\tCLEAN\n'              >> walks/v0.0.0-citest.tsv
           printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
+          # A CLEAN record needs cold PROVEN (the v1.0.129 walk was not cold).
+          printf 'cold\tPROVEN(synthetic CI control record)\n' >> walks/v0.0.0-citest.tsv
           bash scripts/verify_walk_record.sh v0.0.0-citest "$CITEST_SHA"
           rm -f walks/v0.0.0-citest.tsv /tmp/citest-artefact.bin
 
