@@ -32,6 +32,36 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.130 prep, ORM 2026-11-13 on Archie's ruling (via Aesop): check-pr-age RED on these at the 130 cut (CM051 scope,
+  # measured locally at bc2ae512). FIRST so verify_pr_age.sh takes these rows. #3433 CLOSED by Aesop, no row. Each expires after v1.0.131;
+  # review_by 2026-11-20 so none falls due on the macOS/ubuntu boundary day (#3396).
+  - ref: "CM051-Home-Hub-Installer#3435"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (cm048 re-vendor); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3434"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (reply-debt Sent folders); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3432"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (vault phase 1, off by default); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3428"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (FDA drag gate); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3423"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (WhatsApp export auto-process); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3421"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing in 130 (ChatGPT export zips to CM052); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing (walk-harness fixes); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3357"
+    reason: "EXEMPT (Archie 2026-11-13): open, ships nothing (v1.0.124 walk record); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3365"
+    reason: "EXEMPT (Archie 2026-11-13): DRAFT, post-launch, ships nothing (colima VM resize on upgrade); target v1.0.131; expires after v1.0.131. Owner: Aesop."
+    review_by: 2026-11-20
   # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
   # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
   - ref: "CM051-Home-Hub-Installer#3347"

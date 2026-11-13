@@ -1,8 +1,8 @@
 # cut-manifests/v1.0.130.yaml
 # v1.0.130 PREP (ORM, 13 Nov 2026): CARRIED from cut-manifests/v1.0.129.yaml (tag v1.0.129; main 14f45efb matches it). Main's
 # newest open_issues register is that same file, so no newer rows to take. Version key changed. Issue 3366's NOT BLOCKING
-# ruling expired after v1.0.129 and is replaced by an EXPIRED marker; Archie rules 3366, and re-rules 3404 and 3407 (both
-# conditions written for the v1.0.129 walk). v1.0.129 walk FAILED (walks/v1.0.129.tsv, NOT_COLD).
+# ruling expired after v1.0.129; Archie re-ruled 2026-11-13: 3366 NOT BLOCKING expiring after v1.0.130, 3404 and 3407 NOT BLOCKING
+# with conditions for the v1.0.130 walk. v1.0.129 walk FAILED (walks/v1.0.129.tsv, NOT_COLD).
 # NO verdict_130 is written: per-cut rulings are Archie's.
 # ============================================================================
 # cut-manifests/v1.0.129.yaml
@@ -6343,7 +6343,7 @@ open_issues:
   - issue: 3366
     repo: CM051
     title: 'test_mutex_skips_when_another_tick_holds_the_lock writes the real ~/.ostler/state (no HOME isolation)'
-    gate: 'EXPIRED AFTER v1.0.129 (ORM 2026-11-13). Archie''s NOT BLOCKING ruling of 2026-11-12 (test-hygiene defect on the dev/CI box, the test writes the real ~/.ostler/state, not in the shipped artefact) lapsed with that cut. Archie rules it again for v1.0.130 before the tag.'
+    gate: 'NOT BLOCKING (Archie 2026-11-13, for v1.0.130): test-hygiene defect on the dev/CI box (the test writes the real ~/.ostler/state), not in the shipped artefact; expires after v1.0.130.'
 
   - issue: 3383
     repo: CM051
@@ -6373,7 +6373,7 @@ open_issues:
   - issue: 3404
     repo: CM051
     title: 'ttywalk.sh:1459 derives the guard @OWNER@ from ${HOST%%@*}: a bare ssh alias becomes the owner'
-    gate: 'NOT BLOCKING (Archie 2026-11-11): CONDITION for the v1.0.129 thin walk: run ttywalk with --host user@host, never a bare ssh alias.'
+    gate: 'NOT BLOCKING (Archie 2026-11-13): CONDITION for the v1.0.130 thin walk: run ttywalk with --host user@host, never a bare ssh alias.'
 
   - issue: 3405
     repo: CM051
@@ -6383,4 +6383,4 @@ open_issues:
   - issue: 3407
     repo: CM051
     title: 'post_walk_qa reads cut-manifests/<v>.yaml from the harness checkout (main), not from the tag under test: phase 2 skipped as COVERAGE LOST'
-    gate: 'NOT BLOCKING (Archie 2026-11-11): CONDITION: cut-manifests/v1.0.129.yaml must be on main before the v1.0.129 walk, else post_walk_qa phase 2 silently does not run.'
+    gate: 'NOT BLOCKING (Archie 2026-11-13): CONDITION: #3474 (cut-manifests/v1.0.130.yaml) must be merged to main before the v1.0.130 walk starts, else post_walk_qa phase 2 silently does not run.'
