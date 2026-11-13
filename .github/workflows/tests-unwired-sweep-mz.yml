@@ -90,9 +90,9 @@ jobs:
         if: always()
         run: bash tests/test_ingest_all_history_no_mail_prompt.sh
 
-      - name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
+      - name: The 48GB+ tier installs qwen3.6:35b-a3b (24-47GB qwen3.5:9b)
         if: always()
-        run: bash tests/test_tier48_picks_9b.sh
+        run: bash tests/test_tier48_picks_35b.sh
 
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()

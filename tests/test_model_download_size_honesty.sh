@@ -72,6 +72,17 @@ FLOOR_PROVENANCE="qwen3.5:4b, clean pull under the pinned Ollama 0.34.0, layers 
 # cheapest-to-download -- model the product ever ships.
 MEASURED_TIER_RAM_GB=16
 
+# The 48 GB+ tier, measured the same way on 2026-11-13 from the REGISTRY
+# manifest for qwen3.6:35b-a3b (no blob download): the layers sum to
+# 22,621,314,161 bytes = 22.62 GB, a GGUF build (format "gguf", runner
+# "llamacpp") whose manifest is byte-identical in config and layers to the
+# on-disk manifest the pinned Ollama 0.34.0 wrote on a clean pull,
+# docs/model-pins/ollama-0.34.0/qwen3.6_35b-a3b.json (pins_0340 evidence,
+# 2026-10-18). Advertised label "~22.7 GB" rounds the measurement UP.
+MEASURED_FLOOR_48_GB="22.62"
+FLOOR_48_PROVENANCE="qwen3.6:35b-a3b, registry manifest layers 22,621,314,161 bytes = 22.62 GB, GGUF, pinned Ollama 0.34.0, 2026-11-13"
+MEASURED_TIER_48_RAM_GB=48
+
 rc=0
 
 say()  { printf '%s\n' "$*"; }
@@ -94,23 +105,23 @@ lt() {
 # Echoes the canonical download label for the measured tier, or "" if the
 # helper cannot answer.
 canonical_label_for_tier() {
-    local tree="$1"
+    local tree="$1" ram="${2:-$MEASURED_TIER_RAM_GB}"
     (
         # shellcheck disable=SC1090
         . "$tree/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
         local tag
-        tag="$(ostler_recommend_model "$MEASURED_TIER_RAM_GB")"
+        tag="$(ostler_recommend_model "$ram")"
         [ -n "$tag" ] || exit 0
         ostler_model_size_label "$tag"
     )
 }
 
 canonical_tag_for_tier() {
-    local tree="$1"
+    local tree="$1" ram="${2:-$MEASURED_TIER_RAM_GB}"
     (
         # shellcheck disable=SC1090
         . "$tree/lib/ostler-model-fit.sh" >/dev/null 2>&1 || exit 0
-        ostler_recommend_model "$MEASURED_TIER_RAM_GB"
+        ostler_recommend_model "$ram"
     )
 }
 
@@ -125,22 +136,23 @@ fallback_label_for_tag() {
 }
 
 # ── Limb 1: the advertised figure is not below what we measured ───────
+# limb_understated <tree> [ram] [floor]: defaults are the 16 GB tier.
 limb_understated() {
-    local tree="$1" lbl num
-    lbl="$(canonical_label_for_tier "$tree")"
+    local tree="$1" ram="${2:-$MEASURED_TIER_RAM_GB}" floor="${3:-$MEASURED_FLOOR_GB}" lbl num
+    lbl="$(canonical_label_for_tier "$tree" "$ram")"
     [ -n "$lbl" ] || return 3          # 3 = cannot run
     num="$(num_from_label "$lbl")"
     [ -n "$num" ] || return 3
-    lt "$num" "$MEASURED_FLOOR_GB" && return 1
+    lt "$num" "$floor" && return 1
     return 0
 }
 
 # ── Limb 2: the two copies of the figure agree ────────────────────────
 limb_drift() {
-    local tree="$1" tag canon fb
-    tag="$(canonical_tag_for_tier "$tree")"
+    local tree="$1" ram="${2:-$MEASURED_TIER_RAM_GB}" tag canon fb
+    tag="$(canonical_tag_for_tier "$tree" "$ram")"
     [ -n "$tag" ] || return 3
-    canon="$(canonical_label_for_tier "$tree")"
+    canon="$(canonical_label_for_tier "$tree" "$ram")"
     fb="$(fallback_label_for_tag "$tree" "$tag")"
     [ -n "$fb" ] || return 3
     [ "$canon" = "$fb" ] || return 1
@@ -239,6 +251,16 @@ limb_understated "$_c1n"; _r=$?
     && say "  ok  limb 1 stays GREEN above the floor (it measures the floor, not a literal)" \
     || cannot_run "limb 1 fired on a label ABOVE the floor (rc=$_r) -- it is not measuring what it claims"
 
+# Limb 1 control on the 48 GB+ tier: the same predicate, a label below 22.62.
+_c1_48="$(new_fixture c1_48)"
+_ctl_tag48="$(canonical_tag_for_tier "$ROOT" "$MEASURED_TIER_48_RAM_GB")"
+[ -n "$_ctl_tag48" ] || cannot_run "the model-fit helper named no model for a ${MEASURED_TIER_48_RAM_GB} GB box"
+force_label "$_c1_48" "$_ctl_tag48" "~10.0 GB" || cannot_run "could not build the 48 GB tier control"
+limb_understated "$_c1_48" "$MEASURED_TIER_48_RAM_GB" "$MEASURED_FLOOR_48_GB"; _r=$?
+[ "$_r" -eq 1 ] \
+    && say "  ok  limb 1 (48 GB tier) fires on a label below the measured 22.62 GB" \
+    || cannot_run "limb 1 did not go red on the 48 GB tier control (rc=$_r)"
+
 # Limb 2 positive control: move ONLY the canonical copy, leave the install.sh
 # ladder untouched, so the two copies must disagree whatever they started at.
 _c2="$(new_fixture c2)"
@@ -285,6 +307,25 @@ case "$_r" in
     0) say "  PASS  both copies of the figure say ${_canon} (helper + install.sh fallback ladder)" ;;
     1) fail "the two copies of the download figure disagree for ${_tag}: lib/ostler-model-fit.sh says '${_canon}', install.sh's fallback ladder says '${_fb}'. The fallback path is the stripped-bundle path -- the one nobody walks." ;;
     *) cannot_run "limb 2 could not read install.sh's fallback ladder for ${_tag}" ;;
+esac
+
+_tag48="$(canonical_tag_for_tier "$ROOT" "$MEASURED_TIER_48_RAM_GB")"
+_canon48="$(canonical_label_for_tier "$ROOT" "$MEASURED_TIER_48_RAM_GB")"
+[ -n "$_tag48" ] && [ -n "$_canon48" ] \
+    || cannot_run "lib/ostler-model-fit.sh named no model or no label for a ${MEASURED_TIER_48_RAM_GB} GB box"
+say "  ${MEASURED_TIER_48_RAM_GB} GB tier -> ${_tag48}, advertised ${_canon48}; measured ${MEASURED_FLOOR_48_GB} GB (${FLOOR_48_PROVENANCE})"
+limb_understated "$ROOT" "$MEASURED_TIER_48_RAM_GB" "$MEASURED_FLOOR_48_GB"; _r=$?
+case "$_r" in
+    0) say "  PASS  48 GB tier advertises ${_canon48}, at or above the measured ${MEASURED_FLOOR_48_GB} GB" ;;
+    1) fail "48 GB tier advertises ${_canon48} for ${_tag48}, but the registry layers measure ${MEASURED_FLOOR_48_GB} GB (${FLOOR_48_PROVENANCE})." ;;
+    *) cannot_run "limb 1 (48 GB tier) could not read a size label off the real tree" ;;
+esac
+limb_drift "$ROOT" "$MEASURED_TIER_48_RAM_GB"; _r=$?
+_fb48="$(fallback_label_for_tag "$ROOT" "$_tag48")"
+case "$_r" in
+    0) say "  PASS  both copies say ${_canon48} for the 48 GB tier (helper + install.sh fallback ladder)" ;;
+    1) fail "48 GB tier: the two copies disagree for ${_tag48}: helper '${_canon48}', fallback ladder '${_fb48}'." ;;
+    *) cannot_run "limb 2 (48 GB tier) could not read install.sh's fallback ladder for ${_tag48}" ;;
 esac
 
 _ranges="$(limb_ranges "$ROOT")"; _r=$?

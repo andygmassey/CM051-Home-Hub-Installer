@@ -82,7 +82,7 @@ assert_fit qwen3.5:4b 64 fits
 # ---------------------------------------------------------------------------
 echo "== install.sh's quoted thresholds match lib/ostler-model-fit.sh =="
 _mf_drift=0; _mf_missing=""
-for _row in "qwen3.5:9b 24 18" "qwen3.5:4b 16 12"; do
+for _row in "qwen3.6:35b-a3b 48 36" "qwen3.5:9b 24 18" "qwen3.5:4b 16 12"; do
     set -- $_row
     if [ "$(grep -c "#     $1 *$2 *$3\$" "$INSTALL")" -lt 1 ]; then
         _mf_missing="$_mf_missing $1"
@@ -90,7 +90,7 @@ for _row in "qwen3.5:9b 24 18" "qwen3.5:4b 16 12"; do
     fi
 done
 if [ "$_mf_drift" -eq 0 ]; then
-    ok "all 2 threshold rows appear in install.sh's comment"
+    ok "all 3 threshold rows appear in install.sh's comment"
 else
     bad "install.sh's comment does not carry these rows:$_mf_missing"
 fi
@@ -102,6 +102,13 @@ else
     bad "CONTROL: a threshold row that is not in the table was found"
 fi
 
+echo "== verdicts: qwen3.6:35b-a3b (48/36 thresholds) =="
+assert_fit qwen3.6:35b-a3b 24 nofit
+assert_fit qwen3.6:35b-a3b 36 slow   # min_slow boundary
+assert_fit qwen3.6:35b-a3b 47 slow
+assert_fit qwen3.6:35b-a3b 48 fits   # min_fit boundary
+assert_fit qwen3.6:35b-a3b 128 fits
+
 echo "== verdicts: qwen3.5:9b (24/18 thresholds) =="
 assert_fit qwen3.5:9b 16 nofit
 assert_fit qwen3.5:9b 18 slow    # min_slow boundary
@@ -109,11 +116,12 @@ assert_fit qwen3.5:9b 23 slow
 assert_fit qwen3.5:9b 24 fits    # min_fit boundary
 assert_fit qwen3.5:9b 48 fits
 
-echo "== 35b-a3b withheld from the picker (v1.0.121, 2026-10-31) =="
-# 35b restored after the M5 red team, tracked as a 122 row.
-assert_fit qwen3.6:35b-a3b 128 nofit   # unknown tag -> nofit, not in the table
-[[ " ${OSTLER_MODEL_TAGS[*]} " != *"35b"* ]] \
-    && ok "no 35b tag in OSTLER_MODEL_TAGS" || bad "a 35b tag is back in OSTLER_MODEL_TAGS"
+echo "== 35b-a3b is in the picker, best first (v1.0.131) =="
+[[ "${OSTLER_MODEL_TAGS[0]}" == "qwen3.6:35b-a3b" ]] \
+    && ok "35b-a3b is OSTLER_MODEL_TAGS[0] (best-first)" || bad "35b-a3b is not first in OSTLER_MODEL_TAGS"
+assert_fit qwen3.6:35b-a3b 128 fits
+# CONTROL: an unknown tag is nofit, so the fit above is a table lookup.
+assert_fit qwen3.6:not-a-model 128 nofit
 
 echo "== recommended model per RAM tier (best comfortable fit) =="
 # assert_reco <ram_gb> <expected_model>
@@ -137,10 +145,10 @@ assert_reco 18  qwen3.5:4b        # 9b only "slow" at 18, so 4b is the comfy fit
 assert_reco 23  qwen3.5:4b        # top of the 16GB tier
 assert_reco 24  qwen3.5:9b        # 9b now fits comfortably
 assert_reco 36  qwen3.5:9b        # 35b only "slow" at 36, 9b still the comfy fit
-assert_reco 47  qwen3.5:9b        # 24-47GB unchanged
-assert_reco 48  qwen3.5:9b        # 48GB+ now 9b (35b withheld, v1.0.121)
-assert_reco 64  qwen3.5:9b
-assert_reco 128 qwen3.5:9b
+assert_reco 47  qwen3.5:9b        # 35b only "slow" at 47, 9b still the comfy fit
+assert_reco 48  qwen3.6:35b-a3b   # 35b fits comfortably (v1.0.131)
+assert_reco 64  qwen3.6:35b-a3b
+assert_reco 128 qwen3.6:35b-a3b
 
 echo "== recommended model never recommends a model that won't fit =="
 for ram in 4 8 12 16 18 20 24 32 36 48 64 96 128; do

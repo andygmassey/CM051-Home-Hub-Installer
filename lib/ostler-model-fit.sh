@@ -68,14 +68,13 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 # Ordering matters: BEST-first (most capable model first). The recommender
 # walks this order and picks the first model whose verdict is "fits".
 #
-# 2026-10-31 (v1.0.121): the 48GB+ tier installs qwen3.5:9b. The 35b-a3b row
-# (min_fit 48, min_slow 36, ~23 GB, "~23 GB", q4_K_M) cannot be safety-tested
-# until about 21 Nov because no 48GB+ test box exists. 35b restored after the
-# M5 red team, tracked as a 122 row. Removing the row (not just raising its
-# threshold) also keeps it out of the customer-facing fit list.
-OSTLER_MODEL_TAGS=(   "qwen3.5:9b" "qwen3.5:4b" )
-OSTLER_MODEL_WEIGHTS=( 6            4            )
-OSTLER_MODEL_QUANT=(  "q4_K_M"     "q4_K_M"      )
+# 2026-11-13 (v1.0.131): the 48GB+ tier installs qwen3.6:35b-a3b again. It was
+# withheld at v1.0.121 (commit 6b0b8c40) only because no 48GB+ test box existed.
+# Its weights are measured from the registry manifest (22.62 GB, GGUF, pinned
+# Ollama 0.34.0); see tests/test_model_download_size_honesty.sh.
+OSTLER_MODEL_TAGS=(   "qwen3.6:35b-a3b" "qwen3.5:9b" "qwen3.5:4b" )
+OSTLER_MODEL_WEIGHTS=( 23                6            4            )
+OSTLER_MODEL_QUANT=(  "q4_K_M"          "q4_K_M"     "q4_K_M"      )
 # size_label PROVENANCE. gemma4:e2b read "~5 GB" until v1061-D002 (reg #623).
 # It was MEASURED at 7.2 GB on the v1.0.61 walk box -- a 44% understatement of
 # the largest single download in the install. The repo already knew: install.sh
@@ -94,13 +93,14 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"     "q4_K_M"      )
 # pulls the GGUF build): the registry manifest for qwen3.5:4b is byte-identical
 # to docs/model-pins/ollama-0.34.0/qwen3.5_4b.json, the on-disk manifest of a
 # clean pull, and its layers sum to 3,324,173,757 bytes.
-OSTLER_MODEL_SIZELBL=("~6.6 GB"    "~3.3 GB"     )
+OSTLER_MODEL_SIZELBL=("~22.7 GB"  "~6.6 GB"    "~3.3 GB"     )
 # min_fit: comfortable at num_ctx 32768.
+#   35b-a3b: ~23 GB weights + ~5 GB 32k KV + headroom -> needs ~48 GB box.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
 #   4b     : ~3.3 GB weights + 32k KV + headroom -> needs ~16 GB box.
-OSTLER_MODEL_MINFIT=( 24           16           )
+OSTLER_MODEL_MINFIT=( 48           24           16           )
 # min_slow: will load but tight (swap risk) below min_fit.
-OSTLER_MODEL_MINSLOW=(18           12           )
+OSTLER_MODEL_MINSLOW=(36           18           12           )
 
 # Internal: index of a model tag in the parallel arrays. Echoes -1 if absent.
 _ostler_model_index() {
@@ -228,4 +228,44 @@ ostler_model_fit_pill() {
         nofit) printf '%s' "${MSG_MODELFIT_PILL_NOFIT:-Will not fit}" ;;
         *)     printf '%s' "$1" ;;
     esac
+}
+
+# ── Install-time floor, per tier (2026-11-13, tier-aware duration copy) ──
+#
+# The customer-facing whole-install floor was "45 minutes to a few hours",
+# priced on the 7.2 GB model download (scripts/verify_install_duration_honesty.sh).
+# A 48GB+ Mac now downloads the qwen3.6:35b-a3b weights (~22.7 GB), so the floor
+# scales with the bytes that tier actually pulls. ASSUMPTION, stated because it
+# is an estimate: the download-bound floor scales linearly with the download
+# size from the 7.2 GB baseline. A slower link only lengthens it, so this
+# never under-promises for a larger model. The floor is never below 45 min.
+OSTLER_INSTALL_FLOOR_BASE_MIN=45
+OSTLER_INSTALL_FLOOR_BASE_GB="7.2"
+
+# Download size in GB (number only) of a model, from its size label.
+ostler_model_download_gb() {
+    ostler_model_size_label "$1" | tr -cd '0-9.' | sed 's/\.$//'
+}
+
+# Whole-install floor in minutes for a RAM tier: the recommended model's
+# download, scaled from the 7.2 GB baseline, rounded up to 15 minutes.
+ostler_install_floor_minutes() {
+    local gb
+    gb="$(ostler_model_download_gb "$(ostler_recommend_model "$1")")"
+    awk -v g="${gb:-0}" -v b="${OSTLER_INSTALL_FLOOR_BASE_GB}" -v m="${OSTLER_INSTALL_FLOOR_BASE_MIN}" \
+        'BEGIN { x = m * g / b; if (x < m) x = m; printf "%d", int((x + 14.999) / 15) * 15 }'
+}
+
+# Minutes as customer copy: 45 -> "45 minutes", 150 -> "2 hours 30 minutes".
+ostler_format_minutes() {
+    local m="$1" h r out=""
+    h=$(( m / 60 )); r=$(( m % 60 ))
+    if (( h > 0 )); then
+        out="${h} hour"; (( h > 1 )) && out="${out}s"
+    fi
+    if (( r > 0 )); then
+        [[ -n "$out" ]] && out="${out} "
+        out="${out}${r} minutes"
+    fi
+    printf '%s' "$out"
 }

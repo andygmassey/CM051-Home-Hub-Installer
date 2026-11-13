@@ -46,7 +46,7 @@ MSG_STEP_SETUP_ANSWER_FEW_QUESTIONS_THEN_WALK="Setup (a few quick questions, the
 # F2 (console walk of DMG #16): the Tailscale sign-in and the assistant's
 # Reminders prompt both moved to the END of the install (after the health
 # check), so the copy says "at the very end", not "near the end".
-MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end, after the health check, you sign in to Tailscale and allow the assistant to use Reminders. Between those you can leave it running."
+MSG_STEP_SETUP_COMPLETE_WRAP_UP="Questions done. Ostler now installs in the background – roughly 45 minutes to a few hours. Three things will still want you: if macOS asks to install developer tools, click Install; near the end there is a minute of setup (switching on Full Disk Access); and at the very end, after the health check, you sign in to Tailscale and allow the assistant to use Reminders. Between those you can leave it running. On a 48GB or larger Mac, which downloads about 22.7 GB of models, allow about 2 hours 30 minutes or more."
 # #613: the line above names a Tailscale sign-in that a customer who answered
 # "skip" to the remote-access question will never be asked for. Promising a step
 # we then do not perform is the same defect class as claiming success we did not

@@ -15,14 +15,19 @@ ok(){ printf '  PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 HONEST='45 minutes to a few hours'
+# The 48GB+ floor: 22.7 GB download, scaled from the 7.2 GB baseline (150 min).
+T48='2 hours 30 minutes'
+LIBSRC="$(cd "$(dirname "$GATE")/.." && pwd)/lib/ostler-model-fit.sh"
 
-# Build a throwaway tree carrying all three surfaces, each honest.
+# Build a throwaway tree carrying all three surfaces, each honest, plus the
+# real fit table so the gate prices the 48GB+ tier from the same table.
 mkroot(){
     local d="$1"; rm -rf "$d"
-    mkdir -p "$d/gui/OstlerInstaller/Resources"
-    printf 'echo "installs automatically (~%s)"\n' "$HONEST" > "$d/install.sh"
-    printf 'MSG_X="the install can run %s"\n' "$HONEST" > "$d/install.sh.strings.en-GB.sh"
-    printf '{ "subtitle": "Roughly %s" }\n' "$HONEST" > "$d/gui/OstlerInstaller/Resources/HintCopy.json"
+    mkdir -p "$d/gui/OstlerInstaller/Resources" "$d/lib"
+    cp "$LIBSRC" "$d/lib/ostler-model-fit.sh"
+    printf 'echo "installs automatically (~%s; 48GB+: %s)"\n' "$HONEST" "$T48" > "$d/install.sh"
+    printf 'MSG_X="the install can run %s; 48GB+: %s"\n' "$HONEST" "$T48" > "$d/install.sh.strings.en-GB.sh"
+    printf '{ "subtitle": "Roughly %s", "why": "48GB+: %s" }\n' "$HONEST" "$T48" > "$d/gui/OstlerInstaller/Resources/HintCopy.json"
 }
 rc(){ bash "$GATE" "$1" >"$TMP/o" 2>&1; echo $?; }
 
@@ -72,6 +77,21 @@ mkroot "$TMP/gone"; rm -f "$TMP/gone/gui/OstlerInstaller/Resources/HintCopy.json
 [[ "$(rc "$TMP/gone")" == 2 ]] \
     && ok "absent surface -> rc=2, distinct from both pass and fail" \
     || no "absent surface did not produce the dedicated rc=2"
+
+# ── Control 10: the 48GB+ estimate must not still be priced on 7.2 GB. The
+#    fit table says the 48GB+ tier downloads 7.2 GB; the gate must go RED.
+mkroot "$TMP/est72"
+printf '\nOSTLER_MODEL_SIZELBL[0]="~7.2 GB"\n' >> "$TMP/est72/lib/ostler-model-fit.sh"
+[[ "$(rc "$TMP/est72")" == 1 ]] && grep -q "48GB+ install estimate prices a 7.2 GB" "$TMP/o" \
+    && ok "48GB+ estimate still priced at 7.2 GB -> rc=1, names the 7.2 GB" \
+    || no "48GB+ estimate priced at 7.2 GB was NOT caught"
+
+# ── Control 11: every surface must state the 48GB+ floor. Drop it from one.
+mkroot "$TMP/no48"
+printf '{ "subtitle": "Roughly %s" }\n' "$HONEST" > "$TMP/no48/gui/OstlerInstaller/Resources/HintCopy.json"
+[[ "$(rc "$TMP/no48")" == 1 ]] && grep -q "HintCopy.json does not state the 48GB+" "$TMP/o" \
+    && ok "a surface missing the 48GB+ floor -> rc=1, names the file" \
+    || no "a surface missing the 48GB+ floor was NOT caught"
 
 echo; echo "  $PASS passed, $FAIL failed"; [[ $FAIL == 0 ]] || exit 1
 echo "ALL INSTALL-DURATION CONTROLS PASSED"

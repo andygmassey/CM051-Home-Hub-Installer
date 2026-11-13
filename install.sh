@@ -1834,7 +1834,7 @@ if [[ "$SHOW_HELP" == true ]]; then
     echo "What this does:"
     echo "  1. Checks prerequisites (macOS, Apple Silicon, RAM, disk)"
     echo "  2. Asks you a few questions (~2 minutes)"
-    echo "  3. Installs everything automatically (~45 minutes to a few hours, depending on your history)"
+    echo "  3. Installs everything automatically (~45 minutes to a few hours, depending on your history; on a 48GB+ Mac, about 2 hours 30 minutes or more, because it downloads about 22.7 GB of models)"
     echo "  4. You walk away and come back to a working system"
     echo ""
     echo "Environment variables (advanced - override before running):"
@@ -4243,7 +4243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9673   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9718   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9727 and :17655, both of which run
+    # Its two top-level arming calls are :9727 and :17668, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18450, where the note reads
+    # WhatsApp Web session path did it again at :18463, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18467 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18480 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4280,9 +4280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9727, :17655) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9727, :17668) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20664 / :20842 / :20999 / :21444 path. There the
+    # :20677 / :20855 / :21012 / :21457 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10220,8 +10220,8 @@ else
     # Fallback: helper not on disk (stripped bundle). Legacy RAM ladder --
     # same thresholds the fit table encodes for the comfortable ("fits") tier.
     if [[ $RAM_GB -ge 48 ]]; then
-        AI_MODEL="qwen3.5:9b"
-        AI_MODEL_SIZE="~6.6 GB"
+        AI_MODEL="qwen3.6:35b-a3b"
+        AI_MODEL_SIZE="~22.7 GB"
     elif [[ $RAM_GB -ge 24 ]]; then
         AI_MODEL="qwen3.5:9b"
         AI_MODEL_SIZE="~6.6 GB"
@@ -11017,7 +11017,7 @@ ostler_resource_tier_detect() {
             # threshold table. Measured on origin/main:
             #
             #     model              min_fit   min_slow
-            #     (35b-a3b withheld, v1.0.121)
+            #     qwen3.6:35b-a3b       48        36
             #     qwen3.5:9b            24        18
             #     qwen3.5:4b            16        12
             #
@@ -14289,7 +14289,20 @@ NEEDS_HOMEBREW=false
 if ! command -v brew &>/dev/null; then
     NEEDS_HOMEBREW=true
 else
-    echo -e "  ${GREEN}  You can walk away -- this takes 45 minutes to a few hours, depending on how much history is on your Mac.${NC}"
+    # Tier-aware floor (lib/ostler-model-fit.sh ostler_install_floor_minutes).
+    # The helper-less stripped bundle prices the 48GB+ tier by the same rule.
+    if declare -F ostler_install_floor_minutes >/dev/null 2>&1; then
+        _install_floor_min="$(ostler_install_floor_minutes "${RAM_GB}")"
+    else
+        _install_floor_min=45
+        if [[ ${RAM_GB} -ge 48 ]]; then _install_floor_min=150; fi
+    fi
+    if [[ "${_install_floor_min}" -gt 45 ]]; then
+        echo -e "  ${GREEN}  You can walk away -- this takes $(ostler_format_minutes "${_install_floor_min}") or more, because your Mac downloads about ${AI_MODEL_SIZE} of models.${NC}"
+    else
+        echo -e "  ${GREEN}  You can walk away -- this takes 45 minutes to a few hours, depending on how much history is on your Mac.${NC}"
+    fi
+    unset _install_floor_min
 fi
 echo ""
 echo -e "${BOLD}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
