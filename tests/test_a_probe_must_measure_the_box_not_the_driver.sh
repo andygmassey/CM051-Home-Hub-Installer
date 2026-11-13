@@ -311,9 +311,90 @@ else
     bad "arm 4: the reason-checker rejects an honest transport report as well as the historical sentence. It refuses everything, which is not a working predicate."
 fi
 
+# ---------------------------------------------------------------------------
+# ARM 5. WIDENED: no probe reads the DRIVER's own ~/.ostler outside a box helper.
+#
+# v1.0.130: setup_progress_advancing tested $HOME/.ostler/state/settling_channels.json
+# and read settling_progress.d LOCALLY, on the driver, while OSTLER_BOX_HOST named
+# the box. It judged the driver's stale ~/.ostler and FAILed a box that had the
+# manifest. The arm above only covers doctor_page; this one covers every probe.
+#
+# THE RULE. A non-comment line that names the driver's home, unescaped, as
+# $HOME/.ostler, ${HOME}/.ostler or ~/.ostler, is a finding UNLESS the same line
+# carries a box helper (box_run, box_run_v, _walk_box_exec, ssh). An escaped
+# \$HOME is a string written for the box to expand, so it is not a local read.
+#
+# LIMIT, stated because it is real: this is a LINE scanner. It cannot see a path
+# built in one variable and read on another line, nor a multi-line box_run whose
+# continuation lines carry the path. Those are not measured here.
+#
+# A verdict or note call (probe_fail, probe_cannot_run, probe_note, ...) that
+# BEGINS the line prints a path and reads nothing, so it is not a finding.
+#
+# NO ALLOWLIST. A finding in another probe is reported as a finding, not exempted.
+# ---------------------------------------------------------------------------
+scan_driver_home_reads() { # <probes dir> -> prints "file:line: text" per finding
+    local dir="$1" f hits hit n text t u
+    for f in "$dir"/*.sh; do
+        [ -f "$f" ] || continue
+        hits="$(/usr/bin/grep -n -E '(\$\{?HOME\}?|~)/\.ostler' "$f" || true)"
+        while IFS= read -r hit; do
+            [ -n "$hit" ] || continue
+            n="${hit%%:*}"
+            text="${hit#*:}"
+            t="${text#"${text%%[![:space:]]*}"}"
+            case "$t" in '#'*) continue ;; esac
+            case "$text" in *box_run*|*_walk_box_exec*|*ssh\ *) continue ;; esac
+            # A verdict or note line PRINTS a path; it reads nothing. Only lines that begin
+            # with the call are exempt, so a test before the call stays a finding.
+            case "$t" in probe_fail*|probe_cannot_run*|probe_note*|probe_pass*|probe_advisory*) continue ;; esac
+            u="${text//\\\$/}"
+            /usr/bin/grep -q -E '(\$\{?HOME\}?|~)/\.ostler' <<< "$u" || continue
+            printf '%s:%s: %s\n' "$(basename "$f")" "$n" "$t"
+        done <<< "$hits"
+    done
+}
+
+PROBES_DIR="${REPO}/scripts/box_walk_probes/probes"
+[ -d "${PROBES_DIR}" ] || cant "no probes directory at ${PROBES_DIR}; the widened scan would report on nothing"
+ARM5_FINDINGS="$(scan_driver_home_reads "${PROBES_DIR}")"
+ARM5_N="$(printf '%s\n' "${ARM5_FINDINGS}" | /usr/bin/grep -c . || true)"
+if [ "${ARM5_N}" -eq 0 ]; then
+    ok "arm 5: no probe reads the driver's ~/.ostler outside a box helper (scanned $(ls "${PROBES_DIR}"/*.sh | wc -l | tr -d ' ') probes)"
+else
+    bad "arm 5: ${ARM5_N} line(s) in probes read the driver's ~/.ostler with no box helper on the line. Each is a bare local read, or a finding to triage; none is allowlisted:"
+    printf '%s\n' "${ARM5_FINDINGS}" | sed 's/^/      /' >&2
+fi
+
+# ---------------------------------------------------------------------------
+# ARM 6. The scanner can go RED and can go GREEN. Positive control: the exact
+# line that the v1.0.130 walk judged (the #3456 probe) must be a finding. Negative
+# controls: the same path inside a box helper, an escaped \$HOME, and a comment
+# must NOT be findings. Without the positive, arm 5's green is decoration.
+# ---------------------------------------------------------------------------
+ARM6_DIR="${WORK}/scan6"
+mkdir -p "${ARM6_DIR}"
+cat > "${ARM6_DIR}/positive_3456.sh" <<'FIX'
+_settling_dir() {
+    printf '%s/settling_progress.d' "${OSTLER_STATE_DIR:-$HOME/.ostler/state}"
+}
+FIX
+cat > "${ARM6_DIR}/negative_controls.sh" <<'FIX'
+# a comment that names ~/.ostler/state/settling_channels.json and $HOME/.ostler is not code
+box_run_v "test -f \"$HOME/.ostler/state/settling_channels.json\""
+x="${OSTLER_STATE_DIR:-\$HOME/.ostler/state}"
+FIX
+ARM6_POS="$(scan_driver_home_reads "${ARM6_DIR}" | /usr/bin/grep -c 'positive_3456.sh:2:' || true)"
+ARM6_NEG="$(scan_driver_home_reads "${ARM6_DIR}" | /usr/bin/grep -c 'negative_controls.sh' || true)"
+if [ "${ARM6_POS}" -eq 1 ] && [ "${ARM6_NEG}" -eq 0 ]; then
+    ok "arm 6: the scanner flags the v1.0.130 line (positive control) and passes the box-helper, escaped and comment lines (negative controls)"
+else
+    bad "arm 6: scanner predicate wrong: positive control hits=${ARM6_POS} (want 1), negative control hits=${ARM6_NEG} (want 0). Arm 5 is not evidence until this is right."
+fi
+
 printf '\n  %s passed, %s failed\n' "${pass}" "${fail}"
 if [ "${fail}" -gt 0 ]; then exit 1; fi
-if [ "${pass}" -lt 4 ]; then
+if [ "${pass}" -lt 6 ]; then
     printf 'CANNOT-RUN: only %s arms reported. A partial run is not a pass.\n' "${pass}" >&2
     exit 2
 fi
