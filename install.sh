@@ -26740,6 +26740,29 @@ rm -f "${STATE_DIR}/contact-resync.tries"
 
 log() { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_FILE"; }
 
+# --- Operator Pause (Doctor Settings) -----------------------------------
+# The contact syncer batch-embeds every person, which is background work, so
+# an explicit Pause stops it too. Same helper and fail-open semantics as the
+# wiki and editor ticks: lib absent or unreadable means proceed. The lib reads
+# OSTLER_PAUSED from governor.env itself, so the setting is loaded first.
+# Disable with OSTLER_RESOURCE_GOVERNOR=0.
+if [[ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-${OSTLER_DIR}/lib/ostler-resource-tier.sh}"
+    if [[ -f "$_ostler_tier_lib" ]]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_rt_load_user_settings >/dev/null 2>&1; then
+            ostler_rt_load_user_settings || true
+        fi
+        if command -v ostler_resource_tier_is_paused >/dev/null 2>&1 \
+            && ostler_resource_tier_is_paused; then
+            log "background work paused by the operator; skipping this contact re-index (auto-resumes when the pause ends)."
+            exit 0
+        fi
+    fi
+fi
+# --- end Operator Pause -------------------------------------------------
+
 # _resync_record <status> <detail>: the ongoing record the Doctor reads.
 _resync_record() {
     local status="$1" detail="$2" now prev="" f="${ACT_DIR}/contacts.tsv"
