@@ -1267,8 +1267,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Liest jedes E-Mail-Konto, das du in Apple Mail
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Ein E-Mail-Konto zu Apple Mail hinzufügen?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="In Apple Mail ist auf diesem Mac noch kein Konto verbunden, daher hat Ostler keine E-Mails zum Lesen. Wähle „Ja“, um jetzt Systemeinstellungen > Internetaccounts zu öffnen (dort kannst du iCloud, Gmail oder Outlook hinzufügen). Wähle „Nein“, um zu überspringen. Du kannst später ein Konto hinzufügen, und Doctor weist dich darauf hin, wenn innerhalb von 24 Stunden keine E-Mails ankommen."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Gesamten Apple-Mail-Verlauf übernehmen?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Standardmäßig liest Ostler die letzten fünf Jahre deiner Apple-Mail-Daten. Wenn du auf diesem Mac mehr aufbewahrst und alles in deinem Wissensgraphen haben möchtest, wähle „Ja“, um jetzt den gesamten lokalen Verlauf zu übernehmen (bei einem großen Postfach kann das etwas länger dauern). Wähle „Nein“, um beim Zeitraum von fünf Jahren zu bleiben. Du kannst ihn später jederzeit in Doctor erweitern."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Auch einen eigenen IMAP- und SMTP-Server konfigurieren?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Nur für selbst gehostete Postfächer. Lass es auf „Nein“, wenn deine Konten bei Gmail, iCloud oder Outlook sind. Diese funktionieren über Apple Mail (oben) besser."

@@ -1269,8 +1269,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="يقرأ أي حساب بريد إلكترون
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="إضافة حساب بريد إلى Apple Mail؟"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="لا توجد حسابات متصلة بـ Apple Mail على هذا الـ Mac بعد، لذا لن يجد Ostler بريدًا لقراءته. اختر نعم لفتح إعدادات النظام > حسابات الإنترنت الآن (يمكنك إضافة iCloud أو Gmail أو Outlook هناك). اختر لا للتخطي، ويمكنك إضافة حساب لاحقًا وسيعرض Doctor تنبيه متابعة إن لم يصل بريد خلال 24 ساعة."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="جلب سجل Apple Mail الكامل؟"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="يقرأ Ostler افتراضيًا آخر خمس سنوات من Apple Mail. إن كنت تحتفظ بأكثر من ذلك على هذا الـ Mac وتريد إضافته كله إلى مخطط معرفتك، فاختر نعم لجلب السجل المحلي الكامل الآن (قد يستغرق ذلك وقتًا أطول قليلًا لصندوق بريد كبير). اختر لا للإبقاء على نطاق السنوات الخمس، ويمكنك توسيعه لاحقًا من Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="هل تريد أيضًا ضبط خادم IMAP+SMTP مخصص؟"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="لصناديق البريد المستضافة ذاتيًا فقط. أبقِ الخيار على لا إن كانت حساباتك لدى Gmail أو iCloud أو Outlook – فهي تعمل بشكل أفضل عبر Apple Mail أعلاه."

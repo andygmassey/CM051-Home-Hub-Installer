@@ -1263,8 +1263,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用“完全磁盘访问权限”读取你�
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="向“邮件”添加邮件账户？"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="这台 Mac 上的“邮件”尚未连接任何账户，因此 Ostler 将没有可读取的电子邮件。选择“是”可立即打开“系统设置”>“互联网账户”（你可以在那里添加 iCloud、Gmail 或 Outlook）。选择“否”可跳过；你之后可以再添加账户，如果 24 小时内没有收到邮件，Doctor 会提示后续处理。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="拉取完整的“邮件”历史记录？"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="默认情况下，Ostler 会读取你“邮件”中最近五年的内容。如果这台 Mac 上保存的邮件超过五年，并且你希望全部纳入知识图谱，请选择“是”，立即拉取完整的本地历史记录（邮箱较大时可能需要稍长时间）。选择“否”则保留五年范围；你之后随时可以在 Doctor 中扩展。"
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同时配置自定义 IMAP+SMTP 服务器？"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="仅适用于自建邮箱。如果你的账户使用 Gmail、iCloud 或 Outlook，请保持为“否”，通过上方的“邮件”会更好用。"

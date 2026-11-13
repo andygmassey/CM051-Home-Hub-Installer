@@ -1267,8 +1267,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Legge qualsiasi account email che hai aggiunto
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Aggiungere un account di posta ad Apple Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail non ha ancora account collegati su questo Mac, quindi Ostler non avrà email da leggere. Scegli Sì per aprire ora Impostazioni di Sistema > Account Internet (lì puoi aggiungere iCloud, Gmail o Outlook). Scegli No per saltare: potrai aggiungere un account più tardi e Doctor ti mostrerà un avviso se non arriva posta entro 24 ore."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Importare tutta la cronologia di Apple Mail?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Per impostazione predefinita Ostler legge gli ultimi cinque anni di posta in Apple Mail. Se su questo Mac ne conservi di più e vuoi tutto nel tuo grafo della conoscenza, scegli Sì per importare ora l'intera cronologia locale (con una casella di posta molto grande può volerci un po' di più). Scegli No per mantenere i cinque anni: potrai sempre estenderli più tardi da Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Configurare anche un server IMAP+SMTP personalizzato?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Solo per caselle di posta self-hosted. Lascia su NO se i tuoi account sono con Gmail, iCloud o Outlook: funzionano meglio tramite Apple Mail, sopra."
