@@ -217,6 +217,11 @@ def judge(c):
     lines.append("  note  EXAMINED %d keyed row(s) after excluding %d walk-synthetic row(s) "
                  "(source_session_id ostler-walk-todo-*; %d keyed in all); %d match a 1:1 chat, %d a group chat"
                  % (n, excl, n_all, one, grp))
+    if "chat_keyed_rows" not in c:
+        # The pinned daemon (d323c07c) does not report chat_keyed_rows, so the
+        # denominator above is every keyed row, not only iMessage ones.
+        lines.append("  note  this daemon does not report chat_keyed_rows, so rows from email or WhatsApp "
+                     "are counted too in the EXAMINED line above")
     if "completed_by_followup" in c:
         lines.append("  ADVISORY %d reminder(s) completed on a follow-up so far, %d reopened by the owner "
                      "(real activity only; never seeded)"
@@ -300,6 +305,17 @@ def self_test():
         good_rc = rc == want
         ok &= good_rc
         print("  %s  %s -> %s (want %s)" % ("ok   " if good_rc else "FAIL ", name, names.get(rc, rc), names[want]))
+    # The denominator caveat: the pinned daemon does not report chat_keyed_rows,
+    # so an EXAMINED line over its keyed rows counts email and WhatsApp rows too.
+    # The caveat must say so when the field is absent, and must not when it is there.
+    caveat = "rows from email or WhatsApp are counted too"
+    no_chat_field = dict(good, db_keyed_rows=good["keyed_rows"])
+    with_chat_field = dict(good, db_keyed_rows=good["keyed_rows"], chat_keyed_rows=good["keyed_rows"])
+    caveat_absent_ok = any(caveat in line for line in judge(no_chat_field)[0])
+    caveat_present_ok = not any(caveat in line for line in judge(with_chat_field)[0])
+    print("  %s  caveat printed when chat_keyed_rows is absent" % ("ok   " if caveat_absent_ok else "FAIL "))
+    print("  %s  caveat not printed when chat_keyed_rows is present" % ("ok   " if caveat_present_ok else "FAIL "))
+    ok &= caveat_absent_ok and caveat_present_ok
     print("every case landed on its own verdict" if ok else "SELF-TEST BROKEN")
     return 0 if ok else 1
 
