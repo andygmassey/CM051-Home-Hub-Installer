@@ -40,6 +40,37 @@ _REPO_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERIFIER="${_REPO_SCRIPTS}/verify_install_manifest.py"
 MANIFEST="${_REPO_SCRIPTS}/install_manifest.tsv"
 
+# WALK GUARD. The box-local arm reads THIS machine's $HOME. That is the box only
+# when the probe runs on the box. A --host walk always exports OSTLER_BOX_HOST
+# (post_walk_qa.sh, the one place run_box_walk.sh is entered for a walk, sets it
+# next to OSTLER_WALK_REMOTE_HOST, and record_walk.sh and ttywalk.sh pass the host
+# down). If the marker is present and OSTLER_BOX_HOST is empty, the variable was
+# dropped on the way here, and the probe would silently read the DRIVER. Refuse.
+_refuse_driver_local_if_walk() {
+    if [ -n "${OSTLER_WALK_REMOTE_HOST+x}" ] && [ -z "${OSTLER_BOX_HOST:-}" ]; then
+        probe_cannot_run "a --host walk is in progress (OSTLER_WALK_REMOTE_HOST is set) but OSTLER_BOX_HOST is empty, so this probe would read the DRIVER's home, not the box. The variable was dropped on the way here. Refusing rather than reading the driver."
+    fi
+}
+
+# THE BOX-LOCAL ARM. Runs only when OSTLER_BOX_HOST is unset, which is the box
+# itself by this probe's contract (header, WHERE IT RUNS). The walk guard is its
+# first statement: a host walk that reaches here with the variable dropped refuses.
+_box_local_verify() {
+    _refuse_driver_local_if_walk
+    command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH; the manifest verifier needs it"
+    probe_examined 1 "scripts/verify_install_manifest.py against \$HOME on this box"
+    # Same interpreter choice as the remote arm above, and for the same
+    # reason: the cron arm needs tomllib, which arrived in 3.11.
+    _py=""
+    for _c in "$HOME/.ostler/python/bin/python3" "$HOME/.ostler/.venv/bin/python3" python3; do
+        if "$_c" -c 'import tomllib' >/dev/null 2>&1; then _py="$_c"; break; fi
+    done
+    [ -n "$_py" ] || _py=python3
+    probe_examined 1 "interpreter chosen for the verifier: ${_py} ($("$_py" -V 2>&1))"
+    out="$("$_py" "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
+    rc=$?
+}
+
 run_probe() {
     [ -r "$VERIFIER" ] || probe_cannot_run "verifier not readable at ${VERIFIER}"
     [ -r "$MANIFEST" ] || probe_cannot_run "manifest not readable at ${MANIFEST}"
@@ -114,18 +145,7 @@ exit \$_rc
 ")"
         rc=$?
     else
-        command -v python3 >/dev/null 2>&1 || probe_cannot_run "python3 not on PATH; the manifest verifier needs it"
-        probe_examined 1 "scripts/verify_install_manifest.py against \$HOME on this box"
-        # Same interpreter choice as the remote arm above, and for the same
-        # reason: the cron arm needs tomllib, which arrived in 3.11.
-        _py=""
-        for _c in "$HOME/.ostler/python/bin/python3" "$HOME/.ostler/.venv/bin/python3" python3; do
-            if "$_c" -c 'import tomllib' >/dev/null 2>&1; then _py="$_c"; break; fi
-        done
-        [ -n "$_py" ] || _py=python3
-        probe_examined 1 "interpreter chosen for the verifier: ${_py} ($("$_py" -V 2>&1))"
-        out="$("$_py" "$VERIFIER" --manifest "$MANIFEST" --home "$HOME" --exclude-type import_wire 2>&1)"
-        rc=$?
+        _box_local_verify
     fi
 
     # BOX-OBSERVABLE types only. import_wire is a property of the SOURCE tree
