@@ -92,6 +92,7 @@ jobs:
             test_conversation_bundle_user_id_wired.sh \
             test_conversations_ingest_wiring.sh \
             test_cx100_mail_accounts_detection.sh \
+            test_background_pause_gates_contact_and_email.sh \
             test_cx101_prelaunch_gate_population.sh \
             test_cx130_mail_populate_phase2.sh \
             test_cx18_q7_channel_choice_labels_match_install_sh.sh \
