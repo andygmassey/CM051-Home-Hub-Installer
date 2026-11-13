@@ -151,6 +151,18 @@ sys.exit(0 if any(r[1] == fx["_image_digest"] and r[2] == fx["_commit"] for r in
     ok "entrypoint fixture binds to the pinned wiki-compiler digest and CM044 commit"
 else bad "entrypoint fixture does not match scripts/wiki_image_provenance.tsv"; fi
 
+# A CM044 re-pin changes the digest install.sh ships. The fixture must follow it,
+# or the recorded ENTRYPOINT outlives the image it describes. Read from install.sh
+# itself (the shipped compose), not from the provenance table.
+if python3 -I -c '
+import json, re, sys
+fx = json.load(open(sys.argv[1], encoding="utf-8"))
+pins = re.findall(r"ghcr\.io/creativemachines-ai/ostler-wiki-compiler@(sha256:[0-9a-f]{64})", open(sys.argv[2], encoding="utf-8").read())
+sys.exit(0 if len(pins) == 1 and pins[0] == fx["_image_digest"] else 1)
+' "$FX" "$REPO_ROOT/install.sh"; then
+    ok "entrypoint fixture digest equals the ostler-wiki-compiler digest pinned in install.sh"
+else bad "entrypoint fixture digest does not match the install.sh pin (re-pin without a fixture refresh?)"; fi
+
 # Negative control: the simulated container must REJECT the old tail
 # (`python -m compiler.compile ...`), or the checks below prove nothing.
 python3 -I "$STUB/compiler_sim.py" "$FX" python -m compiler.compile --settling-only >/dev/null 2>"$TMP/neg.err"; neg_rc=$?
