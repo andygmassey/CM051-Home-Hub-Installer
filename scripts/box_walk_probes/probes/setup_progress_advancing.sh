@@ -34,6 +34,36 @@
 # same gap lib/converge_wait.sh already waits between store counts). This probe
 # adds NO wait beyond that: it never waits for a bar to reach 100%.
 #
+# WHAT IS JUDGED. Only the channels in settling_channels.json (the bar's fixed
+# denominator, installed beside the shard directory). A shard file is judged when
+# its stem IS a channel, or is "messages.<source>" (the one sub-sharded channel).
+# Every other shard (notes, emails.history, today) is printed as INFO and never
+# judged: the bar does not count it, so it cannot hold the bar. The manifest
+# absent or unusable is a FAIL (the #3453 wiring check), never a fallback list.
+#
+# CADENCE PER CHANNEL. A shard is written when its writer's launchd job ticks,
+# so an OPEN shard cannot move in a 60 s window whatever its health. It is
+# judged on FRESHNESS: updated_at (the shard's own claim, not file mtime) within
+# 2x the StartInterval of THAT channel's writer plist, and done not decreased;
+# older is FAIL "not advancing". The done-delta is printed as extra evidence and
+# is never a substitute. The channel-to-launchd-label map is _writer_label:
+#   emails    com.creativemachines.ostler.email-ingest  (hourly tick)
+#   calendar  com.ostler.fda-rerun  (extract_all.py:588 -> calendar.py:96)
+#   messages  com.ostler.fda-rerun  (imessage.py:192, whatsapp_history.py:121)
+#   contacts  INSTALL-ONLY (install.sh:36416). com.ostler.contact-resync (1800 s,
+#             install.sh:36267) does NOT write it: bin/ostler-contact-resync
+#             (install.sh:26748-26931) and oa release/ingest-ticks/contact-resync/
+#             tick.sh carry no settling write, and the vendored syncer has none
+#             (vendor/divergences/cm041_contact_syncer.UNRECORDED.md:336-339).
+# The fda-rerun chain (traced): the plist runs `ostler-assistant run-source
+# fda-rerun` (install.sh:21386), hub-v0.5.37 main.rs RunSource runs
+# Resources/ingest/fda-rerun/tick.sh (bash, env inherited), the sealed tick execs
+# ~/.ostler/bin/ostler-fda, which install.sh:26032 writes to run extract_all
+# with the venv python. install.sh:9880 states the same chain.
+# An OPEN install-only channel is FAIL (no writer can complete it). A channel
+# with no label in the map, a missing plist or an unreadable plist is CANNOT-RUN
+# for that channel, with the plist path printed. complete=true needs no interval.
+#
 # NO DIRECTORY = CANNOT-RUN, not PASS. Zero shards means nothing was measured.
 # ============================================================================
 
@@ -64,10 +94,11 @@ _manifest_path() {
     fi
 }
 
+# Prints OK|<comma list of channels> or MISSING|<why>.
 _manifest_verdict() {
     local m="$1"
     if [ ! -f "$m" ]; then
-        printf 'MISSING|settling_channels.json is absent at %s; #3426 shipped in the DMG but install.sh never placed it, so CM044 uses its built-in fallback' "$m"
+        printf 'MISSING|settling_channels.json is absent at %s; install.sh never placed it (CM051 #3453), so the bar divides by a built-in fallback and this probe will not guess a list' "$m"
         return 0
     fi
     python3 -I - "$m" <<'PY'
@@ -75,12 +106,58 @@ import json, sys
 try:
     with open(sys.argv[1], encoding="utf-8") as fh:
         ch = json.load(fh)["channels"]
-    if not isinstance(ch, list) or not ch:
-        raise ValueError("channels is empty")
-    print("OK|%d" % len(ch))
+    if not isinstance(ch, list) or not ch or not all(isinstance(c, str) and c for c in ch):
+        raise ValueError("channels is empty or not a list of names")
+    print("OK|" + ",".join(ch))
 except (OSError, ValueError, KeyError, TypeError) as exc:
     print("MISSING|settling_channels.json at %s is unusable (%s)" % (sys.argv[1], type(exc).__name__))
 PY
+}
+
+# The launchd job whose tick writes a channel's shard. Empty = no periodic writer.
+_writer_label() {
+    case "$1" in
+        emails)   printf 'com.creativemachines.ostler.email-ingest' ;;
+        calendar) printf 'com.ostler.fda-rerun' ;;
+        messages) printf 'com.ostler.fda-rerun' ;;
+        contacts) printf 'INSTALL_ONLY' ;;
+    esac
+}
+
+# _tick_intervals <channels,...>: one line per channel:
+#   <channel>=<seconds>|<plist path>          the writer's StartInterval
+#   <channel>=CANNOT|<why, with the path>     no label, no plist, or unreadable
+_tick_intervals() {
+    local ch label plist agents="${OSTLER_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
+    for ch in $(printf '%s' "$1" | tr ',' ' '); do
+        label="$(_writer_label "$ch")"
+        if [ "$label" = "INSTALL_ONLY" ]; then
+            printf '%s=INSTALLONLY|channel %s is written once at install (install.sh:36416); no periodic job writes it\n' "$ch" "$ch"
+            continue
+        fi
+        if [ -z "$label" ]; then
+            printf '%s=CANNOT|channel %s has no launchd writer label in the probe map (written at install time only or unmapped)\n' "$ch" "$ch"
+            continue
+        fi
+        plist="$agents/$label.plist"
+        if [ ! -f "$plist" ]; then
+            printf '%s=CANNOT|no plist at %s (writer %s), so its tick interval is unknown\n' "$ch" "$plist" "$label"
+            continue
+        fi
+        python3 -I - "$ch" "$plist" <<'PY'
+import plistlib, sys
+ch, path = sys.argv[1], sys.argv[2]
+try:
+    with open(path, "rb") as fh:
+        v = plistlib.load(fh).get("StartInterval")
+    if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+        print("%s=%d|%s" % (ch, v, path))
+    else:
+        print("%s=CANNOT|plist %s has no positive StartInterval" % (ch, path))
+except Exception as exc:
+    print("%s=CANNOT|plist %s is unreadable (%s)" % (ch, path, type(exc).__name__))
+PY
+    done
 }
 
 _settle_window_s() {
@@ -99,6 +176,19 @@ _snapshot() {
 import glob, json, os, sys
 
 d = sys.argv[1]
+
+def epoch(r):
+    from datetime import datetime, timezone
+    u = r.get("updated_at")
+    if not isinstance(u, str) or not u.strip():
+        return 0
+    try:
+        t = datetime.fromisoformat(u.strip().replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return int(t.timestamp())
+    except ValueError:
+        return 0
 
 def terminal(r):
     reason = r.get("skip_reason")
@@ -124,18 +214,19 @@ for path in sorted(glob.glob(os.path.join(d, "*.json"))):
         continue
     why = terminal(r)
     if why is None:
-        print("%s|%d|%d|OPEN|needs_source=%s" % (name, done, total, bool(r.get("needs_source"))))
+        print("%s|%d|%d|OPEN|needs_source=%s|%d" % (name, done, total, bool(r.get("needs_source")), epoch(r)))
     else:
-        print("%s|%d|%d|TERMINAL|%s" % (name, done, total, why))
+        print("%s|%d|%d|TERMINAL|%s|%d" % (name, done, total, why, epoch(r)))
 PY
 }
 
-# _judge <start-snapshot> <end-snapshot>
+# _judge <start-snapshot> <end-snapshot> <channels,...> <intervals-file>
 # Prints one line per shard in the END snapshot:
-#   <file>|PASS|<why>  or  <file>|FAIL|<why>
+#   <file>|PASS|<why>, <file>|FAIL|<why>, <file>|CANNOT|<why> (no interval), or
+#   <file>|INFO|<why> (not judged).
 _judge() {
-    python3 -I - "$1" "$2" <<'PY'
-import sys
+    python3 -I - "$1" "$2" "$3" "$4" <<'PY'
+import sys, time
 
 def parse(path):
     out = {}
@@ -152,9 +243,34 @@ def parse(path):
 
 start = parse(sys.argv[1])
 end = parse(sys.argv[2])
+channels = [c for c in sys.argv[3].split(",") if c]
+intervals = {}
+try:
+    with open(sys.argv[4], encoding="utf-8") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            head, _, why = line.partition("|")
+            if "=" in head:
+                k, v = head.split("=", 1)
+                intervals[k] = (int(v), why) if v.isdigit() else (v, why)
+except (OSError, ValueError):
+    pass
+now = int(time.time())
+
+def channel_of(fname):
+    stem = fname[:-5] if fname.endswith(".json") else fname
+    if stem in channels:
+        return stem
+    if stem.startswith("messages.") and "messages" in channels:
+        return "messages"
+    return None
 
 for name in sorted(end):
+    ch = channel_of(name)
     p = end[name]
+    if ch is None:
+        print("%s|INFO|not in settling_channels.json, so the bar does not count it and this probe does not judge it" % name)
+        continue
     if p[1] == "UNREADABLE":
         print("%s|FAIL|unreadable shard (%s): the reader skips it silently, so the bar would read high" % (name, p[2]))
         continue
@@ -164,10 +280,27 @@ for name in sorted(end):
         continue
     s = start.get(name)
     done_start = int(s[1]) if (s and s[1] != "UNREADABLE") else 0
-    if done_end > done_start:
-        print("%s|PASS|advancing: done %d -> %d of %d" % (name, done_start, done_end, total_end))
-    else:
-        print("%s|FAIL|open and not advancing: done %d -> %d of %d (%s)" % (name, done_start, done_end, total_end, p[4]))
+    upd = int(p[5]) if len(p) > 5 else 0
+    ivt = intervals.get(ch, (None, "channel %s has no entry in the interval table" % ch))
+    iv = ivt[0]
+    if iv == "INSTALLONLY":
+        print("%s|FAIL|open with no writer that can complete it (written once at install.sh:36416): done %d of %d" % (name, done_end, total_end))
+        continue
+    if not isinstance(iv, int):
+        print("%s|CANNOT|%s" % (name, ivt[1]))
+        continue
+    if True:
+        age = now - upd if upd else None
+        if done_end < done_start:
+            print("%s|FAIL|done went backwards %d -> %d of %d; the bar must never fall" % (name, done_start, done_end, total_end))
+        elif age is None:
+            print("%s|FAIL|not advancing: open with no readable updated_at, so freshness against the %ds tick cannot be shown (done %d of %d)" % (name, iv, done_end, total_end))
+        elif age <= 2 * iv:
+            extra = "; done %d -> %d" % (done_start, done_end) if done_end > done_start else "; done unchanged in the window"
+            print("%s|PASS|fresh: updated %ds ago, within 2x the %ds tick (%d of %d)%s" % (name, age, iv, done_end, total_end, extra))
+        else:
+            print("%s|FAIL|not advancing: updated %ds ago, older than 2x the %ds tick (done %d of %d)" % (name, age, iv, done_end, total_end))
+        continue
 PY
 }
 
@@ -177,15 +310,29 @@ run_probe() {
         probe_cannot_run "no settling shard directory at $dir; nothing was measured, so the bar cannot be judged (this is not a pass)"
     fi
 
-    local mv; mv="$(_manifest_verdict "$(_manifest_path "$dir")")"
+    local mpath mv channels
+    mpath="$(_manifest_path "$dir")"
+    mv="$(_manifest_verdict "$mpath")"
     case "$mv" in
-        OK\|*) probe_note "settling_channels.json present: ${mv#OK|} channel(s)" ;;
-        *) probe_examined 1 "settling_channels.json in the state dir beside $dir"
+        OK\|*) channels="${mv#OK|}" ;;
+        *) probe_examined 1 "settling_channels.json at $mpath"
            probe_fail "${mv#MISSING|}" ;;
     esac
+    probe_note "judging the channels in $mpath: $channels"
 
     local tmp; tmp="$(mktemp -d)" || probe_cannot_run "could not create a scratch directory for the two samples"
     local window; window="$(_settle_window_s)"
+
+    _tick_intervals "$channels" > "$tmp/intervals.txt"
+    local iv_line
+    while IFS= read -r iv_line; do
+        [ -n "$iv_line" ] || continue
+        case "${iv_line#*=}" in
+            CANNOT\|*) probe_note "writer of ${iv_line%%=*}: interval unknown (${iv_line#*|})" ;;
+            INSTALLONLY\|*) probe_note "writer of ${iv_line%%=*}: install-only (${iv_line#*|})" ;;
+            *) probe_note "writer of ${iv_line%%=*}: StartInterval=${iv_line#*=} (freshness window is 2x this)" ;;
+        esac
+    done < "$tmp/intervals.txt"
 
     local start_snap end_snap
     start_snap="$tmp/start.txt"; end_snap="$tmp/end.txt"
@@ -193,14 +340,15 @@ run_probe() {
     sleep "$window"
     _snapshot "$dir" > "$end_snap" || { rm -rf "$tmp"; probe_cannot_run "could not read $dir at the end sample (python3 classifier failed)"; }
 
-    local verdicts; verdicts="$(_judge "$start_snap" "$end_snap")"
-    local n_total open_fail="" n_fail=0
-    n_total="$(printf '%s\n' "$verdicts" | /usr/bin/grep -c '|' || true)"
-    probe_examined "$n_total" "settling shard(s) in $dir, sampled at start and after a ${window}s settle window"
+    local verdicts; verdicts="$(_judge "$start_snap" "$end_snap" "$channels" "$tmp/intervals.txt")"
+    local n_total n_info open_fail="" n_fail=0 n_cannot=0 cannot_list=""
+    n_total="$(printf '%s\n' "$verdicts" | /usr/bin/grep -c -E '\|(PASS|FAIL|CANNOT)\|' || true)"
+    n_info="$(printf '%s\n' "$verdicts" | /usr/bin/grep -c '|INFO|' || true)"
+    probe_examined "$n_total" "judged settling shard(s) of the manifest channels in $dir, sampled at start and after a ${window}s settle window ($n_info other shard(s) listed, not judged)"
 
     if [ "$n_total" -eq 0 ]; then
         rm -rf "$tmp"
-        probe_cannot_run "settling directory $dir holds no shard files; nothing was measured (this is not a pass)"
+        probe_cannot_run "no shard in $dir belongs to a manifest channel ($channels); nothing was measured (this is not a pass)"
     fi
 
     local line
@@ -211,44 +359,52 @@ run_probe() {
             *"|FAIL|"*)
                 n_fail=$((n_fail + 1))
                 open_fail="${open_fail}${open_fail:+, }${line%%|*}" ;;
+            *"|CANNOT|"*)
+                n_cannot=$((n_cannot + 1))
+                cannot_list="${cannot_list}${cannot_list:+, }${line%%|*}" ;;
         esac
-    done <<EOF
+    done <<VERDICTS
 $verdicts
-EOF
+VERDICTS
     rm -rf "$tmp"
 
     if [ "$n_fail" -gt 0 ]; then
-        probe_fail "$n_fail of $n_total settling source(s) are open and did not advance in ${window}s: $open_fail"
+        probe_fail "$n_fail of $n_total settling source(s) are open and not advancing (${window}s window; hourly writers by freshness): $open_fail"
     fi
-    probe_pass "all $n_total settling source(s) are terminal or advancing over ${window}s in $dir"
+    if [ "$n_cannot" -gt 0 ]; then
+        probe_cannot_run "$n_cannot of $n_total judged settling source(s) are open and have no known writer interval, so freshness cannot be judged (not a pass): $cannot_list; see the CANNOT lines for the plist path looked for"
+    fi
+    probe_pass "all $n_total judged settling source(s) are terminal or fresh in $dir"
 }
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 3 "synthetic settling shards: a stalled contacts pass, a stalled emails backlog and a waiting notes channel (negative control)"
+    probe_examined 4 "synthetic settling shards: stale contacts and emails shards (3h old, hourly writers), a waiting notes channel (not in the manifest, must NOT be judged) and a calendar shard whose writer interval is unknown (must read CANNOT)"
     local tmp; tmp="$(mktemp -d)"
-    local a="$tmp/start" b="$tmp/end"
-    mkdir -p "$a" "$b"
-    # The stalled Mini16 shape: nothing moves between the two samples. Contacts
-    # and emails are open and not advancing; notes has no work and no request.
-    printf '%s\n' '{"key":"contacts","done":2398,"total":2443,"needs_source":false}' > "$a/contacts.json"
-    printf '%s\n' '{"key":"emails","done":17080,"total":121262,"needs_source":false}' > "$a/emails.json"
-    printf '%s\n' '{"key":"notes","done":0,"total":0,"needs_source":true}' > "$a/notes.json"
-    cp "$a"/*.json "$b"/
-    local sa="$tmp/s.start" sb="$tmp/s.end"
-    _snapshot "$a" > "$sa"; _snapshot "$b" > "$sb"
-    local out; out="$(_judge "$sa" "$sb")"
-    local fail_n; fail_n="$(printf '%s\n' "$out" | /usr/bin/grep -c '|FAIL|' || true)"
+    mkdir -p "$tmp/d"
+    local old='2000-01-01T00:00:00+00:00'
+    printf '{"key":"contacts","done":2398,"total":2443,"needs_source":false,"updated_at":"%s"}\n' "$old" > "$tmp/d/contacts.json"
+    printf '{"key":"emails","done":17080,"total":121262,"needs_source":false,"updated_at":"%s"}\n' "$old" > "$tmp/d/emails.json"
+    printf '{"key":"calendar","done":10,"total":50,"needs_source":false,"updated_at":"%s"}\n' "$old" > "$tmp/d/calendar.json"
+    printf '%s\n' '{"key":"notes","done":0,"total":0,"needs_source":true}' > "$tmp/d/notes.json"
+    local sa="$tmp/s"
+    _snapshot "$tmp/d" > "$sa"
+    printf 'contacts=3600|x\nemails=3600|x\ncalendar=CANNOT|no plist\n' > "$tmp/iv.txt"
+    local out; out="$(_judge "$sa" "$sa" "contacts,calendar,messages,emails" "$tmp/iv.txt")"
+    local fail_n info_n cannot_n
+    fail_n="$(printf '%s\n' "$out" | /usr/bin/grep -c '|FAIL|not advancing' || true)"
+    info_n="$(printf '%s\n' "$out" | /usr/bin/grep -c '|INFO|' || true)"
+    cannot_n="$(printf '%s\n' "$out" | /usr/bin/grep -c '|CANNOT|' || true)"
     rm -rf "$tmp"
-    if [ "$fail_n" -ne 3 ]; then
-        probe_pass "NEGATIVE CONTROL DID NOT FIRE: the stalled fixture produced $fail_n FAIL verdicts, not 3. This probe cannot see a stalled bar."
+    if [ "$fail_n" -ne 2 ] || [ "$info_n" -ne 1 ] || [ "$cannot_n" -ne 1 ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: the stalled fixture gave $fail_n FAIL (want 2), $info_n INFO (want 1, notes), $cannot_n CANNOT (want 1, calendar). This probe cannot see a stalled bar."
     fi
     local nm; nm="$(_manifest_verdict "$tmp/no-such/settling_channels.json")"
     case "$nm" in
         MISSING\|*) ;;
         *) probe_pass "NEGATIVE CONTROL DID NOT FIRE: an absent settling_channels.json read as: $nm" ;;
     esac
-    probe_fail "self-test: the stalled fixture (contacts 2398/2443 and emails 17080/121262 unmoved, notes waiting with no work) gave 3 FAIL verdicts, so this probe returns FAIL on it as it must"
+    probe_fail "self-test: the stalled fixture gave 2 FAIL (stale hourly shards), 1 INFO (notes) and 1 CANNOT (unknown interval), so this probe returns FAIL on it as it must"
 }
 
 probe_main "$@"
