@@ -298,6 +298,12 @@ entries:
           - f9bfc3a70148e08d97b008812303d9f6e16ce5ee  # oa #659 (test-only)
           - b2ffa2e7aa1d928495eb178925501f6b8a669e05  # oa #659 (test-only)
           - 2d85e2de651f3c73ddb37d2c0724c73eceb42c28  # oa #659 merge (test-only)
+          # ---- v1.0.130 addition (2026-11-13, ORM; Archie via Aesop, expires after v1.0.130). hub-v0.5.38 (d323c07c) vs oa main 7d78dc88: LINEAGE ONLY.
+          # Same decision as scripts/daemon_hold_ack.tsv row d323c07c.
+          - 817f19e8dec0ba8e4a8992663a3c5f9a6469f1b6  # email-ingest tick settling shard (B2); tick.sh blob-identical at tag and main
+          - da7211534e8304875d3ffadf720ac9a820ebb32c  # deny: ignore RUSTSEC-2026-0459; deny.toml blob-identical at tag and main
+          - f27fd97a3984cab53169277e310a68be45a8ba4c  # deny: RUSTSEC-2026-0459 condition; deny.toml blob-identical at tag and main
+          - 7d78dc88a68f25842dd26a30383b41cf2bf2ae7b  # email tick identical to #681; only ci.yml differs (CI only)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
