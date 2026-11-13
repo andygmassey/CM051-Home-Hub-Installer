@@ -1,8 +1,7 @@
 # cut-manifests/v1.0.131.yaml
 # v1.0.131 PREP (ORM, 14 Nov 2026): CARRIED from cut-manifests/v1.0.130.yaml (tag v1.0.130 = cut/v1.0.130 70c19ac1; main's copy
 # is the file the 130 walk read). Version key changed. v1.0.130 was tagged once and walked: walks/v1.0.130.tsv (FAILED, in batch
-# #3495). PENDING ARCHIE: issue 3366's NOT BLOCKING ruling expired after v1.0.130; 3404 and 3407 carried CONDITIONS for the v1.0.130
-# walk only; 3396 and 3397 are dated 2026-11-14. Each needs a re-ruling for v1.0.131 before the tag.
+# #3495). Gates of 3366 3396 3397 3404 3407 are Archie's v1.0.131 rulings (2026-11-14, relayed by the coordinator), written verbatim.
 # NO verdict_131 is written: per-cut rulings are Archie's.
 # ============================================================================
 # cut-manifests/v1.0.130.yaml
@@ -6350,7 +6349,7 @@ open_issues:
   - issue: 3366
     repo: CM051
     title: 'test_mutex_skips_when_another_tick_holds_the_lock writes the real ~/.ostler/state (no HOME isolation)'
-    gate: 'NOT BLOCKING (Archie 2026-11-13, for v1.0.130): test-hygiene defect on the dev/CI box (the test writes the real ~/.ostler/state), not in the shipped artefact; expires after v1.0.130.'
+    gate: 'NOT BLOCKING, test hygiene not artefact; expires after v1.0.131.'
 
   - issue: 3383
     repo: CM051
@@ -6365,12 +6364,12 @@ open_issues:
   - issue: 3396
     repo: CM051
     title: 'check-pr-age: review_by date is read differently on macOS (valid all day) and ubuntu (expired from 00:00Z)'
-    gate: 'NOT BLOCKING (Archie 2026-11-11): exemptions re-dated to 11-14, none on review day now; CONDITION: cut before 2026-11-14 or fix the parser to one epoch reading first.'
+    gate: 'NOT BLOCKING on CONDITION: every pr_exemptions review_by is re-dated to 2026-11-20 before candidate 3. The parser fix stays open.'
 
   - issue: 3397
     repo: CM051
     title: 'Triage the 67 PRs whose pr_exemptions were re-dated to 2026-11-14 (owner Archie, after the v1.0.128 walk)'
-    gate: 'NOT BLOCKING (Archie 2026-11-11): Archie''s triage, due 2026-11-14; no artefact defect.'
+    gate: 'NOT BLOCKING; the 70 re-dated to 2026-11-20 for ONE cut; Archie triage owed by 2026-11-20.'
 
   - issue: 3402
     repo: CM051
@@ -6380,7 +6379,7 @@ open_issues:
   - issue: 3404
     repo: CM051
     title: 'ttywalk.sh:1459 derives the guard @OWNER@ from ${HOST%%@*}: a bare ssh alias becomes the owner'
-    gate: 'NOT BLOCKING (Archie 2026-11-13): CONDITION for the v1.0.130 thin walk: run ttywalk with --host user@host, never a bare ssh alias.'
+    gate: 'NOT BLOCKING on CONDITION: the 131 walk runs ttywalk with --host user@host.'
 
   - issue: 3405
     repo: CM051
@@ -6390,4 +6389,4 @@ open_issues:
   - issue: 3407
     repo: CM051
     title: 'post_walk_qa reads cut-manifests/<v>.yaml from the harness checkout (main), not from the tag under test: phase 2 skipped as COVERAGE LOST'
-    gate: 'NOT BLOCKING (Archie 2026-11-13): CONDITION: #3474 (cut-manifests/v1.0.130.yaml) must be merged to main before the v1.0.130 walk starts, else post_walk_qa phase 2 silently does not run.'
+    gate: 'NOT BLOCKING on CONDITION: #3497 (cut-manifests/v1.0.131.yaml) merges to main before the 131 walk starts.'
