@@ -467,6 +467,7 @@ test_food_mbox_consumed_and_pruned.py	WIRED	.github/workflows/derived-preference
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
 test_forget_tombstone_ostler_fda.py	WIRED	.github/workflows/forget-tombstone.yml
+test_freshness_shard_keys.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_front_page_not_me_probe_end_to_end.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_emits_interest_profile.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_frontpage_tick_triggers_wiki_recompile_on_change.sh	WIRED	.github/workflows/vendor-integrity.yml
