@@ -560,7 +560,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama 已安装"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="“应用程序”中已安装 Ollama 应用。Ostler 不会改动它，而是在旁边运行自己的 Ollama %s 副本。如果该应用已在菜单栏中打开，请将其退出，以便 Ostler 启动自己的副本。"
 MSG_WARN_OLLAMA_PIN_DEFERRED="这次无法将 Ollama 更新到 %s，因此 Ostler 会继续使用已在运行的副本（%s）。你的助手仍可正常工作。下次运行安装程序时会再次尝试更新。详细信息：%s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="这次不会下载 %s：Ostler 测试过的 Ollama 副本（%s）尚未安装，而其他版本的 Ollama 可能会获取错误的构建。下次运行安装程序时会下载它。"
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s 将在没有常规版本检查的情况下下载，因为 Ostler 测试过的 Ollama 副本（%s）尚未安装。Doctor 会将其显示为未验证。"
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama 已安装（仅命令行工具 – 重启后可能需要手动启动）"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama 已安装（桌面应用）"
 MSG_OK_OLLAMA_RUNNING="Ollama 正在运行"
@@ -1263,8 +1263,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用“完全磁盘访问权限”读取你�
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="向“邮件”添加邮件账户？"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="这台 Mac 上的“邮件”尚未连接任何账户，因此 Ostler 将没有可读取的电子邮件。选择“是”可立即打开“系统设置”>“互联网账户”（你可以在那里添加 iCloud、Gmail 或 Outlook）。选择“否”可跳过；你之后可以再添加账户，如果 24 小时内没有收到邮件，Doctor 会提示后续处理。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="拉取完整的“邮件”历史记录？"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="默认情况下，Ostler 会读取你“邮件”中最近五年的内容。如果这台 Mac 上保存的邮件超过五年，并且你希望全部纳入知识图谱，请选择“是”，立即拉取完整的本地历史记录（邮箱较大时可能需要稍长时间）。选择“否”则保留五年范围；你之后随时可以在 Doctor 中扩展。"
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同时配置自定义 IMAP+SMTP 服务器？"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="仅适用于自建邮箱。如果你的账户使用 Gmail、iCloud 或 Outlook，请保持为“否”，通过上方的“邮件”会更好用。"

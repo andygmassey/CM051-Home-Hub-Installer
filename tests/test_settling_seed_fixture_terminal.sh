@@ -165,7 +165,7 @@ fi
 # ── 4. The walk's probe agrees, with no settle wait needed for terminal shards
 
 OSTLER_STABILITY_INTERVAL_S=1 OSTLER_SETTLING_DIR="$STATE/settling_progress.d" \
-    bash "$PROBE" >"$TMP/probe.out" 2>&1
+    OSTLER_SETTLING_MANIFEST="$REPO_ROOT/lib/settling_channels.json" bash "$PROBE" >"$TMP/probe.out" 2>&1
 prc=$?
 if [ "$prc" -eq 0 ] && /usr/bin/grep -q 'VERDICT: PASS' "$TMP/probe.out"; then
     ok "setup_progress_advancing PASSes the seed-fixture end state (rc=0)"

@@ -562,7 +562,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installiert"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="Eine Ollama-App ist bereits im Ordner „Programme“ installiert. Ostler lässt sie unverändert und führt daneben eine eigene Kopie von Ollama %s aus. Wenn diese App in der Menüleiste geöffnet ist, beende sie, damit Ostler seine eigene starten kann."
 MSG_WARN_OLLAMA_PIN_DEFERRED="Ollama konnte diesmal nicht auf %s aktualisiert werden, daher behält Ostler die Kopie, die bereits läuft (%s). Dein Assistent funktioniert weiter. Die Aktualisierung wird beim nächsten Start des Installers erneut versucht. Details: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="%s wird diesmal nicht geladen: Die von Ostler getestete Kopie von Ollama (%s) ist noch nicht installiert, und ein anderes Ollama könnte die falsche Version abrufen. Beim nächsten Start des Installers wird sie geladen."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s wird ohne die übliche Prüfung der Version geladen, weil die von Ostler getestete Kopie von Ollama (%s) noch nicht installiert ist. Der Doctor zeigt es als nicht geprüft an."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installiert (nur CLI – nach einem Neustart eventuell manueller Start nötig)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installiert (Desktop-App)"
 MSG_OK_OLLAMA_RUNNING="Ollama läuft"
@@ -1267,8 +1267,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Liest jedes E-Mail-Konto, das du in Apple Mail
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Ein E-Mail-Konto zu Apple Mail hinzufügen?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="In Apple Mail ist auf diesem Mac noch kein Konto verbunden, daher hat Ostler keine E-Mails zum Lesen. Wähle „Ja“, um jetzt Systemeinstellungen > Internetaccounts zu öffnen (dort kannst du iCloud, Gmail oder Outlook hinzufügen). Wähle „Nein“, um zu überspringen. Du kannst später ein Konto hinzufügen, und Doctor weist dich darauf hin, wenn innerhalb von 24 Stunden keine E-Mails ankommen."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Gesamten Apple-Mail-Verlauf übernehmen?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Standardmäßig liest Ostler die letzten fünf Jahre deiner Apple-Mail-Daten. Wenn du auf diesem Mac mehr aufbewahrst und alles in deinem Wissensgraphen haben möchtest, wähle „Ja“, um jetzt den gesamten lokalen Verlauf zu übernehmen (bei einem großen Postfach kann das etwas länger dauern). Wähle „Nein“, um beim Zeitraum von fünf Jahren zu bleiben. Du kannst ihn später jederzeit in Doctor erweitern."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Auch einen eigenen IMAP- und SMTP-Server konfigurieren?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Nur für selbst gehostete Postfächer. Lass es auf „Nein“, wenn deine Konten bei Gmail, iCloud oder Outlook sind. Diese funktionieren über Apple Mail (oben) besser."

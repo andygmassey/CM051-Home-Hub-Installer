@@ -560,7 +560,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama 已安裝"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="「應用程式」中已安裝 Ollama App。Ostler 不會更動它，並會在一旁執行自己的 Ollama %s 副本。如果該 App 在選單列中開啟，請將它結束，以便 Ostler 啟動自己的副本。"
 MSG_WARN_OLLAMA_PIN_DEFERRED="這次無法將 Ollama 更新至 %s，因此 Ostler 會繼續使用目前執行的副本（%s）。你的助理仍可正常運作。下次執行安裝程式時會再嘗試更新。詳細資料：%s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="這次不下載 %s：Ostler 經過測試的 Ollama 副本（%s）尚未安裝，而不同的 Ollama 可能會取得錯誤的版本。下次執行安裝程式時會下載。"
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s 將在沒有一般版本檢查的情況下下載，因為 Ostler 經過測試的 Ollama 副本（%s）尚未安裝。Doctor 會將其顯示為未驗證。"
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama 已安裝（僅命令列工具 – 重新開機後可能需要手動啟動）"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama 已安裝（桌面 App）"
 MSG_OK_OLLAMA_RUNNING="Ollama 執行中"
@@ -1261,8 +1261,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用「完整磁碟取用權」讀取你已�
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="要在 Apple Mail 加入電子郵件帳號嗎？"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="這部 Mac 上的 Apple Mail 尚未連接任何帳號，因此 Ostler 沒有電子郵件可讀取。選擇「是」會立即打開「系統設定」>「網際網路帳號」（你可以在那裡加入 iCloud、Gmail 或 Outlook）。選擇「否」則略過；你可以稍後再加入帳號，若 24 小時內仍沒有郵件送達，Doctor 會提醒你跟進。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="要擷取完整的 Apple Mail 記錄嗎？"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Ostler 預設會讀取你 Apple Mail 最近五年的郵件。如果你在這部 Mac 上保存的郵件超過五年，而且想把全部郵件放進你的知識圖譜，請選擇「是」立即擷取完整的本機記錄（郵件匣較大時可能需要多一點時間）。選擇「否」則維持五年範圍；你隨時可以在 Doctor 中延長。"
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同時設定自訂 IMAP+SMTP 伺服器？"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="僅適用於自行架設的郵件匣。如果你的帳號是 Gmail、iCloud 或 Outlook，請保持「否」，因為透過上述 Apple Mail 效果更好。"

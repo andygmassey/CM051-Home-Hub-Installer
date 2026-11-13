@@ -560,7 +560,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama 설치됨"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="응용 프로그램 폴더에 Ollama 앱이 이미 설치되어 있습니다. Ostler는 해당 앱을 그대로 두고, 별도로 자체 Ollama %s 사본을 함께 실행합니다. 해당 앱이 메뉴 막대에서 열려 있다면, Ostler가 자체 사본을 시작할 수 있도록 종료하세요."
 MSG_WARN_OLLAMA_PIN_DEFERRED="이번에는 Ollama를 %s(으)로 업데이트하지 못해, Ostler는 현재 실행 중인 사본(%s)을 유지합니다. 어시스턴트는 계속 정상적으로 작동합니다. 업데이트는 다음에 설치 프로그램을 실행할 때 다시 시도됩니다. 자세한 내용: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="이번에는 %s을(를) 다운로드하지 않습니다. Ostler가 테스트한 Ollama 사본(%s)이 아직 설치되지 않았고, 다른 Ollama는 잘못된 빌드를 가져올 수 있기 때문입니다. 다음 설치 프로그램 실행 시 다운로드됩니다."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s을(를) 평소의 버전 확인 없이 다운로드합니다. Ostler가 테스트한 Ollama 사본(%s)이 아직 설치되지 않았기 때문입니다. Doctor에 '확인되지 않음'으로 표시됩니다."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama 설치됨(CLI만 해당 – 재부팅 후 수동으로 시작해야 할 수 있음)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama 설치됨(데스크탑 앱)"
 MSG_OK_OLLAMA_RUNNING="Ollama 실행 중"
@@ -1262,8 +1262,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="전체 디스크 접근 권한을 사용하여
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Apple Mail에 메일 계정을 추가할까요?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="이 Mac의 Apple Mail에 연결된 계정이 아직 없어 Ostler가 읽을 이메일이 없습니다. 예를 선택하면 지금 시스템 설정 > 인터넷 계정이 열립니다(iCloud, Gmail, Outlook을 추가할 수 있습니다). 아니요를 선택하면 건너뜁니다. 나중에 계정을 추가할 수 있으며, 24시간 내에 메일이 도착하지 않으면 Doctor가 후속 안내를 표시합니다."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Apple Mail의 전체 기록을 가져올까요?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="기본적으로 Ostler는 Apple Mail의 최근 5년간 메일을 읽습니다. 이 Mac에 그보다 많은 메일이 있고 모두 지식 그래프에 넣고 싶다면 예를 선택하여 로컬 전체 기록을 지금 가져오세요(메일함이 크면 시간이 조금 더 걸릴 수 있습니다). 아니요를 선택하면 5년 범위를 유지하며, 나중에 Doctor에서 언제든 늘릴 수 있습니다."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="사용자 지정 IMAP+SMTP 서버도 설정할까요?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="자체 호스팅 메일함 전용입니다. Gmail, iCloud, Outlook 계정이라면 아니요로 두세요. 위의 Apple Mail을 통하는 편이 더 잘 작동합니다."

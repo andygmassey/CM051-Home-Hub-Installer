@@ -176,7 +176,7 @@ $json_channels
 LIST_EOF
 
     # 5. INSTALLED: install.sh copies the JSON to the state dir CM044 reads.
-    if /usr/bin/grep -qF 'lib/settling_channels.json" "${HOME}/.ostler/state/"' "$root/install.sh" 2>/dev/null; then
+    if /usr/bin/grep -qF 'lib/settling_channels.json" "${OSTLER_DIR}/state/"' "$root/install.sh" 2>/dev/null; then
         ok "install.sh installs settling_channels.json to ~/.ostler/state"
     else
         bad "install.sh does not install lib/settling_channels.json to ~/.ostler/state; CM044 falls back to its built-in copy"

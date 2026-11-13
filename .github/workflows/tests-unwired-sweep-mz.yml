@@ -86,6 +86,10 @@ jobs:
         if: always()
         run: bash tests/test_owner_name_id_never_empty.sh
 
+      - name: No mail extend-history prompt; mail, Safari and browser default to all history
+        if: always()
+        run: bash tests/test_ingest_all_history_no_mail_prompt.sh
+
       - name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
         if: always()
         run: bash tests/test_tier48_picks_9b.sh
@@ -108,6 +112,8 @@ jobs:
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
             tests/test_setup_progress_advancing.sh \
+            tests/test_settling_channels_survive_promote.sh \
+            tests/test_settling_refresh_agent.sh \
             tests/test_settling_denominator_terminal_writes.sh \
             tests/test_settling_seed_fixture_terminal.sh \
             tests/test_settling_writers_end_to_end.sh \
@@ -421,5 +427,7 @@ jobs:
           bash tests/test_settling_zero_is_discovering.sh || rc=1
           bash tests/test_settling_seed_fixture_terminal.sh || rc=1
           bash tests/test_setup_progress_advancing.sh || rc=1
+          bash tests/test_settling_channels_survive_promote.sh || rc=1
+          bash tests/test_settling_refresh_agent.sh || rc=1
           bash tests/test_emails_settling_terminal.sh || rc=1
           exit "${rc}"

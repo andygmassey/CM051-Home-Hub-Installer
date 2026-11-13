@@ -561,7 +561,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="تم تثبيت Ollama"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="يوجد تطبيق Ollama مثبّت بالفعل في مجلد التطبيقات. يتركه Ostler كما هو تمامًا ويشغّل نسخته الخاصة من Ollama %s إلى جانبه. إذا كان ذلك التطبيق مفتوحًا في شريط القوائم، فأغلقه ليتمكن Ostler من تشغيل نسخته."
 MSG_WARN_OLLAMA_PIN_DEFERRED="تعذّر تحديث Ollama إلى %s هذه المرة، لذا يحتفظ Ostler بالنسخة التي يشغّلها حاليًا (%s). يواصل مساعدك العمل. ستتم إعادة محاولة التحديث عند تشغيل المثبّت في المرة القادمة. التفاصيل: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="لن يتم تنزيل %s هذه المرة: نسخة Ollama التي اختبرها Ostler (%s) غير مثبّتة بعد، وقد تجلب نسخة مختلفة من Ollama إصدارًا خاطئًا. سيقوم المثبّت بتنزيلها في التشغيل التالي."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="سيتم تنزيل %s دون الفحص المعتاد للإصدار، لأن نسخة Ollama التي اختبرها Ostler (%s) لم تُثبَّت بعد. سيعرضه Doctor على أنه غير متحقق منه."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="تم تثبيت Ollama (واجهة الأوامر فقط – قد يلزم تشغيله يدويًا بعد إعادة التشغيل)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="تم تثبيت Ollama (تطبيق سطح المكتب)"
 MSG_OK_OLLAMA_RUNNING="Ollama قيد التشغيل"
@@ -1269,8 +1269,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="يقرأ أي حساب بريد إلكترون
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="إضافة حساب بريد إلى Apple Mail؟"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="لا توجد حسابات متصلة بـ Apple Mail على هذا الـ Mac بعد، لذا لن يجد Ostler بريدًا لقراءته. اختر نعم لفتح إعدادات النظام > حسابات الإنترنت الآن (يمكنك إضافة iCloud أو Gmail أو Outlook هناك). اختر لا للتخطي، ويمكنك إضافة حساب لاحقًا وسيعرض Doctor تنبيه متابعة إن لم يصل بريد خلال 24 ساعة."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="جلب سجل Apple Mail الكامل؟"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="يقرأ Ostler افتراضيًا آخر خمس سنوات من Apple Mail. إن كنت تحتفظ بأكثر من ذلك على هذا الـ Mac وتريد إضافته كله إلى مخطط معرفتك، فاختر نعم لجلب السجل المحلي الكامل الآن (قد يستغرق ذلك وقتًا أطول قليلًا لصندوق بريد كبير). اختر لا للإبقاء على نطاق السنوات الخمس، ويمكنك توسيعه لاحقًا من Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="هل تريد أيضًا ضبط خادم IMAP+SMTP مخصص؟"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="لصناديق البريد المستضافة ذاتيًا فقط. أبقِ الخيار على لا إن كانت حساباتك لدى Gmail أو iCloud أو Outlook – فهي تعمل بشكل أفضل عبر Apple Mail أعلاه."

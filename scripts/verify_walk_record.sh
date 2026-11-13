@@ -124,6 +124,18 @@ MSG
     exit 2
 fi
 
+# EVERY EXIT THAT IS NOT ACCEPTANCE PRINTS THE COLD ROW AS RECORDED, so a reader
+# sees both reasons (v1.0.129 was FAILED and NOT_COLD, and the gate named one).
+_print_cold_on_refusal() {
+    local rc=$?
+    if [[ "$rc" -ne 0 && -r "${RECORD:-}" ]]; then
+        local c; c="$(awk -F'\t' '$1=="cold" { print $2; exit }' "$RECORD")"
+        if [[ -n "$c" ]]; then echo "[walk-gate] cold: ${c}" >&2
+        else echo "[walk-gate] cold: ABSENT from this record (nothing says the box was empty before the install)" >&2; fi
+    fi
+}
+trap _print_cold_on_refusal EXIT
+
 field() {
     # Tab-separated key/value. grep -q is deliberately NOT used here: this
     # file's own guard sets pipefail, and `producer | grep -q` lets grep exit
@@ -504,6 +516,26 @@ _adjudicate_scoped() {
     if [[ -n "$rec_complete" ]]; then
         local got want
         got="${rec_complete%% of *}"; want="${rec_complete##* of }"
+        # A record written before the counter counted PROBES says "7 of 11" for
+        # 11 FAIL rows that are 7 distinct probes. failed_row rows (one per raw
+        # FAIL row) let that be re-derived instead of trusted: normalise the
+        # box-walk-/probe- prefixes, require the rows to account for the whole
+        # denominator, and require every distinct row name to have a
+        # failed_probe row. Anything short of that is still refused.
+        if [[ "$got" != "$want" ]]; then
+            local _rows=0 _distinct _unnamed=0 _r
+            _rows="$(awk -F'\t' '$1=="failed_row"' "$RECORD" | grep -c . || true)"
+            if [[ "${_rows:-0}" -gt 0 && "$_rows" == "$want" ]]; then
+                _distinct="$(awk -F'\t' '$1=="failed_row"{print $2}' "$RECORD" | sed -e 's/^box-walk-//' -e 's/^probe-//' -e 's/-/_/g' | sort -u)"
+                while IFS= read -r _r; do
+                    [[ -z "$_r" ]] && continue
+                    if ! awk -F'\t' -v n="$_r" '$1=="failed_probe" && $2==n {f=1} END{exit f?0:1}' "$RECORD"; then _unnamed=$((_unnamed + 1)); fi
+                done <<< "$_distinct"
+                if [[ "$_unnamed" -eq 0 && "$(printf '%s\n' "$_distinct" | grep -c .)" == "$got" ]]; then
+                    got="$want"
+                fi
+            fi
+        fi
         if [[ "$got" != "$want" ]]; then
             echo "[walk-gate] REFUSED: ${RECORD} names ${rec_complete} failed probes." >&2
             echo "            An unnamed failure cannot be checked against the promote scope." >&2
@@ -662,6 +694,33 @@ _adjudicate_scoped() {
 
 case "$VERDICT" in
     CLEAN)
+        # A CLEAN WALK MUST HAVE BEEN COLD (v1.0.129: 123,775 carried-over files
+        # under ~/.ostler/state made every conversation and people count
+        # history). Absent field = no evidence = CANNOT-RUN (2); NOT_COLD = a
+        # measured contaminated box = 1.
+        _cold="$(field cold)"
+        case "${_cold}" in
+            PROVEN\(*)
+                : ;;
+            NOT_COLD*)
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row is NOT_COLD: ${_cold}" >&2
+                echo "            The box carried state from an earlier install. Walk again on a cold box." >&2
+                exit 1 ;;
+            NOT_RECORDED*)
+                # PRE-COLD-ERA RECORD: written before the cold proof existed. It is
+                # refused for promotion (nothing says the box was empty) but it is
+                # NOT malformed, and the message must not call it so.
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row is ${_cold}." >&2
+                echo "            A record from before the cold proof existed. Not malformed; not promotable. Walk again." >&2
+                exit 2 ;;
+            '')
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but carries no 'cold' row." >&2
+                echo "            Without cold PROVEN nothing says the box was empty before the install." >&2
+                exit 2 ;;
+            *)
+                echo "[walk-gate] REFUSED: ${RECORD} claims CLEAN but its cold row '${_cold}' is not PROVEN(...)." >&2
+                exit 2 ;;
+        esac
         _require_console_walk
         echo "[walk-gate] OK: ${VERSION} walked clean at the console on $(field walked_at) -- pass=${N_PASS} fail=0 cannot_run=0 broken=0"
         exit 0

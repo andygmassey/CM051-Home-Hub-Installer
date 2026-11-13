@@ -119,6 +119,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # THE GATE READS TAGS. A cut whose tag exists is history, and the
+          # gate can only tell that from the tags. Without them the gate would
+          # compare a tagged cut against main and go red for ever (2026-11-13).
+          # If the tags cannot be read the gate says CANNOT-RUN, never SKIP.
+          fetch-tags: true
           ref: ${{ startsWith(github.head_ref, 'cut/v1.0.') && github.event.pull_request.head.sha || '' }}
 
       - name: Which inputs did this PR touch?
@@ -155,9 +160,20 @@ jobs:
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
 
       # BLOCKING limb. rc is taken DIRECTLY, never through a pipe.
+      # Exit 0 = current, 3 = SKIP (the newest cut is tagged and main is past
+      # it: history, announced, not compared), 1 = stale, 2 = CANNOT-RUN.
+      # Only 1 and 2 (and anything else) fail the step.
       - name: The pin this PR asserts must name the tree being cut
         if: steps.shape.outputs.mode == 'block'
-        run: bash scripts/verify_cut_pin_is_current.sh --ref HEAD
+        run: |
+          set -uo pipefail
+          rc=0
+          bash scripts/verify_cut_pin_is_current.sh --ref HEAD || rc=$?
+          case "$rc" in
+            0) echo "cut pin: current" ;;
+            3) echo "::notice::cut pin SKIPPED: the newest cut is tagged and main is past the tag. History, not compared." ;;
+            *) echo "::error::cut pin check exited ${rc} (1 = stale pin, 2 = CANNOT-RUN)"; exit "$rc" ;;
+          esac
 
       # REPORTING limb. A stale pin here is expected and owed, not this PR's
       # defect -- but it must be VISIBLE, because "someone will remember to
@@ -169,7 +185,9 @@ jobs:
           set -uo pipefail
           rc=0
           bash scripts/verify_cut_pin_is_current.sh --ref HEAD || rc=$?
-          if [ "$rc" -ne 0 ]; then
+          if [ "$rc" -eq 3 ]; then
+            echo "::notice::cut pin SKIPPED: the newest cut is tagged and main is past the tag. History, not compared."
+          elif [ "$rc" -ne 0 ]; then
             echo "::warning::The newest cut record's pin no longer matches this tree."
             echo "::warning::That is EXPECTED if this PR changed install.sh -- a follow-up"
             echo "::warning::re-point of cuts/<tag>/cut.env is now OWED before the tag."
