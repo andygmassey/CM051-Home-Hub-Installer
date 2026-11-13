@@ -7,9 +7,12 @@
 # home card) is not frozen for the 24 h between full wiki compiles.
 #
 # Runs exactly the CM044 settling-only contract command (no LLM, no Oxigraph,
-# no page rendering, target under 10 s):
-#   docker compose --profile compile run --rm -T wiki-compiler \
-#       python -m compiler.compile --settling-only
+# no page rendering, target under 10 s). The wiki-compiler image's ENTRYPOINT
+# is already `python -m compiler` (CM044 docker/Dockerfile.compiler), so only
+# the compiler's own flags follow the service name:
+#   docker compose --profile compile run --rm -T wiki-compiler --settling-only
+# Adding `python -m compiler.compile` here reaches argparse as positionals and
+# fails with exit 2 on every tick (v1.0.130 walk: settling.json never written).
 #
 # Overlap rules (exit 0 and a log line when skipped, never an error):
 #   1. Its own lock, so a slow run is never doubled up by the next tick.
@@ -80,7 +83,7 @@ log "settling refresh start (settling-only, no LLM)"
 _out="$(mktemp -t settling-refresh.XXXXXX)"
 rc=0
 docker compose --profile compile run --rm -T wiki-compiler \
-    python -m compiler.compile --settling-only </dev/null >"$_out" 2>&1 || rc=$?
+    --settling-only </dev/null >"$_out" 2>&1 || rc=$?
 log "settling refresh: compile output withheld (it can name people): $(wc -l <"$_out" | tr -d ' ') lines, exit ${rc}"
 rm -f "$_out"
 if [ "$rc" -ne 0 ]; then

@@ -1,0 +1,7 @@
+{
+  "_source": "CM044 docker/Dockerfile.compiler at commit fcfdff6809c4cf6b6030d8f58422084400170553, line 63 (ENTRYPOINT) and compiler/compile.py add_argument lines 1951-1954 at the same commit. Digest bound in scripts/wiki_image_provenance.tsv.",
+  "_image_digest": "sha256:a489813f982ebb86775edf46abbd1913ebdddb946b914a97b11d8929849bb838",
+  "_commit": "fcfdff6809c4cf6b6030d8f58422084400170553",
+  "entrypoint": ["python", "-m", "compiler"],
+  "flags": {"--no-llm": 0, "--page": 1, "--output-dir": 1, "--settling-only": 0}
+}
