@@ -229,3 +229,43 @@ ostler_model_fit_pill() {
         *)     printf '%s' "$1" ;;
     esac
 }
+
+# ── Install-time floor, per tier (2026-11-13, tier-aware duration copy) ──
+#
+# The customer-facing whole-install floor was "45 minutes to a few hours",
+# priced on the 7.2 GB model download (scripts/verify_install_duration_honesty.sh).
+# A 48GB+ Mac now downloads the qwen3.6:35b-a3b weights (~22.7 GB), so the floor
+# scales with the bytes that tier actually pulls. ASSUMPTION, stated because it
+# is an estimate: the download-bound floor scales linearly with the download
+# size from the 7.2 GB baseline. A slower link only lengthens it, so this
+# never under-promises for a larger model. The floor is never below 45 min.
+OSTLER_INSTALL_FLOOR_BASE_MIN=45
+OSTLER_INSTALL_FLOOR_BASE_GB="7.2"
+
+# Download size in GB (number only) of a model, from its size label.
+ostler_model_download_gb() {
+    ostler_model_size_label "$1" | tr -cd '0-9.' | sed 's/\.$//'
+}
+
+# Whole-install floor in minutes for a RAM tier: the recommended model's
+# download, scaled from the 7.2 GB baseline, rounded up to 15 minutes.
+ostler_install_floor_minutes() {
+    local gb
+    gb="$(ostler_model_download_gb "$(ostler_recommend_model "$1")")"
+    awk -v g="${gb:-0}" -v b="${OSTLER_INSTALL_FLOOR_BASE_GB}" -v m="${OSTLER_INSTALL_FLOOR_BASE_MIN}" \
+        'BEGIN { x = m * g / b; if (x < m) x = m; printf "%d", int((x + 14.999) / 15) * 15 }'
+}
+
+# Minutes as customer copy: 45 -> "45 minutes", 150 -> "2 hours 30 minutes".
+ostler_format_minutes() {
+    local m="$1" h r out=""
+    h=$(( m / 60 )); r=$(( m % 60 ))
+    if (( h > 0 )); then
+        out="${h} hour"; (( h > 1 )) && out="${out}s"
+    fi
+    if (( r > 0 )); then
+        [[ -n "$out" ]] && out="${out} "
+        out="${out}${r} minutes"
+    fi
+    printf '%s' "$out"
+}

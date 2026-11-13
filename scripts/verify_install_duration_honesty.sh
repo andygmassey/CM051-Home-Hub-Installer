@@ -16,6 +16,7 @@
 #   range above sits BELOW that. So each one was an under-promise the
 #   customer catches us on while they are still deciding whether to trust us.
 #
+#   The 48GB+ tier downloads ~22.7 GB, so its floor is tier-aware (see below).
 #   The claim is therefore "45 minutes to a few hours": the floor is
 #   download-bound (7.2 GB of models), the ceiling is history-bound.
 #
@@ -76,6 +77,37 @@ for entry in "${SURFACES[@]}"; do
         rc=1
     fi
 done
+
+# ── 48GB+ tier: the floor must be priced on the download that tier really
+# makes. The estimate comes from the same fit table the picker reads. A tier
+# that still prices its download at the old 7.2 GB fails here, and every
+# surface must state the tier floor the table computes.
+LIB="$ROOT/lib/ostler-model-fit.sh"
+MEASURED_48_GB="22.62"   # registry layers, qwen3.6:35b-a3b, 2026-11-13
+if [[ ! -f "$LIB" ]]; then
+    printf 'MISSING  lib/ostler-model-fit.sh -- the tier estimate cannot be read\n'
+    missing=1
+else
+    tier48_gb="$(bash -c '. "$1" >/dev/null 2>&1; ostler_model_download_gb "$(ostler_recommend_model 48)"' _ "$LIB")"
+    tier48_floor="$(bash -c '. "$1" >/dev/null 2>&1; ostler_format_minutes "$(ostler_install_floor_minutes 48)"' _ "$LIB")"
+    if [[ -z "$tier48_gb" || -z "$tier48_floor" ]]; then
+        printf 'CANNOT RUN  the fit table named no 48GB+ model or no floor\n'
+        missing=1
+    elif awk -v g="$tier48_gb" -v m="$MEASURED_48_GB" 'BEGIN { exit !((g + 0) < (m + 0)) }'; then
+        printf 'FAIL  48GB+ install estimate prices a %s GB download; the measured download is %s GB (lib/ostler-model-fit.sh)\n' \
+            "$tier48_gb" "$MEASURED_48_GB"
+        rc=1
+    else
+        for entry in "${SURFACES[@]}"; do
+            rel="${entry##*:}"
+            if ! grep -qF "$tier48_floor" "$ROOT/$rel" 2>/dev/null; then
+                printf 'FAIL  %s does not state the 48GB+ install floor "%s" (the fit table computes it from %s GB)\n' \
+                    "$rel" "$tier48_floor" "$tier48_gb"
+                rc=1
+            fi
+        done
+    fi
+fi
 
 if [[ $missing == 1 ]]; then
     printf 'verify_install_duration_honesty: a surface is absent -- this gate examined fewer files than it claims to cover\n'
