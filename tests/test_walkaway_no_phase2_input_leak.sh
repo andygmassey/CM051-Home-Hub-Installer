@@ -36,13 +36,8 @@ BOUNDARY="$(grep -nE 'PHASE 3: INSTALL EVERYTHING' "$INSTALL_SH" | head -1 | cut
 [[ -n "$BOUNDARY" ]] || fail "could not locate the Phase-3 boundary marker"
 echo "PASS: Phase-3 boundary at line $BOUNDARY"
 
-# ── The Mail extend question must be in Phase 2 (before the boundary) ──
-extend_line="$(grep -n '"mail_extend_history")' "$INSTALL_SH" | head -1 | cut -d: -f1)"
-[[ -n "$extend_line" ]] || fail "mail_extend_history gui_read not found at all (pre-fill regressed?)"
-[[ "$extend_line" -lt "$BOUNDARY" ]] \
-    || fail "mail_extend_history gui_read is at line $extend_line, AFTER the Phase-3 boundary ($BOUNDARY) -- it must be collected in Phase 2"
-echo "PASS: mail_extend_history question is in Phase 2 (line $extend_line < $BOUNDARY)"
-
+# The Mail extend question was REMOVED 2026-11-12 (all history by default);
+# the Phase-2 presence check is replaced by the absence check below.
 # ── No mail_extend_history gui_read remains in the execution region ───
 if awk -v b="$BOUNDARY" 'NR>b && /gui_read/,/\)"/ {print}' "$INSTALL_SH" \
     | grep -q 'mail_extend_history'; then
