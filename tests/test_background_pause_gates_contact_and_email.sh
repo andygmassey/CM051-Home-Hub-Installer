@@ -78,15 +78,15 @@ extract_checked() {
 # $1 = sandbox dir, $2 = governor.env body ("" for no file)
 make_home() {
     local dir="$1" gov="$2"
-    mkdir -p "$dir/home/.ostler/bin" "$dir/home/.ostler/lib" \
-             "$dir/home/.ostler/config" "$dir/home/.ostler/state" \
-             "$dir/home/.ostler/logs" "$dir/home/.ostler/imports" \
-             "$dir/home/Library/Application Support/AddressBook" \
-             "$dir/home/.ostler/import-pipeline/.venv/bin"
+    mkdir -p "$dir/sandbox/.ostler/bin" "$dir/sandbox/.ostler/lib" \
+             "$dir/sandbox/.ostler/config" "$dir/sandbox/.ostler/state" \
+             "$dir/sandbox/.ostler/logs" "$dir/sandbox/.ostler/imports" \
+             "$dir/sandbox/Library/Application Support/AddressBook" \
+             "$dir/sandbox/.ostler/import-pipeline/.venv/bin"
     extract_checked "$INSTALL_SH" "lib/ostler-resource-tier.sh\" <<'OSTLER_RESOURCE_TIER_EOF'" \
-        "OSTLER_RESOURCE_TIER_EOF" > "$dir/home/.ostler/lib/ostler-resource-tier.sh"
+        "OSTLER_RESOURCE_TIER_EOF" > "$dir/sandbox/.ostler/lib/ostler-resource-tier.sh"
     if [[ -n "$gov" ]]; then
-        printf '%s\n' "$gov" > "$dir/home/.ostler/config/governor.env"
+        printf '%s\n' "$gov" > "$dir/sandbox/.ostler/config/governor.env"
     fi
 }
 
@@ -97,7 +97,7 @@ run_contact() {
     local name="$1" gov="$2" d="$WORK/contact-$1"
     mkdir -p "$d"
     make_home "$d" "$gov"
-    local home="$d/home" calls="$d/syncer-calls.txt" log="$d/home/.ostler/logs/contact-resync.log"
+    local home="$d/sandbox" calls="$d/syncer-calls.txt" log="$d/sandbox/.ostler/logs/contact-resync.log"
     : > "$calls"
 
     extract_checked "$INSTALL_SH" "bin/ostler-contact-resync\" <<'CRSEOF'" "CRSEOF" \
@@ -162,7 +162,7 @@ run_email() {
     local name="$1" gov="$2" d="$WORK/email-$1"
     mkdir -p "$d"
     make_home "$d" "$gov"
-    local home="$d/home" calls="$d/emitter-calls.txt" stub="$d/fake-python"
+    local home="$d/sandbox" calls="$d/emitter-calls.txt" stub="$d/fake-python"
     : > "$calls"
     cat > "$stub" <<STUB
 #!/bin/bash
