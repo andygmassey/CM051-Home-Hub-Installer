@@ -88,7 +88,7 @@ warn() { echo "WARN $*"; }
 progress() { :; }
 fail() { echo "FAIL $*"; exit 3; }
 fail_with_code() { local code="$1"; shift; echo "CODE ${code}"; fail "$*"; }
-export HOME="${STUB}/home"; mkdir -p "$HOME"
+export HOME="${STUB}/sandbox-home"; mkdir -p "$HOME"
 export PATH="${STUB}/bin:/usr/bin:/bin"
 export INSTALL_LOG="${STUB}/install.log"; : > "$INSTALL_LOG"
 SCRIPT_DIR="${REPO_ROOT}"
@@ -163,9 +163,9 @@ run_arm() {
     # Docker Desktop: its app bundle exists, and compose is only the plugin in
     # ~/.docker/cli-plugins (no Homebrew compose binary, no Homebrew plugin).
     if [[ "$desktop" == 1 ]]; then
-        mkdir -p "$stub/Docker.app" "$stub/home/.docker/cli-plugins"
-        printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/home/.docker/cli-plugins/docker-compose"
-        chmod +x "$stub/home/.docker/cli-plugins/docker-compose"
+        mkdir -p "$stub/Docker.app" "$stub/sandbox-home/.docker/cli-plugins"
+        printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/sandbox-home/.docker/cli-plugins/docker-compose"
+        chmod +x "$stub/sandbox-home/.docker/cli-plugins/docker-compose"
     fi
     if ! extract_slice "$src" "$stub/slice.raw"; then
         echo "CANNOT-RUN: colima block not found in ${src} for arm ${name}. NOT a pass." >&2
