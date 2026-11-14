@@ -137,15 +137,17 @@ internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) 
 /// single quote cannot be quoted safely, so the guard step is omitted and
 /// install.sh then fails closed rather than running an unquoted path as root.
 internal func buildAdminInnerShell(resourcePath: String?) -> String {
+    // /opt/homebrew is created for the owner ONLY when it does not exist yet
+    // (a fresh Mac with no Homebrew). An existing prefix is never chowned: it
+    // is either already the owner's, or another account's, and
+    // sharedHomebrewRefusal stops the install before this shell runs in that
+    // case. /usr/local/bin is root-owned on stock macOS and is not touched.
     var shell =
         "/usr/bin/sudo -v ; " +
         "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
-        "/bin/mkdir -p /opt/homebrew ; " +
-        "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
-        "/bin/chmod 755 /opt/homebrew ; " +
-        "/bin/mkdir -p /usr/local/bin ; " +
-        "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
-        "/bin/chmod 755 /usr/local/bin"
+        "if [ ! -e /opt/homebrew ]; then " +
+        "/bin/mkdir /opt/homebrew && /usr/sbin/chown $ORIG_USER:admin /opt/homebrew && /bin/chmod 755 /opt/homebrew ; " +
+        "fi"
     if let res = resourcePath, !res.contains("'") {
         let lib = "'" + res + "/lib/ostler-loopback-guard.sh'"
         shell += " ; /bin/bash " + lib + " install-root $(/usr/bin/id -u $ORIG_USER) " + lib
@@ -153,8 +155,26 @@ internal func buildAdminInnerShell(resourcePath: String?) -> String {
     return shell
 }
 
+/// The refusal shown when the shared Homebrew prefix belongs to another account.
+/// Pure so the test target can pin it. Names no account.
+///
+/// nil means proceed: the prefix is absent (a fresh Mac; the admin shell
+/// creates it for the owner) or already owned by the current user.
+internal func sharedHomebrewRefusal(prefixOwnerUID: UInt32?, currentUID: UInt32) -> String? {
+    guard let owner = prefixOwnerUID, owner != currentUID else { return nil }
+    return "Homebrew on this Mac belongs to another account, so Ostler will not change its ownership. " +
+        "Install Ostler from that account, or ask that account's owner to do it."
+}
+
 actor AuthorizationHelper {
     static let shared = AuthorizationHelper()
+
+    /// Reads the owner of /opt/homebrew, nil when it does not exist. Reads only; never changes ownership.
+    nonisolated static func homebrewPrefixOwnerUID() -> UInt32? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: "/opt/homebrew"),
+              let owner = attrs[.ownerAccountID] as? NSNumber else { return nil }
+        return owner.uint32Value
+    }
 
     private var grantedAt: Date? = nil
     private var inFlight: Bool = false
@@ -177,6 +197,15 @@ actor AuthorizationHelper {
         if inFlight { return false }
         inFlight = true
         defer { inFlight = false }
+
+        // Refuse before the admin prompt when another account owns Homebrew.
+        // The root shell never chowns an existing prefix, so the refusal is
+        // the only answer to that case.
+        if let refusal = sharedHomebrewRefusal(
+            prefixOwnerUID: Self.homebrewPrefixOwnerUID(), currentUID: getuid()) {
+            OstlerLog.lifecycle.error("admin authorization refused: \(refusal, privacy: .public)")
+            return false
+        }
 
         let prompt = "Ostler needs administrator access. \(reason)"
         // Inner shell. Runs as root via `with administrator privileges`.
