@@ -57,7 +57,7 @@ def main() -> int:
     try:
         platforms = es.load_platforms()
         ids = [p["id"] for p in platforms]
-        check(len(platforms) == 12, f"the shared table lists 12 platforms (got {len(platforms)})")
+        check(len(platforms) == 13, f"the shared table lists 13 platforms (got {len(platforms)})")
 
         # A synthetic LinkedIn export, dated 2 Oct 2026 from its file name.
         li_epoch = int(datetime(2026, 10, 2, tzinfo=timezone.utc).timestamp())

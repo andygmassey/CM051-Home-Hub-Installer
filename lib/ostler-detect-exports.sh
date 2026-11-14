@@ -25,8 +25,10 @@ set -uo pipefail
 DIR="${1:-}"
 DO_UNZIP=0
 DO_LOOSE=0
+DO_STAGE_CHATGPT=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
+[[ "${2:-}" == "--stage-chatgpt" ]] && DO_STAGE_CHATGPT=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
 
 # --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
@@ -200,6 +202,30 @@ if [[ "$DO_LOOSE" == "1" ]]; then
     exit "$_lx_any"
 fi
 
+# --- 0b. CHATGPT STAGE (2026-11-14) -------------------------------------------
+# Usage: ostler-detect-exports.sh <export_dir> --stage-chatgpt <drop_dir>
+# Copies the export's conversations.json into <drop_dir>/<export name>/conversations.json,
+# the folder the CM052 ChatGPT adapter reads (OSTLER_CHATGPT_IMPORT_DIR, default
+# ~/Ostler/imports/chatgpt). The aiconv agent runs hourly with cm052 --source all,
+# which reads that folder. Exit 0 when staged, 1 when no export is found under
+# <export_dir>. The copy goes to a temp name first and is moved into place, so a
+# half-copied file is never read.
+if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
+    _sc_drop="${3:-}"
+    [[ -n "$_sc_drop" ]] || exit 1
+    _sc_src=""
+    while IFS= read -r _sc_f; do
+        if [[ -f "$(dirname "$_sc_f")/chat.html" ]]; then _sc_src="$_sc_f"; break; fi
+    done < <(find "$DIR" -maxdepth 4 -type f -name conversations.json 2>/dev/null)
+    [[ -n "$_sc_src" ]] || exit 1
+    _sc_name="$(basename "$DIR")"
+    _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
+    mkdir -p "$_sc_drop/$_sc_name" || exit 1
+    cp "$_sc_src" "$_sc_drop/$_sc_name/conversations.json.tmp.$$" \
+        && mv "$_sc_drop/$_sc_name/conversations.json.tmp.$$" "$_sc_drop/$_sc_name/conversations.json" || exit 1
+    exit 0
+fi
+
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately
 # high-signal to avoid false positives. <US> = unit separator (0x1f).
@@ -221,6 +247,7 @@ SIGS=(
   $'TikTok\x1f^user_data.*\\.json$'
   $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
   $'Discord\x1f^messages\\.csv$|^activity$'
+  $'ChatGPT\x1f^conversations\\.json$'
 )
 
 # --- 1. Optionally unzip archives worth opening -------------------------------
@@ -323,6 +350,9 @@ for entry in "${SIGS[@]}"; do
     while IFS= read -r hit; do
         [[ -n "$hit" ]] || continue
         top="$(_top_under "$hit")"
+        # ChatGPT: a bare conversations.json is not an export (many tools write
+        # one). The official export always ships chat.html beside it.
+        if [[ "$label" == "ChatGPT" && ! -f "$(dirname "$hit")/chat.html" ]]; then continue; fi
         # de-dup identical top folders reported by multiple signatures
         skip=0
         for s in ${SEEN_TOPS[@]+"${SEEN_TOPS[@]}"}; do [[ "$s" == "$label::$top" ]] && skip=1 && break; done
