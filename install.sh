@@ -4243,7 +4243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9673   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9718   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9727 and :17655, both of which run
+    # Its two top-level arming calls are :9727 and :17696, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18450, where the note reads
+    # WhatsApp Web session path did it again at :18491, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18467 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18508 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4280,9 +4280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9727, :17655) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9727, :17696) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20664 / :20842 / :20999 / :21444 path. There the
+    # :20705 / :20883 / :21040 / :21485 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -16552,11 +16552,51 @@ IDLE_PCT="${OSTLER_WATCHDOG_IDLE_PCT:-5}"
 COOLDOWN_S="${OSTLER_WATCHDOG_COOLDOWN_S:-900}"
 STATE_DIR="${OSTLER_WATCHDOG_STATE_DIR:-${HOME}/.ostler/state}"
 LABEL="${OSTLER_WATCHDOG_LABEL:-com.ostler.ollama}"
+# Idle window the prewarm loads with: the same window the daemon stamps (plist
+# OLLAMA_KEEP_ALIVE). A prewarm pinned forever would defeat the pause unload.
+KEEP_ALIVE="${OSTLER_WATCHDOG_KEEP_ALIVE:-15m}"
 FAILS="${STATE_DIR}/ollama_watchdog.fails"
 LAST="${STATE_DIR}/ollama_watchdog.last_restart"
 LOCK="${STATE_DIR}/ollama_watchdog.lock"
 SIZEF="${STATE_DIR}/ollama_watchdog.logsize"
 log() { printf '%s ollama-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+# PAUSE MUST FREE THE MODEL (F&F tester, 2026-11-13: "I turned it off and the
+# model is still in memory"). The Pause writes governor.env and every ingest
+# tick reads it. Nothing else touched the chat model: the daemon pins it with
+# OLLAMA_KEEP_ALIVE on every request. So on each probe that finds a pause in
+# effect, unload every loaded model (keep_alive 0 is Ollama's documented
+# unload). The next chat request, or the brief, reloads it on demand.
+RT_LIB="${OSTLER_WATCHDOG_RT_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
+unload_loaded_models() {
+    local ps names m code
+    ps=$(curl -s --max-time 10 "${URL}/api/ps" 2>/dev/null || true)
+    if [ -z "$ps" ]; then
+        log "PAUSED: could not read ${URL}/api/ps, so nothing was unloaded; retrying on the next probe"
+        return 0
+    fi
+    names=$(printf '%s' "$ps" | grep -o '"name": *"[^"]*"' | sed 's/^"name": *"//; s/"$//')
+    if [ -z "$names" ]; then
+        # An empty list is the steady state; anything else unparsed is not
+        # "nothing loaded", so say so rather than report a clean pause.
+        printf '%s' "$ps" | grep -q '"models": *\[ *\]' \
+            || log "PAUSED: could not parse the loaded-model list from ${URL}/api/ps; nothing was unloaded"
+        return 0
+    fi
+    while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        case "$m" in *[!A-Za-z0-9._:/-]*) log "PAUSED: not unloading a model name with unexpected characters"; continue ;; esac
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/api/generate" \
+            -d "{\"model\":\"${m}\",\"keep_alive\":0}" 2>/dev/null || true)
+        log "PAUSED: unloaded ${m} (keep_alive 0): http=${code:-none}"
+    done <<< "$names"
+}
+unload_if_paused() {
+    [ -f "$RT_LIB" ] || { log "PAUSE CHECK SKIPPED: ${RT_LIB} missing"; return 0; }
+    # shellcheck source=/dev/null
+    . "$RT_LIB"
+    ostler_rt_load_user_settings
+    if ostler_resource_tier_is_paused; then unload_loaded_models; fi
+}
 mkdir -p "$STATE_DIR"
 mkdir "$LOCK" 2>/dev/null || { log "previous probe still running; skipping"; exit 0; }
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
@@ -16581,6 +16621,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" \
 if [ "$code" = "200" ]; then
     [ -s "$FAILS" ] && log "HEALTHY again after $(cat "$FAILS") failed probe(s)"
     rm -f "$FAILS"
+    unload_if_paused
     exit 0
 fi
 n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))
@@ -16645,13 +16686,13 @@ prewarm() {
     for i in $(seq 1 30); do curl -s -o /dev/null --max-time 2 "${URL}/api/version" && break; sleep "${OSTLER_WATCHDOG_UP_POLL_S:-2}"; done
     if [ -n "$chat" ]; then
         c=$(curl -s -o /dev/null -w '%{http_code}' --max-time "${OSTLER_WATCHDOG_PREWARM_S:-180}" "${URL}/api/generate" \
-            -d "{\"model\":\"${chat}\",\"prompt\":\"\",\"keep_alive\":-1,\"options\":{\"num_ctx\":${ctx}}}" 2>/dev/null)
+            -d "{\"model\":\"${chat}\",\"prompt\":\"\",\"keep_alive\":\"${KEEP_ALIVE}\",\"options\":{\"num_ctx\":${ctx}}}" 2>/dev/null)
         log "PREWARM chat ${chat} num_ctx=${ctx}: http=${c:-none}"
     else
         log "PREWARM chat SKIPPED: no AI_MODEL in ${envf}"
     fi
     c=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" "${URL}/api/embed" \
-        -d "{\"model\":\"${MODEL}\",\"input\":\"ok\",\"keep_alive\":-1}" 2>/dev/null)
+        -d "{\"model\":\"${MODEL}\",\"input\":\"ok\",\"keep_alive\":\"${KEEP_ALIVE}\"}" 2>/dev/null)
     log "PREWARM embed ${MODEL}: http=${c:-none}"
 }
 if launchctl kickstart -k "gui/$(id -u)/${LABEL}"; then
