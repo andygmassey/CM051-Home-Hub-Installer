@@ -92,6 +92,7 @@ jobs:
             test_conversation_bundle_user_id_wired.sh \
             test_conversations_ingest_wiring.sh \
             test_cx100_mail_accounts_detection.sh \
+            test_owner_mail_domains_probe.sh \
             test_background_pause_gates_contact_and_email.sh \
             test_cx101_prelaunch_gate_population.sh \
             test_cx130_mail_populate_phase2.sh \
@@ -247,3 +248,11 @@ jobs:
       - name: an identity mismatch shows the difference, not two identical strings
         if: always()
         run: bash tests/test_identity_mismatch_shows_the_difference.sh
+
+      # Owner mail-domain writer (pytest) and the mutants for the probe and the
+      # writer. The control inside the harness must be green or the run is void.
+      - name: Owner mail domains, writer tests and mutants
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest tests/test_owner_mail_domains_state.py -q -p no:cacheprovider
+          python3 tests/owner_mail_domains_mutants.py
