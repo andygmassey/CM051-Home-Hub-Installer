@@ -1739,3 +1739,58 @@ patch is the record.
 Why: the GUI installer cannot write `/usr/local/bin` on a stock Mac, so it links pwg-convo into the owner's `${OSTLER_DIR}/bin` (install.sh `_ostler_link_cli`). The launchd plist for `com.ostler.ical-server` sets no `PWG_CONVO_BIN` (install.sh, the ical-server plist EnvironmentVariables block), so this default is what runs.
 
 Tests: `tests/test_pwg_convo_bin_owner_side_first.py`. RED on origin/main: `AttributeError: no _default_pwg_convo_bin`. Mutant (owner-side branch removed) fails arm 1.
+## Graft 2026-11-14: a slug shared by two people refuses; forget accepts person_uri
+
+Source: CM041 `fix/slug-ambiguity-409` (commit `cab9d5e`, on top of CM041 main
+`e6b5bce`). Archie's ruling on the wrong-person forget. Grafted by hand, not by
+`sync_vendor.sh`: the tree is ahead of CM041 main in the forget and timeline
+code, so a 3-way merge of the upstream delta from the pinned sha raised 16
+conflicts, and a regeneration would delete the grafts above.
+
+What changed in `vendor/cm041/assistant_api/ical-server.py`:
+
+- `SlugAmbiguous`, `_ambiguous_slug_response`, `_resolve_person_by_uri`.
+  `_resolve_person_by_slug` raises `SlugAmbiguous` when the slug names more
+  than one live person (distinct person URIs in the merge-aware rows).
+- `api_people_forget(slug, person_uri=None)`: a URI resolves exactly that
+  person (404 with no write when it names nobody); a shared slug is a 409
+  before any write. The route parses an optional JSON body with `person_uri`.
+- `person_enrichment`, `person_timeline`: 409 on a shared slug.
+- `api_people_suppress_suggestions`: 409 on a shared slug, before any write.
+
+NOT grafted here: the other upstream CM041 `ical-server.py` commits since the
+pin (`e6b5bce` #249, `d962b74` #245, `5b535c7` #244, `fe3290d` #240). They touch
+the same timeline and brief readers this tree has diverged in. Those are a
+separate graft with its own review.
+
+Proof: `vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py`, wired
+in `.github/workflows/forget-tombstone.yml` with a collected-count floor of 14.
+RED against the pre-graft vendored file: 10 failed, 4 passed (the controls).
+GREEN with the graft: 14 passed.
+
+Also edited: vendor/cm041/assistant_api/tests/test_lane11_routes.py, the forget stub takes person_uri (the route now passes it).
+
+## Graft 2026-11-14 (batch B): identity is the mergedInto link; CM041 #249 grafted
+
+Supersedes the name-count predicate in the section above. In this tree the live
+terminus (`_merge_aware_name_rows`) already is the identity: two unlinked nodes
+with one display name are two termini and refuse with 409; nodes the resolver
+linked by `pwg:mergedInto` collapse to one terminus and forget by slug erases
+the whole cluster. Forget by `person_uri` erases only the named node, which may
+be a merged-in fragment. The suppression writer uses the live termini too.
+
+CM041 #249 (`e6b5bce7`, Unicode-aware org key): `_norm_org` and `_orgs_differ`
+grafted into `ical-server.py`, with `tests/test_employer_org_nonlatin.py`
+(14 pass; 12 fail on the pre-graft file). `tests/test_current_employer.py` is
+NOT vendored: 3 of its tests fail on the pre-graft tree too (a pre-existing
+divergence in the operator-override code), so vendoring it would turn CI red
+for reasons this change did not cause.
+
+## Graft 2026-11-14 (batch B): CM041 #251 Photos timeline rows
+
+`_timeline_photos` added before `api_timeline`; `api_timeline` merges its rows
+and tags `photos_error`; the entries serializer carries `photos` through, skips
+`photos_error`, and says All day with the photo day's date. Provenance fields
+(`source`, `title_verbatim`) stay on every entry in this tree, so the contract
+test compares the customer fields only. Test: `tests/test_timeline_photos.py`
+(11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.
