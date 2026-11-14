@@ -1777,3 +1777,12 @@ grafted into `ical-server.py`, with `tests/test_employer_org_nonlatin.py`
 NOT vendored: 3 of its tests fail on the pre-graft tree too (a pre-existing
 divergence in the operator-override code), so vendoring it would turn CI red
 for reasons this change did not cause.
+
+## Graft 2026-11-14 (batch B): CM041 #251 Photos timeline rows
+
+`_timeline_photos` added before `api_timeline`; `api_timeline` merges its rows
+and tags `photos_error`; the entries serializer carries `photos` through, skips
+`photos_error`, and says All day with the photo day's date. Provenance fields
+(`source`, `title_verbatim`) stay on every entry in this tree, so the contract
+test compares the customer fields only. Test: `tests/test_timeline_photos.py`
+(11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.

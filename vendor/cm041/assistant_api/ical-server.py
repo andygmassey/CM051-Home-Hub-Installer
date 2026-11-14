@@ -10096,6 +10096,93 @@ def _conversation_title(channel, participants):
     return "{} conversation".format(label)
 
 
+def _timeline_photos(past_days=730, limit=200):
+    """Aggregated Photos rows for the Timeline: one row per (day, place).
+
+    Source: the per-photo ``pwg:PhotoEvent`` nodes that
+    ``vendor/ostler_fda/pwg_ingest.py`` ``ingest_photo_events`` writes from the
+    Photos extract (``photos_events.json``). One node per photo, so the rows
+    are aggregated here, never per photo: "Photos: 23 photos at <place>" for a
+    place, "Photos: 23 photos on <date>" for a day with no place label.
+
+    Privacy is fail-closed, as everywhere else (``pwg_privacy.is_l3``): a photo
+    whose ``pwg:privacyLevel`` is L3, unparseable, or missing is not counted.
+    Applied on the on-box Timeline and the outbound path alike, so no photo
+    row is ever a surprise to either. Photos carry no names here; face
+    attendees are never read.
+
+    Read-only. Nothing here notifies, reminds or writes to the graph.
+
+    Returns ``(rows, error)``, newest day first. ``error`` is a string when the
+    graph query failed, else None.
+    """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+    try:
+        bindings = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?photo ?date ?place ?priv WHERE {{\n'
+            '  ?photo a pwg:PhotoEvent ; pwg:photoDate ?date .\n'
+            '  OPTIONAL {{ ?photo pwg:photoPlace ?place }}\n'
+            '  OPTIONAL {{ ?photo pwg:privacyLevel ?priv }}\n'
+            '  FILTER(STR(?date) >= "{cutoff}")\n'
+            '}}'.format(ns=PWG_NS, cutoff=cutoff)
+        )
+    except Exception as exc:
+        return [], str(exc)
+
+    # One photo may carry several bindings (OPTIONAL fan-out). A photo is
+    # hidden if ANY of its levels is L3 or none parses.
+    photos = {}
+    for b in bindings:
+        ph = photos.setdefault(b.get("photo", ""), {
+            "date": "", "place": "", "levels": []})
+        raw_date = (b.get("date") or "")[:10]
+        if raw_date and not ph["date"]:
+            ph["date"] = raw_date
+        if b.get("place") and not ph["place"]:
+            ph["place"] = b["place"].strip()
+        ph["levels"].append(b.get("priv"))
+
+    groups = {}
+    for ph in photos.values():
+        if not ph["date"] or not ph["levels"]:
+            continue
+        if any(pwg_privacy.is_l3(lvl) for lvl in ph["levels"]):
+            continue
+        key = (ph["date"], ph["place"])
+        g = groups.setdefault(key, {"count": 0, "levels": set()})
+        g["count"] += 1
+        for lvl in ph["levels"]:
+            parsed = pwg_privacy.parse_privacy_level(lvl)
+            if parsed:
+                g["levels"].add(parsed)
+
+    out = []
+    for (day, place), g in groups.items():
+        n = g["count"]
+        noun = "photo" if n == 1 else "photos"
+        if place:
+            summary = "Photos: %d %s at %s" % (n, noun, place)
+        else:
+            summary = "Photos: %d %s on %s" % (n, noun, day)
+        out.append({
+            "kind": "photos",
+            "date": day,
+            "summary": summary,
+            "location": place,
+            "count": n,
+            "privacy_level": max(g["levels"]) if g["levels"] else "L2",
+        })
+    out.sort(key=lambda r: (r["date"], r["location"]), reverse=True)
+    if limit:
+        out = out[:limit]
+    return out, None
+
+
+
+
 def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                  outbound=False):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
@@ -10197,6 +10284,14 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     else:
         items.extend(conv_rows)
 
+    # Photos: aggregated per day and place from the PhotoEvent graph
+    # (_timeline_photos). A failure is reported, never fatal.
+    photo_rows, photo_err = _timeline_photos(past_days=past_days, limit=limit)
+    if photo_err is not None:
+        items.append({"kind": "photos_error", "error": photo_err})
+    else:
+        items.extend(photo_rows)
+
     # Newest first (it is mainly a historic timeline), then cap.
     # The live-calendar strip only belongs on the opening page; a paged
     # request must not re-emit it (duplicates) or leak outside its window.
@@ -10215,7 +10310,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     entries = []
     for it in items:
         kind = it.get("kind") or ""
-        if kind in ("calendar_error", "meeting_error", "conversation_error"):
+        if kind in ("calendar_error", "meeting_error", "conversation_error", "photos_error"):
             # Surface but skip – CM031 does not render error sentinels.
             continue
         # Carry the row's real kind (#106c). This used to collapse every
@@ -10227,8 +10322,14 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         else:
             entry_type = kind or "event"
         raw_date = it.get("date") or ""
-        timestamp, all_day = _timeline_row_time(
-            it.get("start") or raw_date, it.get("all_day"))
+        if kind == "photos":
+            # A photo group is a DAY, not a moment: it keeps its date and says
+            # All day, as the #251 contract fixture requires (the timeline row
+            # time parser would stamp it with a clock time).
+            timestamp, all_day = raw_date, True
+        else:
+            timestamp, all_day = _timeline_row_time(
+                it.get("start") or raw_date, it.get("all_day"))
         if not timestamp:
             # No readable event date: never shown, and never as "today".
             continue

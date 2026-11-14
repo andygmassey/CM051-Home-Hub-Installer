@@ -290,3 +290,44 @@ def test_route_non_object_body_is_400(world, live):
     status, body = _post(live, f"/api/v1/people/{SLUG_JOHN}/forget", raw=b"[1,2]")
     assert status == 400
     assert JOHN in world.store.person_names()
+
+
+# ── a node linked to TWO termini is not one identity (fail closed) ───────────
+
+def test_node_linked_to_two_termini_forget_by_slug_is_409_and_deletes_nothing(world):
+    """X mergedInto R1 AND R2: the store cannot say which identity X is, so a
+    forget by slug refuses. Nothing is deleted from any of the three."""
+    w = world
+    x, r1, r2 = (
+        "https://schema.ostler.ai/ontology#person_syn00000020",
+        "https://schema.ostler.ai/ontology#person_syn00000021",
+        "https://schema.ostler.ai/ontology#person_syn00000022",
+    )
+    w.store.update(f'INSERT DATA {{ <{x}> a pwg:Person ; pwg:displayName "Tom Ross" . }}')
+    w.store.update(f'INSERT DATA {{ <{r1}> a pwg:Person ; pwg:displayName "Jo Ross" . }}')
+    w.store.update(f'INSERT DATA {{ <{r2}> a pwg:Person ; pwg:displayName "Liz Ross" . }}')
+    w.store.update(f'INSERT DATA {{ <{x}> pwg:mergedInto <{r1}> ; pwg:mergedInto <{r2}> . }}')
+    before = sorted(w.store.person_names())
+    body, status = w.server.api_people_forget("tom-ross")
+    assert status == 409, (status, body)
+    assert body["error"] == "more than one person matches"
+    assert sorted(w.store.person_names()) == before, "nothing may be deleted"
+    assert _no_audit(w)
+
+
+def test_mergedinto_cycle_refuses_each_node_its_own_root(world):
+    """A mergedInto cycle has no terminus: each node is its own root, so two
+    identities, so 409 and nothing deleted (as before this change)."""
+    w = world
+    a = "https://schema.ostler.ai/ontology#person_syn00000030"
+    b = "https://schema.ostler.ai/ontology#person_syn00000031"
+    w.store.update(f'INSERT DATA {{ <{a}> a pwg:Person ; pwg:displayName "Sam Ross" . }}')
+    w.store.update(f'INSERT DATA {{ <{b}> a pwg:Person ; pwg:displayName "Sam Ross" . }}')
+    w.store.update(f'INSERT DATA {{ <{a}> pwg:mergedInto <{b}> . }}')
+    w.store.update(f'INSERT DATA {{ <{b}> pwg:mergedInto <{a}> . }}')
+    body, status = w.server.api_people_forget("sam-ross")
+    # This tree resolves names through live termini, and a cycle has none, so
+    # the slug names NOBODY live: not_found, and nothing deleted. Fail closed by
+    # outcome (no erasure); the CM041 tree answers 409 for the same graph.
+    assert body.get("forgotten") is False, (status, body)
+    assert sorted(w.store.person_names()).count("Sam Ross") == 2

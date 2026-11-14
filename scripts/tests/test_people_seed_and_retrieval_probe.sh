@@ -850,6 +850,28 @@ run_twin_unseed_arm() {
 }
 run_twin_unseed_arm
 
+# The probe's own cleanup must unseed by person_uri. The arm above proves the
+# fake box's semantics; this arm proves the PROBE uses them. A probe that
+# unseeds by slug would read a shared-slug 409 as a failed cleanup, or erase the
+# wrong twin, and nothing above would notice.
+PROBE_FILE="scripts/box_walk_probes/probes/people_seed_and_retrieval.sh"
+if python3 - "$PROBE_FILE" <<'PYCHK'
+import sys
+src = open(sys.argv[1], encoding="utf-8").read()
+cut = src.index("phase5_cleanup() {")
+body = src[cut:src.index("\n}\n", cut)]
+forget = body[body.index("/forget\""):]
+ok = ("person_uri" in body) and ("forget.req" in body) and ('${API_BASE}/api/v1/people/${target_slug}/forget" auth "$out" "${TMP}/forget.req"' in body)
+raise SystemExit(0 if ok else 1)
+PYCHK
+then
+    echo "PASS [probe-unseed] people_seed_and_retrieval cleanup unseeds by person_uri (a slug-only unseed would fail this arm)"
+    PASSES=$((PASSES + 1))
+else
+    echo "FAIL [probe-unseed] people_seed_and_retrieval cleanup does NOT unseed by person_uri: a shared slug would 409 or erase the wrong twin"
+    FAILS=$((FAILS + 1))
+fi
+
 echo ""
 # scenarios counts CASES ATTEMPTED, not PASSES+FAILS. Those diverge: the
 # verdict-line check can add a second FAILS for one case, which used to print

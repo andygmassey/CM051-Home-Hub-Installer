@@ -15,6 +15,8 @@ on:
       - 'tests/test_i22b_allday_backfill.py'
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_photos.py'
+      - 'vendor/cm041/assistant_api/tests/fixtures/timeline_photos_contract.json'
   pull_request:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
@@ -25,6 +27,8 @@ on:
       - 'tests/test_i22b_allday_backfill.py'
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_photos.py'
+      - 'vendor/cm041/assistant_api/tests/fixtures/timeline_photos_contract.json'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -73,6 +77,9 @@ jobs:
       - name: "I22: the vendored api_timeline sends the time and the all_day flag (shared with CM041 #238)"
         if: always()
         run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py -v -rs
+
+      - name: Photos rows on the Timeline match the iOS contract (CM041 #251, graft)
+        run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_photos.py -v -rs
       # I22b: Meeting nodes written before I22 have no all-day flag. The one-time
       # backfill adds it (no deletes, idempotent, fail-soft); consumer-side proof
       # through the real api_timeline.

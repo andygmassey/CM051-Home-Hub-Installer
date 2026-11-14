@@ -1,0 +1,47 @@
+{
+  "_about": "Contract fixture: Hub Timeline entries for Photos. Copied verbatim into CM031 Tests/Services/TimelinePhotosContractTests.swift. Keep the two in step.",
+  "input_photo_events": [
+    {
+      "photo": "c1",
+      "date": "2026-11-01T09:00:00+00:00",
+      "place": "Synthville, Testland",
+      "privacy": "L2"
+    },
+    {
+      "photo": "c2",
+      "date": "2026-11-01T09:10:00+00:00",
+      "place": "Synthville, Testland",
+      "privacy": "L2"
+    },
+    {
+      "photo": "c3",
+      "date": "2026-11-01T13:00:00+00:00",
+      "place": null,
+      "privacy": "L2"
+    },
+    {
+      "photo": "c4",
+      "date": "2026-11-01T14:00:00+00:00",
+      "place": null,
+      "privacy": "L3"
+    }
+  ],
+  "expected_entries": [
+    {
+      "type": "photos",
+      "timestamp": "2026-11-01",
+      "title": "Photos: 2 photos at Synthville, Testland",
+      "subtitle": "Synthville, Testland",
+      "attendees": [],
+      "all_day": true
+    },
+    {
+      "type": "photos",
+      "timestamp": "2026-11-01",
+      "title": "Photos: 1 photo on 2026-11-01",
+      "subtitle": "",
+      "attendees": [],
+      "all_day": true
+    }
+  ]
+}
