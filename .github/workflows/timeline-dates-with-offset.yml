@@ -79,6 +79,7 @@ jobs:
         run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py -v -rs
 
       - name: Photos rows on the Timeline match the iOS contract (CM041 #251, graft)
+        if: always()
         run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_photos.py -v -rs
       # I22b: Meeting nodes written before I22 have no all-day flag. The one-time
       # backfill adds it (no deletes, idempotent, fail-soft); consumer-side proof
