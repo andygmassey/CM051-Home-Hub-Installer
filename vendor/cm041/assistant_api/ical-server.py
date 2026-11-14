@@ -10097,7 +10097,7 @@ def _conversation_title(channel, participants):
 
 
 def _timeline_photos(past_days=730, limit=200):
-    """Aggregated Photos rows for the Timeline: one row per (day, place).
+    """Aggregated photo rows for the Timeline: one row per (day, place).
 
     Source: the per-photo ``pwg:PhotoEvent`` nodes that
     ``vendor/ostler_fda/pwg_ingest.py`` ``ingest_photo_events`` writes from the

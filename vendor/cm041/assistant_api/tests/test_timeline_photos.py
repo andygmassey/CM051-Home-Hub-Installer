@@ -102,8 +102,8 @@ class TimelinePhotosAggregation(unittest.TestCase):
         self.assertNotIn("Oldtown", " ".join(r["summary"] for r in _photo_rows(past_days=730)))
 
     def test_singular_noun_for_one_photo(self):
-        one = [("q1", _DAY + "T09:00:00+00:00", "Solo Place", "L2")]
-        self.assertEqual(_photo_rows(one)[0]["summary"], "Photos: 1 photo at Solo Place")
+        one = [("q1", _DAY + "T09:00:00+00:00", "Riverside Town", "L2")]
+        self.assertEqual(_photo_rows(one)[0]["summary"], "Photos: 1 photo at Riverside Town")
 
     def test_no_photos_is_an_empty_list_not_an_error(self):
         rows, err = None, None
