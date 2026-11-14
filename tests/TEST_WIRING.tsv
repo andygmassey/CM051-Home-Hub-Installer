@@ -772,6 +772,7 @@ test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/i
 test_provisional_phone_twins_merge.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_pwg_convo_bin_owner_side_first.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_q23_spoken_capture_copy_fits_the_window.sh	WIRED	.github/workflows/consent-data-handling.yml
