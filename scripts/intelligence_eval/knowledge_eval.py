@@ -1,4 +1,7 @@
-"""Owner knowledge: grounded Q&A over the synthetic fixture, graded RIGHT / WRONG / FABRICATED / ABSTAINED.
+"""Owner knowledge: grounded Q&A over the synthetic fixture, graded RIGHT / WRONG / FABRICATED / ABSTAINED, or ERROR.
+ERROR is a reply that is missing, empty, or an error body. It is NOT an abstention: a crashed
+call must never read as perfect abstention (the first Mini16 sweep scored 86 of 88 blank replies
+as ABSTAINED). Any ERROR fails the run.
 
 Every question is generated from the fixture, so the gold answer is known.
   answerable  -> RIGHT if every alias group appears and no wrong token does;
@@ -17,7 +20,7 @@ ABSTAIN = re.compile(
     r"\b(don'?t know|do not know|do not have|don'?t have|not (in|listed|recorded|"
     r"mentioned|available|known|in the (context|fixture|data))|no (record|information|"
     r"data|mention)|cannot (find|tell|say)|can'?t (find|tell|say)|unknown|not sure)\b", re.I)
-OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED")
+OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED", "ERROR")
 
 
 def build_questions(fixture):
@@ -53,9 +56,9 @@ def _has(low, alias):
 
 
 def grade(question, answer):
-    text = (answer or "").strip()
+    text = answer.strip() if isinstance(answer, str) else ""
     if not text:
-        return "ABSTAINED", "empty"
+        return "ERROR", "no reply (missing, empty, or error body)"
     abstains = bool(ABSTAIN.search(text))
     if question["kind"] == "absent":
         return ("ABSTAINED", "declined") if abstains else ("FABRICATED", "committed an answer")
@@ -135,5 +138,8 @@ def make_model_answerer(url, model, fixture):
         prompt = ("Answer the question using ONLY the CONTEXT. If the CONTEXT does not hold "
                   "the answer, say you do not know. One sentence.\n\nCONTEXT:\n%s\n\nQUESTION: %s"
                   % (ctx, q["q"]))
-        return B.chat(url, model, prompt, timeout=120)
+        try:
+            return B.chat(url, model, prompt, timeout=120)
+        except (OSError, RuntimeError, ValueError):
+            return None  # counted as ERROR, never as an abstention
     return answer
