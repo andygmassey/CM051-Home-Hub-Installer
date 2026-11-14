@@ -366,6 +366,7 @@ test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-int
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
+test_doctor_shows_engine_watchdog_status.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_shows_loopback_guard.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_shows_your_data_exports.py	WIRED	.github/workflows/doctor-your-data-exports.yml

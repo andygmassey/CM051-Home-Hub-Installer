@@ -1856,3 +1856,28 @@ Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here ins
 - `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
 
 Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).
+
+## Graft: Doctor "Background engine" row (CM051 #3515, 2026-11-14)
+
+Tree `doctor`. NEW FILE `vendor/doctor/agent/engine_watchdog_status.py` plus
+three lines in `vendor/doctor/agent/web_ui.py` (one import, one call, one
+`{engine_watchdog_section}` placeholder after the derived-preferences row).
+
+Not in `doctor.patch`: the patch was not regenerated, because the doctor pin is
+behind upstream and regeneration would fold upstream commits in as local edits.
+This is recorded here instead. A grep of `doctor.patch` for
+`engine_watchdog` returns nothing, and that means NOT RECORDED in the patch,
+not NOT DIVERGED.
+
+Why: the engine supervisor restarts a wedged systemd-logind inside the colima
+VM and writes `~/.ostler/state/engine-supervisor/logind_health.json`. This row
+is the customer-visible surface for that restart: "a system service was stuck
+and was restarted at <time>", "running normally", or "couldn't check". It reads
+the file only. A check that could not run is never shown as "running".
+
+Gated by `tests/test_doctor_shows_engine_watchdog_status.py` (15 cases,
+synthetic records; 3 red under a mutant that reads CANNOT-RUN as running).
+Wired in `.github/workflows/vendor-integrity.yml`.
+
+Retire: when the doctor pin moves to a commit that carries this row natively.
+
