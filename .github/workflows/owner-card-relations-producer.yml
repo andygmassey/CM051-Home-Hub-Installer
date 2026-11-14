@@ -1,8 +1,9 @@
 name: owner-card-relations-producer
 
-# G1 producer. The abcddb reader in the SHIPPED copy (vendor/cm041) must emit
-# the owner-card marker and relation lines for the owner's card only. The
-# owner-relations writer in CM041 (#256) consumes them.
+# G1 producer. The abcddb reader in the SHIPPED copy (vendor/cm041) emits
+# every card's related-name lines, attributed by ZOWNER, and the owner-card
+# marker for the owner's card only. The CM041 writers (#256 owner, and the
+# card-relations stack) consume them. Mutants run in the same job.
 
 on:
   push:
@@ -33,7 +34,7 @@ jobs:
         run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
       # Anti-vacuity and the run are ONE step: a failing floor in a separate
       # step would skip the run and hide the real result.
-      - name: The owner's card carries its relations, other cards do not
+      - name: Every card carries its own relations; only the owner has the marker
         run: |
           n="$(python -m pytest tests/test_owner_card_relations_producer_vendored.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
@@ -43,3 +44,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_owner_card_relations_producer_vendored.py -v
+      # The mutants are the proof the suite can fail. The control inside the
+      # harness must be green, and every mutant must be caught.
+      - name: Producer mutants are all caught
+        run: python -m pytest --version >/dev/null && python tests/owner_card_relations_mutants.py

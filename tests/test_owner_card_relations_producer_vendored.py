@@ -1,9 +1,11 @@
 """G1 producer, in the copy that ships (vendor/cm041).
 
-``_read_abcddb_as_vcards`` synthesises the vCards the owner-relations writer
-reads. For the OWNER's card it must emit the marker ``X-OSTLER-OWNER-CARD:TRUE``
-and the related-name lines (``itemN.X-ABRELATEDNAMES`` with
-``itemN.X-ABLABEL``). Other cards get neither.
+``_read_abcddb_as_vcards`` synthesises the vCards the relations writers read.
+EVERY card carries its own related-name lines (``itemN.X-ABRELATEDNAMES`` with
+``itemN.X-ABLABEL``), so the graph can follow a spouse's child to the owner's
+family (transitive inference). Only the OWNER's card carries the marker
+``X-OSTLER-OWNER-CARD:TRUE``. A card's relations describe its holder, so they
+are emitted for everyone and attributed by the writer, never guessed here.
 
 The owner's card is the record whose Z_PK equals the store's ZME pointer. ZME
 is non-NULL on one pointer row, and the owner's own row has ZME NULL (measured
@@ -62,7 +64,7 @@ def _store(tmp: pathlib.Path) -> pathlib.Path:
                 "VALUES (99, 'uid-other', 7, 'Ben', 'Jones')")
     con.execute("INSERT INTO ZABCDRELATEDNAME (ZOWNER, ZNAME, ZLABEL) VALUES (7, ?, '_$!<Spouse>!$_')", (SPOUSE,))
     con.execute("INSERT INTO ZABCDRELATEDNAME (ZOWNER, ZNAME, ZLABEL) VALUES (7, ?, '_$!<Manager>!$_')", (MANAGER,))
-    # Relations on a non-owner card are perspectival and must not be emitted.
+    # A non-owner card's relations describe its own holder and ARE emitted.
     con.execute("INSERT INTO ZABCDRELATEDNAME (ZOWNER, ZNAME, ZLABEL) VALUES (99, ?, '_$!<Spouse>!$_')", (OTHER_SPOUSE,))
     con.commit()
     con.close()
@@ -89,12 +91,22 @@ def test_owner_card_is_marked_and_carries_its_relations(tmp_path, monkeypatch):
     assert "item2.X-ABLABEL:_$!<Manager>!$_" in owner
 
 
-def test_non_owner_card_has_no_marker_and_no_relation_lines(tmp_path, monkeypatch):
+def test_non_owner_card_has_no_marker_but_carries_its_own_relations(tmp_path, monkeypatch):
     _store(tmp_path)
     other = _cards(tmp_path, monkeypatch)["uid-other"]
     assert "X-OSTLER-OWNER-CARD" not in other
-    assert "X-ABRELATEDNAMES" not in other
-    assert OTHER_SPOUSE not in other
+    assert f"item1.X-ABRELATEDNAMES;TYPE=pref:{OTHER_SPOUSE}" in other
+    assert "item1.X-ABLABEL:_$!<Spouse>!$_" in other
+
+
+def test_relation_lines_on_a_card_come_only_from_that_cards_own_rows(tmp_path, monkeypatch):
+    # The owner's relations must not leak onto the other card, nor the other
+    # card's onto the owner. Attribution is by ZOWNER, exactly.
+    _store(tmp_path)
+    cards = _cards(tmp_path, monkeypatch)
+    assert OTHER_SPOUSE not in cards["uid-owner"]
+    assert SPOUSE not in cards["uid-other"]
+    assert MANAGER not in cards["uid-other"]
 
 
 def test_owner_card_without_relations_is_marked_and_has_no_relation_lines(tmp_path, monkeypatch):
