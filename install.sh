@@ -4243,7 +4243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9673   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9718   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9727 and :17696, both of which run
+    # Its two top-level arming calls are :9727 and :17725, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18491, where the note reads
+    # WhatsApp Web session path did it again at :18520, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18508 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18537 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4280,9 +4280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9727, :17696) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9727, :17725) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20705 / :20883 / :21040 / :21485 path. There the
+    # :20734 / :20912 / :21069 / :21514 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -16560,26 +16560,31 @@ LAST="${STATE_DIR}/ollama_watchdog.last_restart"
 LOCK="${STATE_DIR}/ollama_watchdog.lock"
 SIZEF="${STATE_DIR}/ollama_watchdog.logsize"
 log() { printf '%s ollama-watchdog: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-# PAUSE MUST FREE THE MODEL (F&F tester, 2026-11-13: "I turned it off and the
-# model is still in memory"). The Pause writes governor.env and every ingest
-# tick reads it. Nothing else touched the chat model: the daemon pins it with
-# OLLAMA_KEEP_ALIVE on every request. So on each probe that finds a pause in
-# effect, unload every loaded model (keep_alive 0 is Ollama's documented
-# unload). The next chat request, or the brief, reloads it on demand.
+# PAUSE FREES THE CHAT MODEL, ONCE PER PAUSE (F&F tester, 2026-11-13: "I turned
+# it off and the model is still in memory"). The daemon pins the chat model
+# with OLLAMA_KEEP_ALIVE on every request, so nothing freed it while paused.
+# On the TRANSITION into a pause this unloads every loaded model (keep_alive 0
+# is Ollama's documented unload) and records a marker keyed to the pause stamp.
+# Later ticks in the same pause do nothing, so a chat turn that reloads the
+# model is left to the idle window (keep_alive 15m) to free. Live chat is not
+# gated: a turn during a pause still works, it just cold-loads.
 RT_LIB="${OSTLER_WATCHDOG_RT_LIB:-${HOME}/.ostler/lib/ostler-resource-tier.sh}"
+GOV_FILE="${OSTLER_GOVERNOR_SETTINGS:-${HOME}/.ostler/config/governor.env}"
+PAUSE_MARK="${STATE_DIR}/ollama_watchdog.pause_unloaded"
+# Returns 0 when the unload ran against a readable model list, 1 otherwise.
 unload_loaded_models() {
     local ps names m code
     ps=$(curl -s --max-time 10 "${URL}/api/ps" 2>/dev/null || true)
     if [ -z "$ps" ]; then
         log "PAUSED: could not read ${URL}/api/ps, so nothing was unloaded; retrying on the next probe"
-        return 0
+        return 1
     fi
     names=$(printf '%s' "$ps" | grep -o '"name": *"[^"]*"' | sed 's/^"name": *"//; s/"$//')
     if [ -z "$names" ]; then
         # An empty list is the steady state; anything else unparsed is not
-        # "nothing loaded", so say so rather than report a clean pause.
+        # "nothing loaded", so say so and retry rather than record a pause.
         printf '%s' "$ps" | grep -q '"models": *\[ *\]' \
-            || log "PAUSED: could not parse the loaded-model list from ${URL}/api/ps; nothing was unloaded"
+            || { log "PAUSED: could not parse the loaded-model list from ${URL}/api/ps; nothing was unloaded"; return 1; }
         return 0
     fi
     while IFS= read -r m; do
@@ -16589,13 +16594,30 @@ unload_loaded_models() {
             -d "{\"model\":\"${m}\",\"keep_alive\":0}" 2>/dev/null || true)
         log "PAUSED: unloaded ${m} (keep_alive 0): http=${code:-none}"
     done <<< "$names"
+    return 0
 }
-unload_if_paused() {
-    [ -f "$RT_LIB" ] || { log "PAUSE CHECK SKIPPED: ${RT_LIB} missing"; return 0; }
+# True when a pause is in effect, read by the shipped lib (the reader every tick uses).
+pause_in_effect() {
+    [ -f "$RT_LIB" ] || { log "PAUSE CHECK: ${RT_LIB} missing; treating as not paused"; return 1; }
     # shellcheck source=/dev/null
     . "$RT_LIB"
     ostler_rt_load_user_settings
-    if ostler_resource_tier_is_paused; then unload_loaded_models; fi
+    ostler_resource_tier_is_paused
+}
+# The stamp of the pause in effect: its OSTLER_PAUSE* lines in governor.env.
+# A new pause (new scope or expiry) has a new stamp.
+pause_stamp() {
+    grep -E '^[[:space:]]*(export[[:space:]]+)?OSTLER_PAUSE(D|_UNTIL)=' "$GOV_FILE" 2>/dev/null | cksum | cut -d' ' -f1
+}
+pause_tick() {
+    local stamp
+    stamp=$(pause_stamp)
+    if [ -n "$stamp" ] && [ "$(cat "$PAUSE_MARK" 2>/dev/null)" = "$stamp" ]; then
+        return 0
+    fi
+    if unload_loaded_models && [ -n "$stamp" ]; then
+        printf '%s\n' "$stamp" > "$PAUSE_MARK"
+    fi
 }
 mkdir -p "$STATE_DIR"
 mkdir "$LOCK" 2>/dev/null || { log "previous probe still running; skipping"; exit 0; }
@@ -16605,6 +16627,14 @@ if ! curl -s -o /dev/null --max-time 10 "${URL}/api/version"; then
     log "DOWN: /api/version did not answer; launchd KeepAlive owns this case, no action"
     exit 0
 fi
+# Paused: /api/version (answered above) is the whole health check. No embed,
+# because an embed re-pins the embedder every probe. Not paused: the marker
+# is cleared so the next pause unloads again.
+if pause_in_effect; then
+    pause_tick
+    exit 0
+fi
+rm -f "$PAUSE_MARK"
 # Progress reading: size of the serve process's stderr via its OPEN fd 2.
 serve_size() {
     local _p _s
@@ -16617,11 +16647,10 @@ prev_size=$(cat "$SIZEF" 2>/dev/null || echo "")
 cur_size=$(serve_size)
 [ -n "$cur_size" ] && echo "$cur_size" > "$SIZEF"
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "$PROBE_S" \
-    "${URL}/api/embed" -d "{\"model\":\"${MODEL}\",\"input\":\"ok\"}" 2>/dev/null)
+    "${URL}/api/embed" -d "{\"model\":\"${MODEL}\",\"input\":\"ok\",\"keep_alive\":\"${KEEP_ALIVE}\"}" 2>/dev/null)
 if [ "$code" = "200" ]; then
     [ -s "$FAILS" ] && log "HEALTHY again after $(cat "$FAILS") failed probe(s)"
     rm -f "$FAILS"
-    unload_if_paused
     exit 0
 fi
 n=$(( $(cat "$FAILS" 2>/dev/null || echo 0) + 1 ))

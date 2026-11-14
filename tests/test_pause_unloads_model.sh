@@ -22,6 +22,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_SH="${INSTALL_SH:-$ROOT/install.sh}"
 PLIST="$ROOT/assistant-agent/launchd/com.creativemachines.ostler.assistant.plist"
 WORK="$(mktemp -d)"
+PAUSE_MARK="$WORK/state/ollama_watchdog.pause_unloaded"
 FAKE_PID=""
 cleanup() { if [ -n "$FAKE_PID" ]; then kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null; fi; rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -121,27 +122,53 @@ resume_real() {
     'import pause_control as p; s = p.resume(); print(s["paused"])' 2>"$WORK/resume.err"
 }
 
-# -- 1. Pause frees the model (the case that was broken) -------------------
-echo "case 1: Pause unloads the loaded chat model"
-rm -f "$GOV" "$FAKE_DIR/ps_broken"; set_loaded "qwen3.5:9b"
-[ "$(pause_real)" = "True" ] && ok "set_pause wrote governor.env paused=True" || bad "set_pause did not pause: $(cat "$WORK/pause.err")"
-out=$(run_watchdog); echo "$out" | sed 's/^/        /'
-[ "$(unload_sent)" = "1" ] && ok "one POST /api/generate with keep_alive 0 reached Ollama" \
-    || bad "no unload request for the loaded model (keep_alive 0 count: $(unload_sent)); the model stays resident"
-case "$(loaded_now)" in *qwen3.5:9b*) bad "model still loaded after the unload: $(loaded_now)";; *) ok "fake Ollama holds no model after the pause tick";; esac
+embed_sent() { grep -c '^EMBED' "$FAKE_DIR/requests.log" 2>/dev/null || true; }
+# A chat turn after a tick: the daemon stamps keep_alive 15m on the request.
+chat_load() {
+    curl -s -o /dev/null --max-time 5 "$URL/api/generate" \
+        -d "{\"model\":\"$1\",\"keep_alive\":\"15m\"}"
+}
 
-# -- 2. Resume restores: a reload is not unloaded again --------------------
-echo "case 2: Resume lifts the unload; a reload is kept"
+# -- 1. Pause unloads once per pause, and a chat reload is not unloaded ----
+echo "case 1: Pause unloads once; a model loaded between ticks (chat) is kept"
+rm -f "$GOV" "$FAKE_DIR/ps_broken" "$PAUSE_MARK"; set_loaded "qwen3.5:9b"
+[ "$(pause_real)" = "True" ] && ok "set_pause wrote governor.env paused=True" || bad "set_pause did not pause: $(cat "$WORK/pause.err")"
+run_watchdog >/dev/null
+[ "$(unload_sent)" = "1" ] && ok "tick 1 (paused): one POST /api/generate with keep_alive 0" \
+    || bad "tick 1 (paused): unload count is $(unload_sent), expected 1"
+case "$(loaded_now)" in *qwen3.5:9b*) bad "tick 1: model still loaded after the unload";; *) ok "tick 1: fake Ollama holds no model";; esac
+[ "$(embed_sent)" = "0" ] && ok "tick 1 (paused): 0 EMBED requests" || bad "tick 1 (paused): $(embed_sent) EMBED request(s), expected 0"
+
+chat_load "qwen3.5:9b"
+case "$(loaded_now)" in *qwen3.5:9b*) ok "between ticks: a chat turn reloads the model (keep_alive 15m)";; *) bad "chat reload did not load the model (test harness)";; esac
+run_watchdog >/dev/null
+[ "$(unload_sent)" = "1" ] && ok "tick 2 (same pause): total unloads still 1; no second unload" \
+    || bad "tick 2 (same pause): total unloads $(unload_sent), expected 1 (chat's model was unloaded again)"
+case "$(loaded_now)" in *qwen3.5:9b*) ok "tick 2: the chat model loaded between the ticks is NOT unloaded";; *) bad "tick 2: the chat model was unloaded while still paused";; esac
+[ "$(embed_sent)" = "0" ] && ok "tick 2 (paused): 0 EMBED requests" || bad "tick 2 (paused): $(embed_sent) EMBED request(s), expected 0"
+
+# -- 2. Resume restores: not paused, EMBED carries the idle window ---------
+echo "case 2: Resume lifts the unload; the probe keeps the model within the idle window"
 [ "$(resume_real)" = "False" ] && ok "set_pause/resume round trip: resume wrote paused=False" || bad "resume did not clear the pause"
 set_loaded "qwen3.5:9b"
 run_watchdog >/dev/null
 [ "$(unload_sent)" = "0" ] && ok "not paused: the loaded model is left alone (negative control: no keep_alive 0 sent)" \
     || bad "NEGATIVE CONTROL FAILED: unload sent while not paused ($(unload_sent))"
 case "$(loaded_now)" in *qwen3.5:9b*) ok "model still loaded after a resumed tick (chat stays warm)";; *) bad "model was unloaded while not paused";; esac
+grep -q '^EMBED .*"keep_alive": "15m"' "$FAKE_DIR/requests.log" 2>/dev/null \
+    && ok "not paused: the embed probe carries keep_alive 15m (no 180 s re-pin)" \
+    || bad "not paused: embed probe has no keep_alive 15m: $(cat "$FAKE_DIR/requests.log" 2>/dev/null)"
+[ ! -e "$PAUSE_MARK" ] && ok "resume cleared the pause marker" || bad "pause marker survived a resumed tick"
+
+# -- 2b. A new pause after a resume unloads again (a new transition) -------
+echo "case 2b: a second pause is a new transition and unloads once"
+pause_real >/dev/null; set_loaded "qwen3.5:9b"
+run_watchdog >/dev/null
+[ "$(unload_sent)" = "1" ] && ok "re-pause: one unload for the new pause" || bad "re-pause: unload count $(unload_sent), expected 1"
 
 # -- 3. Paused, nothing loaded: no unload, and the log says so -----------
 echo "case 3: paused with nothing loaded sends nothing"
-pause_real >/dev/null
+resume_real >/dev/null; pause_real >/dev/null
 set_loaded
 out=$(run_watchdog)
 [ "$(unload_sent)" = "0" ] && ok "no unload request when /api/ps lists no models" || bad "unload sent with nothing loaded"
@@ -149,7 +176,7 @@ case "$out" in *"PAUSED: unloaded"*) bad "claimed an unload with nothing loaded"
 
 # -- 4. /api/ps unreadable: say so, do not claim success -----------------
 echo "case 4: /api/ps unreadable is reported, not read as 'nothing loaded'"
-set_loaded "qwen3.5:9b"; : > "$FAKE_DIR/ps_broken"
+rm -f "$PAUSE_MARK"; set_loaded "qwen3.5:9b"; : > "$FAKE_DIR/ps_broken"
 out=$(run_watchdog)
 case "$out" in *"could not read"*"nothing was unloaded"*) ok "unreadable /api/ps is logged as a failure";; *) bad "unreadable /api/ps was not reported: $out";; esac
 rm -f "$FAKE_DIR/ps_broken"
