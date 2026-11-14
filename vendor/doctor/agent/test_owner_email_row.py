@@ -85,16 +85,23 @@ def test_reader_reports_corrupt_file_as_unreadable(tmp_path):
     assert owner_email.read_owner_state(path)["status"] == "unreadable"
 
 
+LOOPBACK = ("127.0.0.1", 50000)
+
+
+def _as_owner(monkeypatch, web_ui):
+    """The vendored Doctor gates every non-public route to the owner. The positive
+    arms run as the owner; the unauthenticated arm does NOT patch the gate."""
+    async def _owner(request):
+        return None
+    monkeypatch.setattr(web_ui, "_owner_refusal", _owner)
+
+
 def test_setter_route_writes_the_file_and_refuses_cross_site(tmp_path, monkeypatch):
     fastapi_testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
     import web_ui
-    client = fastapi_testclient.TestClient(web_ui.app)
-    # The vendored Doctor gates every non-public route to the owner. Unauthenticated: refused.
-    if hasattr(web_ui, "_owner_refusal"):
-        async def _as_owner(request):
-            return None
-        monkeypatch.setattr(web_ui, "_owner_refusal", _as_owner)
+    _as_owner(monkeypatch, web_ui)
+    client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
     ok = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
     assert ok.status_code == 200 and ok.json() == {"status": "ok", "count": 1}
     assert owner_email.read_owner_state(tmp_path / "state" / "owner_addresses.json")["addresses"] == [ADDR]
@@ -106,14 +113,50 @@ def test_setter_route_writes_the_file_and_refuses_cross_site(tmp_path, monkeypat
     assert bad.status_code == 400
 
 
-def test_vendored_route_is_owner_gated_without_owner(tmp_path, monkeypatch):
-    # Vendored-only arm: an unauthenticated caller must not be able to set the owner address.
+def test_unauthenticated_caller_is_refused_and_writes_nothing(tmp_path, monkeypatch):
+    # The owner gate: a caller that is not on this Mac gets 403 and no file.
     fastapi_testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
     import web_ui
-    client = fastapi_testclient.TestClient(web_ui.app)
-    if not hasattr(web_ui, "_owner_refusal"):
-        pytest.skip("no owner gate in this tree")
+    client = fastapi_testclient.TestClient(web_ui.app, client=("203.0.113.7", 50000))
     r = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
     assert r.status_code == 403
     assert not (tmp_path / "state" / "owner_addresses.json").exists()
+
+
+def test_rendered_row_submit_writes_file_and_row_clears(tmp_path, monkeypatch):
+    """Rendered-page arm: the row shows the input; submitting writes 0600; the row clears."""
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
+    import web_ui
+    from status_collector import SystemSnapshot
+    _as_owner(monkeypatch, web_ui)
+
+    snap = SystemSnapshot(services=[], docker_containers=[], ollama_models=[],
+                          disk_usage=[], hostname="testhost", os_version="Darwin 25.0",
+                          owner_addresses_state={"status": "none", "addresses": []})
+    findings = dr.check_owner_email(snap)
+    html = web_ui.render_dashboard(snap, findings)
+    assert "Ostler doesn't know which email address is yours" in html
+    assert 'type="email"' in html and 'name="owner-email"' in html
+    assert "Your email address" in html and "Save" in html
+    assert "That does not look like an email address." in html
+    assert "window.ownerEmailSave" in html and "/api/v1/owner-email" in html
+    # The live refresh path re-renders findings in the page script; the form must be on it too.
+    assert "if (f.form === 'owner_email') {" in html
+    assert "fixHtml += OWNER_EMAIL_FORM_HTML_JS;" in html
+
+    client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
+    saved = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
+    assert saved.status_code == 200
+    path = tmp_path / "state" / "owner_addresses.json"
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+    snap2 = SystemSnapshot(services=[], docker_containers=[], ollama_models=[],
+                           disk_usage=[], hostname="testhost", os_version="Darwin 25.0",
+                           owner_addresses_state=owner_email.read_owner_state(path))
+    findings2 = dr.check_owner_email(snap2)
+    assert findings2 == []
+    html2 = web_ui.render_dashboard(snap2, findings2)
+    assert "Ostler doesn't know which email address is yours" not in html2
+    assert 'name="owner-email"' not in html2

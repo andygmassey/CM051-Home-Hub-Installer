@@ -3197,7 +3197,7 @@ def check_owner_email(snapshot: Any) -> list[dict]:
         pipeline = getattr(snapshot, "pipeline_signals", None)
         if pipeline is None or getattr(pipeline, "install_completed_ts", None) is None:
             return findings
-        findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN,
+        findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN, "form": "owner_email",
                          "risk": "low", "category": "installation"})
         return findings
     if state.get("addresses"):
@@ -3206,7 +3206,7 @@ def check_owner_email(snapshot: Any) -> list[dict]:
         findings.append({"severity": "info", **OWNER_EMAIL_UNREADABLE,
                          "risk": "low", "category": "installation"})
         return findings
-    findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN,
+    findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN, "form": "owner_email",
                      "risk": "low", "category": "installation"})
     return findings
 

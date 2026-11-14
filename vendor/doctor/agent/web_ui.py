@@ -1510,6 +1510,45 @@ def render_source_status() -> str:
     )
 
 
+# ── Owner's email address: the input on the Doctor row that asks for it ──
+#
+# Customer copy only. Submits to POST /api/v1/owner-email. The page reloads
+# on success, so the row clears because the file now holds an address.
+OWNER_EMAIL_FORM_HTML = (
+    '<form class="owner-email-form" onsubmit="return window.ownerEmailSave(this)">'
+    '<label class="owner-email-label" for="ownerEmailInput">Your email address</label>'
+    '<input id="ownerEmailInput" class="owner-email-input" type="email" '
+    'name="owner-email" autocomplete="email" required>'
+    '<button type="submit" class="owner-email-save">Save</button>'
+    '<div class="owner-email-error" role="alert"></div>'
+    '</form>'
+)
+
+OWNER_EMAIL_JS = r"""
+window.ownerEmailSave = function (form) {
+  var input = form.elements['owner-email'];
+  var err = form.querySelector('.owner-email-error');
+  var value = (input.value || '').trim();
+  err.textContent = '';
+  if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value)) {
+    err.textContent = 'That does not look like an email address.';
+    return false;
+  }
+  fetch('/api/v1/owner-email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({addresses: [value]})
+  }).then(function (r) {
+    return r.json().then(function (j) { return {ok: r.ok, j: j}; });
+  }).then(function (x) {
+    if (x.ok) { window.location.reload(); }
+    else { err.textContent = (x.j && x.j.error) || 'Try again.'; }
+  }).catch(function () { err.textContent = 'Could not save. Try again.'; });
+  return false;
+};
+"""
+
+
 def render_dashboard(
     snapshot: SystemSnapshot,
     findings: list[dict],
@@ -1694,6 +1733,8 @@ def render_dashboard(
             <div class="fix-box">
                 <div class="fix-description">{f['fix']}</div>
             </div>"""
+        if f.get("form") == "owner_email":
+            fix_html += OWNER_EMAIL_FORM_HTML
 
         findings_html += f"""
         <div class="finding" style="border-left:3px solid {sev_color}">
@@ -2278,6 +2319,8 @@ def render_dashboard(
     </div>
 
     <script>
+    {OWNER_EMAIL_JS}
+    var OWNER_EMAIL_FORM_HTML_JS = {json.dumps(OWNER_EMAIL_FORM_HTML)};
     (function() {{
         // --- Auto-refresh ---
         let autoRefresh = true;
@@ -2337,6 +2380,9 @@ def render_dashboard(
                         + '</div>';
                 }} else if (f.fix) {{
                     fixHtml = '<div class="fix-box"><div class="fix-description">' + f.fix + '</div></div>';
+                }}
+                if (f.form === 'owner_email') {{
+                    fixHtml += OWNER_EMAIL_FORM_HTML_JS;
                 }}
                 fhtml += '<div class="finding" style="border-left:3px solid ' + sc + '">'
                     + '<div class="finding-header">'
