@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # NO CUSTOMER SURFACE TELLS ANYONE TO EXPORT A WHATSAPP CHAT (owner direction, 2026-10-25).
 #
-# Ostler never parsed a per-chat WhatsApp "Export chat" .txt: universal_import
-# recognises the name and has no dispatcher (recognised_no_parser). WhatsApp
-# history comes from WhatsApp Desktop's own store via Full Disk Access.
+# Ostler never parsed a per-chat WhatsApp "Export chat" .txt before this. History
+# comes from WhatsApp Desktop's own store via Full Disk Access. Section 2 below
+# was SUPERSEDED by owner direction 2026-11-08 (Andy): a dropped chat file is
+# now imported. Section 1 STANDS. The customer is still never told to export one.
 #
 # 1. COPY GUARD: no customer string (the installer catalogue, the GUI copy
 #    files) pairs WhatsApp with an instruction to export a chat.
-# 2. BEHAVIOUR: a "WhatsApp Chat ....txt" dropped into Downloads is answered
-#    "skip" with a plain reason that names WhatsApp Desktop, never "import".
-#    Run through the SHIPPED lib/ostler-detect-exports.sh --loose.
+# 2. BEHAVIOUR (superseded 2026-11-08): a "WhatsApp Chat ....txt" dropped into
+#    Downloads, with WhatsApp accepted at setup, is answered "import", never
+#    "skip". Run through the SHIPPED lib/ostler-detect-exports.sh --loose.
+# 3. CONSENT: the setup consent screen's WhatsApp choice (tickbox
+#    whatsapp_unofficial_risk, <OSTLER_HOME>/posture/consent.json). A declined
+#    or never-recorded choice is answered "skip" with a reason that names it,
+#    never "import".
 #
 # Synthetic fixtures only. THREE OUTCOMES: 0 pass, 1 fail, 2 CANNOT-RUN.
 set -u
@@ -57,13 +62,20 @@ fi
     && ok "the exports prompt says WhatsApp needs no export" \
     || bad "the exports prompt does not say WhatsApp needs no export"
 
-echo "-- 2. a dropped WhatsApp chat file is answered plainly, never imported --"
+echo "-- 2. a dropped WhatsApp chat file is answered import, never skip --"
 SB="$(mktemp -d "${TMPDIR:-/tmp}/wa-guard.XXXXXX")" || { echo "CANNOT-RUN: no scratch dir" >&2; exit 2; }
 trap 'rm -rf "$SB"' EXIT
 D="$SB/Downloads"; mkdir -p "$D"
 printf '[01/01/2026, 09:00:00] Jane Doe: hello\n' > "$D/WhatsApp Chat with Jane Doe.txt"
 printf 'BEGIN:VCALENDAR\n%s\nEND:VCALENDAR\n' "$(printf 'X-PAD:%0990d' 0)" > "$D/calendar.ics"
-OUT="$(/bin/bash "$LIB" "$D" --loose 2>"$SB/err")"
+# Consent fixture, in the registry shape ostler_security.consent writes:
+# <OSTLER_HOME>/posture/consent.json, keyed by tickbox id. $1 = accepted|declined|none.
+consent_home() {
+    local h="$SB/home-$1"; mkdir -p "$h/posture"
+    [ "$1" = none ] || printf '{\n  "schema_version": 1,\n  "records": {\n    "whatsapp_unofficial_risk": {\n      "tickbox_id": "whatsapp_unofficial_risk",\n      "decision": "%s"\n    }\n  }\n}\n' "$1" > "$h/posture/consent.json"
+    printf '%s' "$h"
+}
+OUT="$(OSTLER_HOME="$(consent_home accepted)" /bin/bash "$LIB" "$D" --loose 2>"$SB/err")"
 WA_LINE="$(printf '%s\n' "$OUT" | /usr/bin/grep -F 'WhatsApp chat' || true)"
 ICS_LINE="$(printf '%s\n' "$OUT" | /usr/bin/grep -F 'Calendar' || true)"
 [ -n "$ICS_LINE" ] || { echo "CANNOT-RUN: control (a calendar file) was not detected, so the scan did not run: $(head -2 "$SB/err")" >&2; exit 2; }
@@ -72,17 +84,27 @@ printf '%s' "$ICS_LINE" | /usr/bin/grep -q "$(printf '\t')import" \
     || bad "control: the calendar file was not answered import: ${ICS_LINE}"
 if [ -z "$WA_LINE" ]; then
     bad "the WhatsApp chat file was not recognised at all (silent): output was: ${OUT}"
-elif printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')skip$(printf '\t')"; then
-    ok "the WhatsApp chat file is answered skip"
+elif printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')import"; then
+    ok "the WhatsApp chat file is answered import"
 else
-    bad "the WhatsApp chat file is not answered skip: ${WA_LINE}"
+    bad "the WhatsApp chat file is not answered import: ${WA_LINE}"
 fi
-printf '%s' "$WA_LINE" | /usr/bin/grep -q 'WhatsApp Desktop' \
-    && ok "the reason names WhatsApp Desktop" \
-    || bad "the reason does not name WhatsApp Desktop: ${WA_LINE}"
-printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')import" \
-    && bad "the WhatsApp chat file is still answered import" \
-    || ok "the WhatsApp chat file is never answered import"
+printf '%s' "$WA_LINE" | /usr/bin/grep -q "$(printf '\t')skip" \
+    && bad "the WhatsApp chat file is still answered skip: ${WA_LINE}" \
+    || ok "the WhatsApp chat file is never answered skip"
+
+echo "-- 3. consent: a dropped WhatsApp chat is imported only if the customer accepted WhatsApp --"
+WA_DEC="$(OSTLER_HOME="$(consent_home declined)" /bin/bash "$LIB" "$D" --loose 2>"$SB/err-dec" | /usr/bin/grep -F 'WhatsApp chat' || true)"
+WA_NONE="$(OSTLER_HOME="$(consent_home none)" /bin/bash "$LIB" "$D" --loose 2>"$SB/err-none" | /usr/bin/grep -F 'WhatsApp chat' || true)"
+printf '%s' "$WA_DEC" | /usr/bin/grep -q "$(printf '\t')skip$(printf '\t')you declined WhatsApp in the setup consent screen" \
+    && ok "declined: skip, with the reason naming the consent choice" \
+    || bad "declined: expected skip naming the consent choice, got: ${WA_DEC}"
+printf '%s' "$WA_DEC" | /usr/bin/grep -q "$(printf '\t')import" \
+    && bad "declined: the WhatsApp chat was still answered import" \
+    || ok "declined: never answered import"
+printf '%s' "$WA_NONE" | /usr/bin/grep -q "$(printf '\t')skip$(printf '\t')you did not accept WhatsApp in the setup consent screen" \
+    && ok "no consent recorded: skip, with the reason naming the consent choice" \
+    || bad "no consent recorded: expected skip naming the consent choice, got: ${WA_NONE}"
 
 if [ "$FAIL" -eq 0 ]; then echo "PASS"; exit 0; fi
 echo "FAIL"; exit 1

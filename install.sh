@@ -10525,10 +10525,10 @@ _scan_find_backups
 #             less, so 1001 is the floor here and a smaller file is reported
 #             as skipped rather than as imported
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
-#   WhatsApp  NO importer reads a per-chat WhatsApp text file (universal_import
-#             recognises the name and has no parser), and none is needed:
-#             history comes from WhatsApp Desktop's own store. Recognised so a
-#             file dropped in anyway is answered plainly, never "imported".
+#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, then
+#             ostler_fda.whatsapp_export parses it and pwg-convo persists it
+#             (the Messenger sink). Owner direction 2026-11-08 (Andy). Import only if WhatsApp was accepted at setup (posture/consent.json).
+#             An iOS .zip reaches it through _zip_shape_re and _chat.txt.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -10537,7 +10537,7 @@ LOOSE=(
   $'Mailbox\x1f\\.mbox$\x1f1\x1f'
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
-  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1fOstler does not need this file. It reads your WhatsApp history from WhatsApp Desktop on this Mac, so there is nothing to export'
+  $'WhatsApp chat\x1f^(whatsapp chat.*|_chat)\\.txt$\x1f1\x1f'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
 
@@ -10547,7 +10547,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_rest="${_lx#*$'\x1f'}"
         _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
     done
-    _lx_any=1
+    _lx_any=1; _lx_wa_dec=""; _lx_wa_why="you did not accept WhatsApp in the setup consent screen, so Ostler did not read this chat"; [[ -r "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json" ]] && _lx_wa_dec="$(awk '/"whatsapp_unofficial_risk"[[:space:]]*:/{f=1} f && /"decision"[[:space:]]*:/{ if (match($0, /"(accepted|declined)"/)) { print substr($0, RSTART+1, RLENGTH-2); exit } }' "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json")"; [[ "$_lx_wa_dec" == declined ]] && _lx_wa_why="you declined WhatsApp in the setup consent screen, so Ostler did not read this chat"
     # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
     # "change the installer, not the box"): depth 6 covers every export shape
     # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
@@ -10565,7 +10565,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_label="${_lx_row%%$'\x1f'*}"
         _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
         _lx_min="${_lx_t%%$'\x1f'*}"
-        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"; [[ "$_lx_label" == "WhatsApp chat" && "$_lx_wa_dec" != accepted ]] && _lx_noimp="$_lx_wa_why"
         _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
         case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
         if [[ -z "$_lx_size" ]]; then
@@ -10645,7 +10645,7 @@ for entry in "${SIGS[@]}"; do
     re_unanchored="${re//^/}"; re_unanchored="${re_unanchored//\$/}"
     _zip_re="${_zip_re:+$_zip_re|}${re_unanchored}"
 done
-_zip_shape_re='\.(csv|json|html?|ics|js)$'
+_zip_shape_re='\.(csv|json|html?|ics|js)$|(^|/)(_chat|whatsapp chat[^/]*)\.txt$'
 _zip_open_re="${_zip_re}|${_zip_shape_re}"
 
 if [[ "$DO_UNZIP" == "1" ]]; then
