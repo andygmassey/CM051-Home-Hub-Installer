@@ -88,7 +88,14 @@ LOCK_FILENAME = "import-notion.lock"
 LOG_FILENAME_PREFIX = "import-notion-"
 STATE_FILENAME_PREFIX = "import-notion-"
 
-DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+def _owner_side_or(name, fallback):
+    """${OSTLER_DIR}/bin/<name> when it exists (a GUI install links there), else the /usr/local/bin fallback."""
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    owner = os.path.join(base, "bin", name)
+    return owner if os.path.exists(owner) else fallback
+
+
+DEFAULT_OSTLER_KNOWLEDGE_BIN = _owner_side_or("ostler-knowledge", "/usr/local/bin/ostler-knowledge")
 
 # The knowledge source this import handles. Selects the CM024
 # ``ostler-knowledge`` adapter and the ``<source>_knowledge`` Qdrant

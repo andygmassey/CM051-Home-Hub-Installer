@@ -393,3 +393,9 @@ is a probe-side false positive, not a product defect.
 Pinned by `tests/test_people_projection_service_senders.py`: the negative
 controls (a given name plus each ambiguous surname, the given name Gift, one CJK
 personal name, and email-only people with personal addresses) must stay.
+
+## 2026-11-14: CLI defaults resolve the owner-side link first, universal_import.py
+
+`vendor/ostler_fda/universal_import.py`: `_owner_side_or(name, fallback)`, used by `_DEFAULT_KNOWLEDGE_BIN` and `_DEFAULT_PWG_CONVO_BIN`. Order: the `OSTLER_KNOWLEDGE_BIN` / `PWG_CONVO_BIN` env vars (unchanged, checked first at the call sites), then `${OSTLER_DIR}/bin/<name>` if it exists, then `/usr/local/bin/<name>`.
+
+Why: a GUI install links these CLIs into the owner's `${OSTLER_DIR}/bin` because `/usr/local/bin` is root-owned on a stock Mac (install.sh `_ostler_link_cli`). The default ran `/usr/local/bin/...`, which does not exist there, so the import path could not find the CLI. Tests: the same owner-side-first check as `tests/test_pwg_convo_bin_owner_side_first.py` covers the ical-server copy; this file has no separate test, so it is covered by the reasoning above and by that test's pattern only. Named as such, not claimed as tested here.

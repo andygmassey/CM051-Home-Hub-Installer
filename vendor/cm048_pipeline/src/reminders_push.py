@@ -58,7 +58,7 @@ import os
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -716,14 +716,37 @@ def _source_datetime(bundle: "ConversationBundle") -> Optional[datetime]:
     return None
 
 
+def _has_future_deadline(todo: Optional["Todo"], now: Optional[datetime]) -> bool:
+    """An open todo whose deadline is today or later is pushed whatever its
+    source date (CM048 #120, ``_in_push_window``)."""
+    raw = getattr(todo, "deadline", None) if todo is not None else None
+    if not raw:
+        return False
+    try:
+        due = date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return False
+    ref = (now or datetime.now(timezone.utc)).astimezone().date()
+    return due >= ref
+
+
 def _is_stale(
-    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int]
+    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int],
+    todo: Optional["Todo"] = None,
 ) -> bool:
-    if limit_days is None:
+    """Writer-side age gate, aligned with CM048 #120 (merged 68897402).
+
+    An UNDATED bundle is NOT pushed (fails closed), unless the todo still has a
+    deadline today or later. The age cutoff applies only to dated bundles, and
+    ``OSTLER_TODO_MAX_AGE_DAYS`` <= 0 turns that cutoff off, not the undated rule.
+    """
+    if _has_future_deadline(todo, now):
         return False
     src = _source_datetime(bundle)
     if src is None:
-        return False  # age unknowable: the other gates still apply
+        return True  # age unknowable: fail CLOSED, as #120 does
+    if limit_days is None:
+        return False
     ref = now or datetime.now(timezone.utc)
     return (ref - src).days > limit_days
 
@@ -900,7 +923,7 @@ def decide_push(
         max_age_days_override if max_age_days_override is not None
         else max_age_days()
     )
-    if _is_stale(bundle, now=now, limit_days=limit):
+    if _is_stale(bundle, now=now, limit_days=limit, todo=todo):
         return PushDecision(
             eligible=False, skip_reason=SKIP_REASON_STALE,
             push_title="", push_notes="", push_deadline=None,
