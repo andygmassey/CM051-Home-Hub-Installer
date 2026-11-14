@@ -1795,6 +1795,12 @@ def parse_ical_output(raw):
             date_str = line.split(":")[-1].strip()
             if "202" in date_str:
                 current["end"] = date_str
+        elif line.startswith("CALENDAR:"):
+            # Calendar identity: the producer names the calendar before each
+            # event's lines. A feed without the line adds no key.
+            cal_name = line[len("CALENDAR:"):].strip()
+            if cal_name:
+                current["calendar"] = cal_name
         elif line.startswith("LOCATION:"):
             current["location"] = line[9:].replace("\\,", ",").replace("\\n", ", ").strip()
         elif line.startswith("UID:"):

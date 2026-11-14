@@ -1739,3 +1739,13 @@ patch is the record.
 Why: the GUI installer cannot write `/usr/local/bin` on a stock Mac, so it links pwg-convo into the owner's `${OSTLER_DIR}/bin` (install.sh `_ostler_link_cli`). The launchd plist for `com.ostler.ical-server` sets no `PWG_CONVO_BIN` (install.sh, the ical-server plist EnvironmentVariables block), so this default is what runs.
 
 Tests: `tests/test_pwg_convo_bin_owner_side_first.py`. RED on origin/main: `AttributeError: no _default_pwg_convo_bin`. Mutant (owner-side branch removed) fails arm 1.
+
+## T2 (2026-11-15): CALENDAR line read by parse_ical_output
+
+`vendor/cm041/assistant_api/ical-server.py`, the function `parse_ical_output`:
+one `elif` branch for a `CALENDAR:` line that sets `current["calendar"]`. A
+feed without the line adds no key, as before. The producer that writes the line
+is `install.sh` (the `ical-query.sh` heredoc). Without this branch the owner's
+"ignore calendar X" cannot match an iCloud event. Test:
+`tests/test_ical_producer_calendar_line.py` (mutant: branch removed, red).
+Upstream CM041 carries the same branch on the #250 stack (df6e964).

@@ -525,6 +525,7 @@ test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_i22_timeline_keeps_meeting_time.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_i22b_allday_backfill.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
+test_ical_producer_calendar_line.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_identity_mismatch_shows_the_difference.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_identity_resolver_fuzzy_cache.py	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -613,9 +614,11 @@ test_manifest_ack_expiry.sh	WIRED	.github/workflows/manifest-ack-expiry.yml
 test_manifest_gate_cannot_run_is_not_a_missing_fix.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_grep_is_three_state.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_marker_payloads_never_reach_install_log.sh	WIRED	.github/workflows/install-gui-contract.yml
+test_meeting_brief_calendar_field.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_meeting_brief_probe_sends_the_store_credential.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_meeting_brief_real_hub.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_meeting_brief_sender.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
+test_meeting_brief_sender_calendar_rule.py	WIRED	.github/workflows/meeting-brief-real-hub.yml
 test_meeting_briefs_say_when_they_cannot_run.py	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_memory_about_you.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_memory_assert_answers_inside_the_probe_timeout.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml

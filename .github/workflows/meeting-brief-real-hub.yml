@@ -30,6 +30,9 @@ on:
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/ostler_security/**'
       - 'tests/test_meeting_brief_real_hub.py'
+      - 'tests/test_ical_producer_calendar_line.py'
+      - 'tests/test_meeting_brief_sender_calendar_rule.py'
+      - 'tests/test_meeting_brief_calendar_field.py'
       - 'vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py'
       - 'tests/test_meeting_brief_probe_sends_the_store_credential.py'
       - 'tests/helpers/real_hub.py'
@@ -67,6 +70,14 @@ jobs:
           sqlite3 --version
       - name: The sender, the contract and the three behaviours against the real Hub
         run: python tests/test_meeting_brief_real_hub.py
+      # T2: an owner's "ignore calendar X" reaches the pre-meeting sender. The
+      # iCloud producer names each event's calendar, the vendored parser keeps
+      # it, the brief carries it, and a muted calendar is handled, not sent.
+      - name: The owner's calendar rule reaches the producer, the brief and the sender
+        run: |
+          python tests/test_ical_producer_calendar_line.py
+          python tests/test_meeting_brief_calendar_field.py
+          python tests/test_meeting_brief_sender_calendar_rule.py
       # #30 (fix/brief-reads-local-stores): /calendar/today and /email/recent read
       # the local ingested stores, and a failed read is a 503 degraded, never an
       # empty 200. Its own step so a red here never hides the steps below.

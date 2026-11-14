@@ -25252,6 +25252,12 @@ for cal in calendars:
             raw = ev.data
         except Exception:
             continue
+        # Name the calendar this event came from, before its lines. The owner
+        # rule "ignore calendar X" matches on this name. A calendar with no
+        # name gets no line, so its events carry no calendar key.
+        cal_name = (getattr(cal, "name", None) or "").replace("\n", " ").strip()
+        if cal_name:
+            print(f"CALENDAR:{cal_name}")
         # Print only the lines parse_ical_output looks for.
         for line in raw.splitlines():
             stripped = line.strip()
@@ -28139,7 +28145,13 @@ BANNED = (
     "complete stranger",
 )
 
-def _compose(attendee, location):
+# Composer exit code 4 with nothing on stdout: the owner asked to leave this
+# calendar out. That is a handled outcome, not a failure to retry. Any other
+# failure (including exit 75, "could not check the owner's rules") is retried.
+COMPOSER_SUPPRESSED_RC = 4
+SUPPRESSED = object()
+
+def _compose(attendee, location, calendar=""):
     name = (attendee.get("name") or "").strip()
     if not name:
         return None
@@ -28155,6 +28167,8 @@ def _compose(attendee, location):
             cmd += ["--slug", slug]
         if location:
             cmd += ["--venue", location]
+        if calendar:
+            cmd += ["--calendar", calendar]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except Exception as exc:
         _log(f"composer exception name={name!r} err={exc}")
@@ -28164,6 +28178,8 @@ def _compose(attendee, location):
             os.unlink(todos_path)
         except OSError:
             pass
+    if res.returncode == COMPOSER_SUPPRESSED_RC:
+        return SUPPRESSED
     text = (res.stdout or "").strip()
     if res.returncode != 0 or not text:
         _log(f"composer failed name={name!r} rc={res.returncode} stderr={(res.stderr or '')[-200:]!r}")
@@ -28202,12 +28218,28 @@ try:
             header = fmt.replace("{t}", title)
         parts = [header]
         failed = False
+        suppressed = False
+        calendar = (m.get("calendar") or "").strip()
         for a in (m.get("attendees") or [])[:3]:
-            text = _compose(a, m.get("location") or "")
+            text = _compose(a, m.get("location") or "", calendar)
+            if text is SUPPRESSED:
+                suppressed = True
+                break
             if text is None:
                 failed = True
                 break
             parts.append(text)
+        if suppressed:
+            # Recorded in sent_briefs as HANDLED so the next tick does not
+            # retry it. The owner's rule is the reason; nothing is delivered.
+            cur.execute(
+                "INSERT OR REPLACE INTO sent_briefs "
+                "(key, meeting_uid, scheduled_start, sent_at) VALUES (?,?,?,?)",
+                (key, uid, start, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+            _log(f"suppressed key={key} calendar={calendar!r}: the owner asked to leave this calendar out")
+            continue
         if failed or (len(parts) == 1 and m.get("attendees")):
             _log(f"skip: no composed brief for {key}; will retry next tick")
             undelivered.append(key)
