@@ -377,7 +377,7 @@ class TestNothingIsLogged(Base):
     def test_no_logging_call_in_the_minors_code_interpolates_anything(self):
         src = SERVER_FILE.read_text()
         start = src.index("class MinorsRegistryUnreadable")
-        end = src.index("def api_people_forget(slug):")
+        end = src.index("def api_people_forget(slug")
         block = src[start:end]
         # Strip comments/docstring prose that merely mention the words.
         code = "\n".join(l for l in block.splitlines() if not l.strip().startswith("#"))

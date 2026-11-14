@@ -78,7 +78,7 @@ def load_audit_reader(source_text, queue_dir):
     test of everything around it.
     """
     i = source_text.find("def _forget_audit_has(slug):")
-    j = source_text.find("def api_people_forget(slug):")
+    j = source_text.find("def api_people_forget(slug")
     if i < 0 or j < 0 or j <= i:
         return None
     ns = {"Path": pathlib.Path, "_RECOMPILE_QUEUE_DIR": pathlib.Path(queue_dir)}
@@ -211,7 +211,7 @@ def main():
 
         # ── 6. AND THE HANDLER MUST ACTUALLY USE IT. A reader nothing calls
         #       is the failure mode this whole repo keeps paying for.
-        handler = src[src.find("def api_people_forget(slug):"):]
+        handler = src[src.find("def api_people_forget(slug"):]
         if "_forget_audit_has(slug)" in handler:
             ok("(6) the handler CALLS the reader, so this is wired rather than "
                "merely written")
