@@ -413,3 +413,23 @@ and self-verified: source at the pin plus the patch rebuilds the vendored tree
 byte for byte. The tool could not do this before because it refused on any
 source commit past the pin, hold_ack or not. This file stays as history; the
 patch is the record.
+
+## 2026-11-15: owner's card marker and relation lines in the abcddb producer (G1, CM041 #256)
+
+Tree `cm041/contact_syncer`, file `syncer.py`, `_read_abcddb_as_vcards` plus a
+module-level `_vcard_value` helper. Location and shape only, no content.
+
+- The store's `ZME` column is read as a pointer to the owner's card (one row
+  holds a non-NULL `ZME`, equal to the owner's `Z_PK`).
+- For that card only, the synthesised vCard gains `X-OSTLER-OWNER-CARD:TRUE`
+  and, per row of `ZABCDRELATEDNAME` owned by it, `itemN.X-ABRELATEDNAMES` with
+  `itemN.X-ABLABEL` when a label exists. Values are vCard-escaped.
+- Other cards are unchanged.
+
+UPSTREAM ROW: owed to CM041. The reader change is the producer half of CM041
+PR #256 (`contact_syncer/owner_relations.py`, the vCard parser, the syncer
+writer). The CM041 parser reads these lines; this tree's `vcard_parser.py`
+does not yet, so these lines are inert on the shipped path until the
+re-vendor after the v1.0.132 tag.
+
+Proof: `tests/test_owner_card_relations_producer_vendored.py`.
