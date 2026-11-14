@@ -49,10 +49,14 @@ jobs:
 
       - name: Install pytest and the pinned SPARQL engine
         run: |
-          # httpx and phonenumbers are imported at the top of vendor/ostler_fda/pwg_ingest.py,
-          # which the URI-stability tests load. Without them the file errors at collection (run 43618617187).
-          python -m pip install --quiet pytest "pyoxigraph==${PYOXIGRAPH_VERSION}" httpx phonenumbers
-          python -c "import pyoxigraph, httpx, phonenumbers, sys; print('pyoxigraph', '0.5.11', 'httpx', httpx.__version__, 'phonenumbers', phonenumbers.__version__, 'python', sys.version.split()[0])"
+          # The URI-stability tests load vendor/ostler_fda/pwg_ingest.py, and that package
+          # declares httpx, nameparser and phonenumbers in vendor/ostler_fda/pyproject.toml.
+          # The install is EXACTLY that declared set, not a guess. Two runs were red for
+          # missing pieces (43618617187: httpx; 43619211021: nameparser, reached transitively
+          # through identifier_quality). Measured in a fresh venv holding nothing else.
+          python -m pip install --quiet pytest "pyoxigraph==${PYOXIGRAPH_VERSION}" \
+            "httpx>=0.27" "nameparser>=2.1.0,<3.0" "phonenumbers>=8.13.0"
+          python -c "import pyoxigraph, httpx, nameparser, phonenumbers, sys; print('pyoxigraph', '0.5.11', 'httpx', httpx.__version__, 'nameparser', nameparser.__version__, 'phonenumbers', phonenumbers.__version__, 'python', sys.version.split()[0])"
 
       - name: Run the sentinel migration tests (JUnit)
         run: |
