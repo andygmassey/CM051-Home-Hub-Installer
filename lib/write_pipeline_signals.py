@@ -47,6 +47,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import os
 import sys
@@ -78,6 +79,42 @@ _parse_has_fetched = _parse_bool
 VALID_ENRICHMENT_DECISIONS = ("accepted", "declined", "unknown")
 
 
+# Consumer webmail. Mirrors _OWNER_WEBMAIL_DOMAINS in install.sh; a test
+# (test_shell_and_python_webmail_lists_do_not_drift) keeps the two equal.
+WEBMAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "icloud.com", "me.com", "mac.com", "outlook.com",
+    "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com", "proton.me",
+    "protonmail.com", "pm.me", "fastmail.com", "aol.com", "gmx.com", "gmx.net",
+    "mail.com", "yandex.com", "zoho.com", "qq.com", "163.com",
+})
+# Passed by the installer when the mail store could not be read: unknown, so
+# the prior value stands. Not a domain (no dot), so it cannot collide.
+UNKNOWN_SENTINEL = "__unknown__"
+_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$")
+
+
+def normalise_owner_mail_domains(raw: str) -> list[str]:
+    """Owner's work mail domains from a comma list. Domains only, webmail dropped.
+
+    An address is refused, never reduced to its domain here: the installer is
+    the place that reads addresses, and it must emit domains. Empty input is
+    'no domains' (an answer), distinct from UNKNOWN_SENTINEL.
+    """
+    out: set[str] = set()
+    for part in raw.split(","):
+        d = part.strip().lower()
+        if not d:
+            continue
+        if "@" in d:
+            raise ValueError("owner mail: addresses are refused, domains only")
+        if not _DOMAIN_RE.match(d):
+            raise ValueError(f"owner mail: not a domain: {d!r}")
+        if d in WEBMAIL_DOMAINS:
+            continue
+        out.add(d)
+    return sorted(out)
+
+
 def build_payload(
     accounts: int | None,
     has_fetched: bool | None,
@@ -86,10 +123,20 @@ def build_payload(
     imessage_fda_needed: bool | None = None,
     enrichment_decision: str | None = None,
     notes_has_fetched: bool | None = None,
+    owner_mail_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "install_completed_ts": install_ts,
     }
+
+    # Owner mail domains: None means the probe could not read the store, so the
+    # prior value stands. A list (possibly empty) is a known answer.
+    if owner_mail_domains is not None:
+        payload["owner_mail_domains"] = list(owner_mail_domains)
+    else:
+        prior_domains = existing.get("owner_mail_domains")
+        if isinstance(prior_domains, list):
+            payload["owner_mail_domains"] = prior_domains
 
     # Mail half: only overwrite when the caller passed both args
     # (validated by main()). Otherwise preserve prior values.
@@ -219,7 +266,24 @@ def main(argv: list[str]) -> int:
         default="",
         help="Override install timestamp (epoch seconds). Defaults to now.",
     )
+    parser.add_argument(
+        "--owner-mail-domains",
+        default=None,
+        help=(
+            "Comma list of the owner's own mail account DOMAINS (never addresses). "
+            "'' means none; '__unknown__' means the store could not be read and "
+            "the prior value stands. Omit to preserve."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    owner_domains: list[str] | None = None
+    if args.owner_mail_domains is not None and args.owner_mail_domains != UNKNOWN_SENTINEL:
+        try:
+            owner_domains = normalise_owner_mail_domains(args.owner_mail_domains)
+        except ValueError as exc:
+            print(f"write_pipeline_signals: {exc}", file=sys.stderr)
+            return 2
 
     if (args.accounts is None) != (args.has_fetched is None):
         print(
@@ -290,6 +354,7 @@ def main(argv: list[str]) -> int:
         imessage_fda_needed=imessage_fda_needed,
         enrichment_decision=args.enrichment_decision,
         notes_has_fetched=notes_has_fetched,
+        owner_mail_domains=owner_domains,
     )
 
     try:

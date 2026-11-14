@@ -5889,6 +5889,52 @@ _accountsdb_count_mail() {
     printf '%s' "${n:-0}" | tr -dc '0-9' | head -c10
 }
 
+# Owner's own mail-account DOMAINS (never addresses) for the relationship
+# classifier's owner work domain. Consumer webmail is excluded by this list;
+# lib/write_pipeline_signals.py repeats it and a test keeps the two equal.
+#
+# Prints a comma-separated list. Empty output with rc 0 means "no work domain"
+# (an answer). rc 1 means the store could not be read: unknown, not empty.
+_OWNER_WEBMAIL_DOMAINS="gmail.com googlemail.com icloud.com me.com mac.com outlook.com hotmail.com live.com msn.com yahoo.com ymail.com proton.me protonmail.com pm.me fastmail.com aol.com gmx.com gmx.net mail.com yandex.com zoho.com qq.com 163.com"
+
+_accountsdb_owner_mail_domains() {
+    local db
+    db="$(_accountsdb_path)"
+    [[ -f "$db" ]] || return 1
+    local raw
+    raw="$(sqlite3 "file:${db}?mode=ro" -bail "
+        SELECT DISTINCT lower(substr(a.ZUSERNAME, instr(a.ZUSERNAME, '@') + 1))
+        FROM ZACCOUNT a
+        JOIN ZACCOUNTTYPE t ON a.ZACCOUNTTYPE = t.Z_PK
+        WHERE t.ZIDENTIFIER IN (
+            'com.apple.account.IMAP',
+            'com.apple.account.IMAPMail',
+            'com.apple.account.Hotmail',
+            'com.apple.account.Google',
+            'com.apple.account.Yahoo',
+            'com.apple.account.Exchange',
+            'com.apple.account.AppleAccount',
+            'com.apple.account.MobileMe',
+            'com.apple.account.iCloud'
+        )
+        AND (a.ZAUTHENTICATIONTYPE IS NULL OR a.ZAUTHENTICATIONTYPE != 'parent')
+        AND COALESCE(a.ZACTIVE, 1) = 1
+        AND instr(a.ZUSERNAME, '@') > 0
+    " 2>&1)" || return 1
+    local d out=""
+    while IFS= read -r d; do
+        d="${d//[[:space:]]/}"
+        [[ -n "$d" ]] || continue
+        [[ "$d" =~ ^[a-z0-9.-]+$ ]] || continue
+        case " $_OWNER_WEBMAIL_DOMAINS " in
+            *" $d "*) continue ;;
+        esac
+        out="${out:+$out,}$d"
+    done <<< "$raw"
+    printf '%s' "$out"
+    return 0
+}
+
 # Returns the count of CalDAV-capable accounts. iCloud appears via
 # AppleAccount top-level. Google / Yahoo / Exchange / direct CalDAV
 # all carry CalDAV dataclass.
@@ -31522,6 +31568,13 @@ dbg "CX-100 checkpoint: Mail.app version dir = [${APPLE_MAIL_VERSION_DIR}]"
 # has ever opened.
 MAIL_ACCOUNTS_FOUND="$(_accountsdb_count_mail)"
 MAIL_ACCOUNTS_FOUND="${MAIL_ACCOUNTS_FOUND:-0}"
+# Owner's mail domains for the relationship classifier. "__unknown__" when the
+# store cannot be read, so the writer keeps the prior value (unknown is not none).
+if OWNER_MAIL_DOMAINS="$(_accountsdb_owner_mail_domains)"; then
+    :
+else
+    OWNER_MAIL_DOMAINS="__unknown__"
+fi
 dbg "CX-100 checkpoint: Accounts4.sqlite mail accounts = ${MAIL_ACCOUNTS_FOUND}"
 
 # Has Mail.app actually pulled a message yet? Reuse the three-state
@@ -31573,6 +31626,7 @@ if [[ -n "$_pipeline_writer" ]] && python3 "$_pipeline_writer" \
         --output "$PIPELINE_SIGNALS_FILE" \
         --accounts "$MAIL_ACCOUNTS_FOUND" \
         --has-fetched "$MAIL_HAS_FETCHED" \
+        --owner-mail-domains "$OWNER_MAIL_DOMAINS" \
         --notes-has-fetched "$(_store_populated_notes && echo true || echo false)" \
         --enrichment-decision "${OSTLER_CONSENT_ENRICHMENT_DECISION:-unknown}"; then
     info "$(printf "$MSG_INFO_APPLE_MAIL_ACCOUNTS_VISIBLE_INFORMATIONAL" "${MAIL_ACCOUNTS_FOUND}")"
