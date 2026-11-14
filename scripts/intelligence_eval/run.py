@@ -292,6 +292,9 @@ def self_test():
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "I do not know.")[0] == "ABSTAINED")
     check("grader: a committed answer on an absent question is FABRICATED",
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "It is O positive.")[0] == "FABRICATED")
+    for form in K.DECLINE_FORMS:
+        check("grader: decline form is ABSTAINED, not FABRICATED: %r" % form,
+              K.grade({"kind": "absent", "groups": [], "wrong": []}, form)[0] == "ABSTAINED")
     check("grader: an empty reply is ERROR, never ABSTAINED",
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "")[0] == "ERROR")
     check("grader: a missing reply (None) is ERROR, never ABSTAINED",

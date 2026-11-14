@@ -19,7 +19,27 @@ import brief_eval as B
 ABSTAIN = re.compile(
     r"\b(don'?t know|do not know|do not have|don'?t have|not (in|listed|recorded|"
     r"mentioned|available|known|in the (context|fixture|data))|no (record|information|"
-    r"data|mention)|cannot (find|tell|say)|can'?t (find|tell|say)|unknown|not sure)\b", re.I)
+    r"data|mention)|cannot (find|tell|say|determine)|can'?t (find|tell|say)|unknown|not sure|"
+    r"(does|do) not (contain|hold|provide|include|have|say|state|list|show|give|specify|"
+    r"mention|record)|(is|are|was|were) not (in|mentioned|recorded|listed|stated|provided)|"
+    r"isn'?t (in|mentioned|recorded|listed)|impossible to (determine|tell|say)|"
+    r"not in (your|the) (records|data|context|fixture|information))\b", re.I)
+
+# Every decline form a model or the gate uses. Each must grade ABSTAINED on an absent
+# question. A decline the grader calls FABRICATED makes the absent bucket measure nothing.
+DECLINE_FORMS = (
+    "I do not know.",
+    "I don't have that in your records.",
+    "That is not in your data.",
+    "The context does not contain Mary Doe's blood type.",
+    "The CONTEXT does not hold the answer.",
+    "The provided context does not provide information about the owner's salary.",
+    "No record of that.",
+    "I cannot determine that from the records.",
+    "It is impossible to determine.",
+    "That isn't mentioned in your records.",
+    "Not in your records.",
+)
 OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED", "ERROR")
 
 
