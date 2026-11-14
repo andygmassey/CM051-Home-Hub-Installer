@@ -4241,7 +4241,7 @@ _ostler_promote_prelaunch_tree() {
     #
     # _ostler_write_store_curl_config (defined :9677) captures the path BY
     # VALUE and never re-reads it:
-    #     :9677   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9678   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9723   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
     # Its two top-level arming calls are :9732 and :17778, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the

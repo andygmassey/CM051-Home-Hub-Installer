@@ -457,10 +457,13 @@ jobs:
       - name: The vendored window rule agrees with CM048 main over a shared table
         if: always()
         run: |
-          n="$(python -m pytest tests/test_cm048_window_drift.py --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 1 ]; then
-            echo "REFUSING: expected at least 1 collected test, got ${n:-0}." >&2
-            exit 1
-          fi
-          python tests/test_cm048_window_drift.py
+          # A plain script, not a pytest module: pytest collects 0 from it, so the
+          # vacuity guard counts the script's own numbered checks instead.
+          rc=0; out="$(python tests/test_cm048_window_drift.py)" || rc=$?
+          printf '%s\n' "$out"
+          n="$(printf '%s\n' "$out" | grep -cE '^\s*(PASS|ok|FAIL)\b|^\s*[0-9]+ ' || true)"
+          echo "ran ${n} check line(s), rc=${rc}"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected at least 4 check lines, got ${n:-0}" >&2; exit 1; }
+          printf '%s\n' "$out" | grep -qF 'All window-rule drift checks passed.' \
+            || { echo "REFUSING: the drift script did not report its success line" >&2; exit 1; }
