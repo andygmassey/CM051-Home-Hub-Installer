@@ -240,8 +240,8 @@ if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
         fi
         rm -rf "$_sc_tmp"
         exit 1
-    )
-    exit $?
+    ) || _sc_rc=$?
+    exit "${_sc_rc:-0}"
 fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose
