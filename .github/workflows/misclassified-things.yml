@@ -16,6 +16,7 @@ on:
       - 'tests/test_preference_projection_does_not_duplicate_the_pipeline.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/test_the_preference_seed_lands_both_rows.py'
+      - 'tests/test_cm019_pref_graph_qdrant_parity_vendored.py'
       - 'scripts/box_walk_probes/fixtures/preference_seed/**'
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - '.github/workflows/misclassified-things.yml'
@@ -29,6 +30,7 @@ on:
       - 'tests/test_preference_projection_does_not_duplicate_the_pipeline.py'
       - 'tests/_fake_oxigraph.py'
       - 'tests/test_the_preference_seed_lands_both_rows.py'
+      - 'tests/test_cm019_pref_graph_qdrant_parity_vendored.py'
       - 'scripts/box_walk_probes/fixtures/preference_seed/**'
       - 'scripts/box_walk_probes/lib/preference_seed.sh'
       - '.github/workflows/misclassified-things.yml'
@@ -87,3 +89,14 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_the_preference_seed_lands_both_rows.py -v -rs
+      - name: A re-ingested preference keeps one graph node, and no node is written without its Qdrant point (PWG #471)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm019_pref_graph_qdrant_parity_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 4 ]; then
+            echo "REFUSING: expected at least 4 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm019_pref_graph_qdrant_parity_vendored.py -v -rs

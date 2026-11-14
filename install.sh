@@ -10528,10 +10528,10 @@ _scan_find_backups
 #             less, so 1001 is the floor here and a smaller file is reported
 #             as skipped rather than as imported
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
-#   WhatsApp  NO importer reads a per-chat WhatsApp text file (universal_import
-#             recognises the name and has no parser), and none is needed:
-#             history comes from WhatsApp Desktop's own store. Recognised so a
-#             file dropped in anyway is answered plainly, never "imported".
+#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, then
+#             ostler_fda.whatsapp_export parses it and pwg-convo persists it
+#             (the Messenger sink). Owner direction 2026-11-08 (Andy). Import only if WhatsApp was accepted at setup (posture/consent.json).
+#             An iOS .zip reaches it through _zip_shape_re and _chat.txt.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -10540,7 +10540,7 @@ LOOSE=(
   $'Mailbox\x1f\\.mbox$\x1f1\x1f'
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
-  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1fOstler does not need this file. It reads your WhatsApp history from WhatsApp Desktop on this Mac, so there is nothing to export'
+  $'WhatsApp chat\x1f^(whatsapp chat.*|_chat)\\.txt$\x1f1\x1f'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
 
@@ -10550,7 +10550,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_rest="${_lx#*$'\x1f'}"
         _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
     done
-    _lx_any=1
+    _lx_any=1; _lx_wa_dec=""; _lx_wa_why="you did not accept WhatsApp in the setup consent screen, so Ostler did not read this chat"; [[ -r "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json" ]] && _lx_wa_dec="$(awk '/"whatsapp_unofficial_risk"[[:space:]]*:/{f=1} f && /"decision"[[:space:]]*:/{ if (match($0, /"(accepted|declined)"/)) { print substr($0, RSTART+1, RLENGTH-2); exit } }' "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json")"; [[ "$_lx_wa_dec" == declined ]] && _lx_wa_why="you declined WhatsApp in the setup consent screen, so Ostler did not read this chat"
     # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
     # "change the installer, not the box"): depth 6 covers every export shape
     # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
@@ -10568,7 +10568,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_label="${_lx_row%%$'\x1f'*}"
         _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
         _lx_min="${_lx_t%%$'\x1f'*}"
-        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"; [[ "$_lx_label" == "WhatsApp chat" && "$_lx_wa_dec" != accepted ]] && _lx_noimp="$_lx_wa_why"
         _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
         case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
         if [[ -z "$_lx_size" ]]; then
@@ -10691,7 +10691,7 @@ for entry in "${SIGS[@]}"; do
     re_unanchored="${re//^/}"; re_unanchored="${re_unanchored//\$/}"
     _zip_re="${_zip_re:+$_zip_re|}${re_unanchored}"
 done
-_zip_shape_re='\.(csv|json|html?|ics|js)$'
+_zip_shape_re='\.(csv|json|html?|ics|js)$|(^|/)(_chat|whatsapp chat[^/]*)\.txt$'
 _zip_open_re="${_zip_re}|${_zip_shape_re}"
 
 if [[ "$DO_UNZIP" == "1" ]]; then
@@ -19839,7 +19839,7 @@ fi
 # Rust PR in ostler-assistant, filed as issue #1976; its call site would
 # be here, after the binary is staged and before the LaunchAgent starts.
 
-OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.39}"
+OSTLER_ASSISTANT_VERSION="${OSTLER_ASSISTANT_VERSION:-0.5.42}"
 
 # Hard-coded last-known-good release. The fallback path below
 # retries against this version if the primary URL returns 404 /
@@ -19952,7 +19952,7 @@ OSTLER_ASSISTANT_TARGET="${OSTLER_ASSISTANT_TARGET:-aarch64-apple-darwin}"
 # A real 64-hex value => an ADDITIONAL hard check layered on top of
 # the Team-ID signature gate. Override at install time with
 # OSTLER_ASSISTANT_TARBALL_SHA256 for a bespoke release stream.
-DEFAULT_ASSISTANT_TARBALL_SHA256="d64a2517253667d0d5a4756c71c2ff8bab599dd1bdf32cfe77ca6b03e89fc438"
+DEFAULT_ASSISTANT_TARBALL_SHA256="b77d5c912602821e3ab9dba19ab97dcf3411229fa0dfd0ca8500f57c84ffa662"
 # The FALLBACK's own digest. HR015 #583: there was only ever ONE baked pin, and
 # the retry re-pointed the URLs without re-pointing it, so the fallback tarball
 # was checked against the PRIMARY's digest, mismatched, and the install aborted
@@ -22254,7 +22254,7 @@ services:
   #     AND the Obsidian vault at ~/Ostler/Wiki/_images/
   #     (no 11GB duplication). Read-only into the container.
   wiki-site:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:ccd149c0f38c2ab970c7c34948859196571f918093756c0ef794596ecdddf7a6
+    image: ghcr.io/creativemachines-ai/ostler-wiki-site@sha256:d394c5641edfacaf5ad46c9efa51f5b08f45d43f8952d89f8adb1ab0d031e1f0
     container_name: ostler-wiki-site
     # NO ports: STANZA, AND DO NOT RESTORE ONE (#1594).
     #
@@ -22297,7 +22297,7 @@ services:
   # srcs (see compiler/obsidian.py::convert_image_srcs in CM044) resolve against the same
   # content the wiki-site mounts.
   wiki-compiler:
-    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:a489813f982ebb86775edf46abbd1913ebdddb946b914a97b11d8929849bb838
+    image: ghcr.io/creativemachines-ai/ostler-wiki-compiler@sha256:be890cc7e690de289902b1c54506ebe7045c0d0ee4e20acea2abbb8ca6037d54
     container_name: ostler-wiki-compiler
     profiles: [compile]
     # Quarter weight in the 2-vCPU VM: serving containers win while it renders.
@@ -24034,7 +24034,7 @@ OSTLER_KNOWLEDGE_COLLECTIONS="evernote_knowledge:searched apple_notes_knowledge:
 # The assistant tag the verdicts above were read at. MUST equal the default of
 # OSTLER_ASSISTANT_VERSION; see the note above for why that coupling is the
 # whole anti-rot mechanism.
-OSTLER_KNOWLEDGE_READER_VERSION="0.5.39"
+OSTLER_KNOWLEDGE_READER_VERSION="0.5.42"
 # 🔴 READINESS TESTS THE SURFACE THE NEXT STATEMENT ACTUALLY USES (#566).
 #
 # THIS LOOP USED TO READ:

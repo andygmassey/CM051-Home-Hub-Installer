@@ -365,6 +365,12 @@ class TestLivingRelativeOnSharedLineStaysVisible(unittest.TestCase):
 class TestSuppressEndpoint(unittest.TestCase):
     def _fake(self):
         def fake_sparql_select(sparql):
+            # SUP_URI_2 is the SAME person as SUP_URI: the resolver has linked
+            # it (pwg:mergedInto). Two UNLINKED nodes with one name are two
+            # identities and the writer refuses (409, CM041 #252). This fixture
+            # is one identity, so it says so in the store it models.
+            if "mergedInto*" in sparql:
+                return [{"r": SUP_URI}]
             if "pwg:displayName ?name" in sparql and "a pwg:Person" in sparql \
                     and "VALUES" not in sparql:
                 return [

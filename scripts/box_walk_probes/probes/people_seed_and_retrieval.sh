@@ -1211,7 +1211,10 @@ phase5_cleanup() {
     if [ "$SEED_STATUS" = "OK" ]; then
         out="${TMP}/forget.out"
         target_slug="${A_REAL_SLUG:-$A_SLUG}"
-        box_http POST "${API_BASE}/api/v1/people/${target_slug}/forget" auth "$out"
+        # Unseed by person_uri (#252): a slug shared with a re-seeded twin is a
+        # 409 by slug, and a bare slug forget would erase nobody here.
+        python3 -I -c 'import json,sys; print(json.dumps({"person_uri": sys.argv[1]}))' "$A_URI" > "${TMP}/forget.req"
+        box_http POST "${API_BASE}/api/v1/people/${target_slug}/forget" auth "$out" "${TMP}/forget.req"
         code="$(http_code_of "$out")"
         q="$(urlencode "$A_NAME")"
         out="${TMP}/ctx_after.out"

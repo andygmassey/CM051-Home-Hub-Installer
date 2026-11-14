@@ -317,6 +317,26 @@ prune nothing. Proof: `tests/test_people_index_embeds_only_what_changed.py` (two
 prune arms) and the reversed arm in
 `tests/test_people_sweep_partial_landing_is_not_success.py`. Owed upstream: as above.
 
+## 2026-11-11: a dropped WhatsApp chat export is parsed and persisted (CM051 #3423, owner direction 2026-11-08)
+
+`vendor/ostler_fda/whatsapp_export.py` is a NEW file (the per-chat WhatsApp
+parser, iOS and Android line shapes, L2 payload, CM048 conversation shape).
+`vendor/ostler_fda/universal_import.py` gains `_dispatch_whatsapp_export`, which
+persists through the same `_stage_then_persist` sink the Messenger leg uses, and a
+`"whatsapp_export"` entry in `_DISPATCH`. The `recognised_no_parser` comment that
+stood where that entry now is goes with it.
+
+Why: owner direction 2026-11-08 (Andy) reversed the 2026-10-25 skip. Before this
+graft a dropped chat export was answered skip and never parsed. The regeneration
+was not attempted, for the reason recorded in the sections above (the source has
+advanced past the pin, so `regenerate_divergence_patch.sh` refuses), so this hand
+edit is recorded here.
+
+Proof: `tests/test_whatsapp_export_autoprocess.py` (six arms, RED on origin/main,
+GREEN on this graft), and `tests/test_no_whatsapp_chat_export_instruction.sh`
+section 3, which gates the watcher's import answer on the WhatsApp consent record.
+
+Owed upstream: no. The file has no HR015 counterpart at this pin.
 ## 2026-11-11: every Python settling writer emits an explicit terminal marker (CM051 #3426, CM044 #429)
 
 `vendor/ostler_fda/calendar.py`, `imessage.py`, `whatsapp_history.py` (and, in the same
@@ -399,3 +419,42 @@ personal name, and email-only people with personal addresses) must stay.
 `vendor/ostler_fda/universal_import.py`: `_owner_side_or(name, fallback)`, used by `_DEFAULT_KNOWLEDGE_BIN` and `_DEFAULT_PWG_CONVO_BIN`. Order: the `OSTLER_KNOWLEDGE_BIN` / `PWG_CONVO_BIN` env vars (unchanged, checked first at the call sites), then `${OSTLER_DIR}/bin/<name>` if it exists, then `/usr/local/bin/<name>`.
 
 Why: a GUI install links these CLIs into the owner's `${OSTLER_DIR}/bin` because `/usr/local/bin` is root-owned on a stock Mac (install.sh `_ostler_link_cli`). The default ran `/usr/local/bin/...`, which does not exist there, so the import path could not find the CLI. Tests: the same owner-side-first check as `tests/test_pwg_convo_bin_owner_side_first.py` covers the ical-server copy; this file has no separate test, so it is covered by the reasoning above and by that test's pattern only. Named as such, not claimed as tested here.
+## 2026-11-14: supplement dedupe against the live WhatsApp store (CM051 #3423)
+
+Edited in `vendor/ostler_fda/whatsapp_export.py`: message keys (`message_key`,
+`_plain`, `live_messages_from_transcript`), the live index
+(`record_live_transcript`, `live_key_counts`, `default_live_index_path`) and the
+export filter (`drop_already_live`), plus `chat_to_payload(chat, cid=)`.
+Edited in `vendor/ostler_fda/universal_import.py`: `_dispatch_whatsapp_export`
+drops messages the live store holds, keeps the full chat's conversation id, and
+persists nothing when every message is already live.
+
+Why not upstream: the export importer exists only in CM051 (the 2026-11-08 owner
+direction); HR015 has no WhatsApp export parser. Re-vendor must keep these or the
+dedupe is silently gone. Proof: `tests/test_whatsapp_export_dedupe.py`.
+
+## 2026-11-14: the WhatsApp export pins no privacy level; labels come from the contacts file
+
+`vendor/ostler_fda/whatsapp_export.py`: the `privacy_level: L2` pin is removed,
+along with the `PRIVACY_L2` constant. `chat_to_payload` adds the DM's operator labels
+(`contact_label`, and an explicit `privacy_level` if the operator set one) through
+`export_labels`, which reads `OSTLER_WHATSAPP_CONTACTS`. The chat name must equal
+exactly one contact's display name. Group exports get no label. A configured file
+that cannot be read raises, so the import reports it.
+
+CM048's `_whatsapp_resolve_privacy` (vendored, `vendor/cm048_pipeline/src/channel_adapter.py`)
+is the one resolver for both channels. The change there is a guard: with no
+classification, or one with no sensitivity level, it returns L3 (after the explicit
+override, as before). Proof: `tests/test_whatsapp_privacy_parity.py`. RED on
+b2553556: family, highly-sensitive and sensitive arms give L2, and the labelled and
+sensitive parity arms differ.
+
+## 2026-11-14: group exports resolve their labels through the live index
+
+`vendor/ostler_fda/whatsapp_export.py`: the live index (`whatsapp_live_message_keys.json`)
+now stores, per live chat, whether it is a group and a SHA-256 of its title (never the
+name). A group export has no chat id, so `export_chat_labels` matches its name to live
+group entries by that hash: exactly one takes that chat id's `group:<id>` labels from
+`OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
+one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
+`is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).

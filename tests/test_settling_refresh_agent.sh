@@ -12,7 +12,7 @@
 #      label, loads it with bootout then bootstrap, and stages the tick.
 #   2. The tick passes only the compiler's own flags after the wiki-compiler
 #      service name. The expected argv is DERIVED from the image ENTRYPOINT in
-#      tests/fixtures/wiki_compiler_entrypoint.json (CM044 fcfdff68), not typed
+#      tests/fixtures/wiki_compiler_entrypoint.json (CM044 6b657c88), not typed
 #      in: the docker stub runs ENTRYPOINT + the tick's tail through a simulated
 #      compiler parser, so a tail that repeats `python -m compiler` is rejected
 #      with exit 2 exactly as the real container does. Negative control: the
