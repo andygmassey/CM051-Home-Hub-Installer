@@ -22,7 +22,7 @@ from .tcc_refusal import is_fda_refusal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +368,56 @@ def email_stats(messages: list[EmailMessage]) -> dict:
         "mailboxes": len(mailboxes),
         "top_sender_domains": [d for d, _ in top_domains],
     }
+
+
+def _normalise_address(raw: str) -> Optional[str]:
+    """Lowercase bare address from "Name <addr>" or "addr"; None if no '@'."""
+    a = (raw or "").strip().lower()
+    if "<" in a and ">" in a:
+        a = a.split("<")[1].split(">")[0].strip()
+    return a if "@" in a else None
+
+
+def exchange_counts(
+    messages: list[EmailMessage],
+    owners: Optional[Iterable[str]] = None,
+) -> dict[str, dict[str, int]]:
+    """Two-way correspondence counts per address, UNCAPPED.
+
+    Returns {address: {"sent": n, "received": m}}: ``sent`` counts messages
+    the owner wrote to the address, ``received`` counts messages it sent to
+    the owner. Owner addresses are ``owners`` plus every sender seen in a
+    mailbox whose name contains "sent" (Sent / Sent Messages / Sent Mail).
+
+    Replaces the top-50, sender-only ``frequent_contacts`` as the input to
+    Person creation: a Person needs a two-way exchange, which the sender-only
+    map cannot see.
+    """
+    owner_set = {o for o in (_normalise_address(x) for x in (owners or ())) if o}
+    for m in messages:
+        if m.mailbox and "sent" in m.mailbox.lower():
+            o = _normalise_address(m.sender)
+            if o:
+                owner_set.add(o)
+
+    sent: dict[str, int] = {}
+    received: dict[str, int] = {}
+    for m in messages:
+        s = _normalise_address(m.sender)
+        if not s:
+            continue
+        if s in owner_set:
+            for r in m.recipients or []:
+                addr = _normalise_address(r)
+                if addr and addr not in owner_set:
+                    sent[addr] = sent.get(addr, 0) + 1
+        else:
+            received[s] = received.get(s, 0) + 1
+
+    out: dict[str, dict[str, int]] = {}
+    for addr in set(sent) | set(received):
+        out[addr] = {"sent": sent.get(addr, 0), "received": received.get(addr, 0)}
+    return out
 
 
 def frequent_contacts(messages: list[EmailMessage], limit: int = 50) -> dict[str, int]:
