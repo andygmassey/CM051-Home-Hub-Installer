@@ -4243,7 +4243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9677   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9722   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9731 and :17729, both of which run
+    # Its two top-level arming calls are :9731 and :17732, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18524, where the note reads
+    # WhatsApp Web session path did it again at :18527, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18541 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18544 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4280,9 +4280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9731, :17729) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9731, :17732) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20738 / :20916 / :21073 / :21518 path. There the
+    # :20741 / :20919 / :21076 / :21521 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -15050,7 +15050,7 @@ else
             # uninstaller's colima block).
             _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
             if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
-            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; fi  # i18n-exempt
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; ostler_vm_record_installed_size() { OSTLER_VM_RECORD_LINE="VM size record skipped (sizing table missing)"; }; fi  # i18n-exempt
             _ostler_vm_existed=0; if ostler_vm_default_exists; then _ostler_vm_existed=1; fi
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
@@ -15061,6 +15061,9 @@ else
                 if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>>"${INSTALL_LOG:-/dev/null}" \
                     && docker info &>/dev/null 2>&1; then
                     colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
+                    # Record the size for the daemon and the Doctor, and persist it
+                    # into colima.yaml so restarts keep it (never returns non-zero).
+                    ostler_vm_record_installed_size; info "$OSTLER_VM_RECORD_LINE"
                     break
                 fi
                 if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then

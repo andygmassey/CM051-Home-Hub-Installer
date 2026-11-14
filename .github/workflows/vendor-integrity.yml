@@ -155,6 +155,11 @@ on:
       - 'tests/test_a_dead_wiki_announces_itself.py'
       - 'tests/test_a_killed_wiki_compile_is_a_doctor_red.py'
       - 'tests/test_a_store_oom_restart_is_a_doctor_red.py'
+      - 'tests/test_background_engine_size_row.py'
+      - 'tests/test_vm_size_record.sh'
+      - 'tests/fixtures/vm_size_state_contract.txt'
+      - 'lib/ostler-vm-size.sh'
+      - 'vendor/doctor/agent/vm_size_row.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
@@ -748,6 +753,13 @@ jobs:
       - name: A store OOM-killed and restarted is a Doctor RED
         if: always()
         run: python3 ./tests/test_a_store_oom_restart_is_a_doctor_red.py
+
+      # The installed VM size is recorded and persisted (the shell writer), and
+      # the Doctor row reads that record and says smaller/ok/unknown. Contract:
+      # oa src/main.rs recorded_vm_size reads the same file.
+      - name: The installed VM size is recorded and the Doctor row names it
+        if: always()
+        run: bash ./tests/test_vm_size_record.sh && python3 ./tests/test_background_engine_size_row.py
 
       # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
       #

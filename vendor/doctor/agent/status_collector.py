@@ -30,6 +30,7 @@ from typing import Optional
 import httpx
 
 import export_status
+import vm_size_row
 
 # ---------------------------------------------------------------------------
 # Configuration – service endpoints (all localhost by default)
@@ -320,6 +321,8 @@ class SystemSnapshot:
     # ({status, marks, error}). Read by check_gdpr_export_age and the "Your data
     # exports" section. None means not collected.
     export_imports: dict | None = None
+    # Background engine size row (vm_size_row.evaluate): state + text.
+    background_engine: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -815,6 +818,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     ram_total_gb, ram_available_gb = collect_memory()
     hydrate_markers = collect_hydrate_markers()
     export_imports = export_status.collect_import_state()
+    background_engine = vm_size_row.evaluate(*vm_size_row.read_inputs())
 
     return SystemSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -834,6 +838,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         ram_total_gb=ram_total_gb,
         ram_available_gb=ram_available_gb,
         export_imports=export_imports,
+        background_engine=background_engine,
     )
 
 

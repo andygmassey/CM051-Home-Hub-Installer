@@ -176,3 +176,59 @@ ostler_vm_write_container_limits() {
     OSTLER_VM_LIMITS_LINE="${OSTLER_VM_LIMITS_LINE}; COULD NOT WRITE ${_env}, so the compose floor defaults apply"
     return 0
 }
+
+# ── the size record, read by the daemon and the Doctor ────────────────
+# WHY (2026-11-14, Mini16): the installer sized the VM 3 CPU / 6 GiB, but
+# colima.yaml kept 2/4 and the ostler-assistant daemon restarted colima with a
+# hard-coded `--cpu 2 --memory 4`, so every restart shrank the VM. The chosen
+# size is now recorded here, and oa reads this file (src/main.rs
+# recorded_vm_size). Keys match tests/fixtures/vm_size_state_contract.txt.
+ostler_vm_state_dir() { printf '%s\n' "${OSTLER_STATE_DIR:-${HOME}/.ostler/state}"; }
+
+# ostler_vm_record_size <cpus> <mem_gib> <source>
+# Writes the record atomically. Returns 1 when it could not, and never aborts
+# an armed ERR trap: the caller decides what to log.
+ostler_vm_record_size() {
+    local _d _f _tmp
+    _d="$(ostler_vm_state_dir)"; _f="${_d}/vm_size"; _tmp="${_f}.tmp.$$"
+    mkdir -p "$_d" 2>/dev/null || return 1
+    { printf 'cpus=%s\nmemory_gib=%s\ndisk_gib=%s\nsource=%s\nrecorded_at=%s\n' \
+        "$1" "$2" "$OSTLER_VM_DISK_GIB" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$_tmp" \
+      && mv -f "$_tmp" "$_f"; } 2>/dev/null || { rm -f "$_tmp" 2>/dev/null; return 1; }
+    return 0
+}
+
+# ostler_vm_persist_colima_yaml <colima.yaml> <cpus> <mem_gib>
+# Sets the top-level cpu and memory keys in colima's own config, so a bare
+# `colima start` (the Doctor's fix commands) starts the installed size too.
+# Both keys must already exist: a missing key is refused, not invented.
+# Rewrites in place (cat into the existing file keeps its mode and inode).
+ostler_vm_persist_colima_yaml() {
+    local _y="$1" _tmp _rc
+    [ -f "$_y" ] || return 1
+    _tmp="${_y}.ostler-vm-tmp.$$"
+    awk -v c="$2" -v m="$3" '
+        /^cpu:/    { print "cpu: " c; n++; next }
+        /^memory:/ { print "memory: " m; n++; next }
+        { print }
+        END { exit (n == 2 ? 0 : 3) }' "$_y" > "$_tmp" 2>/dev/null
+    _rc=$?
+    if [ "$_rc" -ne 0 ]; then rm -f "$_tmp" 2>/dev/null; return 1; fi
+    if cat "$_tmp" > "$_y" 2>/dev/null; then rm -f "$_tmp" 2>/dev/null; return 0; fi
+    rm -f "$_tmp" 2>/dev/null; return 1
+}
+
+# ostler_vm_record_installed_size
+# Called after the installer's colima start succeeds. Records the size and
+# persists it to colima's config. Sets OSTLER_VM_RECORD_LINE for the log.
+# Always returns 0: a failure is a named line in the log, never an abort.
+ostler_vm_record_installed_size() {
+    local _rec _cfg
+    if ostler_vm_record_size "$OSTLER_VM_CPUS" "$OSTLER_VM_MEM_GIB" installer; then _rec="recorded in $(ostler_vm_state_dir)/vm_size"
+    else _rec="NOT RECORDED (could not write $(ostler_vm_state_dir)/vm_size; the daemon will use colima's stored config)"; fi
+    _cfg="${HOME}/.colima/default/colima.yaml"
+    if ostler_vm_persist_colima_yaml "$_cfg" "$OSTLER_VM_CPUS" "$OSTLER_VM_MEM_GIB"; then _cfg="colima.yaml set to ${OSTLER_VM_CPUS} CPU / ${OSTLER_VM_MEM_GIB} GiB"
+    else _cfg="colima.yaml NOT updated (${_cfg} missing a cpu/memory key); restarts may use its stored size"; fi
+    OSTLER_VM_RECORD_LINE="container VM size ${OSTLER_VM_CPUS} CPU / ${OSTLER_VM_MEM_GIB} GiB: ${_rec}; ${_cfg}"
+    return 0
+}

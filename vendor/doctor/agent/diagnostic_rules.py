@@ -3182,6 +3182,39 @@ def check_minors_registry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def check_background_engine_size(snapshot: Any) -> list[dict]:
+    """The background engine must run the size the installer chose.
+
+    A smaller VM is silent: the wiki compiler is OOM-killed inside it and
+    nothing says why (Mini16, 2026-11-14). The row comes from vm_size_row.
+    Only "smaller" and "unknown" are findings. "ok" is silent, and so is
+    "unrecorded" (an older install has no record to compare against).
+    """
+    row = getattr(snapshot, "background_engine", None) or {}
+    state = row.get("state")
+    if state == "smaller":
+        return [{
+            "severity": "warning",
+            "title": "Background engine is smaller than installed",
+            "detail": row.get("text", ""),
+            "fix": "Stop and start the background engine so it takes the installed size.",
+            "fix_command": "/opt/homebrew/bin/colima stop && /opt/homebrew/bin/colima start",
+            "risk": "low",
+            "category": "runtime",
+        }]
+    if state == "unknown":
+        return [{
+            "severity": "warning",
+            "title": "Couldn't check the background engine size",
+            "detail": row.get("text", ""),
+            "fix": "Check that the background engine answers.",
+            "fix_command": "/opt/homebrew/bin/colima list",
+            "risk": "low",
+            "category": "runtime",
+        }]
+    return []
+
+
 ALL_RULES = [
     check_minors_registry,
     check_scheduled_agents,
@@ -3191,6 +3224,7 @@ ALL_RULES = [
     check_qdrant_health,
     check_oxigraph_health,
     check_wiki_health,
+    check_background_engine_size,
     check_store_restarts,
     check_engine_supervisor_present,
     check_listener_watchdog,
