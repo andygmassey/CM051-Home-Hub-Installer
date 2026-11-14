@@ -28,11 +28,11 @@ sys.path.insert(0, str(VENDOR_CM041))
 
 from contact_syncer.syncer import ContactSyncer  # noqa: E402
 
-OWNER = "Alex Example"
-SPOUSE = "Jordan Sample"
-MANAGER = "Casey Demo, Jr"  # comma must be vCard-escaped
-OTHER = "Riley Fixture"
-OTHER_SPOUSE = "Morgan Placeholder"
+OWNER = "Alex Doe"
+SPOUSE = "Jane Smith"
+MANAGER = "Bob Jones, Jr"  # comma must be vCard-escaped
+OTHER = "Ben Jones"
+OTHER_SPOUSE = "Carl Brown"
 
 
 def _store(tmp: pathlib.Path) -> pathlib.Path:
@@ -57,9 +57,9 @@ def _store(tmp: pathlib.Path) -> pathlib.Path:
     # The owner's card is pk 7 with ZME NULL. The pointer (ZME = 7) sits on
     # row 99, which is another person's card.
     con.execute("INSERT INTO ZABCDRECORD (Z_PK, ZUNIQUEID, ZME, ZFIRSTNAME, ZLASTNAME) "
-                "VALUES (7, 'uid-owner', NULL, 'Alex', 'Example')")
+                "VALUES (7, 'uid-owner', NULL, 'Alex', 'Doe')")
     con.execute("INSERT INTO ZABCDRECORD (Z_PK, ZUNIQUEID, ZME, ZFIRSTNAME, ZLASTNAME) "
-                "VALUES (99, 'uid-other', 7, 'Riley', 'Fixture')")
+                "VALUES (99, 'uid-other', 7, 'Ben', 'Jones')")
     con.execute("INSERT INTO ZABCDRELATEDNAME (ZOWNER, ZNAME, ZLABEL) VALUES (7, ?, '_$!<Spouse>!$_')", (SPOUSE,))
     con.execute("INSERT INTO ZABCDRELATEDNAME (ZOWNER, ZNAME, ZLABEL) VALUES (7, ?, '_$!<Manager>!$_')", (MANAGER,))
     # Relations on a non-owner card are perspectival and must not be emitted.
@@ -85,7 +85,7 @@ def test_owner_card_is_marked_and_carries_its_relations(tmp_path, monkeypatch):
     assert "X-OSTLER-OWNER-CARD:TRUE" in owner
     assert f"item1.X-ABRELATEDNAMES;TYPE=pref:{SPOUSE}" in owner
     assert "item1.X-ABLABEL:_$!<Spouse>!$_" in owner
-    assert "item2.X-ABRELATEDNAMES;TYPE=pref:Casey Demo\\, Jr" in owner
+    assert "item2.X-ABRELATEDNAMES;TYPE=pref:Bob Jones\\, Jr" in owner
     assert "item2.X-ABLABEL:_$!<Manager>!$_" in owner
 
 
