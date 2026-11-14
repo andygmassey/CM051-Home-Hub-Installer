@@ -409,6 +409,9 @@ trap _walk_exit_trap EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 . "$HERE/lib/grounding_seed.sh"
+# Swap and pageout curve: the whole-walk sampler is started by post_walk_qa.sh;
+# this file only brackets the chat-battery probes (no-op when no sampler runs).
+. "$HERE/lib/swap_curve.sh"
 
 # 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
 # CANNOT BE READ. grounding_seed.sh has always set GROUNDING_SEED_STATE to one
@@ -928,8 +931,10 @@ for p in $PROBES; do
 
     printf '\n[%s]\n' "$b"
     _probe_t0=$SECONDS
+    swap_bracket_begin "$b"
     out="$(bash "$p" 2>&1)"
     rc=$?
+    swap_bracket_end "$b"
     printf '%s\n' "$out" | sed 's/^/  /'
     # Seconds this probe took (phase 2). One line per probe, a sorted top 15 below.
     printf '  TIMING probe=%s seconds=%s\n' "$b" "$((SECONDS - _probe_t0))"
