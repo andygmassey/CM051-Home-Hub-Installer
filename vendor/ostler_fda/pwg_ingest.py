@@ -1997,7 +1997,17 @@ def ingest_photo_events(fda_dir: Path) -> dict:
         place = event.get("location")
         place = place.strip() if isinstance(place, str) and place.strip() else None
 
-        coord_key = f"{lat},{lon}" if has_coords else "nogps"
+        # The URI key. A photo whose coordinates were sentinels has latitude None
+        # now, but its graph node was minted from "-180.0,-180.0". The extractor
+        # emits uri_key from the RAW store values, so that key survives the fix
+        # and the next ingest re-uses the same node instead of minting a second
+        # PhotoEvent beside it. A file written before uri_key existed falls back
+        # to the formula that always produced these keys.
+        uri_key = event.get("uri_key")
+        if isinstance(uri_key, str) and uri_key:
+            coord_key = uri_key
+        else:
+            coord_key = f"{lat},{lon}" if has_coords else "nogps"
         event_id = uuid.uuid5(
             uuid.NAMESPACE_URL,
             f"https://schema.ostler.ai/photo_event/{date}|{coord_key}",

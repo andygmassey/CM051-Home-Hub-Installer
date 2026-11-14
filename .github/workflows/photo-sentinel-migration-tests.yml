@@ -10,7 +10,7 @@ name: photo-sentinel-migration-tests
 #   - The JUnit report is parsed, not grepped. The run FAILS unless at least
 #     MIN_TESTS executed, and zero were skipped, errored or failed.
 #
-# MIN_TESTS must equal the number of tests in the file. Raising the file's count
+# MIN_TESTS must equal the number of tests in the files it runs (7 + 3). Raising the file's count
 # without raising this floor is fine. Lowering this floor needs a reason in the PR.
 
 on:
@@ -18,6 +18,8 @@ on:
     paths:
       - 'scripts/repair_photo_sentinel_coordinates.py'
       - 'scripts/test_repair_photo_sentinel_coordinates.py'
+      - 'tests/test_photo_uri_stability.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
       - '.github/workflows/photo-sentinel-migration-tests.yml'
   push:
     branches: [main]
@@ -31,7 +33,7 @@ concurrency:
 
 env:
   PYOXIGRAPH_VERSION: "0.5.11"
-  MIN_TESTS: "7"
+  MIN_TESTS: "10"
 
 jobs:
   photo-sentinel-migration-tests:
@@ -52,7 +54,8 @@ jobs:
 
       - name: Run the sentinel migration tests (JUnit)
         run: |
-          python -m pytest scripts/test_repair_photo_sentinel_coordinates.py -q \
+          python -m pytest scripts/test_repair_photo_sentinel_coordinates.py \
+            tests/test_photo_uri_stability.py -q \
             -p no:cacheprovider --junitxml=photo-sentinel-junit.xml
 
       - name: Refuse a run that executed fewer than MIN_TESTS, or any skip
