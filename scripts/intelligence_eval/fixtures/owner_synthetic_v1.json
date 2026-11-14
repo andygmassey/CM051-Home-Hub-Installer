@@ -1,0 +1,472 @@
+{
+  "schema": "ostler-eval/v1",
+  "_note": "SYNTHETIC. Every person, place and fact is invented. Derived from the EVAL_INTELLIGENCE_SPEC fixture. The owner is the spec's test owner with its seven aliases. The work alias is written lower-case so the name guard does not read it as a person; alias matching is case-insensitive.",
+  "owner": {
+    "name": "Test Owner",
+    "aliases": [
+      "Test Owner",
+      "T. Owner",
+      "tOwner",
+      "owner@example.test",
+      "@test_owner",
+      "+1 555 0100",
+      "owner work"
+    ]
+  },
+  "goals": {
+    "G1": "Raise a seed round by 2027-03-31",
+    "G2": "Hire a head of operations",
+    "G3": "Run three times a week for a half marathon"
+  },
+  "categories": [
+    "Investors",
+    "Advisors",
+    "Operators",
+    "Friends",
+    "Family",
+    "Training"
+  ],
+  "people": [
+    {
+      "id": "P01",
+      "name": "Mary Doe",
+      "category": "Investors",
+      "goals": [
+        "G1"
+      ],
+      "last_contact_days": 15,
+      "msgs_12mo": 40,
+      "evidence": [
+        "ev-001"
+      ]
+    },
+    {
+      "id": "P02",
+      "name": "John Smith",
+      "category": "Advisors",
+      "goals": [
+        "G1"
+      ],
+      "last_contact_days": 25,
+      "msgs_12mo": 60,
+      "evidence": [
+        "ev-002",
+        "ev-003"
+      ]
+    },
+    {
+      "id": "P03",
+      "name": "Bob Jones",
+      "category": "Operators",
+      "goals": [
+        "G2"
+      ],
+      "last_contact_days": 34,
+      "msgs_12mo": 55,
+      "evidence": [
+        "ev-004"
+      ]
+    },
+    {
+      "id": "P04",
+      "name": "Liz Patel",
+      "category": "Training",
+      "goals": [
+        "G3"
+      ],
+      "last_contact_days": 9,
+      "msgs_12mo": 70,
+      "evidence": [
+        "ev-005"
+      ]
+    },
+    {
+      "id": "P05",
+      "name": "Ben Brown",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 40,
+      "msgs_12mo": 900,
+      "evidence": [
+        "ev-006"
+      ]
+    },
+    {
+      "id": "P06",
+      "name": "Jane Wang",
+      "category": "Family",
+      "goals": [],
+      "last_contact_days": 6,
+      "msgs_12mo": 120,
+      "evidence": [
+        "ev-007"
+      ]
+    },
+    {
+      "id": "P07",
+      "name": "Sam Ross",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 20,
+      "msgs_12mo": 5,
+      "evidence": [
+        "ev-008"
+      ]
+    },
+    {
+      "id": "P08",
+      "name": "Tom Coe",
+      "category": "Operators",
+      "goals": [],
+      "last_contact_days": 23,
+      "msgs_12mo": 7,
+      "evidence": [
+        "ev-009"
+      ]
+    },
+    {
+      "id": "P09",
+      "name": "Carl Stewart",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 26,
+      "msgs_12mo": 9,
+      "evidence": [
+        "ev-010"
+      ]
+    },
+    {
+      "id": "P10",
+      "name": "Ana Andersen",
+      "category": "Training",
+      "goals": [],
+      "last_contact_days": 29,
+      "msgs_12mo": 11,
+      "evidence": [
+        "ev-011"
+      ]
+    },
+    {
+      "id": "P11",
+      "name": "Alex Min",
+      "category": "Family",
+      "goals": [],
+      "last_contact_days": 32,
+      "msgs_12mo": 13,
+      "evidence": [
+        "ev-012"
+      ]
+    },
+    {
+      "id": "P12",
+      "name": "Ali Li",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 35,
+      "msgs_12mo": 15,
+      "evidence": [
+        "ev-013"
+      ]
+    },
+    {
+      "id": "P13",
+      "name": "Raj Zhang",
+      "category": "Operators",
+      "goals": [],
+      "last_contact_days": 38,
+      "msgs_12mo": 17,
+      "evidence": [
+        "ev-014"
+      ]
+    },
+    {
+      "id": "P14",
+      "name": "Wei Wang",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 41,
+      "msgs_12mo": 19,
+      "evidence": [
+        "ev-015"
+      ]
+    },
+    {
+      "id": "P15",
+      "name": "Robert Doe",
+      "category": "Investors",
+      "goals": [],
+      "last_contact_days": 44,
+      "msgs_12mo": 21,
+      "evidence": [
+        "ev-016"
+      ]
+    },
+    {
+      "id": "P16",
+      "name": "Alexandra Smith",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 47,
+      "msgs_12mo": 23,
+      "evidence": [
+        "ev-017"
+      ]
+    },
+    {
+      "id": "P17",
+      "name": "Jonathan Jones",
+      "category": "Operators",
+      "goals": [],
+      "last_contact_days": 50,
+      "msgs_12mo": 25,
+      "evidence": [
+        "ev-018"
+      ]
+    },
+    {
+      "id": "P18",
+      "name": "Thomas Patel",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 53,
+      "msgs_12mo": 27,
+      "evidence": [
+        "ev-019"
+      ]
+    },
+    {
+      "id": "P19",
+      "name": "Elizabeth Brown",
+      "category": "Training",
+      "goals": [],
+      "last_contact_days": 56,
+      "msgs_12mo": 29,
+      "evidence": [
+        "ev-020"
+      ]
+    },
+    {
+      "id": "P20",
+      "name": "Charles Stewart",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 59,
+      "msgs_12mo": 31,
+      "evidence": [
+        "ev-021"
+      ]
+    },
+    {
+      "id": "P21",
+      "name": "Rebecca Ross",
+      "category": "Family",
+      "goals": [],
+      "last_contact_days": 62,
+      "msgs_12mo": 33,
+      "evidence": [
+        "ev-022"
+      ]
+    },
+    {
+      "id": "P22",
+      "name": "Margaret Coe",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 65,
+      "msgs_12mo": 35,
+      "evidence": [
+        "ev-023"
+      ]
+    },
+    {
+      "id": "P23",
+      "name": "Hans Andersen",
+      "category": "Operators",
+      "goals": [],
+      "last_contact_days": 68,
+      "msgs_12mo": 37,
+      "evidence": [
+        "ev-024"
+      ]
+    },
+    {
+      "id": "P24",
+      "name": "Philip Min",
+      "category": "Friends",
+      "goals": [],
+      "last_contact_days": 71,
+      "msgs_12mo": 39,
+      "evidence": [
+        "ev-025"
+      ]
+    }
+  ],
+  "evidence": {
+    "ev-001": {
+      "person": "P01",
+      "source_type": "email",
+      "date": "2026-10-30",
+      "summary": "Replied about seed round timeline and asked for the data room link."
+    },
+    "ev-002": {
+      "person": "P02",
+      "source_type": "call",
+      "date": "2026-10-20",
+      "summary": "Offered a warm intro to Mary Doe for the seed round."
+    },
+    "ev-003": {
+      "person": "P02",
+      "source_type": "email",
+      "date": "2026-06-02",
+      "summary": "Shared notes on advisor terms."
+    },
+    "ev-004": {
+      "person": "P03",
+      "source_type": "meeting",
+      "date": "2026-10-11",
+      "summary": "Named two strong operations candidates and will share their names."
+    },
+    "ev-005": {
+      "person": "P04",
+      "source_type": "message",
+      "date": "2026-11-05",
+      "summary": "Offered to run Saturday sessions as a training partner; set a 10k pace target."
+    },
+    "ev-006": {
+      "person": "P05",
+      "source_type": "message",
+      "date": "2026-09-18",
+      "summary": "Chat about films. No business topic."
+    },
+    "ev-007": {
+      "person": "P06",
+      "source_type": "call",
+      "date": "2026-11-08",
+      "summary": "Family dinner planned for next Sunday."
+    },
+    "ev-008": {
+      "person": "P07",
+      "source_type": "message",
+      "date": "2026-08-01",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-009": {
+      "person": "P08",
+      "source_type": "message",
+      "date": "2026-08-02",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-010": {
+      "person": "P09",
+      "source_type": "message",
+      "date": "2026-08-03",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-011": {
+      "person": "P10",
+      "source_type": "message",
+      "date": "2026-08-04",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-012": {
+      "person": "P11",
+      "source_type": "message",
+      "date": "2026-08-05",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-013": {
+      "person": "P12",
+      "source_type": "message",
+      "date": "2026-08-06",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-014": {
+      "person": "P13",
+      "source_type": "message",
+      "date": "2026-08-07",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-015": {
+      "person": "P14",
+      "source_type": "message",
+      "date": "2026-08-08",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-016": {
+      "person": "P15",
+      "source_type": "message",
+      "date": "2026-08-09",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-017": {
+      "person": "P16",
+      "source_type": "message",
+      "date": "2026-08-10",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-018": {
+      "person": "P17",
+      "source_type": "message",
+      "date": "2026-08-11",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-019": {
+      "person": "P18",
+      "source_type": "message",
+      "date": "2026-08-12",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-020": {
+      "person": "P19",
+      "source_type": "message",
+      "date": "2026-08-13",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-021": {
+      "person": "P20",
+      "source_type": "message",
+      "date": "2026-08-14",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-022": {
+      "person": "P21",
+      "source_type": "message",
+      "date": "2026-08-15",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-023": {
+      "person": "P22",
+      "source_type": "message",
+      "date": "2026-08-16",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-024": {
+      "person": "P23",
+      "source_type": "message",
+      "date": "2026-08-17",
+      "summary": "Routine catch-up. No goal-related content."
+    },
+    "ev-025": {
+      "person": "P24",
+      "source_type": "message",
+      "date": "2026-08-18",
+      "summary": "Routine catch-up. No goal-related content."
+    }
+  },
+  "allowed_actions": [
+    "email",
+    "call",
+    "book",
+    "ask-for-intro",
+    "send-draft",
+    "follow-up"
+  ],
+  "banned_terms": [
+    "node",
+    "hub",
+    "centrality",
+    "degree",
+    "high-value",
+    "connection"
+  ]
+}
