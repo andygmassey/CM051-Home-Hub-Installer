@@ -56,6 +56,10 @@ _REQUIRED_ENVELOPE_KEYS = frozenset(
 log = logging.getLogger(__name__)
 
 
+# Shown when a passkey mint was refused as repair_needed. Exact text, never silent.
+REPAIR_ROW_TEXT = "Re-pair this iPhone to use Ostler away from home."
+
+
 @dataclass
 class PairStatus:
     """Structured result a Doctor route can JSON-serialise directly."""
@@ -66,6 +70,7 @@ class PairStatus:
     qr_svg: Optional[str]
     error: Optional[str]
     error_kind: Optional[str]
+    repair_row: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -75,6 +80,7 @@ class PairStatus:
             "qr_svg": self.qr_svg,
             "error": self.error,
             "error_kind": self.error_kind,
+            "repair_row": self.repair_row,
         }
 
 
@@ -247,6 +253,24 @@ def _build_status_from_envelope(envelope: dict) -> PairStatus:
 
 
 def fetch_pair_status(
+    *,
+    client: Optional[httpx.Client] = None,
+    fresh: bool = False,
+) -> PairStatus:
+    """``_fetch_pair_status`` plus the re-pair row when a passkey mint was
+    refused as repair_needed (passkey_proxy writes the marker)."""
+    import dataclasses
+    status = _fetch_pair_status(client=client, fresh=fresh)
+    try:
+        from passkey_proxy import repair_needed
+        if repair_needed():
+            status = dataclasses.replace(status, repair_row=REPAIR_ROW_TEXT)
+    except Exception:  # noqa: BLE001 - the row is additive; the QR must still render
+        log.warning("could not read the re-pair marker", exc_info=True)
+    return status
+
+
+def _fetch_pair_status(
     *,
     client: Optional[httpx.Client] = None,
     fresh: bool = False,

@@ -4251,7 +4251,10 @@ async def api_chat_token(request: Request):
     read its block above for what stays open and why the shipped
     Companion forbids requiring a credential here.
     """
-    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
+    refusal = await _owner_refusal(request)
+    if refusal is not None and await _device_bearer_ok(request):
+        refusal = None
+    refusal = refusal or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -4267,6 +4270,25 @@ async def api_chat_token(request: Request):
         return JSONResponse({"error": exc.detail}, status_code=exc.status)
 
     return result
+
+
+# Passkey mint (task 133). UNAUTHENTICATED on purpose: they vend nothing, and the
+# gateway verifies the signature. The Doctor only relays; see passkey_proxy.py.
+@app.get("/api/v1/auth/passkey/challenge")
+async def api_passkey_challenge():
+    from passkey_proxy import fetch_challenge
+    status, body = await fetch_challenge()
+    return Response(content=body, status_code=status, media_type="application/json")
+
+
+@app.post("/api/v1/auth/passkey/mint")
+async def api_passkey_mint(request: Request):
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    from passkey_proxy import mint
+    status, body = await mint(await request.body())
+    return Response(content=body, status_code=status, media_type="application/json")
 
 
 @app.get("/api/v1/observability-posture", response_class=JSONResponse)
@@ -4553,10 +4575,13 @@ _registered_proxy_paths = register_proxy_routes(app)
 _BEARER_OR_OWNER = frozenset({
     "/api/v1/wiki/correct",
     "/api/v1/people/{slug}/suppress-suggestions",
+    "/api/v1/auth/chat-token",   # task 133: owner OR a valid bearer (handler re-checks)
 })
 
 
 _PUBLIC = frozenset({
+    "/api/v1/auth/passkey/challenge",   # task 133: the gateway verifies, see passkey_proxy.py
+    "/api/v1/auth/passkey/mint",
     "/api/v1/hydration/status",   # per-phase counts, states, ETA; see #178 above
 })
 
@@ -4568,6 +4593,17 @@ def _route_for(scope):
         if m == Match.FULL:
             return r
     return None
+
+
+async def _device_bearer_ok(request: Request) -> bool:
+    """True when the request carries a VALID paired-device bearer (gateway oracle,
+    asked every time). Static credentials never qualify. Fails closed."""
+    try:
+        from proxy import _extract_bearer_token, _is_paired_bearer, _is_static_credential
+        token = _extract_bearer_token(request.headers)
+        return bool(token and not _is_static_credential(token) and await _is_paired_bearer(token))
+    except Exception:  # noqa: BLE001 - a check that cannot run has not passed
+        return False
 
 
 @app.middleware("http")
@@ -4584,13 +4620,8 @@ async def _owner_gate(request: Request, call_next):
     if refusal is None:
         return await call_next(request)
     if route is not None and getattr(route, "path", None) in _BEARER_OR_OWNER:
-        try:
-            from proxy import _extract_bearer_token, _is_paired_bearer
-            token = _extract_bearer_token(request.headers)
-            if token and await _is_paired_bearer(token):
-                return await call_next(request)
-        except Exception:  # noqa: BLE001 - a check that cannot run has not passed
-            pass
+        if await _device_bearer_ok(request):
+            return await call_next(request)
     return refusal
 
 
@@ -6698,6 +6729,8 @@ def _render_pair_ios_page() -> str:
             </div>
         </div>
 
+        <div id="repairRow" class="panel" style="display:none"></div>
+
         <div id="emptyPanel" class="panel" style="display:none">
             <div class="empty-state-title" id="emptyTitle"></div>
             <p id="emptyDetail"></p>
@@ -6752,6 +6785,9 @@ def _render_pair_ios_page() -> str:
         }}
 
         function renderState(state) {{
+            const repairRow = document.getElementById('repairRow');
+            repairRow.textContent = state.repair_row || '';
+            repairRow.style.display = state.repair_row ? '' : 'none';
             if (state.available && state.qr_svg) {{
                 showCode(state);
                 return;

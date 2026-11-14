@@ -1,0 +1,42 @@
+name: doctor-passkey-mint-vendored
+
+# Task 133 (HR015 #1501), vendored half. The Doctor relays the passkey mint
+# to the gateway (it does no WebAuthn), admits a valid paired or minted bearer
+# on chat-token, and shows a re-pair row when a mint is refused repair_needed.
+# This job drives the REAL vendor/doctor/agent/web_ui.py against a mock gateway
+# and a simulated tailscaled forwarder. Its watched reds: a static credential
+# admitted as a device bearer, a refused mint not leaving the re-pair marker, a
+# tokenless 200 passed as a mint, and chat-token reverting to owner-only.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/proxy.py'
+      - 'vendor/doctor/agent/pair_status.py'
+      - 'vendor/doctor/agent/passkey_proxy.py'
+      - 'tests/test_doctor_passkey_mint_vendored.py'
+      - '.github/workflows/doctor-passkey-mint-vendored.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  passkey-mint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Dependencies the real web_ui.py module imports
+        run: python3 -m pip install --quiet fastapi httpx
+      - name: Passkey mint relay, chat-token bearer admission and the re-pair row, against the vendored Doctor
+        run: python3 tests/test_doctor_passkey_mint_vendored.py -v

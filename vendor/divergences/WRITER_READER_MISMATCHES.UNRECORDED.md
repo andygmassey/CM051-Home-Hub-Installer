@@ -1880,3 +1880,22 @@ Its request URL is also in installer Q11 (`install.sh`), which the drift test ch
   documented Settings > Data Controls > Export data).
 - No upstream patch: the row lives only in CM051 until the same change lands in the
   Doctor source table. Re-vendor must keep this row or the drift test goes red.
+
+## doctor: passkey mint proxy, chat-token bearer admission, re-pair row (HR015 #1501, task 133), 2026-11-15
+
+Upstream: HR015 #1501 at `7da3daaa50770267af2c542cffabcca327b078d1`, stacked on the unmerged `doctor/gate-proxy-writes` branch (`72a5908`). That base is NOT vendored here, so the #1501 delta is GRAFTED, not copied. The tree is regenerate-forbidden and `doctor.patch` is not regenerated.
+
+Byte-identical to upstream #1501:
+- `agent/passkey_proxy.py` (new, 112 lines; no vendor-only edits).
+- `agent/proxy.py`: the function `_is_static_credential` only (inserted verbatim before the extension-path block; its dependencies `_machine_admin_token`, `_extension_token`, `_resolve_service_token` already exist here).
+
+Grafted by hand into files that already differ from upstream:
+- `agent/pair_status.py`: `REPAIR_ROW_TEXT`, `PairStatus.repair_row` (and `to_dict`), `fetch_pair_status` now wraps `_fetch_pair_status` and adds the row when `passkey_proxy.repair_needed()`. Same text as upstream; the vendored-only `_hub_addr_is_not_reachable_from_a_phone` check is untouched.
+- `agent/web_ui.py`: the `/api/v1/auth/passkey/challenge` and `/mint` routes (verbatim); both added to `_PUBLIC`; `_device_bearer_ok` helper (verbatim) used by `api_chat_token` and by `_owner_gate`; the `repairRow` element and its three lines in `renderState`.
+
+Intentional differences from upstream #1501, with reasons:
+1. No `_DEVICE_BEARER_ROUTES`. This tree has `_BEARER_OR_OWNER`, so `/api/v1/auth/chat-token` is added there instead. Same effect: the middleware lets a valid bearer through, the handler re-checks.
+2. `_owner_gate` now calls `_device_bearer_ok`, so the existing `_BEARER_OR_OWNER` routes (`/api/v1/wiki/correct`, suppress-suggestions) additionally refuse a static credential presented as a bearer. Upstream does the same on its own device routes. Behaviour change, deliberate.
+3. NOT taken: the `gate-proxy-writes` stack (`DEFAULT_PROXY_PATHS` memory entries, write gating on proxied paths) and the upstream tests `test_device_bearer_gate.py`, `test_proxy*.py`. Measured with the py3.11 venv, upstream tests unmodified against this tree: the nine pre-existing proxy, chat_token and pair_status suites at `72a5908` fail the SAME 16 of 221 before and after this graft (diff of the failing sets is empty; proxy write gating and `DEFAULT_PROXY_PATHS` are the cause). Upstream `test_passkey_mint_proxy.py` fails 4 of its tests here: two need that unvendored write gating on `/api/v1/memory/correct`, two hit this tree's `_not_hub_local` on `/api/v1/pair/status` (TestClient sends no loopback Host). The vendored test sends the loopback Host. Not part of task 133.
+
+Tests: `tests/test_doctor_passkey_mint_vendored.py` (11 checks, wired by `.github/workflows/doctor-passkey-mint-vendored.yml`). Mutants that go red: static credential admitted as bearer (1), repair marker not written (1), tokenless 200 passed as a mint (1), handler reverted to owner-only (3).

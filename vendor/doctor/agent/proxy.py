@@ -224,6 +224,21 @@ def _extension_token() -> str:
     return os.environ.get("OSTLER_EXTENSION_TOKEN", "").strip()
 
 
+def _is_static_credential(token: str) -> bool:
+    """True when ``token`` IS a shared static credential: the machine admin token,
+    the browser-extension credential, or the ical-server service token. Those are
+    never a paired device's bearer, so a request carrying one must not be admitted
+    as a paired device, whatever the gateway would say. Constant-time compare on
+    bytes (compare_digest), so the check does not leak which static value matched."""
+    presented = (token or "").encode("utf-8", "surrogatepass")
+    if not presented:
+        return False
+    for static in (_machine_admin_token(), _extension_token(), _resolve_service_token() or ""):
+        if static and hmac.compare_digest(presented, static.encode("utf-8", "surrogatepass")):
+            return True
+    return False
+
+
 # The ONLY path the extension credential may open. Not a list, not an env var,
 # not configurable. See _is_extension_credential for why.
 _EXTENSION_ONLY_PATH = "/api/safari/ingest"
