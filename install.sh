@@ -39483,6 +39483,47 @@ if [[ -f "${SCRIPT_DIR}/scripts/repair_netflix_rating_polarity.py" ]]; then
     unset _NETFLIX_REPAIR_MARKER
 fi
 
+# Photo sentinel repair (Archie, 2026-11-15) -----------------------------
+#
+# An earlier Photos extractor wrote -180 ("no location") into the graph as a
+# real coordinate. Measured on the shipped Mini16 graph: 13,432 of 45,890
+# PhotoEvents (29%) carry it. The extractor is fixed (HR015 PR #1486); this
+# deletes the sentinels already in the store. Same marker-file pattern as the
+# Netflix repair above. Counts only reach the log.
+#
+# A missing marker means "not yet verified", never "nothing to repair": the
+# marker is written only after the script verifies residue is zero and that
+# photoDate triples and clean-event coordinates are unchanged. A failed run
+# writes no marker, so the next install retries it. The install never aborts
+# over this.
+if [[ -f "${SCRIPT_DIR}/scripts/repair_photo_sentinel_coordinates.py" ]]; then
+    _PHOTO_SENTINEL_MARKER="${OSTLER_DIR}/state/repair_photo_sentinel_coords_v1.done"
+    if [[ ! -f "$_PHOTO_SENTINEL_MARKER" ]]; then
+        _PHOTO_SENTINEL_LOG="${OSTLER_DIR}/logs/repair-photo-sentinel-coords.log"
+        mkdir -p "$(dirname "$_PHOTO_SENTINEL_LOG")" 2>/dev/null || true
+        _PHOTO_SENTINEL_PY="${PIPELINE_DIR}/.venv/bin/python3"
+        [[ -x "$_PHOTO_SENTINEL_PY" ]] || _PHOTO_SENTINEL_PY="python3"
+        # set -euo pipefail is active; the rc travels out as a marker line so a
+        # failing python never aborts the install (same trap as the Netflix repair).
+        _PHOTO_SENTINEL_RAW="$(
+            _photo_sentinel_rc=0
+            "$_PHOTO_SENTINEL_PY" "${SCRIPT_DIR}/scripts/repair_photo_sentinel_coordinates.py" \
+                --apply --marker "$_PHOTO_SENTINEL_MARKER" 2>>"$_PHOTO_SENTINEL_LOG" || _photo_sentinel_rc=$?
+            printf '___RC___%d\n' "$_photo_sentinel_rc"
+        )" || true
+        _PHOTO_SENTINEL_RC="$(printf '%s\n' "$_PHOTO_SENTINEL_RAW" | sed -n 's/^___RC___//p' | tail -1)"
+        _PHOTO_SENTINEL_OUT="$(printf '%s\n' "$_PHOTO_SENTINEL_RAW" | grep -v '^___RC___' || true)"
+        printf '%s\n' "$_PHOTO_SENTINEL_OUT" >>"$_PHOTO_SENTINEL_LOG"
+        if [[ "$_PHOTO_SENTINEL_RC" =~ ^[0-9]+$ ]] && [[ "$_PHOTO_SENTINEL_RC" -eq 0 ]]; then
+            ok "Photo sentinel coordinates repaired and verified (${_PHOTO_SENTINEL_LOG})"  # i18n-exempt
+        else
+            warn "Photo sentinel repair did not verify (exit ${_PHOTO_SENTINEL_RC:-unknown}); the next install retries it. See ${_PHOTO_SENTINEL_LOG}"  # i18n-exempt
+        fi
+        unset _PHOTO_SENTINEL_LOG _PHOTO_SENTINEL_PY _PHOTO_SENTINEL_RAW _PHOTO_SENTINEL_OUT _PHOTO_SENTINEL_RC
+    fi
+    unset _PHOTO_SENTINEL_MARKER
+fi
+
 # Apple Notes knowledge hydration (CM024 §7 / apple_notes adapter) ---
 #
 # Reads apple_notes.json (written by the Phase 3 fda_extract step when
