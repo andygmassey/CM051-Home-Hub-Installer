@@ -1856,3 +1856,27 @@ Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here ins
 - `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
 
 Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).
+
+## doctor: background engine size row (CM051 PR #3516, 2026-11-14)
+
+Grafted into `vendor/doctor/agent/`, recorded here, because the `doctor` tree is
+`regenerate_forbidden = true` in `vendor/VENDOR_MANIFEST.toml` (the source-status
+panel has no upstream). Measured 2026-11-14: `scripts/sync_vendor.sh doctor
+--regen-patch` refuses before any source checkout, so `doctor.patch` cannot be
+regenerated to include these edits.
+
+Edits:
+- `vm_size_row.py`: NEW vendor-only graft. Reads `~/.ostler/state/vm_size` and
+  `colima list --json` (memory in bytes, verified on a box 2026-11-14) and
+  returns one of: ok, smaller, unknown, unrecorded.
+- `status_collector.py`: `import vm_size_row`; field `background_engine` on
+  `SystemSnapshot`; one line in `collect_full_snapshot`.
+- `diagnostic_rules.py`: `check_background_engine_size` (findings for smaller
+  and unknown only) and its entry in `ALL_RULES`.
+
+Not ported to HR015 `doctor/agent/`: a port would move the pin, which is an
+Archie decision. The vendor-drift gate will report DIFFERS on the two shared
+files until one of: the pin moves with the port, or the ban is lifted.
+
+Test: `tests/test_background_engine_size_row.py` (14 checks, wired in
+`.github/workflows/vendor-integrity.yml`).
