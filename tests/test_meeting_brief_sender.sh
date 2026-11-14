@@ -138,5 +138,52 @@ if [ "$asst_default_port" != "$gateway_port" ]; then
 fi
 echo "PASS: sender ASSISTANT_URL default :$asst_default_port is the gateway port"
 
+# Owner-facing header in the owner's language (same-shape sweep 2026-11-14,
+# item 2). Runs the sender's own Python block against a stub curl and a stub
+# composer, then reads the body that would have been POSTed to /announce.
+# RED on the pre-change sender: a ja owner was sent "Meeting: ... at Sat Nov 14, 10:00."
+HDR_W="$(mktemp -d)"
+trap 'rm -rf "$HDR_W"' EXIT
+/usr/bin/python3 - "$INSTALL_SCRIPT" "$HDR_W/block.py" <<'PYX'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read().split("\n")
+i = next(k for k, l in enumerate(s) if "<<'PYEOF' || _send_rc=$?" in l and "SENT_DB" in l)
+j = next(k for k in range(i + 1, len(s)) if s[k] == "PYEOF")
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(s[i + 1:j]) + "\n")
+PYX
+mkdir -p "$HDR_W/bin"
+cat > "$HDR_W/bin/curl" <<'CURLX'
+#!/bin/bash
+prev=""; for a in "$@"; do if [ "$prev" = "--data-binary" ]; then printf '%s' "$a" > "$CAPTURE"; fi; prev="$a"; done
+exit 0
+CURLX
+printf '#!/bin/bash\necho "Synthetic attendee note."\n' > "$HDR_W/composer"
+chmod +x "$HDR_W/bin/curl" "$HDR_W/composer"
+send_header() {  # $1 owner_language (NONE = pre-change arity), $2 attendees json
+    rm -f "$HDR_W/body.json"
+    rm -f "$HDR_W/sent.db"
+    /usr/bin/python3 -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);c.execute('CREATE TABLE IF NOT EXISTS sent_briefs (key TEXT PRIMARY KEY, meeting_uid TEXT NOT NULL, scheduled_start TEXT NOT NULL, sent_at TEXT NOT NULL)');c.commit()" "$HDR_W/sent.db"
+    local hub args=()
+    hub="{\"considered\":1,\"meetings\":[{\"uid\":\"u-1\",\"meeting\":\"Q3 review\",\"start\":\"Sat Nov 14, 10:00\",\"start_iso\":\"20261114T100000\",\"location\":\"\",\"attendees\":$2}]}"
+    [ "$1" = "NONE" ] || args=("$1")
+    CAPTURE="$HDR_W/body.json" PATH="$HDR_W/bin:$PATH" OSTLER_BRIEF_HUB_JSON="$hub" \
+        OSTLER_BRIEF_COMPOSER="$HDR_W/composer" OSTLER_BRIEF_OWNER_NAME="Synthetic Owner" \
+        /usr/bin/python3 "$HDR_W/block.py" "$HDR_W/sent.db" "http://127.0.0.1:8000" "$HDR_W/log.txt" \
+        "http://127.0.0.1:8090" "$HDR_W" "test-channel" ${args[@]+"${args[@]}"} >/dev/null 2>&1 || true
+    if [ -f "$HDR_W/body.json" ]; then
+        /usr/bin/python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['message'].split(chr(10))[0])" "$HDR_W/body.json"
+    else
+        echo "(none sent)"
+    fi
+}
+JA_ALONE="$(send_header ja '[]')"
+JA_WITH="$(send_header ja '[{"name":"Synthetic Person","wiki_url":"","outstanding_todos":[]}]')"
+case "$JA_WITH" in *"Meeting:"*|*"at Sat"*) echo "FAIL [header-language]: ja owner got English header: $JA_WITH" >&2; exit 1 ;; esac
+case "$JA_WITH" in *"会議"*"10:00"*) ;; *) echo "FAIL [header-language]: ja header missing localised text or 24h time: $JA_WITH" >&2; exit 1 ;; esac
+case "$JA_ALONE" in *"Sat Nov"*) echo "FAIL [header-time]: day name in header: $JA_ALONE" >&2; exit 1 ;; esac
+US_ALONE="$(send_header en-US '[]')"
+case "$US_ALONE" in *"10:00 AM"*) ;; *) echo "FAIL [header-time-us]: en-US owner not given 12-hour time: $US_ALONE" >&2; exit 1 ;; esac
+echo "PASS: owner-language header (ja: $JA_WITH; en-US: $US_ALONE)"
+
 echo ""
 echo "All meeting-brief-sender wiring checks passed."

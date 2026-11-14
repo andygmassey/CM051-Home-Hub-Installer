@@ -27903,11 +27903,13 @@ esac
 # success and the log showed a traceback nobody reads: the sender had never
 # been able to send. Found by running this block against a real Hub.
 _send_rc=0
-OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF' || _send_rc=$?
+_OWNER_LANG=$(sed -n 's/^owner_language *= *"\([^"]*\)".*/\1/p' "${CONFIG_TOML}" 2>/dev/null | head -1)
+[ -n "${_OWNER_LANG}" ] || _OWNER_LANG="en-GB"
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" "${_OWNER_LANG}" <<'PYEOF' || _send_rc=$?
 import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
-db_path, assistant_url, log_path, hub_host, ostler_dir, channel = sys.argv[1:]
+db_path, assistant_url, log_path, hub_host, ostler_dir, channel, owner_lang = sys.argv[1:]
 undelivered = []
 try:
     payload = json.loads(os.environ.get("OSTLER_BRIEF_HUB_JSON", ""))
@@ -27932,6 +27934,46 @@ if not meetings:
 COMPOSER = os.environ.get("OSTLER_BRIEF_COMPOSER") or os.path.join(
     ostler_dir, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
 OWNER = os.environ.get("OSTLER_BRIEF_OWNER_NAME", "")
+
+# Owner-facing header, in the owner's installer language (config.toml
+# owner_language). {t} is the meeting title, {w} the time. Any language not
+# listed here reads in English, so a new language is never silently blank.
+HEADER = {
+    # (meeting with attendees, meeting alone, timed; then the untimed pair)
+    "en": ("Meeting: {t} at {w}.", "You have {t} at {w}.", "Meeting: {t}.", "You have {t}."),
+    "de": ("Termin: {t} um {w}.", "Du hast {t} um {w}.", "Termin: {t}.", "Du hast {t}."),
+    "fr": ("Réunion : {t} à {w}.", "Vous avez {t} à {w}.", "Réunion : {t}.", "Vous avez {t}."),
+    "es": ("Reunión: {t} a las {w}.", "Tienes {t} a las {w}.", "Reunión: {t}.", "Tienes {t}."),
+    "it": ("Riunione: {t} alle {w}.", "Hai {t} alle {w}.", "Riunione: {t}.", "Hai {t}."),
+    "nl": ("Afspraak: {t} om {w}.", "Je hebt {t} om {w}.", "Afspraak: {t}.", "Je hebt {t}."),
+    "pt": ("Reunião: {t} às {w}.", "Você tem {t} às {w}.", "Reunião: {t}.", "Você tem {t}."),
+    "ja": ("会議: {t}（{w}）。", "{t}（{w}）があります。", "会議: {t}。", "{t}があります。"),
+    "ko": ("회의: {t}, {w}.", "{w}에 {t} 일정이 있습니다.", "회의: {t}.", "{t} 일정이 있습니다."),
+    "zh": ("会议：{t}，{w}。", "你有{w}的{t}。", "会议：{t}。", "你有{t}。"),
+    "ar": ("اجتماع: {t} في {w}.", "لديك {t} في {w}.", "اجتماع: {t}.", "لديك {t}."),
+}
+OWNER_LANG = (owner_lang or "en").split("-")[0].lower()
+if owner_lang.lower().startswith(("zh", "yue")):
+    OWNER_LANG = "zh"
+if owner_lang.lower() in ("pt-pt", "pt-br", "pt"):
+    OWNER_LANG = "pt"
+
+def _when(start_iso):
+    """Time of day in the owner's convention: 12-hour for en-US, 24-hour
+    otherwise. The date is left out on purpose: the brief is sent inside
+    the look-ahead window, so the day is already known to the owner."""
+    raw = (start_iso or "").strip()
+    try:
+        if len(raw) == 15 and "T" in raw:
+            dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+        else:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if owner_lang.lower() == "en-us":
+        h = dt.hour % 12 or 12
+        return f"{h}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+    return f"{dt.hour:02d}:{dt.minute:02d}"
 
 # Last line of defence on whatever is SENT, independent of the composer: these
 # phrases state an inference or give generic advice, and none may be sent.
@@ -27996,8 +28038,14 @@ try:
         title = m.get("meeting") or "Upcoming meeting"
         if any(b in title.lower() for b in BANNED):
             title = "Upcoming meeting"
-        when = m.get("start") or ""
-        header = (f"Meeting: {title}" if m.get("attendees") else f"You have {title}") + (f" at {when}" if when else "") + "."
+        when = _when(m.get("start_iso") or "")
+        meet_t, have_t, meet_u, have_u = HEADER.get(OWNER_LANG, HEADER["en"])
+        if when:
+            fmt = meet_t if m.get("attendees") else have_t
+            header = fmt.replace("{t}", title).replace("{w}", when)
+        else:
+            fmt = meet_u if m.get("attendees") else have_u
+            header = fmt.replace("{t}", title)
         parts = [header]
         failed = False
         for a in (m.get("attendees") or [])[:3]:
