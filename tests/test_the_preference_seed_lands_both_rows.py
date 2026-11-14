@@ -120,6 +120,12 @@ def _ingest(exports: Path, monkeypatch) -> tuple[pyoxigraph.Store, dict]:
         return True
 
     monkeypatch.setattr(p.oxigraph, "insert_triples", insert_triples)
+    # The shipped pipeline mirrors through replace_preference_triples since
+    # personal-world-graph #471 (d9797d88), Qdrant first; same capture.
+    async def replace_preference_triples(pref_ids, turtle):
+        return await insert_triples(turtle)
+
+    monkeypatch.setattr(p.oxigraph, "replace_preference_triples", replace_preference_triples)
     monkeypatch.setattr(p.qdrant, "upsert_vectors", upsert_vectors)
     monkeypatch.setattr(pl.vectorizer, "embed_batch", lambda texts: [[0.0] * 8 for _ in texts])
     result = asyncio.run(p.ingest_directory(exports, "ostler"))
