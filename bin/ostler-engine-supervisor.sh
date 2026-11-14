@@ -272,6 +272,136 @@ if install_running; then
     exit 0
 fi
 
+# ── systemd-logind watchdog (inside the colima VM) ──────────────────────
+# Measured 2026-11-14 on Mini16: systemd-logind in the VM spun at 100% of a
+# core for 9h36m, with zero syscalls and an unresponsive D-Bus, and the fan
+# ran all day. The tester's "constant 1-2 cores" is this. Root cause is not
+# yet proven (see the evidence folder), so this is a SELF-HEAL, not a fix:
+# one probe per tick, restart logind only when the probe proves it is busy.
+#
+# VERDICTS: WEDGED (restart), HEALTHY (no action), CANNOT-RUN (probe failed,
+# timed out, or printed nothing parseable). CANNOT-RUN is never read as
+# HEALTHY, and it restarts nothing.
+LOGIND_SAMPLE_S="${OSTLER_ENGINE_LOGIND_SAMPLE_S:-5}"
+# 90% of one core at USER_HZ=100 over the sample window.
+LOGIND_BUSY_TICKS="${OSTLER_ENGINE_LOGIND_BUSY_TICKS:-$(( LOGIND_SAMPLE_S * 100 * 9 / 10 ))}"
+LOGIND_PROBE_TIMEOUT_S="${OSTLER_ENGINE_LOGIND_PROBE_TIMEOUT_S:-45}"
+LOGIND_SETTLE_S="${OSTLER_ENGINE_LOGIND_SETTLE_S:-10}"
+# At most one restart per this window, so a restart that does not help
+# cannot turn every tick into another restart.
+LOGIND_RESTART_COOLDOWN_S="${OSTLER_ENGINE_LOGIND_RESTART_COOLDOWN_S:-900}"
+LOGIND_STATE_FILE="${STATE_DIR}/logind_health.json"
+OSTLER_ENGINE_LOGIND_PROBE_CMD="${OSTLER_ENGINE_LOGIND_PROBE_CMD:-}"
+OSTLER_ENGINE_LOGIND_RESTART_CMD="${OSTLER_ENGINE_LOGIND_RESTART_CMD:-}"
+
+# logind_run_bounded <cmd>: run a command, kill it at LOGIND_PROBE_TIMEOUT_S.
+# rc 124 = timed out. macOS has no `timeout`, so this is a watchdog pair.
+logind_run_bounded() {
+    local out_f rc pid waited=0
+    out_f="$(mktemp "${TMPDIR:-/tmp}/ostler-logind.XXXXXX")" || return 2
+    ( eval "$1" ) >"$out_f" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$waited" -ge "$LOGIND_PROBE_TIMEOUT_S" ]; then
+            kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null; rm -f "$out_f"
+            return 124
+        fi
+        sleep 1; waited=$((waited + 1))
+    done
+    wait "$pid"; rc=$?
+    cat "$out_f"; rm -f "$out_f"
+    return "$rc"
+}
+
+# logind_probe: ONE colima ssh per tick. Prints "TICKS <pid> <t0> <t1>" when
+# it could read logind, or nothing parseable. The default probe is below.
+logind_probe() {
+    if [ -n "$OSTLER_ENGINE_LOGIND_PROBE_CMD" ]; then
+        logind_run_bounded "$OSTLER_ENGINE_LOGIND_PROBE_CMD"
+        return $?
+    fi
+    logind_run_bounded "colima ssh -- sh -c 'p=\$(pidof systemd-logind) || { echo NOPID; exit 0; }; a=\$(awk \"{print \\\$14+\\\$15}\" /proc/\$p/stat); sleep ${LOGIND_SAMPLE_S}; b=\$(awk \"{print \\\$14+\\\$15}\" /proc/\$p/stat); echo \"TICKS \$p \$a \$b\"'"
+}
+
+# logind_verdict <probe output>: prints WEDGED | HEALTHY | CANNOT-RUN <why>.
+logind_verdict() {
+    local line
+    local line a b
+    line="$(printf '%s\n' "$1" | awk '/^TICKS [0-9]+ [0-9]+ [0-9]+$/ {l=$0} END {print l}')"
+    case "$line" in
+        "") case "$1" in *NOPID*) echo "CANNOT-RUN logind is not running in the VM" ;; *) echo "CANNOT-RUN probe printed nothing parseable" ;; esac; return 0 ;;
+    esac
+    a="$(printf '%s' "$line" | awk '{print $3}')"; b="$(printf '%s' "$line" | awk '{print $4}')"
+    if [ "$(( b - a ))" -ge "$LOGIND_BUSY_TICKS" ]; then echo WEDGED; else echo HEALTHY; fi
+}
+
+logind_read_field() {
+    [ -f "$LOGIND_STATE_FILE" ] || return 0
+    sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\)\"\{0,1\}.*/\1/p" "$LOGIND_STATE_FILE" | head -1
+}
+
+logind_write_state() {
+    # logind_write_state <verdict> <action> <detail> [last_restart_epoch]
+    local last="${4:-$(logind_read_field last_restart_epoch)}"; [ -n "$last" ] || last=0
+    printf '{"verdict": "%s", "action": "%s", "detail": "%s", "checked": "%s", "last_restart_epoch": %s}\n' \
+        "$1" "$2" "$(printf '%s' "$3" | tr -d '"\\' | cut -c1-300)" "$(now_iso)" "$last" \
+        > "${LOGIND_STATE_FILE}.tmp" 2>/dev/null && mv -f "${LOGIND_STATE_FILE}.tmp" "$LOGIND_STATE_FILE" 2>/dev/null || true
+}
+
+logind_restart() {
+    if [ -n "$OSTLER_ENGINE_LOGIND_RESTART_CMD" ]; then
+        logind_run_bounded "$OSTLER_ENGINE_LOGIND_RESTART_CMD"
+        return $?
+    fi
+    logind_run_bounded "colima ssh -- sudo systemctl restart systemd-logind"
+}
+
+logind_selfheal() {
+    local out verdict rc last_restart now
+    out="$(logind_probe)"; rc=$?
+    if [ "$rc" -eq 124 ]; then
+        log "CANNOT-RUN: logind probe timed out after ${LOGIND_PROBE_TIMEOUT_S}s; nothing was restarted and it is NOT read as healthy"
+        logind_write_state "CANNOT-RUN" "none" "probe timed out"
+        return 0
+    fi
+    verdict="$(logind_verdict "$out")"
+    case "$verdict" in
+        HEALTHY) logind_write_state "HEALTHY" "none" "logind CPU below ${LOGIND_BUSY_TICKS} ticks per ${LOGIND_SAMPLE_S}s"; return 0 ;;
+        CANNOT-RUN*)
+            log "$verdict; nothing was restarted"
+            logind_write_state "CANNOT-RUN" "none" "$verdict"; return 0 ;;
+    esac
+    # WEDGED
+    now="$(now_epoch)"
+    last_restart="$(logind_read_field last_restart_epoch)"; [ -n "$last_restart" ] || last_restart=0
+    if [ "$last_restart" -gt 0 ] && [ "$(( now - last_restart ))" -lt "$LOGIND_RESTART_COOLDOWN_S" ]; then
+        log "WEDGED: systemd-logind is busy in the VM; last restart $(( now - last_restart ))s ago, inside the ${LOGIND_RESTART_COOLDOWN_S}s cooldown. Waiting."
+        logind_write_state "WEDGED" "cooldown" "busy; restart cooling down"
+        return 0
+    fi
+    log "WEDGED: systemd-logind used >= ${LOGIND_BUSY_TICKS} ticks in ${LOGIND_SAMPLE_S}s inside the VM; restarting it"
+    logind_restart >/dev/null 2>&1; rc=$?
+    if [ "$rc" -ne 0 ]; then
+        log "logind restart FAILED rc=${rc}; will retry after cooldown"
+        logind_write_state "WEDGED" "restart failed" "restart failed rc=${rc}" "$now"
+        return 0
+    fi
+    sleep "$LOGIND_SETTLE_S"
+    out="$(logind_probe)"; verdict="$(logind_verdict "$out")"
+    if [ "$verdict" = "HEALTHY" ]; then
+        log "RECOVERED: logind CPU back below the busy threshold after restart"
+        logind_write_state "HEALTHY" "restarted" "recovered after restart" "$now"
+    else
+        log "NOT RECOVERED: logind still busy or unreadable after restart (${verdict})"
+        logind_write_state "WEDGED" "restarted" "still ${verdict} after restart" "$now"
+    fi
+    return 0
+}
+
+# logind watchdog runs after the installer guard and before the store-port judgement.
+logind_selfheal
+
 failures="$(read_field consecutive_failures)"; [ -n "$failures" ] || failures=0
 last_attempt="$(read_field last_attempt_epoch)"; [ -n "$last_attempt" ] || last_attempt=0
 since=$(( $(now_epoch) - last_attempt ))

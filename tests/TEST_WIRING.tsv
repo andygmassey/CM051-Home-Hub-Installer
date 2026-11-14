@@ -399,6 +399,7 @@ test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh	WIRED	.git
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/engine-provenance.yml
 test_engine_supervisor_judges_the_ports_not_colima_list.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_engine_supervisor_logind_selfheal.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
