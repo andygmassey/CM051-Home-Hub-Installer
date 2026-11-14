@@ -6400,7 +6400,7 @@ open_issues:
   - issue: 3533
     repo: CM051
     title: "v1.0.132: owner-data fabrication is not yet PROVEN fixed on a walk; Andy's console walk waits on it"
-    gate: 'CONDITION ON THE ANDY CONSOLE WALK (Archie 2026-11-15): Andy is NOT asked to walk any build until the fabrication fix is PROVEN on a walk, even if 132 is CLEAN. Evidence: harness CM051 #3524 (OPEN); ostler-ai/ostler-assistant #700 OPEN, NOT READY, superseded by the value-grounding redesign. Ledger: none found on HR015 main or in open ledger PRs at prep (searched fabricat); owed with the fix.'
+    gate: 'CONDITION ON THE ANDY CONSOLE WALK (Archie 2026-11-15, replaces the earlier wording): fabrication is NOT INSTRUMENTED on the shipped /ws/chat path with tools and real data. The earlier 12/12 fabricated was a grader artefact (declines scored as fabrication; #3524 grader fixed at 48990900). Andy is not asked to walk until that path is measured on the walk box: N>=30 owner questions on Mini16 data, half with the fact absent, every reply hand-read, fabricated count with its denominator. The grader must first show a planted invented value graded FABRICATED (a positive control) and a planted decline graded ABSTAINED.'
 
   - issue: 3534
     repo: CM051
