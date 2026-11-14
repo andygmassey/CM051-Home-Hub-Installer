@@ -183,3 +183,10 @@ The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not
 out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
 keep it, or a missing verdict falls back to L2 again.
 Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.
+
+## PORT OWED: upstream as CM048 PR #121 (2026-11-14)
+
+The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` PR #121,
+DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
+When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
+`vendor/cm048_pipeline/src/channel_adapter.py`.

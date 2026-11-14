@@ -112,6 +112,116 @@ def level_for(metadata, verdict):
     return resolve(metadata, cls(verdict))
 
 
+GROUP_JIDS = ["447700900001@s.whatsapp.net", "447700900002@s.whatsapp.net", "447700900003@s.whatsapp.net"]
+GROUP_NAMES = {GROUP_JIDS[0]: "Sam", GROUP_JIDS[1]: "Jane", GROUP_JIDS[2]: "Bob"}
+GROUP_EXPORT = (
+    "[10/11/2026, 19:00:00] Sam: Shall we meet Saturday?\n"
+    "[10/11/2026, 19:01:00] Jane: Yes\n"
+    "[10/11/2026, 19:02:00] Bob: Me too\n"
+)
+
+
+def write_groups_contacts(d: Path, chat_id: str, label: str) -> Path:
+    path = d / "groups-contacts.yaml"
+    path.write_text(
+        "whatsapp:\n  groups:\n"
+        f'    "group:{chat_id}":\n      group_label: {label}\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def live_group_conv(chat_id: str, subject: str):
+    chat = LiveChat(chat_id=chat_id, tier="T2", is_group=True, contact_jid=None,
+                    participants=list(GROUP_JIDS))
+    utts = [
+        WhatsAppUtterance(author_jid=GROUP_JIDS[0], is_from_me=False,
+                          timestamp=datetime(2026, 11, 10, 11, 0, tzinfo=timezone.utc),
+                          text="Shall we meet Saturday?"),
+        WhatsAppUtterance(author_jid=GROUP_JIDS[1], is_from_me=False,
+                          timestamp=datetime(2026, 11, 10, 11, 1, tzinfo=timezone.utc),
+                          text="Yes"),
+    ]
+    return WhatsAppConversation(chat=chat, utterances=utts, group_subject=subject)
+
+
+def live_index_group(index: Path, chat_id: str, subject: str):
+    from whatsapp_source.renderer import render_transcript as render
+    conv = live_group_conv(chat_id, subject)
+    md = render(conv, name_for_jid=lambda j: GROUP_NAMES.get(j), user_display_name="You")
+    wae.record_live_transcript(chat_id, md, index, is_group=True)
+
+
+def live_group_metadata(chat_id: str, subject: str, group_label):
+    return build_metadata(
+        live_group_conv(chat_id, subject),
+        name_for_jid=lambda j: GROUP_NAMES.get(j),
+        user_display_name="You",
+        privacy_level=None,
+        contact_label=None,
+        group_label=group_label,
+    )
+
+
+def export_group_metadata(subject: str):
+    chat = wae.parse_chat_text(GROUP_EXPORT, subject)
+    return wae.chat_to_payload(chat)["metadata"]
+
+
+def group_arms():
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        index = d / wae.LIVE_INDEX_FILENAME
+        os.environ["OSTLER_STATE_DIR"] = str(d)
+        os.environ.pop("OSTLER_WHATSAPP_OWNER_NAMES", None)
+
+        print("8. an exported live family-labelled group lands L3")
+        live_index_group(index, "g-weekend-1", "Hikers")
+        contacts = write_groups_contacts(d, "g-weekend-1", "family")
+        os.environ["OSTLER_WHATSAPP_CONTACTS"] = str(contacts)
+        meta = export_group_metadata("Hikers")
+        check(meta.get("group_label") == "family", f"export group_label {meta.get('group_label')!r} (want family)")
+        check(level_for(meta, "normal") == "L3", f"exported family group -> {level_for(meta, 'normal')} (want L3)")
+
+        print("9. parity on groups: live and export, same level")
+        for label, verdict, want in (("family", "normal", "L3"), (None, "normal", "L2"),
+                                     (None, "sensitive", "L3")):
+            if label is None:
+                contacts_g = write_groups_contacts(d, "g-other-chat", "family")  # no entry for this chat
+                os.environ["OSTLER_WHATSAPP_CONTACTS"] = str(contacts_g)
+                want_live_label = None
+            else:
+                want_live_label = label
+            exp = export_group_metadata("Hikers")
+            live = live_group_metadata("g-weekend-1", "Hikers", want_live_label)
+            le, ll = level_for(exp, verdict), level_for(live, verdict)
+            check(le == ll == want, f"group label={label} verdict={verdict}: export={le} live={ll} (want both {want})")
+
+        print("10. no live group with that title: the sensitivity verdict alone decides")
+        os.environ["OSTLER_WHATSAPP_CONTACTS"] = str(contacts)
+        meta = export_group_metadata("Gardeners")
+        check("group_label" not in meta, "no live match, so no group label")
+        check(level_for(meta, "sensitive") == "L3", f"sensitive, unmatched group -> {level_for(meta, 'sensitive')} (want L3)")
+        check(level_for(meta, "normal") == "L2", f"ordinary, unmatched group -> {level_for(meta, 'normal')} (want L2)")
+
+        print("11. more than one live group with that title: fail closed to L3")
+        live_index_group(index, "g-weekend-2", "Hikers")
+        meta = export_group_metadata("Hikers")
+        check(meta.get("privacy_level") == "L3", f"ambiguous group pins {meta.get('privacy_level')!r} (want L3)")
+        check(level_for(meta, "normal") == "L3", f"ambiguous group, ordinary verdict -> {level_for(meta, 'normal')} (want L3)")
+
+        print("12. control: a mutant that ignores the live index fails arm 8")
+        real = wae.export_chat_labels
+        try:
+            wae.export_chat_labels = lambda chat, c, i: {}
+            os.environ["OSTLER_WHATSAPP_CONTACTS"] = str(contacts)
+            mutant = level_for(export_group_metadata("Hikers"), "normal")
+        finally:
+            wae.export_chat_labels = real
+        check(mutant == "L2", f"the index-blind mutant gives {mutant}, so arm 8 can fail")
+    os.environ.pop("OSTLER_WHATSAPP_CONTACTS", None)
+
+
 def main():
     set_zone("Asia/Hong_Kong")
     with tempfile.TemporaryDirectory() as tmp:
@@ -161,6 +271,7 @@ def main():
             wae.export_labels = real
         check(mutant == "L2", f"the no-label mutant gives {mutant}, so arm 1 can fail")
 
+    group_arms()
     print()
     if FAILS:
         print(f"RESULT: {len(FAILS)} FAIL")

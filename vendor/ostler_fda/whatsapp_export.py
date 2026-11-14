@@ -184,10 +184,9 @@ def chat_to_payload(chat: WhatsAppChat, cid: Optional[str] = None) -> dict:
         "group_subject": chat.name if len(chat.senders) > 2 else None,
         "message_count": len(chat.messages),
     }
-    if not metadata["is_group_chat"]:
-        # No privacy level is pinned here: CM048's WhatsApp resolver decides it
-        # from the sensitivity verdict and the operator labels, as for live.
-        metadata.update(export_labels(chat.name, _contacts_file()))
+    # No privacy level is pinned here: CM048's WhatsApp resolver decides it from
+    # the sensitivity verdict and the operator labels, as for the live channel.
+    metadata.update(export_chat_labels(chat, _contacts_file(), default_live_index_path()))
     return {"conversation_id": cid, "transcript": render_transcript(chat), "metadata": metadata}
 
 
@@ -280,22 +279,30 @@ def owner_names_from_env() -> List[str]:
     return [n for n in (x.strip() for x in raw.split(",")) if n]
 
 
-def record_live_transcript(conv_id: str, transcript_md: str, index_path: Path,
-                           owner_names: Iterable[str] = ()) -> int:
-    """Replace this chat's entry in the live index with its current message keys.
+def title_hash(title: str) -> str:
+    """Hash of a chat title, the same on both sides. Names are never stored."""
+    return _digest(_plain(title).casefold(), 32)
 
-    A chat is re-bundled whole on every new reply, so the entry is REPLACED,
-    never appended: a re-bundled message is never counted twice. Written to a
-    temp file and moved into place. Returns the number of keys recorded.
+
+def record_live_transcript(conv_id: str, transcript_md: str, index_path: Path,
+                           owner_names: Iterable[str] = (), is_group: bool = False) -> int:
+    """Replace this chat's entry in the live index.
+
+    A chat is re-bundled whole on every new reply, so the entry is REPLACED, never
+    appended: a re-bundled message is never counted twice. The entry holds the
+    chat's message keys, whether it is a group, and a hash of its title (the first
+    line of the transcript). Written to a temp file and moved into place.
     """
     keys = [message_key(ts, sp, tx, owner_names)
             for ts, sp, tx in live_messages_from_transcript(transcript_md)]
+    first = transcript_md.splitlines()[0] if transcript_md.strip() else ""
+    title = first[2:] if first.startswith("# ") else ""
     index_path = Path(index_path)
     index_path.parent.mkdir(parents=True, exist_ok=True)
     data: dict = {}
     if index_path.exists():
         data = json.loads(index_path.read_text(encoding="utf-8"))
-    data[conv_id] = keys
+    data[conv_id] = {"is_group": bool(is_group), "title": title_hash(title), "keys": keys}
     tmp = index_path.with_name(index_path.name + f".tmp.{os.getpid()}")
     tmp.write_text(json.dumps(data), encoding="utf-8")
     os.chmod(tmp, 0o600)
@@ -303,15 +310,25 @@ def record_live_transcript(conv_id: str, transcript_md: str, index_path: Path,
     return len(keys)
 
 
-def live_key_counts(index_path: Path) -> Counter:
-    """Every live message key, as a multiset. Missing index: empty (nothing live)."""
+def _entries(index_path: Path) -> dict:
     index_path = Path(index_path)
     if not index_path.exists():
-        return Counter()
+        return {}
     data = json.loads(index_path.read_text(encoding="utf-8"))
+    out = {}
+    for cid, v in data.items():
+        if isinstance(v, list):  # an index written before the title and group fields
+            out[cid] = {"is_group": None, "title": None, "keys": v}
+        else:
+            out[cid] = v
+    return out
+
+
+def live_key_counts(index_path: Path) -> Counter:
+    """Every live message key, as a multiset. Missing index: empty (nothing live)."""
     counts: Counter = Counter()
-    for keys in data.values():
-        counts.update(keys)
+    for entry in _entries(index_path).values():
+        counts.update(entry["keys"])
     return counts
 
 
@@ -352,14 +369,9 @@ def _contacts_file() -> Optional[Path]:
     return Path(raw).expanduser() if raw else None
 
 
-def export_labels(chat_name: str, contacts_path: Optional[Path]) -> dict:
-    """The operator labels for the DM named ``chat_name``, or {} when none apply.
-
-    A configured file that cannot be read raises, so the import reports it and
-    the chat is never silently treated as unlabelled.
-    """
-    if contacts_path is None:
-        return {}
+def _contacts_section(contacts_path: Path, section: str) -> dict:
+    """The whatsapp.<section> map of the contacts file, keys lower-cased as the
+    live loader lower-cases them. A configured file that cannot be read raises."""
     if not contacts_path.exists():
         raise ValueError("OSTLER_WHATSAPP_CONTACTS names a file that does not exist")
     try:
@@ -370,21 +382,65 @@ def export_labels(chat_name: str, contacts_path: Optional[Path]) -> dict:
         data = yaml.safe_load(contacts_path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise ValueError("OSTLER_WHATSAPP_CONTACTS could not be parsed") from exc
-    contacts = (data.get("whatsapp") or {}).get("contacts") or {}
-    if not isinstance(contacts, dict):
-        raise ValueError("OSTLER_WHATSAPP_CONTACTS has no whatsapp.contacts map")
-    want = _plain(chat_name).casefold()
-    matches = [
-        entry for entry in contacts.values()
-        if isinstance(entry, dict)
-        and _plain(str(entry.get("name") or "")).casefold() == want
-    ]
-    if len(matches) != 1:
-        return {}  # no match, or an ambiguous name: no label applies
-    entry = matches[0]
+    raw = (data.get("whatsapp") or {}).get(section) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"OSTLER_WHATSAPP_CONTACTS has no whatsapp.{section} map")
+    return {str(k).strip().lower(): v for k, v in raw.items()}
+
+
+def _label_fields(entry: dict, fields: tuple) -> dict:
     out: dict = {}
-    if entry.get("contact_label"):
-        out["contact_label"] = str(entry["contact_label"]).strip()
-    if entry.get("privacy_level"):
-        out["privacy_level"] = str(entry["privacy_level"]).strip()
+    for f in fields:
+        if isinstance(entry, dict) and entry.get(f):
+            out[f] = str(entry[f]).strip()
     return out
+
+
+def export_labels(chat_name: str, contacts_path: Optional[Path]) -> dict:
+    """The operator labels for the DM named ``chat_name``, or {} when none apply.
+
+    Matches the name to exactly one contact's display name. No match, or several,
+    gives {}: the sensitivity verdict alone decides.
+    """
+    if contacts_path is None:
+        return {}
+    contacts = _contacts_section(contacts_path, "contacts")
+    want = _plain(chat_name).casefold()
+    matches = [e for e in contacts.values()
+               if isinstance(e, dict) and _plain(str(e.get("name") or "")).casefold() == want]
+    if len(matches) != 1:
+        return {}
+    return _label_fields(matches[0], ("contact_label", "privacy_level"))
+
+
+def _group_labels(chat_id: str, contacts_path: Optional[Path]) -> dict:
+    """The live group labels for one live chat id (keyed group:<id> in the file)."""
+    if contacts_path is None:
+        return {}
+    groups = _contacts_section(contacts_path, "groups")
+    return _label_fields(groups.get(f"group:{chat_id}".lower()),
+                         ("group_label", "privacy_level"))
+
+
+def export_chat_labels(chat, contacts_path: Optional[Path], index_path: Path) -> dict:
+    """The labels the live channel would carry for this export's chat.
+
+    A group export has no chat id, so it is resolved through the live index by
+    title (a hash of the group name):
+      exactly one live group with that title -> that chat id's group labels;
+      no live group with that title          -> {} (the verdict alone decides);
+      more than one                          -> L3 (ambiguous: fail closed).
+    A DM uses the contact name, as export_labels does.
+    """
+    entries = _entries(index_path)
+    h = title_hash(chat.name)
+    group_hits = [cid for cid, e in entries.items()
+                  if e.get("is_group") and e.get("title") == h]
+    looks_group = len(chat.senders) > 2 or bool(group_hits)
+    if not looks_group:
+        return export_labels(chat.name, contacts_path)
+    if len(group_hits) > 1:
+        return {"privacy_level": "L3"}
+    if not group_hits:
+        return {}
+    return _group_labels(group_hits[0], contacts_path)

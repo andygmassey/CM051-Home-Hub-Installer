@@ -391,3 +391,13 @@ classification, or one with no sensitivity level, it returns L3 (after the expli
 override, as before). Proof: `tests/test_whatsapp_privacy_parity.py`. RED on
 b2553556: family, highly-sensitive and sensitive arms give L2, and the labelled and
 sensitive parity arms differ.
+
+## 2026-11-14: group exports resolve their labels through the live index
+
+`vendor/ostler_fda/whatsapp_export.py`: the live index (`whatsapp_live_message_keys.json`)
+now stores, per live chat, whether it is a group and a SHA-256 of its title (never the
+name). A group export has no chat id, so `export_chat_labels` matches its name to live
+group entries by that hash: exactly one takes that chat id's `group:<id>` labels from
+`OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
+one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
+`is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).

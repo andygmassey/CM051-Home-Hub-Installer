@@ -441,6 +441,10 @@ source_path      = "."
   pinned_sha = "4784547887f152caa0b9ff5abc18b39bfa6e26b4"
 shipping_bugfixes_grafted = true
   divergence_patch = "vendor/divergences/cm048_pipeline.patch"
+  # PORT OWED (2026-11-14): the no-verdict-to-L3 guard in _whatsapp_resolve_privacy is
+  # upstream as CM048 PR #121 (DRAFT, do NOT merge before the 132 tag, for freshness).
+  # Drop the guard from vendor/cm048_pipeline/src/channel_adapter.py at the re-vendor
+  # after #121 is in the pinned CM048 SHA, then retire cm048_pipeline.UNRECORDED.md.
   # RETIRED 2026-10-18 (vendor drift reduction): unrecorded_divergence pointer and
   # vendor/divergences/cm048_pipeline.UNRECORDED.md removed. Measured: source@0190f448
   # plus cm048_pipeline.patch reconstructs all 72 vendored files with ZERO diff
