@@ -38,6 +38,8 @@ on:
       - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
@@ -101,6 +103,8 @@ on:
       - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
       - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
@@ -438,3 +442,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_ios_unnamed_speaker_reaches_naming.py -v
+      - name: An undated conversation bundle is never pushed to Apple Reminders
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_undated_bundle_not_pushed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_undated_bundle_not_pushed.py -v
