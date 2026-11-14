@@ -309,7 +309,10 @@ test_daemon_fda_app_bundle_path.sh	WIRED	.github/workflows/consent-data-handling
 test_daemon_hold_registers_agree.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_daemon_pins_agree.sh	WIRED	.github/workflows/supply-chain-pins.yml
 test_daemon_warmup_loads_at_chat_num_ctx.sh	WIRED	.github/workflows/model-download-honesty.yml
+test_data_conservation_counted_run_row.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
+test_data_conservation_people_shown_and_whatsapp_runs.py	WIRED	.github/workflows/data-conservation-probe-tests.yml
 test_data_conservation_row_evidence.py	WIRED	.github/workflows/data-conservation-probe-tests.yml
+test_data_conservation_walk_fixture_is_typed.py	WIRED	.github/workflows/data-conservation-probe-tests.yml
 test_db_key_probe_judges_only_launchd_posture.py	WIRED	.github/workflows/db-key-delivery-and-recovery.yml
 test_dead_launchagent_prune.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_dead_tarball_url_is_not_advertised.sh	WIRED	.github/workflows/download-urls-resolve.yml
@@ -623,6 +626,7 @@ test_model_fit.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_model_pull_progress_is_one_overall_bar.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_model_pull_uses_the_pinned_ollama.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_morning_brief_repeat_evidence.py	WIRED	.github/workflows/wow-moment-probes.yml
+test_morning_brief_repeat_not_digits.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_morning_reply_naming_top_n.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
 test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
@@ -882,6 +886,7 @@ test_strict_checks_are_back_on_before_a_cut.py	WIRED	.github/workflows/cut.yml
 test_subscription_activation_path.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_sudo_gate_accepts_passwordless_sudo.sh	WIRED	.github/workflows/colima-autostart.yml
 test_suppress_suggestions_loopback_reaches_the_store.py	WIRED	.github/workflows/suppress-suggestions-loopback.yml
+test_swap_curve_sampler.sh	WIRED	.github/workflows/data-conservation-probe-tests.yml
 test_sync_vendor_pin_untouched_on_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_tagged_commit_is_green.sh	WIRED	.github/workflows/cut.yml
 test_tailnet_advertise_default.sh	WIRED	.github/workflows/install-abort-and-egress.yml
@@ -1006,6 +1011,7 @@ test_timeline_entries_carry_source.py	WIRED	.github/workflows/hub-screens-and-10
 test_timeout_is_not_a_successful_hydrate.sh	WIRED	.github/workflows/hydrate-timeout-honesty.yml
 test_todo_reminders_cleanup_deletes_what_it_created.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_todo_reminders_one_to_one_counterpart_is_new_each_walk.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_todo_reminders_readback_reset_residue.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_todos_probe_text_fits_the_product_title_limit.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_total_steps_denominator_ratchet.sh	WIRED	.github/workflows/total-steps-denominator-ratchet.yml
 test_total_steps_dynamic.sh	WIRED	.github/workflows/install-gui-contract.yml
