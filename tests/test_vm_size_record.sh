@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="${ROOT}/lib/ostler-vm-size.sh"
 FIX="${ROOT}/tests/fixtures/vm_size_state_contract.txt"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home" OSTLER_STATE_DIR="$W/home/.ostler/state"
+export HOME="$W/fakehome" OSTLER_STATE_DIR="$W/fakehome/.ostler/state"
 mkdir -p "$HOME/.colima/default"
 fails=0
 total=0
@@ -48,7 +48,7 @@ if ostler_vm_persist_colima_yaml "$Y" 3 6; then bad "yaml with no memory key was
 else [ "$(cat "$Y")" = "$before" ] && ok "yaml missing a key refused, unchanged" || bad "refused yaml was modified"; fi
 
 # 5. an unwritable state dir does not abort: returns 1 and the line says NOT RECORDED
-OSTLER_STATE_DIR="$W/home/file-not-dir/state"; : > "$W/home/file-not-dir"
+OSTLER_STATE_DIR="$W/fakehome/file-not-dir/state"; : > "$W/fakehome/file-not-dir"
 ostler_vm_record_installed_size; rc=$?
 [ "$rc" -eq 0 ] && case "$OSTLER_VM_RECORD_LINE" in *"NOT RECORDED"*) ok "unwritable record reports NOT RECORDED and returns 0" ;; *) bad "unwritable record not named: $OSTLER_VM_RECORD_LINE" ;; esac
 
