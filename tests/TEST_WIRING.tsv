@@ -368,6 +368,7 @@ test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.
 test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
 test_doctor_shows_loopback_guard.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
+test_doctor_shows_your_data_exports.py	WIRED	.github/workflows/doctor-your-data-exports.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_spawns_no_protected_path_subprocess.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_web_ui_strings_complete.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -437,8 +438,10 @@ test_exit_1_is_a_crash_or_a_refusal_and_not_always_the_same_one.sh	WIRED	.github
 test_expired_deferral_ratchet.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_expiry_needs_a_cut_version.sh	WIRED	.github/workflows/orphan-gate-proofs.yml
 test_export_detect_large_zip_behaviour.sh	WIRED	.github/workflows/gdpr-export-detect.yml
+test_export_platforms_match_q11.py	WIRED	.github/workflows/doctor-your-data-exports.yml
 test_export_scan_plist_bootstrap_race_217.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_export_scan_runs_the_catchup_step.sh	WIRED	.github/workflows/catchup-browser.yml
+test_export_status_contract.py	WIRED	.github/workflows/doctor-your-data-exports.yml
 test_exports_and_folder_prompts_explain_themselves.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_extension_credential_covers_the_save_route.py	WIRED	.github/workflows/browsing-summaries-and-save.yml
 test_f010_clt_wait_and_scan_budget.sh	WIRED	.github/workflows/gdpr-export-detect.yml
