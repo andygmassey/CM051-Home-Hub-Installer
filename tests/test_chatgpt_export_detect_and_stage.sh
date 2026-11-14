@@ -6,6 +6,8 @@
 # LIB=<path> runs the checks against another detector (used for the RED run
 # against origin/main). Exit 0 pass, 1 fail, 2 CANNOT-RUN.
 set -uo pipefail
+# The customer default umask: the stage must not depend on it being tight.
+umask 022
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="${LIB:-$REPO/lib/ostler-detect-exports.sh}"
@@ -79,6 +81,33 @@ print(len(list(chatgpt_export.read(Path(sys.argv[1])))))' "$DROP" 2>"$W/adapter.
     if [[ "$n" == "1" ]]; then ok "adapter yields 1 conversation from the staged folder"
     else fail "adapter yielded '${n}' (stderr: $(head -c 300 "$W/adapter.err"))"; fi
 fi
+
+echo "7. the staged folders are 0700 and the file is 0600, under the default umask"
+modes() { python3 -c 'import os,stat,sys
+for p in sys.argv[1:]: print(oct(stat.S_IMODE(os.stat(p).st_mode))[2:])' "$@"; }
+DROP7="$W/drop7"
+bash "$LIB" "$W/dl/other-tool" >/dev/null 2>&1
+bash "$LIB" "$W/src/chatgpt-export" --stage-chatgpt "$DROP7" >/dev/null 2>&1 || true
+bash "$LIB" "$top" --stage-chatgpt "$DROP7" >/dev/null 2>&1; rc7=$?
+if [[ "$rc7" -eq 0 ]]; then
+    got="$(modes "$DROP7" "$DROP7/chatgpt-export" "$DROP7/chatgpt-export/conversations.json" | tr '\n' ' ')"
+    if [[ "$got" == "700 700 600 " ]]; then ok "modes are 700 700 600 (got: $got)"; else fail "modes wrong: got '$got', want '700 700 600'"; fi
+else
+    fail "stage for mode check returned $rc7"
+fi
+
+echo "8. no temp files are left in the drop folder after a successful stage"
+leftover="$(find "$DROP7" -name '.stage.*' -o -name '*.part' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$leftover" == "0" ]]; then ok "no .stage or .part leftovers"; else fail "$leftover leftover temp item(s)"; fi
+
+echo "9. control: a mutant with the umask and every chmod removed fails check 7"
+mut2="$W/mutant-modes.sh"
+sed -e 's/umask 077/true/' -e 's/chmod [67]00 /true /g' -e 's/chmod 600 /true /g' "$LIB" > "$mut2"
+if cmp -s "$LIB" "$mut2"; then fail "mode mutant did not apply (identical to the lib)"; fi
+DROP9="$W/drop9"
+bash "$mut2" "$top" --stage-chatgpt "$DROP9" >/dev/null 2>&1
+got9="$(modes "$DROP9/chatgpt-export/conversations.json" 2>/dev/null | tr -d '\n')"
+if [[ "$got9" == "644" ]]; then ok "mutant writes the file 0644 under umask 022, so check 7 can fail"; else fail "mutant gave '${got9:-no file}', not 644; check 7 proves nothing"; fi
 
 echo
 if [[ "$FAILS" -gt 0 ]]; then echo "RESULT: $FAILS FAIL"; exit 1; fi

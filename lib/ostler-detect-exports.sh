@@ -220,10 +220,28 @@ if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
     [[ -n "$_sc_src" ]] || exit 1
     _sc_name="$(basename "$DIR")"
     _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
-    mkdir -p "$_sc_drop/$_sc_name" || exit 1
-    cp "$_sc_src" "$_sc_drop/$_sc_name/conversations.json.tmp.$$" \
-        && mv "$_sc_drop/$_sc_name/conversations.json.tmp.$$" "$_sc_drop/$_sc_name/conversations.json" || exit 1
-    exit 0
+    # The export is the customer's full ChatGPT history (L3). Owner-only from
+    # the first byte: umask 077 before any mkdir or cp, so nothing is ever
+    # created 0755 or 0644 (the default umask would make them), then explicit
+    # chmod 700 on both folders and 600 on the file.
+    (
+        umask 077
+        mkdir -p "$_sc_drop" && chmod 700 "$_sc_drop" || exit 1
+        mkdir -p "$_sc_drop/$_sc_name" && chmod 700 "$_sc_drop/$_sc_name" || exit 1
+        # Copy into a 700 temp dir inside the drop folder, then one atomic mv
+        # into place: the adapter never sees a half-copied conversations.json.
+        _sc_tmp="$(mktemp -d "$_sc_drop/.stage.XXXXXX")" || exit 1
+        chmod 700 "$_sc_tmp" || { rm -rf "$_sc_tmp"; exit 1; }
+        if cp "$_sc_src" "$_sc_tmp/conversations.json.part" \
+            && chmod 600 "$_sc_tmp/conversations.json.part" \
+            && mv "$_sc_tmp/conversations.json.part" "$_sc_drop/$_sc_name/conversations.json"; then
+            rm -rf "$_sc_tmp"
+            exit 0
+        fi
+        rm -rf "$_sc_tmp"
+        exit 1
+    )
+    exit $?
 fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose

@@ -4243,7 +4243,7 @@ _ostler_promote_prelaunch_tree() {
     # VALUE and never re-reads it:
     #     :9678   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9723   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9732 and :17690, both of which run
+    # Its two top-level arming calls are :9732 and :17708, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18485, where the note reads
+    # WhatsApp Web session path did it again at :18503, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18502 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18520 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4280,9 +4280,9 @@ _ostler_promote_prelaunch_tree() {
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9732, :17690) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9732, :17708) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20699 / :20877 / :21034 / :21479 path. There the
+    # :20717 / :20895 / :21052 / :21497 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -10615,10 +10615,28 @@ if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
     [[ -n "$_sc_src" ]] || exit 1
     _sc_name="$(basename "$DIR")"
     _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
-    mkdir -p "$_sc_drop/$_sc_name" || exit 1
-    cp "$_sc_src" "$_sc_drop/$_sc_name/conversations.json.tmp.$$" \
-        && mv "$_sc_drop/$_sc_name/conversations.json.tmp.$$" "$_sc_drop/$_sc_name/conversations.json" || exit 1
-    exit 0
+    # The export is the customer's full ChatGPT history (L3). Owner-only from
+    # the first byte: umask 077 before any mkdir or cp, so nothing is ever
+    # created 0755 or 0644 (the default umask would make them), then explicit
+    # chmod 700 on both folders and 600 on the file.
+    (
+        umask 077
+        mkdir -p "$_sc_drop" && chmod 700 "$_sc_drop" || exit 1
+        mkdir -p "$_sc_drop/$_sc_name" && chmod 700 "$_sc_drop/$_sc_name" || exit 1
+        # Copy into a 700 temp dir inside the drop folder, then one atomic mv
+        # into place: the adapter never sees a half-copied conversations.json.
+        _sc_tmp="$(mktemp -d "$_sc_drop/.stage.XXXXXX")" || exit 1
+        chmod 700 "$_sc_tmp" || { rm -rf "$_sc_tmp"; exit 1; }
+        if cp "$_sc_src" "$_sc_tmp/conversations.json.part" \
+            && chmod 600 "$_sc_tmp/conversations.json.part" \
+            && mv "$_sc_tmp/conversations.json.part" "$_sc_drop/$_sc_name/conversations.json"; then
+            rm -rf "$_sc_tmp"
+            exit 0
+        fi
+        rm -rf "$_sc_tmp"
+        exit 1
+    )
+    exit $?
 fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose
