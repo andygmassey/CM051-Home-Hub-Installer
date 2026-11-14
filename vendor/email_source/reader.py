@@ -18,6 +18,7 @@ injectable so tests run against a synthetic ``.emlx`` fixture tree
 with no real names / addresses.
 """
 from __future__ import annotations
+from .owner_addresses import owner_set
 
 import email
 import logging
@@ -313,7 +314,7 @@ def read_messages(
     # The robot-emoji prefix rule applies only to mail FROM the owner's own
     # address; mail from anyone else is kept unless it carries the invisible
     # marker. No address configured: marker rule only.
-    owner = (user_address or "").strip().lower()
+    owners = owner_set(user_address)
 
     mail_dir = mail_dir or _default_mail_dir()
     now = now or datetime.now(tz=timezone.utc)
@@ -349,7 +350,7 @@ def read_messages(
         # assistant sent lands in the owner's mailbox (Sent, or the inbox
         # when addressed to the owner). Same rule as the iMessage reader,
         # defined once in ostler_fda.imessage.
-        from_owner = bool(owner) and message.from_address == owner
+        from_owner = bool(owners) and message.from_address in owners
         if is_assistant_send(message.body, from_owner=from_owner):
             dropped_assistant += 1
             continue

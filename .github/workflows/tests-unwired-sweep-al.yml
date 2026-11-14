@@ -252,6 +252,7 @@ jobs:
       # Owner mail-domain writer (pytest) and the mutants for the probe and the
       # writer. The control inside the harness must be green or the run is void.
       - name: Owner mail domains, writer tests and mutants
+        if: always()
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pytest tests/test_owner_mail_domains_state.py -q -p no:cacheprovider

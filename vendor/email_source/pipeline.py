@@ -33,6 +33,7 @@ before (a new reply re-dispatches the whole thread so the bundle stays
 complete).
 """
 from __future__ import annotations
+from .owner_addresses import owner_set
 
 import argparse
 import json
@@ -232,10 +233,10 @@ def _level_for_addresses(
     This is the operator-explicit override; CM048 still applies its
     own email-domain ladder on top when this returns ``None``.
     """
-    user_address = (user_address or "").strip().lower()
+    owners = owner_set(user_address) if isinstance(user_address, str) else frozenset(user_address)
     for addr in addresses:
         a = (addr or "").strip().lower()
-        if not a or a == user_address:
+        if not a or a in owners:
             continue
         if privacy_map.get(a) == "L3":
             return "L3"
@@ -535,10 +536,10 @@ def build_reply_debt_snapshot(
     import hashlib
     from datetime import datetime, timezone
 
-    owner = (user_address or "").strip().lower()
+    owners = owner_set(user_address)
     threads = []
     for thread in thread_messages(messages, min_thread_messages=1,
-                                  user_address=user_address):
+                                  user_address=",".join(sorted(owners))):
         dated = [m for m in thread.messages if m.timestamp is not None]
         if not dated:
             continue
@@ -548,17 +549,17 @@ def build_reply_debt_snapshot(
             "subject": (thread.subject or "")[:200],
             "headers": dict(last.headers or {}),
             "mailbox": last.mailbox or "",
-            "owner_wrote": bool(owner) and any(m.from_address == owner for m in thread.messages),
+            "owner_wrote": bool(owners) and any(m.from_address in owners for m in thread.messages),
             "last": {
                 "from_address": last.from_address,
                 "to": [a for _, a in last.to_addresses],
                 "cc": [a for _, a in last.cc_addresses],
                 "text": (last.body or "")[:_SNAPSHOT_TEXT_LIMIT],
-                "is_from_me": bool(owner) and last.from_address == owner,
+                "is_from_me": bool(owners) and last.from_address in owners,
                 "timestamp": last.timestamp.isoformat(),
             },
         }
-        level = _level_for_addresses(thread.participant_addresses, privacy_map or {}, owner)
+        level = _level_for_addresses(thread.participant_addresses, privacy_map or {}, owners)
         if level:
             row["privacy_level"] = level
         threads.append(row)
@@ -568,7 +569,7 @@ def build_reply_debt_snapshot(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "producer": _PRODUCER,
         "lookback_days": lookback_days,
-        "owner_addresses": [owner] if owner else [],
+        "owner_addresses": sorted(owners),
         "threads": threads,
     }
 

@@ -18,6 +18,7 @@ No real-person data is hard-coded here; display names come from the
 parsed ``From`` header or an optional contacts map the caller passes.
 """
 from __future__ import annotations
+from .owner_addresses import owner_set
 
 import hashlib
 import re
@@ -157,7 +158,7 @@ def thread_messages(
             uf.union(m.message_id, ref)
 
     if subject_fallback:
-        owner = (user_address or "").strip().lower()
+        owners = owner_set(user_address)
         subject_groups: dict[tuple[str, str], list[str]] = {}
         for m in by_id.values():
             norm = _normalise_subject(m.subject)
@@ -167,7 +168,7 @@ def thread_messages(
                 a for _, a in m.cc_addresses
             }
             for addr in addrs:
-                if addr and addr != owner:
+                if addr and addr not in owners:
                     subject_groups.setdefault((norm, addr), []).append(m.message_id)
         for ids in subject_groups.values():
             for other in ids[1:]:
@@ -253,10 +254,10 @@ def render_transcript(
     if thread.subject:
         lines.append(f"# {thread.subject}")
         lines.append("")
-    user_address = (user_address or "").strip().lower()
+    owners = owner_set(user_address)
     for m in thread.messages:
         ts = _iso(m)
-        if m.from_address and m.from_address == user_address:
+        if m.from_address and m.from_address in owners:
             speaker = "You"
         else:
             speaker = name_for_address(m.from_address) or m.from_address or "Unknown"
@@ -286,16 +287,17 @@ def build_metadata(
     / ``role`` / ``email``; the user is role ``"user"``, everyone else
     ``"other"``.
     """
-    user_address = (user_address or "").strip().lower()
+    owners = owner_set(user_address)
+    primary = sorted(owners)[0] if owners else ""
     participants = [
         {
             "id": "user",
             "display": user_display_name,
             "role": "user",
-            "email": user_address,
+            "email": primary,
         }
     ]
-    seen: set[str] = {user_address} if user_address else set()
+    seen: set[str] = set(owners)
     for addr in thread.participant_addresses:
         if not addr or addr in seen:
             continue
