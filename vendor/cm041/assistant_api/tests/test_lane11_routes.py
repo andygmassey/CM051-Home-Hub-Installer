@@ -151,7 +151,7 @@ class Lane11Routes(unittest.TestCase):
         fake.start()
         self.addCleanup(fake.stop)
         forget = patch.object(server, "api_people_forget",
-                              lambda slug: ({"forgotten": True, "wiki_recompile_queued": True,
+                              lambda slug, person_uri=None: ({"forgotten": True, "wiki_recompile_queued": True,
                                              "stores_purged": ["oxigraph", "qdrant"]}, 200)
                               if server._SLUG_PATTERN.match(slug or "") else ({"error": "bad slug"}, 400))
         forget.start()

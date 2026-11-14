@@ -3549,12 +3549,19 @@ def api_people_suppress_suggestions(slug, payload):
             '  ?person a pwg:Person ; pwg:displayName ?name .\n'
             '}}'.format(ns=PWG_NS)
         )
+        # IDENTITY, not name: the live termini of the slug's rows (a node the
+        # resolver merged into a survivor is that survivor's, not a second person).
+        _twin_termini = set(_raw_identity_roots(slug))
         person_uris = [c["person"] for c in candidates
                        if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
     except Exception as exc:
         return {"suppressed": suppressed, "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}"}, 503
 
+    if len(_twin_termini) > 1:
+        # Two different spellings fold to one slug: a record keyed on it would
+        # hide the other person too. Refuse before the write, clear included.
+        return _ambiguous_slug_response(slug, len(_twin_termini), suppressed=suppressed)
     if person_uris and suppressed:
         try:
             identifiers = _personal_identifiers_for(person_uris, slug)
@@ -3599,7 +3606,7 @@ def api_people_suppress_suggestions(slug, payload):
     }, 200
 
 
-def api_people_forget(slug):
+def api_people_forget(slug, person_uri=None):
     """Handle POST /api/v1/people/{slug}/forget.
 
     Customer's GDPR Art. 17 + UK GDPR right-of-erasure one-click
@@ -3632,9 +3639,26 @@ def api_people_forget(slug):
     # erasure covers every node merged into it. Erasing only the node whose
     # name happened to match left the survivor (or the retired nodes, with
     # their names, emails and identifiers) behind.
+    uri_given = person_uri is not None
     try:
-        person_uri, forget_name = _resolve_person_by_slug(slug)
-        cluster = _merged_cluster(person_uri) if person_uri else []
+        if person_uri is not None:
+            if not isinstance(person_uri, str) or not person_uri or len(person_uri) > 512:
+                return {"error": "person_uri must be a non-empty string (max 512 chars)"}, 400
+            person_uri, forget_name = _resolve_person_by_uri(person_uri)
+            if person_uri is None:
+                # A URI that names nobody: refuse, no write of any kind.
+                return {"forgotten": False, "already_forgotten": False,
+                        "not_found": True, "reason": "no person has this person_uri",
+                        "wiki_recompile_queued": False, "stores_purged": []}, 404
+        else:
+            person_uri, forget_name = _resolve_person_by_slug(slug)
+        # Forget by slug erases the identity (terminus + merged nodes). A URI
+        # names one node and erases only that one.
+        cluster = [person_uri] if (uri_given and person_uri) else (
+            _merged_cluster(person_uri) if person_uri else [])
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count, forgotten=False,
+                                        wiki_recompile_queued=False, stores_purged=[])
     except Exception as exc:
         return {
             "forgotten": False,
@@ -5784,12 +5808,29 @@ def _career_month(value: str) -> str:
     return str(value).strip()[:7]
 
 
-_ALNUM = re.compile(r"[^a-z0-9]+")
-
-
 def _norm_org(org: str) -> str:
-    """Lower-case, strip punctuation/whitespace for org comparison."""
-    return _ALNUM.sub("", (org or "").lower())
+    """Unicode-aware key for org comparison.
+
+    NFKC + casefold, then keep letters, marks and digits from EVERY script
+    (CJK, Cyrillic, Arabic, ...). Punctuation and whitespace are dropped.
+    An empty result means "unknown": callers must treat it as never equal
+    to anything (see ``_orgs_differ``), never as a match.
+    """
+    text = unicodedata.normalize("NFKC", org or "").casefold()
+    return "".join(ch for ch in text if unicodedata.category(ch)[0] in "LMN")
+
+
+def _orgs_differ(a: str, b: str) -> bool:
+    """True when two employer strings name different organisations.
+
+    An unknown (empty-key) side is never equal to anything except the
+    identical raw string, so a non-Latin employer can never collapse onto
+    another one just because both normalise to "".
+    """
+    ka, kb = _norm_org(a), _norm_org(b)
+    if not ka or not kb:
+        return (a or "").strip().casefold() != (b or "").strip().casefold()
+    return ka != kb
 
 
 def _operator_email_domains() -> set:
@@ -6047,10 +6088,9 @@ def _select_current_employer(outbound: bool = False) -> dict:
     # ranks identically (same corroboration + same start) -- genuinely
     # indistinguishable, so surface rather than guess.
     best_key = _rank(best)[:2]
-    best_norm = _norm_org(best["employer"])
     conflicting = [
         c["employer"] for c in candidates[1:]
-        if _rank(c)[:2] == best_key and _norm_org(c["employer"]) != best_norm
+        if _rank(c)[:2] == best_key and _orgs_differ(c["employer"], best["employer"])
     ]
 
     corroborated = bool(best["corroborating_domain"])
@@ -6406,16 +6446,83 @@ def _rank_name_rows(rows):
     )
 
 
+def _raw_identity_roots(slug):
+    """Distinct IDENTITIES among the nodes whose name folds to ``slug``.
+
+    The same rule as CM041 #252 (_identity_roots): a node is one identity with
+    the terminus its pwg:mergedInto chain reaches; a node reaching more than one
+    terminus keeps all of them; a node with none (a mergedInto cycle) is its own
+    root. More than one root is ambiguous, whatever the live-terminus view says,
+    so this tree answers a cycle exactly as upstream does.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT ?person ?name WHERE { ?person a pwg:Person ; pwg:displayName ?name . }')
+    matches = {}
+    for r in rows:
+        uri = r.get("person")
+        if uri and _wiki_slug(r.get("name", "")) == slug:
+            matches.setdefault(uri, r.get("name", ""))
+    roots = set()
+    for uri in matches:
+        esc = uri.replace("\\", "\\\\").replace(">", "%3E")
+        found = {x["r"] for x in _sparql_select(
+            'PREFIX pwg: <' + PWG_NS + '>\n'
+            'SELECT DISTINCT ?r WHERE { <' + esc + '> pwg:mergedInto* ?r .\n'
+            '  FILTER NOT EXISTS { ?r pwg:mergedInto ?x } }') if x.get("r")}
+        if found:
+            roots.update(found)
+        else:
+            roots.add(uri)
+    return sorted(roots)
+
+
+class SlugAmbiguous(RuntimeError):
+    """More than one live person folds to one slug. Callers answer 409 and
+    write nothing (the wrong-person forget, 2026-11-14, Archie's ruling)."""
+
+    def __init__(self, count):
+        super().__init__("more than one person matches")
+        self.count = count
+
+
+def _ambiguous_slug_response(slug, match_count, **extra):
+    body = {"error": "more than one person matches", "slug": slug,
+            "match_count": match_count, "found": False}
+    body.update(extra)
+    return body, 409
+
+
+def _resolve_person_by_uri(person_uri):
+    """(node_uri, name) when ``person_uri`` names a node in the graph, else
+    (None, ""). A URI names ONE node: a merged-in fragment resolves to itself
+    (forget by it removes only it); a survivor resolves to itself too."""
+    rows = _merge_aware_name_rows()
+    hits = [r for r in rows if r.get("node") == person_uri]
+    if not hits:
+        hits = [r for r in rows if r.get("person") == person_uri]
+    if not hits:
+        return None, ""
+    best = _rank_name_rows(hits)[0]
+    return person_uri, best.get("name", "")
+
+
 def _resolve_person_by_slug(slug):
     """(person_uri, name) for the live person a wiki slug names, else (None, "").
 
     The slug may come from the survivor's own displayName or from any name
-    merged into it. An own-name match wins over an alias match. Raises on a
-    store failure.
+    merged into it. An own-name match wins over an alias match. Raises
+    SlugAmbiguous when the slug names more than one live person (accents
+    fold, so two spellings of one name share a slug). Raises on a store failure.
     """
+    roots = _raw_identity_roots(slug)
+    if len(roots) > 1:
+        raise SlugAmbiguous(len(roots))
     hits = [r for r in _merge_aware_name_rows() if _wiki_slug(r.get("name", "")) == slug]
     if not hits:
         return None, ""
+    if len({r.get("person") for r in hits if r.get("person")}) > 1:
+        raise SlugAmbiguous(len({r.get("person") for r in hits if r.get("person")}))
     best = _rank_name_rows(hits)[0]
     return best["person"], best.get("name", "")
 
@@ -6868,6 +6975,8 @@ def person_enrichment(slug):
     # never the dead duplicate (see _resolve_person_by_slug).
     try:
         person_uri, pname = _resolve_person_by_slug(slug)
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count)
     except Exception as exc:
         return {
             "found": False,
@@ -7268,6 +7377,8 @@ def person_timeline(slug, limit=50, days=None):
     # never the dead duplicate (see _resolve_person_by_slug).
     try:
         person_uri, pname = _resolve_person_by_slug(slug)
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count)
     except Exception as exc:
         return {
             "found": False,
@@ -10018,6 +10129,93 @@ def _conversation_title(channel, participants):
     return "{} conversation".format(label)
 
 
+def _timeline_photos(past_days=730, limit=200):
+    """Aggregated photo rows for the Timeline: one row per (day, place).
+
+    Source: the per-photo ``pwg:PhotoEvent`` nodes that
+    ``vendor/ostler_fda/pwg_ingest.py`` ``ingest_photo_events`` writes from the
+    Photos extract (``photos_events.json``). One node per photo, so the rows
+    are aggregated here, never per photo: "Photos: 23 photos at <place>" for a
+    place, "Photos: 23 photos on <date>" for a day with no place label.
+
+    Privacy is fail-closed, as everywhere else (``pwg_privacy.is_l3``): a photo
+    whose ``pwg:privacyLevel`` is L3, unparseable, or missing is not counted.
+    Applied on the on-box Timeline and the outbound path alike, so no photo
+    row is ever a surprise to either. Photos carry no names here; face
+    attendees are never read.
+
+    Read-only. Nothing here notifies, reminds or writes to the graph.
+
+    Returns ``(rows, error)``, newest day first. ``error`` is a string when the
+    graph query failed, else None.
+    """
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
+    try:
+        bindings = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?photo ?date ?place ?priv WHERE {{\n'
+            '  ?photo a pwg:PhotoEvent ; pwg:photoDate ?date .\n'
+            '  OPTIONAL {{ ?photo pwg:photoPlace ?place }}\n'
+            '  OPTIONAL {{ ?photo pwg:privacyLevel ?priv }}\n'
+            '  FILTER(STR(?date) >= "{cutoff}")\n'
+            '}}'.format(ns=PWG_NS, cutoff=cutoff)
+        )
+    except Exception as exc:
+        return [], str(exc)
+
+    # One photo may carry several bindings (OPTIONAL fan-out). A photo is
+    # hidden if ANY of its levels is L3 or none parses.
+    photos = {}
+    for b in bindings:
+        ph = photos.setdefault(b.get("photo", ""), {
+            "date": "", "place": "", "levels": []})
+        raw_date = (b.get("date") or "")[:10]
+        if raw_date and not ph["date"]:
+            ph["date"] = raw_date
+        if b.get("place") and not ph["place"]:
+            ph["place"] = b["place"].strip()
+        ph["levels"].append(b.get("priv"))
+
+    groups = {}
+    for ph in photos.values():
+        if not ph["date"] or not ph["levels"]:
+            continue
+        if any(pwg_privacy.is_l3(lvl) for lvl in ph["levels"]):
+            continue
+        key = (ph["date"], ph["place"])
+        g = groups.setdefault(key, {"count": 0, "levels": set()})
+        g["count"] += 1
+        for lvl in ph["levels"]:
+            parsed = pwg_privacy.parse_privacy_level(lvl)
+            if parsed:
+                g["levels"].add(parsed)
+
+    out = []
+    for (day, place), g in groups.items():
+        n = g["count"]
+        noun = "photo" if n == 1 else "photos"
+        if place:
+            summary = "Photos: %d %s at %s" % (n, noun, place)
+        else:
+            summary = "Photos: %d %s on %s" % (n, noun, day)
+        out.append({
+            "kind": "photos",
+            "date": day,
+            "summary": summary,
+            "location": place,
+            "count": n,
+            "privacy_level": max(g["levels"]) if g["levels"] else "L2",
+        })
+    out.sort(key=lambda r: (r["date"], r["location"]), reverse=True)
+    if limit:
+        out = out[:limit]
+    return out, None
+
+
+
+
 def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                  outbound=False):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
@@ -10119,6 +10317,14 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     else:
         items.extend(conv_rows)
 
+    # Photos: aggregated per day and place from the PhotoEvent graph
+    # (_timeline_photos). A failure is reported, never fatal.
+    photo_rows, photo_err = _timeline_photos(past_days=past_days, limit=limit)
+    if photo_err is not None:
+        items.append({"kind": "photos_error", "error": photo_err})
+    else:
+        items.extend(photo_rows)
+
     # Newest first (it is mainly a historic timeline), then cap.
     # The live-calendar strip only belongs on the opening page; a paged
     # request must not re-emit it (duplicates) or leak outside its window.
@@ -10137,7 +10343,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     entries = []
     for it in items:
         kind = it.get("kind") or ""
-        if kind in ("calendar_error", "meeting_error", "conversation_error"):
+        if kind in ("calendar_error", "meeting_error", "conversation_error", "photos_error"):
             # Surface but skip – CM031 does not render error sentinels.
             continue
         # Carry the row's real kind (#106c). This used to collapse every
@@ -10149,8 +10355,14 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         else:
             entry_type = kind or "event"
         raw_date = it.get("date") or ""
-        timestamp, all_day = _timeline_row_time(
-            it.get("start") or raw_date, it.get("all_day"))
+        if kind == "photos":
+            # A photo group is a DAY, not a moment: it keeps its date and says
+            # All day, as the #251 contract fixture requires (the timeline row
+            # time parser would stamp it with a clock time).
+            timestamp, all_day = raw_date, True
+        else:
+            timestamp, all_day = _timeline_row_time(
+                it.get("start") or raw_date, it.get("all_day"))
         if not timestamp:
             # No readable event date: never shown, and never as "today".
             continue
@@ -13948,8 +14160,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
                 return
+            forget_uri = None
+            if _forget_clen > 0:
+                try:
+                    _forget_body = json.loads(self.rfile.read(_forget_clen) or b"{}")
+                except ValueError:
+                    _forget_body = None
+                if not isinstance(_forget_body, dict):
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Body must be a JSON object"}).encode())
+                    return
+                forget_uri = _forget_body.get("person_uri")
             try:
-                result, status = api_people_forget(slug)
+                result, status = api_people_forget(slug, person_uri=forget_uri)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
