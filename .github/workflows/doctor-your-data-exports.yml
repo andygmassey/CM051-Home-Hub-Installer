@@ -24,6 +24,7 @@ on:
       - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'vendor/doctor/agent/status_collector.py'
       - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/requirements.txt'
       - 'tests/test_export_status_contract.py'
       - 'tests/test_doctor_shows_your_data_exports.py'
       - 'tests/test_export_platforms_match_q11.py'
@@ -36,6 +37,7 @@ permissions:
 jobs:
   your-data-exports:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -43,8 +45,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install the test dependency httpx
-        run: python3 -m pip install httpx
+      - name: Install the Doctor's requirements
+        run: python3 -m pip install -r vendor/doctor/agent/requirements.txt
 
       - name: Writer and reader agree on the high-water store (contract)
         if: always()
