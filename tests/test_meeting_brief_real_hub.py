@@ -188,8 +188,13 @@ def stub_composer(path, mode, calls_file):
     script = f"""#!/usr/bin/env python3
 import json, sys
 argv = sys.argv[1:]
-open({str(calls_file)!r}, "a").write(json.dumps(argv) + "\\n")
 mode = {mode!r}
+# The sender's once-per-tick capability probe is not a brief call: answer it the
+# way the current composer does and keep it out of the brief-call record.
+if argv[:1] == ["composer-capabilities"]:
+    print("calendar")
+    sys.exit(0)
+open({str(calls_file)!r}, "a").write(json.dumps(argv) + "\\n")
 arg = lambda k: argv[argv.index(k) + 1] if k in argv else None
 if mode == "fail":
     sys.stderr.write("boom")
