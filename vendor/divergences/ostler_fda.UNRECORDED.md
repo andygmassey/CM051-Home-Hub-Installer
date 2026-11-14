@@ -361,3 +361,17 @@ temp HOME; the CM044 reader reads exactly 100; with markers stripped it reads 99
 
 Owed upstream: yes, HR015 `ostler_fda/` (same four files plus tests): andygmassey/HR015-Gaming-PC#1418, linked from #3426.
 Retire this section when it lands and the tree is re-pinned past it.
+
+## 2026-11-14: supplement dedupe against the live WhatsApp store (CM051 #3423)
+
+Edited in `vendor/ostler_fda/whatsapp_export.py`: message keys (`message_key`,
+`_plain`, `live_messages_from_transcript`), the live index
+(`record_live_transcript`, `live_key_counts`, `default_live_index_path`) and the
+export filter (`drop_already_live`), plus `chat_to_payload(chat, cid=)`.
+Edited in `vendor/ostler_fda/universal_import.py`: `_dispatch_whatsapp_export`
+drops messages the live store holds, keeps the full chat's conversation id, and
+persists nothing when every message is already live.
+
+Why not upstream: the export importer exists only in CM051 (the 2026-11-08 owner
+direction); HR015 has no WhatsApp export parser. Re-vendor must keep these or the
+dedupe is silently gone. Proof: `tests/test_whatsapp_export_dedupe.py`.

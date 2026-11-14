@@ -1057,14 +1057,25 @@ def _dispatch_whatsapp_export(detection: Detection, *, output_dir: Optional[Path
     from . import whatsapp_export as wae
 
     chat = wae.parse_chat_file(Path(detection.route_path))
-    payloads = [wae.chat_to_payload(chat)] if chat.messages else []
-    persist = _stage_then_persist(
-        payloads, wae.OUTPUT_FILENAME, wae.SOURCE, output_dir=output_dir
+    # Supplement, not a second copy: messages the live WhatsApp store already
+    # holds are dropped here. The conversation id stays that of the FULL chat.
+    cid = wae.conversation_id(chat) if chat.messages else None
+    new_chat, already_live = wae.drop_already_live(
+        chat,
+        wae.live_key_counts(wae.default_live_index_path()),
+        wae.owner_names_from_env(),
+    )
+    payloads = [wae.chat_to_payload(new_chat, cid=cid)] if new_chat.messages else []
+    persist = (
+        _stage_then_persist(payloads, wae.OUTPUT_FILENAME, wae.SOURCE, output_dir=output_dir)
+        if payloads else {}
     )
     return {
         "status": "ok",
         "dispatched": wae.SOURCE,
         "summary": wae.conversation_stats([chat]),
+        "already_in_live": already_live,
+        "new_messages": len(new_chat.messages),
         **persist,
     }
 

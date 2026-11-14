@@ -13,6 +13,7 @@ on:
       - 'gui/OstlerInstaller/Resources/*.json'
       - 'tests/test_no_whatsapp_chat_export_instruction.sh'
       - 'tests/test_whatsapp_export_autoprocess.py'
+      - 'tests/test_whatsapp_export_dedupe.py'
       - 'vendor/ostler_fda/whatsapp_export.py'
       - 'vendor/ostler_fda/universal_import.py'
       - '.github/workflows/no-whatsapp-chat-export.yml'
@@ -24,6 +25,7 @@ on:
       - 'gui/OstlerInstaller/Resources/*.json'
       - 'tests/test_no_whatsapp_chat_export_instruction.sh'
       - 'tests/test_whatsapp_export_autoprocess.py'
+      - 'tests/test_whatsapp_export_dedupe.py'
       - 'vendor/ostler_fda/whatsapp_export.py'
       - 'vendor/ostler_fda/universal_import.py'
       - '.github/workflows/no-whatsapp-chat-export.yml'
@@ -42,3 +44,6 @@ jobs:
       - name: A dropped WhatsApp chat export is parsed and persisted, not skipped
         if: success() || failure()
         run: python3 tests/test_whatsapp_export_autoprocess.py
+      - name: A supplement is kept once, live store and export never duplicate
+        if: success() || failure()
+        run: python3 tests/test_whatsapp_export_dedupe.py

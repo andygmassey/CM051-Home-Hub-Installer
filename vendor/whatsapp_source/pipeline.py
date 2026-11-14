@@ -234,6 +234,20 @@ def _label_lookup(label_map: dict[str, str], key: Optional[str]) -> Optional[str
     return label_map.get(key.strip().lower())
 
 
+def _record_live_index(chat_id: str, transcript_md: str) -> None:
+    """Record this chat's message keys for the export supplement dedupe
+    (ostler_fda.whatsapp_export). A failed write is reported on stderr. The
+    next export import would then count this chat's messages as new."""
+    import sys
+    from ostler_fda import whatsapp_export as wae
+    try:
+        wae.record_live_transcript(
+            str(chat_id), transcript_md, wae.default_live_index_path()
+        )
+    except (OSError, ValueError) as exc:
+        print(f"whatsapp live index not written: {type(exc).__name__}", file=sys.stderr)
+
+
 def _dispatch_to_cm048(
     transcript_md: str,
     metadata: dict,
@@ -605,6 +619,8 @@ def process_whatsapp(
         )
         if rc == 0:
             dispatched += 1
+            if not dry_run:
+                _record_live_index(conv.chat_id, transcript_md)
             if not dry_run and latest:
                 chat_state[conv.chat_id] = latest
                 chat_windows[conv.chat_id] = since_days
