@@ -23,7 +23,9 @@ ABSTAIN = re.compile(
     r"(does|do) not (contain|hold|provide|include|have|say|state|list|show|give|specify|"
     r"mention|record)|(is|are|was|were) not (in|mentioned|recorded|listed|stated|provided)|"
     r"isn'?t (in|mentioned|recorded|listed)|impossible to (determine|tell|say)|"
-    r"not in (your|the) (records|data|context|fixture|information))\b", re.I)
+    r"not in (your|the) (records|data|context|fixture|information)|"
+    r"not (included|specified|stated|detailed|shown|given|provided) (in|within|by) (the|your|this)|"
+    r"no specific |cannot (provide|give|share))\b", re.I)
 
 # Every decline form a model or the gate uses. Each must grade ABSTAINED on an absent
 # question. A decline the grader calls FABRICATED makes the absent bucket measure nothing.
@@ -39,6 +41,9 @@ DECLINE_FORMS = (
     "It is impossible to determine.",
     "That isn't mentioned in your records.",
     "Not in your records.",
+    "I cannot provide Mary Doe's email address because it is not included in the provided data.",
+    "There is no specific date for the half marathon listed.",
+    "There is no specific monetary amount mentioned for the seed round.",
 )
 OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED", "ERROR")
 

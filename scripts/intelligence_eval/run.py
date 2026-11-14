@@ -295,6 +295,12 @@ def self_test():
     for form in K.DECLINE_FORMS:
         check("grader: decline form is ABSTAINED, not FABRICATED: %r" % form,
               K.grade({"kind": "absent", "groups": [], "wrong": []}, form)[0] == "ABSTAINED")
+    # POSITIVE CONTROL: a planted invented value must grade FABRICATED. Without this, a grader that
+    # learned only declines could drift to scoring every absent answer ABSTAINED and pass the arms above.
+    for planted in ("Mary Doe's blood type is O positive.", "The seed round closes on 2027-06-30.",
+                    "Sam Ross sent 412 messages.", "Tom Coe is in Operators."):
+        check("positive control: planted invented value is FABRICATED: %r" % planted,
+              K.grade({"kind": "absent", "groups": [], "wrong": []}, planted)[0] == "FABRICATED")
     check("grader: an empty reply is ERROR, never ABSTAINED",
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "")[0] == "ERROR")
     check("grader: a missing reply (None) is ERROR, never ABSTAINED",
