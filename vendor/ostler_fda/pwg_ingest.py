@@ -86,40 +86,63 @@ DEFAULT_PRIVACY = os.getenv("DEFAULT_PRIVACY_LEVEL", "L2")
 
 
 # NOTIFICATION AND ORGANISATION SENDERS ARE NOT PEOPLE (v1.0.132, walk 131
-# triage item 2). A sender row named "<Shop> Receipts" or "<Brand> Deals" was
-# a pwg:Person in Oxigraph and was embedded into the people collection, so it
-# surfaced as a person. This is the rule the walk's people-phrasing probe
-# measures (scripts/box_walk_probes/lib/customer_read.py service_sender), copied
-# here because ostler_fda must not import CM051's scripts/ tree. The projection
-# applies it BEFORE embedding; the display check then has nothing to flag.
-# A row with a phone is a contact card the customer filled in, so it is exempt
-# (the probe's has_phone exemption). Pinned by tests/test_people_projection_service_senders.py.
-_SVC_PHRASE_RE = re.compile(
-    r"\b(notifications?|no-?reply|do-?not-?reply|payments?|updates?|alerts?|receipts?|statements?|"
-    r"newsletters?|rewards?|gifts?|offers?|verif(y|ication)|members?hip|accounts?|orders?|deliver(y|ies)|"
-    r"subscriptions?|invoices?|promotions?|deals?|unsubscribe|via \w*sign)\b", re.I)
+# triage item 2). A sender row named "<Shop> Receipts" or "<Brand> Deals" was a
+# pwg:Person in Oxigraph and was embedded, so it surfaced as a person.
+#
+# THIS IS THE PRODUCT RULE. It is narrower than the walk probe's display rule
+# (scripts/box_walk_probes/lib/customer_read.py service_sender), which stays as
+# it is. Where they differ the difference is recorded in
+# vendor/divergences/ostler_fda.UNRECORDED.md.
+#
+# A DROP NEEDS A SIGNAL THAT A PERSON'S NAME DOES NOT CARRY:
+#   strong    an unambiguous sender phrase, a PLURAL keyword form (deals,
+#             gifts, cards: surnames are singular), a legal form, a
+#             marketplace brand, a domain-shaped name, a "the <x> team".
+#   ambiguous a SINGULAR word that is also a given name or surname (gift, deal,
+#             card, bank, club, shop, team, ...). Alone it drops NOTHING. It
+#             drops only with a second signal: an email on a service mailbox
+#             local part (noreply, info, billing, ...).
+# So a given name Gift plus a surname, a given name plus an ambiguous surname
+# (two or three words), and an email-only person with a personal address are kept. A phone-carrying row is a
+# contact card the customer filled in, and is always kept.
+# Pinned by tests/test_people_projection_service_senders.py.
+_SVC_STRONG_RE = re.compile(
+    r"\b(notifications?|no-?reply|do-?not-?reply|receipts|statements|newsletters|promotions|"
+    r"invoices|subscriptions|unsubscribe|alerts|deals|gifts|offers|rewards|updates|orders|"
+    r"deliveries|payments|cards|banks|clubs|shops|teams|accounts|members|verifications)\b", re.I)
+_SVC_AMBIG_RE = re.compile(
+    r"\b(gift|deal|card|bank|club|shop|team|offer|reward|update|order|delivery|payment|"
+    r"statement|invoice|subscription|verification|account|member|alert|promotion|newsletter|receipt)\b",
+    re.I)
 _SVC_LOCAL_RE = re.compile(
     r"^(no-?reply|noreply|do-?not-?reply|support|help(desk)?|team|info|news(letter)?|promo(tions?)?|"
-    r"marketing|notifications?|alerts?|billing|sales|service|accounts?|orders?|ebill\w*)$", re.I)
+    r"marketing|notifications?|alerts?|billing|sales|service|accounts?|orders?|deals?|receipts?|"
+    r"gifts?|offers?|ebill\w*)$", re.I)
 _SVC_MARKETPLACE_RE = re.compile(
     r"\b(amazon|ebay|etsy|aliexpress|alibaba|shopee|lazada|taobao|tmall|rakuten|walmart|temu|shein|"
     r"zalando|asos|wish)\b", re.I)
 _SVC_DOMAIN_RE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr|shop|store)$", re.I)
 _SVC_SUBJECT_RE = re.compile(r"^(re|fw|fwd|aw|wg|invitation|updated invitation|accepted|declined):\s", re.I)
-_SVC_ORG_SHORT_RE = re.compile(r"^\S+(\s+\S+)+\s+(AG|BV|NV|SA|B\.V\.|S\.A\.|N\.V\.)$")
-_SVC_ORG_FINAL_RE = re.compile(
-    r"^\S+(\s+\S+)+\s+(bank|banking|team|alumni|group|company|promotions?|newsletter|research|card|support|"
-    r"store|shop|official|services?|solutions|foundation|association|council|institute|university|academy|"
-    r"club|magazine|news|no-?reply|noreply)$", re.I)
-_SVC_ORG_INSTITUTION_RE = re.compile(r"^(university|college|institute|academy)\s+of\s+\S+", re.I)
-_SVC_ORG_THE_GROUP_RE = re.compile(r"^the\s+\S+(\s+\S+)*\s+(group|team)$", re.I)
-_SVC_ORG_NAME_RE = re.compile(
-    r"(\b(ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
-    r"|\bco\.$|\b(customer (support|service|care)|support team|help ?desk)\b"
+_SVC_LEGAL_RE = re.compile(
+    r"(\b(ltd|limited|llc|llp|plc|gmbh|corp|corporation|pte|pty|sdn bhd)\.?$"
     r"|\u6709\u9650\u516c\u53f8|\u682a\u5f0f\u4f1a\u793e)", re.I)
+_SVC_THE_TEAM_RE = re.compile(r"^the\s+\S+(\s+\S+)*\s+(group|team)$", re.I)
+_SVC_INSTITUTION_RE = re.compile(r"^(university|college|institute|academy)\s+of\s+\S+", re.I)
 
 
-def service_sender_reason(name, phones=None):
+def _service_mailbox(name, emails):
+    """A service mailbox local part on an address in the name or the email list."""
+    addrs = [e for e in (emails or []) if e and "@" in e]
+    if "@" in (name or ""):
+        addrs.append(name.strip())
+    for a in addrs:
+        local = a.strip().split("@", 1)[0].lower()
+        if _SVC_LOCAL_RE.match(local) or _SVC_MARKETPLACE_RE.search(a):
+            return True
+    return False
+
+
+def service_sender_reason(name, phones=None, emails=None):
     """Why a People row is a notification or organisation sender, or None (a person)."""
     if [p for p in (phones or []) if p]:
         return None
@@ -130,18 +153,18 @@ def service_sender_reason(name, phones=None):
         return "hash-prefixed"
     if _SVC_SUBJECT_RE.match(n):
         return "subject line"
+    if _service_mailbox(n, emails):
+        return "service mailbox"
     if "@" in n:
-        local = n.split("@", 1)[0]
-        if _SVC_LOCAL_RE.match(local) or _SVC_MARKETPLACE_RE.search(n):
-            return "service mailbox"
-        return None
-    if _SVC_PHRASE_RE.search(n):
+        return None  # a personal-looking address with no service local part
+    if _SVC_STRONG_RE.search(n):
         return "notification phrasing"
     if _SVC_MARKETPLACE_RE.search(n) or _SVC_DOMAIN_RE.match(n):
         return "marketplace or domain"
-    if _SVC_ORG_NAME_RE.search(n) or _SVC_ORG_SHORT_RE.match(n) or _SVC_ORG_FINAL_RE.match(n) \
-            or _SVC_ORG_INSTITUTION_RE.match(n) or _SVC_ORG_THE_GROUP_RE.match(n):
+    if _SVC_LEGAL_RE.search(n) or _SVC_THE_TEAM_RE.match(n) or _SVC_INSTITUTION_RE.match(n):
         return "organisation name"
+    # Singular ambiguous words (gift, deal, card, bank, ...) are NOT a signal on
+    # their own: they are given names and surnames. Nothing drops here.
     return None
 
 
@@ -3969,7 +3992,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         # Notification and organisation senders are not people: removed BEFORE
         # the projection, so they are never embedded (and the prune below
         # removes any point they already had). Counts only, never names.
-        _svc_skipped = [p for p in people if service_sender_reason(p.get("display_name") or "", p.get("phones")) is not None]
+        _svc_skipped = [p for p in people if service_sender_reason(p.get("display_name") or "", p.get("phones"), p.get("emails")) is not None]
         if _svc_skipped:
             logger.info("People: %d notification or organisation sender rows left out of the people index",
                         len(_svc_skipped))

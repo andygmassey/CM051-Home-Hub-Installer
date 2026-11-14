@@ -1,16 +1,18 @@
 """Notification and organisation senders are not put into the people index.
 
 Walk 131: a sender row named like "<Shop> Receipts" was a pwg:Person in Oxigraph
-and the people projection embedded it, so it surfaced as a person. The fix
-drops those rows in ingest_people_to_qdrant BEFORE the embed, with the same
-rule the walk's people-phrasing probe measures.
+and the people projection embedded it, so it surfaced as a person. The projection
+now leaves those rows out BEFORE the embed.
+
+The rule is a product rule, not the probe's display rule. It drops a row only on
+an unambiguous phrase, a plural keyword, a legal form, a marketplace or a domain,
+or on a singular ambiguous word (gift, deal, card, bank, club, shop, team, ...)
+TOGETHER WITH a second signal: a service mailbox local part on an email address.
+A given name plus a surname is kept, whatever the surname is.
 
 The end-to-end test drives the real ingest_people_to_qdrant (the shipped
-vendored module) and stubs only its I/O boundaries: the Oxigraph read, the
-Qdrant read and write, and the Ollama embed. It asserts on what would be
-upserted. Negative controls: real-looking synthetic person names and a service
-shaped name that has a phone (a contact card the customer filled in) must stay.
-Synthetic data only.
+vendored module) and stubs only its I/O boundaries. Synthetic data only; the
+name pairs are fictional combinations.
 """
 
 import pathlib
@@ -24,20 +26,53 @@ if str(VENDOR) not in sys.path:
 
 from ostler_fda import pwg_ingest as pi  # noqa: E402
 
+# Senders that must be dropped.
 SERVICE_SENDERS = [
     "acme receipts",
     "globex deals",
     "initech alerts",
     "riverside notifications",
-    "Acme Ltd",
-    "The Globex Team",
+    "acme ltd",
+    "the globex team",
 ]
-SYNTHETIC_PEOPLE = ["Sam Doe", "Jane Smith", "Tom Jones", "Ben Ross", "Alex Brown", "Mary Patel"]
+# A singular ambiguous word on its own is not a sender signal.
+DROP_ONLY_WITH_SECOND_SIGNAL = [
+    ("jane card", ["noreply@example.com"]),
+    ("jane bank", ["info@example.com"]),
+]
+# NEGATIVE CONTROLS: a real person's name, in every shape the rule must keep.
+# Given name plus each ambiguous surname; the given name Gift plus a surname;
+# one CJK personal name; an email-only person with a personal address.
+KEEP = [
+    "gift hollis",
+    "jane deal",
+    "jane card",
+    "jane bank",
+    "jane club",
+    "jane shop",
+    "jane team",
+    "jane ann card",
+    "jane ann bank",
+    "jane ann club",
+    "jane ann shop",
+    "jane ann team",
+    "sam doe",
+    "jane smith",
+    "tom jones",
+    "ben ross",
+    "alex brown",
+    "mary patel",
+    "李明",
+]
+KEEP_WITH_PERSONAL_EMAIL = [
+    ("jane card", ["jane.card@example.com"]),
+    ("jane deal", ["jane.deal@example.com"]),
+]
 
 
-def _row(name, phones=()):
+def _row(name, phones=(), emails=()):
     return {
-        "uri": "https://schema.ostler.ai/ontology#person_" + name.lower().replace(" ", "_"),
+        "uri": "https://schema.ostler.ai/ontology#person_" + name.replace(" ", "_"),
         "display_name": name,
         "given_name": "",
         "family_name": "",
@@ -45,7 +80,7 @@ def _row(name, phones=()):
         "job_title": "",
         "organization": "",
         "phones": list(phones),
-        "emails": [],
+        "emails": list(emails),
         "created_at": "2026-11-01T00:00:00Z",
         "last_contact": "",
     }
@@ -56,21 +91,31 @@ def test_service_and_organisation_senders_are_classified(name):
     assert pi.service_sender_reason(name) is not None, name
 
 
-@pytest.mark.parametrize("name", SYNTHETIC_PEOPLE)
-def test_negative_control_people_are_not_classified(name):
+@pytest.mark.parametrize("name,emails", DROP_ONLY_WITH_SECOND_SIGNAL)
+def test_ambiguous_word_with_service_mailbox_is_classified(name, emails):
+    assert pi.service_sender_reason(name, [], emails) is not None, name
+
+
+@pytest.mark.parametrize("name", KEEP)
+def test_negative_control_person_is_kept(name):
     assert pi.service_sender_reason(name) is None, name
 
 
+@pytest.mark.parametrize("name,emails", KEEP_WITH_PERSONAL_EMAIL)
+def test_negative_control_email_only_person_is_kept(name, emails):
+    assert pi.service_sender_reason(name, [], emails) is None, name
+
+
 def test_negative_control_a_phone_exempts_a_service_shaped_name():
-    # A contact card the customer filled in is theirs, whatever its shape.
     assert pi.service_sender_reason("acme receipts", ["+44 7700 900123"]) is None
 
 
 @pytest.fixture
 def projected(monkeypatch):
-    rows = [_row(n) for n in SYNTHETIC_PEOPLE]
+    rows = [_row(n) for n in KEEP if n.isascii()]
     rows += [_row(n) for n in SERVICE_SENDERS]
-    # The same shape WITH a phone: a card the customer filled in, so it stays.
+    rows += [_row(n, emails=e) for n, e in KEEP_WITH_PERSONAL_EMAIL]
+    rows += [_row("jane card", emails=["noreply@example.com"])]
     rows.append(_row("acme receipts", phones=["+44 7700 900123"]))
     upserts = []
 
@@ -89,17 +134,17 @@ def projected(monkeypatch):
 
 
 def test_projection_embeds_no_service_sender(projected):
-    # "acme receipts" is checked by the phone test below: one row of that name
-    # (the phone-carrying one) is a legitimate person, the no-phone one is not.
+    # "acme receipts" appears twice (one with a phone); the phone one is checked below.
     leaked = sorted((set(projected) & set(SERVICE_SENDERS)) - {"acme receipts"})
     assert leaked == [], "service senders were projected as people: %r" % leaked
 
 
-def test_projection_keeps_every_real_person(projected):
-    missing = sorted(set(SYNTHETIC_PEOPLE) - set(projected))
+def test_projection_keeps_every_negative_control(projected):
+    expected = [n for n in KEEP if n.isascii()] + [n for n, _ in KEEP_WITH_PERSONAL_EMAIL]
+    missing = sorted(set(expected) - set(projected))
     assert missing == [], "real people were dropped: %r" % missing
 
 
-def test_projection_keeps_the_phone_exempt_card(projected):
-    # Two rows share the name: the no-phone one is dropped, the phone one kept.
-    assert projected.count("acme receipts") == 1
+def test_projection_drops_ambiguous_word_only_with_service_mailbox(projected):
+    assert "jane card" in projected  # the personal-email row survives
+    assert projected.count("jane card") == 2  # personal-email row kept, noreply row dropped

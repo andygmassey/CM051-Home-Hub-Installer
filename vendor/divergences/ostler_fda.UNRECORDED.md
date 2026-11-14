@@ -376,3 +376,20 @@ section when the upstream commit lands and `sync_vendor.sh ostler_fda` re-pins.
 `tests/test_people_projection_service_senders.py`: the end-to-end projection
 drops service senders, keeps synthetic real names and keeps a phone-carrying
 card. On the unfixed vendor tree the projection test is red.
+
+### Product rule is narrower than the probe's display rule (v1.0.132, Archie review of #3506)
+
+The projection's `service_sender_reason` (pwg_ingest.py) DROPS a row only on a
+strong signal: an unambiguous phrase, a plural keyword form, a legal form, a
+marketplace or domain, "the <x> team", or a service mailbox local part on an
+email. A SINGULAR ambiguous word (gift, deal, card, bank, club, shop, team, ...)
+drops nothing on its own, because it is a given name or surname.
+
+The walk probe (`scripts/box_walk_probes/lib/customer_read.py` `service_sender`)
+keeps its display rule unchanged. Where they differ, the probe flags a row the
+product keeps: a singular ambiguous word with no second signal (a given name plus a singular ambiguous surname, and a given name Gift). Those rows are real people by design. A probe FAIL on such a row
+is a probe-side false positive, not a product defect.
+
+Pinned by `tests/test_people_projection_service_senders.py`: the negative
+controls (a given name plus each ambiguous surname, the given name Gift, one CJK
+personal name, and email-only people with personal addresses) must stay.
