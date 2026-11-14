@@ -28,7 +28,7 @@ if [ ! -s "$W/helper.sh" ]; then
 fi
 
 # sudo stub: records the call, and fails the way a GUI pty does (no prompt).
-mkdir -p "$W/bin" "$W/ro" "$W/rw" "$W/home/.ostler"
+mkdir -p "$W/bin" "$W/ro" "$W/rw" "$W/owner/.ostler"
 cat > "$W/bin/sudo" <<'SUDO'
 #!/bin/bash
 echo "SUDO $*" >> "$SUDO_LOG"
@@ -41,7 +41,7 @@ chmod 555 "$W/ro"
 run_case() {  # $1 GUI value, $2 link path, $3 log name
     : > "$W/sudo.log"
     (
-        export PATH="$W/bin:$PATH" SUDO_LOG="$W/sudo.log" OSTLER_DIR="$W/home/.ostler"
+        export PATH="$W/bin:$PATH" SUDO_LOG="$W/sudo.log" OSTLER_DIR="$W/owner/.ostler"
         export OSTLER_GUI="$1"
         # shellcheck disable=SC1090
         source "$W/helper.sh"
@@ -57,7 +57,7 @@ if grep -q '^SUDO' "$W/sudo.log"; then
     echo "FAIL [gui-no-sudo]: GUI install called sudo: $(cat "$W/sudo.log")" >&2
     exit 1
 fi
-if [ "$LINKED" != "$W/home/.ostler/bin/pwg-convo" ] || [ ! -L "$LINKED" ]; then
+if [ "$LINKED" != "$W/owner/.ostler/bin/pwg-convo" ] || [ ! -L "$LINKED" ]; then
     echo "FAIL [gui-owner-link]: no owner-side link (reported: $LINKED)" >&2
     exit 1
 fi
