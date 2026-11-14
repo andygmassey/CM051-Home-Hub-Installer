@@ -1856,3 +1856,16 @@ Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here ins
 - `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
 
 Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).
+
+## doctor: Homebrew prefix row (agent/web_ui.py), 2026-11-14
+
+`agent/web_ui.py` (two additions, both recorded here, the tree is regenerate-forbidden):
+
+- import: `from shared_prefix_status import render_shared_prefix_status`
+- the page: `shared_prefix_section = render_shared_prefix_status()` and `{shared_prefix_section}` placed after `{loopback_guard_section}`.
+
+New vendor-only file `agent/shared_prefix_status.py` (listed in `vendor/VENDOR_ONLY.tsv`). It reads the owner of `/opt/homebrew` and never changes it.
+
+Why: the GUI admin shell chowned `/opt/homebrew` to the owner on every install. It now refuses to take another account's Homebrew and never chowns an existing prefix. Archie's ruling (8b/8d) asks Doctor to say so: another account's Homebrew is refused (warning, no account named), and a prefix owned by the running account is INFO with no auto-fix, because an earlier chown cannot be reverted.
+
+Tests: `tests/test_doctor_shows_shared_prefix.py` (13 checks; mutant that reads a foreign owner as INFO fails 4). On origin/main the module does not exist and web_ui.py has no import, so that test cannot pass there.

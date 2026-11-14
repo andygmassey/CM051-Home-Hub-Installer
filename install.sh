@@ -24604,6 +24604,35 @@ CM048_DIR="${OSTLER_DIR}/services/cm048"
 CM048_VENV="${CM048_DIR}/.venv"
 CM048_BIN="${CM048_VENV}/bin/pwg-convo"
 CM048_SYMLINK="/usr/local/bin/pwg-convo"
+# _ostler_link_cli TARGET LINK: put a CLI on the customer's PATH. Sets
+# _OSTLER_LINKED to the path actually linked (used by the health check after).
+# Under OSTLER_GUI=1 nothing can be elevated: the GUI pty has no sudo prompt,
+# and /usr/local/bin is root-owned on a stock Mac (the admin shell no longer
+# chowns it). So a plain ln is tried first, and if that fails the link goes in
+# ${OSTLER_DIR}/bin, which the owner owns. Outside the GUI, sudo as before.
+# The ostler-knowledge path to run: the /usr/local/bin link when it exists, else
+# the owner-side link _ostler_link_cli makes under a GUI install.
+_ostler_knowledge_cli() {
+    if [[ -x /usr/local/bin/ostler-knowledge ]]; then echo /usr/local/bin/ostler-knowledge
+    else echo "${OSTLER_DIR}/bin/ostler-knowledge"; fi
+}
+
+_ostler_link_cli() {
+    local target="$1" link="$2"
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        if ln -sf "$target" "$link" 2>/dev/null; then
+            _OSTLER_LINKED="$link"
+        else
+            mkdir -p "${OSTLER_DIR}/bin"
+            _OSTLER_LINKED="${OSTLER_DIR}/bin/$(basename "$link")"
+            ln -sfn "$target" "$_OSTLER_LINKED"
+        fi
+    else
+        sudo ln -sf "$target" "$link"
+        _OSTLER_LINKED="$link"
+    fi
+}
+
 CM048_SOURCE_OK=false
 
 mkdir -p "$(dirname "$CM048_DIR")"
@@ -24812,17 +24841,8 @@ COACHPY
 
     if [[ -x "$CM048_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt. Matches the
-        # ostler-knowledge symlink pattern below.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$CM048_BIN" "$CM048_SYMLINK" \
-                || sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        else
-            sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        fi
+        _ostler_link_cli "$CM048_BIN" "$CM048_SYMLINK"
+        CM048_SYMLINK="$_OSTLER_LINKED"
 
         # Health check. Two gates, both must pass:
         #
@@ -26486,7 +26506,7 @@ _ostler_notes_refresh() {
 
     local json="${OSTLER_DIR}/imports/fda/apple_notes.json"
     local mark="${state}/hydrate/apple_notes_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/notes-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-notes-rerun"
     local count sha
@@ -26561,7 +26581,7 @@ _ostler_reminders_refresh() {
     local json="${fda}/reminders.json"
     local state="${OSTLER_DIR}/state"
     local mark="${state}/hydrate/reminders_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/reminders-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-reminders-rerun"
     local xstatus count sha
@@ -30399,16 +30419,8 @@ if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
 
     if [[ -x "$KNOWLEDGE_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK" \
-                || sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        else
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        fi
+        _ostler_link_cli "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+        KNOWLEDGE_SYMLINK="$_OSTLER_LINKED"
 
         # Health check via the symlink (verifies PATH-side wiring + venv binding).
         if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
@@ -30953,6 +30965,8 @@ _install_conversation_feed() {
     if [[ ! -x "$pwg" ]]; then
         if [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
+        elif [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
         else
             pwg="pwg-convo"
         fi
@@ -31076,6 +31090,8 @@ _ostler_catchup_register_feed() {
     if [[ ! -x "$pwg" ]]; then
         if [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
+        elif [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
         else
             pwg="pwg-convo"
         fi
@@ -39392,7 +39408,7 @@ if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
 else
     progress "Reading your Apple Notes" "hydrate_apple_notes"
 fi
-_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 # TAKEN FROM THE REGISTER, NOT RE-TYPED (#1598). This used to be a bare
@@ -39652,7 +39668,7 @@ if [[ ! -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
 else
     progress "Reading your Reminders" "hydrate_reminders"
 fi
-_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_REMINDERS_STAGING="${OSTLER_DIR}/data/knowledge-staging-reminders"
 _HYDRATE_REMINDERS_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 _HYDRATE_REMINDERS_COLLECTION="reminders_knowledge"
