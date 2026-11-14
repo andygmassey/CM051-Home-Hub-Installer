@@ -326,8 +326,8 @@ def test_mergedinto_cycle_refuses_each_node_its_own_root(world):
     w.store.update(f'INSERT DATA {{ <{a}> pwg:mergedInto <{b}> . }}')
     w.store.update(f'INSERT DATA {{ <{b}> pwg:mergedInto <{a}> . }}')
     body, status = w.server.api_people_forget("sam-ross")
-    # This tree resolves names through live termini, and a cycle has none, so
-    # the slug names NOBODY live: not_found, and nothing deleted. Fail closed by
-    # outcome (no erasure); the CM041 tree answers 409 for the same graph.
-    assert body.get("forgotten") is False, (status, body)
+    # The same answer as CM041 #252 (its arm asserts this too): a cycle is two
+    # identities, so 409, and nothing is deleted.
+    assert status == 409, (status, body)
+    assert body["error"] == "more than one person matches"
     assert sorted(w.store.person_names()).count("Sam Ross") == 2

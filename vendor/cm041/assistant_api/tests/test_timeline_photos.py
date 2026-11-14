@@ -179,14 +179,14 @@ class TimelinePhotosContract(unittest.TestCase):
 class TimelinePhotosFixturePin(unittest.TestCase):
     """The fixture is a cross-repo contract. CM031's copy must be byte-identical.
 
-    Canonical copy: this repo, last changed in c209a75. The CM031 copy at
+    Canonical copy: CM041, last re-pinned 2026-11-14 (CM041 #253). The CM031 copy at
     CM031/Tests/Fixtures/timeline_photos_contract.json is checked against the
     same digest by TimelinePhotosContractTests.testFixtureIsByteIdenticalToCM041Pin.
     Changing this file means re-pinning here AND in CM031, in the same change.
     """
 
-    PINNED_FROM = "c209a75"
-    PINNED_SHA256 = "e98b4f002dd47f57a00008af284554ebb8a5fe982f8d220268b57752298849da"
+    PINNED_FROM = "re-pinned 2026-11-14 (CM041 #253)"
+    PINNED_SHA256 = "c0c509e1dc3db636df9e8a319273f6472a05467931922679916c75aa1099fe28"
 
     def test_fixture_bytes_match_the_pinned_digest(self):
         import hashlib

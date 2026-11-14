@@ -1,5 +1,5 @@
 {
-  "_about": "Contract fixture: Hub Timeline entries for Photos. Copied verbatim into CM031 Tests/Services/TimelinePhotosContractTests.swift. Keep the two in step.",
+  "_about": "Contract fixture: hub timeline entries for photos. Pinned by sha256 in the CM041, CM031 and CM051 tests; change all three together.",
   "input_photo_events": [
     {
       "photo": "c1",

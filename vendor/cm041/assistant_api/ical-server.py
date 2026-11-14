@@ -3551,8 +3551,7 @@ def api_people_suppress_suggestions(slug, payload):
         )
         # IDENTITY, not name: the live termini of the slug's rows (a node the
         # resolver merged into a survivor is that survivor's, not a second person).
-        _twin_termini = {r.get("person") for r in _merge_aware_name_rows()
-                         if r.get("person") and _wiki_slug(r.get("name", "")) == slug}
+        _twin_termini = set(_raw_identity_roots(slug))
         person_uris = [c["person"] for c in candidates
                        if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
     except Exception as exc:
@@ -6447,6 +6446,37 @@ def _rank_name_rows(rows):
     )
 
 
+def _raw_identity_roots(slug):
+    """Distinct IDENTITIES among the nodes whose name folds to ``slug``.
+
+    The same rule as CM041 #252 (_identity_roots): a node is one identity with
+    the terminus its pwg:mergedInto chain reaches; a node reaching more than one
+    terminus keeps all of them; a node with none (a mergedInto cycle) is its own
+    root. More than one root is ambiguous, whatever the live-terminus view says,
+    so this tree answers a cycle exactly as upstream does.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <' + PWG_NS + '>\n'
+        'SELECT ?person ?name WHERE { ?person a pwg:Person ; pwg:displayName ?name . }')
+    matches = {}
+    for r in rows:
+        uri = r.get("person")
+        if uri and _wiki_slug(r.get("name", "")) == slug:
+            matches.setdefault(uri, r.get("name", ""))
+    roots = set()
+    for uri in matches:
+        esc = uri.replace("\\", "\\\\").replace(">", "%3E")
+        found = {x["r"] for x in _sparql_select(
+            'PREFIX pwg: <' + PWG_NS + '>\n'
+            'SELECT DISTINCT ?r WHERE { <' + esc + '> pwg:mergedInto* ?r .\n'
+            '  FILTER NOT EXISTS { ?r pwg:mergedInto ?x } }') if x.get("r")}
+        if found:
+            roots.update(found)
+        else:
+            roots.add(uri)
+    return sorted(roots)
+
+
 class SlugAmbiguous(RuntimeError):
     """More than one live person folds to one slug. Callers answer 409 and
     write nothing (the wrong-person forget, 2026-11-14, Archie's ruling)."""
@@ -6485,6 +6515,9 @@ def _resolve_person_by_slug(slug):
     SlugAmbiguous when the slug names more than one live person (accents
     fold, so two spellings of one name share a slug). Raises on a store failure.
     """
+    roots = _raw_identity_roots(slug)
+    if len(roots) > 1:
+        raise SlugAmbiguous(len(roots))
     hits = [r for r in _merge_aware_name_rows() if _wiki_slug(r.get("name", "")) == slug]
     if not hits:
         return None, ""
