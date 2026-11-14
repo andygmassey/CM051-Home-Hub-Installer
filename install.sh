@@ -27444,18 +27444,115 @@ if [[ ! -x "$IMPORT_SCRIPT" ]]; then
     exit 0
 fi
 
-# ── Platform exports: one import over Downloads, deduped by export-set hash ──
-if [[ ${#FOUND[@]} -gt 0 ]]; then
-    FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
-    if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
-        _es_already=$(( _es_already + ${#FOUND[@]} ))
-        for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "already imported" "" "${FOUND[$_i]}"; done
+# ── Platform exports: one high-water mark per platform (2026-11-14) ─────────
+# An export is NEW only if its date is after the platform's high-water mark,
+# the newest export date imported successfully. Dated before the mark: skipped
+# silently, no import, no announcement. The date comes from the export's own
+# name where one is parseable (LinkedIn Basic_LinkedInDataExport_MM-DD-YYYY,
+# Google Takeout takeout-YYYYMMDD), otherwise from the newest file mtime inside
+# the export (a zip: the zip's own mtime). A zip and its extracted folder are
+# ONE export: the zip is kept and the folder dropped, so extraction never adds
+# an announcement. Dated exactly at the mark: imported only when its content
+# fingerprint is not yet in the ledger (tiebreak for a same-day re-save).
+# A failed import moves nothing: no mark, no ledger row (#1571).
+_ES_MARK="${_ES_STATE}/high_water.tsv"        # label<TAB>epoch<TAB>date_source
+_ES_PLAT="${_ES_STATE}/imported_platform.tsv" # epoch<TAB>fingerprint<TAB>label<TAB>path
+_es_fp() {  # $1 = an export's path (file or folder) -> fingerprint of its content
+    if [[ -d "$1" ]]; then
+        find "$1" -type f -exec stat -f '%N %z %m' {} + 2>/dev/null | sort | shasum | cut -d' ' -f1
     else
+        stat -f '%N %z %m' "$1" 2>/dev/null | shasum | cut -d' ' -f1
+    fi
+}
+_es_name_date() {  # $1 = basename -> "epoch<TAB>name" when the name carries a date
+    local _d=""
+    if [[ "$1" =~ _([0-9]{2})-([0-9]{2})-([0-9]{4}) ]]; then
+        _d="$(date -j -u -f '%m-%d-%Y %H:%M:%S' "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]} 00:00:00" +%s 2>/dev/null)"
+    elif [[ "$1" =~ takeout-([0-9]{8})T ]]; then
+        _d="$(date -j -u -f '%Y%m%d %H:%M:%S' "${BASH_REMATCH[1]} 00:00:00" +%s 2>/dev/null)"
+    fi
+    case "$_d" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s\tname\n' "$_d"
+}
+_es_mtime() {  # $1 = path -> newest file mtime inside it (a zip or file: its own)
+    if [[ -d "$1" ]]; then
+        # A folder with no files has no inner date: its own mtime stands in.
+        _es_m="$(find "$1" -type f -exec stat -f '%m' {} + 2>/dev/null | sort -n | tail -1)"
+        [[ -n "$_es_m" ]] || _es_m="$(stat -f '%m' "$1" 2>/dev/null)"
+        printf '%s\n' "$_es_m"
+    else
+        stat -f '%m' "$1" 2>/dev/null
+    fi
+}
+_es_mark_get() {  # $1 = label -> its high-water epoch, or nothing
+    [[ -f "$_ES_MARK" ]] || return 0
+    awk -F'\t' -v l="$1" '$1 == l { m = $2 } END { if (m != "") print m }' "$_ES_MARK"
+}
+_es_ledger_has() {  # $1 epoch, $2 fingerprint -> 0 if this export content was imported
+    [[ -f "$_ES_PLAT" ]] || return 1
+    awk -F'\t' -v d="$1" -v f="$2" '$1 == d && $2 == f { hit = 1 } END { exit hit ? 0 : 1 }' "$_ES_PLAT"
+}
+_es_mark_raise() {  # $1 label, $2 epoch, $3 date source: the mark only ever moves up
+    local _cur tmp
+    _cur="$(_es_mark_get "$1")"
+    if [[ -n "$_cur" && "$_cur" -ge "$2" ]]; then return 0; fi
+    tmp="${_ES_MARK}.tmp.$$"
+    { [[ -f "$_ES_MARK" ]] && awk -F'\t' -v l="$1" '$1 != l' "$_ES_MARK"
+      printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$tmp" && mv "$tmp" "$_ES_MARK"
+}
+if [[ ${#FOUND[@]} -gt 0 ]]; then
+    P_PATH=(); P_LBL=(); P_DATE=(); P_SRC=(); P_FP=(); P_KEY=()
+    _seen_paths=""
+    for _i in "${!FOUND[@]}"; do
+        _pp="${FOUND[$_i]%/}"
+        # An extracted folder with a sibling zip is the same export: count the zip.
+        if [[ "$_pp" != *.zip && -f "${_pp}.zip" ]]; then _pp="${_pp}.zip"; fi
+        case $'\n'"${_seen_paths}"$'\n' in *$'\n'"${_pp}"$'\n'*) continue ;; esac
+        _seen_paths="${_seen_paths}${_pp}"$'\n'
+        _dv=""; _src=""
+        if _nd="$(_es_name_date "$(basename "$_pp")")"; then _dv="${_nd%%$'\t'*}"; _src="name"; fi
+        if [[ -z "$_dv" ]]; then _dv="$(_es_mtime "$_pp")"; _src="mtime"; fi
+        if [[ -z "$_dv" ]]; then
+            _es_skip "${FOUND_LABELS[$_i]}" "Ostler could not read the date of this export" "$_pp"
+            continue
+        fi
+        P_PATH+=("$_pp"); P_LBL+=("${FOUND_LABELS[$_i]}"); P_DATE+=("$_dv"); P_SRC+=("$_src")
+        P_FP+=("$(_es_fp "$_pp")"); P_KEY+=("${_dv}"$'\t'"${P_FP[${#P_FP[@]}-1]}")
+    done
+    # Upgrade only: a box that imported under the old set-hash rule has no mark
+    # and no ledger. Its current exports are recorded as imported, not re-imported.
+    FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
+    _legacy_set=0
+    if [[ ! -f "$_ES_MARK" && ! -f "$_ES_PLAT" ]] && [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
+        _legacy_set=1
+    fi
+    P_NEW=()
+    for _i in "${!P_PATH[@]}"; do
+        _m="$(_es_mark_get "${P_LBL[$_i]}")"
+        _d="${P_DATE[$_i]}"
+        if [[ "$_legacy_set" -eq 1 ]]; then
+            printf '%s\t%s\t%s\t%s\n' "${P_DATE[$_i]}" "${P_FP[$_i]}" "${P_LBL[$_i]}" "${P_PATH[$_i]}" >> "$_ES_PLAT"
+            _es_mark_raise "${P_LBL[$_i]}" "$_d" "${P_SRC[$_i]}"
+            _es_already=$(( _es_already + 1 ))
+            _es_row "${P_LBL[$_i]}" "already imported" "" "${P_PATH[$_i]}"
+        elif [[ -n "$_m" && "$_d" -lt "$_m" ]]; then
+            _es_already=$(( _es_already + 1 ))
+            _es_row "${P_LBL[$_i]}" "already imported" "dated before the last import" "${P_PATH[$_i]}"
+        elif [[ -n "$_m" && "$_d" -eq "$_m" ]] && _es_ledger_has "$_d" "${P_FP[$_i]}"; then
+            _es_already=$(( _es_already + 1 ))
+            _es_row "${P_LBL[$_i]}" "already imported" "" "${P_PATH[$_i]}"
+        else
+            P_NEW+=("$_i")
+        fi
+    done
+    _new_n=${#P_NEW[@]}
+    if [[ "$_new_n" -gt 0 ]]; then
         # Auto-import. ostler-import fans to BOTH pipelines over the whole
-        # Downloads folder and is re-run safe.
-        _first="${FOUND_LABELS[0]}"
-        if [[ ${#FOUND[@]} -gt 1 ]]; then
-            _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
+        # Downloads folder and is re-run safe, so already-known items inside
+        # it cost nothing and are not announced or counted as new.
+        _first="${P_LBL[${P_NEW[0]}]}"
+        if [[ "$_new_n" -gt 1 ]]; then
+            _notify "Ostler found your ${_first} export and $(( _new_n - 1 )) more, and is adding them to your world." "Importing"
         else
             _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
         fi
@@ -27464,25 +27561,21 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
         "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
         if [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
-            # Record ONLY on success. The comment here used to say exactly that
-            # while the write sat outside the branch, so a failed import was
-            # marked done and never retried: the hash is the dedupe key, and once
-            # it is in scan_state this export set is skipped for ever. #1571.
+            # Record ONLY on success (#1571): the mark and ledger move only here.
             echo "$FOUND_HASH" >> "$SCAN_STATE"
-            _es_imp=$(( _es_imp + ${#FOUND[@]} ))
-            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "imported" "" "${FOUND[$_i]}"; done
+            for _i in "${P_NEW[@]}"; do
+                _es_mark_raise "${P_LBL[$_i]}" "${P_DATE[$_i]}" "${P_SRC[$_i]}"
+                printf '%s\t%s\t%s\t%s\n' "${P_DATE[$_i]}" "${P_FP[$_i]}" "${P_LBL[$_i]}" "${P_PATH[$_i]}" >> "$_ES_PLAT"
+                _es_row "${P_LBL[$_i]}" "imported" "" "${P_PATH[$_i]}"
+            done
+            _es_imp=$(( _es_imp + _new_n ))
         else
-            # The old message on this branch was "Imported your latest export.
-            # Some parts will finish in the background." The importer had just
-            # returned NON-ZERO, so nothing was imported and nothing is finishing
-            # in the background. Both branches claimed an import, which is why the
-            # failure was invisible to the person it happened to.
+            # The importer returned non-zero: nothing imported, nothing finishing
+            # in the background. Say so. No mark, no ledger row.
             _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
-            # No hash written, so the next tick retries this export set rather
-            # than skipping it for ever.
-            _es_failed=$(( _es_failed + ${#FOUND[@]} ))
+            _es_failed=$(( _es_failed + _new_n ))
             _es_fail_why="the importer stopped with exit code ${_imp_rc}"
-            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "$_es_fail_why" "${FOUND[$_i]}"; done
+            for _i in "${P_NEW[@]}"; do _es_row "${P_LBL[$_i]}" "failed" "$_es_fail_why" "${P_PATH[$_i]}"; done
         fi
     fi
 fi

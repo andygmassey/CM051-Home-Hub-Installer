@@ -582,6 +582,7 @@ test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_linkedin_export_imports_once.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_linkedin_recommendations_are_not_preferences.py	WIRED	.github/workflows/misclassified-things.yml
 test_listener_watchdog_budget.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_listener_watchdog_install_marker.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
