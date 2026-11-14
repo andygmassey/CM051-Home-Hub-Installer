@@ -48,7 +48,7 @@ run_probe() {
     # pwg-convo's own venv interpreter, read off its shebang, is the one that
     # has the shipped CM048 package (src.conversation_writer, src.reminders_push)
     # importable -- a bare system python3 does not.
-    venv_py="$(box_run "CLI=\${OSTLER_CONVO_SEED_CLI:-/usr/local/bin/pwg-convo}; [ -e \"\$CLI\" ] && head -1 \"\$CLI\" | sed -n 's/^#!//p'")"
+    venv_py="$(box_run "CLI=\${OSTLER_CONVO_SEED_CLI:-}; [ -n \"\$CLI\" ] || { [ -x \"\${OSTLER_DIR:-\$HOME/.ostler}/bin/pwg-convo\" ] && CLI=\"\${OSTLER_DIR:-\$HOME/.ostler}/bin/pwg-convo\"; }; [ -n \"\$CLI\" ] || CLI=/usr/local/bin/pwg-convo; [ -e \"\$CLI\" ] && head -1 \"\$CLI\" | sed -n 's/^#!//p'")"
     if [ -z "${venv_py}" ] || ! box_run "[ -x '${venv_py}' ]"; then
         box_run "rm -f ${remote}" >/dev/null 2>&1
         probe_cannot_run "could not resolve the pwg-convo venv interpreter (no /usr/local/bin/pwg-convo, or its shebang does not point at an executable)"

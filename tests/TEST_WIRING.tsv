@@ -193,6 +193,7 @@ test_catchup_messages.py	WIRED	.github/workflows/catchup-messages.yml
 test_catchup_photos_ai.py	WIRED	.github/workflows/catchup-photos-ai.yml
 test_catchup_takeout.py	WIRED	.github/workflows/catchup-takeout.yml
 test_chat_wait_is_sized_from_measured_turns.py	WIRED	.github/workflows/walk-record-gate.yml
+test_cli_symlink_owner_path.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_closing_verdict_consults_failed_steps.sh	WIRED	.github/workflows/step-end-status-honesty.yml
 test_cm019_bundle_accepts_the_payload_root.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_cm019_enrich_consent_gate_vendored.py	WIRED	.github/workflows/enrichment-reaches-corpus.yml
@@ -234,7 +235,9 @@ test_cm048_settings_models_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-
 test_cm048_single_speaker_capture_is_a_memo.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_third_party_facts_keep_their_subject.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_thread_key_matches_the_daemon.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_cm048_undated_bundle_not_pushed.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm048_whatsapp_lid_not_phone.py	WIRED	.github/workflows/cm048-whatsapp-lid-not-phone.yml
+test_cm048_window_drift.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_cm052_paused_conversation_is_not_watermarked.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_cm059_scout_newsletters_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_codename_sweep_sees_an_early_leak.sh	WIRED	.github/workflows/appcast-ship-wiring.yml
@@ -367,6 +370,7 @@ test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
 test_doctor_shows_loopback_guard.py	WIRED	.github/workflows/cold-box-source-truth.yml
+test_doctor_shows_shared_prefix.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
 test_doctor_shows_your_data_exports.py	WIRED	.github/workflows/doctor-your-data-exports.yml
 test_doctor_silent_failure_grafts.py	WIRED	.github/workflows/vendor-integrity.yml
@@ -494,6 +498,7 @@ test_grounding_reports_who_fetched.sh	WIRED	.github/workflows/every-probe-is-col
 test_group_followup_key_counts_silent_members.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_homebrew_bootstrap_is_pinned.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_homebrew_refusal_reaches_the_screen.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_hub_app_fetch_wired.sh	WIRED	.github/workflows/hub-app-fetch.yml
 test_hub_chat_carries_the_chat_tool_set.sh	WIRED	.github/workflows/assistant-config-required-fields.yml
 test_hub_contract_generator.py	WIRED	.github/workflows/hub-contract.yml
@@ -769,6 +774,7 @@ test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/i
 test_provisional_phone_twins_merge.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
 test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_pwg_convo_bin_owner_side_first.py	WIRED	.github/workflows/cold-box-source-truth.yml
 test_pyc_bytes_depend_on_compile_path.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pyc_seed_excludes_nested_ostler_app.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_q23_spoken_capture_copy_fits_the_window.sh	WIRED	.github/workflows/consent-data-handling.yml

@@ -24604,6 +24604,36 @@ CM048_DIR="${OSTLER_DIR}/services/cm048"
 CM048_VENV="${CM048_DIR}/.venv"
 CM048_BIN="${CM048_VENV}/bin/pwg-convo"
 CM048_SYMLINK="/usr/local/bin/pwg-convo"
+# _ostler_link_cli TARGET LINK: put a CLI on the customer's PATH. Sets
+# _OSTLER_LINKED to the path actually linked (used by the health check after).
+# Under OSTLER_GUI=1 nothing can be elevated: the GUI pty has no sudo prompt,
+# and /usr/local/bin is root-owned on a stock Mac (the admin shell no longer
+# chowns it). So a plain ln is tried first, and if that fails the link goes in
+# ${OSTLER_DIR}/bin, which the owner owns. Outside the GUI, sudo as before.
+# The ostler-knowledge path to run: the /usr/local/bin link when it exists, else
+# the owner-side link _ostler_link_cli makes under a GUI install.
+_ostler_knowledge_cli() {
+    if [[ -x "${OSTLER_DIR}/bin/ostler-knowledge" ]]; then echo "${OSTLER_DIR}/bin/ostler-knowledge"
+    elif [[ -x /usr/local/bin/ostler-knowledge ]]; then echo /usr/local/bin/ostler-knowledge
+    else echo "${OSTLER_DIR}/bin/ostler-knowledge"; fi
+}
+
+_ostler_link_cli() {
+    local target="$1" link="$2"
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        if ln -sf "$target" "$link" 2>/dev/null; then
+            _OSTLER_LINKED="$link"
+        else
+            mkdir -p "${OSTLER_DIR}/bin"
+            _OSTLER_LINKED="${OSTLER_DIR}/bin/$(basename "$link")"
+            ln -sfn "$target" "$_OSTLER_LINKED"
+        fi
+    else
+        sudo ln -sf "$target" "$link"
+        _OSTLER_LINKED="$link"
+    fi
+}
+
 CM048_SOURCE_OK=false
 
 mkdir -p "$(dirname "$CM048_DIR")"
@@ -24812,17 +24842,8 @@ COACHPY
 
     if [[ -x "$CM048_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt. Matches the
-        # ostler-knowledge symlink pattern below.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$CM048_BIN" "$CM048_SYMLINK" \
-                || sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        else
-            sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        fi
+        _ostler_link_cli "$CM048_BIN" "$CM048_SYMLINK"
+        CM048_SYMLINK="$_OSTLER_LINKED"
 
         # Health check. Two gates, both must pass:
         #
@@ -26486,7 +26507,7 @@ _ostler_notes_refresh() {
 
     local json="${OSTLER_DIR}/imports/fda/apple_notes.json"
     local mark="${state}/hydrate/apple_notes_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/notes-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-notes-rerun"
     local count sha
@@ -26561,7 +26582,7 @@ _ostler_reminders_refresh() {
     local json="${fda}/reminders.json"
     local state="${OSTLER_DIR}/state"
     local mark="${state}/hydrate/reminders_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/reminders-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-reminders-rerun"
     local xstatus count sha
@@ -27903,11 +27924,13 @@ esac
 # success and the log showed a traceback nobody reads: the sender had never
 # been able to send. Found by running this block against a real Hub.
 _send_rc=0
-OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF' || _send_rc=$?
+_OWNER_LANG=$(sed -n 's/^owner_language *= *"\([^"]*\)".*/\1/p' "${CONFIG_TOML}" 2>/dev/null | head -1)
+[ -n "${_OWNER_LANG}" ] || _OWNER_LANG="en-GB"
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" "${_OWNER_LANG}" <<'PYEOF' || _send_rc=$?
 import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
-db_path, assistant_url, log_path, hub_host, ostler_dir, channel = sys.argv[1:]
+db_path, assistant_url, log_path, hub_host, ostler_dir, channel, owner_lang = sys.argv[1:]
 undelivered = []
 try:
     payload = json.loads(os.environ.get("OSTLER_BRIEF_HUB_JSON", ""))
@@ -27932,6 +27955,49 @@ if not meetings:
 COMPOSER = os.environ.get("OSTLER_BRIEF_COMPOSER") or os.path.join(
     ostler_dir, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
 OWNER = os.environ.get("OSTLER_BRIEF_OWNER_NAME", "")
+
+# Owner-facing header, in the owner's installer language (config.toml
+# owner_language). {t} is the meeting title, {w} the time. Any language not
+# listed here reads in English, so a new language is never silently blank.
+HEADER = {
+    # (meeting with attendees, meeting alone, timed; then the untimed pair)
+    "en": ("Meeting: {t} at {w}.", "You have {t} at {w}.", "Meeting: {t}.", "You have {t}."),
+    "de": ("Termin: {t} um {w}.", "Du hast {t} um {w}.", "Termin: {t}.", "Du hast {t}."),
+    "fr": ("Réunion : {t} à {w}.", "Vous avez {t} à {w}.", "Réunion : {t}.", "Vous avez {t}."),
+    "es": ("Reunión: {t} a las {w}.", "Tienes {t} a las {w}.", "Reunión: {t}.", "Tienes {t}."),
+    "it": ("Riunione: {t} alle {w}.", "Hai {t} alle {w}.", "Riunione: {t}.", "Hai {t}."),
+    "nl": ("Afspraak: {t} om {w}.", "Je hebt {t} om {w}.", "Afspraak: {t}.", "Je hebt {t}."),
+    "pt": ("Reunião: {t} às {w}.", "Você tem {t} às {w}.", "Reunião: {t}.", "Você tem {t}."),
+    "ja": ("会議: {t}（{w}）。", "{t}（{w}）があります。", "会議: {t}。", "{t}があります。"),
+    "ko": ("회의: {t}, {w}.", "{w}에 {t} 일정이 있습니다.", "회의: {t}.", "{t} 일정이 있습니다."),
+    "zh": ("会议：{t}，{w}。", "你有{w}的{t}。", "会议：{t}。", "你有{t}。"),
+    "ar": ("اجتماع: {t} في {w}.", "لديك {t} في {w}.", "اجتماع: {t}.", "لديك {t}."),
+}
+OWNER_LANG = (owner_lang or "en").split("-")[0].lower()
+if owner_lang.lower().startswith(("zh", "yue")):
+    OWNER_LANG = "zh"
+if owner_lang.lower() in ("pt-pt", "pt-br", "pt"):
+    OWNER_LANG = "pt"
+
+def _when(start_iso):
+    """Time of day in the owner's convention: 12-hour for en-US, 24-hour
+    otherwise. The date is left out on purpose: the brief is sent inside
+    the look-ahead window, so the day is already known to the owner."""
+    raw = (start_iso or "").strip()
+    try:
+        if len(raw) == 15 and "T" in raw:
+            dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+        else:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                # An offset or Z: show the owner's local clock, not UTC.
+                dt = dt.astimezone()
+    except ValueError:
+        return ""
+    if owner_lang.lower() == "en-us":
+        h = dt.hour % 12 or 12
+        return f"{h}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+    return f"{dt.hour:02d}:{dt.minute:02d}"
 
 # Last line of defence on whatever is SENT, independent of the composer: these
 # phrases state an inference or give generic advice, and none may be sent.
@@ -27996,8 +28062,14 @@ try:
         title = m.get("meeting") or "Upcoming meeting"
         if any(b in title.lower() for b in BANNED):
             title = "Upcoming meeting"
-        when = m.get("start") or ""
-        header = (f"Meeting: {title}" if m.get("attendees") else f"You have {title}") + (f" at {when}" if when else "") + "."
+        when = _when(m.get("start_iso") or "")
+        meet_t, have_t, meet_u, have_u = HEADER.get(OWNER_LANG, HEADER["en"])
+        if when:
+            fmt = meet_t if m.get("attendees") else have_t
+            header = fmt.replace("{t}", title).replace("{w}", when)
+        else:
+            fmt = meet_u if m.get("attendees") else have_u
+            header = fmt.replace("{t}", title)
         parts = [header]
         failed = False
         for a in (m.get("attendees") or [])[:3]:
@@ -30351,16 +30423,8 @@ if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
 
     if [[ -x "$KNOWLEDGE_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK" \
-                || sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        else
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        fi
+        _ostler_link_cli "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+        KNOWLEDGE_SYMLINK="$_OSTLER_LINKED"
 
         # Health check via the symlink (verifies PATH-side wiring + venv binding).
         if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
@@ -30903,7 +30967,9 @@ _install_conversation_feed() {
     #    invocation. Falls back to the /usr/local/bin symlink, then PATH.
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
@@ -31026,7 +31092,9 @@ _ostler_catchup_register_feed() {
     command -v _ostler_catchup_register >/dev/null 2>&1 || return 0
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
@@ -39344,7 +39412,7 @@ if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
 else
     progress "Reading your Apple Notes" "hydrate_apple_notes"
 fi
-_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 # TAKEN FROM THE REGISTER, NOT RE-TYPED (#1598). This used to be a bare
@@ -39604,7 +39672,7 @@ if [[ ! -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
 else
     progress "Reading your Reminders" "hydrate_reminders"
 fi
-_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_REMINDERS_STAGING="${OSTLER_DIR}/data/knowledge-staging-reminders"
 _HYDRATE_REMINDERS_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 _HYDRATE_REMINDERS_COLLECTION="reminders_knowledge"
