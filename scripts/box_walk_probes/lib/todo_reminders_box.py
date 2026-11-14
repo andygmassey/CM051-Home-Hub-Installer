@@ -13,6 +13,7 @@ print personal-content-shaped strings from a box).
 Subcommands:
   run --token T --text TEXT --wait-s N   write + poll + read back
   forget --token T --text TEXT           delete the reminder by id, verify, then the map row
+  reset                                  remove reminders a previous walk recorded (by id), report residue
 """
 import json
 import os
@@ -245,21 +246,107 @@ def tcc_reminders_state(db_path=None, clients=TCC_CLIENTS):
 _TCC_MARKERS = ("-1743", "not authorized to send apple events", "not allowed to send apple events")
 
 
-def _readback(text):
-    script = 'tell application "Reminders" to count (every reminder whose name is "%s")' % text.replace('\\', '\\\\').replace('"', '\\"')
+def _sel(ident):
+    """The AppleScript selector for ONE reminder, by the identifier the daemon
+    recorded (calendar_item_identifier). The daemon titles its reminders
+    "Follow up on conversation" (reminders_push._format_push_title), never the
+    todo text, so a match on text could never find them."""
+    return 'every reminder whose id contains "%s"' % _as_quote(ident)
+
+
+def _readback(ident, runner=None):
+    """Count the reminder the daemon pushed, by its recorded identifier.
+    A timeout is never "not found": it is reported timed_out, and the judge
+    reads it as CANNOT-RUN."""
+    if not ident:
+        return {"attempted": False, "error": "no calendar_item_identifier recorded for this push"}
+    rc, out, err = _osa('tell application "Reminders" to count (%s)' % _sel(ident), runner)
+    if rc != 0:
+        if "timed out" in err.lower():
+            return {"attempted": True, "blocked_tcc": False, "timed_out": True, "error": err.strip()[:160]}
+        blocked = any(m in err.lower() for m in _TCC_MARKERS)
+        return {"attempted": True, "blocked_tcc": blocked, "error": None if blocked else err.strip()[:200]}
     try:
-        proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=20)
-    except Exception as exc:
-        return {"attempted": False, "error": str(exc)[:160]}
-    if proc.returncode != 0:
-        stderr_l = (proc.stderr or "").lower()
-        blocked = any(m in stderr_l for m in _TCC_MARKERS)
-        return {"attempted": True, "blocked_tcc": blocked, "error": None if blocked else (proc.stderr or "").strip()[:200]}
-    try:
-        n = int((proc.stdout or "").strip())
+        n = int(out.strip())
         return {"attempted": True, "blocked_tcc": False, "found": n > 0}
     except ValueError:
-        return {"attempted": True, "blocked_tcc": False, "found": None, "error": (proc.stdout or "").strip()[:200]}
+        return {"attempted": True, "blocked_tcc": False, "found": None, "error": out.strip()[:200]}
+
+
+# The walk's own record of the reminders it created, by EventKit identifier.
+# Written when the daemon pushes one, dropped when a delete is verified gone.
+# A walk that dies mid-run still leaves its handles here, and the next walk's
+# reset step removes them. Path is per-box and never a title or todo text.
+STATE_PATH = os.environ.get("OSTLER_TODO_REMINDERS_STATE") or os.path.expanduser(
+    "~/.ostler/walks/todo-reminders-created.json")
+
+
+def state_load(path=None):
+    """-> (list_of_identifiers, error). A missing file is an empty list (no
+    walk ever created one); an unreadable file is an error, never an empty list."""
+    path = path or STATE_PATH
+    if not os.path.exists(path):
+        return [], None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            ids = json.load(fh).get("created", [])
+        return [str(x) for x in ids if x], None
+    except (OSError, ValueError, AttributeError) as exc:
+        return [], "state file unreadable: " + type(exc).__name__
+
+
+def _state_write(ids, path=None):
+    path = path or STATE_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"created": sorted(set(ids))}, fh)
+    os.replace(tmp, path)
+
+
+def state_add(ident, path=None):
+    if not ident:
+        return
+    ids, err = state_load(path)
+    if err:
+        return
+    ids.append(ident)
+    _state_write(ids, path)
+
+
+def state_drop(ident, path=None):
+    ids, err = state_load(path)
+    if err or ident not in ids:
+        return
+    _state_write([x for x in ids if x != ident], path)
+
+
+def cmd_reset(argv, runner=None):
+    """Remove every reminder a previous walk recorded, by identifier, then
+    report the MEASURED residue. Each removal is verified by an EventKit count
+    inside delete_reminder. Over ssh the delete can time out or be refused
+    (Automation TCC), in which case the residue stays and is reported as such:
+    the console must clear it, and the walk says so instead of passing."""
+    ids, err = state_load()
+    out = {"reset": {"before": len(ids), "removed": 0, "residue_after": None, "states": []}}
+    if err:
+        out["reset"]["error"] = err
+        print(json.dumps(out))
+        return 0
+    keep = []
+    for ident in ids:
+        r = delete_reminder(ident, runner)
+        out["reset"]["states"].append(r["state"])
+        if r["state"] in ("deleted", "none_to_delete"):
+            out["reset"]["removed"] += 1
+        else:
+            keep.append(ident)
+    # Always rewrite: an empty `keep` is the success case, and skipping the
+    # write would leave every removed identifier in the file for the next walk.
+    _state_write(keep)
+    out["reset"]["residue_after"] = len(keep)
+    print(json.dumps(out))
+    return 0
 
 
 def cmd_run(argv):
@@ -275,12 +362,16 @@ def cmd_run(argv):
         facts["push"] = _poll(uid, token, todo_id, wait_s)
         facts["tcc_reminders"] = tcc_reminders_state()
         if facts["push"].get("status") == "pushed":
-            facts["readback"] = _readback(text)
+            ident = facts["push"].get("calendar_item_identifier")
+            state_add(ident)
+            facts["readback"] = _readback(ident)
     one, ones = _write_one_to_one(token)
     facts["one_to_one"] = one
     if ones:
         uid1, todo1 = ones
         facts["one_to_one_push"] = _poll(uid1, token + "-1to1", todo1, wait_s)
+        if facts["one_to_one_push"].get("status") == "pushed":
+            state_add(facts["one_to_one_push"].get("calendar_item_identifier"))
     facts["org_filter_flagged_rows"] = _count_reason("org_filter_unavailable")
     # The list report is read AFTER the pushes so pushed_in_list includes them.
     time.sleep(2)
@@ -300,11 +391,15 @@ _OSA_TIMEOUT_S = 60
 
 
 def _osa(script, runner=None):
-    """Run one AppleScript. Returns (rc, stdout, stderr); never raises."""
+    """Run one AppleScript. Returns (rc, stdout, stderr); never raises. A
+    timeout is rc 124 with "timed out" in stderr, so no caller can mistake it
+    for a clean answer."""
     runner = runner or subprocess.run
     try:
         p = runner(["osascript", "-e", script], capture_output=True, text=True, timeout=_OSA_TIMEOUT_S)
         return p.returncode, (p.stdout or ""), (p.stderr or "")
+    except subprocess.TimeoutExpired:
+        return 124, "", "osascript timed out after {} seconds".format(_OSA_TIMEOUT_S)
     except Exception as exc:
         return 1, "", "osascript could not run: {}".format(exc)
 
@@ -325,8 +420,7 @@ def delete_reminder(ident, runner=None):
     """
     if not ident:
         return {"state": "none_to_delete"}
-    q = _as_quote(ident)
-    sel = 'every reminder whose id contains "%s"' % q
+    sel = _sel(ident)
     delete = 'tell application "Reminders" to delete (%s)' % sel
     rc, out, err = _osa(delete, runner)
     if rc != 0 and "timed out" in err.lower():
@@ -334,10 +428,16 @@ def delete_reminder(ident, runner=None):
         # below decide whether the reminder is actually gone.
         rc, out, err = _osa(delete, runner)
     if rc != 0:
+        if "timed out" in err.lower():
+            # Not verified gone, and not a refusal: the judge reads this as
+            # CANNOT-RUN for cleanup, never as a pass.
+            return {"state": "timed_out", "error": err.strip()[:200]}
         blocked = any(m in err.lower() for m in _TCC_MARKERS)
         return {"state": "blocked_tcc" if blocked else "failed", "error": err.strip()[:200]}
     rc, out, err = _osa('tell application "Reminders" to count (%s)' % sel, runner)
     if rc != 0:
+        if "timed out" in err.lower():
+            return {"state": "timed_out", "error": "the verifying count timed out: " + err.strip()[:120]}
         return {"state": "failed", "error": "delete ran but the verifying count failed: " + err.strip()[:160]}
     try:
         left = int(out.strip())
@@ -364,6 +464,7 @@ def _forget_one_to_one(uid, token, runner=None):
         out["calendar_item_identifier"] = ident
         out["reminder"] = delete_reminder(ident, runner)
         if out["reminder"]["state"] in ("deleted", "none_to_delete"):
+            state_drop(ident)
             conn.execute("DELETE FROM reminders_map WHERE user_id=? AND source_session_id=?", (uid, sid))
             conn.commit()
             out["db_deleted"] = True
@@ -397,6 +498,7 @@ def cmd_forget(argv, runner=None):
         # there was nothing to delete, so a retry still has its handle.
         result["reminder"] = delete_reminder(ident, runner)
         if result["reminder"]["state"] in ("deleted", "none_to_delete"):
+            state_drop(ident)
             conn.execute(
                 "DELETE FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
                 (uid, token, todo_id),
@@ -410,6 +512,11 @@ def cmd_forget(argv, runner=None):
             result["reminder"] = {"state": "failed", "error": "could not read the map row: " + str(exc)[:120]}
     result["expected_title"] = "Follow up on conversation"
     result["one_to_one"] = _forget_one_to_one(uid, token)
+    # The MEASURED residue: walk-created reminders still recorded after this
+    # walk's own cleanup. The state file is the list; a non-empty list is a
+    # reminder the walk left behind, and the judge reads it as such.
+    left, lerr = state_load()
+    result["residue"] = {"count": len(left) if not lerr else None, "error": lerr}
     print(json.dumps(result))
     return 0
 
@@ -419,6 +526,8 @@ def main(argv):
         return cmd_run(argv[1:])
     if argv[:1] == ["forget"]:
         return cmd_forget(argv[1:])
+    if argv[:1] == ["reset"]:
+        return cmd_reset(argv[1:])
     print(__doc__)
     return 2
 

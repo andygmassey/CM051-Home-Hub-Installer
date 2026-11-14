@@ -747,9 +747,17 @@ _KNOWLEDGE_SOURCES = {
     "markdown_collection": "notion",
 }
 
+def _owner_side_or(name, fallback):
+    """${OSTLER_DIR}/bin/<name> when it exists (a GUI install links there, since
+    /usr/local/bin is root-owned), else the /usr/local/bin fallback. Owner-side first."""
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    owner = os.path.join(base, "bin", name)
+    return owner if os.path.exists(owner) else fallback
+
+
 # Resolve the same binary path the Doctor runner uses, honouring the same
 # override env var so the two stay consistent on every install.
-_DEFAULT_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+_DEFAULT_KNOWLEDGE_BIN = _owner_side_or("ostler-knowledge", "/usr/local/bin/ostler-knowledge")
 
 
 def _dispatch(detection: Detection, *, dry_run: bool, output_dir: Optional[Path]) -> dict:
@@ -812,7 +820,7 @@ def _out_dir(output_dir: Optional[Path]) -> Path:
 
 # The Doctor / per-feed bundles resolve pwg-convo by this env var first,
 # then the CM048 venv binary, then the /usr/local/bin symlink, then PATH.
-_DEFAULT_PWG_CONVO_BIN = "/usr/local/bin/pwg-convo"
+_DEFAULT_PWG_CONVO_BIN = _owner_side_or("pwg-convo", "/usr/local/bin/pwg-convo")
 
 
 def _pwg_convo_cmd() -> Optional[List[str]]:

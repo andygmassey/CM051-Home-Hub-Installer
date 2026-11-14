@@ -1060,7 +1060,24 @@ WIKI_HYDRATION_ALLOWED_ORIGINS = {
 # conversation pipeline as a CLI subprocess rather than importing it
 # as a library. The override exists for dev / private-beta installs
 # where CM048 may be installed elsewhere on PATH.
-PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")
+def _default_pwg_convo_bin(home=None, exists=None):
+    """The pwg-convo CLI this server runs when PWG_CONVO_BIN is unset.
+
+    Owner-side link first: the GUI installer cannot write /usr/local/bin on a
+    stock Mac (no chown any more), so it links pwg-convo into
+    ${OSTLER_DIR}/bin instead (install.sh _ostler_link_cli). Then the
+    /usr/local/bin link that a CLI install makes. Nothing in the launchd plist
+    sets PWG_CONVO_BIN, so this default is what runs in production.
+    """
+    exists = exists or os.path.exists
+    base = os.environ.get("OSTLER_DIR") or os.path.join(home or os.path.expanduser("~"), ".ostler")
+    owner_side = os.path.join(base, "bin", "pwg-convo")
+    if exists(owner_side):
+        return owner_side
+    return "/usr/local/bin/pwg-convo"
+
+
+PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN") or _default_pwg_convo_bin()
 
 # ── Memory tab (CM031 iOS Companion v1.0 LB) ─────────────────────────
 # The Memory tab is the customer's window into what Ostler has inferred

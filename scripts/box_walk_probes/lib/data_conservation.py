@@ -130,6 +130,14 @@ def adjudicate_row(row, facts):
     fk = row.get("facts", {})
     exp = row.get("expected", {})
     chain_on = row.get("chain", True)
+    if row.get("cross_run"):
+        # IN and STORED come from different runs, so no comparison between them
+        # is a measurement. NOT-MEASURED (CANNOT-RUN), never LOST and never a
+        # pass. A LOST elsewhere still FAILs the whole probe.
+        return {"id": row["id"], "source": row.get("source", ""), "category": row.get("category", ""),
+                "unit": row.get("unit", "items"), "in": None, "stored": None, "graph": None,
+                "shown": None, "expected": exp, "verdict": "NOT-MEASURED",
+                "why": "CANNOT-RUN (cross-run): " + row["cross_run"], "notes": ""}
     m = {s: _fact(facts, fk.get(s)) for s in STAGES}
     verdict = "CONSERVED"
     why, notes = [], []
@@ -462,6 +470,17 @@ def _slug(text):
     return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")[:48]
 
 
+def shown_source_sum(facts, coll):
+    """SHOWN summed over EVERY source of a collection. The STORED total
+    (q.<coll>.total) counts all sources, so a row that reads one source's SHOWN
+    against it reads the other sources' items as lost (walk 131: people read
+    fda_people_index alone against a total that also holds icloud_contacts).
+    None when no source group was measured, which is absent, never 0."""
+    pref = "w.shown.%s.source=" % coll
+    vals = [int(v) for k, v in facts.items() if k.startswith(pref) and v is not None]
+    return sum(vals) if vals else None
+
+
 def collect_qdrant(facts, meta, hdr, corpus):
     noise = load_noise_reason(meta)
     for coll, (keys, pairs, disp) in COLLECTION_SPEC.items():
@@ -542,6 +561,7 @@ def collect_qdrant(facts, meta, hdr, corpus):
                 facts["w.shown.%s.%s" % (coll, g)] = int(round(hit * scale))
                 if scale != 1.0:
                     meta.setdefault("shown_sampled", []).append("%s.%s x%.1f" % (coll, g, scale))
+            facts["w.shown.%s.source_sum" % coll] = shown_source_sum(facts, coll)
 
 
 def _sparql(q, hdr):
