@@ -141,7 +141,7 @@
 [[tree]]
 name             = "cm041/contact_syncer"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): contact_syncer divergence-patch regeneration remains blocked by the documented PII-export hazard (regenerate_forbidden: the MINUS side carries person-name-shaped tokens); verify_vendor_fresh.sh re-measured 2026-10-01 still reports the patch failing to apply at the pin (source moved under it). Nothing has changed; not resolvable without the CM041 owner doing the scrub-and-regenerate this row already prescribes.
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run FRESH (pin f2ef7891, CM041 HEAD e1107d6c, 0 path delta).
 owner = "archie"
 vendor_path      = "vendor/cm041/contact_syncer"
 source_repo      = "$CM041"
@@ -229,7 +229,7 @@ note             = "2026-10-23 (re-vendor round 2): PIN MOVED 07a22b4c -> f2ef78
 [[tree]]
 name             = "cm041/identity_resolver"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: still exactly the 2 commits HELD by name above (9b88b3e1, e01dff3); verify_vendor_fresh.sh re-measured 2026-10-01 confirms vendor == source@9e260949+patch with those 2 commits held. Re-date only; no new identity_resolver commit has landed to re-adjudicate.
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run FRESH (pin 1bf0a80d == CM041 path HEAD).
 owner = "archie"
 vendor_path      = "vendor/cm041/identity_resolver"
 source_repo      = "$CM041"
@@ -337,7 +337,7 @@ source_path      = "meeting_syncer"
   # scopes _sparql_query to the default graph PLUS the user's CM048 named
   # graph(s). A vendored tree cannot import a helper module that was never
   # vendored, so keying the probe to upstream's shape could only ever answer no.
-  expires          = "2026-11-14"
+  expires          = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run HELD STALE:+11, every delta sha in hold_ack_shas, 0 unacked.
   owner            = "archie"
   divergence_patch = "vendor/divergences/cm041_meeting_syncer.patch"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/"]
@@ -373,7 +373,7 @@ source_path      = "assistant_api"
   # NOT DROPPED, DELIBERATELY. The hold is what keeps the DB-KEY CONSUMER and the
   # recording-consent graft on this tree from being overwritten by a re-pin, both
   # of which are recorded above in db_key_warning and note.
-  expires          = "2026-11-14"
+  expires          = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED: e6b5bce7 (CM041 #249, Unicode org key) unacked, graft OWED; not grafted here because open #3508 and #3511 both edit ical-server.py in the same octopus batch. Short date on purpose.
   owner            = "archie"
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_import.sh"]
 verify           = "full"
@@ -433,7 +433,9 @@ note             = "NEW 2026-07-15. SINGLE-FILE tree: canonical fail-closed L3 p
 [[tree]]
 name             = "cm048_pipeline"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: $CM048 is still unassigned in this environment/CI runner, so verification remains CANNOT-RUN; content was already verified byte-identical at the pin (2026-09-09Z, 0 undescribed lines). Clears when $CM048 is assigned on the runner, per this row's own text.
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED STALE:+4 (005ebd73 0151aea8 19e473e9 68897402), no hold_ack; re-vendor in open #3435 (to 0151aea8) and #3508 (reminders_push). Re-vendor of the whole tree NOT safe now: ~690 CM051-only lines (cm048_pipeline.UNRECORDED.md). Short date on purpose.
+hold_ack_shas = "68897402b2157076c56e3b25b6370e88791d428e 005ebd732d24e91064f25c1da92aa0b7dd339d24 0151aea807e62146a43fe3ed0f1a8bc759cfeff3 19e473e9767c4e7dc8672ad5dcfa851a837381d5"
+hold_ack_reason = "2026-11-14 (ORM, v1.0.132, Archie-directed), one line per sha. 68897402 (CM048 #120, reminders 7-day push window): PORTED by hand in CM051 #3508 (batch B), pinned by tests/test_cm048_window_drift.py. 005ebd73 (#116) and 0151aea8 (#119, reply debt): OWED, re-vendored to 0151aea8 by open CM051 #3435. 19e473e9 (#117, ~/Ostler root): PORTED by CM051 #3429 (a5e56863); measured 0 Documents occurrences in vendored ostler_paths.py, settings.py, processor.py, conversation_writer.py and settings.yaml.example, and ostler_paths.py returns Path.home() / Ostler as upstream does."
 owner = "archie"
 vendor_path      = "vendor/cm048_pipeline"
 source_repo      = "$CM048"
@@ -461,7 +463,7 @@ note             = "2026-11-05 (re-vendor for 124, CM048 #115): PIN MOVED 48cab6
 
 [[tree]]
 name             = "cm021"
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run HELD STALE:+5, every delta sha acked, 0 unacked.
 owner = "archie"
 vendor_path      = "vendor/cm021"
 source_repo      = "$CM021"
@@ -485,13 +487,13 @@ name             = "ostler_fda"
   # re-proved source@pin + patch == vendored tree. No vendored bytes changed. Retired pointer
   # grounds, verbatim: git show 992fb55f:vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh ostler_fda was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED: 3a5dae00 (HR015 #1471, grafted by open #3506) and 73a4b35c (HR015 #1439, grafted by open #3457) unacked; regenerate_forbidden (PII export). Short date on purpose.
 owner = "archie"
 vendor_path      = "vendor/ostler_fda"
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
   pinned_sha = "90fb07b225fdc304932c7ee2d9c358bb7891421a"
-  hold_ack_shas = "e9d638ae1054dda96423c9a9cd8fe5a0bba20f77 13754987ade1c7aa6f84732390cfe3287db853ea 975a8de87a785779742674cee6cc0bda94e7ca66 2866281811026c2b6c39d65804e6f8774bc5841a 724a9d00e4863478d6eca03dce65014698194a2b 86ca22223def9fd1f6af894825ec83ed4119a68e a32421930ee0094342dab3fe25aba0997146a679 ab018cd64d2c0c87b19d26468a24af2c0b79d6ea f60b97eab8bc9ccdddf19734fbb7aef8478fe582"
+  hold_ack_shas = "e9d638ae1054dda96423c9a9cd8fe5a0bba20f77 13754987ade1c7aa6f84732390cfe3287db853ea 975a8de87a785779742674cee6cc0bda94e7ca66 2866281811026c2b6c39d65804e6f8774bc5841a 724a9d00e4863478d6eca03dce65014698194a2b 86ca22223def9fd1f6af894825ec83ed4119a68e a32421930ee0094342dab3fe25aba0997146a679 ab018cd64d2c0c87b19d26468a24af2c0b79d6ea f60b97eab8bc9ccdddf19734fbb7aef8478fe582 3a5dae00bef74838ad38a0b25b634a43f4ac1a02 73a4b35cea5b169a936c7645f4d24b0682315c25"  # 2026-11-14 (ORM, v1.0.132, Archie-directed): 3a5dae00 (HR015 #1471, people projection drops service senders) PORTED by CM051 #3506 (batch A). 73a4b35c (HR015 #1439, mbox backward sweep) OWED, graft in open CM051 #3457. Reason kept on this line because #3508 edits the line beside hold_ack_reason.
   divergence_patch = "vendor/divergences/ostler_fda.patch"
   unrecorded_divergence = "vendor/divergences/ostler_fda.UNRECORDED.md"  # EXTENDED 2026-11-14 (same-shape sweep: universal_import.py _DEFAULT_KNOWLEDGE_BIN / _DEFAULT_PWG_CONVO_BIN resolve owner-side first; recorded at the end of that file). 2026-10-30 repair_overmerged_contact_cards.py deleted (RULE 2 exception ratified); 2026-10-22 ingest contract (pwg_ingest.py bookmarks, iMessage social) and 2026-10-24 tracking-param strip (CM051 #3043, upstream HR015 #1176 open); 2026-10-24 I22 (pwg:meetingAllDay in ingest_calendar) and I22b (allday_backfill.py, a new file, one-time flag backfill); 2026-10-23 food evidence (ingest_food dispatch step, CM051 #3130); further hand edits append sections, see the file
   hold_ack_reason  = "2026-10-17 (Archie, v1.0.108): 724a9d00 (HR015 #1145) deleted 929 files from HR015 main by accident and 86ca2222 (#1146) restored them. The two together net to two files outside every vendored path (gh compare 78a2a438...86ca2222: SHIPPING_LEDGER.yaml, scripts/verify_shipping_ledger.py), so this tree's source is byte-identical at the pin and at HEAD. Nothing to graft, PIN HELD. || 2026-08-25 (TNM, v1.0.46) TWO NEW COMMITS, BOTH GRAFTED, PIN HELD. 13754987ade1 (#694) and 975a8de87a78 (#698) both touch files that ARE in this tree's shipped file-set, so neither could be waved through on a not-vendored argument -- measured per file with a control (vendor/ostler_fda/extract_all.py PRESENT, so the probe can see). Their TEST halves are excluded by the tests/ rule and are genuinely out of scope; only the two source files were grafted. (a) #694 adds Dict to the typing import in identifier_quality.py. One word. Proven RED on the VENDORED copy before the graft with a static bound-name probe: Dict used=True UNBOUND(F821) while the controls Iterable, Set and _Dict all read BOUND, so the predicate discriminates rather than matching everything; after the graft Dict reads BOUND. It never raised at runtime because from __future__ import annotations makes the annotation a string, which is exactly why nothing was ever going to tell us. (b) #698 replaces apple_mail_mbox.py wholesale with the source@975a8de8 copy: the vendored file was byte-IDENTICAL to source@f5875d40 and vendor/divergences/ostler_fda.patch mentions apple_mail_mbox ZERO times, so there was no divergence to preserve and the graft could not silently drop one. Import set compared before and after: UNCHANGED, and the ostler_security reference count is 4 on both sides, so the graft introduces no new dependency. py_compile passes. Both files are now byte-identical to source@975a8de8. THE PIN STAYS AT f5875d40 for the reason recorded in regenerate_forbidden_reason, which is unchanged by any of this: advancing it means regenerating the divergence patch, and that export carries real person-name tokens out of a private repo into a public one. Grafting the two files takes the customer-facing fix without taking that risk, which is what shipping_bugfixes_grafted asserts. CORRECTION TO AN EARLIER NOTE OF MINE: a v1.0.47 deferral row said #698 reaches no customer here because the vendored ostler_fda is byte-unchanged. That was WRONG -- apple_mail_mbox.py IS vendored. It was checked against the note instead of against the tree. Superseded. || 2026-08-25 (TNM, v1.0.45) ONE commit enters the shipped file-set and it is a FEATURE, not a bugfix, so shipping_bugfixes_grafted stays true honestly. e9d638ae 'feat(usage): shared journal writer + ingestion producer (#482) (#674)', landed 06:07Z TODAY -- after this cut's scope was fixed. DENOMINATOR, because the gate's number is not the one that matters: check-freshness reports +93, which is REPO-WIDE (this tree declares source_path = '.' and the source resolves to the HR015 repo root -- the standing denominator defect noted at the end of this field). The GitHub compare over the same range reports 20 changed files repo-wide; filtered to ostler_fda/ and excluding tests/ per this row's own exclude glob, exactly TWO ship: ostler_fda/usage_journal.py (new) and ostler_fda/pwg_ingest.py (+36/-1). Both belong to e9d638ae -- writer and producer, as its subject says. The other three commits in range (a19cc50c, b114320a, 9de9cfda) are ledger and grounding docs, outside the vendored file-set. || WHY HELD RATHER THAN GRAFTED, and it is the SAME decision already recorded for daemon:#342 in cut-deferrals.yaml rather than a second judgement: these are the two halves of ONE feature, the usage/cost panel. oa #342 is the UI that READS the journal and is deferred to v1.0.46; e9d638ae is the producer that WRITES it, and #342's own body named that producer as its remaining blocker. Taking the producer alone ships a journal nothing reads -- inert by construction, the dark-half shape this estate keeps finding. Taking both means a daemon rebuild, re-sign, re-notarise and five-site re-pin hours before Andy walks this DMG. Land the pair together in v1.0.46. || NO CUSTOMER-FACING BEHAVIOUR IS WITHHELD: the delta adds recording, it changes no import behaviour, and the added code is silent by contract when Ollama reports no token counts -- its own docstring states that measured-never-estimated rule -- so on the legacy /api/embeddings path it stays dark regardless. || ONE commit, and its shipped delta is measurably ZERO. MEASURED 2026-08-19 (Archie), scoped to the SUBTREE not the repo: git rev-list --count 9cf567be..origin/main -- ostler_fda/ returns 1, while the control over the same range across the whole repo returns 70. check-freshness itself reports STALE:+54 for this row -- which is neither 1 nor 70, so its counting rule is NOT plain whole-repo either and I have not established what it is. What IS established: the row is 54x larger than the 1 commit that actually touches this subtree, and it grows with every unrelated HR015 merge. Naming the exact rule is task #438; this ack does not depend on it and stands on its own terms. || THE COMMIT: c7300e34, ci(doctor): light the doctor/agent suite, with a floor that fires (#427) (#479). Inside ostler_fda/ it touches exactly one file and only one: ostler_fda/tests/conftest.py. || WHY IT SHIPS NOTHING, in the strong form. NOT the argument that the installer never invokes pytest, which is a claim about behaviour and ages badly. THE FILE IS NOT IN THE ARTEFACT: ls vendor/ostler_fda/tests/ returns test_provisional_display_name.py and nothing else, and vendor/ostler_fda/tests/conftest.py does not exist. The vendor sync does not carry it. A commit whose only file is absent from the vendored tree cannot change the vendored tree, so re-pinning to collect it would move the pin and alter nothing a customer receives. || SUPERSEDES the weaker rationale in the 15:20Z defib, which rested on only pytest reads it and flagged that no tests/ exclusion had been found in the bundle phase. There is no exclusion because there is no file. || SCOPE: covers c7300e34 and nothing else. A later commit touching ostler_fda/ outside tests/ is not covered and the row must go red again; the gate subtracts listed shas only. || 2026-09-05 (TNM, v1.0.67) e9d638ae GRAFTED IN TWO PARTS, PIN HELD, PATCH NOT REGENERATED. The v1.0.46 hold said 'a journal nothing reads -- inert by construction'. THAT OBJECTION HAS INVERTED: oa #342, the READER, merged 2026-08-25, so the estate now ships a reader with nothing writing to it, which is exactly what CM051 #949 reports. Measured per file rather than asserted, against the healthy HR015 clone at ~/Developer/HR015-Gaming-PC (0 dataless files). (a) usage_journal.py is a NEW file in the vendored tree and is BYTE-IDENTICAL to e9d638ae:ostler_fda/usage_journal.py -- 265 lines both sides, md5 2ac2a043cdcf32c5a4649b92687b5396 both sides, diff rc=0. (b) pwg_ingest.py took THE CALL SITES ONLY, +38/-1, and is NOT a file sync. That distinction is load-bearing: this file is CM051's divergent twin at 2702 vendored lines against upstream's 2250 at e9d638ae, 474 differing lines, so replacing it wholesale would have destroyed the divergence the twin exists to hold. CONTROL ON THE COMPARISON: diff was proved able to report a difference on a synthetic pair before either verdict was believed, so 'IDENTICAL' is a reading and not a default. pinned_sha STAYS f5875d40 and the divergence patch is NOT regenerated -- the regenerate_forbidden PII reason is untouched by this graft and was deliberately not re-examined here. shipping_bugfixes_grafted stays true: the two shipped files carrying the fix are now in the tree. || 2026-09-19 (Archie), HR015 #977, sha 28662818: a dropped Notion or Obsidian export converted, and nothing could ever find it. GRAFTED, NOT HELD, and shipping_bugfixes_grafted stays true on the graft rather than on a judgement that the fix did not matter. THREE FILES, ONE VENDORED: both test files are excluded by this row's own glob; ostler_fda/universal_import.py is in the file-set. THE DEFECT REACHES A CUSTOMER DIRECTLY. The dispatcher ran `ostler-knowledge convert` and stopped. Convert writes markdown and indexes nothing, so a customer who dropped a Notion or Obsidian export got files on disk that nothing could find, and the import reported ok. Upstream's own measurement: the convert command contains 0 mentions of qdrant or embed against a CONTROL of 98 in the sibling embed command, over 10 commands examined. PROBED BEFORE GRAFTING, with controls: the vendored copy carried the BOARD ROW 976 marker 0 times and `embed` 2 times, against upstream at this sha carrying 1 and 24, with a POSITIVE control of 56 def lines in the vendored file and a fabricated NEGATIVE control of 0. So the fix was genuinely absent and the probe could see it. THE GRAFT IS A CLEAN SWAP AND THAT WAS MEASURED, not assumed: the vendored file was BYTE-IDENTICAL to upstream at the pin (0 differing lines, against a self-diff control of 0) and upstream at this sha differs from both by exactly 172 lines, which is this commit and nothing else. After the graft the vendored file is byte-identical to upstream at this sha. SO THIS TREE CARRIES NO NEW DIVERGENCE for this file: it now MATCHES upstream rather than departing from it, which is why no unrecorded-divergence record is owed and why a future sync_vendor.sh is a no-op here rather than a deletion risk. The upstream commit ships its own tests, which this row excludes, so no vendor-side gate is added to assert a graft that is not a divergence. || 2026-10-04 (Archie, v1.0.107) RE-MEASURED, RE-DATED 2026-10-03 -> 2026-10-15. Against a fresh GitHub clone of HR015 at main de141a7: 1 commit touching ostler_fda/ past pin c4e7396f (2866281), and it is in hold_ack_shas, so 0 unacknowledged. Control: with the matching ack removed the same predicate reports the commit unacknowledged. verify_vendor_fresh.sh itself hung (>7 min, no output) because the local HR015 checkout is iCloud-evicted (22 of 52 packs dataless); this measurement used git log pin..main -- <tree> directly. || 2026-10-15 re-check (archie, renewed to 2026-11-14), fresh clones, pin..origin/main path-scoped: HR015 main 71c6617, 1 commit touches ostler_fda/ past c4e7396f (28662818), in hold_ack_shas, 0 unacked, newest 2026-09-18. Graft claim verified: vendored universal_import.py is byte-identical to upstream at 28662818 and at main, and differs from the pin (control). Content arm with source present: 15 files / 1740 diff lines differ from pin+patch (regenerate_forbidden, recorded divergences). verify_cut_freshness live run 0 RED. | 2026-10-19 (Archie, v1.0.111): a3242193 (HR015 #1171, plaintext staging copies removed after persist, L3 never staged) is GRAFTED into universal_import.py: the shared _stage_then_persist helper and the Messenger and email call sites; its Instagram hunk is NOT grafted because the Instagram route only exists via f60b97ea, which is held. Pinned by tests/test_ostler_fda_staging_cleanup_vendored.py (8 pass on the graft, 8 fail on the pre-graft vendor). HELD as features: ab018cd6 (#1169, G7 subscription gate byte copy) and f60b97ea (#1164, Instagram DMs, unwired). HR015 #1173 (whitelist on success) was OPEN at cut and is not included. SCOPE: these three shas."
@@ -589,7 +591,7 @@ source_path      = "."
   pinned_sha = "3f2cd1cdb1a2d47ac37e5c6d1a63949d522e3f83"
 hold_ack_shas            = "724a9d00e4863478d6eca03dce65014698194a2b 86ca22223def9fd1f6af894825ec83ed4119a68e"
 hold_ack_reason          = "2026-10-17 (Archie, v1.0.108): 724a9d00 (HR015 #1145) deleted 929 files from HR015 main by accident and 86ca2222 (#1146) restored them. The two together net to two files outside every vendored path (gh compare 78a2a438...86ca2222: SHIPPING_LEDGER.yaml, scripts/verify_shipping_ledger.py), so this tree's source is byte-identical at the pin and at HEAD. Nothing to graft, PIN HELD."
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run HELD STALE:+31, every delta sha acked, 0 unacked.
 owner = "archie"
 shipping_bugfixes_grafted = true
   divergence_patch = "vendor/divergences/ostler_security.patch"
@@ -606,7 +608,7 @@ source_path      = "."
   pinned_sha = "dd23eda09b4821f97d7494f9d1ecfa680b4e80a5"
 hold_ack_shas            = "724a9d00e4863478d6eca03dce65014698194a2b 86ca22223def9fd1f6af894825ec83ed4119a68e"
 hold_ack_reason          = "2026-10-17 (Archie, v1.0.108): 724a9d00 (HR015 #1145) deleted 929 files from HR015 main by accident and 86ca2222 (#1146) restored them. The two together net to two files outside every vendored path (gh compare 78a2a438...86ca2222: SHIPPING_LEDGER.yaml, scripts/verify_shipping_ledger.py), so this tree's source is byte-identical at the pin and at HEAD. Nothing to graft, PIN HELD."
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run FRESH (pin dd23eda0 == HR015 path HEAD).
 owner = "archie"
 shipping_bugfixes_grafted = true
   divergence_patch = "vendor/divergences/legal.patch"
@@ -625,7 +627,7 @@ note             = "2026-07-25 v1.0.10 recut re-pin to 8acf2b4c (HR015 #256 BW3-
 name             = "doctor"
   unrecorded_divergence = "vendor/divergences/WRITER_READER_MISMATCHES.UNRECORDED.md"  # EXTENDED 2026-11-14 (same-shape sweep, Homebrew prefix row in agent/web_ui.py, recorded at the end of that file). EXTENDED 2026-10-23 (118): HR015 #975 diagnostic_rules, #979 first_run wizard + one dashboard literal, #978 evernote half; see the section dated 2026-10-23 in that file. CM051 #1974: this tree carries writer/reader vocabulary fixes that the divergence patch does NOT record, because regeneration was run and could not produce one here. A grep of the patch for them returns nothing and that means NOT RECORDED, not NOT DIVERGED. A sync refusal on this tree is EXPECTED; SYNC_ACCEPT_DIVERGENCE_LOSS=1 would silently restore the defects. See that file for the per-tree outcome and the location+shape of every edit.
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): NOT RE-MEASURED. scripts/verify_vendor_fresh.sh doctor was attempted twice against the local $HR015 checkout and hung both times (near-zero CPU over several minutes, killed rather than trusted). Dated short (2 days, not 14) so this does not quietly ride the same clock as the measured rows.
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run HELD STALE:+832 (repo-wide count), every delta sha acked, 0 unacked; regenerate_forbidden, divergence WRITER_READER_MISMATCHES.UNRECORDED.md.
 owner = "archie"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
@@ -686,7 +688,7 @@ source_path      = "."
 pinned_sha       = "1ce3f3dd"
 hold_ack_shas            = "724a9d00e4863478d6eca03dce65014698194a2b 86ca22223def9fd1f6af894825ec83ed4119a68e"
 hold_ack_reason          = "2026-10-17 (Archie, v1.0.108): 724a9d00 (HR015 #1145) deleted 929 files from HR015 main by accident and 86ca2222 (#1146) restored them. The two together net to two files outside every vendored path (gh compare 78a2a438...86ca2222: SHIPPING_LEDGER.yaml, scripts/verify_shipping_ledger.py), so this tree's source is byte-identical at the pin and at HEAD. Nothing to graft, PIN HELD."
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run HELD STALE:+354 (repo-wide count), every delta sha acked, 0 unacked.
 owner = "archie"
 divergence_patch = "vendor/divergences/hub_power.patch"
 shipping_bugfixes_grafted = true
@@ -710,7 +712,7 @@ note             = "Byte-identical to source -- no divergence patch needed."
 [[tree]]
 name             = "cm019_preferences"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: verify=skip remains the declared, reasoned state (an 84-file shipping subset vs 81 non-PII shared-file drifts explicitly out of cut-window scope, per this row's own finding); no CM019 reconciliation has landed since. Re-measured 2026-10-01 via verify_vendor_fresh.sh (still ACK/unverifiable, same reason).
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED: d9797d88 (#471) f292561b (#472) 9145e3b5 (#470 docs) 8a5e06bd (#469 ~/Ostler root) unacked, classification OWED; divergence cm019_preferences_usage_journal.UNRECORDED.md. Short date on purpose.
 owner = "archie"
 vendor_path      = "vendor/cm019_preferences"
 source_repo      = "$CM019"
@@ -832,7 +834,9 @@ note             = "2026-10-01 RE-PIN 1fabd75d -> e0196b10 (andygmassey/evernote
 [[tree]]
 name             = "email_source"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- the branch origin/feat/4-artefact-email-source no longer exists on the remote at all (404 on both /branches/<name> and /compare), AND `gh api .../contents/email_source?ref=main` 404s (the path still does not exist on main). The pinned sha 5d31073d is still reachable (`gh api .../commits/<sha>` resolves), so the vendored content remains verifiable against it despite the branch ref being gone -- likely swept as an abandoned branch per this repo's known hygiene sweeps, never merged. Exemption reason still holds, now on a live measurement rather than a stale assumption.
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): verify_exempt: source branch feat/4-artefact-email-source now 404 on HR015 (deleted), pin commit 5d31073d still served by the API; no upstream left to re-vendor from, decide adopt-as-CM051-owned. Short date on purpose.
+source_of_truth = "CM051"  # 2026-11-14 (ORM, v1.0.132, Archie-directed): CM051 OWNS this tree and its vendored copy IS the source of truth. Upstream branch feat/4-artefact-email-source is deleted on HR015 (gh api repos/andygmassey/HR015-Gaming-PC/branches/feat/4-artefact-email-source -> 404); the pin commit is still fetchable (gh api repos/andygmassey/HR015-Gaming-PC/commits/5d31073d9e28e9024cbb25b308809ef428a39944 -> HTTP/2.0 200 OK, measured 2026-11-14). Edits land here with a divergence record; there is nothing upstream to re-vendor from.
+source_of_truth_pin = "5d31073d9e28e9024cbb25b308809ef428a39944"
 owner = "archie"
 vendor_path      = "vendor/email_source"
 source_repo      = "$HR015"
@@ -853,7 +857,7 @@ note             = "4-artefact email conversation feed (Apple Mail bodies -> CM0
 [[tree]]
 name             = "imessage_source"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/conversation-memory/compare/main...feat/4-artefact-imessage-first`: status=diverged, ahead_by=4, behind_by=11. The branch exists and is genuinely NOT merged (not just unpolled). Exemption reason confirmed live.
-expires = "2026-11-14"
+expires = "2026-12-14"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): verify_exempt: CM040 feat/4-artefact-imessage-first still at the pin (compare 62a776a...branch ahead=0 behind=0).
 owner = "archie"
 vendor_path      = "vendor/imessage_source"
 source_repo      = "$CM040"
@@ -874,7 +878,9 @@ note             = "4-artefact iMessage conversation feed (chat.db -> CM048 bund
 [[tree]]
 name             = "whatsapp_source"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- origin/feat/4-artefact-whatsapp-source no longer exists on the remote (404 on /branches and /compare), AND `.../contents/whatsapp_source?ref=main` 404s. Pinned sha af4ae658 still reachable by `gh api .../commits/<sha>`. Exemption reason still holds, now on a live measurement.
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): verify_exempt: source branch feat/4-artefact-whatsapp-source now 404 on HR015 (deleted), pin commit af4ae658 still served by the API; decide adopt-as-CM051-owned. Short date on purpose.
+source_of_truth = "CM051"  # 2026-11-14 (ORM, v1.0.132, Archie-directed): CM051 OWNS this tree and its vendored copy IS the source of truth. Upstream branch feat/4-artefact-whatsapp-source is deleted on HR015 (gh api repos/andygmassey/HR015-Gaming-PC/branches/feat/4-artefact-whatsapp-source -> 404); the pin commit is still fetchable (gh api repos/andygmassey/HR015-Gaming-PC/commits/af4ae65802ffc7d19b7272a57f8f8cc78acc13f0 -> HTTP/2.0 200 OK, measured 2026-11-14). Edits land here with a divergence record; there is nothing upstream to re-vendor from.
+source_of_truth_pin = "af4ae65802ffc7d19b7272a57f8f8cc78acc13f0"
 owner = "archie"
 vendor_path      = "vendor/whatsapp_source"
 source_repo      = "$HR015"
@@ -891,7 +897,9 @@ note             = "4-artefact WhatsApp conversation feed (bodies -> CM048 bundl
 [[tree]]
 name             = "spoken_source"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): MEASURED via `gh api repos/andygmassey/HR015-Gaming-PC` -- origin/feat/4-artefact-spoken-source no longer exists on the remote (404 on /branches and /compare), AND `.../contents/spoken_source?ref=main` 404s. Pinned sha d06d80e3 still reachable by `gh api .../commits/<sha>`. Exemption reason still holds, now on a live measurement.
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): verify_exempt: source branch feat/4-artefact-spoken-source now 404 on HR015 (deleted), pin commit d06d80e3 still served by the API; decide adopt-as-CM051-owned. Short date on purpose.
+source_of_truth = "CM051"  # 2026-11-14 (ORM, v1.0.132, Archie-directed): CM051 OWNS this tree and its vendored copy IS the source of truth. Upstream branch feat/4-artefact-spoken-source is deleted on HR015 (gh api repos/andygmassey/HR015-Gaming-PC/branches/feat/4-artefact-spoken-source -> 404); the pin commit is still fetchable (gh api repos/andygmassey/HR015-Gaming-PC/commits/d06d80e398af7eace303611a10528164f4c632c3 -> HTTP/2.0 200 OK, measured 2026-11-14). Edits land here with a divergence record; there is nothing upstream to re-vendor from.
+source_of_truth_pin = "d06d80e398af7eace303611a10528164f4c632c3"
 owner = "archie"
 vendor_path      = "vendor/spoken_source"
 source_repo      = "$HR015"
@@ -933,14 +941,14 @@ note             = "2026-11-06 (v1.0.126 prep): RE-PIN 5f3e94ce -> fdb11f2b (CM0
 [[tree]]
 name             = "cm052_ai_conversations"
   # RE-DATED 2026-10-01 (Aesop's decision, measured by agent a28c3e83): unchanged: the CI runner is still the only blocker named by this row (content was already verified byte-identical at the pin, 2026-09-24); $CM052 remains unassigned on the runner. Re-measured 2026-10-01 via verify_vendor_fresh.sh (still ACK/unverifiable, same reason).
-expires = "2026-11-14"
+expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED: 3721ebba (#23 docs) 69640740 (#22 ~/Ostler root) unacked, classification OWED. Short date on purpose.
 owner = "archie"
 vendor_path      = "vendor/cm052_ai_conversations"
 source_repo      = "$CM052"
 source_path      = "."
 pinned_sha       = "1ec05783be953314847c476d4b5013d40de53650"
-hold_ack_shas    = "8e7109e632ac52511e1dddb8af03fd3d7f85d771 4a1b4d6d57719dd68c90ad10c7a814cc7d673b4a 781e5643d586ef49a227cc934046d24ff60f86b4"
-hold_ack_reason  = "2026-10-19 (Archie, v1.0.111). HELD as features: 8e7109e6 (CM052 #17, G7 first export import per source is free, then Pro) and 4a1b4d6d (CM052 #16, Slack importer, UNWIRED). Neither is a shipping bugfix. SCOPE: these two shas. | 2026-10-19 (Archie, v1.0.111): 781e5643 (CM052 #18) PART GRAFTED, PART HELD. GRAFTED: the watermark fix only, in src/cm052/cli.py run(): a paused wire result is counted as paused, never posted, and its watermark does not advance (it used to, marking every conversation done for ever while unpaid). Pinned by tests/test_cm052_paused_conversation_is_not_watermarked.py (red on the pre-graft vendor and on a mutant that still advances the watermark). HELD as the G7 feature with 8e7109e6: entry_gate, the ChatGPT taster, the status file, the copy and buttons."
+hold_ack_shas    = "8e7109e632ac52511e1dddb8af03fd3d7f85d771 4a1b4d6d57719dd68c90ad10c7a814cc7d673b4a 781e5643d586ef49a227cc934046d24ff60f86b4 3721ebba8dfc523acf6ed4c30035a98fe42ceb8a 696407406e12484eec8d5fffd1b27a8ce3a5ed06"
+hold_ack_reason  = "2026-10-19 (Archie, v1.0.111). HELD as features: 8e7109e6 (CM052 #17, G7 first export import per source is free, then Pro) and 4a1b4d6d (CM052 #16, Slack importer, UNWIRED). Neither is a shipping bugfix. SCOPE: these two shas. | 2026-10-19 (Archie, v1.0.111): 781e5643 (CM052 #18) PART GRAFTED, PART HELD. GRAFTED: the watermark fix only, in src/cm052/cli.py run(): a paused wire result is counted as paused, never posted, and its watermark does not advance (it used to, marking every conversation done for ever while unpaid). Pinned by tests/test_cm052_paused_conversation_is_not_watermarked.py (red on the pre-graft vendor and on a mutant that still advances the watermark). HELD as the G7 feature with 8e7109e6: entry_gate, the ChatGPT taster, the status file, the copy and buttons. || 2026-11-14 (ORM, v1.0.132, Archie-directed): 3721ebba (CM052 #23): HARMLESS, AGENTS.md only, not in the vendored file-set. 69640740 (CM052 #22, ~/Ostler root): PORTED. It does touch the ~/Ostler/imports/chatgpt drop path #3509 relies on, but the vendored tree already carries it (CM051 #3429): chatgpt_export.py _DEFAULT_DROP_FOLDER, unifier.py and wire.py _DEFAULT_AI_CONVERSATIONS_DIR read ~/Ostler, and the pre-move root under the Documents folder occurs 0 times under vendor/cm052_ai_conversations/src. No port PR needed."
 shipping_bugfixes_grafted = true
   divergence_patch = "vendor/divergences/cm052_ai_conversations.patch"
   unrecorded_divergence = "vendor/divergences/cm052_ai_conversations.UNRECORDED.md"  # 2026-11-11 (CM051 #3429): user root to ~/Ostler; regen dry run not written, see that file
