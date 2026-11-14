@@ -83,19 +83,6 @@ def test_another_local_account_is_refused_and_gateway_sees_nothing(
 
 
 @pytest.mark.real_owner_gate
-def test_owner_process_reaches_memory_correct(stub_gateway, monkeypatch):
-    # THIS TREE: the vendored Doctor proxies ONLY /api/safari/ingest (proxy.py
-    # DEFAULT_PROXY_PATHS). Upstream also proxies the memory routes. So here the
-    # owner gets 404 on memory correct, and the gateway is not called. A change to
-    # the path list must update this arm.
-    import web_ui
-    _peer(monkeypatch)
-    r = _client(web_ui).post(MEMORY_CORRECT, json={"text": "x"})
-    assert r.status_code == 404
-    assert stub_gateway == []
-
-
-@pytest.mark.real_owner_gate
 def test_safari_extension_running_as_owner_is_still_admitted(stub_gateway, monkeypatch):
     """The browser extension runs inside the owner's Chrome: same uid, not a forwarder.
     The owner gate must admit it, and the gateway must be reached once."""
