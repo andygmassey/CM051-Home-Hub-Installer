@@ -65,7 +65,7 @@ fi
 if [ -n "$cal" ] && grep -Fxq -- "$cal" "$RULES_FILE" 2>/dev/null; then
     exit 4
 fi
-echo "Jane Example: a short grounded brief."
+echo "Alexandra Patel: a short grounded brief."
 exit 0
 '''
 
@@ -86,7 +86,7 @@ def meeting(uid, day_offset, calendar):
         "start_iso": start.isoformat(),
         "uid": uid,
         "location": "",
-        "attendees": [{"name": "Jane Example", "wiki_url": "https://wiki.example.com/jane-example",
+        "attendees": [{"name": "Alexandra Patel", "wiki_url": "https://wiki.example.com/jane-example",
                        "outstanding_todos": []}],
     }
     if calendar is not None:

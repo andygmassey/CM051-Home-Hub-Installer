@@ -23,9 +23,9 @@ from meeting_syncer import brief
 d = (datetime.now() + timedelta(days=2)).strftime("%Y%m%dT%H%M%S")
 events = [
     {"summary": "Standup", "start": d, "end": d, "uid": "u-work", "calendar": "Work",
-     "attendees": [{"name": "Jane Example"}]},
+     "attendees": [{"name": "Alexandra Patel"}]},
     {"summary": "Visit", "start": d, "end": d, "uid": "u-none",
-     "attendees": [{"name": "Jane Example"}]},
+     "attendees": [{"name": "Alexandra Patel"}]},
 ]
 out = brief.pre_meeting_brief(days=1, events_provider=lambda n: events)
 print(json.dumps([{"uid": b["uid"], "has_key": "calendar" in b, "calendar": b.get("calendar")} for b in out]))
