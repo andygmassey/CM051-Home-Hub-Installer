@@ -207,6 +207,21 @@ def _extract_bearer_token(headers) -> str:
 # oracle. Set only by a 404/405 from that route, cleared by any real 401.
 # Process-local and deliberately not persisted: it describes the daemon we are
 # talking to right now, and must re-derive itself after a daemon swap.
+def _is_static_credential(token: str) -> bool:
+    """True when ``token`` IS a shared static credential: the machine admin token,
+    the browser-extension credential, or the ical-server service token. Those are
+    never a paired device's bearer, so a request carrying one must not be admitted
+    as a paired device, whatever the gateway would say. Constant-time compare on
+    bytes (compare_digest), so the check does not leak which static value matched."""
+    presented = (token or "").encode("utf-8", "surrogatepass")
+    if not presented:
+        return False
+    for static in (_machine_admin_token(), _extension_token(), _resolve_service_token() or ""):
+        if static and hmac.compare_digest(presented, static.encode("utf-8", "surrogatepass")):
+            return True
+    return False
+
+
 _ORACLE_STATE = {"absent": False}
 
 
