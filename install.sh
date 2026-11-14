@@ -4239,11 +4239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9676) captures the path BY
+    # _ostler_write_store_curl_config (defined :9677) captures the path BY
     # VALUE and never re-reads it:
-    #     :9677   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9722   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9731 and :17729, both of which run
+    #     :9678   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9723   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9732 and :17778, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18524, where the note reads
+    # WhatsApp Web session path did it again at :18573, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18541 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18590 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4276,13 +4276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7023 against a definition at :9676. Top-level
+    # writer's own definition: :7023 against a definition at :9677. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9731, :17729) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9732, :17778) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20738 / :20916 / :21073 / :21518 path. There the
+    # :20787 / :20965 / :21122 / :21567 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -9049,6 +9049,7 @@ printf "    %-14s %s\n" "Twitter / X"    "$(_link 'https://x.com/settings/downlo
 printf "    %-14s %s\n" "WhatsApp"       "Settings > Account > Request Account Info"
 printf "    %-14s %s\n" "Spotify"        "$(_link 'https://www.spotify.com/account/privacy/' 'Request data')"
 printf "    %-14s %s\n" "Netflix"        "$(_link 'https://www.netflix.com/account/getmyinfo' 'Request data')"
+printf "    %-14s %s\n" "ChatGPT"        "$(_link 'https://chatgpt.com/#settings/DataControls' 'Export data')"
 printf "    %-14s %s\n" "Apple"          "$(_link 'https://privacy.apple.com/' 'Request data') (Media Services)"
 printf "    %-14s %s\n" "Amazon"         "$(_link 'https://www.amazon.com/hz/privacy-central/data-requests/preview.html' 'Request data')"
 printf "    %-14s %s\n" "Reddit"         "$(_link 'https://www.reddit.com/settings/data-request' 'Request data')"
@@ -10419,8 +10420,10 @@ set -uo pipefail
 DIR="${1:-}"
 DO_UNZIP=0
 DO_LOOSE=0
+DO_STAGE_CHATGPT=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
+[[ "${2:-}" == "--stage-chatgpt" ]] && DO_STAGE_CHATGPT=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
 
 # --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
@@ -10594,6 +10597,48 @@ if [[ "$DO_LOOSE" == "1" ]]; then
     exit "$_lx_any"
 fi
 
+# --- 0b. CHATGPT STAGE (2026-11-14) -------------------------------------------
+# Usage: ostler-detect-exports.sh <export_dir> --stage-chatgpt <drop_dir>
+# Copies the export's conversations.json into <drop_dir>/<export name>/conversations.json,
+# the folder the CM052 ChatGPT adapter reads (OSTLER_CHATGPT_IMPORT_DIR, default
+# ~/Ostler/imports/chatgpt). The aiconv agent runs hourly with cm052 --source all,
+# which reads that folder. Exit 0 when staged, 1 when no export is found under
+# <export_dir>. The copy goes to a temp name first and is moved into place, so a
+# half-copied file is never read.
+if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
+    _sc_drop="${3:-}"
+    [[ -n "$_sc_drop" ]] || exit 1
+    _sc_src=""
+    while IFS= read -r _sc_f; do
+        if [[ -f "$(dirname "$_sc_f")/chat.html" ]]; then _sc_src="$_sc_f"; break; fi
+    done < <(find "$DIR" -maxdepth 4 -type f -name conversations.json 2>/dev/null)
+    [[ -n "$_sc_src" ]] || exit 1
+    _sc_name="$(basename "$DIR")"
+    _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
+    # The export is the customer's full ChatGPT history (L3). Owner-only from
+    # the first byte: umask 077 before any mkdir or cp, so nothing is ever
+    # created 0755 or 0644 (the default umask would make them), then explicit
+    # chmod 700 on both folders and 600 on the file.
+    (
+        umask 077
+        mkdir -p "$_sc_drop" && chmod 700 "$_sc_drop" || exit 1
+        mkdir -p "$_sc_drop/$_sc_name" && chmod 700 "$_sc_drop/$_sc_name" || exit 1
+        # Copy into a 700 temp dir inside the drop folder, then one atomic mv
+        # into place: the adapter never sees a half-copied conversations.json.
+        _sc_tmp="$(mktemp -d "$_sc_drop/.stage.XXXXXX")" || exit 1
+        chmod 700 "$_sc_tmp" || { rm -rf "$_sc_tmp"; exit 1; }
+        if cp "$_sc_src" "$_sc_tmp/conversations.json.part" \
+            && chmod 600 "$_sc_tmp/conversations.json.part" \
+            && mv "$_sc_tmp/conversations.json.part" "$_sc_drop/$_sc_name/conversations.json"; then
+            rm -rf "$_sc_tmp"
+            exit 0
+        fi
+        rm -rf "$_sc_tmp"
+        exit 1
+    )
+    exit $?
+fi
+
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately
 # high-signal to avoid false positives. <US> = unit separator (0x1f).
@@ -10615,6 +10660,7 @@ SIGS=(
   $'TikTok\x1f^user_data.*\\.json$'
   $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
   $'Discord\x1f^messages\\.csv$|^activity$'
+  $'ChatGPT\x1f^conversations\\.json$'
 )
 
 # --- 1. Optionally unzip archives worth opening -------------------------------
@@ -10717,6 +10763,9 @@ for entry in "${SIGS[@]}"; do
     while IFS= read -r hit; do
         [[ -n "$hit" ]] || continue
         top="$(_top_under "$hit")"
+        # ChatGPT: a bare conversations.json is not an export (many tools write
+        # one). The official export always ships chat.html beside it.
+        if [[ "$label" == "ChatGPT" && ! -f "$(dirname "$hit")/chat.html" ]]; then continue; fi
         # de-dup identical top folders reported by multiple signatures
         skip=0
         for s in ${SEEN_TOPS[@]+"${SEEN_TOPS[@]}"}; do [[ "$s" == "$label::$top" ]] && skip=1 && break; done
@@ -24674,6 +24723,36 @@ CM048_DIR="${OSTLER_DIR}/services/cm048"
 CM048_VENV="${CM048_DIR}/.venv"
 CM048_BIN="${CM048_VENV}/bin/pwg-convo"
 CM048_SYMLINK="/usr/local/bin/pwg-convo"
+# _ostler_link_cli TARGET LINK: put a CLI on the customer's PATH. Sets
+# _OSTLER_LINKED to the path actually linked (used by the health check after).
+# Under OSTLER_GUI=1 nothing can be elevated: the GUI pty has no sudo prompt,
+# and /usr/local/bin is root-owned on a stock Mac (the admin shell no longer
+# chowns it). So a plain ln is tried first, and if that fails the link goes in
+# ${OSTLER_DIR}/bin, which the owner owns. Outside the GUI, sudo as before.
+# The ostler-knowledge path to run: the /usr/local/bin link when it exists, else
+# the owner-side link _ostler_link_cli makes under a GUI install.
+_ostler_knowledge_cli() {
+    if [[ -x "${OSTLER_DIR}/bin/ostler-knowledge" ]]; then echo "${OSTLER_DIR}/bin/ostler-knowledge"
+    elif [[ -x /usr/local/bin/ostler-knowledge ]]; then echo /usr/local/bin/ostler-knowledge
+    else echo "${OSTLER_DIR}/bin/ostler-knowledge"; fi
+}
+
+_ostler_link_cli() {
+    local target="$1" link="$2"
+    if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
+        if ln -sf "$target" "$link" 2>/dev/null; then
+            _OSTLER_LINKED="$link"
+        else
+            mkdir -p "${OSTLER_DIR}/bin"
+            _OSTLER_LINKED="${OSTLER_DIR}/bin/$(basename "$link")"
+            ln -sfn "$target" "$_OSTLER_LINKED"
+        fi
+    else
+        sudo ln -sf "$target" "$link"
+        _OSTLER_LINKED="$link"
+    fi
+}
+
 CM048_SOURCE_OK=false
 
 mkdir -p "$(dirname "$CM048_DIR")"
@@ -24882,17 +24961,8 @@ COACHPY
 
     if [[ -x "$CM048_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$CM048_BIN" "$CM048_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt. Matches the
-        # ostler-knowledge symlink pattern below.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$CM048_BIN" "$CM048_SYMLINK" \
-                || sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        else
-            sudo ln -sf "$CM048_BIN" "$CM048_SYMLINK"
-        fi
+        _ostler_link_cli "$CM048_BIN" "$CM048_SYMLINK"
+        CM048_SYMLINK="$_OSTLER_LINKED"
 
         # Health check. Two gates, both must pass:
         #
@@ -26556,7 +26626,7 @@ _ostler_notes_refresh() {
 
     local json="${OSTLER_DIR}/imports/fda/apple_notes.json"
     local mark="${state}/hydrate/apple_notes_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/notes-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-notes-rerun"
     local count sha
@@ -26631,7 +26701,7 @@ _ostler_reminders_refresh() {
     local json="${fda}/reminders.json"
     local state="${OSTLER_DIR}/state"
     local mark="${state}/hydrate/reminders_knowledge.sha256"
-    local bin="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+    local bin="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
     local log="${OSTLER_DIR}/logs/reminders-rerun-embed.log"
     local staging="${OSTLER_DIR}/data/knowledge-staging-reminders-rerun"
     local xstatus count sha
@@ -27505,7 +27575,7 @@ _es_mark_raise() {  # $1 label, $2 epoch, $3 date source: the mark only ever mov
       printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$tmp" && mv "$tmp" "$_ES_MARK"
 }
 if [[ ${#FOUND[@]} -gt 0 ]]; then
-    P_PATH=(); P_LBL=(); P_DATE=(); P_SRC=(); P_FP=(); P_KEY=()
+    P_PATH=(); P_LBL=(); P_DATE=(); P_SRC=(); P_FP=(); P_KEY=(); P_SRCDIR=()
     _seen_paths=""
     for _i in "${!FOUND[@]}"; do
         _pp="${FOUND[$_i]%/}"
@@ -27521,6 +27591,7 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             continue
         fi
         P_PATH+=("$_pp"); P_LBL+=("${FOUND_LABELS[$_i]}"); P_DATE+=("$_dv"); P_SRC+=("$_src")
+        P_SRCDIR+=("${FOUND[$_i]%/}")
         P_FP+=("$(_es_fp "$_pp")"); P_KEY+=("${_dv}"$'\t'"${P_FP[${#P_FP[@]}-1]}")
     done
     # Upgrade only: a box that imported under the old set-hash rule has no mark
@@ -27562,7 +27633,17 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
         fi
 
         _imp_rc=0
-        "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
+        # ChatGPT exports are staged into the CM052 drop folder, which the hourly
+        # aiconv agent ingests (cm052 --source all). A failed stage is a failed
+        # import: no mark, no ledger row.
+        _chatgpt_drop="${OSTLER_CHATGPT_IMPORT_DIR:-${HOME}/Ostler/imports/chatgpt}"
+        for _i in "${P_NEW[@]}"; do
+            [[ "${P_LBL[$_i]}" == "ChatGPT" ]] || continue
+            bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "${P_SRCDIR[$_i]}" --stage-chatgpt "$_chatgpt_drop" >/dev/null 2>&1 || _imp_rc=$?
+        done
+        if [[ "$_imp_rc" -eq 0 ]]; then
+            "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
+        fi
         if [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
             # Record ONLY on success (#1571): the mark and ledger move only here.
@@ -27973,11 +28054,13 @@ esac
 # success and the log showed a traceback nobody reads: the sender had never
 # been able to send. Found by running this block against a real Hub.
 _send_rc=0
-OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" <<'PYEOF' || _send_rc=$?
+_OWNER_LANG=$(sed -n 's/^owner_language *= *"\([^"]*\)".*/\1/p' "${CONFIG_TOML}" 2>/dev/null | head -1)
+[ -n "${_OWNER_LANG}" ] || _OWNER_LANG="en-GB"
+OSTLER_BRIEF_HUB_JSON="${RESPONSE}" python3 - "${SENT_DB}" "${ASSISTANT_URL}" "${LOG_FILE}" "${HUB_HOST}" "${OSTLER_DIR}" "${BRIEF_CHANNEL}" "${_OWNER_LANG}" <<'PYEOF' || _send_rc=$?
 import json, os, sqlite3, subprocess, sys, tempfile
 from datetime import datetime, timezone
 
-db_path, assistant_url, log_path, hub_host, ostler_dir, channel = sys.argv[1:]
+db_path, assistant_url, log_path, hub_host, ostler_dir, channel, owner_lang = sys.argv[1:]
 undelivered = []
 try:
     payload = json.loads(os.environ.get("OSTLER_BRIEF_HUB_JSON", ""))
@@ -28002,6 +28085,49 @@ if not meetings:
 COMPOSER = os.environ.get("OSTLER_BRIEF_COMPOSER") or os.path.join(
     ostler_dir, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
 OWNER = os.environ.get("OSTLER_BRIEF_OWNER_NAME", "")
+
+# Owner-facing header, in the owner's installer language (config.toml
+# owner_language). {t} is the meeting title, {w} the time. Any language not
+# listed here reads in English, so a new language is never silently blank.
+HEADER = {
+    # (meeting with attendees, meeting alone, timed; then the untimed pair)
+    "en": ("Meeting: {t} at {w}.", "You have {t} at {w}.", "Meeting: {t}.", "You have {t}."),
+    "de": ("Termin: {t} um {w}.", "Du hast {t} um {w}.", "Termin: {t}.", "Du hast {t}."),
+    "fr": ("Réunion : {t} à {w}.", "Vous avez {t} à {w}.", "Réunion : {t}.", "Vous avez {t}."),
+    "es": ("Reunión: {t} a las {w}.", "Tienes {t} a las {w}.", "Reunión: {t}.", "Tienes {t}."),
+    "it": ("Riunione: {t} alle {w}.", "Hai {t} alle {w}.", "Riunione: {t}.", "Hai {t}."),
+    "nl": ("Afspraak: {t} om {w}.", "Je hebt {t} om {w}.", "Afspraak: {t}.", "Je hebt {t}."),
+    "pt": ("Reunião: {t} às {w}.", "Você tem {t} às {w}.", "Reunião: {t}.", "Você tem {t}."),
+    "ja": ("会議: {t}（{w}）。", "{t}（{w}）があります。", "会議: {t}。", "{t}があります。"),
+    "ko": ("회의: {t}, {w}.", "{w}에 {t} 일정이 있습니다.", "회의: {t}.", "{t} 일정이 있습니다."),
+    "zh": ("会议：{t}，{w}。", "你有{w}的{t}。", "会议：{t}。", "你有{t}。"),
+    "ar": ("اجتماع: {t} في {w}.", "لديك {t} في {w}.", "اجتماع: {t}.", "لديك {t}."),
+}
+OWNER_LANG = (owner_lang or "en").split("-")[0].lower()
+if owner_lang.lower().startswith(("zh", "yue")):
+    OWNER_LANG = "zh"
+if owner_lang.lower() in ("pt-pt", "pt-br", "pt"):
+    OWNER_LANG = "pt"
+
+def _when(start_iso):
+    """Time of day in the owner's convention: 12-hour for en-US, 24-hour
+    otherwise. The date is left out on purpose: the brief is sent inside
+    the look-ahead window, so the day is already known to the owner."""
+    raw = (start_iso or "").strip()
+    try:
+        if len(raw) == 15 and "T" in raw:
+            dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
+        else:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                # An offset or Z: show the owner's local clock, not UTC.
+                dt = dt.astimezone()
+    except ValueError:
+        return ""
+    if owner_lang.lower() == "en-us":
+        h = dt.hour % 12 or 12
+        return f"{h}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+    return f"{dt.hour:02d}:{dt.minute:02d}"
 
 # Last line of defence on whatever is SENT, independent of the composer: these
 # phrases state an inference or give generic advice, and none may be sent.
@@ -28066,8 +28192,14 @@ try:
         title = m.get("meeting") or "Upcoming meeting"
         if any(b in title.lower() for b in BANNED):
             title = "Upcoming meeting"
-        when = m.get("start") or ""
-        header = (f"Meeting: {title}" if m.get("attendees") else f"You have {title}") + (f" at {when}" if when else "") + "."
+        when = _when(m.get("start_iso") or "")
+        meet_t, have_t, meet_u, have_u = HEADER.get(OWNER_LANG, HEADER["en"])
+        if when:
+            fmt = meet_t if m.get("attendees") else have_t
+            header = fmt.replace("{t}", title).replace("{w}", when)
+        else:
+            fmt = meet_u if m.get("attendees") else have_u
+            header = fmt.replace("{t}", title)
         parts = [header]
         failed = False
         for a in (m.get("attendees") or [])[:3]:
@@ -30421,16 +30553,8 @@ if [[ -n "$KNOWLEDGE_SOURCE" && -f "$KNOWLEDGE_DIR/pyproject.toml" ]]; then
 
     if [[ -x "$KNOWLEDGE_BIN" ]]; then
         info "$(printf "$MSG_INFO_SYMLINKING" "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK")"
-        # Under OSTLER_GUI=1 (Option B) /usr/local/bin has already
-        # been chowned to the user by the parent .app's
-        # AuthorizationHelper, so a plain `ln -sf` writes
-        # user-side with no further sudo prompt.
-        if [[ "${OSTLER_GUI:-0}" == "1" ]]; then
-            ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK" \
-                || sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        else
-            sudo ln -sf "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
-        fi
+        _ostler_link_cli "$KNOWLEDGE_BIN" "$KNOWLEDGE_SYMLINK"
+        KNOWLEDGE_SYMLINK="$_OSTLER_LINKED"
 
         # Health check via the symlink (verifies PATH-side wiring + venv binding).
         if VERSION_OUT=$("$KNOWLEDGE_SYMLINK" --version 2>&1) && [[ -n "$VERSION_OUT" ]]; then
@@ -30973,7 +31097,9 @@ _install_conversation_feed() {
     #    invocation. Falls back to the /usr/local/bin symlink, then PATH.
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
@@ -31096,7 +31222,9 @@ _ostler_catchup_register_feed() {
     command -v _ostler_catchup_register >/dev/null 2>&1 || return 0
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+            pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
             pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
@@ -39414,7 +39542,7 @@ if [[ ! -s "$_HYDRATE_APPLENOTES_JSON_FILE" ]]; then
 else
     progress "Reading your Apple Notes" "hydrate_apple_notes"
 fi
-_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_APPLENOTES_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_APPLENOTES_STAGING="${OSTLER_DIR}/data/knowledge-staging"
 _HYDRATE_APPLENOTES_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 # TAKEN FROM THE REGISTER, NOT RE-TYPED (#1598). This used to be a bare
@@ -39674,7 +39802,7 @@ if [[ ! -s "$_HYDRATE_REMINDERS_JSON_FILE" ]]; then
 else
     progress "Reading your Reminders" "hydrate_reminders"
 fi
-_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-/usr/local/bin/ostler-knowledge}"
+_HYDRATE_REMINDERS_BIN="${OSTLER_KNOWLEDGE_BIN:-$(_ostler_knowledge_cli)}"
 _HYDRATE_REMINDERS_STAGING="${OSTLER_DIR}/data/knowledge-staging-reminders"
 _HYDRATE_REMINDERS_DBPATH="${OSTLER_DIR}/data/knowledge-metadata.db"
 _HYDRATE_REMINDERS_COLLECTION="reminders_knowledge"

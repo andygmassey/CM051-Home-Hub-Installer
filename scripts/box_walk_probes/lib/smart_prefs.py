@@ -92,6 +92,7 @@ BROAD = [
 # shipped music_style vocabulary.
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 TAG_NS = "urn:ostler-walk-fixture:smartprefs/tag/"
 OVERLAY = {"movie": ("hasGenre", "science fiction"), "book": ("hasGenre", "history"),
            "interest": ("hasTopic", "photography"), "tv_show": ("hasGenre", "drama"),
@@ -179,6 +180,31 @@ def overlay_triples():
 
 def _lit(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+# The graph-side identity of every fixture preference. data_conservation counts
+# STORED-to-GRAPH by reading TYPED preference nodes (`?s a ?t` with ?t one of
+# the Like/Dislike/Neutral classes, plus a subject, a dataSource and a
+# category). The overlay triples above carry none of that, so the walk's own
+# fixture was invisible to the graph count and read as 0 of 4 or 8 LOST. The
+# seed writes the typed shape. It is never filtered out in the judge.
+PREF_NS = "https://schema.ostler.ai/ontology#"
+PREF_TYPE = PREF_NS + "LikePreference"
+
+
+def typed_preference_triples():
+    """N-Triples: one typed preference node per fixture point, with the three
+    properties the graph counter reads. Same subject IRI as overlay_triples(),
+    default graph, so forget removes both with one subject filter."""
+    lines = []
+    for p in qdrant_points([0.0]):
+        subj = "urn:ostler:preference:%s" % p["id"]
+        pl = p["payload"]
+        lines.append("<%s> <%s> <%s> ." % (subj, RDF_TYPE, PREF_TYPE))
+        lines.append("<%s> <%ssubject> %s ." % (subj, PREF_NS, _lit(pl["subject"])))
+        lines.append("<%s> <%sdataSource> %s ." % (subj, PREF_NS, _lit(pl["source"])))
+        lines.append("<%s> <%scategory> %s ." % (subj, PREF_NS, _lit(pl["category"])))
+    return lines
 
 
 def fact_triples():
@@ -421,7 +447,7 @@ def seed_main():
         out["why"] = "oxigraph insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
     out["facts_written"] = EXPECTED_FACTS
-    code, _b, err = _oxi_update("INSERT DATA {\n%s\n}" % "\n".join(overlay_triples()))
+    code, _b, err = _oxi_update("INSERT DATA {\n%s\n}" % "\n".join(overlay_triples() + typed_preference_triples()))
     if code not in (200, 204):
         out["why"] = "oxigraph overlay insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
@@ -502,6 +528,10 @@ def forget_main():
     res["overlay_delete"] = _oxi_update(
         'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . FILTER(STRSTARTS(STR(?o), "%s") || STRSTARTS(STR(?s), "%s") '
         '|| (STRSTARTS(STR(?s), "urn:ostler:preference:") && EXISTS { ?s <%shasGenre> ?x } ) ) }' % (TAG_NS, TAG_NS, ENRICH_NS))[0]
+    # The typed fixture preferences, by their fixture dataSource. Removes every
+    # triple of a subject that carries a walk_fixture source, nothing else.
+    res["typed_pref_delete"] = _oxi_update(
+        'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . ?s <%sdataSource> ?src . FILTER(STRSTARTS(STR(?src), "walk_fixture_")) }' % PREF_NS)[0]
     res["named_graph_delete"] = _oxi_update(
         "DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } %s }" % _FIXTURE_FILTER)[0]
     res["brief_job_deleted"] = _forget_brief_job()
@@ -952,7 +982,8 @@ def engine_items(tree):
     pts = qdrant_points([0.0])
     ds = rdflib.Dataset()
     ds.graph(rdflib.URIRef(GRAPH)).parse(data="\n".join(fact_triples()), format="turtle")
-    (getattr(ds, "default_graph", None) or ds.default_context).parse(data="\n".join(overlay_triples()), format="nt")
+    (getattr(ds, "default_graph", None) or ds.default_context).parse(
+        data="\n".join(overlay_triples() + typed_preference_triples()), format="nt")
 
     class Gw:
         def scroll(self, categories, fields):

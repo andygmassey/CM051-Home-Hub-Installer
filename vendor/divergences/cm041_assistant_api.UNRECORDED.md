@@ -1730,3 +1730,12 @@ and self-verified: source at the pin plus the patch rebuilds the vendored tree
 byte for byte. The tool could not do this before because it refused on any
 source commit past the pin, hold_ack or not. This file stays as history; the
 patch is the record.
+
+
+## 2026-11-14: pwg-convo default resolves the owner-side link first, ical-server.py
+
+`vendor/cm041/assistant_api/ical-server.py`: `_default_pwg_convo_bin()` replaces the bare default `PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")`. Order: `PWG_CONVO_BIN` env, then `${OSTLER_DIR}/bin/pwg-convo` if it exists, then `/usr/local/bin/pwg-convo`.
+
+Why: the GUI installer cannot write `/usr/local/bin` on a stock Mac, so it links pwg-convo into the owner's `${OSTLER_DIR}/bin` (install.sh `_ostler_link_cli`). The launchd plist for `com.ostler.ical-server` sets no `PWG_CONVO_BIN` (install.sh, the ical-server plist EnvironmentVariables block), so this default is what runs.
+
+Tests: `tests/test_pwg_convo_bin_owner_side_first.py`. RED on origin/main: `AttributeError: no _default_pwg_convo_bin`. Mutant (owner-side branch removed) fails arm 1.

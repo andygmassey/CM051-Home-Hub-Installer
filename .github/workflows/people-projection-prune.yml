@@ -19,11 +19,13 @@ on:
     paths:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/test_people_projection_service_senders.py'
       - '.github/workflows/people-projection-prune.yml'
   pull_request:
     paths:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/test_people_projection_service_senders.py'
       - '.github/workflows/people-projection-prune.yml'
 
 concurrency:
@@ -80,7 +82,7 @@ jobs:
           # this was fixed. The sibling contact-card-repair.yml carries the
           # same warning about `grep -c`; I copied its comment and not its
           # lesson.
-          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
+          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py tests/test_people_projection_service_senders.py -q 2>&1)" || true
           echo "$out"
           # `|| n=0` on the ASSIGNMENT: grep -c prints its count AND exits 1
           # when the count is zero, which would kill the step under `bash -e`
