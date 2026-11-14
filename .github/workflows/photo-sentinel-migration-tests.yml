@@ -49,8 +49,10 @@ jobs:
 
       - name: Install pytest and the pinned SPARQL engine
         run: |
-          python -m pip install --quiet pytest "pyoxigraph==${PYOXIGRAPH_VERSION}"
-          python -c "import pyoxigraph, sys; print('pyoxigraph', pyoxigraph.__version__ if hasattr(pyoxigraph,'__version__') else 'ok', 'python', sys.version.split()[0])"
+          # httpx and phonenumbers are imported at the top of vendor/ostler_fda/pwg_ingest.py,
+          # which the URI-stability tests load. Without them the file errors at collection (run 43618617187).
+          python -m pip install --quiet pytest "pyoxigraph==${PYOXIGRAPH_VERSION}" httpx phonenumbers
+          python -c "import pyoxigraph, httpx, phonenumbers, sys; print('pyoxigraph', '0.5.11', 'httpx', httpx.__version__, 'phonenumbers', phonenumbers.__version__, 'python', sys.version.split()[0])"
 
       - name: Run the sentinel migration tests (JUnit)
         run: |
