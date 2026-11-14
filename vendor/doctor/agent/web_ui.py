@@ -4447,6 +4447,35 @@ async def api_pause_get():
                 "expiry_human": "", "scope": None}
 
 
+@app.post("/api/v1/owner-email", response_class=JSONResponse)
+async def api_owner_email_post(request: Request):
+    """Set the owner's own email address(es), for the Doctor row that asks.
+
+    Body: ``{"addresses": ["..."]}``. Writes state/owner_addresses.json at
+    mode 0600 through owner_email.write_owner_addresses, which refuses anything
+    that is not an address. Same cross-site guard as the other POST routes.
+    The addresses are never echoed back or logged.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse({"error": "Cross-site request refused"}, status_code=403)
+
+    from owner_email import write_owner_addresses
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Send the address as JSON."}, status_code=400)
+    raw = body.get("addresses") if isinstance(body, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return JSONResponse({"error": "Enter the email address you use."}, status_code=400)
+    try:
+        write_owner_addresses(raw)
+    except ValueError:
+        return JSONResponse({"error": "That does not look like an email address."}, status_code=400)
+    return JSONResponse({"status": "ok", "count": len({str(a).strip().lower() for a in raw})}, status_code=200)
+
+
 @app.post("/api/v1/pause", response_class=JSONResponse)
 async def api_pause_post(request: Request):
     """Pause background work for a scope.
