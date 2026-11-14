@@ -171,3 +171,15 @@ Regeneration REFUSED: the source has advanced past the pin (005ebd7, reply debt)
 - `src/settings.py` (1 line): default path.
 
 Upstream: andygmassey/CM048-PWG-Conversation-Processing PR #117, not merged. Tests: full suite 1158 passed, 1 skipped, exit 0; the CM048 agent measured the old source against the new assertions as 4 failures.
+
+## 2026-11-14: the WhatsApp resolver guard (CM051 #3423)
+
+Edited in `vendor/cm048_pipeline/src/channel_adapter.py`, `_whatsapp_resolve_privacy`:
+after the explicit `privacy_level` override, a missing classification, or one with no
+sensitivity level, returns L3. Before, a classification with no level fell through to
+L2. This is the unavailable-verdict rule: fail toward the higher level.
+
+The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not checked
+out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
+keep it, or a missing verdict falls back to L2 again.
+Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.

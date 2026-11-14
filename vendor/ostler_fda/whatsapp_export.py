@@ -43,7 +43,6 @@ from typing import Iterable, List, Optional, Tuple
 SOURCE = "whatsapp_export"
 CHANNEL = "whatsapp"
 SOURCE_APP = "whatsapp_desktop_export"
-PRIVACY_L2 = "L2"
 OUTPUT_FILENAME = "whatsapp_export_conversations.json"
 
 _DATE = r"(\d{1,2}/\d{1,2}/\d{2,4})"
@@ -180,12 +179,15 @@ def chat_to_payload(chat: WhatsAppChat, cid: Optional[str] = None) -> dict:
         "participants": participants,
         "started_at": first.isoformat() if first else None,
         "ended_at": last.isoformat() if last else None,
-        "privacy_level": PRIVACY_L2,
         "chat_type": "group" if len(chat.senders) > 2 else "private",
         "is_group_chat": len(chat.senders) > 2,
         "group_subject": chat.name if len(chat.senders) > 2 else None,
         "message_count": len(chat.messages),
     }
+    if not metadata["is_group_chat"]:
+        # No privacy level is pinned here: CM048's WhatsApp resolver decides it
+        # from the sensitivity verdict and the operator labels, as for live.
+        metadata.update(export_labels(chat.name, _contacts_file()))
     return {"conversation_id": cid, "transcript": render_transcript(chat), "metadata": metadata}
 
 
@@ -328,3 +330,61 @@ def drop_already_live(chat: WhatsAppChat, live: Counter,
         else:
             kept.append(m)
     return WhatsAppChat(name=chat.name, messages=kept), matched
+
+
+# --- Privacy: the SAME resolver as the live channel (2026-11-14) --------------
+#
+# The export pins no privacy level. The payload carries the operator labels the
+# live channel would carry for the same DM, and CM048's
+# ``_whatsapp_resolve_privacy`` decides the level from those labels and from the
+# sensitivity verdict of the classifier (processor step 01). Both paths reach the
+# same resolver through ``pwg-convo process``.
+#
+# Live labels are keyed by JID. An export has no JID, so a label applies only when
+# the export's chat name equals exactly one contact's display name in
+# OSTLER_WHATSAPP_CONTACTS (the file the live pipeline reads with --contacts).
+# Group exports get no label: live group labels are keyed by chat id, which an
+# export does not carry.
+
+
+def _contacts_file() -> Optional[Path]:
+    raw = os.getenv("OSTLER_WHATSAPP_CONTACTS", "").strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def export_labels(chat_name: str, contacts_path: Optional[Path]) -> dict:
+    """The operator labels for the DM named ``chat_name``, or {} when none apply.
+
+    A configured file that cannot be read raises, so the import reports it and
+    the chat is never silently treated as unlabelled.
+    """
+    if contacts_path is None:
+        return {}
+    if not contacts_path.exists():
+        raise ValueError("OSTLER_WHATSAPP_CONTACTS names a file that does not exist")
+    try:
+        import yaml
+    except ImportError as exc:
+        raise ValueError("PyYAML is needed to read OSTLER_WHATSAPP_CONTACTS") from exc
+    try:
+        data = yaml.safe_load(contacts_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError("OSTLER_WHATSAPP_CONTACTS could not be parsed") from exc
+    contacts = (data.get("whatsapp") or {}).get("contacts") or {}
+    if not isinstance(contacts, dict):
+        raise ValueError("OSTLER_WHATSAPP_CONTACTS has no whatsapp.contacts map")
+    want = _plain(chat_name).casefold()
+    matches = [
+        entry for entry in contacts.values()
+        if isinstance(entry, dict)
+        and _plain(str(entry.get("name") or "")).casefold() == want
+    ]
+    if len(matches) != 1:
+        return {}  # no match, or an ambiguous name: no label applies
+    entry = matches[0]
+    out: dict = {}
+    if entry.get("contact_label"):
+        out["contact_label"] = str(entry["contact_label"]).strip()
+    if entry.get("privacy_level"):
+        out["privacy_level"] = str(entry["privacy_level"]).strip()
+    return out

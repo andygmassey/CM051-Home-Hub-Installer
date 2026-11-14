@@ -66,7 +66,7 @@ def _fake_pwg_convo(d: Path) -> tuple[Path, Path]:
         "#!/usr/bin/env bash\n"
         'if [[ "${1:-}" == "process" ]]; then\n'
         f'  python3 -c "import json,sys;m=json.load(open(sys.argv[1]));'
-        f"print(m['conversation_id'], m['channel'], m['privacy_level'], m['message_count'])\" \"$3\" >> \"{log}\"\n"
+        f"print(m['conversation_id'], m['channel'], m.get('privacy_level'), m['message_count'])\" \"$3\" >> \"{log}\"\n"
         "fi\n"
         "exit 0\n"
     )
@@ -113,11 +113,11 @@ def test_media_placeholders_and_system_lines():
     assert and_.messages[2].text == "[attachment]", and_.messages[2].text
 
 
-def test_payload_is_cm048_shape_and_l2():
+def test_payload_is_cm048_shape_and_no_pin():
     chat = wae.parse_chat_text(ANDROID, "synthetic group")
     p = wae.chat_to_payload(chat)
     assert set(p) == {"conversation_id", "transcript", "metadata"}, p.keys()
-    assert p["metadata"]["privacy_level"] == "L2"
+    assert "privacy_level" not in p["metadata"], "no pin: CM048 decides the level"
     assert p["metadata"]["channel"] == "whatsapp"
     assert p["metadata"]["message_count"] == 4
     assert p["conversation_id"] == wae.chat_to_payload(chat)["conversation_id"], "id must be stable"
@@ -145,7 +145,7 @@ def test_loose_whatsapp_txt_is_detected_and_persisted_via_pwg_convo():
     rows = [l.split() for l in log.read_text().splitlines() if l]
     assert len(rows) == 1, rows
     cid, channel, level, count = rows[0]
-    assert channel == "whatsapp" and level == "L2" and count == "5", rows[0]
+    assert channel == "whatsapp" and level == "None" and count == "5", rows[0]
 
 
 def test_watcher_answers_import_for_a_dropped_chat_and_zip():
@@ -176,7 +176,7 @@ TESTS = [
     test_ios_and_android_lines_parse,
     test_multiline_message_is_joined_not_dropped,
     test_media_placeholders_and_system_lines,
-    test_payload_is_cm048_shape_and_l2,
+    test_payload_is_cm048_shape_and_no_pin,
     test_loose_whatsapp_txt_is_detected_and_persisted_via_pwg_convo,
     test_watcher_answers_import_for_a_dropped_chat_and_zip,
 ]

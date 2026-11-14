@@ -1153,6 +1153,7 @@ test_whatsapp_export_dedupe.py	WIRED	.github/workflows/no-whatsapp-chat-export.y
 test_whatsapp_ingest_err_trap.sh	WIRED	.github/workflows/bash32-compat.yml
 test_whatsapp_keepalive_repairs_and_reports.sh	WIRED	.github/workflows/launchagent-success-verification.yml
 test_whatsapp_parser_does_not_claim_meta_messages.py	WIRED	.github/workflows/parser-claim-separation.yml
+test_whatsapp_privacy_parity.py	WIRED	.github/workflows/no-whatsapp-chat-export.yml
 test_wiki_baseline_background.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_wiki_baseline_holds_the_tick_lock.sh	WIRED	.github/workflows/wiki-compile-oracle.yml
 test_wiki_catchup_skips_while_installer_runs.sh	WIRED	.github/workflows/wiki-compile-oracle.yml

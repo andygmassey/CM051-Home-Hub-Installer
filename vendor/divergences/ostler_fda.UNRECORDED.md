@@ -375,3 +375,19 @@ persists nothing when every message is already live.
 Why not upstream: the export importer exists only in CM051 (the 2026-11-08 owner
 direction); HR015 has no WhatsApp export parser. Re-vendor must keep these or the
 dedupe is silently gone. Proof: `tests/test_whatsapp_export_dedupe.py`.
+
+## 2026-11-14: the WhatsApp export pins no privacy level; labels come from the contacts file
+
+`vendor/ostler_fda/whatsapp_export.py`: the `privacy_level: L2` pin is removed,
+along with the `PRIVACY_L2` constant. `chat_to_payload` adds the DM's operator labels
+(`contact_label`, and an explicit `privacy_level` if the operator set one) through
+`export_labels`, which reads `OSTLER_WHATSAPP_CONTACTS`. The chat name must equal
+exactly one contact's display name. Group exports get no label. A configured file
+that cannot be read raises, so the import reports it.
+
+CM048's `_whatsapp_resolve_privacy` (vendored, `vendor/cm048_pipeline/src/channel_adapter.py`)
+is the one resolver for both channels. The change there is a guard: with no
+classification, or one with no sensitivity level, it returns L3 (after the explicit
+override, as before). Proof: `tests/test_whatsapp_privacy_parity.py`. RED on
+b2553556: family, highly-sensitive and sensitive arms give L2, and the labelled and
+sensitive parity arms differ.
