@@ -865,19 +865,20 @@ class ContactSyncer:
                         owner_pks.add(orow["ZME"])
                 except _sqlite3.OperationalError as exc:
                     logger.warning("owner pointer unreadable in %s: %s", db_path, exc)
+                # Every card's relations, attributed by ZOWNER to the card that
+                # holds them. The marker stays owner-only; the lines do not.
                 relations_by_pk: Dict[int, List[Tuple[str, str]]] = {}
-                if owner_pks:
-                    try:
-                        for rr in conn.execute(
-                            "SELECT ZOWNER as pk, ZNAME as name, ZLABEL as label "
-                            "FROM ZABCDRELATEDNAME ORDER BY Z_PK"
-                        ).fetchall():
-                            if rr["pk"] in owner_pks and rr["name"]:
-                                relations_by_pk.setdefault(rr["pk"], []).append(
-                                    (str(rr["name"]), str(rr["label"] or ""))
-                                )
-                    except _sqlite3.OperationalError as exc:
-                        logger.warning("ZABCDRELATEDNAME unreadable in %s: %s", db_path, exc)
+                try:
+                    for rr in conn.execute(
+                        "SELECT ZOWNER as pk, ZNAME as name, ZLABEL as label "
+                        "FROM ZABCDRELATEDNAME ORDER BY Z_PK"
+                    ).fetchall():
+                        if rr["pk"] is not None and rr["name"]:
+                            relations_by_pk.setdefault(rr["pk"], []).append(
+                                (str(rr["name"]), str(rr["label"] or ""))
+                            )
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("ZABCDRELATEDNAME unreadable in %s: %s", db_path, exc)
 
                 def _s(v) -> str:
                     if v is None:
@@ -916,12 +917,12 @@ class ContactSyncer:
                         lines.append(f"TEL:{ph}")
                     if pk in owner_pks:
                         lines.append("X-OSTLER-OWNER-CARD:TRUE")
-                        for idx, (rname, rlabel) in enumerate(relations_by_pk.get(pk, []), 1):
-                            lines.append(
-                                f"item{idx}.X-ABRELATEDNAMES;TYPE=pref:{_vcard_value(rname)}"
-                            )
-                            if rlabel:
-                                lines.append(f"item{idx}.X-ABLABEL:{_vcard_value(rlabel)}")
+                    for idx, (rname, rlabel) in enumerate(relations_by_pk.get(pk, []), 1):
+                        lines.append(
+                            f"item{idx}.X-ABRELATEDNAMES;TYPE=pref:{_vcard_value(rname)}"
+                        )
+                        if rlabel:
+                            lines.append(f"item{idx}.X-ABLABEL:{_vcard_value(rlabel)}")
                     if note:
                         # vCard NOTE wants newlines escaped.
                         escaped = note.replace("\\", "\\\\").replace("\n", "\\n")
