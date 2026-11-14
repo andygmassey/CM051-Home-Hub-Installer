@@ -30,17 +30,38 @@ ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SH = Path(os.environ.get("T2_INSTALL_SH") or (ROOT / "install.sh"))
 
 COMPOSER_STUB = r'''#!/usr/bin/env bash
-# Documented composer contract (stub): rc 4 + empty stdout = owner rule.
+# Composer stub. MODE selects the build being simulated:
+#   new            lists "calendar" in composer-capabilities and applies the rule
+#   old            predates the feature: no composer-capabilities, rejects --calendar
+#   probe_fail     the probe exits 1; the meeting-brief accepts --calendar
+#   probe_garbage  the probe exits 0 without listing "calendar"
+#   probe_hang     the probe never answers (the sender must time it out)
 set -u
+MODE="${OSTLER_TEST_MODE:-new}"
 RULES_FILE="${OSTLER_TEST_RULES}"
 CALLS_LOG="${OSTLER_TEST_CALLS}"
+if [ "${1:-}" = "composer-capabilities" ]; then
+    case "$MODE" in
+        new) echo "calendar"; exit 0 ;;
+        old) echo "error: unrecognized subcommand 'composer-capabilities'" >&2; exit 2 ;;
+        probe_fail) echo "probe broke" >&2; exit 1 ;;
+        probe_garbage) echo "hello"; exit 0 ;;
+        probe_hang) sleep 30; exit 0 ;;
+    esac
+fi
 echo "$*" >> "$CALLS_LOG"
 cal=""
 prev=""
+saw_calendar=0
 for a in "$@"; do
+    if [ "$a" = "--calendar" ]; then saw_calendar=1; fi
     if [ "$prev" = "--calendar" ]; then cal="$a"; fi
     prev="$a"
 done
+if [ "$saw_calendar" = 1 ] && [ "$MODE" = "old" ]; then
+    echo "error: unexpected argument '--calendar' found" >&2
+    exit 2
+fi
 if [ -n "$cal" ] && grep -Fxq -- "$cal" "$RULES_FILE" 2>/dev/null; then
     exit 4
 fi
@@ -119,7 +140,7 @@ class Harness(unittest.TestCase):
     def set_rules(self, *calendars):
         self.rules.write_text("\n".join(calendars) + ("\n" if calendars else ""), encoding="utf-8")
 
-    def run_tick(self, *meetings):
+    def run_tick(self, *meetings, mode="new"):
         hub = {"meetings": list(meetings), "considered": len(meetings), "filtered": []}
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -128,6 +149,7 @@ class Harness(unittest.TestCase):
             "OSTLER_BRIEF_OWNER_NAME": "Sam",
             "OSTLER_TEST_RULES": str(self.rules),
             "OSTLER_TEST_CALLS": str(self.calls),
+            "OSTLER_TEST_MODE": mode,
         }
         res = subprocess.run([sys.executable, str(self.script), str(self.db), self.url,
                               str(self.log), "http://127.0.0.1:8090", str(self.tmp), "brief-channel", "en-GB"],
@@ -186,6 +208,50 @@ class SenderCalendarRule(Harness):
         self.assertEqual(res.returncode, 0, msg=res.stderr)
         self.assertEqual(len(self.posts), 1)
         self.assertNotIn("--calendar", self.calls.read_text(encoding="utf-8"))
+
+    # --- Version skew (Sparkle): the composer may predate --calendar. -------
+
+    def test_old_composer_sends_the_brief_exactly_once_and_says_so(self):
+        self.set_rules("Work")
+        res = self.run_tick(meeting("u-old-1", 0, "Work"), mode="old")
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual([p["meeting_uid"] for p in self.posts], ["u-old-1"])
+        # The second tick must not send it again, and must not retry it either.
+        self.run_tick(meeting("u-old-1", 0, "Work"), mode="old")
+        self.assertEqual(len(self.posts), 1, "the brief was sent more than once")
+        self.assertIn("calendar rules not applied: composer too old", self.log_text())
+        self.assertNotIn("--calendar", self.calls.read_text(encoding="utf-8"))
+        self.assertNotIn("CANNOT-DELIVER", res.stderr)
+
+    def test_new_composer_applies_the_rule(self):
+        self.set_rules("Work")
+        res = self.run_tick(meeting("u-new-work", 0, "Work"), meeting("u-new-home", 0, "Home"), mode="new")
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual([p["meeting_uid"] for p in self.posts], ["u-new-home"])
+        self.assertIn("--calendar Work", self.calls.read_text(encoding="utf-8"))
+        self.assertNotIn("composer too old", self.log_text())
+
+    def test_probe_failure_falls_back_to_the_old_behaviour_sent_once(self):
+        self.set_rules("Work")
+        res = self.run_tick(meeting("u-pf-1", 0, "Work"), mode="probe_fail")
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual([p["meeting_uid"] for p in self.posts], ["u-pf-1"])
+        self.assertIn("calendar rules not applied: composer too old", self.log_text())
+        self.assertNotIn("--calendar", self.calls.read_text(encoding="utf-8"))
+
+    def test_probe_that_hangs_falls_back_to_the_old_behaviour_sent_once(self):
+        self.set_rules("Work")
+        res = self.run_tick(meeting("u-ph-1", 0, "Work"), mode="probe_hang")
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual([p["meeting_uid"] for p in self.posts], ["u-ph-1"])
+        self.assertIn("calendar rules not applied", self.log_text())
+
+    def test_probe_garbage_falls_back_to_the_old_behaviour_sent_once(self):
+        self.set_rules("Work")
+        res = self.run_tick(meeting("u-pg-1", 0, "Work"), mode="probe_garbage")
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual([p["meeting_uid"] for p in self.posts], ["u-pg-1"])
+        self.assertIn("calendar rules not applied", self.log_text())
 
 
 if __name__ == "__main__":

@@ -28151,6 +28151,22 @@ BANNED = (
 COMPOSER_SUPPRESSED_RC = 4
 SUPPRESSED = object()
 
+# Hub and installer update on different schedules (Sparkle), so the composer may
+# predate --calendar. Probe it once per tick: a composer that lists "calendar"
+# gets the owner's rule; anything else (old build, unknown subcommand, timeout,
+# garbage output) gets the brief WITHOUT --calendar, logged, sent once. Never
+# retried forever, never dropped on account of the probe.
+def _composer_applies_calendar_rules():
+    try:
+        res = subprocess.run([COMPOSER, "composer-capabilities"], capture_output=True, text=True, timeout=10)
+    except Exception as exc:
+        _log(f"calendar rules not applied: composer too old (probe could not run: {exc})")
+        return False
+    if res.returncode != 0 or "calendar" not in (res.stdout or "").split():
+        _log(f"calendar rules not applied: composer too old (probe rc={res.returncode})")
+        return False
+    return True
+
 def _compose(attendee, location, calendar=""):
     name = (attendee.get("name") or "").strip()
     if not name:
@@ -28190,6 +28206,9 @@ def _compose(attendee, location, calendar=""):
         return None
     return text
 
+# One probe per tick, before any meeting is composed.
+CALENDAR_RULES_OK = _composer_applies_calendar_rules()
+
 conn = sqlite3.connect(db_path)
 try:
     cur = conn.cursor()
@@ -28219,7 +28238,7 @@ try:
         parts = [header]
         failed = False
         suppressed = False
-        calendar = (m.get("calendar") or "").strip()
+        calendar = (m.get("calendar") or "").strip() if CALENDAR_RULES_OK else ""
         for a in (m.get("attendees") or [])[:3]:
             text = _compose(a, m.get("location") or "", calendar)
             if text is SUPPRESSED:
