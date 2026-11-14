@@ -4653,8 +4653,10 @@ async def _owner_gate(request: Request, call_next):
     endpoint = getattr(route, "endpoint", None)
     if getattr(route, "path", None) in _PUBLIC:
         return await call_next(request)
-    if endpoint is not None and getattr(endpoint, "__module__", "") == "proxy":
-        return await call_next(request)
+    # Proxied routes (memory, memory correct/assert, safari ingest) are NOT
+    # exempt. The proxy forwards to the gateway with the caller's own bearer or
+    # Doctor's service token, so a local account that is not the owner would
+    # otherwise reach the gateway through the Doctor. Every method is gated.
     refusal = await _owner_refusal(request)
     if refusal is None:
         return await call_next(request)
