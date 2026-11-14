@@ -290,6 +290,10 @@ LOGIND_SETTLE_S="${OSTLER_ENGINE_LOGIND_SETTLE_S:-10}"
 # At most one restart per this window, so a restart that does not help
 # cannot turn every tick into another restart.
 LOGIND_RESTART_COOLDOWN_S="${OSTLER_ENGINE_LOGIND_RESTART_COOLDOWN_S:-900}"
+# Daily budget: at most this many restarts per 24 h. Once spent and still
+# stuck, the watchdog stops and the Doctor row says it needs attention.
+LOGIND_MAX_HEALS_PER_DAY="${OSTLER_ENGINE_LOGIND_MAX_HEALS_PER_DAY:-3}"
+LOGIND_DAY_S=86400
 LOGIND_STATE_FILE="${STATE_DIR}/logind_health.json"
 OSTLER_ENGINE_LOGIND_PROBE_CMD="${OSTLER_ENGINE_LOGIND_PROBE_CMD:-}"
 OSTLER_ENGINE_LOGIND_RESTART_CMD="${OSTLER_ENGINE_LOGIND_RESTART_CMD:-}"
@@ -342,12 +346,29 @@ logind_read_field() {
 }
 
 logind_write_state() {
-    # logind_write_state <verdict> <action> <detail> [last_restart_epoch]
-    local last="${4:-$(logind_read_field last_restart_epoch)}"; [ -n "$last" ] || last=0
-    printf '{"verdict": "%s", "action": "%s", "detail": "%s", "checked": "%s", "last_restart_epoch": %s}\n' \
-        "$1" "$2" "$(printf '%s' "$3" | tr -d '"\\' | cut -c1-300)" "$(now_iso)" "$last" \
+    # logind_write_state <verdict> <action> <detail> <last_restart_epoch> <heal_epochs> <escalated true|false>
+    local last="${4:-0}" heals="${5:-}" esc="${6:-false}"
+    printf '{"verdict": "%s", "action": "%s", "detail": "%s", "checked": "%s", "last_restart_epoch": %s, "heal_epochs": "%s", "escalated": %s}\n' \
+        "$1" "$2" "$(printf '%s' "$3" | tr -d '"\\' | cut -c1-300)" "$(now_iso)" "$last" "$heals" "$esc" \
         > "${LOGIND_STATE_FILE}.tmp" 2>/dev/null && mv -f "${LOGIND_STATE_FILE}.tmp" "$LOGIND_STATE_FILE" 2>/dev/null || true
 }
+
+# logind_heals_in_window <now> : the heal epochs (space-separated) in the last 24 h.
+# Space, not comma: logind_read_field stops at a comma.
+logind_heals_in_window() {
+    local now="$1" raw e out="" n=0
+    raw="$(logind_read_field heal_epochs)"
+    for e in $(printf '%s' "$raw" | tr ',' ' '); do
+        case "$e" in ''|*[!0-9]*) continue ;; esac
+        if [ $(( now - e )) -lt "$LOGIND_DAY_S" ]; then
+            out="${out}${out:+ }${e}"; n=$((n + 1))
+        fi
+    done
+    printf '%s' "$out"
+}
+
+csv_count() { set -- $1; echo $#; }
+csv_max()   { printf '%s' "$1" | tr ' ' '\n' | awk 'BEGIN{m=0} $1+0>m{m=$1+0} END{print m}'; }
 
 logind_restart() {
     if [ -n "$OSTLER_ENGINE_LOGIND_RESTART_CMD" ]; then
@@ -358,43 +379,56 @@ logind_restart() {
 }
 
 logind_selfheal() {
-    local out verdict rc last_restart now
+    local out verdict rc now heals n last cooldown_left
     out="$(logind_probe)"; rc=$?
     if [ "$rc" -eq 124 ]; then
         log "CANNOT-RUN: logind probe timed out after ${LOGIND_PROBE_TIMEOUT_S}s; nothing was restarted and it is NOT read as healthy"
-        logind_write_state "CANNOT-RUN" "none" "probe timed out"
+        logind_write_state "CANNOT-RUN" "none" "probe timed out" "" "" "false"
         return 0
     fi
     verdict="$(logind_verdict "$out")"
+    now="$(now_epoch)"
     case "$verdict" in
-        HEALTHY) logind_write_state "HEALTHY" "none" "logind CPU below ${LOGIND_BUSY_TICKS} ticks per ${LOGIND_SAMPLE_S}s"; return 0 ;;
+        HEALTHY)
+            # Keep the day's heal record; a healthy reading only clears the escalation.
+            heals="$(logind_heals_in_window "$now")"; last="$(csv_max "$heals")"
+            logind_write_state "HEALTHY" "none" "logind CPU below ${LOGIND_BUSY_TICKS} ticks per ${LOGIND_SAMPLE_S}s" "$last" "$heals" "false"
+            return 0 ;;
         CANNOT-RUN*)
             log "$verdict; nothing was restarted"
-            logind_write_state "CANNOT-RUN" "none" "$verdict"; return 0 ;;
+            logind_write_state "CANNOT-RUN" "none" "$verdict" "" "" "false"
+            return 0 ;;
     esac
-    # WEDGED
-    now="$(now_epoch)"
-    last_restart="$(logind_read_field last_restart_epoch)"; [ -n "$last_restart" ] || last_restart=0
-    if [ "$last_restart" -gt 0 ] && [ "$(( now - last_restart ))" -lt "$LOGIND_RESTART_COOLDOWN_S" ]; then
-        log "WEDGED: systemd-logind is busy in the VM; last restart $(( now - last_restart ))s ago, inside the ${LOGIND_RESTART_COOLDOWN_S}s cooldown. Waiting."
-        logind_write_state "WEDGED" "cooldown" "busy; restart cooling down"
+    # WEDGED: the heal is bounded by a daily budget and a cooldown.
+    heals="$(logind_heals_in_window "$now")"; n="$(csv_count "$heals")"; last="$(csv_max "$heals")"
+    if [ "$n" -ge "$LOGIND_MAX_HEALS_PER_DAY" ]; then
+        log "ESCALATED: still stuck after ${n} restarts in 24 h; not restarting again. Needs attention."
+        logind_write_state "WEDGED" "escalated" "still stuck after ${n} restarts in 24 h" "$last" "$heals" "true"
         return 0
     fi
-    log "WEDGED: systemd-logind used >= ${LOGIND_BUSY_TICKS} ticks in ${LOGIND_SAMPLE_S}s inside the VM; restarting it"
+    if [ "$last" -gt 0 ] && [ $(( now - last )) -lt "$LOGIND_RESTART_COOLDOWN_S" ]; then
+        cooldown_left=$(( LOGIND_RESTART_COOLDOWN_S - (now - last) ))
+        log "WEDGED: last restart $(( now - last ))s ago, inside the ${LOGIND_RESTART_COOLDOWN_S}s cooldown (${cooldown_left}s left). Waiting."
+        logind_write_state "WEDGED" "cooldown" "stuck; restart cooling down" "$last" "$heals" "false"
+        return 0
+    fi
+    log "WEDGED: a background service in the VM is stuck (busy, ${LOGIND_BUSY_TICKS}+ ticks in ${LOGIND_SAMPLE_S}s); restarting it (restart $((n + 1)) of ${LOGIND_MAX_HEALS_PER_DAY} today)"
     logind_restart >/dev/null 2>&1; rc=$?
+    heals="${heals}${heals:+ }${now}"; n=$((n + 1)); last="$now"
     if [ "$rc" -ne 0 ]; then
-        log "logind restart FAILED rc=${rc}; will retry after cooldown"
-        logind_write_state "WEDGED" "restart failed" "restart failed rc=${rc}" "$now"
+        log "restart FAILED rc=${rc}; counted against the daily budget"
+        logind_write_state "WEDGED" "restart failed" "restart failed rc=${rc}" "$last" "$heals" "$([ "$n" -ge "$LOGIND_MAX_HEALS_PER_DAY" ] && echo true || echo false)"
         return 0
     fi
     sleep "$LOGIND_SETTLE_S"
     out="$(logind_probe)"; verdict="$(logind_verdict "$out")"
     if [ "$verdict" = "HEALTHY" ]; then
-        log "RECOVERED: logind CPU back below the busy threshold after restart"
-        logind_write_state "HEALTHY" "restarted" "recovered after restart" "$now"
+        log "RECOVERED: the stuck service is running normally after the restart"
+        logind_write_state "HEALTHY" "restarted" "recovered after restart" "$last" "$heals" "false"
     else
-        log "NOT RECOVERED: logind still busy or unreadable after restart (${verdict})"
-        logind_write_state "WEDGED" "restarted" "still ${verdict} after restart" "$now"
+        log "NOT RECOVERED after restart ${n} of ${LOGIND_MAX_HEALS_PER_DAY} (${verdict})"
+        local esc=false; [ "$n" -ge "$LOGIND_MAX_HEALS_PER_DAY" ] && esc=true
+        logind_write_state "WEDGED" "restarted" "still ${verdict} after restart" "$last" "$heals" "$esc"
     fi
     return 0
 }
