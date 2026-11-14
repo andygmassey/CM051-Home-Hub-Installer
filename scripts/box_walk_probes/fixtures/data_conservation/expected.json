@@ -15,7 +15,8 @@
      },
      "id": "whatsapp/people",
      "source": "whatsapp",
-     "unit": "people"
+     "unit": "people",
+     "cross_run": "IN is the install summary line (install.log people_added) and STORED is the hydrate marker item_count, written by a different run. No same-run pair exists on the box, so this row is CANNOT-RUN until the install writes one run id to both."
     },
     {
      "category": "person",
@@ -25,7 +26,7 @@
        "zero_if": "x.class.total"
       },
       "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
-      "shown": "w.shown.people.source=fda_people_index",
+      "shown": "w.shown.people.source_sum",
       "stored": "q.people.total"
      },
      "id": "people/all",
@@ -85,7 +86,8 @@
      },
      "id": "whatsapp/people",
      "source": "whatsapp",
-     "unit": "people"
+     "unit": "people",
+     "cross_run": "IN is the install summary line (install.log people_added) and STORED is the hydrate marker item_count, written by a different run. No same-run pair exists on the box, so this row is CANNOT-RUN until the install writes one run id to both."
     },
     {
      "category": "person",
@@ -95,7 +97,7 @@
        "zero_if": "x.class.total"
       },
       "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
-      "shown": "w.shown.people.source=fda_people_index",
+      "shown": "w.shown.people.source_sum",
       "stored": "q.people.total"
      },
      "id": "people/all",

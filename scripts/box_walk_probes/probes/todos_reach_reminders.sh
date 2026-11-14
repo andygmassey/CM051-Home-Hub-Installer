@@ -54,6 +54,14 @@ run_probe() {
         probe_cannot_run "could not resolve the pwg-convo venv interpreter (no /usr/local/bin/pwg-convo, or its shebang does not point at an executable)"
     fi
 
+    # RESET FIRST. Reminders a previous walk recorded are removed by identifier
+    # before this walk writes anything, and the residue is measured, not assumed.
+    # Over ssh the delete can time out or be refused; the judge then names the
+    # residue as CANNOT-RUN, never as a pass.
+    local resetf
+    resetf="$(mktemp)"
+    box_run "'${venv_py}' ${remote} reset" > "${resetf}" 2>/dev/null
+
     facts="$(mktemp)"
     box_run "'${venv_py}' ${remote} run --token '${token}' --text '${text}' --wait-s '${OSTLER_TODO_PROBE_WAIT_S:-90}'" > "${facts}" 2>/dev/null
 
@@ -71,9 +79,11 @@ import json,sys
 f=json.load(open(sys.argv[1]))
 try: f['cleanup']=json.loads(open(sys.argv[2]).read().strip().splitlines()[-1])
 except Exception: pass
-json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}"
+try: f['reset']=json.loads(open(sys.argv[3]).read().strip().splitlines()[-1])
+except Exception: pass
+json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}" "${resetf}"
     out="$(python3 "${_HERE}/lib/todo_reminders_probe.py" judge "${facts}")"; rc=$?
-    rm -f "${facts}" "${forgot}"
+    rm -f "${facts}" "${forgot}" "${resetf}"
     printf '%s\n' "${out}"
     n="$(printf '%s\n' "${out}" | grep -cE '^  (ok|FAIL|CANNOT|N/A) ')"
     probe_examined "${n}" "todo-reminders assertions"
@@ -82,6 +92,8 @@ json.dump(f,open(sys.argv[1],'w'))" "${facts}" "${forgot}"
         0)  probe_pass "the synthetic commitment reached a pending row, the daemon claimed it, and the reminder is visible in Reminders.app, and the cleanup deleted it" ;;
         78) if printf '%s\n' "${out}" | grep -q 'console grant needed'; then
                 probe_cannot_run "TCC: console grant needed. No kTCCServiceReminders row for the assistant in TCC.db, so the Reminders prompt is undecided (not denied); only a human at the console can answer it"
+            elif printf '%s\n' "${out}" | grep -q 'remain after reset'; then
+                probe_cannot_run "residue from an earlier walk could not be removed over ssh (see the CANNOT line for the measured count); delete it at the console before this walk's reminder can be judged clean"
             elif printf '%s\n' "${out}" | grep -q 'LEFT BEHIND, delete by hand'; then
                 probe_cannot_run "cleanup refused by TCC over ssh; the synthetic reminder was LEFT BEHIND (see the CANNOT line for its id and title); delete it at the console before the next walk"
             elif printf '%s\n' "${out}" | grep -q 'Automation permission (TCC)'; then

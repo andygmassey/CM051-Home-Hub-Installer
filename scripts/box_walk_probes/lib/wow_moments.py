@@ -571,8 +571,15 @@ _ITEM_SPLIT = re.compile(r"\s*(?:[,;:]|\band\b)\s*", re.I)
 PROVENANCE_LINE = re.compile(r"^from your (?:messages|calendar|[a-z' ]* calendars?)$")
 
 
+# Strip LIST MARKERS only: "- ", "* ", a bullet, "N. " or "N) ". Never bare
+# leading digits. "09:00 Standup" and "15:00 Standup" are two meetings, and "2
+# emails" and "5 emails" are two counts; stripping digits made both pairs one
+# repeat, a false FAIL (the same defect Archie caught in the oa brief dedupe).
+_LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
+
+
 def _norm_item(t):
-    t = re.sub(r"^[\s\-\*\u2022\d\.\)]+", "", t or "")
+    t = _LIST_MARKER.sub("", t or "", count=1)
     return " ".join(re.sub(r"[^\w' ]+", " ", t.casefold()).split())
 
 
