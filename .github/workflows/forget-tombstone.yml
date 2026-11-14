@@ -13,6 +13,7 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py'
       - 'tests/test_facebook_export_imports_once.py'
       - 'tests/test_merged_people_are_not_recreated.py'
       - 'vendor/cm021/src/cli.py'
@@ -26,6 +27,7 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py'
       - 'tests/test_facebook_export_imports_once.py'
       - 'tests/test_merged_people_are_not_recreated.py'
       - 'vendor/cm021/src/cli.py'
@@ -129,3 +131,9 @@ jobs:
           echo "collected ${n} test(s)"
           [ "${n:-0}" -ge 15 ] || { echo "REFUSING: expected at least 15 tests, got ${n:-0}" >&2; exit 1; }
           python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py -v
+          # Wrong-person forget (2026-11-14): a shared slug is a 409 and erases
+          # nobody; forget by person_uri erases exactly that person.
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 14 ] || { echo "REFUSING: expected at least 14 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py -v

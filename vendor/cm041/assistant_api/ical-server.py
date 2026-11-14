@@ -3549,12 +3549,18 @@ def api_people_suppress_suggestions(slug, payload):
             '  ?person a pwg:Person ; pwg:displayName ?name .\n'
             '}}'.format(ns=PWG_NS)
         )
+        _twin_names = {c.get("name", "") for c in candidates
+                       if c.get("person") and _wiki_slug(c.get("name", "")) == slug}
         person_uris = [c["person"] for c in candidates
                        if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
     except Exception as exc:
         return {"suppressed": suppressed, "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}"}, 503
 
+    if len(_twin_names) > 1:
+        # Two different spellings fold to one slug: a record keyed on it would
+        # hide the other person too. Refuse before the write, clear included.
+        return _ambiguous_slug_response(slug, len(_twin_names), suppressed=suppressed)
     if person_uris and suppressed:
         try:
             identifiers = _personal_identifiers_for(person_uris, slug)
@@ -3599,7 +3605,7 @@ def api_people_suppress_suggestions(slug, payload):
     }, 200
 
 
-def api_people_forget(slug):
+def api_people_forget(slug, person_uri=None):
     """Handle POST /api/v1/people/{slug}/forget.
 
     Customer's GDPR Art. 17 + UK GDPR right-of-erasure one-click
@@ -3633,8 +3639,21 @@ def api_people_forget(slug):
     # name happened to match left the survivor (or the retired nodes, with
     # their names, emails and identifiers) behind.
     try:
-        person_uri, forget_name = _resolve_person_by_slug(slug)
+        if person_uri is not None:
+            if not isinstance(person_uri, str) or not person_uri or len(person_uri) > 512:
+                return {"error": "person_uri must be a non-empty string (max 512 chars)"}, 400
+            person_uri, forget_name = _resolve_person_by_uri(person_uri)
+            if person_uri is None:
+                # A URI that names nobody: refuse, no write of any kind.
+                return {"forgotten": False, "already_forgotten": False,
+                        "not_found": True, "reason": "no person has this person_uri",
+                        "wiki_recompile_queued": False, "stores_purged": []}, 404
+        else:
+            person_uri, forget_name = _resolve_person_by_slug(slug)
         cluster = _merged_cluster(person_uri) if person_uri else []
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count, forgotten=False,
+                                        wiki_recompile_queued=False, stores_purged=[])
     except Exception as exc:
         return {
             "forgotten": False,
@@ -6406,16 +6425,45 @@ def _rank_name_rows(rows):
     )
 
 
+class SlugAmbiguous(RuntimeError):
+    """More than one live person folds to one slug. Callers answer 409 and
+    write nothing (the wrong-person forget, 2026-11-14, Archie's ruling)."""
+
+    def __init__(self, count):
+        super().__init__("more than one person matches")
+        self.count = count
+
+
+def _ambiguous_slug_response(slug, match_count, **extra):
+    body = {"error": "more than one person matches", "slug": slug,
+            "match_count": match_count, "found": False}
+    body.update(extra)
+    return body, 409
+
+
+def _resolve_person_by_uri(person_uri):
+    """(person_uri, name) when ``person_uri`` is a live person, else (None, "").
+    A URI names one node, so no ambiguity is possible here."""
+    hits = [r for r in _merge_aware_name_rows() if r.get("person") == person_uri]
+    if not hits:
+        return None, ""
+    best = _rank_name_rows(hits)[0]
+    return best["person"], best.get("name", "")
+
+
 def _resolve_person_by_slug(slug):
     """(person_uri, name) for the live person a wiki slug names, else (None, "").
 
     The slug may come from the survivor's own displayName or from any name
-    merged into it. An own-name match wins over an alias match. Raises on a
-    store failure.
+    merged into it. An own-name match wins over an alias match. Raises
+    SlugAmbiguous when the slug names more than one live person (accents
+    fold, so two spellings of one name share a slug). Raises on a store failure.
     """
     hits = [r for r in _merge_aware_name_rows() if _wiki_slug(r.get("name", "")) == slug]
     if not hits:
         return None, ""
+    if len({r.get("person") for r in hits if r.get("person")}) > 1:
+        raise SlugAmbiguous(len({r.get("person") for r in hits if r.get("person")}))
     best = _rank_name_rows(hits)[0]
     return best["person"], best.get("name", "")
 
@@ -6868,6 +6916,8 @@ def person_enrichment(slug):
     # never the dead duplicate (see _resolve_person_by_slug).
     try:
         person_uri, pname = _resolve_person_by_slug(slug)
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count)
     except Exception as exc:
         return {
             "found": False,
@@ -7268,6 +7318,8 @@ def person_timeline(slug, limit=50, days=None):
     # never the dead duplicate (see _resolve_person_by_slug).
     try:
         person_uri, pname = _resolve_person_by_slug(slug)
+    except SlugAmbiguous as exc:
+        return _ambiguous_slug_response(slug, exc.count)
     except Exception as exc:
         return {
             "found": False,
@@ -13948,8 +14000,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
                 return
+            forget_uri = None
+            if _forget_clen > 0:
+                try:
+                    _forget_body = json.loads(self.rfile.read(_forget_clen) or b"{}")
+                except ValueError:
+                    _forget_body = None
+                if not isinstance(_forget_body, dict):
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "Body must be a JSON object"}).encode())
+                    return
+                forget_uri = _forget_body.get("person_uri")
             try:
-                result, status = api_people_forget(slug)
+                result, status = api_people_forget(slug, person_uri=forget_uri)
             except Exception as exc:
                 result, status = {"error": str(exc)}, 500
             self.send_response(status)
