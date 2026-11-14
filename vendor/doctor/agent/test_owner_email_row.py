@@ -88,19 +88,23 @@ def test_reader_reports_corrupt_file_as_unreadable(tmp_path):
 LOOPBACK = ("127.0.0.1", 50000)
 
 
-def _as_owner(monkeypatch, web_ui):
-    """The vendored Doctor gates every non-public route to the owner. The positive
-    arms run as the owner; the unauthenticated arm does NOT patch the gate."""
-    async def _owner(request):
-        return None
-    monkeypatch.setattr(web_ui, "_owner_refusal", _owner)
+def _stub_kernel(monkeypatch, *, peer_uid=None, peer_command="/usr/bin/python3", none=False):
+    """Stand in for the kernel's socket-owner lookup. Default: the owner's own process."""
+    import owner_peer
+    if none:
+        monkeypatch.setattr(owner_peer, "_lookup", lambda *a, **k: None)
+        return
+    uid = owner_peer.owner_uid() if peer_uid is None else peer_uid
+    monkeypatch.setattr(owner_peer, "_lookup",
+                        lambda *a, **k: owner_peer.Peer(pid=1, uid=uid, command=peer_command))
 
 
+@pytest.mark.real_owner_gate
 def test_setter_route_writes_the_file_and_refuses_cross_site(tmp_path, monkeypatch):
     fastapi_testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
     import web_ui
-    _as_owner(monkeypatch, web_ui)
+    _stub_kernel(monkeypatch)
     client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
     ok = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
     assert ok.status_code == 200 and ok.json() == {"status": "ok", "count": 1}
@@ -113,24 +117,55 @@ def test_setter_route_writes_the_file_and_refuses_cross_site(tmp_path, monkeypat
     assert bad.status_code == 400
 
 
+@pytest.mark.real_owner_gate
 def test_unauthenticated_caller_is_refused_and_writes_nothing(tmp_path, monkeypatch):
-    # The owner gate: a caller that is not on this Mac gets 403 and no file.
+    # A caller that is not on loopback at all: refused by the owner gate, no file.
     fastapi_testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
     import web_ui
     client = fastapi_testclient.TestClient(web_ui.app, client=("203.0.113.7", 50000))
     r = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
     assert r.status_code == 403
+    assert r.json().get("refused_on") == "not-loopback"
     assert not (tmp_path / "state" / "owner_addresses.json").exists()
 
 
+@pytest.mark.real_owner_gate
+def test_proxied_loopback_without_owner_credential_is_refused(tmp_path, monkeypatch):
+    # The arm that matters: the request arrives via 127.0.0.1 (a proxy, a tunnel) but
+    # the kernel cannot name an owner process behind it. Loopback alone is not owner.
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
+    import web_ui
+    _stub_kernel(monkeypatch, none=True)
+    client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
+    r = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
+    assert r.status_code == 403
+    assert r.json().get("refused_on") == "peer-unknown"
+    assert not (tmp_path / "state" / "owner_addresses.json").exists()
+
+
+@pytest.mark.real_owner_gate
+def test_loopback_from_another_local_account_is_refused(tmp_path, monkeypatch):
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
+    import owner_peer
+    import web_ui
+    _stub_kernel(monkeypatch, peer_uid=owner_peer.owner_uid() + 1)
+    client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
+    r = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
+    assert r.status_code == 403
+    assert r.json().get("refused_on") == "peer-not-owner"
+    assert not (tmp_path / "state" / "owner_addresses.json").exists()
+
+
+@pytest.mark.real_owner_gate
 def test_rendered_row_submit_writes_file_and_row_clears(tmp_path, monkeypatch):
     """Rendered-page arm: the row shows the input; submitting writes 0600; the row clears."""
     fastapi_testclient = pytest.importorskip("fastapi.testclient")
     monkeypatch.setenv("OSTLER_DIR", str(tmp_path))
     import web_ui
     from status_collector import SystemSnapshot
-    _as_owner(monkeypatch, web_ui)
 
     snap = SystemSnapshot(services=[], docker_containers=[], ollama_models=[],
                           disk_usage=[], hostname="testhost", os_version="Darwin 25.0",
@@ -146,6 +181,7 @@ def test_rendered_row_submit_writes_file_and_row_clears(tmp_path, monkeypatch):
     assert "if (f.form === 'owner_email') {" in html
     assert "fixHtml += OWNER_EMAIL_FORM_HTML_JS;" in html
 
+    _stub_kernel(monkeypatch)
     client = fastapi_testclient.TestClient(web_ui.app, client=LOOPBACK)
     saved = client.post("/api/v1/owner-email", json={"addresses": [ADDR]})
     assert saved.status_code == 200
