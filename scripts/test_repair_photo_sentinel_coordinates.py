@@ -11,7 +11,9 @@ import sys
 
 import pytest
 
-pyox = pytest.importorskip("pyoxigraph")
+# A HARD import, not importorskip. A skip here would let the suite go green with
+# zero tests executed; a missing engine must be a collection error, which fails CI.
+import pyoxigraph as pyox
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)

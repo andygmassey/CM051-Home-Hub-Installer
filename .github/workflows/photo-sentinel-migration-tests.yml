@@ -1,0 +1,79 @@
+name: photo-sentinel-migration-tests
+
+# scripts/repair_photo_sentinel_coordinates.py deletes -180 "no location" coordinates
+# from the customer's graph on upgrade. Its tests are the only evidence the delete
+# keeps every date and every clean-event coordinate. A green run that executed
+# nothing would read as proof, so this workflow refuses one:
+#
+#   - pyoxigraph is PINNED and installed here. The tests import it directly, so a
+#     missing engine is a collection error, not a skip.
+#   - The JUnit report is parsed, not grepped. The run FAILS unless at least
+#     MIN_TESTS executed, and zero were skipped, errored or failed.
+#
+# MIN_TESTS must equal the number of tests in the file. Raising the file's count
+# without raising this floor is fine. Lowering this floor needs a reason in the PR.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/repair_photo_sentinel_coordinates.py'
+      - 'scripts/test_repair_photo_sentinel_coordinates.py'
+      - '.github/workflows/photo-sentinel-migration-tests.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYOXIGRAPH_VERSION: "0.5.11"
+  MIN_TESTS: "7"
+
+jobs:
+  photo-sentinel-migration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest and the pinned SPARQL engine
+        run: |
+          python -m pip install --quiet pytest "pyoxigraph==${PYOXIGRAPH_VERSION}"
+          python -c "import pyoxigraph, sys; print('pyoxigraph', pyoxigraph.__version__ if hasattr(pyoxigraph,'__version__') else 'ok', 'python', sys.version.split()[0])"
+
+      - name: Run the sentinel migration tests (JUnit)
+        run: |
+          python -m pytest scripts/test_repair_photo_sentinel_coordinates.py -q \
+            -p no:cacheprovider --junitxml=photo-sentinel-junit.xml
+
+      - name: Refuse a run that executed fewer than MIN_TESTS, or any skip
+        run: |
+          python - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          root = ET.parse("photo-sentinel-junit.xml").getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          tests = int(suite.get("tests", 0))
+          fails = int(suite.get("failures", 0))
+          errs = int(suite.get("errors", 0))
+          skips = int(suite.get("skipped", 0))
+          floor = int(os.environ["MIN_TESTS"])
+          executed = tests - skips
+          print(f"collected={tests} executed={executed} failures={fails} errors={errs} skipped={skips} floor={floor}")
+          if skips:
+              print("::error::skipped tests are refused: a skip is not a pass")
+              sys.exit(1)
+          if fails or errs:
+              print("::error::the migration tests failed"); sys.exit(1)
+          if executed < floor:
+              print(f"::error::only {executed} tests executed; the floor is {floor}")
+              sys.exit(1)
+          PY
