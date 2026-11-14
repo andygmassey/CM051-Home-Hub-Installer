@@ -69,6 +69,13 @@ def make_pipe():
 
     p.qdrant.upsert_vectors = upsert_vectors
     p.oxigraph.insert_triples = insert_triples
+
+    # The shipped pipeline mirrors through replace_preference_triples since
+    # personal-world-graph #471 (d9797d88), Qdrant first; same capture.
+    async def replace_preference_triples(pref_ids, turtle):
+        return await insert_triples(turtle)
+
+    p.oxigraph.replace_preference_triples = replace_preference_triples
     return p
 
 
