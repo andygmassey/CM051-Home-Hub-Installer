@@ -341,3 +341,38 @@ temp HOME; the CM044 reader reads exactly 100; with markers stripped it reads 99
 
 Owed upstream: yes, HR015 `ostler_fda/` (same four files plus tests): andygmassey/HR015-Gaming-PC#1418, linked from #3426.
 Retire this section when it lands and the tree is re-pinned past it.
+
+## v1.0.132: notification and organisation senders are left out of the people index
+
+Walk 131 triage item 2. Not captured by `ostler_fda.patch`; recorded here by hand.
+
+### `vendor/ostler_fda/pwg_ingest.py`
+
+- New module-level block after `DEFAULT_PRIVACY`: the `_SVC_*` regexes and
+  `service_sender_reason(name, phones)`, a copy of the rule the walk's
+  people-phrasing probe measures (`scripts/box_walk_probes/lib/customer_read.py`
+  `service_sender`). A row with a phone is exempt.
+- `ingest_people_to_qdrant()`: rows the rule flags are removed from `people`
+  right after `_load_people_from_oxigraph()`, BEFORE the embed. The existing
+  prune then removes any point they already held. Logged as a count only.
+
+Shape: one helper block, one filter. No I/O boundary moved, no collection,
+point id or vector size changed.
+
+### Why
+
+On the 131 walk box one People row named "<Shop> Receipts"-shaped was a
+`pwg:Person` in Oxigraph, was embedded, and surfaced as a person (the probe
+read 1 of 8063 at walk time; live 2 of 8571, both two-word, one with an email).
+
+### Owed upstream
+
+Yes: the source of `ostler_fda/pwg_ingest.py` (HR015 `ostler_fda/`). The same
+filter is to be made there so the next sync does not revert it. Retire this
+section when the upstream commit lands and `sync_vendor.sh ostler_fda` re-pins.
+
+### Pinned by
+
+`tests/test_people_projection_service_senders.py`: the end-to-end projection
+drops service senders, keeps synthetic real names and keeps a phone-carrying
+card. On the unfixed vendor tree the projection test is red.
