@@ -27374,18 +27374,64 @@ if [[ ! -x "$IMPORT_SCRIPT" ]]; then
     exit 0
 fi
 
-# ── Platform exports: one import over Downloads, deduped by export-set hash ──
-if [[ ${#FOUND[@]} -gt 0 ]]; then
-    FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
-    if [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
-        _es_already=$(( _es_already + ${#FOUND[@]} ))
-        for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "already imported" "" "${FOUND[$_i]}"; done
+# ── Platform exports: deduped PER ITEM, by path + content fingerprint ───────
+# (LinkedIn re-announce fix, 2026-11-14.) The old key was ONE hash over the
+# whole set of paths. So (a) any unrelated new item in Downloads changed the
+# set, re-ran the importer and re-announced the LinkedIn export ("found your
+# LinkedIn export and 1 more"); and (b) an export changed at the same path
+# matched the old key and was skipped for ever. Each item now has its own key:
+# its path, then a fingerprint of its files' names, sizes and mtimes. An item
+# already in the ledger is never announced again. A new or changed item is
+# imported. The #1571 rule holds: a failed import writes no key, so the next
+# tick retries it.
+_ES_PLAT="${_ES_STATE}/imported_platform.tsv"
+_es_fp() {  # $1 = an export's path (file or folder) -> fingerprint of its content
+    if [[ -d "$1" ]]; then
+        find "$1" -type f -exec stat -f '%N %z %m' {} + 2>/dev/null | sort | shasum | cut -d' ' -f1
     else
+        stat -f '%N %z %m' "$1" 2>/dev/null | shasum | cut -d' ' -f1
+    fi
+}
+if [[ ${#FOUND[@]} -gt 0 ]]; then
+    # One row per distinct export. The name globs end in "/" and the detector
+    # does not, so one folder can arrive twice: compare without the slash.
+    P_PATH=(); P_LBL=(); P_KEY=()
+    _seen_paths=""
+    for _i in "${!FOUND[@]}"; do
+        _pp="${FOUND[$_i]%/}"
+        case $'\n'"${_seen_paths}"$'\n' in *$'\n'"${_pp}"$'\n'*) continue ;; esac
+        _seen_paths="${_seen_paths}${_pp}"$'\n'
+        P_PATH+=("$_pp"); P_LBL+=("${FOUND_LABELS[$_i]}")
+        P_KEY+=("${_pp}"$'\t'"$(_es_fp "$_pp")")
+    done
+    # Upgrade path only: a box that imported under the old set-hash rule has
+    # no ledger yet. Its current set is recorded here, not imported again.
+    FOUND_HASH=$(printf '%s\n' "${FOUND[@]}" | sort | shasum | cut -d' ' -f1)
+    _legacy_set=0
+    if [[ ! -f "$_ES_PLAT" ]] && [[ -f "$SCAN_STATE" ]] && grep -q "$FOUND_HASH" "$SCAN_STATE" 2>/dev/null; then
+        _legacy_set=1
+    fi
+    P_NEW=()
+    for _i in "${!P_PATH[@]}"; do
+        if [[ -f "$_ES_PLAT" ]] && grep -Fxq -- "${P_KEY[$_i]}" "$_ES_PLAT"; then
+            _es_already=$(( _es_already + 1 ))
+            _es_row "${P_LBL[$_i]}" "already imported" "" "${P_PATH[$_i]}"
+        elif [[ "$_legacy_set" -eq 1 ]]; then
+            printf '%s\n' "${P_KEY[$_i]}" >> "$_ES_PLAT"
+            _es_already=$(( _es_already + 1 ))
+            _es_row "${P_LBL[$_i]}" "already imported" "" "${P_PATH[$_i]}"
+        else
+            P_NEW+=("$_i")
+        fi
+    done
+    _new_n=${#P_NEW[@]}
+    if [[ "$_new_n" -gt 0 ]]; then
         # Auto-import. ostler-import fans to BOTH pipelines over the whole
-        # Downloads folder and is re-run safe.
-        _first="${FOUND_LABELS[0]}"
-        if [[ ${#FOUND[@]} -gt 1 ]]; then
-            _notify "Ostler found your ${_first} export and $(( ${#FOUND[@]} - 1 )) more, and is adding them to your world." "Importing"
+        # Downloads folder and is re-run safe, so already-known items inside
+        # it cost nothing and are not announced or counted as new.
+        _first="${P_LBL[${P_NEW[0]}]}"
+        if [[ "$_new_n" -gt 1 ]]; then
+            _notify "Ostler found your ${_first} export and $(( _new_n - 1 )) more, and is adding them to your world." "Importing"
         else
             _notify "Ostler found your ${_first} export and is adding it to your world." "Importing"
         fi
@@ -27394,25 +27440,20 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
         "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
         if [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
-            # Record ONLY on success. The comment here used to say exactly that
-            # while the write sat outside the branch, so a failed import was
-            # marked done and never retried: the hash is the dedupe key, and once
-            # it is in scan_state this export set is skipped for ever. #1571.
+            # Record ONLY on success (#1571): a failed import is retried next tick.
             echo "$FOUND_HASH" >> "$SCAN_STATE"
-            _es_imp=$(( _es_imp + ${#FOUND[@]} ))
-            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "imported" "" "${FOUND[$_i]}"; done
+            for _i in "${P_NEW[@]}"; do
+                printf '%s\n' "${P_KEY[$_i]}" >> "$_ES_PLAT"
+                _es_row "${P_LBL[$_i]}" "imported" "" "${P_PATH[$_i]}"
+            done
+            _es_imp=$(( _es_imp + _new_n ))
         else
-            # The old message on this branch was "Imported your latest export.
-            # Some parts will finish in the background." The importer had just
-            # returned NON-ZERO, so nothing was imported and nothing is finishing
-            # in the background. Both branches claimed an import, which is why the
-            # failure was invisible to the person it happened to.
+            # The importer returned non-zero, so nothing was imported and nothing
+            # is finishing in the background. Say so, and write no key.
             _notify "Ostler could not finish importing your ${_first} export. It will try again." "Import unfinished"
-            # No hash written, so the next tick retries this export set rather
-            # than skipping it for ever.
-            _es_failed=$(( _es_failed + ${#FOUND[@]} ))
+            _es_failed=$(( _es_failed + _new_n ))
             _es_fail_why="the importer stopped with exit code ${_imp_rc}"
-            for _i in "${!FOUND[@]}"; do _es_row "${FOUND_LABELS[$_i]}" "failed" "$_es_fail_why" "${FOUND[$_i]}"; done
+            for _i in "${P_NEW[@]}"; do _es_row "${P_LBL[$_i]}" "failed" "$_es_fail_why" "${P_PATH[$_i]}"; done
         fi
     fi
 fi
