@@ -1869,3 +1869,14 @@ New vendor-only file `agent/shared_prefix_status.py` (listed in `vendor/VENDOR_O
 Why: the GUI admin shell chowned `/opt/homebrew` to the owner on every install. It now refuses to take another account's Homebrew and never chowns an existing prefix. Archie's ruling (8b/8d) asks Doctor to say so: another account's Homebrew is refused (warning, no account named), and a prefix owned by the running account is INFO with no auto-fix, because an earlier chown cannot be reverted.
 
 Tests: `tests/test_doctor_shows_shared_prefix.py` (13 checks; mutant that reads a foreign owner as INFO fails 4). On origin/main the module does not exist and web_ui.py has no import, so that test cannot pass there.
+# doctor: export_platforms.tsv gains a ChatGPT row (CM051, 2026-11-14)
+
+Vendored edit in `vendor/doctor/agent/export_platforms.tsv`: one row, `ChatGPT`.
+It mirrors the watcher's new ChatGPT label in `lib/ostler-detect-exports.sh` (SIGS).
+Its request URL is also in installer Q11 (`install.sh`), which the drift test checks.
+
+- request_url: `https://chatgpt.com/#settings/DataControls` (UNVERIFIED-FETCH: the
+  help page at help.openai.com returned HTTP 403 to the fetcher; the path is the
+  documented Settings > Data Controls > Export data).
+- No upstream patch: the row lives only in CM051 until the same change lands in the
+  Doctor source table. Re-vendor must keep this row or the drift test goes red.

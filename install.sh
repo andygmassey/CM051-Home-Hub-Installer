@@ -4239,7 +4239,7 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9676) captures the path BY
+    # _ostler_write_store_curl_config (defined :9677) captures the path BY
     # VALUE and never re-reads it:
     #     :9677   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
     #     :9722   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
@@ -4276,7 +4276,7 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7023 against a definition at :9676. Top-level
+    # writer's own definition: :7023 against a definition at :9677. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
@@ -9049,6 +9049,7 @@ printf "    %-14s %s\n" "Twitter / X"    "$(_link 'https://x.com/settings/downlo
 printf "    %-14s %s\n" "WhatsApp"       "Settings > Account > Request Account Info"
 printf "    %-14s %s\n" "Spotify"        "$(_link 'https://www.spotify.com/account/privacy/' 'Request data')"
 printf "    %-14s %s\n" "Netflix"        "$(_link 'https://www.netflix.com/account/getmyinfo' 'Request data')"
+printf "    %-14s %s\n" "ChatGPT"        "$(_link 'https://chatgpt.com/#settings/DataControls' 'Export data')"
 printf "    %-14s %s\n" "Apple"          "$(_link 'https://privacy.apple.com/' 'Request data') (Media Services)"
 printf "    %-14s %s\n" "Amazon"         "$(_link 'https://www.amazon.com/hz/privacy-central/data-requests/preview.html' 'Request data')"
 printf "    %-14s %s\n" "Reddit"         "$(_link 'https://www.reddit.com/settings/data-request' 'Request data')"
@@ -10419,8 +10420,10 @@ set -uo pipefail
 DIR="${1:-}"
 DO_UNZIP=0
 DO_LOOSE=0
+DO_STAGE_CHATGPT=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
+[[ "${2:-}" == "--stage-chatgpt" ]] && DO_STAGE_CHATGPT=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
 
 # --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
@@ -10594,6 +10597,48 @@ if [[ "$DO_LOOSE" == "1" ]]; then
     exit "$_lx_any"
 fi
 
+# --- 0b. CHATGPT STAGE (2026-11-14) -------------------------------------------
+# Usage: ostler-detect-exports.sh <export_dir> --stage-chatgpt <drop_dir>
+# Copies the export's conversations.json into <drop_dir>/<export name>/conversations.json,
+# the folder the CM052 ChatGPT adapter reads (OSTLER_CHATGPT_IMPORT_DIR, default
+# ~/Ostler/imports/chatgpt). The aiconv agent runs hourly with cm052 --source all,
+# which reads that folder. Exit 0 when staged, 1 when no export is found under
+# <export_dir>. The copy goes to a temp name first and is moved into place, so a
+# half-copied file is never read.
+if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
+    _sc_drop="${3:-}"
+    [[ -n "$_sc_drop" ]] || exit 1
+    _sc_src=""
+    while IFS= read -r _sc_f; do
+        if [[ -f "$(dirname "$_sc_f")/chat.html" ]]; then _sc_src="$_sc_f"; break; fi
+    done < <(find "$DIR" -maxdepth 4 -type f -name conversations.json 2>/dev/null)
+    [[ -n "$_sc_src" ]] || exit 1
+    _sc_name="$(basename "$DIR")"
+    _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
+    # The export is the customer's full ChatGPT history (L3). Owner-only from
+    # the first byte: umask 077 before any mkdir or cp, so nothing is ever
+    # created 0755 or 0644 (the default umask would make them), then explicit
+    # chmod 700 on both folders and 600 on the file.
+    (
+        umask 077
+        mkdir -p "$_sc_drop" && chmod 700 "$_sc_drop" || exit 1
+        mkdir -p "$_sc_drop/$_sc_name" && chmod 700 "$_sc_drop/$_sc_name" || exit 1
+        # Copy into a 700 temp dir inside the drop folder, then one atomic mv
+        # into place: the adapter never sees a half-copied conversations.json.
+        _sc_tmp="$(mktemp -d "$_sc_drop/.stage.XXXXXX")" || exit 1
+        chmod 700 "$_sc_tmp" || { rm -rf "$_sc_tmp"; exit 1; }
+        if cp "$_sc_src" "$_sc_tmp/conversations.json.part" \
+            && chmod 600 "$_sc_tmp/conversations.json.part" \
+            && mv "$_sc_tmp/conversations.json.part" "$_sc_drop/$_sc_name/conversations.json"; then
+            rm -rf "$_sc_tmp"
+            exit 0
+        fi
+        rm -rf "$_sc_tmp"
+        exit 1
+    )
+    exit $?
+fi
+
 # platform <US> extended-regex of signature basenames (a file OR dir whose
 # name is specific enough to identify the source export). Kept deliberately
 # high-signal to avoid false positives. <US> = unit separator (0x1f).
@@ -10615,6 +10660,7 @@ SIGS=(
   $'TikTok\x1f^user_data.*\\.json$'
   $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
   $'Discord\x1f^messages\\.csv$|^activity$'
+  $'ChatGPT\x1f^conversations\\.json$'
 )
 
 # --- 1. Optionally unzip archives worth opening -------------------------------
@@ -10717,6 +10763,9 @@ for entry in "${SIGS[@]}"; do
     while IFS= read -r hit; do
         [[ -n "$hit" ]] || continue
         top="$(_top_under "$hit")"
+        # ChatGPT: a bare conversations.json is not an export (many tools write
+        # one). The official export always ships chat.html beside it.
+        if [[ "$label" == "ChatGPT" && ! -f "$(dirname "$hit")/chat.html" ]]; then continue; fi
         # de-dup identical top folders reported by multiple signatures
         skip=0
         for s in ${SEEN_TOPS[@]+"${SEEN_TOPS[@]}"}; do [[ "$s" == "$label::$top" ]] && skip=1 && break; done
@@ -27526,7 +27575,7 @@ _es_mark_raise() {  # $1 label, $2 epoch, $3 date source: the mark only ever mov
       printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$tmp" && mv "$tmp" "$_ES_MARK"
 }
 if [[ ${#FOUND[@]} -gt 0 ]]; then
-    P_PATH=(); P_LBL=(); P_DATE=(); P_SRC=(); P_FP=(); P_KEY=()
+    P_PATH=(); P_LBL=(); P_DATE=(); P_SRC=(); P_FP=(); P_KEY=(); P_SRCDIR=()
     _seen_paths=""
     for _i in "${!FOUND[@]}"; do
         _pp="${FOUND[$_i]%/}"
@@ -27542,6 +27591,7 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
             continue
         fi
         P_PATH+=("$_pp"); P_LBL+=("${FOUND_LABELS[$_i]}"); P_DATE+=("$_dv"); P_SRC+=("$_src")
+        P_SRCDIR+=("${FOUND[$_i]%/}")
         P_FP+=("$(_es_fp "$_pp")"); P_KEY+=("${_dv}"$'\t'"${P_FP[${#P_FP[@]}-1]}")
     done
     # Upgrade only: a box that imported under the old set-hash rule has no mark
@@ -27583,7 +27633,17 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
         fi
 
         _imp_rc=0
-        "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
+        # ChatGPT exports are staged into the CM052 drop folder, which the hourly
+        # aiconv agent ingests (cm052 --source all). A failed stage is a failed
+        # import: no mark, no ledger row.
+        _chatgpt_drop="${OSTLER_CHATGPT_IMPORT_DIR:-${HOME}/Ostler/imports/chatgpt}"
+        for _i in "${P_NEW[@]}"; do
+            [[ "${P_LBL[$_i]}" == "ChatGPT" ]] || continue
+            bash "${OSTLER_DIR}/lib/ostler-detect-exports.sh" "${P_SRCDIR[$_i]}" --stage-chatgpt "$_chatgpt_drop" >/dev/null 2>&1 || _imp_rc=$?
+        done
+        if [[ "$_imp_rc" -eq 0 ]]; then
+            "$IMPORT_SCRIPT" "$DOWNLOADS" >/dev/null 2>&1 || _imp_rc=$?
+        fi
         if [[ "$_imp_rc" -eq 0 ]]; then
             _notify "Your latest export is now part of your world." "Done"
             # Record ONLY on success (#1571): the mark and ledger move only here.

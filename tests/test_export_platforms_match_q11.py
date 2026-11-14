@@ -72,7 +72,7 @@ def main() -> int:
 
     print("1. the table is the watcher's platform list")
     detected = watcher_ids(DETECT)
-    check(len(detected) == 12, f"the watcher detects 12 platforms (found {len(detected)})")
+    check(len(detected) == 13, f"the watcher detects 13 platforms (found {len(detected)})")
     check(sorted(ids) == sorted(detected), "table ids equal the watcher's SIGS labels, both ways")
 
     print("2. every table URL is in installer Q11")
