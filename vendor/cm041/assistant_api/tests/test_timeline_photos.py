@@ -144,7 +144,10 @@ class TimelinePhotosEndpoint(unittest.TestCase):
              patch.object(server, "_sparql_select", side_effect=fake), \
              patch.object(server, "_timeline_conversations", return_value=([], None)):
             body = server.api_timeline(days=0, past_days=730, limit=200)
-        self.assertIn("photos_error", [i["kind"] for i in body["items"]])
+        # The failure is a status beside the items, never an item row (a row
+        # with no day would sort first on every page).
+        self.assertIn("photo query down", body["photos_error"])
+        self.assertNotIn("photos_error", [i["kind"] for i in body["items"]])
         self.assertNotIn("photos", [e["type"] for e in body["entries"]])
 
 

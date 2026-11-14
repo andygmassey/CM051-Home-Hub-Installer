@@ -838,7 +838,7 @@ run_twin_unseed_arm() {
     local ok=1
     [ "$c1" = "409" ] && [ "$held" = "2" ] || ok=0
     [ "$c2" = "200" ] && [ "$c3" = "200" ] || ok=0
-    echo "$left1" | grep -q "$u2" && ! echo "$left1" | grep -q "$u1" || ok=0
+    grep -q "$u2" <<<"$left1" && ! grep -q "$u1" <<<"$left1" || ok=0
     [ "$left2" = "[]" ] || ok=0
     if [ "$ok" = "1" ]; then
         echo "PASS [twin-unseed] ${label}: slug-only forget 409 with both held (${held}), each unseeded by URI, both gone on read-back"

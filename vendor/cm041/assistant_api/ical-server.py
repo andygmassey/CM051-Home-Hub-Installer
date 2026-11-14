@@ -10182,7 +10182,8 @@ def _timeline_photos(past_days=730, limit=200):
     for ph in photos.values():
         if not ph["date"] or not ph["levels"]:
             continue
-        if any(pwg_privacy.is_l3(lvl) for lvl in ph["levels"]):
+        # L3 is withheld from the outbound Timeline (iOS and the digest) too.
+        if any(lvl == "L3" or pwg_privacy.is_l3(lvl) for lvl in ph["levels"]):
             continue
         key = (ph["date"], ph["place"])
         g = groups.setdefault(key, {"count": 0, "levels": set()})
@@ -10320,10 +10321,17 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     # Photos: aggregated per day and place from the PhotoEvent graph
     # (_timeline_photos). A failure is reported, never fatal.
     photo_rows, photo_err = _timeline_photos(past_days=past_days, limit=limit)
-    if photo_err is not None:
-        items.append({"kind": "photos_error", "error": photo_err})
-    else:
+    # The same window as the graph rows: a page never carries photo days
+    # outside its bounds (before/after are exclusive, as for meetings).
+    if photo_err is None:
+        photo_rows = [r for r in photo_rows
+                      if (not window_start or (r.get("date") or "") > window_start)
+                      and (not window_end or (r.get("date") or "") < window_end)]
+    if photo_err is None:
         items.extend(photo_rows)
+    # A photos failure is a STATUS, not a row: a row with no day would sort
+    # first on every page and is not a timeline item. It is returned as
+    # "photos_error" on the response, beside the items.
 
     # Newest first (it is mainly a historic timeline), then cap.
     # The live-calendar strip only belongs on the opening page; a paged
@@ -10397,6 +10405,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
 
     return {
         "items": items,
+        "photos_error": photo_err,
         "entries": entries,
         "days": days,
         "past_days": past_days,
