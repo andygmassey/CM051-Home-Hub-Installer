@@ -438,7 +438,9 @@ def main(argv=None):
     g.add_argument("--notes", type=int, default=6000)
     r = sub.add_parser("replay")
     r.add_argument("--fixture", required=True)
-    r.add_argument("--knowledge-bin", default=os.environ.get("OSTLER_KNOWLEDGE_BIN", "/usr/local/bin/ostler-knowledge"))
+    _owner_bin = os.path.join(os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler"), "bin", "ostler-knowledge")
+    _kb_default = _owner_bin if os.path.exists(_owner_bin) else "/usr/local/bin/ostler-knowledge"
+    r.add_argument("--knowledge-bin", default=os.environ.get("OSTLER_KNOWLEDGE_BIN", _kb_default))
     r.add_argument("--qdrant", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
     r.add_argument("--ollama", default=os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434"))
     r.add_argument("--home", default=os.path.expanduser("~"))

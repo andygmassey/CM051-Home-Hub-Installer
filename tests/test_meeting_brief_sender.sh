@@ -159,14 +159,14 @@ exit 0
 CURLX
 printf '#!/bin/bash\necho "Synthetic attendee note."\n' > "$HDR_W/composer"
 chmod +x "$HDR_W/bin/curl" "$HDR_W/composer"
-send_header() {  # $1 owner_language (NONE = pre-change arity), $2 attendees json
+send_header() {  # $1 owner_language (NONE = pre-change arity), $2 attendees json, $3 start_iso (optional), $4 TZ (optional)
     rm -f "$HDR_W/body.json"
     rm -f "$HDR_W/sent.db"
     /usr/bin/python3 -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);c.execute('CREATE TABLE IF NOT EXISTS sent_briefs (key TEXT PRIMARY KEY, meeting_uid TEXT NOT NULL, scheduled_start TEXT NOT NULL, sent_at TEXT NOT NULL)');c.commit()" "$HDR_W/sent.db"
     local hub args=()
-    hub="{\"considered\":1,\"meetings\":[{\"uid\":\"u-1\",\"meeting\":\"Q3 review\",\"start\":\"2026-11-14, 10:00\",\"start_iso\":\"20261114T100000\",\"location\":\"\",\"attendees\":$2}]}"
+    hub="{\"considered\":1,\"meetings\":[{\"uid\":\"u-1\",\"meeting\":\"Q3 review\",\"start\":\"2026-11-14, 10:00\",\"start_iso\":\"${3:-20261114T100000}\",\"location\":\"\",\"attendees\":$2}]}"
     [ "$1" = "NONE" ] || args=("$1")
-    CAPTURE="$HDR_W/body.json" PATH="$HDR_W/bin:$PATH" OSTLER_BRIEF_HUB_JSON="$hub" \
+    CAPTURE="$HDR_W/body.json" PATH="$HDR_W/bin:$PATH" OSTLER_BRIEF_HUB_JSON="$hub" TZ="${4:-}" \
         OSTLER_BRIEF_COMPOSER="$HDR_W/composer" OSTLER_BRIEF_OWNER_NAME="" \
         /usr/bin/python3 "$HDR_W/block.py" "$HDR_W/sent.db" "http://127.0.0.1:8000" "$HDR_W/log.txt" \
         "http://127.0.0.1:8090" "$HDR_W" "test-channel" ${args[@]+"${args[@]}"} >/dev/null 2>&1 || true
@@ -183,7 +183,14 @@ case "$JA_WITH" in *"会議"*"10:00"*) ;; *) echo "FAIL [header-language]: ja he
 case "$JA_ALONE" in *", 10:00"*) echo "FAIL [header-time]: the pre-change date form leaked into the header: $JA_ALONE" >&2; exit 1 ;; esac
 US_ALONE="$(send_header en-US '[]')"
 case "$US_ALONE" in *"10:00 AM"*) ;; *) echo "FAIL [header-time-us]: en-US owner not given 12-hour time: $US_ALONE" >&2; exit 1 ;; esac
-echo "PASS: owner-language header (ja: $JA_WITH; en-US: $US_ALONE)"
+# A Z time is shown on the owner's clock (Hong Kong, +08): 01:00Z is 09:00 HK.
+# RED on the pre-change _when: it printed the UTC hour, 01:00.
+HK_Z="$(send_header ja '[]' '2026-11-14T01:00:00Z' 'Asia/Hong_Kong')"
+case "$HK_Z" in *"09:00"*) ;; *) echo "FAIL [header-time-zone]: 01:00Z on a Hong Kong Mac should read 09:00: $HK_Z" >&2; exit 1 ;; esac
+# A naive local time stays as written.
+NAIVE="$(send_header ja '[]' '20261114T100000' 'Asia/Hong_Kong')"
+case "$NAIVE" in *"10:00"*) ;; *) echo "FAIL [header-time-naive]: a naive local 10:00 must stay 10:00: $NAIVE" >&2; exit 1 ;; esac
+echo "PASS: owner-language header (ja: $JA_WITH; en-US: $US_ALONE; Z 01:00 on HK clock: $HK_Z)"
 
 echo ""
 echo "All meeting-brief-sender wiring checks passed."

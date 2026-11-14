@@ -169,6 +169,10 @@ internal func sharedHomebrewRefusal(prefixOwnerUID: UInt32?, currentUID: UInt32)
 actor AuthorizationHelper {
     static let shared = AuthorizationHelper()
 
+    /// The refusal the last call returned, for the customer to see. Set only
+    /// when the shared Homebrew check refused; cleared on every new request.
+    private(set) var lastRefusal: String? = nil
+
     /// Reads the owner of /opt/homebrew, nil when it does not exist. Reads only; never changes ownership.
     nonisolated static func homebrewPrefixOwnerUID() -> UInt32? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: "/opt/homebrew"),
@@ -201,9 +205,11 @@ actor AuthorizationHelper {
         // Refuse before the admin prompt when another account owns Homebrew.
         // The root shell never chowns an existing prefix, so the refusal is
         // the only answer to that case.
+        lastRefusal = nil
         if let refusal = sharedHomebrewRefusal(
             prefixOwnerUID: Self.homebrewPrefixOwnerUID(), currentUID: getuid()) {
             OstlerLog.lifecycle.error("admin authorization refused: \(refusal, privacy: .public)")
+            lastRefusal = refusal
             return false
         }
 

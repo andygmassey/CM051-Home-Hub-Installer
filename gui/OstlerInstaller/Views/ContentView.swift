@@ -119,7 +119,7 @@ struct ContentView: View {
     /// Retry re-invokes `AuthorizationHelper` cleanly.
     @ViewBuilder
     private var adminRetryGate: some View {
-        AdminAccessRequiredView(mode: .retry)
+        AdminAccessRequiredView(mode: .retry, refusal: coordinator.adminRefusal)
     }
 
     /// Pre-flight view shown after the licence + registration gates
@@ -713,6 +713,9 @@ enum SupportMailtoBuilder {
 private struct AdminAccessRequiredView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
     let mode: Mode
+    /// Set when Ostler refused on purpose (another account owns Homebrew).
+    /// Shown as text on the retry gate, so the customer sees why.
+    var refusal: String? = nil
 
     enum Mode {
         case preAcknowledgement
@@ -736,6 +739,15 @@ private struct AdminAccessRequiredView: View {
                 .foregroundColor(.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            if mode == .retry, let refusal {
+                Text(refusal)
+                    .font(.ostlerBody)
+                    .foregroundColor(.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("adminRefusalText")
+            }
 
             if mode == .preAcknowledgement {
                 // Friendly reassurance for the first-time prompt.

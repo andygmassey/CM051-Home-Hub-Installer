@@ -241,6 +241,11 @@ final class InstallerCoordinator: ObservableObject {
     /// exits non-zero on a fresh Mac with no warm sudo timestamp.
     @Published var needsAdminRetry: Bool = false
 
+    /// The reason the pre-launch admin grant was refused on purpose (another
+    /// account owns Homebrew). Rendered on the retry gate, so the customer
+    /// reads it on screen. Nil for an ordinary cancel.
+    @Published var adminRefusal: String? = nil
+
     /// True between bootstrap's initial gate-pass and the moment the
     /// customer presses "Continue and enter your password". Set by
     /// `bootstrapAsync()` after the licence + registration gates
@@ -784,6 +789,7 @@ final class InstallerCoordinator: ObservableObject {
         let granted = await adminAuthorizationProvider(reason)
         if !granted {
             preInstallStatus = nil
+            adminRefusal = await AuthorizationHelper.shared.lastRefusal
             needsAdminRetry = true
             error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
             appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
@@ -792,6 +798,7 @@ final class InstallerCoordinator: ObservableObject {
         }
         // Clear any retry state left over from a prior cancel.
         needsAdminRetry = false
+        adminRefusal = nil
         if error == ViewCopy.shared.string(for: "admin_access_required.retry_message") {
             error = nil
         }

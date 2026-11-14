@@ -24613,7 +24613,8 @@ CM048_SYMLINK="/usr/local/bin/pwg-convo"
 # The ostler-knowledge path to run: the /usr/local/bin link when it exists, else
 # the owner-side link _ostler_link_cli makes under a GUI install.
 _ostler_knowledge_cli() {
-    if [[ -x /usr/local/bin/ostler-knowledge ]]; then echo /usr/local/bin/ostler-knowledge
+    if [[ -x "${OSTLER_DIR}/bin/ostler-knowledge" ]]; then echo "${OSTLER_DIR}/bin/ostler-knowledge"
+    elif [[ -x /usr/local/bin/ostler-knowledge ]]; then echo /usr/local/bin/ostler-knowledge
     else echo "${OSTLER_DIR}/bin/ostler-knowledge"; fi
 }
 
@@ -27988,6 +27989,9 @@ def _when(start_iso):
             dt = datetime.strptime(raw, "%Y%m%dT%H%M%S")
         else:
             dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                # An offset or Z: show the owner's local clock, not UTC.
+                dt = dt.astimezone()
     except ValueError:
         return ""
     if owner_lang.lower() == "en-us":
@@ -30963,10 +30967,10 @@ _install_conversation_feed() {
     #    invocation. Falls back to the /usr/local/bin symlink, then PATH.
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
-            pwg="/usr/local/bin/pwg-convo"
-        elif [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
             pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
+            pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
         fi
@@ -31088,10 +31092,10 @@ _ostler_catchup_register_feed() {
     command -v _ostler_catchup_register >/dev/null 2>&1 || return 0
     local pwg="${CM048_VENV}/bin/pwg-convo"
     if [[ ! -x "$pwg" ]]; then
-        if [[ -x "/usr/local/bin/pwg-convo" ]]; then
-            pwg="/usr/local/bin/pwg-convo"
-        elif [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
+        if [[ -x "${OSTLER_DIR}/bin/pwg-convo" ]]; then
             pwg="${OSTLER_DIR}/bin/pwg-convo"
+        elif [[ -x "/usr/local/bin/pwg-convo" ]]; then
+            pwg="/usr/local/bin/pwg-convo"
         else
             pwg="pwg-convo"
         fi
