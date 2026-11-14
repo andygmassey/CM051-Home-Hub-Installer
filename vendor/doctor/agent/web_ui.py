@@ -4611,23 +4611,48 @@ _registered_proxy_paths = register_proxy_routes(app)
 #
 # Red team v1.0.124, Archie's (b): the Doctor binds 127.0.0.1 (see __main__),
 # but loopback is shared by every macOS account and `tailscale serve` relays
-# tailnet peers onto it. Pages like /doctor, /api/v1/sources, the import and
-# config routes show or change the owner's data, so the owner check that the
-# five credential routes carry is applied to the whole Doctor-native surface
-# here. Three exceptions, each with its own credential:
-#   * the DOCTOR_PROXY_PATHS forwards (proxy.py): a paired device bearer,
-#     validated by the gateway oracle, is what admits those;
-#   * _BEARER_OR_OWNER: Doctor-native routes the paired iPhone calls with its
-#     bearer (CM031 CorrectFactTool -> wiki/correct); owner OR a paired bearer;
+# tailnet peers onto it, so the Doctor sees a forwarder (tailscaled). Pages like
+# /doctor, /api/v1/sources, the import and config routes show or change the
+# owner's data, so the owner check applies to the whole Doctor-native surface.
+# Three exceptions, each with its own credential:
+#   * _DEVICE_BEARER_ROUTES: every gated route the paired iPhone calls over the
+#     tailnet. A VALID paired-device bearer, checked against the CURRENT pairing
+#     store (the gateway oracle, asked on every request, so a revoked device is
+#     refused at once), admits the request. A static credential (machine admin,
+#     extension, service token) is never a pair bearer (proxy._is_static_credential);
 #   * OPTIONS: a CORS preflight carries and returns no data;
 #   * _PUBLIC: payloads that are non-PII by construction and are polled by
 #     callers that are not the owner's own process (the wiki compiler runs in
 #     the colima VM and reaches the host through a relay).
-# The lookup is in-process (owner_peer.py, libproc / /proc), never a fork: the
-# Hub WebView polls this server about once a second.
-_BEARER_OR_OWNER = frozenset({
+# Everything else needs the owner peer. The lookup is in-process (owner_peer.py,
+# libproc / /proc), never a fork: the Hub WebView polls this server about once a
+# second.
+# DEVICE-BEARER ROUTES: the iOS call set (CM031 source, counted 2026-11-15).
+_DEVICE_BEARER_ROUTES = frozenset({
+    "/api/v1/suggestions",
     "/api/v1/wiki/correct",
     "/api/v1/people/{slug}/suppress-suggestions",
+    "/api/v1/memory",
+    "/api/v1/memory/correct/{id}",
+    "/api/v1/memory/assert",
+    "/api/v1/conversation/process",
+    "/api/v1/conversation/status/{id}",
+    "/api/v1/people",
+    "/api/v1/people/search",
+    "/api/v1/people/context",
+    "/api/v1/people/stale",
+    "/api/v1/people/recent",
+    "/api/v1/people/birthdays",
+    "/api/v1/people/{slug}/minor",
+    "/api/v1/people/{slug}/minor-suggestion/dismiss",
+    "/api/v1/people/{slug}/forget",
+    "/api/v1/ingest/ios",
+    "/api/v1/hub/health",
+    "/api/v1/recording/active",
+    "/api/v1/commitments",
+    "/api/v1/calendar",
+    "/api/v1/timeline",
+    "/api/v1/subscription/receipt",
 })
 
 
@@ -4660,11 +4685,11 @@ async def _owner_gate(request: Request, call_next):
     refusal = await _owner_refusal(request)
     if refusal is None:
         return await call_next(request)
-    if route is not None and getattr(route, "path", None) in _BEARER_OR_OWNER:
+    if route is not None and getattr(route, "path", None) in _DEVICE_BEARER_ROUTES:
         try:
-            from proxy import _extract_bearer_token, _is_paired_bearer
+            from proxy import _extract_bearer_token, _is_paired_bearer, _is_static_credential
             token = _extract_bearer_token(request.headers)
-            if token and await _is_paired_bearer(token):
+            if token and not _is_static_credential(token) and await _is_paired_bearer(token):
                 return await call_next(request)
         except Exception:  # noqa: BLE001 - a check that cannot run has not passed
             pass
