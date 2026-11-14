@@ -36,29 +36,33 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[3]
 sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(HERE))
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
 
 from _fake_oxigraph import FakeOxigraph  # noqa: E402
 from _fake_qdrant import FakeQdrant  # noqa: E402
-
-ZOE_ACCENT = "Jane\u0301 Doe"
-ZOE_PLAIN = "Jane Doe"
-JANE = "John Smith"
-SLUG_SHARED = "jane-doe"
-SLUG_JANE = "john-smith"
-URI_ACCENT = "https://schema.ostler.ai/ontology#person_syn0000000a"
-URI_PLAIN = "https://schema.ostler.ai/ontology#person_syn0000000b"
-URI_JANE = "https://schema.ostler.ai/ontology#person_syn0000000c"
-PWG_TYPE = "https://schema.ostler.ai/ontology#SuggestionSuppression"
-
-
-# test_people_list_endpoint loads the vendored ical-server WITH the
-# ostler_security stub the CI box needs (HR015 is private). Reuse that load.
-from test_people_list_endpoint import (  # noqa: E402
+from test_people_list_endpoint import (  # noqa: E402  (loads the vendored server WITH the stub)
     _TEST_SERVICE_TOKEN,
     server as _vendored_server,
 )
+
+ACCENT = "Jane\u0301 Doe"        # folds to jane-doe
+PLAIN = "Jane Doe"               # the other spelling: a second identity
+SAME_A = "Ben Ross"              # two UNLINKED nodes with an identical name
+SAME_B = "Ben Ross"
+FRAG = "Sam Brown"                # a fragment merged into the survivor
+SURV = "Sam Brown"
+JOHN = "John Smith"
+SLUG_JANE = "jane-doe"
+SLUG_PAT = "ben-ross"
+SLUG_SAM = "sam-brown"
+SLUG_JOHN = "john-smith"
+URI_ACCENT = "https://schema.ostler.ai/ontology#person_syn0000000a"
+URI_PLAIN = "https://schema.ostler.ai/ontology#person_syn0000000b"
+URI_JOHN = "https://schema.ostler.ai/ontology#person_syn0000000c"
+URI_SAME_A = "https://schema.ostler.ai/ontology#person_syn0000000d"
+URI_SAME_B = "https://schema.ostler.ai/ontology#person_syn0000000e"
+URI_FRAG = "https://schema.ostler.ai/ontology#person_syn0000000f"
+URI_SURV = "https://schema.ostler.ai/ontology#person_syn00000010"
+PWG_TYPE = "https://schema.ostler.ai/ontology#SuggestionSuppression"
 
 
 def _load_server():
@@ -69,16 +73,19 @@ def _load_server():
 def world(tmp_path, monkeypatch):
     store = FakeOxigraph()
     monkeypatch.setenv("OSTLER_FORGET_TOMBSTONE_FILE", str(tmp_path / "forgotten.json"))
-    monkeypatch.setenv("OSTLER_QUEUE_DIR", str(tmp_path / "queue"))
     monkeypatch.setenv("OXIGRAPH_URL", store.url)
     server = _load_server()
     monkeypatch.setattr(server, "OXIGRAPH_URL", store.url)
     qdrant = FakeQdrant(status=200)  # the forget purges BOTH stores or says so
     monkeypatch.setattr(server, "QDRANT_URL", qdrant.url)
     monkeypatch.setattr(server, "_RECOMPILE_QUEUE_DIR", tmp_path / "queue")
-    for uri, name in ((URI_ACCENT, ZOE_ACCENT), (URI_PLAIN, ZOE_PLAIN), (URI_JANE, JANE)):
-        store.update(
-            f'INSERT DATA {{ <{uri}> a pwg:Person ; pwg:displayName "{name}" . }}')
+    people = [(URI_ACCENT, ACCENT), (URI_PLAIN, PLAIN), (URI_JOHN, JOHN),
+              (URI_SAME_A, SAME_A), (URI_SAME_B, SAME_B),
+              (URI_FRAG, FRAG), (URI_SURV, SURV)]
+    for uri, name in people:
+        store.update(f'INSERT DATA {{ <{uri}> a pwg:Person ; pwg:displayName "{name}" . }}')
+    # The identity link the resolver writes (pwg:mergedInto): FRAG is one identity with SURV.
+    store.update(f'INSERT DATA {{ <{URI_FRAG}> pwg:mergedInto <{URI_SURV}> . }}')
     w = types.SimpleNamespace(store=store, server=server, tmp=tmp_path)
     yield w
     qdrant.close()
@@ -97,118 +104,135 @@ def _uris(w):
 
 
 def _suppression_triples(w):
-    rows = w.server._sparql_select(
-        f"SELECT ?s WHERE {{ ?s a <{PWG_TYPE}> . }}")
-    return len(rows)
+    return len(w.server._sparql_select(f"SELECT ?s WHERE {{ ?s a <{PWG_TYPE}> . }}"))
 
 
 def _no_audit(w):
     return not (w.tmp / "queue" / "forget_audit.log").exists()
 
 
-# ── forget by slug: the refusal ─────────────────────────────────────────────
+ALL_NAMES = sorted([ACCENT, PLAIN, JOHN, SAME_A, SAME_B, FRAG, SURV])
 
-def test_forget_by_shared_slug_refuses_and_erases_nobody(world):
-    body, status = world.server.api_people_forget(SLUG_SHARED)
+
+# ── two UNLINKED nodes with an IDENTICAL name are two people ─────────────────
+
+def test_identical_name_unlinked_forget_by_slug_is_409_and_both_survive(world):
+    body, status = world.server.api_people_forget(SLUG_PAT)
     assert status == 409, (status, body)
     assert body["error"] == "more than one person matches"
-    assert body["match_count"] == 2
     assert body["forgotten"] is False
-    # Read back from the store, not from the handler's return value.
-    assert sorted(world.store.person_names()) == sorted([ZOE_ACCENT, ZOE_PLAIN, JANE])
-    assert len(_uris(world)) == 3
-    assert _no_audit(world), "a 409 must not write the forget audit"
-    assert not (world.tmp / "forgotten.json").exists(), "a 409 must not write a tombstone"
+    assert {URI_SAME_A, URI_SAME_B} <= set(_uris(world))
+    assert world.store.person_names().count(SAME_A) == 2, "both nodes must survive"
+    assert _no_audit(world)
+    assert not (world.tmp / "forgotten.json").exists()
 
 
-# ── forget by URI: the way out ──────────────────────────────────────────────
+def test_identical_name_unlinked_forget_by_uri_removes_only_that_one(world):
+    body, status = world.server.api_people_forget(SLUG_PAT, person_uri=URI_SAME_A)
+    assert status == 200 and body["forgotten"] is True, (status, body)
+    uris = _uris(world)
+    assert URI_SAME_A not in uris and URI_SAME_B in uris
 
-def test_forget_by_uri_erases_only_that_person(world):
-    body, status = world.server.api_people_forget(SLUG_SHARED, person_uri=URI_ACCENT)
+
+def test_identical_name_unlinked_enrichment_and_timeline_are_409(world):
+    body, status = world.server.person_enrichment(SLUG_PAT)
+    assert status == 409 and body["match_count"] == 2, (status, body)
+    body, status = world.server.person_timeline(SLUG_PAT)
+    assert status == 409 and body["match_count"] == 2, (status, body)
+
+
+def test_identical_name_unlinked_suppression_is_409_and_writes_nothing(world):
+    body, status = world.server.api_people_suppress_suggestions(
+        SLUG_PAT, {"suppressed": True, "reason": "deceased"})
+    assert status == 409, (status, body)
+    assert _suppression_triples(world) == 0
+
+
+# ── nodes the resolver has LINKED are one identity ──────────────────────────
+
+def test_linked_pair_forget_by_slug_erases_every_linked_node(world):
+    body, status = world.server.api_people_forget(SLUG_SAM)
     assert status == 200, (status, body)
     assert body["forgotten"] is True
-    names = sorted(world.store.person_names())
-    assert ZOE_ACCENT not in names, "the named person must be gone"
-    assert ZOE_PLAIN in names and JANE in names, "the twin and the bystander must survive"
-    assert URI_PLAIN in _uris(world) and URI_JANE in _uris(world)
+    assert URI_FRAG not in _uris(world) and URI_SURV not in _uris(world)
+    assert "Sam Brown" not in world.store.person_names()
 
 
-def test_forget_by_unknown_uri_is_404_and_writes_nothing(world):
-    unknown = "https://schema.ostler.ai/ontology#person_syn0000000z"
-    body, status = world.server.api_people_forget(SLUG_SHARED, person_uri=unknown)
+def test_linked_pair_forget_by_uri_removes_only_that_node(world):
+    body, status = world.server.api_people_forget(SLUG_SAM, person_uri=URI_FRAG)
+    assert status == 200 and body["forgotten"] is True, (status, body)
+    assert URI_FRAG not in _uris(world)
+    assert URI_SURV in _uris(world), "URI-keyed forget must not take the linked survivor"
+
+
+def test_linked_pair_enrichment_resolves_to_one_person(world):
+    body, status = world.server.person_enrichment(SLUG_SAM)
+    assert status == 200, (status, body)
+
+
+# ── forget by slug with two DIFFERENT spellings: unchanged ───────────────────
+
+def test_different_spellings_forget_by_slug_is_409_and_nobody_erased(world):
+    body, status = world.server.api_people_forget(SLUG_JANE)
+    assert status == 409, (status, body)
+    assert _names(world) == ALL_NAMES
+
+
+def test_different_spellings_forget_by_uri_removes_only_that_one(world):
+    body, status = world.server.api_people_forget(SLUG_JANE, person_uri=URI_ACCENT)
+    assert status == 200 and body["forgotten"] is True, (status, body)
+    assert ACCENT not in world.store.person_names() and PLAIN in world.store.person_names()
+
+
+def test_unknown_uri_is_404_and_writes_nothing(world):
+    unknown = "https://schema.ostler.ai/ontology#person_syn0000ffff"
+    body, status = world.server.api_people_forget(SLUG_PAT, person_uri=unknown)
     assert status == 404, (status, body)
-    assert len(_uris(world)) == 3
+    assert _names(world) == ALL_NAMES
     assert _no_audit(world)
 
 
-def test_forget_with_non_string_uri_is_400(world):
-    body, status = world.server.api_people_forget(SLUG_SHARED, person_uri=12345)
+def test_non_string_uri_is_400(world):
+    body, status = world.server.api_people_forget(SLUG_PAT, person_uri=12345)
     assert status == 400
-    assert len(_uris(world)) == 3
+    assert _names(world) == ALL_NAMES
 
 
 # ── control: a single match is unchanged ────────────────────────────────────
 
 def test_control_single_match_forgets_as_before(world):
-    body, status = world.server.api_people_forget(SLUG_JANE)
-    assert status == 200, (status, body)
-    assert body["forgotten"] is True
-    assert JANE not in world.store.person_names()
-    assert len(_uris(world)) == 2
-
-
-# ── the same guard on the other slug-keyed readers and writers ──────────────
-
-def test_enrichment_by_shared_slug_is_409(world):
-    body, status = world.server.person_enrichment(SLUG_SHARED)
-    assert status == 409, (status, body)
-    assert body["match_count"] == 2
-    assert "person" not in body
-
-
-def test_timeline_by_shared_slug_is_409(world):
-    body, status = world.server.person_timeline(SLUG_SHARED)
-    assert status == 409, (status, body)
-    assert body["match_count"] == 2
-
-
-def test_suppression_by_shared_slug_is_409_and_writes_nothing(world):
-    body, status = world.server.api_people_suppress_suggestions(
-        SLUG_SHARED, {"suppressed": True, "reason": "deceased"})
-    assert status == 409, (status, body)
-    assert _suppression_triples(world) == 0, "a 409 must not write a suppression record"
+    body, status = world.server.api_people_forget(SLUG_JOHN)
+    assert status == 200 and body["forgotten"] is True, (status, body)
+    assert JOHN not in world.store.person_names()
 
 
 def test_suppression_control_single_match_writes_one_record(world):
     body, status = world.server.api_people_suppress_suggestions(
-        SLUG_JANE, {"suppressed": True, "reason": "user_request"})
+        SLUG_JOHN, {"suppressed": True, "reason": "user_request"})
     assert status == 200, (status, body)
     assert _suppression_triples(world) == 1
 
 
-# ── the mutant: without the count guard the wrong person is erased ──────────
+# ── the mutant: without the identity guard the wrong person is erased ───────
 
-def test_mutant_without_count_guard_erases_the_wrong_person(world, monkeypatch):
-    """Proves the harness can see the defect. Replace the counting helper with
-    the old first-match behaviour: the forget then erases one of the twins
-    (the first the store lists), and the 409 guard is what prevents it."""
+def test_mutant_without_identity_guard_erases_one_of_an_identical_pair(world, monkeypatch):
+    """Proves the harness sees the defect: resolve by first match (no identity
+    count), and the identical-name forget erases ONE of the two people."""
     srv = world.server
 
-    def first_match_only(slug):
+    def first_hit_only(slug):
         hits = [r for r in srv._merge_aware_name_rows()
                 if srv._wiki_slug(r.get("name", "")) == slug]
         best = srv._rank_name_rows(hits)[0]
         return best["person"], best.get("name", "")
 
-    monkeypatch.setattr(world.server, "_resolve_person_by_slug", first_match_only)
-    body, status = world.server.api_people_forget(SLUG_SHARED)
+    monkeypatch.setattr(srv, "_resolve_person_by_slug", first_hit_only)
+    body, status = srv.api_people_forget(SLUG_PAT)
     assert status == 200, "mutant should forget without refusing"
-    remaining = sorted(world.store.person_names())
-    erased = [n for n in (ZOE_ACCENT, ZOE_PLAIN) if n not in remaining]
-    assert len(erased) == 1, f"mutant must erase exactly one of the twins, erased {len(erased)}"
+    remaining = _uris(world)
+    erased = [u for u in (URI_SAME_A, URI_SAME_B) if u not in remaining]
+    assert len(erased) == 1, f"mutant must erase exactly one of the pair, erased {len(erased)}"
 
-
-# ── live HTTP route: the body carries person_uri ────────────────────────────
 
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -244,27 +268,25 @@ def live(world):
     httpd.server_close()
 
 
-def test_route_shared_slug_without_uri_is_409_over_http(world, live):
-    status, body = _post(live, f"/api/v1/people/{SLUG_SHARED}/forget")
+def test_route_identical_name_without_uri_is_409_over_http(world, live):
+    status, body = _post(live, f"/api/v1/people/{SLUG_PAT}/forget")
     assert status == 409, (status, body)
-    assert len(_uris(world)) == 3
+    assert {URI_SAME_A, URI_SAME_B} <= set(_uris(world))
 
 
 def test_route_person_uri_in_body_forgets_exactly_that_person(world, live):
-    status, body = _post(live, f"/api/v1/people/{SLUG_SHARED}/forget",
-                         {"person_uri": URI_PLAIN})
-    assert status == 200, (status, body)
-    assert body["forgotten"] is True
-    assert ZOE_PLAIN not in world.store.person_names()
-    assert ZOE_ACCENT in world.store.person_names() and JANE in world.store.person_names()
+    status, body = _post(live, f"/api/v1/people/{SLUG_PAT}/forget", {"person_uri": URI_SAME_B})
+    assert status == 200 and body["forgotten"] is True, (status, body)
+    uris = _uris(world)
+    assert URI_SAME_B not in uris and URI_SAME_A in uris
 
 
 def test_route_empty_body_still_works_for_single_match(world, live):
-    status, body = _post(live, f"/api/v1/people/{SLUG_JANE}/forget")
+    status, body = _post(live, f"/api/v1/people/{SLUG_JOHN}/forget")
     assert status == 200 and body["forgotten"] is True
 
 
 def test_route_non_object_body_is_400(world, live):
-    status, body = _post(live, f"/api/v1/people/{SLUG_JANE}/forget", raw=b"[1,2]")
+    status, body = _post(live, f"/api/v1/people/{SLUG_JOHN}/forget", raw=b"[1,2]")
     assert status == 400
-    assert JANE in world.store.person_names()
+    assert JOHN in world.store.person_names()

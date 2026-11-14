@@ -129,6 +129,7 @@ TOKEN = os.environ.get("FAKE_TOKEN", "")
 VECTOR_SIZE = 768
 
 OXI = {}       # slug -> {"name":..., "uri":...}
+OXI_TWINS = {} # slug -> [uri, ...]: extra people sharing a slug (test-only seed)
 QDRANT = {}    # id -> point
 LOCK = threading.Lock()
 
@@ -215,6 +216,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         path, qs = u.path, parse_qs(u.query)
+
+        if path == "/api/api/_test/state":
+            # Test-only read-back of what the fake box still holds, by slug.
+            with LOCK:
+                held = {}
+                if OXI:
+                    for k, v in OXI.items():
+                        held.setdefault(k, []).append(v["uri"])
+                for k, v in OXI_TWINS.items():
+                    held.setdefault(k, []).extend(v)
+            self._send(200, {"held": held})
+            return
 
         # A box that answers every AUTHENTICATED path with a valid-looking
         # people payload. Auth stays enforced so this isolates control C3.
@@ -354,14 +367,46 @@ class Handler(BaseHTTPRequestHandler):
                              "fact_id": "fact_probe", "wiki_recompile_queued": True})
             return
 
+        if u.path == "/api/api/_test/twin":
+            # Test-only: a second person whose display name folds to an
+            # existing slug. The product's rule (#252): by slug, more than one
+            # identity is a 409; by person_uri, exactly that one.
+            body = json.loads(raw or b"{}")
+            with LOCK:
+                OXI_TWINS.setdefault(body["slug"], []).append(body["uri"])
+            self._send(200, {"seeded": True})
+            return
+
         if u.path.startswith("/api/api/v1/people/") and u.path.endswith("/forget"):
             if not self._authed():
                 self._send(401, {"error": "unauthorised"})
                 return
             slug = u.path[len("/api/api/v1/people/"):-len("/forget")]
+            body = json.loads(raw or b"{}")
+            want_uri = body.get("person_uri")
             if MODE != "leak":
                 with LOCK:
-                    OXI.pop(slug, None)
+                    held = []
+                    if slug in OXI:
+                        held.append(OXI[slug]["uri"])
+                    held += OXI_TWINS.get(slug, [])
+                    if want_uri is None and len(set(held)) > 1:
+                        self._send(409, {"error": "more than one person matches",
+                                         "slug": slug, "match_count": len(set(held)),
+                                         "found": False, "forgotten": False})
+                        return
+                    if want_uri is not None:
+                        if want_uri not in held:
+                            self._send(404, {"forgotten": False, "not_found": True,
+                                             "already_forgotten": False,
+                                             "stores_purged": []})
+                            return
+                        if slug in OXI and OXI[slug]["uri"] == want_uri:
+                            OXI.pop(slug, None)
+                        OXI_TWINS[slug] = [x for x in OXI_TWINS.get(slug, []) if x != want_uri]
+                    else:
+                        OXI.pop(slug, None)
+                        OXI_TWINS.pop(slug, None)
             self._send(200, {"forgotten": True, "slug": slug})
             return
 
@@ -742,6 +787,68 @@ else
     echo "----- self-test output -----"; cat "$SELFTEST_OUT"; echo "----------------------------"
     FAILS=$((FAILS + 1))
 fi
+
+# ---------------------------------------------------------------------------
+# TWIN UNSEED ARM (2026-11-14, #252 / #3511). Two people share one slug. A
+# slug-only forget must be a 409 that erases NOBODY; each person, unseeded by
+# person_uri, must be gone and the other must survive. Read back from the fake
+# box's own state, not from the forget responses.
+# ---------------------------------------------------------------------------
+run_twin_unseed_arm() {
+    local label="twin unseed by person_uri (same slug, two URIs)"
+    local portfile="${WORK}/port.twins" errfile="${WORK}/err.twins"
+    rm -f "$portfile"
+    MODE="normal" FAKE_TOKEN="probe-test-token" \
+        python3 "$FAKE" "$portfile" >/dev/null 2>"$errfile" &
+    local pid=$!
+    if ! wait_for_fake_box "$pid" "$portfile"; then
+        echo "FAIL [twin-unseed] HARNESS: fake box never became ready (stderr: $(head -c 200 "$errfile"))"
+        HARNESS_FAILS=$((HARNESS_FAILS + 1))
+        kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        return
+    fi
+    local base="http://127.0.0.1:${FAKE_BOX_PORT}/api/api"
+    local auth="Authorization: Bearer probe-test-token"
+    local slug="twin-arm-slug"
+    local u1="https://schema.ostler.ai/ontology#person_twinarm01"
+    local u2="https://schema.ostler.ai/ontology#person_twinarm02"
+    local out="${WORK}/twin.out"
+    local c1 c2 c3 held
+    for u in "$u1" "$u2"; do
+        curl -s -o /dev/null --noproxy '*' -X POST -H "$auth" -H "Content-Type: application/json" \
+            -d "{\"slug\": \"${slug}\", \"uri\": \"${u}\"}" "${base}/_test/twin" 2>/dev/null
+    done
+    # 1. slug-only forget with two identities: 409, and both survive.
+    c1="$(curl -s -o "$out" -w '%{http_code}' --noproxy '*' -X POST -H "$auth" \
+        "${base}/v1/people/${slug}/forget" 2>/dev/null)"
+    held="$(curl -s --noproxy '*' "${base}/_test/state" 2>/dev/null | python3 -c \
+        'import json,sys; print(len(json.load(sys.stdin)["held"].get("twin-arm-slug",[])))')"
+    # 2. forget each by person_uri: the first leaves the second.
+    c2="$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -X POST -H "$auth" \
+        -H "Content-Type: application/json" -d "{\"person_uri\": \"${u1}\"}" \
+        "${base}/v1/people/${slug}/forget" 2>/dev/null)"
+    local left1="$(curl -s --noproxy '*' "${base}/_test/state" 2>/dev/null | python3 -c \
+        'import json,sys; print(json.load(sys.stdin)["held"].get("twin-arm-slug",[]))')"
+    c3="$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' -X POST -H "$auth" \
+        -H "Content-Type: application/json" -d "{\"person_uri\": \"${u2}\"}" \
+        "${base}/v1/people/${slug}/forget" 2>/dev/null)"
+    local left2="$(curl -s --noproxy '*' "${base}/_test/state" 2>/dev/null | python3 -c \
+        'import json,sys; print(json.load(sys.stdin)["held"].get("twin-arm-slug",[]))')"
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    local ok=1
+    [ "$c1" = "409" ] && [ "$held" = "2" ] || ok=0
+    [ "$c2" = "200" ] && [ "$c3" = "200" ] || ok=0
+    echo "$left1" | grep -q "$u2" && ! echo "$left1" | grep -q "$u1" || ok=0
+    [ "$left2" = "[]" ] || ok=0
+    if [ "$ok" = "1" ]; then
+        echo "PASS [twin-unseed] ${label}: slug-only forget 409 with both held (${held}), each unseeded by URI, both gone on read-back"
+        PASSES=$((PASSES + 1))
+    else
+        echo "FAIL [twin-unseed] ${label}: slug-only=${c1} held=${held}; by-uri=${c2}/${c3}; after first=${left1}; after second=${left2}"
+        FAILS=$((FAILS + 1))
+    fi
+}
+run_twin_unseed_arm
 
 echo ""
 # scenarios counts CASES ATTEMPTED, not PASSES+FAILS. Those diverge: the

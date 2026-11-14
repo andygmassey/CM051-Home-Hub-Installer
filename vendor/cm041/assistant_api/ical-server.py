@@ -3549,18 +3549,20 @@ def api_people_suppress_suggestions(slug, payload):
             '  ?person a pwg:Person ; pwg:displayName ?name .\n'
             '}}'.format(ns=PWG_NS)
         )
-        _twin_names = {c.get("name", "") for c in candidates
-                       if c.get("person") and _wiki_slug(c.get("name", "")) == slug}
+        # IDENTITY, not name: the live termini of the slug's rows (a node the
+        # resolver merged into a survivor is that survivor's, not a second person).
+        _twin_termini = {r.get("person") for r in _merge_aware_name_rows()
+                         if r.get("person") and _wiki_slug(r.get("name", "")) == slug}
         person_uris = [c["person"] for c in candidates
                        if c.get("person") and _wiki_slug(c.get("name", "")) == slug]
     except Exception as exc:
         return {"suppressed": suppressed, "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}"}, 503
 
-    if len(_twin_names) > 1:
+    if len(_twin_termini) > 1:
         # Two different spellings fold to one slug: a record keyed on it would
         # hide the other person too. Refuse before the write, clear included.
-        return _ambiguous_slug_response(slug, len(_twin_names), suppressed=suppressed)
+        return _ambiguous_slug_response(slug, len(_twin_termini), suppressed=suppressed)
     if person_uris and suppressed:
         try:
             identifiers = _personal_identifiers_for(person_uris, slug)
@@ -3638,6 +3640,7 @@ def api_people_forget(slug, person_uri=None):
     # erasure covers every node merged into it. Erasing only the node whose
     # name happened to match left the survivor (or the retired nodes, with
     # their names, emails and identifiers) behind.
+    uri_given = person_uri is not None
     try:
         if person_uri is not None:
             if not isinstance(person_uri, str) or not person_uri or len(person_uri) > 512:
@@ -3650,7 +3653,10 @@ def api_people_forget(slug, person_uri=None):
                         "wiki_recompile_queued": False, "stores_purged": []}, 404
         else:
             person_uri, forget_name = _resolve_person_by_slug(slug)
-        cluster = _merged_cluster(person_uri) if person_uri else []
+        # Forget by slug erases the identity (terminus + merged nodes). A URI
+        # names one node and erases only that one.
+        cluster = [person_uri] if (uri_given and person_uri) else (
+            _merged_cluster(person_uri) if person_uri else [])
     except SlugAmbiguous as exc:
         return _ambiguous_slug_response(slug, exc.count, forgotten=False,
                                         wiki_recompile_queued=False, stores_purged=[])
@@ -5803,12 +5809,29 @@ def _career_month(value: str) -> str:
     return str(value).strip()[:7]
 
 
-_ALNUM = re.compile(r"[^a-z0-9]+")
-
-
 def _norm_org(org: str) -> str:
-    """Lower-case, strip punctuation/whitespace for org comparison."""
-    return _ALNUM.sub("", (org or "").lower())
+    """Unicode-aware key for org comparison.
+
+    NFKC + casefold, then keep letters, marks and digits from EVERY script
+    (CJK, Cyrillic, Arabic, ...). Punctuation and whitespace are dropped.
+    An empty result means "unknown": callers must treat it as never equal
+    to anything (see ``_orgs_differ``), never as a match.
+    """
+    text = unicodedata.normalize("NFKC", org or "").casefold()
+    return "".join(ch for ch in text if unicodedata.category(ch)[0] in "LMN")
+
+
+def _orgs_differ(a: str, b: str) -> bool:
+    """True when two employer strings name different organisations.
+
+    An unknown (empty-key) side is never equal to anything except the
+    identical raw string, so a non-Latin employer can never collapse onto
+    another one just because both normalise to "".
+    """
+    ka, kb = _norm_org(a), _norm_org(b)
+    if not ka or not kb:
+        return (a or "").strip().casefold() != (b or "").strip().casefold()
+    return ka != kb
 
 
 def _operator_email_domains() -> set:
@@ -6066,10 +6089,9 @@ def _select_current_employer(outbound: bool = False) -> dict:
     # ranks identically (same corroboration + same start) -- genuinely
     # indistinguishable, so surface rather than guess.
     best_key = _rank(best)[:2]
-    best_norm = _norm_org(best["employer"])
     conflicting = [
         c["employer"] for c in candidates[1:]
-        if _rank(c)[:2] == best_key and _norm_org(c["employer"]) != best_norm
+        if _rank(c)[:2] == best_key and _orgs_differ(c["employer"], best["employer"])
     ]
 
     corroborated = bool(best["corroborating_domain"])
@@ -6442,13 +6464,17 @@ def _ambiguous_slug_response(slug, match_count, **extra):
 
 
 def _resolve_person_by_uri(person_uri):
-    """(person_uri, name) when ``person_uri`` is a live person, else (None, "").
-    A URI names one node, so no ambiguity is possible here."""
-    hits = [r for r in _merge_aware_name_rows() if r.get("person") == person_uri]
+    """(node_uri, name) when ``person_uri`` names a node in the graph, else
+    (None, ""). A URI names ONE node: a merged-in fragment resolves to itself
+    (forget by it removes only it); a survivor resolves to itself too."""
+    rows = _merge_aware_name_rows()
+    hits = [r for r in rows if r.get("node") == person_uri]
+    if not hits:
+        hits = [r for r in rows if r.get("person") == person_uri]
     if not hits:
         return None, ""
     best = _rank_name_rows(hits)[0]
-    return best["person"], best.get("name", "")
+    return person_uri, best.get("name", "")
 
 
 def _resolve_person_by_slug(slug):

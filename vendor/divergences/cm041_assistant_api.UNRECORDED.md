@@ -1761,3 +1761,19 @@ RED against the pre-graft vendored file: 10 failed, 4 passed (the controls).
 GREEN with the graft: 14 passed.
 
 Also edited: vendor/cm041/assistant_api/tests/test_lane11_routes.py, the forget stub takes person_uri (the route now passes it).
+
+## Graft 2026-11-14 (batch B): identity is the mergedInto link; CM041 #249 grafted
+
+Supersedes the name-count predicate in the section above. In this tree the live
+terminus (`_merge_aware_name_rows`) already is the identity: two unlinked nodes
+with one display name are two termini and refuse with 409; nodes the resolver
+linked by `pwg:mergedInto` collapse to one terminus and forget by slug erases
+the whole cluster. Forget by `person_uri` erases only the named node, which may
+be a merged-in fragment. The suppression writer uses the live termini too.
+
+CM041 #249 (`e6b5bce7`, Unicode-aware org key): `_norm_org` and `_orgs_differ`
+grafted into `ical-server.py`, with `tests/test_employer_org_nonlatin.py`
+(14 pass; 12 fail on the pre-graft file). `tests/test_current_employer.py` is
+NOT vendored: 3 of its tests fail on the pre-graft tree too (a pre-existing
+divergence in the operator-override code), so vendoring it would turn CI red
+for reasons this change did not cause.
