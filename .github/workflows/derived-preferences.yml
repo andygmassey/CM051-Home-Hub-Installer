@@ -60,6 +60,9 @@ on:
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derived_route_privacy_level.py'
       - 'tests/test_vendored_derived_negatives_survive_cap.py'
+      - 'tests/test_derive_first_pass_progress.py'
+      - 'tests/test_derived_still_learning_surface.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
@@ -176,6 +179,19 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: A first pass says how far it has got while it runs (per-reader timings, in_progress, Doctor reads it)
+        # Real derive_runner.run() over a synthetic pyoxigraph fixture.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_first_pass_progress.py
+      - name: What you like is never blank while the first pass runs (still_learning from the interest profile)
+        # Real ical-server subprocess against a stub store. ical-server refuses
+        # to start without ostler_security (and its cryptography dependency).
+        if: always()
+        run: |
+          python3 -m pip install --quiet cryptography ./vendor/ostler_security
+          python3 tests/test_derived_still_learning_surface.py
       - name: A stated dislike is served alongside the capped list (any tier, bounded, no dupes)
         if: always()
         run: |

@@ -85,12 +85,12 @@ MSG_INFO_CLONED="  已複製到 %s。"
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture 僅支援 Apple 晶片。已在這部機器上略過安裝。"
 MSG_INFO_CM042_LOGS_AT="RemoteCapture 日誌：%s/ostler-remotecapture.log（及 .err）"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="先前的安裝讓 Ostler RemoteCapture 在登入時啟動。它已停止，不會再次啟動。"
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="未安裝 Ostler RemoteCapture：你選擇了保持語音轉錄關閉。如果你改變主意，請在「設定」中開啟，然後再次執行安裝程式。"
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="在你開啟語音轉錄之前，Ostler RemoteCapture 保持關閉：你選擇暫時保持語音轉錄關閉。你可以隨時在 Ostler 的「設定」或 RemoteCapture 中開啟，無需重新安裝。"
 MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 macOS 要求「螢幕錄製」和「麥克風」權限。請同時允許，讓通話和會議可在本機轉錄。你的選單列不會出現紫色錄製指示燈，因為音訊擷取設計上是靜默的。"
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="首次啟動時，Ostler RemoteCapture 會向 mac
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話記錄儲存在這部 Mac 的「文稿」/Ostler 之中。這些內容屬於你，並且只會留在這部機器上。為了寫入這些內容，Ostler 需要取用你的「文稿」資料夾，因此 macOS 可能會在設定期間詢問，並在今天稍後 Ostler 首次整理你的維基時再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內置輔助程式。每當出現時，請按「好」。如果你錯過或拒絕了，可隨時在「系統設定」的「私隱與安全性」中，選擇「檔案和資料夾」開啟，之後你的維基和對話記錄便會繼續寫入。"
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler 會把你的個人維基和對話記錄儲存在這部 Mac 上你的個人資料夾中的 Ostler 資料夾（~/Ostler）裏。這些內容屬於你，並且只會留在這部機器上。該資料夾刻意放在「文稿」之外，因此 iCloud 雲碟不會上傳它。不過，Ostler 仍可能需要取用你的「文稿」資料夾，例如尋找你存放在那裏的資料匯出檔，因此 macOS 可能會在設定期間詢問，並在今天稍後再次詢問。該要求可能顯示為來自 python3.11，這是 Ostler 用來寫入檔案的內置輔助程式。每當出現時，請按「好」。如果你錯過或拒絕了，可隨時在「系統設定」的「私隱與安全性」中，選擇「檔案和資料夾」開啟。"
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="已將你的 Ostler 資料夾從 %s 移到 %s，因此 iCloud 雲碟的「桌面與文稿」同步不會再觸及它。"
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="這部 Mac 已開啟 iCloud 雲碟的「桌面與文稿」同步，因此你先前的 Ostler 檔案副本可能已經在 iCloud 雲碟中。Ostler 沒有刪除它們。若要移除，請在 Finder 中打開 iCloud 雲碟，打開「文稿」，並刪除其中的 Ostler 資料夾。"
+MSG_WARN_USER_ROOT_NOT_MOVED="你先前的 Ostler 資料夾 %s 已保持原位，因為無法將它移到 %s。不是該資料夾已存在，就是移動失敗。沒有刪除任何內容。Ostler 現在使用新的資料夾：如果想把檔案放在那裏，請自行移動。"
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  對話記憶引擎已安裝在 venv 中。"
 MSG_INFO_HUB_APP_VERIFYING="正在驗證位於 %s 的 Ostler.app"
 MSG_INFO_HUB_APP_STAGING="正在從 %s 將 Ostler.app 放置到 /Applications"
@@ -301,7 +306,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="地區：美國（來源：%s）"
 MSG_INFO_REPO_URL="儲存庫網址：%s"
 MSG_INFO_REPO_URL_2="儲存庫網址：%s"
 MSG_INFO_REPO_URL_3="儲存庫網址：%s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="現在請選擇用來解鎖你的 Hub 的密碼短語。每次啟動 Hub 介面時，你都需要輸入這個密碼短語。"
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="現在請設定一組密碼短語。Ostler 會用它為部分內部記錄設定金鑰。"
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="已略過復原密碼短語。（已淘汰：v1.0 一律需要密碼短語。）"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="正在重用位於 %s 的現有 Doctor 代理程式安裝"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="正在重用位於 %s 的現有電郵擷取安裝"
@@ -439,13 +444,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="無法將你對背景豐富化的選
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="內部記錄金鑰已設定。Hub 服務從你個人資料夾內的受保護檔案讀取金鑰，因此無需提示即可啟動。"
-MSG_OK_DB_KEY_DELIVERED="資料庫密鑰已交付予 Hub 服務（%s，只有你可以讀取）。"
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="內部記錄金鑰已設定。Hub 服務從你的登入鑰匙圈讀取金鑰，因此無需提示即可啟動。"
+MSG_OK_DB_KEY_DELIVERED="資料庫密鑰已交付予 Hub 服務。"
 MSG_WARN_DB_KEY_NOT_DELIVERED="無法將資料庫密鑰交予 Hub 服務。在問題解決前，它們會以未加密方式開啟資料庫。"
 MSG_INFO_DB_KEY_RECOVER_HINT="執行此指令以復原並交付密鑰：%s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="正在加密先前安裝遺留的資料庫"
 MSG_WARN_DB_MIGRATION_FAILED="部分現有資料庫無法加密，仍可在磁碟上讀取。"
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="此安裝沒有資料庫密鑰檔案，因此 Hub 服務會以未加密方式開啟資料庫。"
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="此安裝沒有資料庫金鑰，因此 Hub 服務將無法開啟其加密資料庫。"
 MSG_WARN_DB_PLAINTEXT_COUNT="這部 Mac 上目前有 %s 個資料庫可在磁碟上讀取。"
 MSG_INFO_DB_MIGRATE_HINT="然後加密現有的資料庫：%s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="已安裝延後的裝置註冊重試程序（每小時執行一次，直至佇列清空）"
@@ -555,7 +560,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama 已安裝"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="「應用程式」中已安裝 Ollama App。Ostler 不會更動它,並會在旁邊執行自己的 Ollama %s 副本。如果該 App 已在選單列開啟,請將其結束,以便 Ostler 啟動自己的副本。"
 MSG_WARN_OLLAMA_PIN_DEFERRED="這次無法將 Ollama 更新至 %s,因此 Ostler 會繼續使用現有的副本(%s)。你的助理會繼續正常運作。下次執行安裝程式時會再嘗試更新。詳情:%s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="這次不會下載 %s:Ostler 經測試的 Ollama 副本(%s)尚未安裝,而其他版本的 Ollama 可能會取得錯誤的版本。下次執行安裝程式時會下載。"
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s 將在沒有一般版本檢查的情況下下載，因為 Ostler 經測試的 Ollama 副本（%s）尚未安裝。Doctor 會將其顯示為未驗證。"
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama 已安裝（僅命令列工具 – 重新啟動後可能需要手動啟動）"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama 已安裝（桌面 App）"
 MSG_OK_OLLAMA_RUNNING="Ollama 運行中"
@@ -707,6 +712,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="無法下載 Ostler RemoteCapture v%s（來源�
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="常見原因：發行標籤尚未發佈、網絡已離線，或上游公證仍在處理中。待發行版本上線後，請重新執行安裝程式。"
 MSG_WARN_CM042_EXTRACT_FAILED="無法解壓縮 Ostler RemoteCapture tarball；略過 LaunchAgent。"
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent 載入失敗。請參閱上方輸出內容及 ~/Library/LaunchAgents/。"
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="無法安裝語音轉錄腳本；無法在 Hub 設定中開啟語音轉錄。"
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  對話強化功能將無法使用。Ostler 其餘部分會正常安裝；如要接入對話記憶引擎，請不加 --allow-plaintext 重新執行。"
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="對話記憶引擎安裝失敗（複製）。"
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  已尋找：%s/cm048_pipeline/pyproject.toml"
@@ -793,7 +799,7 @@ MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="由於已傳入 --allow-plaintex
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault 尚未啟用。"
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="暫時無法啟用首月免費；安裝會繼續。配對後，請在 iPhone 上開啟 Ostler app 解決。"
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="「終端機」未獲「全盤取用權限」。"
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="偵測到 %s GB RAM。你會使用精簡版助理（gemma4:e2b）：可靠、準確，短問題可在一秒內回應，支援工具呼叫，不懂時會坦白說「我不知道」。如要為較長的問題提供更豐富的答案，24 GB 或以上可使用標準版助理（qwen3.5:9b）。你日後可重新安裝以更換 Mac。"
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="偵測到 %s GB RAM。你會使用精簡版助理（qwen3.5:4b）：它會透過工具呼叫查找資料，找不到時會坦白說「我不知道」。如要為較長的問題提供更豐富、更快的答案，24 GB 或以上可使用標準版助理（qwen3.5:9b）。你日後可重新安裝以更換 Mac。"
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR 匯入出現錯誤。你可以用以下指令重新執行："
 MSG_WARN_GRAPH_DB_PULL_RETRY="資料庫下載未能完成（第 %s 次嘗試，共 %s 次）。將於 %s 秒後重試..."
 MSG_WARN_GRAPH_DB_UP_RETRY="知識圖譜資料庫未能啟動（第 %s 次嘗試，共 %s 次）。正在重試..."
@@ -1256,8 +1262,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="使用「完整磁碟取用權限」讀取你�
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="要在 Apple Mail 加入電郵帳户嗎？"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="這部 Mac 上的 Apple Mail 尚未連接任何帳户，因此 Ostler 沒有電郵可讀取。選擇「是」會立即打開「系統設定」>「互聯網帳户」（你可以在那裡加入 iCloud、Gmail 或 Outlook）。選擇「否」則略過；你可以稍後再加入帳户，若 24 小時內仍沒有郵件送達，Doctor 會提醒你跟進。"
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="要擷取完整的 Apple Mail 記錄嗎？"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Ostler 預設會讀取你 Apple Mail 最近五年的郵件。如果你在這部 Mac 上保存的郵件超過五年，而且想把全部郵件放進你的知識圖譜，請選擇「是」立即擷取完整的本機記錄（郵箱較大時可能需要多一點時間）。選擇「否」則維持五年範圍；你隨時可以在 Doctor 中延長。"
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="同時設定自訂 IMAP+SMTP 伺服器？"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="僅適用於自行架設的郵箱。如果你的帳户是 Gmail、iCloud 或 Outlook，請保持「否」，因為透過上述 Apple Mail 效果更好。"
@@ -1297,7 +1301,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="要在磁碟靜態資料「未加密」的情�
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="你確定嗎？這是一個安全風險。"
 MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你的磁碟並未進行靜態加密。
 
-如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Documents/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務密鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的密鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。
+如果繼續，代表：Ostler 儲存的所有內容，包括 ~/Ostler 下你的整個個人圖譜（維基、對話、知識筆記），以及 ~/.ostler 下的服務密鑰和資料庫，都會以「未加密」的狀態寫入磁碟。任何人只要能從這個磁碟啟動、把它取出，或接觸到已解鎖的工作階段，就能讀取全部內容。Ostler 用來加密資料庫的密鑰就儲存在同一個磁碟上，因此在 FileVault 關閉時，它無法防止能接觸到磁碟的人讀取你的資料。
 
 強烈建議開啟 FileVault。你隨時可以在「系統設定」>「私隱與安全性」> FileVault 中開啟，它會在背景加密，無需重新安裝。
 
@@ -1305,11 +1309,11 @@ MSG_PROMPT_FILEVAULT_SKIP_HELP="這部 Mac 的 FileVault 已關閉，所以你�
 選擇「否」：在此停止，讓你先開啟 FileVault，然後再重新執行安裝程式。無論選哪一個，都沒有出錯。"
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="準備設定磁碟加密"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 的敏感資料庫會使用 SQLCipher 加密，密碼短語由你在下一個畫面自行選擇。每次啟動 Hub UI 時，你都需要輸入這個密碼短語。安裝結束時還會產生一個獨立的復原密鑰，只顯示一次。為了讓 Mac 上的所有內容都受到靜態保護，請保持 macOS FileVault 開啟。準備好後，請按「繼續」。"
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler 會使用你在下一個畫面設定的密碼短語，為部分內部記錄設定金鑰。安裝完成時亦會產生另一組復原金鑰，並只顯示一次。你在 Ostler 的資料整體受 FileVault 保護，那是 Apple 的全磁碟加密功能。準備好後，請按「繼續」。"
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="也設定復原密碼短語嗎？（建議）"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="選擇你的密碼短語"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="這個密碼短語會加密你的知識圖譜，並在每次啟動時解鎖 Hub UI。至少 16 個字元。我們無法為你找回，建議把它存放在密碼管理工具中。"
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler 使用此密碼短語為部分內部記錄設定金鑰。你在 Ostler 的資料整體受 FileVault 保護，那是 Apple 的全磁碟加密功能。"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="確認你的密碼短語"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="請再次輸入相同的密碼短語以確認。"
 

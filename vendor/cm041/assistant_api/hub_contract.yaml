@@ -160,13 +160,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -197,13 +202,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "install.sh"
@@ -495,10 +504,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -615,6 +629,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -983,13 +998,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -3005,13 +3026,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3043,13 +3069,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -3323,10 +3353,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3508,13 +3543,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4998,13 +5039,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5034,13 +5080,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5228,10 +5278,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5392,6 +5447,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -5517,13 +5573,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5545,8 +5607,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "considered",
     "count",
     "degraded",
+    "filtered",
     "meetings",
     "reason",
     "within_minutes"
@@ -6098,7 +6162,8 @@
     "degraded",
     "error",
     "generated_at",
-    "items"
+    "items",
+    "still_learning"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

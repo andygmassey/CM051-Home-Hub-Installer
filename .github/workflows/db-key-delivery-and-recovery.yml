@@ -75,6 +75,10 @@ on:
       - 'tests/test_the_recovery_cli_does_not_print_the_key_by_default.py'
       - 'vendor/ostler_security/passphrase_recovery_cli.py'
       - 'tests/test_the_db_key_reaches_the_services_and_the_disk.py'
+      - 'tests/test_v1_0_129_db_key_keychain_no_plaintext_fallback.py'
+      - 'tests/test_db_key_probe_judges_only_launchd_posture.py'
+      - 'scripts/box_walk_probes/lib/db_key_probe.py'
+      - 'gui/OstlerInstaller/Resources/ViewCopy*.json'
       - 'vendor/ostler_security/audit_log.py'
       - 'vendor/cm041/assistant_api/tests/test_row_factory_on_sqlcipher_connection.py'
       - 'tests/test_audit_log_row_factory.py'
@@ -196,6 +200,23 @@ jobs:
           fi
           exit "$rc"
 
+      # v1.0.129 hardening. The key is in the login Keychain and not a
+      # plaintext file; corrections.db / assert_spool.db refuse to open with
+      # no key; audit.db is created keyed; the passphrase copy claims nothing
+      # false. RED on origin/main (12 arms), GREEN on this tree. sqlcipher3 is
+      # installed above, so the audit.db byte arms RUN here (they are
+      # CANNOT-RUN on a bare interpreter, and rc=2 is annotated, never passed).
+      - name: v1.0.129 - DB key in Keychain, no silent plaintext, keyed audit.db
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          python tests/test_v1_0_129_db_key_keychain_no_plaintext_fallback.py || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error title=CANNOT-RUN (harness, not product)::An arm of the v1.0.129 hardening test could not obtain a verdict. Nothing is claimed for it."
+          fi
+          exit "$rc"
+
       # v1.0.107 walk #12: the key reached ical-server and the coach DB was
       # encrypted, and every coach read was still a 500, because
       # sqlite3.Row refuses a sqlcipher3 cursor. The step above writes
@@ -260,3 +281,9 @@ jobs:
         # under /bin/bash 3.2 with the vendored validator. Exit 2 is CANNOT-RUN
         # and fails the step.
         run: /bin/bash tests/test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh
+
+      # The walk probe judges only posture a launchd process wrote; ssh-written,
+      # absent or stale posture is CANNOT-RUN, never a pass (v1.0.129 walk).
+      - name: db_key probe judges only fresh launchd posture
+        if: always()
+        run: python tests/test_db_key_probe_judges_only_launchd_posture.py

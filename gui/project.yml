@@ -62,7 +62,7 @@ targets:
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
         NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."
         NSDownloadsFolderUsageDescription: "Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac."
-        NSDocumentsFolderUsageDescription: "Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac."
+        NSDocumentsFolderUsageDescription: "Ostler looks in your Documents folder for data exports you have saved there, such as a Google Takeout or LinkedIn export. Files stay on this Mac."
         NSPhotoLibraryUsageDescription: "Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac."
         NSRemindersFullAccessUsageDescription: "Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account."
         ATSApplicationFontsPath: Fonts
@@ -265,6 +265,12 @@ targets:
           # falls back to a silent no-op and both channels ship permanently
           # blank, which looks identical to a feature nobody built.
           cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
+          # settling_channels.json: the fixed channel set the Setting-up bar
+          # divides by. install.sh copies ${SCRIPT_DIR}/lib/settling_channels.json
+          # to ~/.ostler/state/; CM044 reads it from there. Missing = the bar
+          # falls back to whichever shards exist, so it can read 100 early.
+          cp "${SRCROOT}/../lib/settling_channels.json"          "${DEST}/lib/settling_channels.json"
+          chmod 644 "${DEST}/lib/settling_channels.json"
           # ostler-container-engine.sh + ostler-engine-supervisor.sh: the
           # periodic container-engine liveness check and its recovery path.
           # install.sh stages both into ~/.ostler and schedules
@@ -419,6 +425,7 @@ targets:
           - $(SRCROOT)/../lib/ostler-model-fit.sh
           - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
+          - $(SRCROOT)/../lib/settling_channels.json
           - $(SRCROOT)/../lib/ostler-container-engine.sh
           - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
           - $(SRCROOT)/../lib/ostler-loopback-guard.sh
@@ -450,6 +457,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_channels.json
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-loopback-guard.sh
@@ -921,7 +929,7 @@ targets:
           # CM052 package, pip-installs it NON-editable into a dedicated
           # venv under ${OSTLER_DIR}/services/cm052/, and runs the
           # pwg-ai-convo producer to drain external-LLM chat history into
-          # ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).
+          # ~/Ostler/AI Conversations/ (the CM044 AI Chats wing).
           #
           # The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED
           # (OFF for v1.0.x -- the section ships dark), but the package is
@@ -1479,15 +1487,30 @@ targets:
           echo "Bundling scripts/repair_netflix_rating_polarity.py into Resources/scripts/"
           cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"
           chmod 644 "${DEST}/scripts/repair_netflix_rating_polarity.py"
+          #
+          # RemoteCapture transcription toggle. install.sh installs
+          # ${SCRIPT_DIR}/scripts/remotecapture_transcription.sh into
+          # ${OSTLER_DIR}/bin so Hub Settings can enable or disable spoken
+          # capture later without a reinstall. Bundled here like the scripts above.
+          SRC_RCT="${SRCROOT}/../scripts/remotecapture_transcription.sh"
+          if [ ! -f "${SRC_RCT}" ]; then
+            echo "ERROR: scripts/remotecapture_transcription.sh not found at ${SRC_RCT}" >&2
+            exit 1
+          fi
+          echo "Bundling scripts/remotecapture_transcription.sh into Resources/scripts/"
+          cp "${SRC_RCT}" "${DEST}/scripts/remotecapture_transcription.sh"
+          chmod 755 "${DEST}/scripts/remotecapture_transcription.sh"
           /usr/bin/xattr -cr "${DEST}/scripts" || true
         inputFiles:
           - $(SRCROOT)/../scripts/deferred-register-device.sh
           - $(SRCROOT)/../scripts/migrate_graph_namespace.py
           - $(SRCROOT)/../scripts/repair_netflix_rating_polarity.py
+          - $(SRCROOT)/../scripts/remotecapture_transcription.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/deferred-register-device.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/migrate_graph_namespace.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/repair_netflix_rating_polarity.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/remotecapture_transcription.sh
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail

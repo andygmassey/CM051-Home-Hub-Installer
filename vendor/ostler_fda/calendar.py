@@ -84,9 +84,14 @@ def _emit_settling(
     total: int,
     needs_source: bool = False,
     started_at: Optional[str] = None,
+    complete: bool = False,
+    skip_reason: str = "",
 ) -> None:
     """Best-effort settling emit. A reporting failure must never cost the
-    customer their calendar extract, so every error is swallowed."""
+    customer their calendar extract, so every error is swallowed.
+
+    ``complete`` / ``skip_reason`` are the ONLY terminal markers: the reader
+    counts a channel finished on one of them and on nothing else."""
     try:
         report_settling_progress(
             channel=_SETTLING_CHANNEL,
@@ -94,6 +99,8 @@ def _emit_settling(
             total=total,
             needs_source=needs_source,
             started_at=started_at,
+            complete=complete,
+            skip_reason=skip_reason,
         )
     except Exception:
         logger.warning(
@@ -213,6 +220,8 @@ def extract_events(
         return []
 
     if resolved is None:
+        # Nothing to read: terminal skip, so the bar does not wait on it.
+        _emit_settling(done=0, total=0, skip_reason="no_calendar")
         # Name the path actually probed. The old message always cited both
         # defaults, so an explicit-path miss read as "your Mac has no
         # calendar" and sent at least one reader down the wrong trail.
@@ -230,6 +239,7 @@ def extract_events(
         conn = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
     except sqlite3.OperationalError as e:
         if is_fda_refusal(e, resolved):
+            _emit_settling(done=0, total=0, skip_reason="permission_denied")
             # RAISE (do not return []) so the extract_all orchestrator's
             # PermissionError -> no_fda branch fires and the customer gets a
             # Doctor "grant Full Disk Access" card. Returning [] here made a
@@ -314,9 +324,15 @@ def extract_events(
     _settling_total = len(rows)
     _settling_done = 0
     _settling_last_tick = 0.0
-    # Announce at 0-of-N before any work: a channel that appears only on
-    # completion is indistinguishable from one that was never wired.
-    _emit_settling(done=0, total=_settling_total, started_at=_settling_started)
+    if _settling_total == 0:
+        # Nothing in the window: terminal skip with a reason, not a 0/0 that
+        # the reader (rightly) treats as still discovering.
+        _emit_settling(done=0, total=0, started_at=_settling_started,
+                       skip_reason="no_events")
+    else:
+        # Announce at 0-of-N before any work: a channel that appears only on
+        # completion is indistinguishable from one that was never wired.
+        _emit_settling(done=0, total=_settling_total, started_at=_settling_started)
     for row in rows:
         # Count the row as dealt with BEFORE the body -- malformed rows hit
         # `continue`, and a tick at the bottom would strand `done` below
@@ -364,9 +380,13 @@ def extract_events(
             logger.warning("Skipping malformed Calendar row: %s", e)
             continue
 
-    _emit_settling(
-        done=_settling_total, total=_settling_total, started_at=_settling_started,
-    )
+    # The extract finished: the explicit terminal marker (done==total alone is
+    # NOT terminal). Skipped when the window was empty (skip emitted above).
+    if _settling_total > 0:
+        _emit_settling(
+            done=_settling_total, total=_settling_total,
+            started_at=_settling_started, complete=True,
+        )
     logger.info(
         "Extracted %d calendar events from %s", len(events), resolved,
     )

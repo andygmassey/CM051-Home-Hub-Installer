@@ -4,7 +4,7 @@ Sibling of ``imessage_tcc_posture.py`` and ``reminders_posture.py``: like
 them, Doctor only READS a record another component wrote.
 
 v1.0.121 (NEW-121): this tile used to run a LIVE write probe from Doctor's
-own python, an ``O_EXCL`` create in ``~/Documents/Ostler`` (or in
+own python, an ``O_EXCL`` create in ``~/Ostler`` (or in
 ``~/Documents`` when that was absent) on every ``/doctor`` render. Doctor
 is a launchd job whose program is the bundled python, so TCC charged each
 probe to python3.11 as a Documents request: the shape the walk probe
@@ -123,12 +123,12 @@ def read_documents_access(now: Optional[float] = None) -> DocumentsAccessMarker:
 
 # ── Customer-facing copy ───────────────────────────────────────────
 # Co-located with the reader (rather than in web_ui_copy.py) because
-# this whole tile is CM051-only: it probes ~/Documents/Ostler, the
+# this whole tile is CM051-only: it probes ~/Ostler, the
 # customer content layout the installer creates, which upstream HR015
 # Doctor -- running as a service -- has no equivalent of. British
 # English, light brand, no em dashes. The remediation names "Ostler"
 # because that is what System Settings shows for the identity that writes
-# ~/Documents/Ostler: the signed daemon ai.ostler.assistant, whose
+# ~/Ostler: the signed daemon ai.ostler.assistant, whose
 # CFBundleDisplayName is "Ostler" (ostler-assistant
 # release/Info.plist.template; read back from the installed
 # OstlerAssistant.app/Contents/Info.plist on a v1.0.121 trial box). It
@@ -144,7 +144,7 @@ _STATUS_LABELS = {
 _DETAILS = {
     STATUS_WORKING: (
         "Ostler can write to your Documents folder. Your personal wiki "
-        "and your conversation records are saved under Documents/Ostler, "
+        "and your conversation records are saved under ~/Ostler, "
         "on this Mac. They are yours and they stay on this machine."
     ),
     STATUS_DENIED: (
@@ -154,7 +154,7 @@ _DETAILS = {
         "Mac."
     ),
     STATUS_CHECK_FAILED: (
-        "Ostler tried to write a test file under Documents/Ostler and the "
+        "Ostler tried to write a test file under ~/Ostler and the "
         "attempt failed for a reason that was not a permission refusal. "
         "Your wiki and conversation records may or may not be saving."
     ),

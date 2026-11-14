@@ -1,0 +1,18 @@
+name: keychain-lock-probe
+# Measures, on a disposable macOS runner ONLY, how `security` and the Security
+# framework report a LOCKED keychain. Never run on a developer Mac.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/ci/keychain_lock_probe.py'
+      - '.github/workflows/keychain-lock-probe.yml'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/ci/keychain_lock_probe.py

@@ -86,6 +86,10 @@ jobs:
         if: always()
         run: bash tests/test_owner_name_id_never_empty.sh
 
+      - name: No mail extend-history prompt; mail, Safari and browser default to all history
+        if: always()
+        run: bash tests/test_ingest_all_history_no_mail_prompt.sh
+
       - name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
         if: always()
         run: bash tests/test_tier48_picks_9b.sh
@@ -96,6 +100,7 @@ jobs:
           set -uo pipefail
           fail=0
           for t in \
+            tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
@@ -106,13 +111,22 @@ jobs:
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
+            tests/test_setup_progress_advancing.sh \
+            tests/test_settling_channels_survive_promote.sh \
+            tests/test_settling_refresh_agent.sh \
+            tests/test_settling_denominator_terminal_writes.sh \
+            tests/test_settling_seed_fixture_terminal.sh \
+            tests/test_settling_writers_end_to_end.sh \
+            tests/test_settling_zero_is_discovering.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_uninstall_legacy_documents_root.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
+            tests/test_user_root_is_home_ostler_not_documents.sh \
             tests/test_usr_local_bin_symlinks_gui_safe.sh \
             tests/test_v1010_at_rest_exclusions.sh \
             tests/test_v1010_ingest_reroute_plists.sh \
@@ -394,3 +408,26 @@ jobs:
       - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
         if: always()
         run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh
+
+      # Invoked BY NAME (an execution verb and the filename on one line), which
+      # is what scripts/verify_new_tests_are_wired.sh scores WIRED. The `for t`
+      # loop above only mentions these. The writers end-to-end test runs every
+      # settling writer over a synthetic input and reads the bar with the CM044
+      # reader; CI has no CM044 checkout, so there its bar assertions are
+      # CANNOT-RUN (a ::warning::, never a PASS) and the shard assertions run.
+      - name: Every Setting-up writer finishes with an explicit terminal marker
+        if: always()
+        env:
+          SETTLING_E2E_READER_OPTIONAL: "1"
+        run: |
+          rc=0
+          bash tests/test_settling_writers_end_to_end.sh || rc=1
+          python3 tests/test_settling_writers_end_to_end.py || rc=1
+          bash tests/test_settling_denominator_terminal_writes.sh || rc=1
+          bash tests/test_settling_zero_is_discovering.sh || rc=1
+          bash tests/test_settling_seed_fixture_terminal.sh || rc=1
+          bash tests/test_setup_progress_advancing.sh || rc=1
+          bash tests/test_settling_channels_survive_promote.sh || rc=1
+          bash tests/test_settling_refresh_agent.sh || rc=1
+          bash tests/test_emails_settling_terminal.sh || rc=1
+          exit "${rc}"

@@ -80,12 +80,12 @@ MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture stays off until you turn spoken transcription on: you chose to keep it off for now. You can turn it on at any time in Ostler's Settings or in RemoteCapture. No reinstall is needed."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -93,7 +93,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask ma
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records in the Ostler folder in your home folder (~/Ostler), on this Mac. They are yours and they stay on this machine. The folder is deliberately outside Documents, so iCloud Drive does not upload it. Ostler may still need access to your Documents folder, for example to look for data exports you have saved there, so macOS may ask for it during setup, and again later today. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Moved your Ostler folder from %s to %s, so iCloud Drive's Desktop and Documents sync no longer reaches it."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="iCloud Drive's Desktop and Documents sync is on for this Mac, so earlier copies of your Ostler files may already be in iCloud Drive. Ostler has not deleted them. To remove them, open iCloud Drive in Finder, open Documents, and delete the Ostler folder there."
+MSG_WARN_USER_ROOT_NOT_MOVED="Your earlier Ostler folder %s was left in place, because it could not be moved to %s. Either that folder already exists or the move failed. Nothing was deleted. Ostler now uses the new folder: move your files across yourself if you want them there."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
@@ -296,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Region: United States (source: %s)"
 MSG_INFO_REPO_URL="Repo URL: %s"
 MSG_INFO_REPO_URL_2="Repo URL: %s"
 MSG_INFO_REPO_URL_3="Repo URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose the passphrase that will unlock your Hub. You'll type this each time you start the Hub UI."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (Deprecated: v1.0 always requires a passphrase.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
@@ -433,13 +438,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enric
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
 MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
 MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
 MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
@@ -549,7 +554,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installed"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="An Ollama app is already installed in Applications. Ostler leaves it exactly as it is and runs its own copy of Ollama %s alongside it. If that app is open in the menu bar, quit it so Ostler can start its own."
 MSG_WARN_OLLAMA_PIN_DEFERRED="Could not update Ollama to %s this time, so Ostler is keeping the copy it already runs (%s). Your assistant keeps working. The update will be tried again the next time the installer runs. Details: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Not downloading %s this time: Ostler's tested copy of Ollama (%s) is not installed yet, and a different Ollama could fetch the wrong build. The next installer run downloads it."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="Downloading %s without the usual build check, because Ostler's tested copy of Ollama (%s) is not installed yet. The Doctor will show it as not verified."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may need manual start after reboot)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
 MSG_OK_OLLAMA_RUNNING="Ollama running"
@@ -701,6 +706,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarisation still in flight. Re-run the installer once the release is live."
 MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Could not install the spoken-transcription script; Hub Settings cannot turn transcription on."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"
@@ -787,7 +793,7 @@ MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plain
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (gemma4:e2b) – reliable, accurate, sub-second on short questions, with tool calls and an honest 'I don't know' when it doesn't. For richer answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (qwen3.5:4b), which looks things up with tool calls and gives an honest 'I don't know' when it finds nothing. For richer, faster answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR import had errors. You can re-run with:"
 MSG_WARN_GRAPH_DB_PULL_RETRY="Database download did not finish (attempt %s of %s). Retrying in %ss..."
 MSG_WARN_GRAPH_DB_UP_RETRY="The knowledge-graph databases did not start (attempt %s of %s). Retrying..."
@@ -1247,8 +1253,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Appl
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Add a mail account to Apple Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail has no accounts connected on this Mac yet, so Ostler will not have any email to read. Pick Yes to open System Settings > Internet Accounts now (you can add iCloud, Gmail, or Outlook there). Pick No to skip; you can add an account later and Doctor will surface a follow-up if no mail arrives within 24 hours."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Pull your full Apple Mail history?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="By default Ostler reads the last five years of your Apple Mail. If you keep more than that on this Mac and want all of it in your knowledge graph, pick Yes to pull the full local history now (this can take a little longer for a large mailbox). Pick No to keep the five-year window; you can always extend it later from Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Keep as NO if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."
@@ -1288,7 +1292,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
 
 FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
 
@@ -1296,11 +1300,11 @@ Choose Yes to continue now with the disk unencrypted at rest (this is a delibera
 Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 16 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 

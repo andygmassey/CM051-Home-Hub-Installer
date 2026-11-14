@@ -1339,7 +1339,7 @@ Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is 
 `vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
 `check_time_machine_exclusion()` (registered last in `ALL_RULES`);
 `vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
-`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Ostler`
 and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
 is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
 Time Machine" for `~/.ostler`), anything else is an info "could not check",
@@ -1352,7 +1352,7 @@ regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 
 MEASURED on the v1.0.120 box: the rule above ran `tmutil isexcluded` from
 Doctor's launchd python, so TCC charged the reads to python3.11, and the
-`~/Documents/Ostler` argv (plus the `os.path.isdir()` gating it) made a
+`~/Ostler` argv (plus the `os.path.isdir()` gating it) made a
 NON-preflight SystemPolicyDocumentsFolder request, the prompt-capable shape.
 
 `_tm_isexcluded()` is DELETED. `check_time_machine_exclusion()` now reads
@@ -1378,7 +1378,7 @@ back.
 ### 2026-10-30, v1.0.121 (NEW-121, Archie (b)): the Documents tile reads, never probes
 
 `vendor/doctor/agent/documents_access_posture.py` (VENDOR_ONLY) no longer
-probe-writes into `~/Documents/Ostler` from Doctor's python on every render.
+probe-writes into `~/Ostler` from Doctor's python on every render.
 `probe_documents_access` and `_default_write_probe` are DELETED;
 `read_documents_access()` reads `~/.ostler/state/documents_access.tsv`
 (`STATUS_FILE_REL`, `STATUS_MAX_AGE_SECONDS` = 6 h) and
@@ -1659,7 +1659,7 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 
 ### What a future sync must preserve
 
-`check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+CM051 #3468 extends the #2977 graft (CM051-local, absent upstream at the pin, so it rides on that graft): `vendor/doctor/agent/diagnostic_rules.py:1896-1902` (collects `model_unverified=<model>`) and `:1912` (appends the copy), import at `:194`; `vendor/doctor/agent/diagnostic_copy.py:746` (`OLLAMA_MODELS_UNVERIFIED_FMT`) and `:741-745` (the `OLLAMA_NOT_PINNED_DETAIL_FMT` sentence that said no models are downloaded, now removed). Preserve `check_ollama_pin` (`diagnostic_rules.py:1879`, including its repeated `model_unverified=<model>` key, appended by install.sh when a model is pulled under a deferred pin), `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy plus `OLLAMA_MODELS_UNVERIFIED_FMT`, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
 
 ## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
 
@@ -1833,3 +1833,26 @@ the end-of-pass backlog grew on each of the last three passes. Guarded by
 `tests/test_people_index_embeds_only_what_changed.py` (workflow
 `dedupe-merge-rule-2.yml`), which also asserts the import, call and placeholder.
 Owed upstream: none until the writer itself is lifted into HR015 ostler_fda.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), doctor
+
+Regeneration REFUSED, measured 2026-11-11 (dry run): "doctor is marked regenerate_forbidden in VENDOR_MANIFEST.toml". Recorded here instead.
+
+- `agent/diagnostic_rules.py` (4 edits): comments naming the root; the `os.path.join(home, "Documents", "Ostler")` entry in the folders list becomes `os.path.join(home, "Ostler")`.
+- `agent/web_ui.py` (2 comment lines): probe comments.
+- `agent/documents_access_posture.py`: VENDOR_ONLY (no upstream file). Route (d) of the gate, not recorded here.
+
+Upstream: andygmassey/HR015-Gaming-PC has `doctor/agent/` at head, but the vendored lines are gone there in part. Upstream leftovers still name `Documents/Ostler` (`diagnostic_rules.py:1373,1374,1393`, `web_ui.py:2370`, `dashboard_components.py:1399`, `status_collector.py`, three test files). No upstream PR. The change is not made upstream yet.
+
+## 2026-11-14: "Your data exports" section, per-platform stale rule, Q11 links (CM051 export-doctor PR), doctor
+
+Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here instead. Stacked on CM051 #3503 (head 33cdee0b).
+
+- `agent/export_status.py`: VENDOR_ONLY (no upstream file). Reads the watcher's `${OSTLER_DIR}/state/export-scan/high_water.tsv`, renders the "Your data exports" section, and produces the stale-import findings.
+- `agent/export_platforms.tsv`: VENDOR_ONLY. The one platform table, shared with installer Q11 and checked by `tests/test_export_platforms_match_q11.py`.
+- `agent/diagnostic_rules.py`: `check_gdpr_export_age` now reads `snapshot.export_imports` through `export_status.stale_findings`. The `STALE_IMPORT_*` imports are removed.
+- `agent/diagnostic_copy.py`: the dev-CLI `STALE_IMPORT_*` copy (which named `ostler-import --exports-dir`) is removed. Its replacement is in `export_status.py`, with the request link.
+- `agent/status_collector.py`: `SystemSnapshot.export_imports` field, set in `collect_full_snapshot` from `export_status.collect_import_state()`. Imports `export_status`.
+- `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
+
+Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).

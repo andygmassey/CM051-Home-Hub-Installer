@@ -21,7 +21,7 @@ want() {
 echo "== 48GB+ -> qwen3.5:9b =="
 for r in 48 64 128; do want "$r" qwen3.5:9b; done
 echo "== unchanged tiers =="
-want 16 gemma4:e2b
+want 16 qwen3.5:4b
 for r in 24 32 47; do want "$r" qwen3.5:9b; done
 echo "== no 35b anywhere the customer is shown a model =="
 [[ " ${OSTLER_MODEL_TAGS[*]} " != *35b* ]] && ok "35b not in OSTLER_MODEL_TAGS" \
@@ -36,7 +36,7 @@ for r in 48 64 128; do
     [[ "$got" == "qwen3.5:9b|~6.6 GB" ]] && ok "ladder(${r}GB) = $got" || bad "ladder(${r}GB) = $got"
 done
 got="$(RAM_GB=16 bash -c "$ladder"$'\nprintf %s "$AI_MODEL"' 2>&1)"
-[[ "$got" == "gemma4:e2b" ]] && ok "ladder(16GB) = gemma4:e2b" || bad "ladder(16GB) = $got"
+[[ "$got" == "qwen3.5:4b" ]] && ok "ladder(16GB) = qwen3.5:4b" || bad "ladder(16GB) = $got"
 got="$(RAM_GB=32 bash -c "$ladder"$'\nprintf %s "$AI_MODEL"' 2>&1)"
 [[ "$got" == "qwen3.5:9b" ]] && ok "ladder(32GB) = qwen3.5:9b" || bad "ladder(32GB) = $got"
 

@@ -96,6 +96,7 @@ on:
       - 'scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
+      - 'tests/test_failed_probe_count_is_distinct_probes.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
@@ -146,6 +147,13 @@ on:
       # finished compile) without running the test that guards it.
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
       - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
+      - 'tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh'
+      - 'tests/test_walk_timing_reaches_the_record.sh'
+      - 'scripts/box_walk_probes/manifest_reuse_allowlist.tsv'
+      - 'tests/test_a_smoke_walk_can_never_be_clean.sh'
+      - 'tests/test_walk_smoke_scope.sh'
+      - 'scripts/walk_smoke_select.py'
+      - 'scripts/box_walk_probes/smoke_scope.tsv'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -275,6 +283,12 @@ jobs:
       - name: The customer download cannot be repointed to an unwalked build
         if: always()
         run: bash tests/test_walk_record_gates_customer_download.sh
+
+      # v1.0.129 was refused as "7 of 11" when 11 FAIL rows were 7 distinct
+      # probes; the count is now of probes, and every refusal prints the cold row.
+      - name: The failed-probe count is of distinct probes and refusals print cold
+        if: always()
+        run: bash tests/test_failed_probe_count_is_distinct_probes.sh
 
       # A probe that reads an absent path as a definite answer is worse than a
       # probe that fails: it reports a confident verdict about something it
@@ -1056,6 +1070,21 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
 
+      - name: The early pass adds no assertion the full pass lacks (so it is off by default)
+        if: always()
+        run: /bin/bash tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh
+
+      - name: Per-probe and per-manifest-row seconds reach the walk record
+        if: always()
+        run: /bin/bash tests/test_walk_timing_reaches_the_record.sh
+      - name: A smoke-tier walk can never record CLEAN, and the release gate refuses it
+        if: always()
+        run: /bin/bash tests/test_a_smoke_walk_can_never_be_clean.sh
+
+      - name: The smoke scope is explicit, covers every probe, and fails wide
+        if: always()
+        run: /bin/bash tests/test_walk_smoke_scope.sh
+
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
       # probes a settled graph to read. On v1.0.78 they measured mid
@@ -1119,6 +1148,8 @@ jobs:
           printf 'broken\t0\n'                   >> walks/v0.0.0-citest.tsv
           printf 'verdict\tCLEAN\n'              >> walks/v0.0.0-citest.tsv
           printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
+          # A CLEAN record needs cold PROVEN (the v1.0.129 walk was not cold).
+          printf 'cold\tPROVEN(synthetic CI control record)\n' >> walks/v0.0.0-citest.tsv
           bash scripts/verify_walk_record.sh v0.0.0-citest "$CITEST_SHA"
           rm -f walks/v0.0.0-citest.tsv /tmp/citest-artefact.bin
 

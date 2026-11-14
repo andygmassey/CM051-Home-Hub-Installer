@@ -3,7 +3,7 @@
 A one-speaker capture is a memo, and the frontmatter tells the truth.
 
 Mini16, 2026-10-15: a one-speaker voice memo from the iPhone app was
-written to ~/Documents/Ostler/Conversations/<id>.md as a two-person call:
+written to ~/Ostler/Conversations/<id>.md as a two-person call:
 a second participant built from the speaker's own label plus a role copied
 out of the prompt ("new acquaintance, ex-..."), a summary in which the
 speaker "caught up with" themself, a location "inferred from transcript

@@ -672,7 +672,7 @@ fi
 SEEDED="${WORK}/aiconv_seeded.sh"
 {
     cat "$AICONV_REGION"
-    printf '    _X_ROWS="$(_hydrate_artefact_files "${HOME}/Documents/Ostler/AI Conversations")"\n'
+    printf '    _X_ROWS="$(_hydrate_artefact_files "${HOME}/Ostler/AI Conversations")"\n'
 } > "$SEEDED"
 if [ "$(home_rooted_probe "$SEEDED")" = "0" ]; then
     fail "P control: the predicate did not fire on a region that DOES carry a \$HOME-rooted probe. The pass above is vacuous."

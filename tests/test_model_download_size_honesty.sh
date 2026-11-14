@@ -57,8 +57,15 @@ ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # future model tag genuinely downloads less, the honest move is to record that
 # measurement here with its date and box -- not to relax the floor so a
 # convenient label passes.
-MEASURED_FLOOR_GB="7.2"
-FLOOR_PROVENANCE="measured on the v1.0.61 walk box, 2026-09-03"
+#
+# 16 GB tier moved from gemma4:e2b (the 7.2 GB above) to qwen3.5:4b, a different
+# tag with a NEW measurement, which is the case the paragraph above provides
+# for. Measured for the Ollama install.sh pins (0.34.0, GGUF build): the
+# registry manifest for qwen3.5:4b is byte-identical to
+# docs/model-pins/ollama-0.34.0/qwen3.5_4b.json (the on-disk manifest of a
+# clean pull) and its layers sum to 3,324,173,757 bytes = 3.32 GB.
+MEASURED_FLOOR_GB="3.3"
+FLOOR_PROVENANCE="qwen3.5:4b, clean pull under the pinned Ollama 0.34.0, layers 3.32 GB, 2026-10-19 (was 7.2 GB for gemma4:e2b, v1.0.61 walk box)"
 
 # The tier the floor was measured on. A 16 GB Mac is the installer's hard RAM
 # floor (ERR-02-PREREQ-RAM-LOW), so this is the smallest -- and therefore

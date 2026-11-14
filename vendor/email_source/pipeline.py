@@ -13,7 +13,7 @@ tick it:
      (``channel="email"`` plus the ``email_thread`` sidecar).
   4. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
      emits the four artefacts under
-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 CM048 owns classification, enrichment, the L3 short-circuit, the
 email-domain privacy ladder, and the four-artefact write. This module
@@ -458,7 +458,8 @@ def _widen_first_window(state, messages, threads, mail_dir, since_days, user_add
             break
         days = rung
         messages = read_messages(mail_dir=mail_dir, since_days=rung, user_address=user_address)
-        threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+        threads = thread_messages(messages, min_thread_messages=min_thread_messages,
+                                  user_address=user_address)
         msgs, convs = len(messages), len(threads)
         if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
             result = "widened"
@@ -536,7 +537,8 @@ def build_reply_debt_snapshot(
 
     owner = (user_address or "").strip().lower()
     threads = []
-    for thread in thread_messages(messages, min_thread_messages=1):
+    for thread in thread_messages(messages, min_thread_messages=1,
+                                  user_address=user_address):
         dated = [m for m in thread.messages if m.timestamp is not None]
         if not dated:
             continue
@@ -694,17 +696,44 @@ def process_email(
             )
         except Exception as exc:  # noqa: BLE001 -- recorded, never stops ingest
             write_reply_debt_snapshot(error=exc, out_path=snapshot_path)
-    threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+    threads = thread_messages(messages, min_thread_messages=min_thread_messages,
+                                  user_address=user_address)
     if not dry_run:
         messages, threads = _widen_first_window(
             state, messages, threads, mail_dir, since_days, user_address, min_thread_messages)
 
     scanned = dispatched = skipped = failed = 0
     work: list[tuple[object, list[str], set, str, dict]] = []
+    # A thread GROWS: its earliest in-window message changes as the since-window
+    # moves or a missing parent arrives, and thread_id / conversation_id (hence
+    # the CM048 folder) are derived from that message. Without this a grown
+    # thread looked new and was bundled into a second folder, each folder then
+    # yielding its own facts and todos. Reuse the OLDEST prior entry that shares
+    # ANY Message-Id; merge, never delete (the older folder stays canonical).
+    thread_meta: dict[str, dict] = state.setdefault("thread_meta", {})
+    id_owner: dict[str, str] = {}
+    for key, ids in thread_state.items():  # file order = oldest first
+        for mid in ids:
+            id_owner.setdefault(mid, key)
+    claimed: set[str] = set()
     for thread in threads:
         scanned += 1
         current_ids = [m.message_id for m in thread.messages]
-        seen_ids = set(thread_state.get(thread.thread_id, []))
+        owners = [k for k in dict.fromkeys(id_owner.get(i) for i in current_ids) if k]
+        canonical = next((k for k in owners if k not in claimed), None)
+        if canonical is None:
+            canonical = thread.thread_id
+            owners = [canonical] if canonical in thread_state else []
+        claimed.add(canonical)
+        seen_ids = set()
+        for k in owners:
+            seen_ids.update(thread_state.get(k, []))
+        pin = thread_meta.get(canonical)
+        if pin:
+            thread.conversation_id = pin["conversation_id"]
+            thread.pinned_started_at = pin.get("started_at")
+            thread.pinned_date = pin.get("date")
+        thread.thread_id = canonical
         # A thread is worth re-dispatching only if it carries a message
         # we have not bundled before (a fresh reply, or a brand-new
         # thread). Re-bundling on a new reply keeps the four-artefact
@@ -759,6 +788,11 @@ def process_email(
                 thread_state[thread.thread_id] = sorted(
                     seen_ids.union(current_ids)
                 )
+                thread_meta.setdefault(thread.thread_id, {
+                    "conversation_id": thread.conversation_id,
+                    "started_at": thread.started_at,
+                    "date": thread.date,
+                })
                 # Persist as we go. Before the seed pass existed a crash
                 # mid-tick lost nothing that mattered, because nothing was
                 # visible until the tick's work landed anyway. Now a tick

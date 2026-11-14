@@ -85,12 +85,12 @@ MSG_INFO_CLONED="  Clonado para %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="O Ostler RemoteCapture só funciona em Apple Silicon. A ignorar a instalação neste computador."
 MSG_INFO_CM042_LOGS_AT="Registos do RemoteCapture: %s/ostler-remotecapture.log (e .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="Uma instalação anterior tinha o Ostler RemoteCapture a iniciar no arranque da sessão. Foi parado e não voltará a iniciar."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="O Ostler RemoteCapture não foi instalado: escolheu manter desativada a transcrição de voz. Ative-a nas Definições e execute o instalador novamente se mudar de ideias."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="O Ostler RemoteCapture permanece desativado até ativar a transcrição de voz: escolheu mantê-la desativada por agora. Pode ativá-la a qualquer momento nas Definições do Ostler ou no RemoteCapture. Não é necessário reinstalar."
 MSG_INFO_CM042_TCC_PRE_PROMPT="No primeiro arranque, o Ostler RemoteCapture pedirá ao macOS a permissão de Gravação do Ecrã e de Microfone. Conceda ambas para que as chamadas e reuniões possam ser transcritas localmente. Não aparece nenhum indicador roxo na barra de menus – a captação de áudio é silenciosa por conceção."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -98,7 +98,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="No primeiro arranque, o Ostler RemoteCapture pedi
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler guarda a sua wiki pessoal e os registos das suas conversas em Documentos/Ostler, neste Mac. Pertencem-lhe e permanecem neste computador. Para os escrever, o Ostler precisa de acesso à sua pasta Documentos, pelo que o macOS pode pedi-lo durante a configuração e novamente mais tarde no mesmo dia, quando o Ostler organizar a sua wiki pela primeira vez. O pedido pode aparecer como proveniente de python3.11, o auxiliar incluído que o Ostler usa para escrever os seus ficheiros. Clique em OK sempre que surgir. Se não o vir ou recusar, pode ativá-lo a qualquer momento em Definições do Sistema, em Privacidade e segurança, depois Ficheiros e pastas, e a sua wiki e os registos das conversas passarão a ser escritos a partir daí."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="O Ostler guarda a sua wiki pessoal e os registos das suas conversas na pasta Ostler dentro da sua pasta pessoal (~/Ostler), neste Mac. Pertencem-lhe e permanecem neste computador. A pasta fica propositadamente fora de Documentos, pelo que o iCloud Drive não a envia. Ainda assim, o Ostler pode precisar de acesso à sua pasta Documentos, por exemplo para procurar exportações de dados que tenha guardado aí, pelo que o macOS pode pedi-lo durante a configuração e novamente mais tarde no mesmo dia. O pedido pode aparecer como proveniente de python3.11, o auxiliar incluído que o Ostler usa para escrever os seus ficheiros. Clique em OK sempre que surgir. Se não o vir ou recusar, pode ativá-lo a qualquer momento em Definições do Sistema, em Privacidade e segurança, depois Ficheiros e pastas."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="A sua pasta Ostler foi movida de %s para %s, pelo que a sincronização de Secretária e Documentos do iCloud Drive já não lhe chega."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="A sincronização de Secretária e Documentos do iCloud Drive está ativa neste Mac, pelo que cópias anteriores dos seus ficheiros do Ostler podem já estar no iCloud Drive. O Ostler não as apagou. Para as remover, abra o iCloud Drive no Finder, abra Documentos e apague aí a pasta Ostler."
+MSG_WARN_USER_ROOT_NOT_MOVED="A sua pasta Ostler anterior %s foi deixada onde estava, porque não foi possível movê-la para %s. Ou essa pasta já existe ou a movimentação falhou. Nada foi apagado. O Ostler passa agora a usar a pasta nova: mova os seus ficheiros você mesmo se os quiser lá."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Motor de memória de conversas instalado no venv."
 MSG_INFO_HUB_APP_VERIFYING="A verificar o Ostler.app em %s"
 MSG_INFO_HUB_APP_STAGING="A copiar o Ostler.app para /Applications a partir de %s"
@@ -301,7 +306,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Região: Estados Unidos (origem: %s)"
 MSG_INFO_REPO_URL="URL do repositório: %s"
 MSG_INFO_REPO_URL_2="URL do repositório: %s"
 MSG_INFO_REPO_URL_3="URL do repositório: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Escolha agora a frase de acesso que irá desbloquear o seu Hub. Terá de a introduzir sempre que iniciar a interface do Hub."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Escolha agora uma frase-passe. O Ostler usa-a para configurar a chave de alguns dos seus registos internos."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Frase de acesso de recuperação ignorada. (Descontinuado: a v1.0 exige sempre uma frase de acesso.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="A reutilizar a instalação existente do agente Doctor em %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="A reutilizar a instalação existente de email-ingest em %s"
@@ -441,13 +446,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Não foi possível guardar a sua esc
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave de um ficheiro protegido na sua pasta pessoal, por isso arrancam sem pedir nada."
-MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub (%s, legível apenas por si)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Chave dos registos internos configurada. Os serviços do Hub leem a chave do seu porta-chaves de início de sessão, por isso arrancam sem pedir nada."
+MSG_OK_DB_KEY_DELIVERED="Chave da base de dados entregue aos serviços do Hub."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Não foi possível entregar a chave da base de dados aos serviços do Hub. Estes abrirão as bases de dados sem encriptação até que seja corrigido."
 MSG_INFO_DB_KEY_RECOVER_HINT="Execute isto para a recuperar e entregar: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="A encriptar as bases de dados que restam de uma instalação anterior"
 MSG_WARN_DB_MIGRATION_FAILED="Não foi possível encriptar algumas bases de dados existentes. Continuam legíveis no disco."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="Esta instalação não tem ficheiro de chave da base de dados, pelo que os serviços do Hub estão a abrir as bases de dados sem encriptação."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="Esta instalação não tem uma chave de base de dados, pelo que os serviços do Hub não vão abrir as bases de dados cifradas."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s base(s) de dados neste Mac estão atualmente legíveis no disco."
 MSG_INFO_DB_MIGRATE_HINT="Depois encripte o que já existe: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Nova tentativa diferida do registo de dispositivos instalada (é executada de hora a hora até a fila ficar vazia)"
@@ -557,7 +562,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama instalado"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="Já existe uma app Ollama instalada em Aplicações. O Ostler deixa-a exatamente como está e executa a sua própria cópia do Ollama %s a par dela. Se essa app estiver aberta na barra de menus, feche-a para que o Ostler possa iniciar a sua."
 MSG_WARN_OLLAMA_PIN_DEFERRED="Não foi possível atualizar o Ollama para %s desta vez, por isso o Ostler mantém a cópia que já executa (%s). O seu assistente continua a funcionar. A atualização será tentada novamente na próxima execução do instalador. Detalhes: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Não é transferido %s desta vez: a cópia testada do Ollama do Ostler (%s) ainda não está instalada, e um Ollama diferente poderia obter a versão errada. A próxima execução do instalador transfere-a."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="%s é transferido sem a verificação habitual da versão, porque a cópia do Ollama testada pelo Ostler (%s) ainda não está instalada. O Doctor mostra-o como não verificado."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama instalado (apenas CLI – pode ser necessário iniciar manualmente após reiniciar)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama instalado (aplicação de secretária)"
 MSG_OK_OLLAMA_RUNNING="Ollama em execução"
@@ -710,6 +715,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Não foi possível transferir o Ostler RemoteCap
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Causas comuns: a etiqueta da versão ainda não foi publicada, a rede está desligada ou a notarização ainda está em curso. Execute novamente o instalador quando a versão estiver disponível."
 MSG_WARN_CM042_EXTRACT_FAILED="Não foi possível extrair o ficheiro tarball do Ostler RemoteCapture; o LaunchAgent será ignorado."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Falha ao carregar o LaunchAgent do Ostler RemoteCapture. Consulte o resultado acima e ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Não foi possível instalar o script de transcrição de voz; a transcrição não pode ser ativada nas Definições do Hub."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  O enriquecimento de conversas não estará disponível. O resto do Ostler é instalado normalmente; execute novamente sem --allow-plaintext para integrar o motor de memória de conversas."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="A instalação do motor de memória de conversas falhou (clonagem)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Procurado em: %s/cm048_pipeline/pyproject.toml"
@@ -797,7 +803,7 @@ MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="A continuar porque --allow-plain
 MSG_WARN_FILEVAULT_NOT_ENABLED="O FileVault NÃO está ativado."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Não foi possível ativar o primeiro mês gratuito neste momento; a instalação vai continuar. Abra a app Ostler no iPhone depois de emparelhar para resolver."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="O Acesso total ao disco não foi concedido ao Terminal."
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB de RAM detetados. Vai obter o assistente compacto (gemma4:e2b) – fiável, preciso, com resposta em menos de um segundo em perguntas curtas, com chamadas de ferramentas e um sincero “não sei” quando não sabe. Para respostas mais completas a perguntas mais longas, 24 GB ou mais desbloqueiam o assistente padrão (qwen3.5:9b). Pode mudar de Mac mais tarde, reinstalando."
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB de RAM detetados. Vai obter o assistente compacto (qwen3.5:4b), que consulta a informação com chamadas de ferramentas e responde com um sincero “não sei” quando não encontra nada. Para respostas mais completas e rápidas a perguntas mais longas, 24 GB ou mais desbloqueiam o assistente padrão (qwen3.5:9b). Pode mudar de Mac mais tarde, reinstalando."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="A importação RGPD teve erros. Pode executá-la novamente com:"
 MSG_WARN_GRAPH_DB_PULL_RETRY="A transferência da base de dados não terminou (tentativa %s de %s). A tentar novamente dentro de %ss..."
 MSG_WARN_GRAPH_DB_UP_RETRY="As bases de dados do grafo de conhecimento não iniciaram (tentativa %s de %s). A tentar novamente..."
@@ -1262,8 +1268,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Lê qualquer conta de e-mail que tenha adicion
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Adicionar uma conta de correio ao Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="O Mail ainda não tem contas ligadas neste Mac, pelo que o Ostler não terá e-mails para ler. Escolha Sim para abrir agora as Definições do Sistema > Contas de Internet (aí pode adicionar iCloud, Gmail ou Outlook). Escolha Não para ignorar; pode adicionar uma conta mais tarde e o Doctor apresentará um aviso de seguimento se não chegar correio nas próximas 24 horas."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Importar todo o histórico do Mail?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="Por predefinição, o Ostler lê os últimos cinco anos do seu Mail. Se tiver mais do que isso neste Mac e quiser tudo no seu grafo de conhecimento, escolha Sim para importar agora todo o histórico local (pode demorar um pouco mais numa caixa de correio grande). Escolha Não para manter a janela de cinco anos; pode sempre alargá-la mais tarde a partir do Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Configurar também um servidor IMAP+SMTP personalizado?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="Apenas para caixas de correio alojadas por si. Mantenha NÃO se as suas contas forem do Gmail, iCloud ou Outlook – estas funcionam melhor através do Mail, acima."
@@ -1303,7 +1307,7 @@ MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continuar com o disco SEM CIFRAGEM em repouso?"
 MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Tem a certeza? Isto é um risco de segurança."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="O FileVault está DESATIVADO neste Mac, pelo que o disco não está cifrado em repouso.
 
-O que isto significa se continuar: tudo o que o Ostler guarda -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Documents/Ostler, além de segredos e bases de dados de serviços em ~/.ostler -- é gravado no disco SEM CIFRAGEM. Quem conseguir arrancar a partir deste disco, retirá-lo ou aceder a uma sessão desbloqueada pode ler tudo. A chave com que o Ostler cifra as suas bases de dados fica guardada neste mesmo disco, por isso, sem o FileVault, não protege os seus dados de quem tiver acesso ao disco.
+O que isto significa se continuar: tudo o que o Ostler guarda -- todo o seu grafo pessoal (wiki, conversas, notas de conhecimento) em ~/Ostler, além de segredos e bases de dados de serviços em ~/.ostler -- é gravado no disco SEM CIFRAGEM. Quem conseguir arrancar a partir deste disco, retirá-lo ou aceder a uma sessão desbloqueada pode ler tudo. A chave com que o Ostler cifra as suas bases de dados fica guardada neste mesmo disco, por isso, sem o FileVault, não protege os seus dados de quem tiver acesso ao disco.
 
 O FileVault é vivamente recomendado. Pode ativá-lo a qualquer momento em Definições do Sistema > Privacidade e segurança > FileVault -- cifra em segundo plano, sem reinstalar.
 
@@ -1311,11 +1315,11 @@ Escolha Sim para continuar agora com o disco sem cifragem em repouso (é uma esc
 Escolha Não para parar aqui e ativar primeiro o FileVault; depois, execute novamente o instalador. Em qualquer dos casos, nada correu mal."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Pronto para configurar a cifragem do disco"
-MSG_PROMPT_PASSKEY_ACK_HELP="As bases de dados sensíveis do Ostler são cifradas com SQLCipher através de uma frase de acesso que escolhe no ecrã seguinte. Terá de a introduzir sempre que iniciar a IU do Hub. É também gerada uma chave de recuperação separada, apresentada uma só vez no fim da instalação. Para uma proteção total em repouso de tudo o que está no seu Mac, mantenha o FileVault do macOS ativado. Prima Continuar quando estiver pronto."
+MSG_PROMPT_PASSKEY_ACK_HELP="O Ostler usa uma frase-passe que escolhe no ecrã seguinte para configurar a chave de alguns dos seus registos internos. É também gerada uma chave de recuperação separada, que é mostrada uma única vez no final da instalação. Os seus dados do Ostler, no conjunto, estão protegidos pelo FileVault, a cifragem de disco completo da Apple. Prima Continuar quando estiver pronto."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Definir também uma frase de acesso de recuperação? (recomendado)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Escolha a sua frase-passe"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Esta frase-passe cifra o seu grafo de conhecimento e desbloqueia a interface do Hub em cada arranque. Mínimo de 16 caracteres. Não a conseguimos recuperar por si. Recomendamos guardá-la num gestor de palavras-passe."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="O Ostler usa esta frase-passe para configurar a chave de alguns dos seus registos internos. Os seus dados do Ostler, no conjunto, estão protegidos pelo FileVault, a cifragem de disco completo da Apple."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirme a sua frase-passe"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Introduza novamente a mesma frase-passe para confirmar."
 

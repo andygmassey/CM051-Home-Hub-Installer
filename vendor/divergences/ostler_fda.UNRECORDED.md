@@ -337,3 +337,27 @@ GREEN on this graft), and `tests/test_no_whatsapp_chat_export_instruction.sh`
 section 3, which gates the watcher's import answer on the WhatsApp consent record.
 
 Owed upstream: no. The file has no HR015 counterpart at this pin.
+## 2026-11-11: every Python settling writer emits an explicit terminal marker (CM051 #3426, CM044 #429)
+
+`vendor/ostler_fda/calendar.py`, `imessage.py`, `whatsapp_history.py` (and, in the same
+PR, the shared helper `settling_progress.py`: `complete` / `skip_reason` params, the
+terminal-state block, `status`). CM044's reader now counts ONLY `complete` and `skip_reason`
+as terminal, so a final `done == total` emit left the Setting-up bar at 99 on a real box.
+
+- calendar: final emit `complete=True` (only when N > 0). `skip_reason`: `no_calendar`
+  (db missing), `permission_denied` (FDA refusal), `no_events` (zero rows). `_emit_settling`
+  gains `complete` and `skip_reason`.
+- imessage: final emit `complete=True`. `skip_reason`: `no_chat_db`, `permission_denied`,
+  `no_messages`. `_emit_settling` gains `complete`.
+- whatsapp: final emit `complete=True`. `needs_source=True` on a missing db or FDA denial
+  replaced by `skip_reason` `whatsapp_not_installed` / `permission_denied` (a customer
+  action nobody revisits must not hold the bar). `_emit_settling` gains `complete`.
+- Closes B3 in `docs/setup_progress_terminal_map.md`: a run that finished its window is
+  terminal even when `since_days` excluded older rows.
+
+Proof: `tests/test_settling_writers_end_to_end.py` (every writer over a synthetic input in a
+temp HOME; the CM044 reader reads exactly 100; with markers stripped it reads 99) and
+`tests/test_settling_denominator_terminal_writes.sh` (no Python allowlist).
+
+Owed upstream: yes, HR015 `ostler_fda/` (same four files plus tests): andygmassey/HR015-Gaming-PC#1418, linked from #3426.
+Retire this section when it lands and the tree is re-pinned past it.

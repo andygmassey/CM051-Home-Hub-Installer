@@ -31,7 +31,7 @@
 # same thing.
 #
 # WHY THE DIRECT CLI AND NOT THE TRANSCRIPTS FEED. The installer does create
-# ~/Documents/Ostler/Transcripts and the spoken feed is ON by default on a
+# ~/Ostler/Transcripts and the spoken feed is ON by default on a
 # fresh single-user box (install.sh:23186), so dropping a file there looks like
 # the honest route. It is not usable as a WALK step, for four measured reasons:
 #
@@ -982,7 +982,7 @@ fi
 #    not ours to predict; the short id is sha1(id)[:8] and is.
 P=\"\$HOME/.ostler/processing/\$ID\"
 if [ -d \"\$P\" ]; then rm -rf \"\$P\"; printf 'PROCESSING_DIR removed %s\n' \"\$P\"; else printf 'PROCESSING_DIR absent\n'; fi
-C=\"\$HOME/Documents/Ostler/Conversations\"
+C=\"\$HOME/Ostler/Conversations\"
 if [ -f \"\$C/\$ID.md\" ]; then rm -f \"\$C/\$ID.md\"; printf 'CONVERSATION_MD removed %s\n' \"\$C/\$ID.md\"; else printf 'CONVERSATION_MD absent\n'; fi
 if [ ! -d \"\$C\" ]; then
   printf 'BUNDLE_DIRS no Conversations directory\n'

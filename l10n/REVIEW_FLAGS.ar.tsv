@@ -1,2 +1,4 @@
 file	key	state	reason
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	Article 9 consent text: legal review needed; also confirm 'Reset Ostler' and Settings labels match the app.
+install.sh.strings.en-GB.sh	MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS	needs_review	translated in-session when the 16 GB tier moved to qwen3.5:4b; needs human review
+install.sh.strings.ar.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending

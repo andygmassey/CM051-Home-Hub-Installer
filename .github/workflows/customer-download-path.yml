@@ -372,6 +372,10 @@ jobs:
               printf 'failed_probe_names_recorded\t0\n'
               printf 'verdict\tCLEAN\n'
               printf 'qa_exit\t0\n'
+              # The gate refuses CLEAN without cold PROVEN. Without this row the
+              # control record is unpromotable, mutant A passes vacuously (rc=0)
+              # and the currency check reads green having tested nothing.
+              printf 'cold\tPROVEN(synthetic control record)\n'
             } > "$1/$2.tsv"
           }
           A="$(mktemp -d)"; fake "$A" v9.9.99    # newer than anything promoted

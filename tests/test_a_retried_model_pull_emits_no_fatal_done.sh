@@ -82,5 +82,56 @@ else
     echo "FAIL  control, every pull fails: rc=$rc pulls=$calls (want non-zero after 3)"; fails=$((fails+1))
 fi
 
+# Arm 3 (16 GB tier, qwen3.5:4b): the CALL SITE. Lift the real `_pull_rc=0; ollama_pull_with_retry
+# "$AI_MODEL"` .. `esac` block out of install.sh and run it with the real retry wrapper over an
+# always-failing `ollama`. A failed pull must END the install with ERR-13-MODEL-PULL-AI (customer
+# sees "Could not pull ... re-run the installer"), never reach the "ready" ok line, never get as far
+# as the digest gate. Control: a succeeding pull reaches ok + digest gate and never fail_with_code.
+awk '/_pull_rc=0; ollama_pull_with_retry "\$AI_MODEL"/{f=1} f{print} f&&/^        esac$/{exit}' \
+    "$ROOT/install.sh" > "$W/callsite.sh"
+if [ "$(grep -c 'ollama_pull_with_retry' "$W/callsite.sh")" -ne 1 ] || ! grep -q '^        esac$' "$W/callsite.sh"; then
+    echo "CANNOT-RUN: could not lift the pull call site out of install.sh"; exit 2
+fi
+callsite() {   # callsite <fail-count-before-success> -> "ok_calls fail_code digest_calls"
+    local n="$1" d="$W/cs$1"; mkdir -p "$d/bin"
+    cp "$W/run1/bin/mktemp" "$d/bin/mktemp" 2>/dev/null || cp "$W/run99/bin/mktemp" "$d/bin/mktemp"
+    cat > "$d/bin/ollama" <<O
+#!/bin/sh
+c=\$(cat "$d/calls" 2>/dev/null || echo 0); c=\$((c+1)); echo "\$c" > "$d/calls"
+if [ "\$c" -le $n ]; then echo "Error: pull model manifest: connection reset" >&2; exit 1; fi
+printf 'pulling 4e30e2665218: 100%%\n'; exit 0
+O
+    chmod +x "$d/bin/ollama" "$d/bin/mktemp"
+    PATH="$d/bin:/usr/bin:/bin" OLLAMA_APP_BIN="$d/bin/ollama" D="$d" FNS="$W/fns.sh" CS="$W/callsite.sh" bash -c '
+        set -Eeuo pipefail
+        OSTLER_GUI=1
+        gui_emit(){ :; }; gui_log(){ :; }; warn(){ :; }; sleep(){ :; }; info(){ :; }
+        MSG_WARN_OLLAMA_PULL_FAILED_ATTEMPT_3_RETRYING="%s %s %s"
+        MSG_OK_READY="%s"; MSG_FAIL_COULD_NOT_PULL_AFTER_3_ATTEMPTS="%s"
+        ok(){ echo ok >> "$D/oks"; }
+        ostler_require_model_digest(){ echo dg >> "$D/dg"; }
+        fail_with_code(){ echo "$1" > "$D/fail"; exit 1; }
+        . "$FNS"
+        AI_MODEL=qwen3.5:4b
+        . "$CS"
+        echo REACHED > "$D/reached"
+    ' >/dev/null 2>&1 || true
+    echo "$(cat "$d/oks" "$d/none" 2>/dev/null | wc -l | tr -d " ") $(cat "$d/fail" 2>/dev/null || echo none) $(cat "$d/dg" "$d/none" 2>/dev/null | wc -l | tr -d " ") $(cat "$d/reached" 2>/dev/null || echo exited)"
+}
+read -r oks code dg reached <<<"$(callsite 99)"
+# BEHAVIOUR, not text: the install must have exited (never fell through past the block), with an
+# ERR- code, with no ready line and no digest gate.
+if [ "$reached" = exited ] && [[ "$code" == ERR-* ]] && [ "${oks:-0}" = 0 ] && [ "${dg:-0}" = 0 ]; then
+    echo "ok    qwen3.5:4b pull fails 3x: install ends ERR-13-MODEL-PULL-AI, no ready line, no digest gate"
+else
+    echo "FAIL  qwen3.5:4b pull fails 3x: fail_code=$code oks=$oks digest_calls=$dg flow=$reached (want ERR-* 0 0 exited)"; fails=$((fails+1))
+fi
+read -r oks code dg reached <<<"$(callsite 1)"
+if [ "$code" = none ] && [ "$reached" = REACHED ] && [ "${oks:-0}" = 1 ] && [ "${dg:-0}" = 1 ]; then
+    echo "ok    control, one transient failure: ready + digest gate, no fail code"
+else
+    echo "FAIL  control, one transient failure: fail_code=$code oks=$oks digest_calls=$dg (want none 1 1)"; fails=$((fails+1))
+fi
+
 [ "$fails" -eq 0 ] && { echo "PASS: a retried model pull emits no fatal ERR marker"; exit 0; }
 echo "FAIL: $fails arm(s)"; exit 1

@@ -65,7 +65,7 @@ from dashboard_components import (
     render_whatsapp_keepalive,
 )
 # Documents-folder access posture (launch-blocker install UX fix). A
-# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# live write probe against ~/Ostler surfaced as a Doctor tile
 # so a macOS Files-and-Folders denial -- which otherwise fails the wiki
 # and conversation-record writes silently -- is never invisible. Lives
 # in its own vendor-only module (CM051 probes a layout HR015 Doctor has
@@ -76,6 +76,7 @@ from documents_access_posture import render_documents_access_posture
 # graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
 # has no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from derived_preferences_status import render_derived_preferences_status
+from export_status import collect_import_state, render_export_section
 from loopback_guard_status import render_loopback_guard_status
 # People search row (v1.0.126, item h): how many people the people sweep has
 # still to make searchable. Vendor-only; see vendor/VENDOR_ONLY.tsv.
@@ -1622,7 +1623,7 @@ def render_dashboard(
 
     # Documents-folder access posture (launch-blocker install UX fix).
     # NEW-121: Doctor READS ~/.ostler/state/documents_access.tsv, which the
-    # hourly fda-rerun tick writes by probing ~/Documents/Ostler as a child
+    # hourly fda-rerun tick writes by probing ~/Ostler as a child
     # of the signed FDA holder; Doctor itself never touches Documents (a
     # probe from here was a python3.11 Documents request). Ostler's bundled
     # interpreter writes the customer's wiki and conversation records
@@ -1657,6 +1658,11 @@ def render_dashboard(
     whatsapp_keepalive_section = render_whatsapp_keepalive()
 
     source_status_section = render_source_status()
+    # The same store read the age rule used (snapshot.export_imports), so the
+    # page and the findings cannot disagree. Collected only if the snapshot has none.
+    _exports = getattr(snapshot, "export_imports", None)
+    export_section = render_export_section(
+        _exports if _exports is not None else collect_import_state())
     derived_preferences_section = render_derived_preferences_status()
     loopback_guard_section = render_loopback_guard_status()
     people_index_section = render_people_index_status()
@@ -2225,6 +2231,7 @@ def render_dashboard(
 
         {whatsapp_keepalive_section}
         {source_status_section}
+        {export_section}
         {derived_preferences_section}
         {loopback_guard_section}
         {people_index_section}

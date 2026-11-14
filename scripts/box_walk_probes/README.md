@@ -380,7 +380,7 @@ and Ofcom drama-range numbers -- and it sweeps before seeding so a crashed
 earlier run cannot fake a pass. It is the only probe here that is not read-only.
 
 The install log lives under `$HOME/.ostler/`, per `install.sh:962`. It is **not**
-under `$HOME/Documents/Ostler/logs/` — that path was searched twice during the
+under `$HOME/Ostler/logs/` — that path was searched twice during the
 v1.0.31 walk and reported a false absence both times.
 
 ## Compatibility

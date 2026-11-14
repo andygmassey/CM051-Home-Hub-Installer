@@ -29,7 +29,7 @@ _ostler_conv_level() { # <file> -> privacy_level per derive fm_value, or empty
 }
 
 _ostler_conversations_mirror() {
-    local src="${HOME}/Documents/Ostler/Conversations"
+    local src="${HOME}/Ostler/Conversations"
     local dst="${OSTLER_DIR}/state/conversations_mirror"
     [[ -d "$src" ]] || return 0
     if ! command -v rsync >/dev/null 2>&1; then
