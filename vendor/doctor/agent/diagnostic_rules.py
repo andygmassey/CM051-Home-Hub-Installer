@@ -245,10 +245,6 @@ from diagnostic_copy import (
     REDIS_UNREACHABLE_FIX,
     REDIS_UNREACHABLE_FIX_COMMAND_FMT,
     REDIS_UNREACHABLE_TITLE,
-    STALE_IMPORT_DETAIL,
-    STALE_IMPORT_FIX,
-    STALE_IMPORT_FIX_COMMAND,
-    STALE_IMPORT_TITLE_FMT,
     WIKI_CONTAINER_STOPPED_DETAIL_FMT,
     WIKI_CONTAINER_STOPPED_FIX,
     WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT,
@@ -1455,23 +1451,19 @@ def check_memory_pressure(snapshot: Any) -> list[dict]:
 
 
 def check_gdpr_export_age(snapshot: Any) -> list[dict]:
-    """Warn if GDPR exports might be stale."""
-    findings = []
+    """Per-platform export age, from the watcher's high-water store.
 
-    if snapshot.last_import_date and snapshot.current_date:
-        days_since = (snapshot.current_date - snapshot.last_import_date).days
-        if days_since > 90:
-            findings.append({
-                "severity": "info",
-                "title": STALE_IMPORT_TITLE_FMT.format(days=days_since),
-                "detail": STALE_IMPORT_DETAIL,
-                "fix": STALE_IMPORT_FIX,
-                "fix_command": STALE_IMPORT_FIX_COMMAND,
-                "risk": "low",
-                "category": "configuration",
-            })
+    Reads ``snapshot.export_imports`` (collected by status_collector from
+    state/export-scan/high_water.tsv). ``None`` means the store was not
+    collected at all, which is silence by construction, so it is not a finding.
+    An unreadable store is a finding ("couldn't check"), never a clean pass.
+    """
+    import export_status
 
-    return findings
+    state = getattr(snapshot, "export_imports", None)
+    if state is None:
+        return []
+    return export_status.stale_findings(state)
 
 
 def check_docker_resources(snapshot: Any) -> list[dict]:

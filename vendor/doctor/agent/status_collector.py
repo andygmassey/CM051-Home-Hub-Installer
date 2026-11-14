@@ -29,6 +29,8 @@ from typing import Optional
 
 import httpx
 
+import export_status
+
 # ---------------------------------------------------------------------------
 # Configuration – service endpoints (all localhost by default)
 # ---------------------------------------------------------------------------
@@ -313,6 +315,11 @@ class SystemSnapshot:
     # is that the rule fails VISIBLY if it ever raises again.
     last_import_date: datetime | None = None
     current_date: datetime | None = None
+
+    # Per-platform GDPR export state: export_status.read_high_water() output
+    # ({status, marks, error}). Read by check_gdpr_export_age and the "Your data
+    # exports" section. None means not collected.
+    export_imports: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -807,6 +814,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     backfill_checkpoint = collect_backfill_checkpoint()
     ram_total_gb, ram_available_gb = collect_memory()
     hydrate_markers = collect_hydrate_markers()
+    export_imports = export_status.collect_import_state()
 
     return SystemSnapshot(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -825,6 +833,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         hydrate_markers=hydrate_markers,
         ram_total_gb=ram_total_gb,
         ram_available_gb=ram_available_gb,
+        export_imports=export_imports,
     )
 
 

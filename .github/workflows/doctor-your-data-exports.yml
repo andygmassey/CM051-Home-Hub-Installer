@@ -1,0 +1,59 @@
+name: doctor-your-data-exports
+
+# "Your data exports" in the Doctor: one shared platform table, the watcher's
+# high-water store read back by the Doctor, the request links, and the
+# stale-import rule. Three tests, each its own step, so a red step names its axis.
+#
+#   contract   the REAL install.sh high-water functions write the store and the
+#              Doctor reader (export_status.read_high_water) reads it back.
+#   render     the Doctor section and the stale rule, on a LinkedIn import, a
+#              never-imported platform with its link, and an unreadable store.
+#   q11        the table's ids equal the watcher's detector labels, and every
+#              request link is in installer Q11.
+#
+# Exit 2 is CANNOT-RUN and fails the step.
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'lib/ostler-detect-exports.sh'
+      - 'vendor/doctor/agent/export_status.py'
+      - 'vendor/doctor/agent/export_platforms.tsv'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'vendor/doctor/agent/status_collector.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'tests/test_export_status_contract.py'
+      - 'tests/test_doctor_shows_your_data_exports.py'
+      - 'tests/test_export_platforms_match_q11.py'
+      - '.github/workflows/doctor-your-data-exports.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  your-data-exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the test dependency httpx
+        run: python3 -m pip install httpx
+
+      - name: Writer and reader agree on the high-water store (contract)
+        if: always()
+        run: python3 tests/test_export_status_contract.py
+
+      - name: Doctor shows Your data exports, with honest states (render and rule)
+        if: always()
+        run: python3 tests/test_doctor_shows_your_data_exports.py
+
+      - name: Table matches the watcher ids and installer Q11 (drift)
+        if: always()
+        run: python3 tests/test_export_platforms_match_q11.py

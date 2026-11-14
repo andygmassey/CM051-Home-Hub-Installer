@@ -1,0 +1,22 @@
+# export_platforms.tsv: the one table of GDPR/data export platforms.
+# Columns (tab-separated): id, display, request_url, wait_quote, source_url, url_status, date_checked
+# id is the watcher's platform label (lib/ostler-detect-exports.sh SIGS), exactly.
+# wait_quote: the official page's own words for how long the export takes. EMPTY
+# FOR EVERY ROW: no official page was retrieved with its wait wording verbatim, so
+# none is stated. Empty renders as 'Arrives by email when it's ready.'
+# url_status: FETCHED or HELP-FETCHED means the page was read. UNVERIFIED-FETCH
+# means it was not (fetch blocked, title only, or carried from installer Q11).
+# Checked 2026-11-14. Synthetic-free: all entries are public platform URLs.
+id	request_url	wait_quote	source_url	url_status	date_checked	display
+LinkedIn	https://www.linkedin.com/mypreferences/d/download-my-data		https://www.linkedin.com/help/linkedin/answer/a566336	HELP-FETCHED; request URL carried from installer Q11, not fetched	2026-11-14	LinkedIn
+Facebook	https://www.facebook.com/dyi/?referrer=yfi_settings		https://www.facebook.com/help/	UNVERIFIED-FETCH; export article found by search (its id is held out of this table by the PII shape guard), fetch returned its title only	2026-11-14	Facebook
+Instagram	https://accountscenter.instagram.com/info_and_permissions/dyi/		https://accountscenter.instagram.com/info_and_permissions/dyi/	UNVERIFIED-FETCH; carried from installer Q11	2026-11-14	Instagram
+Google	https://takeout.google.com/		https://support.google.com/accounts/answer/3024190	UNVERIFIED-FETCH; help page found by search, not fetched	2026-11-14	Google (Takeout)
+X	https://x.com/settings/download_your_data		https://x.com/settings/download_your_data	UNVERIFIED-FETCH; carried from installer Q11	2026-11-14	X (Twitter)
+Spotify	https://www.spotify.com/account/privacy/		https://www.spotify.com/account/privacy/	UNVERIFIED-FETCH; carried from installer Q11	2026-11-14	Spotify
+Netflix	https://www.netflix.com/account/getmyinfo		https://www.netflix.com/account/getmyinfo	UNVERIFIED-FETCH; carried from installer Q11	2026-11-14	Netflix
+Amazon	https://www.amazon.com/hz/privacy-central/data-requests/preview.html		https://www.amazon.com/hz/privacy-central/data-requests/preview.html	UNVERIFIED-FETCH; carried from installer Q11	2026-11-14	Amazon
+Reddit	https://www.reddit.com/settings/data-request		https://www.reddit.com/settings/data-request	UNVERIFIED-FETCH; fetch blocked, URL from a search for the platform's request page	2026-11-14	Reddit
+TikTok	https://support.tiktok.com/en/account-and-privacy/personalized-ads-and-data/requesting-your-data		https://support.tiktok.com/en/account-and-privacy/personalized-ads-and-data/requesting-your-data	UNVERIFIED-FETCH; help page returned its title only	2026-11-14	TikTok
+Pinterest	https://help.pinterest.com/en/article/download-your-pinterest-data		https://help.pinterest.com/en/article/download-your-pinterest-data	UNVERIFIED-FETCH; help article found by search, not fetched	2026-11-14	Pinterest
+Discord	https://support.discord.com/hc/en-us/articles/360004027692-Requesting-a-Copy-of-your-Data		https://support.discord.com/hc/en-us/articles/360004027692-Requesting-a-Copy-of-your-Data	UNVERIFIED-FETCH; fetch returned 403	2026-11-14	Discord

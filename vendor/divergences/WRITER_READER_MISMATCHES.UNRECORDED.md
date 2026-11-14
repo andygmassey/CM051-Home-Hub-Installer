@@ -1843,3 +1843,16 @@ Regeneration REFUSED, measured 2026-11-11 (dry run): "doctor is marked regenerat
 - `agent/documents_access_posture.py`: VENDOR_ONLY (no upstream file). Route (d) of the gate, not recorded here.
 
 Upstream: andygmassey/HR015-Gaming-PC has `doctor/agent/` at head, but the vendored lines are gone there in part. Upstream leftovers still name `Documents/Ostler` (`diagnostic_rules.py:1373,1374,1393`, `web_ui.py:2370`, `dashboard_components.py:1399`, `status_collector.py`, three test files). No upstream PR. The change is not made upstream yet.
+
+## 2026-11-14: "Your data exports" section, per-platform stale rule, Q11 links (CM051 export-doctor PR), doctor
+
+Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here instead. Stacked on CM051 #3503 (head 33cdee0b).
+
+- `agent/export_status.py`: VENDOR_ONLY (no upstream file). Reads the watcher's `${OSTLER_DIR}/state/export-scan/high_water.tsv`, renders the "Your data exports" section, and produces the stale-import findings.
+- `agent/export_platforms.tsv`: VENDOR_ONLY. The one platform table, shared with installer Q11 and checked by `tests/test_export_platforms_match_q11.py`.
+- `agent/diagnostic_rules.py`: `check_gdpr_export_age` now reads `snapshot.export_imports` through `export_status.stale_findings`. The `STALE_IMPORT_*` imports are removed.
+- `agent/diagnostic_copy.py`: the dev-CLI `STALE_IMPORT_*` copy (which named `ostler-import --exports-dir`) is removed. Its replacement is in `export_status.py`, with the request link.
+- `agent/status_collector.py`: `SystemSnapshot.export_imports` field, set in `collect_full_snapshot` from `export_status.collect_import_state()`. Imports `export_status`.
+- `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
+
+Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).
