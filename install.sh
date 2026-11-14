@@ -31592,6 +31592,22 @@ PIPELINE_SIGNALS_DIR="${OSTLER_DIR}/state"
 PIPELINE_SIGNALS_FILE="${PIPELINE_SIGNALS_DIR}/pipeline_signals.json"
 mkdir -p "$PIPELINE_SIGNALS_DIR" || _mail_probe_failure_line="mkdir state dir"
 
+# Owner's own email addresses (every mail account plus aliases) for the email
+# and reply-debt consumers, stored 0600. Without this, no recurring path had an
+# owner address and owner_wrote was false on every thread. Counts only are
+# printed; the addresses never reach the log. A failure here must not abort the
+# install: the consumers fall back to OSTLER_USER_EMAIL and report "none".
+_OWNER_ADDR_PY="${SCRIPT_DIR}/lib/owner_addresses.py"
+if [[ -f "$_OWNER_ADDR_PY" ]] && _accountsdb_path >/dev/null 2>&1; then
+    if python3 "$_OWNER_ADDR_PY" --db "$(_accountsdb_path)" \
+            --out "${PIPELINE_SIGNALS_DIR}/owner_addresses.json"; then
+        :
+    else
+        dbg "owner addresses: derivation failed; consumers fall back to OSTLER_USER_EMAIL"
+    fi
+fi
+unset _OWNER_ADDR_PY
+
 # ── Doctor first-run flag (B7 belt-and-braces, v1.0.0 LAST-CUT) ──
 #
 # The Doctor first-run wizard is gated on ${OSTLER_DIR}/.setup-complete
