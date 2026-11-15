@@ -108,7 +108,7 @@ grep_n() { grep -c -- "$1" "$2" || true; }
 reset; yaml_before_start; printf '8 16' > "$STUB/vm"
 cp "$HOME/.colima/default/colima.yaml" "$W/yaml.s1"
 out="$(run_block)"
-if [ "$(grep_n -- '--cpu' "$STUB/calls")" = 0 ] && grep -q '^colima start$' "$STUB/calls"; then ok "S1 customer VM: colima start is run with NO size flags"
+if [ "$(grep_n '--cpu' "$STUB/calls")" = 0 ] && grep -q '^colima start$' "$STUB/calls"; then ok "S1 customer VM: colima start is run with NO size flags"
 else bad "S1 customer VM: start carried size flags: $(cat "$STUB/calls")"; fi
 [ "$(cat "$STUB/vm")" = "8 16" ] && ok "S1 customer VM: still 8 CPU / 16 GiB after the installer's start" || bad "S1 customer VM was resized to $(cat "$STUB/vm")"
 cmp -s "$W/yaml.s1" "$HOME/.colima/default/colima.yaml" && ok "S1 customer VM: colima.yaml byte-identical" || bad "S1 customer VM: colima.yaml rewritten"
