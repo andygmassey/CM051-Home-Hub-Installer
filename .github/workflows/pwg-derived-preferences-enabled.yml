@@ -9,12 +9,14 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_pwg_derived_preferences_enabled.sh'
+      - 'tests/test_morning_brief_prompt_roundtrip.sh'
       - '.github/workflows/pwg-derived-preferences-enabled.yml'
   push:
     branches: [main]
     paths:
       - 'install.sh'
       - 'tests/test_pwg_derived_preferences_enabled.sh'
+      - 'tests/test_morning_brief_prompt_roundtrip.sh'
       - '.github/workflows/pwg-derived-preferences-enabled.yml'
 
 permissions:
@@ -29,6 +31,9 @@ jobs:
       - name: the shipped helper flips the reader on, on all three config shapes
         run: /bin/bash tests/test_pwg_derived_preferences_enabled.sh
 
+      - name: the morning brief prompt round-trips through a real TOML parser and carries the preference rules
+        run: /bin/bash tests/test_morning_brief_prompt_roundtrip.sh
+
       - name: the gate itself parses
         if: always()
-        run: /bin/bash -n tests/test_pwg_derived_preferences_enabled.sh
+        run: /bin/bash -n tests/test_pwg_derived_preferences_enabled.sh && /bin/bash -n tests/test_morning_brief_prompt_roundtrip.sh
