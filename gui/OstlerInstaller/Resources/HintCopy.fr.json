@@ -47,6 +47,7 @@
     "why": "Ostler exécute ses bases de données (Qdrant, Oxigraph, Redis) et son wiki dans Docker. Ollama et le binaire de l'assistant s'exécutent nativement – Docker ne sert que de couche de données.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "Ollama exécute des modèles de langage sur la puce Apple Silicon de votre Mac. Chaque requête à laquelle votre assistant répond, chaque résumé du wiki, passe par là. Rien ne quitte la machine.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "Lecture des bases de données de votre Mac",
-    "subtitle": "L'étape de prise en main instantanée",
+    "subtitle": "The quick first look",
     "why": "macOS n'autorise aucune app à lire vos messages, e-mails, notes, calendriers ou photos sans votre accord explicite. Nous avons besoin de cette unique autorisation pour qu'Ostler puisse tout rassembler dans votre graphe de connaissances. Tout reste sur ce Mac – rien n'est envoyé ailleurs. Vous l'accorderez une seule fois dans Réglages Système, et macOS s'en souviendra ensuite.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "Trois petites bases de données démarrent : des vecteurs pour la recherche sémantique, des triplets RDF pour les relations, Redis pour le bus de messages. Tout est local, tout est à vous.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane est l'interface locale de recherche web. Il s'exécute dans un conteneur sur votre Mac et communique avec votre Ollama local : les recherches web ne quittent jamais votre machine. Si le conteneur ne démarre pas, le reste d'Ostler continue de fonctionner ; vous pourrez réessayer la recherche web plus tard.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "Le premier téléchargement représente environ 3,6 Go (SearXNG inclus). Les démarrages suivants prennent quelques secondes.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "Première importation : contacts, conversations, événements de calendrier, historique Safari. Le compilateur de wiki s'exécute ensuite et transforme le graphe en pages lisibles.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "La durée d'importation dépend de votre historique. Des années de données iMessage peuvent demander 10 à 20 minutes.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "Configuration des transcriptions d'appels et de réunions",
-    "subtitle": "La transcription reste toujours votre choix",
-    "why": "Cela installe l'app qui peut transcrire vos appels et vos réunions sur ce Mac. Elle ne transcrit rien tant que vous ne la lancez pas explicitement, et la transcription se fait en local.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

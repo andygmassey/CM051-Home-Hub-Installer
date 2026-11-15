@@ -65,9 +65,9 @@ install.sh.strings.en-GB.sh	MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS	needs_revi
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	GDPR Article 9 consent text; translation is accurate but legal force should be checked by a lawyer. Also confirm the menu item label 「Ostlerをリセット」 matches the localized menu.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; Japanese word order may not fit the concatenated sentence. A human should check the assembled string.
+install.sh.strings.ja.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-install.sh.strings.ja.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending

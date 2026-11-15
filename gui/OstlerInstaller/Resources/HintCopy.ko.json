@@ -47,6 +47,7 @@
     "why": "Ostler는 데이터베이스(Qdrant, Oxigraph, Redis)와 위키를 Docker에서 실행합니다. Ollama와 어시스턴트 바이너리는 기본 환경에서 실행되며, Docker는 데이터 계층에만 사용됩니다.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "Ollama는 Mac의 Apple Silicon에서 언어 모델을 실행합니다. 어시스턴트가 답하는 모든 프롬프트와 모든 위키 요약이 이를 통해 처리됩니다. 어떤 것도 이 Mac 밖으로 나가지 않습니다.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "Mac의 데이터베이스 읽는 중",
-    "subtitle": "즉시 사용할 수 있게 해 주는 온보딩 단계",
+    "subtitle": "The quick first look",
     "why": "macOS는 사용자의 명시적인 허용 없이는 어떤 앱도 메시지, 메일, 메모, 캘린더, 사진을 읽지 못하게 합니다. Ostler가 이 모든 것을 지식 그래프로 모으려면 이 권한 하나가 필요합니다. 모든 데이터는 이 Mac에 남아 있으며 어디로도 전송되지 않습니다. 시스템 설정에서 한 번만 허용하면 이후에는 macOS가 기억합니다.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "작은 데이터베이스 세 개가 시작됩니다. 의미 검색용 벡터, 관계용 RDF 트리플, 메시지 버스용 Redis입니다. 모두 로컬에 있으며 모두 사용자의 것입니다.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane은 로컬 웹 검색 프런트엔드입니다. Mac의 컨테이너에서 실행되며 로컬 Ollama와 통신하므로 웹 검색 내용이 사용자의 기기 밖으로 나가지 않습니다. 컨테이너를 시작하지 못해도 Ostler의 나머지 기능은 계속 작동하며, 웹 검색은 나중에 다시 시도할 수 있습니다.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "처음 내려받을 때는 약 3.6GB입니다(SearXNG 포함). 이후에는 몇 초 만에 시작됩니다.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "1차 가져오기: 연락처, 대화, 캘린더 일정, Safari 방문 기록. 이후 위키 컴파일러가 실행되어 그래프를 읽을 수 있는 페이지로 만듭니다.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "가져오는 시간은 기록의 양에 따라 달라집니다. 수년간의 iMessage 데이터는 10~20분 걸릴 수 있습니다.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "통화 및 회의 전사 설정 중",
-    "subtitle": "전사는 언제나 사용자의 선택입니다",
-    "why": "이 Mac에서 통화와 회의를 전사할 수 있는 앱을 설치합니다. 사용자가 직접 시작하기 전에는 아무것도 전사하지 않으며, 전사는 로컬에서 처리됩니다.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

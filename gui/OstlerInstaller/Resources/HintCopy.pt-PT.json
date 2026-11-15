@@ -47,6 +47,7 @@
     "why": "O Ostler executa as suas bases de dados (Qdrant, Oxigraph, Redis) e a wiki no Docker. O Ollama e o binário do assistente funcionam de forma nativa – o Docker é apenas a camada de dados.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "O Ollama executa modelos de linguagem no Apple Silicon do seu Mac. Cada pedido a que o seu assistente responde, cada resumo da wiki, passa por aqui. Nada sai do computador.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "A ler as bases de dados do seu Mac",
-    "subtitle": "A parte instantânea da integração",
+    "subtitle": "The quick first look",
     "why": "O macOS não deixa nenhuma app ler as suas mensagens, o correio, as notas, os calendários ou as fotografias sem a sua autorização expressa. Precisamos dessa permissão para que o Ostler possa reunir tudo no seu grafo de conhecimento. Tudo fica neste Mac – nada é enviado para lado nenhum. Concede-a uma vez nas Definições do Sistema e o macOS lembra-se a partir daí.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "Arrancam três pequenas bases de dados: vetores para a pesquisa semântica, triplos RDF para as relações e Redis para o barramento de mensagens. Tudo local, tudo seu.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "O Vane é a interface local de pesquisa na Internet. Funciona num contentor no seu Mac e comunica com o seu Ollama local – as pesquisas na Internet nunca saem da sua máquina. Se o contentor não arrancar, o resto do Ostler continua a funcionar; pode tentar novamente a pesquisa na Internet mais tarde.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "A primeira transferência é de cerca de 3,6 GB (com o SearXNG incluído). Os arranques seguintes demoram segundos.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "Primeira importação: contactos, conversas, eventos do calendário, histórico do Safari. O compilador da wiki é executado depois, transformando o grafo em páginas que pode ler.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "O tempo de importação depende do seu histórico. Anos de dados do iMessage podem demorar 10-20 minutos.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "A configurar as transcrições de chamadas e reuniões",
-    "subtitle": "A transcrição é sempre decisão sua",
-    "why": "Instala a aplicação que pode transcrever as suas chamadas e reuniões neste Mac. Não transcreve nada até que a inicie explicitamente, e a transcrição é feita localmente.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,
