@@ -187,30 +187,42 @@ try:
         check("%s -> %s" % (label, want), got == want, "got %s" % got)
     rem.extract_reminders = real
 
-    print("== D. Apple Music: ok-with-nothing-read is not ok ==")
+    print("== D. Apple Music: refused/empty is ok with 0 tracks (#3040); only a raise is a failure ==")
     import ostler_fda.apple_music as am
     real_lib = am.extract_library
     real_prev = am.previous_export_track_count
     am.previous_export_track_count = lambda *_a, **_k: 0
     fake_track = am.Track(track_id="1", name="Synthetic Song", artist="Synthetic Artist", album=None, genre=None, play_count=1, last_played=None, rating=None, loved=False)
-    for label, lib, want in [
-        ("0 tracks, reader none, native unavailable -> media_library_not_granted",
-         am.MusicLibrary(reader="none", native_status="unavailable"), "media_library_not_granted"),
-        ("0 tracks, native empty (framework answered) -> not_found",
-         am.MusicLibrary(reader="none", native_status="empty"), "not_found"),
-        ("0 tracks, no helper tried -> not_found",
-         am.MusicLibrary(reader="none", native_status="not_tried"), "not_found"),
-        ("CONTROL 1 track read natively -> ok",
-         am.MusicLibrary(tracks=[fake_track], reader="native", native_status="ok"), "ok"),
+    for label, lib, want_reason in [
+        ("0 tracks, native unavailable -> ok, 0, permission not granted",
+         am.MusicLibrary(reader="none", native_status="unavailable"), "permission not granted"),
+        ("0 tracks, native empty (framework answered) -> ok, 0, library empty",
+         am.MusicLibrary(reader="none", native_status="empty"), "library empty"),
+        ("0 tracks, no helper tried -> ok, 0, library empty",
+         am.MusicLibrary(reader="none", native_status="not_tried"), "library empty"),
+        ("CONTROL 1 track read natively -> ok, 1, no reason",
+         am.MusicLibrary(tracks=[fake_track], reader="native", native_status="ok"), None),
     ]:
         am.extract_library = lambda *a, _l=lib, **k: _l
         out = tmp / ("music-" + str(abs(hash(label))))
         try:
             summary = ea.run_all(output_dir=out, enabled_sources={"apple_music"})
-            got = summary["sources"]["apple_music"]["status"]
+            rec = summary["sources"]["apple_music"]
+            got = (rec["status"], rec["total_tracks"], rec.get("reason"))
         except Exception as e3:  # noqa: BLE001
             got = "raised %r" % e3
-        check(label, got == want, "got %s" % got)
+        want = ("ok", 0 if want_reason else 1, want_reason)
+        check(label, got == want, "got %s" % (got,))
+
+    def music_boom(*a, **k):
+        raise ValueError("synthetic reader bug")
+    am.extract_library = music_boom
+    out = tmp / "music-real-error"
+    try:
+        got = ea.run_all(output_dir=out, enabled_sources={"apple_music"})["sources"]["apple_music"]["status"]
+    except Exception as e4:  # noqa: BLE001
+        got = "raised %r" % e4
+    check("a real reader error stays a failure (error)", got == "error", "got %s" % got)
     am.extract_library = real_lib
     am.previous_export_track_count = real_prev
 finally:

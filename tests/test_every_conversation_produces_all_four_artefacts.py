@@ -3,7 +3,7 @@
 
 THE LOCKED RULE (CLAUDE.md, 2026-05-09): every human conversation produces
 summary.md, todos.md, transcript.md and frontmatter metadata, together under
-~/Documents/Ostler/Conversations/<date>/<slug>-<id>/. "Transcript without
+~/Ostler/Conversations/<date>/<slug>-<id>/. "Transcript without
 summary or summary without todos is a fail."
 
 WHAT WAS MEASURED, 2026-09-16, and why this file exists.

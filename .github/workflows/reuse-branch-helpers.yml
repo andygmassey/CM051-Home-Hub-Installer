@@ -1,0 +1,40 @@
+name: reuse-branch-helpers
+
+# A function called from the reuse-settings branch (SKIP_PHASE2 == true) must not
+# be defined only inside the SKIP_PHASE2 == false question block. Otherwise every
+# reinstall that keeps previous answers aborts "command not found" (ERR-99).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  helpers-defined-on-reuse:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Generic guard + targeted reuse-path resolution + a mutant that moves the
+      # definition back inside the block and must go red.
+      - name: no function called outside the question block is defined only inside it
+        run: /bin/bash tests/test_reuse_branch_helpers_are_defined.sh
+
+      - name: audit lists the block's functions and call sites
+        if: always()
+        run: /bin/bash scripts/audit_skip_phase2_functions.sh
+
+      - name: scripts parse under the box's own shell
+        if: always()
+        run: |
+          /bin/bash -n install.sh
+          /bin/bash -n scripts/audit_skip_phase2_functions.sh
+          /bin/bash -n tests/test_reuse_branch_helpers_are_defined.sh

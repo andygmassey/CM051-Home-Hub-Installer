@@ -27,11 +27,24 @@ on:
       - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'tests/test_cm048_bulk_mail_no_commitment_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'tests/test_cm048_window_drift.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -41,7 +54,14 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
+      - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
@@ -73,11 +93,24 @@ on:
       - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'tests/test_cm048_bulk_mail_no_commitment_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'tests/test_cm048_window_drift.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -87,7 +120,14 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
+      - 'vendor/cm048_pipeline/src/processor.py'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'vendor/imessage_source/threader.py'
@@ -169,6 +209,46 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_has_no_iso_date.py -v
+      - name: A reminder needs a specific title, a human notes line and a fresh source
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_quality_gate.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_quality_gate.py -v
+      - name: A scammer's instruction is never a todo, and a reply debt is listed only when owed (CM048 #110, #111)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 19 ]; then
+            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py -v
+      - name: Bulk, marketing and automated mail is never the owner's commitment (CM048 #115)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_bulk_mail_no_commitment_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_bulk_mail_no_commitment_vendored.py -v
+      - name: A valid todo is never dropped for length (cut at a word boundary, full text in notes)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_long_title_not_dropped.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 30 ]; then
+            echo "REFUSING: expected at least 30 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_long_title_not_dropped.py -v
       - name: A redacted reminder title never carries a raw messaging handle
         if: always()
         run: |
@@ -189,6 +269,58 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
+      - name: An updated conversation keeps its reminder (supersede before the duplicate_thread gate)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py -v
+      - name: The stale-bundle sweep cannot hang pwg-convo (CM048 #99 re-pin, v1.0.112)
+        if: always()
+        run: |
+          python -m pip install --quiet pyoxigraph
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py tests/cm048_vendored_sweep/test_update_reprocess.py -v
+      - name: L3 todos never reach the brief or the commitments API even with the writer guards off
+        if: always()
+        run: |
+          python -m pip install --quiet pyoxigraph
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py -v
+      - name: Topics are written only for a known non-L3 privacy level, in both layers (CM048 #109)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py -v
+      - name: A group chat's follow-up key counts every member, silent ones too (v1.0.122)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_group_followup_key_counts_silent_members.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_group_followup_key_counts_silent_members.py -v
       - name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
         if: always()
         run: |
@@ -239,6 +371,26 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_people_rules_is_stdlib_only.py -v
+      - name: A short code is up to 8 digits with no country code; a 9+ digit or "+" number is a person (P13)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_people_rules_short_codes_up_to_8_digits.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_short_codes_up_to_8_digits.py -v
+      - name: A bare digit run over 15 digits is an id, never a person's name (walk v1.0.122)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_people_rules_overlong_digit_id.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_overlong_digit_id.py -v
       - name: A carded name always shows, and the name ladder holds in list, search, stale, recent and birthdays
         if: always()
         run: PYTHONPATH=vendor python tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
@@ -292,3 +444,26 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_ios_unnamed_speaker_reaches_naming.py -v
+      - name: An undated conversation bundle is never pushed to Apple Reminders
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_undated_bundle_not_pushed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_undated_bundle_not_pushed.py -v
+      - name: The vendored window rule agrees with CM048 main over a shared table
+        if: always()
+        run: |
+          # A plain script, not a pytest module: pytest collects 0 from it, so the
+          # vacuity guard counts the script's own numbered checks instead.
+          rc=0; out="$(python tests/test_cm048_window_drift.py)" || rc=$?
+          printf '%s\n' "$out"
+          n="$(printf '%s\n' "$out" | grep -cE '^\s*(PASS|ok|FAIL)\b|^\s*[0-9]+ ' || true)"
+          echo "ran ${n} check line(s), rc=${rc}"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected at least 4 check lines, got ${n:-0}" >&2; exit 1; }
+          printf '%s\n' "$out" | grep -qF 'All window-rule drift checks passed.' \
+            || { echo "REFUSING: the drift script did not report its success line" >&2; exit 1; }

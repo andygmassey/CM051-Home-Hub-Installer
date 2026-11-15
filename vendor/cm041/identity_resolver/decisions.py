@@ -75,6 +75,72 @@ def load_duplicate_decisions(corrections_dir: str) -> Dict[str, Any]:
     return {"merge_groups": merge_groups, "distinct_pairs": distinct_pairs}
 
 
+# Strict, cached load for the two MERGE paths (batch execute() and the ingest
+# collapse in resolver.py). Keyed by (path, mtime_ns, size): ingest resolves
+# thousands of identities per run, so the file is parsed once per change, not
+# once per match.
+_STRICT_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+
+
+def load_duplicate_decisions_strict(corrections_dir: str) -> Dict[str, Any]:
+    """Like load_duplicate_decisions, but FAILS CLOSED for callers that merge.
+
+    A duplicates.yaml that EXISTS but cannot be read or parsed yields
+    ``{"unreadable": True, ...}`` instead of empty decisions, so a merge path
+    refuses every merge this round rather than re-joining pairs the owner
+    separated. One warning line per distinct file state (the result is
+    cached). A missing file is no decisions, not an error.
+    apply_user_decisions keeps the best-effort loader above.
+    """
+    empty: Dict[str, Any] = {"merge_groups": [], "distinct_pairs": set(),
+                             "unreadable": False}
+    if not corrections_dir:
+        return empty
+    path = os.path.join(corrections_dir, "duplicates.yaml")
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return empty
+    except OSError as e:
+        logger.warning(
+            "duplicates.yaml at %s cannot be examined (%s); refusing merges "
+            "this round", path, type(e).__name__)
+        return {**empty, "unreadable": True}
+    key = (path, st.st_mtime_ns, st.st_size)
+    hit = _STRICT_CACHE.get(key)
+    if hit is not None:
+        return hit
+    unreadable = False
+    try:
+        import yaml
+        with open(path, "r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        if data is None:
+            data = {}
+        if not isinstance(data, dict) or not isinstance(
+                data.get("decisions", []) or [], list):
+            unreadable = True
+    except Exception:  # noqa: BLE001 - any failure to read is fail-closed
+        unreadable = True
+    if unreadable:
+        logger.warning(
+            "duplicates.yaml at %s is present but unreadable; refusing merges "
+            "this round so no pair the owner separated is re-joined", path)
+        result = {**empty, "unreadable": True}
+    else:
+        loaded = load_duplicate_decisions(corrections_dir)
+        result = {**loaded, "unreadable": False}
+    _STRICT_CACHE.clear()          # one live entry: the current file state
+    _STRICT_CACHE[key] = result
+    return result
+
+
+def blocks_merge(uri_a: str, uri_b: str, decisions: Dict[str, Any]) -> bool:
+    """For merge paths: True when the pair is recorded distinct OR the
+    decisions file could not be read (fail closed)."""
+    return bool(decisions.get("unreadable")) or is_blocked(uri_a, uri_b, decisions)
+
+
 def is_blocked(uri_a: str, uri_b: str, decisions: Dict[str, Any]) -> bool:
     """True if the operator marked this pair ``distinct`` (never merge)."""
     pair = frozenset((short_id(uri_a), short_id(uri_b)))

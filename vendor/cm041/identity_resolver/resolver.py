@@ -11,7 +11,13 @@ import httpx
 
 from contact_syncer.relationship_labels import is_relationship_label
 
-from .canonical_name import choose_canonical_display_name, prefer_real_given_name, upward_name
+from .canonical_name import (
+    NAME_TIER_HUMAN,
+    choose_canonical_display_name,
+    name_tier,
+    prefer_real_given_name,
+    upward_name,
+)
 from .compartment import (
     UserCompartment,
     assert_default_graph_isolated,
@@ -24,7 +30,8 @@ from .normalise import _jaro_winkler, normalise_email, normalise_phone
 
 logger = logging.getLogger(__name__)
 
-from . import forget_tombstone, retirement
+from . import forget_tombstone, merge_journal, retirement
+from .decisions import blocks_merge, load_duplicate_decisions_strict
 from .person_audit import record_person_removal
 
 PWG = "https://schema.ostler.ai/ontology#"
@@ -45,8 +52,23 @@ class IdentityResolver:
         default_country_code: Optional[int] = None,
         timeout: float = 30.0,
         compartment: Optional[UserCompartment] = None,
+        qdrant_url: Optional[str] = None,
+        merge_journal_dir: Optional[str] = None,
     ):
         self.oxigraph_url = oxigraph_url.rstrip("/")
+        # The vector half of an ingest-time merge (merge_persons). The same
+        # QDRANT_URL default _sync_qdrant_display_name already uses; an empty
+        # string means "this deployment has no vector store".
+        self.qdrant_url = (
+            qdrant_url if qdrant_url is not None
+            else os.environ.get("QDRANT_URL", "http://localhost:6333")
+        )
+        # Where merge_persons journals each merge so undo can restore it.
+        # Default: the converge pass's own journal (merge_journal.py).
+        self.merge_journal_dir = (
+            merge_journal_dir if merge_journal_dir is not None
+            else merge_journal.default_journal_dir()
+        )
         self.default_country_code = default_country_code
         # Multiuser groundwork: every resolver is bound to exactly one
         # user compartment. Default = the primary compartment, which maps
@@ -63,6 +85,11 @@ class IdentityResolver:
         # by the import loop, and is counted here so a degraded import can
         # never silently pass for a clean one. See log_resolution_summary().
         self.stats: dict[str, int] = {"total": 0, "degraded": 0}
+        # merge_persons: pairs NOT merged because the pre-merge snapshot could
+        # not be taken, and merges whose loser vector could not be deleted
+        # (the upgrade repair, repair_merge_consistency, sweeps those).
+        self.merge_stats: dict[str, int] = {
+            "skipped_no_snapshot": 0, "vector_unreconciled": 0}
         # CX-126 (#660): in-memory fuzzy-candidate index. _fuzzy_match used to
         # re-run an unbounded "SELECT all persons" against Oxigraph for EVERY
         # contact -> O(n^2). On a real LinkedIn export (3,810 connections) that
@@ -209,15 +236,25 @@ class IdentityResolver:
         # later batch pass might catch. We honour RULE 1 here: a shared exact
         # identifier (E.164 phone / normalised email / iCloud UID / etc.) always
         # merges, ignoring names and source. No fuzzy logic in this tier.
+        #
+        # EVERY live holder of each identifier, not the first one. The lookup
+        # used to be LIMIT 1 with no ORDER BY, so when one human had several
+        # nodes on the same email (v1.0.120 walk, Mini16: 8 live nodes, one
+        # person, two Contacts cards) the single binding returned was often
+        # a node the RULE 2 check below rightly declines -- the other card's
+        # node -- and the holders that WOULD have passed were never looked at.
+        # The pile then never shrank. Each holder still goes through
+        # _identifier_match_trustworthy on its own, so nothing that check
+        # refuses can enter found_uris, and the collapse below still vetoes
+        # per pair on canonical keys.
         found_uris: dict[str, tuple[str, str]] = {}
         for id_type, id_value in self._iter_identifiers(identity):
-            uri = self.find_by_identifier(id_type, id_value)
-            if (
-                uri
-                and uri not in found_uris
-                and self._identifier_match_trustworthy(id_type, uri, identity)
-            ):
-                found_uris[uri] = (id_type, id_value)
+            for uri in self.find_all_by_identifier(id_type, id_value):
+                if (
+                    uri not in found_uris
+                    and self._identifier_match_trustworthy(id_type, uri, identity)
+                ):
+                    found_uris[uri] = (id_type, id_value)
 
         if len(found_uris) == 1:
             uri = next(iter(found_uris))
@@ -266,7 +303,29 @@ class IdentityResolver:
                 keep_uri = uris[0]
                 merged = 0
                 refused = 0
+                # "No, different people" (#2876 / the wiki's "Not the same",
+                # duplicates.yaml `distinct`): the owner has said these are
+                # two people, so the shared identifier does not join them.
+                # RULE 2 below only refuses pairs whose card uids DIFFER; a
+                # pair without differing uids reached merge_persons() with the
+                # decision unread and was silently re-joined at every sync.
+                # Same file and default the batch resolver reads. STRICT and
+                # cached by (path, mtime): an unparseable file refuses the
+                # merge (fail closed), and the file is parsed once per change,
+                # not once per ingested identity.
+                decisions = load_duplicate_decisions_strict(os.path.expanduser(
+                    os.environ.get("WIKI_CORRECTIONS_DIR", "~/.ostler/corrections")))
                 for discard_uri in uris[1:]:
+                    if blocks_merge(keep_uri, discard_uri, decisions):
+                        refused += 1
+                        logger.info(
+                            "Not merging %s into %s: %s",
+                            discard_uri, keep_uri,
+                            "the decisions file is unreadable"
+                            if decisions.get("unreadable")
+                            else "recorded as different people",
+                        )
+                        continue
                     # RULE 2 veto, applied per PAIR. Checked before every
                     # merge_persons() call, because the conflict can sit on a
                     # different identifier from the one that produced the match.
@@ -284,11 +343,12 @@ class IdentityResolver:
                             discard_uri, keep_uri, conflict,
                         )
                         continue
-                    self.merge_persons(keep_uri, discard_uri)
-                    merged += 1
+                    if self.merge_persons(keep_uri, discard_uri):
+                        merged += 1
                 logger.info(
                     "Ingest-time merge: collapsed %d of %d nodes sharing exact "
-                    "identifiers into %s (%d refused by RULE 2)",
+                    "identifiers into %s (%d refused by RULE 2 or a "
+                    "different-people decision)",
                     merged, len(uris) - 1, keep_uri, refused,
                 )
                 return MatchResult(
@@ -299,7 +359,8 @@ class IdentityResolver:
                         f"Merged {merged + 1} of {len(uris)} nodes sharing "
                         f"exact identifiers into {keep_uri}"
                         + (f"; {refused} refused by RULE 2 (different "
-                           f"canonical keys)" if refused else "")
+                           f"canonical keys) or a different-people decision"
+                           if refused else "")
                     ),
                 )
             # Read-only mode: surface the conflict without mutating the graph.
@@ -546,7 +607,78 @@ class IdentityResolver:
             )
             self._sparql_update(sparql)
 
-    def merge_persons(self, keep_uri: str, discard_uri: str) -> None:
+    def merge_persons(self, keep_uri: str, discard_uri: str) -> bool:
+        """Fold ``discard_uri`` into ``keep_uri`` in the graph AND the vector
+        store. Returns False when the merge was not made (no snapshot, no
+        merge); True when it was.
+
+        v1.0.121: this path used to be graph-only. The loser kept its
+        ``people`` point, so a search for the merged-away name returned a
+        retired URI (86 such points on the v1.0.120 box; the batch path's 670
+        journalled merges left none). It now journals a restorable snapshot
+        of both nodes and both vectors BEFORE the first write, exactly as the
+        batch converge does (merge_journal.record_merge), and deletes the
+        loser's points after the graph merge. ``batch_resolver --undo-merge``
+        and the Hub's Split restore it from that journal.
+        """
+        merge_id = ""
+        # getattr: a few callers build the resolver without __init__.
+        jdir = getattr(self, "merge_journal_dir", None)
+        qdrant_url = getattr(self, "qdrant_url", "")
+        mstats = self.__dict__.setdefault(
+            "merge_stats", {"skipped_no_snapshot": 0, "vector_unreconciled": 0})
+        comp = getattr(self, "compartment", None)
+        journalled = bool(jdir) and (comp is None or comp.is_primary)
+        collection = comp.qdrant_collection("people") if comp else "people"
+        if journalled:
+            try:
+                merge_id = merge_journal.record_merge(
+                    self.oxigraph_url, self._client, jdir,
+                    keep_uri, discard_uri,
+                    strategy="ingest_exact_identifier", confidence=1.0,
+                    details="identifier values withheld from the journal",
+                    qdrant_url=qdrant_url, qdrant_collection=collection,
+                )
+            except merge_journal.SnapshotUnavailable:
+                mstats["skipped_no_snapshot"] += 1
+                logger.warning(
+                    "SKIPPING ingest-time merge %s -> %s: qdrant_unavailable, "
+                    "so no vector snapshot can be taken. No snapshot, no merge; "
+                    "the converge pass retries it.", discard_uri, keep_uri)
+                try:
+                    merge_journal.record_skip(
+                        jdir, keep_uri, discard_uri,
+                        "qdrant_unavailable")
+                except OSError:
+                    pass
+                return False
+            except (OSError, httpx.HTTPError) as exc:
+                mstats["skipped_no_snapshot"] += 1
+                logger.warning(
+                    "SKIPPING ingest-time merge %s -> %s: the pre-merge "
+                    "snapshot could not be written (%s). No snapshot, no merge.",
+                    discard_uri, keep_uri, type(exc).__name__)
+                return False
+        else:
+            logger.warning(
+                "Ingest-time merge %s -> %s is NOT journalled (no merge journal "
+                "directory, or a secondary compartment): it cannot be undone.",
+                discard_uri, keep_uri)
+        self._merge_graph(keep_uri, discard_uri)
+        if qdrant_url:
+            try:
+                merge_journal.delete_person_points(
+                    qdrant_url, collection, discard_uri)
+            except Exception as exc:  # noqa: BLE001
+                mstats["vector_unreconciled"] += 1
+                logger.warning(
+                    "UNRECONCILED MERGE %s -> %s (journal %s): graph merged, "
+                    "loser vector NOT deleted (%s). The upgrade repair "
+                    "(repair_merge_consistency) sweeps it.",
+                    discard_uri, keep_uri, merge_id, type(exc).__name__)
+        return True
+
+    def _merge_graph(self, keep_uri: str, discard_uri: str) -> None:
         now = datetime.now(timezone.utc).isoformat()
 
         # 1. Move identifiers
@@ -847,6 +979,31 @@ class IdentityResolver:
             return None
         return self.follow_merge_chain(bindings[0]["person"]["value"])
 
+    def find_all_by_identifier(self, id_type: str, id_value: str) -> List[str]:
+        """Every LIVE person holding this identifier, each followed through its
+        merge tombstones, de-duplicated, in a stable order.
+
+        ``find_by_identifier`` answers "one holder" (LIMIT 1, arbitrary when
+        several hold it). Tier 1 of ``_resolve_tiers`` needs all of them: a
+        holder its RULE 2 check declines must not hide a holder it would
+        accept. Same query shape, same tombstone follow, no LIMIT.
+        """
+        sparql = (
+            f"SELECT DISTINCT ?person WHERE {{ "
+            f"  ?person <{PWG}hasIdentifier> ?id . "
+            f'  ?id <{PWG}identifierType> "{id_type}" ; '
+            f'      <{PWG}identifierValue> "{_escape(id_value)}" . '
+            f"}} ORDER BY ?person"
+        )
+        results = self._sparql_query(sparql)
+        bindings = results.get("results", {}).get("bindings", [])
+        out: List[str] = []
+        for b in bindings:
+            live = self.follow_merge_chain(b["person"]["value"])
+            if live not in out:
+                out.append(live)
+        return out
+
     def follow_merge_chain(self, person_uri: str, max_hops: int = 16) -> str:
         """Follow pwg:mergedInto to the surviving node. Returns the terminus.
 
@@ -998,16 +1155,23 @@ class IdentityResolver:
     def _normalise_name(name: Optional[str]) -> str:
         return " ".join((name or "").strip().lower().split())
 
-    def _person_display_name(self, person_uri: str) -> Optional[str]:
+    def _person_display_names(self, person_uri: str) -> List[str]:
+        """EVERY displayName on the node. A node can carry several (a phone-shaped
+        one and a human one); an unordered LIMIT 1 picked between them by store
+        order, so the verdict on the node changed with the ordering."""
         sparql = (
-            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }} "
-            f"LIMIT 1"
+            f"SELECT ?name WHERE {{ <{person_uri}> <{PWG}displayName> ?name }}"
         )
         results = self._sparql_query(sparql)
         bindings = results.get("results", {}).get("bindings", [])
-        if bindings:
-            return bindings[0]["name"]["value"]
-        return None
+        return [b["name"]["value"] for b in bindings if "name" in b]
+
+    def _person_display_name(self, person_uri: str) -> Optional[str]:
+        names = self._person_display_names(person_uri)
+        human = sorted(n for n in names if name_tier(n) >= NAME_TIER_HUMAN)
+        if human:
+            return human[0]
+        return sorted(names)[0] if names else None
 
     def _identifier_match_trustworthy(
         self, id_type: str, matched_uri: str, identity: PersonIdentity
@@ -1043,13 +1207,31 @@ class IdentityResolver:
 
         if id_type not in self._SHAREABLE_ID_TYPES:
             return True
+        existing_names = self._person_display_names(matched_uri)
+        # CM051 #2545: when NEITHER side carries a human name (both blank, or a
+        # phone / email / system alias standing in for one) there is no name to
+        # disagree about, and the shared number or address is the only identity
+        # either record has. Declining here minted a second person for every
+        # such pair, which the People list shows as two "Unknown contact" rows
+        # on one number. The node counts as nameless only if NONE of its
+        # displayName values is a human name (a node can hold several). RULE 2
+        # has already run above, so two different Contacts cards still never
+        # merge. A human name on EITHER side keeps the name-agreement rule
+        # below, which compares human names only: a phone-shaped value on both
+        # sides is not agreement.
+        if (
+            name_tier(identity.display_name) < NAME_TIER_HUMAN
+            and all(name_tier(n) < NAME_TIER_HUMAN for n in existing_names)
+        ):
+            return True
+        if name_tier(identity.display_name) < NAME_TIER_HUMAN:
+            return False
         incoming = self._normalise_name(identity.display_name)
-        if not incoming:
-            return False
-        existing = self._normalise_name(self._person_display_name(matched_uri))
-        if not existing:
-            return False
-        return incoming == existing
+        return any(
+            self._normalise_name(n) == incoming
+            for n in existing_names
+            if name_tier(n) >= NAME_TIER_HUMAN
+        )
 
     # -- Private helpers ------------------------------------------------------
 

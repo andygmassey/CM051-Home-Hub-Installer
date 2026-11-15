@@ -8,7 +8,7 @@
 # Chat tab showed the previous walk's conversation. It lives in the hub app's
 # WebKit localStorage, keyed by bundle id -- a surface neither the test-reset
 # tool nor the shipped customer uninstaller had ever named, because it is
-# under neither ~/.ostler nor ~/Documents/Ostler.
+# under neither ~/.ostler nor ~/Ostler.
 #
 # Five paths were found surviving:
 #   ~/Library/WebKit/ai.creativemachines.ostler-hub

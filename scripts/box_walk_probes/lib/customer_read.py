@@ -81,6 +81,9 @@ SOURCE_LABELS = {
     "apple_music": ["apple music"],
     "places": ["places you go", "places"],
     "ai_conversations": ["ai chats"],
+    # CM044 labels this source "Downloads folder" (walk 121: listed, but the probe had no map
+    # for it, so a working source read as absent from Data freshness).
+    "downloads_exports": ["downloads folder", "downloads"],
     "privacy_backfill": ["privacy labelling"],
     "dedupe": ["duplicate check", "dedupe"],
 }
@@ -88,7 +91,8 @@ INTERNAL_SOURCES = {"privacy_backfill", "dedupe"}
 # The API reports the graph merge as its own source; a customer knows it as contacts.
 API_ALIASES = {"people": "contacts", "email_preferences": None, "reminders": None, "reminders_knowledge": None}
 OK_WORDS = ("ok", "up to date", "working", "streaming", "running", "ready now")
-EMPTY_WORDS = ("no_data", "not_run", "nothing found", "not started", "not run yet", "nothing to add")
+EMPTY_WORDS = ("no_data", "not_run", "nothing found", "not started", "not run yet", "nothing to add",
+               "nothing to import")
 
 BARE_TITLE = re.compile(r"^\s*(\w+\s+)?conversation\s*$", re.I)
 DOUBLED_WORD = re.compile(r"\b(\w+)\s+\1\b", re.I)
@@ -212,6 +216,78 @@ def norm_title(t):
     t = (t or "").replace("\u2019", "'").replace("\u2018", "'").lower()
     t = re.sub(r"[^\w' ]+", " ", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+# A card title as a KEY that can be printed: the sha256 prefix of the compared
+# form (so the same card on both surfaces shows the same key) and its shape with
+# every capitalised word, digit, email and handle masked, so the KIND of card
+# ("X's birthday is in five days", "Two records for X?") is readable and no
+# name is (instr119).
+def title_key(t):
+    n = norm_title(t)
+    shape = re.sub(r"\S*@\S*", "<email>", (t or "").replace("\u2019", "'"))
+    shape = re.sub(r"\d+", "#", shape)
+    shape = re.sub(r"\b[^\W\d_][\w.-]*", lambda m: "X" if m.group(0)[0].isupper() else m.group(0), shape)
+    shape = re.sub(r"\s+", " ", shape).strip()[:60]
+    return "{}:{}".format(_digest(n)[:8], shape)
+
+
+def needs_now_keys(a, b):
+    sa, sb = {norm_title(x) for x in a}, {norm_title(x) for x in b}
+    def side(xs, other):
+        return "[" + ", ".join(title_key(x) + ("" if norm_title(x) in other else " (only here)") for x in xs) + "]"
+    return "app keys {}; wiki keys {}".format(side(a, sb), side(b, sa))
+
+
+# The body of a failing GET, first 300 characters, as a customer-safe string:
+# whitespace collapsed, emails, long digit runs and anything bearer-shaped
+# masked. Kept for 5xx only (instr119: a 502 from /api/v1/hydration/status was
+# printed as a bare status, so its cause was NOT INSTRUMENTED).
+def mask_body(text, limit=300):
+    t = re.sub(r"\s+", " ", text or "").strip()
+    t = re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", "<email>", t)
+    t = re.sub(r"\+?\d[\d ()-]{6,}\d", "<digits>", t)
+    t = re.sub(r"(?i)(bearer|token)[\"'=: ]+[\w.-]{12,}", r"\1 <redacted>", t)
+    return t.replace("'", "`")[:limit]
+
+
+def record_response(f, r, clean, pending):
+    """on_resp body: one row per response. A 5xx GET is also queued so its body
+    is read AFTER browsing (read_pending_bodies), never inside the event
+    handler, where a blocking read could stall the whole collector."""
+    row = {"m": r.request.method, "u": clean(r.url), "s": r.status}
+    f["requests"].append(row)
+    if r.request.method == "GET" and int(r.status or 0) >= 500 and len(pending) < 10:
+        pending.append((row, r))
+
+
+def read_pending_bodies(pending, refetch=None):
+    """The body the browser saw; when the browser has already evicted it, one
+    re-fetch of the same URL, marked as such (it is a second request)."""
+    for row, r in pending:
+        try:
+            row["b"] = mask_body(r.text())
+            continue
+        except Exception as exc:
+            why = type(exc).__name__
+        got = None
+        if refetch is not None:
+            try:
+                got = refetch(r.url)
+            except Exception:
+                got = None
+        row["b"] = ("(re-fetched) " + mask_body(got[1], 286)) if got else "<body unreadable: {}>".format(why)
+
+
+def refetch_body(url, timeout=10):
+    """(status, text) of one plain GET, the error body included."""
+    import urllib.error
+    import urllib.request
+    try:
+        with _local_urlopen(urllib.request.Request(url), timeout) as resp:
+            return resp.status, resp.read(4096).decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(4096).decode("utf-8", "replace")
 
 
 def doctor_list_count(doc):
@@ -421,6 +497,32 @@ DECLARED = [
 ]
 
 
+TIMELINE_API_PATH = "/api/v1/timeline?days=7&past_days=730&limit=500"
+
+
+def timeline_api_sources(body):
+    """#2565: reduce a GET /api/v1/timeline body to [{title, source,
+    title_verbatim}] per entry. Nothing else is kept."""
+    out = []
+    for e in (body or {}).get("entries") or []:
+        if isinstance(e, dict):
+            out.append({"title": e.get("title") or "", "source": e.get("source"),
+                        "title_verbatim": e.get("title_verbatim")})
+    return out
+
+
+def verbatim_timeline_titles(entries):
+    """#2565: the titles the timeline API itself marks as the customer's own
+    words (source "calendar" AND title_verbatim true), longest first. An entry
+    with no source, or any other source, is Ostler's to answer for: never
+    exempt. No entries at all (an old daemon, an unreadable API) exempts
+    nothing, so a verbatim dash then counts rather than a guess passing."""
+    return sorted({e.get("title") or "" for e in (entries or [])
+                   if isinstance(e, dict) and e.get("source") == "calendar"
+                   and e.get("title_verbatim") is True and e.get("title")},
+                  key=len, reverse=True)
+
+
 def judge(f, declared=None):
     declared = DECLARED if declared is None else declared
     out = []
@@ -449,34 +551,55 @@ def judge(f, declared=None):
     # API returned is exempt on the Hub People screen and on a person detail
     # screen, ONE occurrence per API row, so Ostler's own label beside it, or a
     # second copy of the same text, still counts.
+    # The marked and linked titles only, BEFORE the people-name widening
+    # below: the ISO date and internal-value checks honour what a renderer
+    # marked as customer text, never a whole API name list (a handle-shaped
+    # People name is its own check, and must not be hidden here).
+    marked_titles = {k: list(v) for k, v in cust_titles.items()}
     _people_names = [p.get("name") or "" for p in (f.get("people_api") or []) if p.get("name")]
     for k in screens:
         if k == "people" or k.startswith("person"):
             cust_titles["hub " + k] = list(cust_titles.get("hub " + k, [])) + _people_names
     measured = [t for t in texts if t[1].strip()]
 
-    def over_text(name, pred, show):
+    def over_text(name, pred, show, exempt_customer=False):
         if not measured:
             add(name, None, "NOT MEASURED: no screen text was collected")
             return
         bad = []
         for where, t in measured:
-            hits = pred(t)
+            hits = pred(ostler_only(where, t)) if exempt_customer else pred(t)
             if hits:
                 bad.append("{}: {}".format(where, show(hits)))
         add(name, not bad, "; ".join(bad[:6]) + (" (+{} more)".format(len(bad) - 6) if len(bad) > 6 else ""))
 
-    over_text(DECLARED[0], lambda t: ISO_DATE.findall(t), lambda h: "{} ISO date(s) (values withheld)".format(len(h)))
+    def ostler_only(where, t):
+        # W9 (walks v1.0.116/117): the customer's own text is exempt from the
+        # ISO date and internal-value checks exactly as it already was from
+        # the em dash check, by the SAME field-level rule: each recorded
+        # customer title (a marked element, or an off-site link) removes ONE
+        # occurrence of itself, longest first, so a title cannot hide a second
+        # copy of its text and Ostler's own copy beside it still counts. An
+        # email subject reading "fix(ci): require_pairing on 2026-10-02" is
+        # the sender's words; Ostler never rewrites them (decision 2026-10-01),
+        # so a probe that counts them can never pass on a real mailbox.
+        for title in sorted(marked_titles.get(where, []), key=len, reverse=True):
+            t = t.replace(title, "", 1)
+        return t
+
+    over_text(DECLARED[0], lambda t: ISO_DATE.findall(t), lambda h: "{} ISO date(s) (values withheld)".format(len(h)),
+              exempt_customer=True)
     # Decision 2026-10-01: Ostler never rewrites the customer's own titles. The
     # exemption is FIELD-LEVEL: only the title of a Timeline row whose kind is
     # "event" (a verbatim calendar item, as the API returned it) is exempt, and
     # only on the Timeline screen. Every other dash on that screen (a placeholder,
     # a label, a separator) and every dash anywhere else still counts.
-    # TODO(#2565): key this on the entry's source field once the timeline API
-    # carries one, instead of on kind == "event".
-    exempt = sorted({r.get("title") or "" for r in (f.get("timeline_rows") or [])
-                     if r.get("kind") == "event" and EM_DASH in (r.get("title") or "")},
-                    key=len, reverse=True)
+    # #2565: keyed on the timeline API's own `source` / `title_verbatim`, read
+    # by collect() from GET /api/v1/timeline, not on the row kind. kind ==
+    # "event" was a proxy: it exempted ANY event-kind title, whoever wrote it,
+    # and could not exempt a verbatim title shown on a meeting row.
+    exempt = [t for t in verbatim_timeline_titles(f.get("timeline_api_entries"))
+              if EM_DASH in t]
 
     def ostler_dashes(where, t):
         if where == "hub timeline":
@@ -496,7 +619,7 @@ def judge(f, declared=None):
         add(DECLARED[1], not bad, "; ".join(bad[:6]))
     over_text(DECLARED[2],
               lambda t: [why for rx, why in JARGON if rx.search(STRIP_ADDRESSES.sub(" ", t))],
-              lambda h: ", ".join(sorted(set(h))))
+              lambda h: ", ".join(sorted(set(h))), exempt_customer=True)
 
     # page titles
     if not screens:
@@ -512,7 +635,8 @@ def judge(f, declared=None):
     if reqs is None:
         add(DECLARED[4], None, "NOT MEASURED: no request log")
     else:
-        bad = sorted({"{} {}".format(r.get("s"), r.get("u")) for r in reqs
+        bad = sorted({"{} {}".format(r.get("s"), r.get("u")) + (" body='{}'".format(r["b"]) if r.get("b") else "")
+                      for r in reqs
                       if r.get("m") == "GET" and int(r.get("s") or 0) >= 400})
         add(DECLARED[4], not bad, "; ".join(bad[:5]))
     bu = f.get("bearer_in_url")
@@ -557,6 +681,8 @@ def judge(f, declared=None):
         if na == nb:
             add(DECLARED[8], True, detail)
         else:
+            # instr119: BOTH key lists, so a mismatch names which cards differ.
+            detail += "; " + needs_now_keys(a, b)
             # Ruling 2026-10-04: a mismatch is tolerated ONLY when the feed is
             # newer than the wiki's last compile AND under 15 minutes old (the
             # #2633 recompile window). Every other mismatch FAILS, including one
@@ -639,7 +765,23 @@ def judge(f, declared=None):
         # silently pass every duplicate through -- see the CANNOT-RUN branch
         # immediately below.
         reviewed_raw = f.get("duplicate_review_phones")
-        if dup and reviewed_raw is None:
+        # A report built before the seed (or still refreshing) omits seeded
+        # pairs, so "no card" in it is not evidence. CANNOT-RUN, never FAIL/PASS.
+        stale = f.get("duplicate_review_stale")
+        diff_note = "; contacts/diff as_of={} refreshing={} seed_ts={}".format(
+            f.get("duplicate_review_as_of"), f.get("duplicate_review_refreshing"),
+            f.get("duplicate_review_seed_ts"))
+        seed_problem = f.get("duplicate_review_seed_problem")
+        if dup and seed_problem:
+            add(DECLARED[13], None,
+                "NOT MEASURED: {} duplicate number(s) found but {}; the report cannot be "
+                "checked for staleness, so reviewed-vs-silent cannot be told apart{}".format(
+                    len(dup), seed_problem, diff_note))
+        elif dup and stale:
+            add(DECLARED[13], None,
+                "NOT MEASURED: {} duplicate number(s) found but the duplicate-review report is "
+                "stale ({}); reviewed-vs-silent cannot be told apart{}".format(len(dup), stale, diff_note))
+        elif dup and reviewed_raw is None:
             add(DECLARED[13], None,
                 "NOT MEASURED: {} duplicate number(s) found but the duplicate-review "
                 "surface (/api/v1/contacts/diff) could not be read, so reviewed-vs-"
@@ -650,8 +792,8 @@ def judge(f, declared=None):
             silent = dup - reviewed
             add(DECLARED[13], not silent,
                 "{} of {} duplicated number(s) are UNREVIEWED (numbers withheld); "
-                "{} already surfaced as a duplicate-review card".format(
-                    len(silent), len(dup), len(dup & reviewed)))
+                "{} already surfaced as a duplicate-review card{}".format(
+                    len(silent), len(dup), len(dup & reviewed), diff_note))
 
     # Ruling 2026-10-04 (#2546): each screen labels what it counts, so there is
     # no cross-equality. The Hub counts named people and must equal the
@@ -686,12 +828,19 @@ def judge(f, declared=None):
         add(DECLARED[15], org["wiki front"] == org["Organisations page"], ", ".join("{} {}".format(k, v) for k, v in org.items()))
 
     # sources
+    # An explicit key always wins over an alias: the graph merge ("people") is
+    # only the Contacts answer when the API gave no "contacts" row of its own.
+    # ORing them let people=ok mask contacts=no_data (v1.0.115 walk, H1).
     api = {}
+    aliased = {}
     for s, st in (f.get("api") or {}).get("sources") or []:
         s2 = API_ALIASES.get(s, s)
         if s2:
             c = status_class(st)
-            api[s2] = "ok" if (api.get(s2) == "ok" or c == "ok") else c
+            dest = aliased if s in API_ALIASES else api
+            dest[s2] = "ok" if (dest.get(s2) == "ok" or c == "ok") else c
+    for s2, c in aliased.items():
+        api.setdefault(s2, c)
     wl = (wiki.get("front") or {}).get("sources")
     if wl is None:
         add(DECLARED[16], None, "NOT MEASURED: the wiki source list was not read")
@@ -1051,7 +1200,192 @@ def crawl_nav(rels, read_page, reopen, budget_s, log=None, reopens=None):
     return read, why
 
 
-def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None):
+def _make_saw(f, token):
+    """The request-URL tap used by collect(): counts any URL carrying the
+    bearer token into f["bearer_in_url"] (#2558). Module level so the
+    self-test can drive the REAL tap, not just the judge's reading of its count."""
+    def saw(url):
+        if token and token in url:
+            f["bearer_in_url"] += 1
+    return saw
+
+
+DIFF_WAIT_S = 720   # the Hub serves a cached report for up to 600s (ical-server.py TTL) plus build time
+DIFF_POLL_S = 15
+
+
+def _diff_as_of_epoch(diff):
+    """The report's as_of (ISO, UTC) as epoch seconds, or None when absent or unparseable."""
+    import datetime as dt
+    try:
+        return dt.datetime.fromisoformat(str(diff["as_of"])).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def read_seed_ts_file(path):
+    """(seed_ts, problem) from the box-epoch seed-time file.
+
+    A file that cannot be read or parsed is a PROBLEM the verdict must carry
+    (duplicate arm CANNOT-RUN), never a silent seed_ts=None."""
+    try:
+        raw = open(path).read().strip()
+    except OSError as exc:
+        return None, "seed ts unreadable: {}".format(type(exc).__name__)
+    if not raw:
+        return None, "seed ts unparseable: file is empty"
+    try:
+        ts = float(raw)
+    except ValueError:
+        return None, "seed ts unparseable: {!r} is not a number".format(raw[:20])
+    if ts != ts or ts in (float("inf"), float("-inf")) or ts <= 0:
+        return None, "seed ts unparseable: {!r} is not a plausible epoch".format(raw[:20])
+    return ts, None
+
+
+def wait_for_fresh_diff(fetch, seed_ts, bound_s=DIFF_WAIT_S, poll_s=DIFF_POLL_S,
+                        sleep=None, clock=None):
+    """Poll fetch() (the /api/v1/contacts/diff body) until the report is settled and post-seed.
+
+    Settled = not preparing, refreshing is false, and (when the walk recorded a
+    seed time) as_of is later than it. The Hub serves a CACHED report, so one
+    built before the seed omits the seeded pair, and reading that as "no review
+    card" is a false UNREVIEWED. Returns (diff, stale): stale is None when
+    settled, else a reason; on stale the caller must say CANNOT-RUN, never
+    FAIL or PASS. A fetch error propagates (the caller already maps it to
+    CANNOT-RUN as "review surface unreadable")."""
+    import time
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    t0 = clock()
+    while True:
+        diff = fetch()
+        asof = _diff_as_of_epoch(diff)
+        if diff.get("preparing"):
+            why = "report still preparing"
+        elif diff.get("refreshing"):
+            why = "report refreshing"
+        elif seed_ts is not None and (asof is None or asof <= seed_ts):
+            why = "report as_of {} is not later than the seed time {}".format(diff.get("as_of"), int(seed_ts))
+        else:
+            return diff, None
+        if clock() - t0 + poll_s > bound_s:
+            return diff, "stale report after {}s: {}".format(int(clock() - t0), why)
+        sleep(poll_s)
+
+
+# ---------------------------------------------------------------------------
+# Click diagnostics. A 30 s click timeout used to surface as
+# str(exc)[:200]: the head of Playwright's call log, which ends before the line
+# that names the cause ("element is not visible", "<div> intercepts pointer
+# events"). The cause is in the TAIL, so keep the tail, and say for ourselves
+# whether the target was visible, enabled or covered, and by what.
+# ---------------------------------------------------------------------------
+
+EXC_TAIL_LINES = 14
+EXC_TAIL_CHARS = 1800
+
+_TARGET_STATE_JS = """(sel) => {
+  const d = (e) => e ? (e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')
+      + (e.classList && e.classList.length ? '.' + Array.from(e.classList).slice(0, 3).join('.') : '')) : null;
+  const el = document.querySelector(sel);
+  if (!el) return {present: false};
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  const visible = r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+  const enabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+  let covered_by = null, in_viewport = false;
+  if (visible) {
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    in_viewport = cx >= 0 && cy >= 0 && cx <= innerWidth && cy <= innerHeight;
+    const top = in_viewport ? document.elementFromPoint(cx, cy) : null;
+    if (top && top !== el && !el.contains(top)) covered_by = d(top);
+  }
+  return {present: true, target: d(el), visible: visible, enabled: enabled,
+          in_viewport: in_viewport, covered_by: covered_by};
+}"""
+
+
+def exc_tail(exc, lines=EXC_TAIL_LINES, chars=EXC_TAIL_CHARS):
+    """The LAST lines of an exception's text (Playwright puts the cause there)."""
+    text = str(exc).strip()
+    tail = "\n".join(text.splitlines()[-lines:])
+    return tail[-chars:]
+
+
+def describe_click_target(page, selector):
+    """One line: was the element there, visible, enabled, covered, and by which selector."""
+    try:
+        st = page.evaluate(_TARGET_STATE_JS, selector)
+    except Exception as exc:
+        return "target %s: state could not be read (%s)" % (selector, str(exc)[:80])
+    if not st.get("present"):
+        return "target %s: NOT PRESENT in the page" % selector
+    return "target %s (%s): visible=%s enabled=%s in_viewport=%s covered_by=%s" % (
+        selector, st["target"], st["visible"], st["enabled"], st["in_viewport"], st["covered_by"] or "nothing")
+
+
+# ---------------------------------------------------------------------------
+# First-run welcome modal. The Hub's GovernorWelcomeModal (ostler-assistant
+# web/src/components/GovernorWelcomeModal.tsx) is <div role="dialog"
+# aria-labelledby="governor-welcome-title"> and covers the whole page, so the
+# first nav click times out on "intercepts pointer events" (v1.0.121 trial).
+# A customer dismisses it with its own button: "Not now" (visible label) or the
+# corner X, whose accessible name is "Close welcome". Found by ROLE and NAME,
+# clicked like a customer, then ASSERTED closed. No JS removal, no CSS hiding,
+# no force click. Absent modal: nothing to do.
+# ---------------------------------------------------------------------------
+
+WELCOME_DIALOG_SELECTOR = '[role="dialog"][aria-labelledby="governor-welcome-title"]'
+WELCOME_CLOSE_NAMES = ("Not now", "Close welcome")
+
+
+def dismiss_welcome_modal(page, timeout_ms=5000):
+    """Dismiss the first-run welcome the way a customer does. Returns "absent",
+    or "dismissed:<button name>". Raises RuntimeError when the modal is there
+    and cannot be closed (no known button, or still open after the click)."""
+    dialog = page.locator(WELCOME_DIALOG_SELECTOR)
+    if dialog.count() == 0:
+        return "absent"
+    for name in WELCOME_CLOSE_NAMES:
+        btn = dialog.first.get_by_role("button", name=name, exact=True)
+        if btn.count() == 0:
+            continue
+        btn.first.click(timeout=timeout_ms)
+        try:
+            dialog.first.wait_for(state="detached", timeout=timeout_ms)
+        except Exception:
+            pass
+        if page.locator(WELCOME_DIALOG_SELECTOR).count() != 0:
+            raise RuntimeError("welcome modal still open after clicking button %r" % name)
+        return "dismissed:" + name
+    raise RuntimeError("welcome modal is open and has no button named any of %s" % (list(WELCOME_CLOSE_NAMES),))
+
+
+def click_target(page, selector, out_dir, label, console_errors=None, timeout_ms=30000):
+    """Click the first match of a CSS selector. On failure save a screenshot and the
+    page's console errors into out_dir (evidence stays where the walk runs, never
+    in git) and raise RuntimeError carrying the full exception tail plus the
+    visible/enabled/covered line."""
+    try:
+        dismiss_welcome_modal(page)
+        page.locator(selector).first.click(timeout=timeout_ms)
+        return
+    except Exception as exc:
+        parts = ["click %s failed" % label, exc_tail(exc), describe_click_target(page, selector)]
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+            shot = os.path.join(out_dir, "cr-click-timeout-%s.png" % label)
+            page.screenshot(path=shot)
+            cpath = os.path.join(out_dir, "cr-click-timeout-%s-console.txt" % label)
+            with open(cpath, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(console_errors or []) + "\n")
+            parts.append("evidence saved: %s, %s (%d console error(s))" % (shot, cpath, len(console_errors or [])))
+        except Exception as e2:
+            parts.append("evidence NOT saved: %s" % str(e2)[:80])
+        raise RuntimeError("\n".join(parts)) from None
+
+
+def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_handles=None, seed_ts=None, seed_problem=None):
     import urllib.request
     from playwright.sync_api import sync_playwright
 
@@ -1064,9 +1398,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         u = re.sub(r"([?&]token=)[^&]+", r"\1<redacted>", u)
         return re.sub(r"/[0-9a-f]{8}-[0-9a-f-]{27,}", "/<id>", u)
 
-    def saw(url):
-        if token and token in url:
-            f["bearer_in_url"] += 1
+    saw = _make_saw(f, token)
 
     feed_json = None
     if feed_path:
@@ -1084,6 +1416,9 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         ctx = browser.new_context(viewport={"width": 1440, "height": 1000})
         ctx.add_init_script("try { localStorage.setItem('zeroclaw_token', %s); } catch (e) {}" % json.dumps(token))
         page = ctx.new_page()
+        console_errs = []
+        page.on("console", lambda m: console_errs.append("%s: %s" % (m.type, m.text[:300])) if m.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: console_errs.append("pageerror: %s" % str(e)[:300]))
 
         def guard(route, request):
             saw(request.url)
@@ -1098,9 +1433,11 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         page.route("**/*", guard)
         page.on("websocket", lambda ws: saw(ws.url))
 
+        pending5xx = []
+
         def on_resp(r):
             try:
-                f["requests"].append({"m": r.request.method, "u": clean(r.url), "s": r.status})
+                record_response(f, r, clean, pending5xx)
             except Exception:
                 pass
         page.on("response", on_resp)
@@ -1118,7 +1455,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         def go(path):
             link = page.locator('a[href="%s"]' % path)
             if link.count():
-                link.first.click()
+                click_target(page, 'a[href="%s"]' % path, out_dir, "go" + re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-"), console_errs)
             else:
                 page.evaluate("p => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }", path)
             time.sleep(3)
@@ -1151,6 +1488,15 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             if name == "timeline":
                 f["timeline_rows"] = page.evaluate("() => Array.from(document.querySelectorAll('[data-timeline-row]')).map(e => ({kind: e.getAttribute('data-timeline-kind') || '', title: e.getAttribute('data-timeline-title') || ''}))")
                 f["timeline_titles"] = [r["title"] for r in f["timeline_rows"]]
+                # #2565: who wrote each title, from the API the screen renders.
+                try:
+                    treq = urllib.request.Request(base + TIMELINE_API_PATH,
+                                                  headers={"Authorization": "Bearer " + token})
+                    with _local_urlopen(treq, timeout=60) as tr:
+                        f["timeline_api_entries"] = timeline_api_sources(json.loads(tr.read()))
+                except Exception as exc:
+                    f["timeline_api_entries"] = None
+                    f["timeline_api_error"] = "timeline API unreadable: {}".format(type(exc).__name__)
             if name == "home":
                 f["needs_now_app"] = page.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             if name == "people":
@@ -1215,6 +1561,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         # read each route's header, where the status pill lives.
         for path, name in HUB_ROUTES:
             try:
+                dismiss_welcome_modal(wpage)
                 lk = wpage.locator('a[href="%s"]' % path)
                 if lk.count():
                     lk.first.click()
@@ -1231,6 +1578,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     if (cmd === 'get_front_page') return {available: true, feed: feed};
                     if (cmd.startsWith('get_')) return null;
                     throw new Error('read-only probe refuses ' + cmd); }, transformCallback: () => 0 }; }""", feed_json)
+                dismiss_welcome_modal(wpage)
                 wpage.locator('a[href="/people"]').first.click()
                 wpage.wait_for_timeout(3000)
                 wpage.locator('a[href="/"]').first.click()
@@ -1238,6 +1586,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                 f["needs_now_app_settled"] = wpage.evaluate(NEEDS_NOW_JS, [".fpc-card", "h3,h4,[class*='title']"])
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("settled home: {}".format(str(exc)[:120]))
+        dismiss_welcome_modal(wpage)
         wpage.locator('a[href="/wiki"]').first.click()
         fr, t0 = None, time.time()
         try:
@@ -1339,6 +1688,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                 f["wiki"]["crawl_failures"] = fails
             except Exception as exc:
                 f["wiki"].setdefault("errors", []).append("crawl: {}".format(str(exc)[:160]))
+        read_pending_bodies(pending5xx, refetch_body)
         browser.close()
 
     # GETs the app makes, sent the way the app sends them (read-only)
@@ -1404,8 +1754,20 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
         try:
             req = urllib.request.Request(doctor_base + "/api/v1/contacts/diff", headers={
                 "Authorization": "Bearer " + token})
-            with _local_urlopen(req, timeout=180) as r:
-                diff = json.load(r)
+            def _fetch():
+                with _local_urlopen(req, timeout=180) as r:
+                    return json.load(r)
+            # The Hub serves a cached report that can predate the walk seed
+            # (ical-server.py _contacts_diff_cached): wait for a settled,
+            # post-seed one, else the judge says CANNOT-RUN (stale), not FAIL.
+            diff, stale = wait_for_fresh_diff(_fetch, seed_ts)
+            f["duplicate_review_as_of"] = diff.get("as_of")
+            f["duplicate_review_refreshing"] = diff.get("refreshing")
+            f["duplicate_review_seed_ts"] = seed_ts
+            if seed_problem:
+                f["duplicate_review_seed_problem"] = seed_problem
+            if stale:
+                f["duplicate_review_stale"] = stale
             # CM051 walk #3, item E: do NOT filter by evidence["strategy"].
             # consolidate_matches keeps only the HIGHEST-confidence match per
             # pair, so a pair sharing both an email and a phone is filed
@@ -1421,7 +1783,7 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
             # robust to a future strategy rename than matching the name.
             # #2786: the report is built off the request path. "preparing" is
             # an empty list that means NOT LOOKED YET, never "nothing to review".
-            if diff.get("preparing") or (diff.get("degraded") and not diff.get("items")):
+            if not stale and (diff.get("preparing") or (diff.get("degraded") and not diff.get("items"))):
                 raise RuntimeError("duplicate review not ready: " + str(diff.get("reason") or "degraded")[:100])
             reviewed = set()
             for item in diff.get("items") or []:
@@ -1466,6 +1828,12 @@ def _good():
                           {"kind": "meeting", "title": "Lunch with John Doe"},
                           {"kind": "event", "title": "Offsite \u2014 day one"},
                           {"kind": "event", "title": "Check in https://example.com/checkin"}],
+        # #2565: what GET /api/v1/timeline says wrote each title.
+        "timeline_api_entries": [
+            {"title": "WhatsApp with Jane Doe", "source": "ostler", "title_verbatim": False},
+            {"title": "Lunch with John Doe", "source": "calendar", "title_verbatim": True},
+            {"title": "Offsite \u2014 day one", "source": "calendar", "title_verbatim": True},
+            {"title": "Check in https://example.com/checkin", "source": "calendar", "title_verbatim": True}],
         "people_rows": ["Jane Doe\n+44 7700 900001", "John Doe\n+" + "1 555 0100 222"],
         "duplicate_review_phones": [],
         "wiki": {"nav_links": ["System/Declining/", "System/New-discoveries/", "System/Monthly-volume/"],
@@ -1478,12 +1846,13 @@ def _good():
                               "PEOPLE\nYou've gone quiet with John Doe\nFor you\n1,000\nPEOPLE\n50\nORGANISATIONS\n",
                       "sources": [["Mail", "Up to date · 1 hour ago"], ["WhatsApp", "Up to date · 1 hour ago"],
                                   ["Contacts", "Up to date · 1 hour ago"]],
-                      "freshness": ["Mail", "WhatsApp", "Contacts"],
+                      "freshness": ["Mail", "WhatsApp", "Contacts", "Downloads folder"],
                       "boxes": [{"what": "table", "label": "Data freshness", "w": 900, "aw": 912}]},
             "people": {"text": "People\n1,000 people, from your address book and conversations.\n", "boxes": []},
             "organisations": {"text": "Organisations\n50\nORGANISATIONS\n", "boxes": []},
         }},
-        "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"]],
+        "api": {"sources": [["email", "ok"], ["whatsapp", "ok"], ["contacts", "ok"], ["people", "ok"],
+                            ["downloads_exports", "ok"]],
                 "config_as_app": 200},
         "box": {"ollama_calls": 1000, "journal_calls": 990, "window_min": 60},
         "people_api_total": 1000,
@@ -1605,11 +1974,21 @@ MUTANTS = [
     ("digits as a People name (walk #16 console)", _app(["people_api"], {"name": "001", "email": ""})),
     ("an email subject line as a People name (review of #2768)",
      _app(["people_api"], {"name": "re: lunch on friday", "email": ""})),
+    # #2565: the exemption follows the API's source, not the row kind.
+    ("a dashed EVENT-kind title the API says Ostler wrote is not exempt (#2565)",
+     lambda f: (f["timeline_rows"].append({"kind": "event", "title": "Recap \u2014 notes"}),
+                f["timeline_api_entries"].append({"title": "Recap \u2014 notes", "source": "ostler",
+                                                  "title_verbatim": False}),
+                f["screens"]["timeline"].__setitem__("text", f["screens"]["timeline"]["text"] + "Recap \u2014 notes\n"))),
+    ("a verbatim-flagged title with NO source is not exempt (#2565)",
+     lambda f: f.__setitem__("timeline_api_entries", [dict(e, source=None) for e in f["timeline_api_entries"]])),
+    ("the timeline API unread: no title is exempt (#2565)",
+     lambda f: f.__setitem__("timeline_api_entries", None)),
 ]
 
 
 # Each mutant must be caught by the assertion written for it, not incidentally by another.
-MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24]))
+MUTANT_TARGETS = dict(zip([n for n, _ in MUTANTS], [0, 1, 2, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 24, 24, 25, 25, 25, 26, 26, 27, 27, 27, 28, 1, 2, 0, 30, 29, 28, 24, 31, 31, 31, 24, 1, 1, 1]))
 
 
 def _proxy_bypass_self_test():
@@ -1735,6 +2114,26 @@ def self_test():
                        "does not fail ({!r}, want [False])".format(got13))
     else:
         print("  ok    a silent duplicate, absent from the duplicate-review surface, FAILS")
+
+    # #2558: the "bearer in a URL" mutant above only sets the count; it never
+    # runs the tap that is meant to produce it. Drive saw() itself: a token URL
+    # must register a hit, a clean URL must not, and an empty token never hits.
+    tok = "zc_synthetic_token_0001"
+    tap = {"bearer_in_url": 0}
+    _make_saw(tap, tok)("http://127.0.0.1:1/ws/chat?token=" + tok)
+    if tap["bearer_in_url"] != 1:
+        missed.append("saw() missed a token URL (count {}, want 1)".format(tap["bearer_in_url"]))
+    else:
+        print("  ok    saw() counts a URL carrying the token")
+    tap = {"bearer_in_url": 0}
+    saw_clean = _make_saw(tap, tok)
+    saw_clean("http://127.0.0.1:1/ws/chat?session_id=abc")
+    saw_clean("http://127.0.0.1:1/api/people")
+    _make_saw(tap, "")("http://127.0.0.1:1/ws/chat?token=")
+    if tap["bearer_in_url"] != 0:
+        missed.append("saw() flagged a clean URL (count {}, want 0)".format(tap["bearer_in_url"]))
+    else:
+        print("  ok    saw() ignores clean URLs and an empty token")
 
     # An @handle is customer data, so it must PASS the internal-values check;
     # the same token without the "@" is a stored key and must still FAIL.
@@ -1870,7 +2269,8 @@ def self_test():
         print("  ok    Data freshness is read from the list shape and the table shape; absent is NOT MEASURED")
     listed = copy.deepcopy(_good())
     listed["wiki"]["pages"]["front"]["freshness"] = freshness_labels(
-        {"kind": "list", "text": "\u2713\nMail\nUp to date\n\u2713\nWhatsApp\nUp to date\n\u2713\nContacts\nUp to date\n"})
+        {"kind": "list", "text": "\u2713\nMail\nUp to date\n\u2713\nWhatsApp\nUp to date\n\u2713\nContacts\nUp to date\n"
+                 "\u2713\nDownloads folder\nUp to date\n"})
     got19 = [ok for n, ok, _ in judge(listed) if n == DECLARED[19]]
     if got19 != [True]:
         missed.append("a list-shaped freshness section naming every working source still fails ({!r})".format(got19))
@@ -1955,6 +2355,42 @@ def self_test():
             missed.append("an em dash in {} on Hub People is hidden by the name exemption ({!r})".format(label, got))
         else:
             print("  ok    an em dash in {} on Hub People still FAILS".format(label))
+    # W9 (walks v1.0.116/117): a customer's own subject on the Conversations
+    # timeline carries an ISO date and a snake_case word. Marked, it is their
+    # data and PASSES both checks; the same text as Ostler copy beside it, a
+    # second unmarked copy, or a handle-shaped People NAME (exempt only from
+    # the em dash check) still FAILS. Synthetic text only.
+    subj = "fix(ci): require_pairing on 2026-10-02"
+    conv = copy.deepcopy(_good())
+    conv["wiki"]["nav_links"].append("Conversations/timeline/")
+    conv["wiki"]["crawl"]["Conversations/timeline/"] = {
+        "text": "Conversation timeline\n- Email -- Thread \"" + subj + "\". 1 message. 2 October 2026.\n",
+        "mono_dates": 0, "customer_titles": [subj]}
+    gotw = [ok for n, ok, _ in judge(conv) if n in (DECLARED[0], DECLARED[2])]
+    if gotw != [True, True]:
+        missed.append("a marked customer subject with an ISO date and a key still fails ({!r})".format(gotw))
+    else:
+        print("  ok    a marked customer subject with an ISO date and a snake_case word PASSES both checks")
+    for label, text, which in (("an ISO date in Ostler copy beside it", "1 message. 2026-10-02.\n", 0),
+                               ("a key in Ostler copy beside it", "source_kind: email\n", 2),
+                               ("a second unmarked copy of the subject (date)", subj + "\n", 0),
+                               ("a second unmarked copy of the subject (key)", subj + "\n", 2)):
+        mut = copy.deepcopy(conv)
+        mut["wiki"]["crawl"]["Conversations/timeline/"]["text"] += text
+        got = [ok for n, ok, _ in judge(mut) if n == DECLARED[which]]
+        if got != [False]:
+            missed.append("{} is hidden by the customer-text exemption ({!r})".format(label, got))
+        else:
+            print("  ok    {} still FAILS".format(label))
+    handle = copy.deepcopy(_good())
+    handle["people_api"].append({"name": "ig_user_example", "email": ""})
+    handle["people_api_total"] = handle.get("people_api_total", 0) + 1
+    handle["screens"]["people"]["text"] += "ig_user_example\n"
+    goth = [ok for n, ok, _ in judge(handle) if n == DECLARED[2]]
+    if goth != [False]:
+        missed.append("a snake_case People name is hidden from the internal-values check by the name exemption ({!r})".format(goth))
+    else:
+        print("  ok    a snake_case People name still FAILS the internal-values check (names are exempt from dashes only)")
     twice = copy.deepcopy(browsed)
     twice["wiki"]["crawl"]["People/Example-Person/timeline/"]["text"] += title + "\n"
     got = [ok for n, ok, _ in judge(twice) if n == DECLARED[1]]
@@ -2092,8 +2528,11 @@ def main(argv):
                         handles += [h.strip() for h in line.split(",") if h.strip()] if ("@" in line or re.search(r"\d{6,}", line)) else [line]
                 except Exception:
                     handles = []
+            seed_ts, seed_problem = None, a.get("--seed-ts-unreadable")
+            if a.get("--seed-ts-file"):
+                seed_ts, seed_problem = read_seed_ts_file(a["--seed-ts-file"])
             facts = collect(a["--base"], token, a.get("--doctor-base"), a.get("--front-page-json"), a["--out"],
-                            self_handles=handles)
+                            self_handles=handles, seed_ts=seed_ts, seed_problem=seed_problem)
             if a.get("--owner-source"):
                 facts["owner_source"] = a["--owner-source"]
             if a.get("--freshness-file"):
@@ -2110,7 +2549,7 @@ def main(argv):
             print("CANNOT-RUN: no Playwright on this driver ({})".format(exc))
             return EX_CANNOT
         except Exception as exc:
-            print("CANNOT-RUN: the browser did not complete the read ({})".format(str(exc)[:200]))
+            print("CANNOT-RUN: the browser did not complete the read ({}: {})".format(type(exc).__name__, exc_tail(exc)))
             return EX_CANNOT
         if a.get("--box-facts"):
             try:

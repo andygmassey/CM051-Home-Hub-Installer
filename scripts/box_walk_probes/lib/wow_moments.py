@@ -16,6 +16,7 @@ defect; it must report every mutant red.
 Python 3.9 compatible (the box's /usr/bin/python3); tomllib used when present.
 """
 import base64
+import glob
 import json
 import os
 import re
@@ -32,6 +33,7 @@ HUB = os.environ.get("OSTLER_HUB_HOST", "http://127.0.0.1:8090").rstrip("/")
 GATEWAY = os.environ.get("OSTLER_PROBE_GATEWAY", "http://127.0.0.1:8000").rstrip("/")
 STORE = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query").replace("/query", "")
 GRADED_MAX = 3
+UNSAVED_WORDS = re.compile(r"not in your contacts", re.I)
 NONE_WORDS = re.compile(r"\b(nobody|no one|no-one|none|not waiting|no replies|nothing)\b", re.I)
 
 
@@ -84,6 +86,252 @@ def _store_update(sparql):
 
 def _withheld(level):
     return (level or "").strip().lower() in ("l3", "private")
+
+
+# Names of the synthetic seed cast (approved cast: .pii-name-registry.tsv). A
+# missed debt is named in the evidence ONLY when it is one of these AND the debt
+# carries the seed's provenance: a common real name (a real Tom Jones) matches
+# by string alone, and the walk record lands in support bundles. Provenance is
+# the walk-fixture URN namespace every harness seeder writes under (SEED_NS,
+# smart_prefs GRAPH, meeting_brief_seed), read from the debt's person_uri.
+# Anything else records only its SHAPE (never a real name in evidence).
+SEED_PROVENANCE_PREFIX = "urn:ostler-walk-fixture:"
+SEED_REPLY_DEBT_NAMES = frozenset(n.lower() for n in (
+    "Jane Smith", "Tom Jones", "Sam Doe", "John Doe", "Jane Doe", "Bob Brown",
+    "Alex Patel", "Mary Ross", "Raj Patel", "Liz Stewart"))
+
+
+def _name_shape(name):
+    """What a name LOOKS like without saying it: word count and script class."""
+    if not isinstance(name, str) or not name.strip():
+        return "no name"
+    if sum(ch.isdigit() for ch in name) * 2 >= len(name.strip()):
+        return "digits (a raw number)"
+    words = len(name.split())
+    ascii_only = all(ord(ch) < 0x250 for ch in name)
+    return "%d word%s, %s" % (words, "" if words == 1 else "s", "latin" if ascii_only else "non-latin")
+
+
+def debt_evidence(d):
+    """One missed debt as a dict of name (seed cast name AND seed provenance, else None), shape,
+    resolved flag and age in hours. Never carries a non-seed name."""
+    nm = d.get("person_name")
+    uri = d.get("person_uri")
+    seed = (isinstance(nm, str) and nm.strip().lower() in SEED_REPLY_DEBT_NAMES
+            and isinstance(uri, str) and uri.startswith(SEED_PROVENANCE_PREFIX))
+    wh = d.get("waiting_hours")
+    return {"name": nm.strip() if seed else None,
+            "shape": _name_shape(nm),
+            "resolved": d.get("resolved"),
+            "age_hours": round(wh, 1) if isinstance(wh, (int, float)) and not isinstance(wh, bool) else None}
+
+
+def format_missed(missed):
+    """The evidence line for missed debts: 'name=Jane Smith' for a seed name,
+    'name=<not a seed name>' otherwise, then shape, resolved and age."""
+    parts = []
+    for m in missed or []:
+        parts.append("[name=%s shape=%s resolved=%s age_h=%s]" % (
+            m.get("name") if m.get("name") else "<not a seed name>", m.get("shape"), m.get("resolved"), m.get("age_hours")))
+    return " ".join(parts)
+
+
+def graded_debts(debts):
+    """The reply-debt rows that are graded by name, in order (see grade_reply_debts)."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    resolved = [d for d in rows if d.get("resolved") is not False]
+    return [d for d in resolved
+            if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+
+
+def missed_debts(debts, named_flags):
+    """Evidence for each graded debt whose name the answer/brief did NOT carry."""
+    g = graded_debts(debts)
+    return [debt_evidence(d) for d, ok in zip(g, named_flags) if not ok]
+
+
+def grade_reply_debts(debts):
+    """Split reply-debt rows into (names to grade, unsaved count).
+
+    Only RESOLVED debts (resolved is not False) are graded by name. An unsaved
+    number prints in the brief as "someone not in your contacts" by design
+    (oa #3142), so grading it by name would fail a correct brief. Rows with no
+    resolved field (an older Hub) are graded, as before."""
+    rows = [d for d in debts if isinstance(d, dict)]
+    resolved = [d for d in rows if d.get("resolved") is not False]
+    names = [d.get("person_name") for d in graded_debts(rows)]
+    return names, len(rows) - len(resolved)
+
+
+# --------------------------------------------------------------------------
+# morning brief: who the brief MUST name (oa #671 caps the list at
+# REPLY_MAX_ITEMS and counts the rest as "and N more in the app")
+# --------------------------------------------------------------------------
+
+_CAP_RE = re.compile(r"^(?:pub(?:\([a-z]+\))?\s+)?const\s+REPLY_MAX_ITEMS\s*:\s*usize\s*=\s*(\d+)\s*;", re.M)
+_MORE_RE = re.compile(r"\band (\d+) more\b", re.I)
+
+
+def reply_cap_from_source(text):
+    """REPLY_MAX_ITEMS out of oa's brief/catchup.rs source text, or None."""
+    m = _CAP_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def reply_cap():
+    """(cap, source). The cap is READ, never typed here: OSTLER_REPLY_MAX_ITEMS
+    (the probe wrapper forwards what it read from the oa source it was given),
+    else (None, "NOT INSTRUMENTED") and the arm falls back to its legacy top 3,
+    which can never reach past the cap."""
+    v = os.environ.get("OSTLER_REPLY_MAX_ITEMS", "").strip()
+    if v.isdigit() and int(v) > 0:
+        return int(v), os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs")
+    return None, "NOT INSTRUMENTED"
+
+
+def _owed_state(d):
+    """-> (state, reason). state in owed | dropped | ambiguous. The hub's own verdict
+    (CM048 reply_debt `owed`: yes / no / ambiguous); a row with no verdict cannot be
+    classified here: graded as owed, as before."""
+    if d.get("resolved") is False:
+        return "dropped", "unsaved_number"
+    if _withheld(d.get("privacy_level")):
+        return "dropped", "withheld_privacy"
+    if d.get("deceased") or d.get("suggestions_suppressed"):
+        return "dropped", "suppressed_person"
+    if not d.get("person_name"):
+        return "dropped", "nameless"
+    v = str(d.get("owed") or "").strip().lower()
+    if v == "yes" or d.get("owner_promised") is True:
+        return "owed", "owed"
+    if v == "no":
+        return "dropped", "not_owed"
+    if v == "ambiguous":
+        return "ambiguous", "no_judge"
+    # An older Hub sends no verdict at all: graded as before (the old arm did), so a
+    # missing field can never quietly shrink the graded set.
+    return "owed", "no_hub_verdict_assumed_owed"
+
+
+def plan_morning_replies(debts, cap):
+    """Which hub rows are owed, which are not graded, and why. The daemon's own ranking
+    (importance, then age) is NOT re-implemented: which N of the owed rows are shown is
+    not graded, only how many and that each is owed.
+    -> {"cap", "owed": [rows], "ambiguous": [rows], "not_owed": [rows], "drops": [(row, reason)]}"""
+    rows = [d for d in debts if isinstance(d, dict)]
+    owed, amb, not_owed, drops = [], [], [], []
+    for d in rows:
+        st, why = _owed_state(d)
+        if st == "owed":
+            owed.append(d)
+        elif st == "ambiguous":
+            amb.append(d)
+            drops.append((d, why))
+        else:
+            drops.append((d, why))
+            if why == "not_owed":
+                not_owed.append(d)
+    return {"cap": cap, "owed": owed, "ambiguous": amb, "not_owed": not_owed, "drops": drops}
+
+
+def _named_morning(text, row, all_rows):
+    """Full name as before, or the first name alone when no other hub reply-debt row
+    shares that first name (a unique first name is how a person is named in prose)."""
+    name = row.get("person_name") or ""
+    if _named(text, name):
+        return True
+    first = (re.split(r"\s+", name.strip()) or [""])[0].lower()
+    if len(first) < 2:
+        return False
+    others = [(o.get("person_name") or "").strip().lower() for o in all_rows if o is not row]
+    if any(re.split(r"\s+", o)[0] == first for o in others if o):
+        return False
+    return bool(re.search(r"(?<![\w])" + re.escape(first) + r"(?![\w])", text.lower()))
+
+
+def more_seen(text):
+    """Every N in an "and N more" line of the brief."""
+    return [int(n) for n in _MORE_RE.findall(text or "")]
+
+
+_LISTED_RE = re.compile(r"^\s*[-*\u2022]\s*(.+?)\s*(?:\(waiting|,\s*\d+\s*(?:minute|hour|day|week)s?\b)", re.I | re.M)
+
+
+def listed_who(text):
+    """The name part of each list line that says how long someone has waited."""
+    return [m.group(1).strip() for m in _LISTED_RE.finditer(text or "")]
+
+
+def grade_morning_replies(debts, text, cap):
+    """The reply-naming arm of the morning brief, as counts and flags only.
+
+    owed <= cap: every owed row is named. owed > cap: exactly cap owed rows are named
+    (which ones is the daemon's ranking and is not graded), and no row the hub says is
+    not owed, and no invented name, is listed. Without a cap: the legacy top 3 owed
+    rows, no count check."""
+    plan = plan_morning_replies(debts, cap)
+    all_rows = [d for d in debts if isinstance(d, dict)]
+    owed, amb = plan["owed"], plan["ambiguous"]
+    named_of = lambda rows: [_named_morning(text, d, all_rows) for d in rows]
+    wrong, missed = 0, []
+    if not cap:
+        must = owed[:GRADED_MAX]
+        rn = named_of(must)
+        missed = [debt_evidence(d) for d, ok in zip(must, rn) if not ok]
+        expect = None
+    elif len(owed) + len(amb) <= cap:
+        # every owed row is shown; an ambiguous one may or may not be, and is not required
+        rn = named_of(owed)
+        missed = [debt_evidence(d) for d, ok in zip(owed, rn) if not ok]
+        expect = (len(owed), len(owed) + len(amb))
+    else:
+        lo = cap if len(owed) >= cap else len(owed)
+        hi = cap
+        have = sum(named_of(owed + amb))
+        rn = [i < have for i in range(lo)] + [False] * max(0, have - hi)
+        expect = (lo, hi)
+    if cap:
+        # a hub row that is not owed must not be listed; neither may a name that is no hub row
+        wrong += sum(named_of(plan["not_owed"]))
+        known = owed + amb
+        for who in listed_who(text):
+            if not any(_named_morning(who, d, all_rows) for d in known + plan["not_owed"]):
+                wrong += 1
+    out = {"reply_graded": len(rn), "reply_named": rn, "reply_missed": missed,
+           "reply_cap": cap, "reply_cap_source": os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs") if cap else "NOT INSTRUMENTED",
+           "reply_owed": len(owed), "reply_ambiguous": len(amb), "reply_wrong_names": wrong,
+           "reply_drops": [dict(debt_evidence(d), reason=why) for d, why in plan["drops"]],
+           "reply_more_seen": more_seen(text)}
+    if cap:
+        out["reply_more_low"] = max(0, len(owed) - cap)
+        out["reply_more_high"] = max(0, len(owed) + len(amb) - cap)
+    return out
+
+
+_WINDOW_RE = re.compile(r"^UNSAVED_MAX_WAITING_HOURS\s*=\s*(\d+)(?:\s*\*\s*(\d+))?(?:\s*\*\s*(\d+))?\s*(?:#.*)?$", re.M)
+
+
+def unsaved_window_hours():
+    """The unsaved-number age-out window, READ from the shipped reply_debt.py
+    (UNSAVED_MAX_WAITING_HOURS), never hard-coded. None when no copy is
+    readable: the caller reports that, it does not substitute a number."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.environ.get("OSTLER_REPLY_DEBT_PY", ""),
+             os.path.join(here, "..", "..", "..", "vendor", "cm048_pipeline", "src", "reply_debt.py")]
+    for pat in ("services/*/src/reply_debt.py", "services/*/*/src/reply_debt.py", "services/*/reply_debt.py"):
+        cands += sorted(glob.glob(os.path.join(OSTLER, pat)))
+    for c in cands:
+        if not c:
+            continue
+        src = _read(c)
+        m = _WINDOW_RE.search(src or "")
+        if m:
+            n = 1
+            for g in m.groups():
+                if g:
+                    n *= int(g)
+            return n
+    return None
 
 
 def ws_chat(question, deadline_s=420):
@@ -185,6 +433,29 @@ def _named(text, name):
 # moment 1: "who do I owe a reply to?"
 # --------------------------------------------------------------------------
 
+IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
+IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
+
+
+def imessage_grant_state():
+    """What the 'imessage_not_connected' degradation is waiting for, read from
+    the same two places the Hub reads (vendor/cm048_pipeline reply_debt_adapters
+    imessage_connection_state): the consent registry and the feed LaunchAgent.
+    consent: accepted | absent | unreadable.  feed_installed: bool."""
+    path = os.path.join(os.environ.get("OSTLER_HOME", OSTLER), "posture", "consent.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+        rec = (reg.get("records") or {}).get(IMESSAGE_CONSENT_TICKBOX)
+        consent = "accepted" if isinstance(rec, dict) and rec.get("decision") == "accepted" else "absent"
+    except FileNotFoundError:
+        consent = "absent"
+    except (OSError, ValueError, AttributeError):
+        consent = "unreadable"
+    plist = os.path.join(HOME, "Library", "LaunchAgents", IMESSAGE_FEED_LABEL + ".plist")
+    return {"consent": consent, "feed_installed": os.path.isfile(plist)}
+
+
 def box_reply_debt():
     code, body = _hub("/api/v1/reply-debt")
     out = {"endpoint": code}
@@ -196,9 +467,12 @@ def box_reply_debt():
         return out
     out["degraded"] = bool(body.get("degraded"))
     out["reason"] = (body.get("reason") or "")[:120]
+    if out["degraded"] and out["reason"] == "imessage_not_connected":
+        out["imessage_grant"] = imessage_grant_state()
     debts = [d for d in (body.get("debts") or []) if isinstance(d, dict)]
-    names = [d.get("person_name") for d in debts
-             if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+    names, unsaved = grade_reply_debts(debts)
+    out["unsaved"] = unsaved
+    out["unsaved_window_hours"] = unsaved_window_hours() if unsaved else None
     l3 = [d.get("person_name") for d in debts if d.get("person_name") and _withheld(d.get("privacy_level"))]
     out["count"] = len(debts)
     out["fields_ok"] = all("person_name" in d and "waiting_hours" in d for d in debts)
@@ -211,8 +485,12 @@ def box_reply_debt():
     out["tools"] = sorted(set(tools))
     out["graded"] = len(names)
     out["named"] = [_named(text, n) for n in names]
+    out["missed"] = missed_debts(debts, out["named"])
     out["l3_named"] = sum(1 for n in l3 if _named(text, n))
     out["says_none"] = bool(NONE_WORDS.search(text)) if not debts else None
+    # Every debt an unsaved number: nobody is NAMED, and the correct answer says
+    # "someone not in your contacts" (oa #3142), not "nobody".
+    out["says_unsaved"] = bool(UNSAVED_WORDS.search(text)) if debts and not names else None
     out["answered"] = bool(text.strip())
     return out
 
@@ -231,6 +509,14 @@ def judge_reply_debt(c):
         check("GET /api/v1/reply-debt answers 200 JSON (%s)" % c["endpoint_error"], False)
         return lines, EX_FAIL
     check("GET /api/v1/reply-debt answers 200 JSON", True)
+    g = c.get("imessage_grant")
+    if c.get("degraded") and c.get("reason") == "imessage_not_connected" and g is not None:
+        # Not connected because nobody at a console accepted the third-party
+        # data consent (or it could not be read): a missing grant, not a defect.
+        # Consent accepted and the feed still not connected is the real FAIL.
+        if g.get("consent") in ("absent", "unreadable"):
+            return lines + ["  CANNOT needs console grant: iMessage third-party data consent (%s; feed installed: %s); reply debt was not measured"
+                            % (g.get("consent"), g.get("feed_installed"))], EX_CANNOT
     check("reply debt is not degraded (the detector can read Messages)%s"
           % (": " + c.get("reason", "") if c.get("degraded") else ""), not c.get("degraded"))
     check("every debt carries person_name and waiting_hours", c.get("fields_ok", False))
@@ -242,9 +528,17 @@ def judge_reply_debt(c):
     check("chat called pwg_reply_debt (tools: %s)" % (",".join(c.get("tools") or []) or "none"),
           "pwg_reply_debt" in (c.get("tools") or []))
     named = c.get("named") or []
-    if c.get("count", 0) > 0:
-        check("the answer names the %d people the Hub says are waiting (%d of %d)"
-              % (c.get("graded", 0), sum(named), len(named)), bool(named) and all(named))
+    if c.get("unsaved"):
+        lines.append("  note   %d unsaved number(s) not graded by name (the brief says 'someone not in your contacts'; age-out window %s h read from the shipped reply_debt.py)"
+                     % (c["unsaved"], c.get("unsaved_window_hours") if c.get("unsaved_window_hours") is not None else "UNREADABLE"))
+    if c.get("count", 0) - c.get("unsaved", 0) > 0:
+        check("the answer names the %d people the Hub says are waiting (%d of %d)%s"
+              % (c.get("graded", 0), sum(named), len(named),
+                 "; MISSED " + format_missed(c.get("missed")) if c.get("missed") else ""),
+              bool(named) and all(named))
+    elif c.get("count", 0) > 0:
+        check("every waiting debt is an unsaved number: the answer says 'not in your contacts' rather than naming or denying",
+              bool(c.get("says_unsaved")))
     else:
         check("with nobody waiting, the answer says so rather than inventing someone",
               bool(c.get("says_none")))
@@ -257,6 +551,146 @@ def judge_reply_debt(c):
 # --------------------------------------------------------------------------
 
 OWNER_PROMISE = "Post the walk-probe budget sheet to Philip Coe"
+# Shapes the 2026-10-19 Mini16 brief had and a customer must never see: a raw
+# ISO date ("(due 2026-10-16)"), and the owner's own chats with the assistant
+# retold as yesterday's news ("you greeted me with 'Hola'").
+CHAT_ECHO_PHRASES = ("you greeted me", "you asked me", "you asked why the assistant",
+                     "you asked about the assistant", "i confirmed i am", "i am always online",
+                     "showing as offline", "you said hello")
+
+
+def brief_shape(text):
+    low = (text or "").lower()
+    return {"iso_date_leak": bool(re.search(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)", text or "")),
+            "chat_echo": any(p in low for p in CHAT_ECHO_PHRASES)}
+_ITEM_SPLIT = re.compile(r"\s*(?:[,;:]|\band\b)\s*", re.I)
+# The brief's provenance tags ("From your messages", "From your Work calendar")
+# are section headings, printed once per section. Two messages sections print
+# the same tag twice, which is not the brief listing a thing twice (v1.0.122
+# walk). Narrow on purpose: only this exact tag shape is exempt.
+PROVENANCE_LINE = re.compile(r"^from your (?:messages|calendar|[a-z' ]* calendars?)$")
+
+
+# Strip LIST MARKERS only: "- ", "* ", a bullet, "N. " or "N) ". Never bare
+# leading digits. "09:00 Standup" and "15:00 Standup" are two meetings, and "2
+# emails" and "5 emails" are two counts; stripping digits made both pairs one
+# repeat, a false FAIL (the same defect Archie caught in the oa brief dedupe).
+_LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
+
+
+def _norm_item(t):
+    t = _LIST_MARKER.sub("", t or "", count=1)
+    return " ".join(re.sub(r"[^\w' ]+", " ", t.casefold()).split())
+
+
+def brief_repeat_events(text):
+    """Every repeat in the brief, one dict each: line (1-based), first_line (the
+    line it first appeared on; the same line for an item repeated inside one
+    line), kind ("line" or "item"), and norm (the normalised text, which is
+    hashed before anything is written to disk).
+
+    The v1.0.120 walk listed one person's birthday three times (three Person
+    nodes for one human). Only items of 2+ words count, and never an
+    empty-section phrase ("nothing overdue"), so a heading or a "none" line
+    repeated across sections is not a repeat."""
+    seen_lines, first_at, events = set(), {}, []
+    for lno, line in enumerate((text or "").splitlines(), 1):
+        n = _norm_item(line)
+        if PROVENANCE_LINE.match(n):
+            continue
+        if len(n.split()) >= 2 and not NONE_WORDS.search(n):
+            if n in seen_lines:
+                events.append({"line": lno, "first_line": first_at[n], "kind": "line", "norm": n})
+                continue
+            seen_lines.add(n)
+            first_at[n] = lno
+        items = [_norm_item(i) for i in _ITEM_SPLIT.split(line)]
+        items = [i for i in items if len(i.split()) >= 2 and not NONE_WORDS.search(i)]
+        local = set()
+        for i in items:
+            if i in local:
+                events.append({"line": lno, "first_line": lno, "kind": "item", "norm": i})
+            local.add(i)
+    return events
+
+
+def brief_repeats(text):
+    """How many lines, or list items within one line, the brief says twice. A
+    repeat is a COUNT, so it can leave the box; see brief_repeat_events."""
+    return len(brief_repeat_events(text))
+
+
+def _source_strings(*bodies):
+    """Every string inside the source rows the brief was built from (Hub
+    commitments, reply debts, calendar), flattened, for the in_sources check."""
+    out = []
+
+    def walk(x):
+        if isinstance(x, str):
+            out.append(x)
+        elif isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    for b in bodies:
+        walk(b)
+    return out
+
+
+def write_repeat_evidence(events, source_texts):
+    """On a repeated line, keep the evidence ON THE BOX, owner-only: the sha256
+    of each repeated line, its line numbers, and whether the line also appears
+    in the source rows. The line text itself is never written. The facts block
+    is NOT INSTRUMENTED: no daemon route or log exposes it (ostler-assistant
+    brief/catchup.rs renders it into the model prompt only).
+
+    Returns {"path", "error", "in_sources"}; error is None when written."""
+    import hashlib
+    if not events:
+        return {"path": None, "error": None, "in_sources": 0}
+    norm_sources = " \n ".join(_norm_item(s) for s in source_texts)
+    rows = []
+    for ev in events:
+        n = ev["norm"]
+        rows.append({"line": ev["line"], "first_line": ev["first_line"], "kind": ev["kind"],
+                     "sha256": hashlib.sha256(n.encode("utf-8")).hexdigest(),
+                     "in_sources": bool(n) and n in norm_sources,
+                     "in_facts": "NOT INSTRUMENTED"})
+    blob = {"repeats": len(rows), "events": rows,
+            "source_strings": len(source_texts),
+            "facts_block": "NOT INSTRUMENTED: no daemon route or log exposes the catch-up facts block"}
+    d = os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(OSTLER, "walks", "probe-evidence")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "morning_brief_repeats_%s_%s.json" % (
+            time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), os.urandom(4).hex()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh, sort_keys=True)
+        return {"path": path, "error": None, "in_sources": sum(1 for r in rows if r["in_sources"])}
+    except OSError as exc:
+        return {"path": None, "error": "%s: %s" % (type(exc).__name__, exc), "in_sources": 0}
+
+
+def export_brief_text(text):
+    """Keep the judged brief text ON THE BOX, owner-only, so a defect in it
+    (a duplicate, a leak) can be read there after the walk. Returns
+    (path, sha256, error). Only the path and hash leave the box."""
+    import hashlib
+    d = os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(OSTLER, "walks", "probe-evidence")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "morning_brief_%s.txt" % time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text or "")
+        return path, hashlib.sha256((text or "").encode("utf-8")).hexdigest(), None
+    except OSError as exc:
+        return None, None, "%s: %s" % (type(exc).__name__, exc)
+
+
 OTHER_PROMISE = "Thomas will share the walk-probe venue list"
 SEED_NS = "urn:ostler-walk-fixture:wow7"
 
@@ -312,6 +746,7 @@ def box_morning(wait_s=600):
     job_id = None
     try:
         code, body = _hub("/api/v1/commitments?owner=user&status=open")
+        commit_body = body
         seeded_visible = code == 200 and any(OWNER_PROMISE == (c.get("action") or "")
                                              for c in (body or {}).get("commitments") or [])
         if not seeded_visible:
@@ -319,8 +754,8 @@ def box_morning(wait_s=600):
             return out
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
-        reply_names = [d.get("person_name") for d in (rd or {}).get("debts") or []
-                       if d.get("person_name") and not _withheld(d.get("privacy_level"))][:GRADED_MAX]
+        reply_debts = (rd or {}).get("debts") or []
+        cap, _cap_src = reply_cap()
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -350,10 +785,17 @@ def box_morning(wait_s=600):
             out["cannot"] = "the probe's morning brief did not run within %ds" % wait_s
             return out
         out["answered"] = bool(text.strip())
+        out.update(brief_shape(text))
+        events = brief_repeat_events(text)
+        out["repeats"] = len(events)
+        ev_out = write_repeat_evidence(events, _source_strings(commit_body, rbody, cbody))
+        out["repeat_evidence_path"], out["repeat_evidence_error"] = ev_out["path"], ev_out["error"]
+        out["repeat_in_sources"] = ev_out["in_sources"]
+        p, h, err = export_brief_text(text)
+        out["brief_text_path"], out["brief_text_sha256"], out["brief_text_export_error"] = p, h, err
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
-        out["reply_graded"] = len(reply_names)
-        out["reply_named"] = [_named(text, n) for n in reply_names]
+        out.update(grade_morning_replies(reply_debts, text, cap))
         out["reply_source"] = "ok" if rd is not None else "unavailable"
         out["meetings_graded"] = len(meetings)
         out["meetings_named"] = [all(w in text.lower() for w in re.findall(r"[\w']{3,}", m.lower())[:4])
@@ -379,11 +821,44 @@ def judge_morning(c):
     check("the brief was written (run status %s)" % c.get("run_status"), c.get("answered", False))
     check("the brief names the owner's open promise", c.get("owner_promise", False))
     check("the brief does NOT present a promise someone else owes as the owner's", not c.get("other_promise", True))
+    check("the brief carries no raw ISO date", not c.get("iso_date_leak", True))
+    check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
+    if "repeats" in c:
+        check("the brief lists nobody and nothing twice (%d repeated)" % c["repeats"], c["repeats"] == 0)
+        if c["repeats"]:
+            lines.append("  note   repeated lines kept on the box: %s (%s in the source rows; facts block NOT INSTRUMENTED)"
+                         % (c.get("repeat_evidence_path") or "NOT WRITTEN: %s" % c.get("repeat_evidence_error"),
+                            c.get("repeat_in_sources", "NOT MEASURED")))
+    else:
+        lines.append("  note   NOT MEASURED: this capture predates the repeat count")
+    if c.get("brief_text_path"):
+        lines.append("  note   judged brief text kept on the box: %s (sha256 %s)"
+                     % (c["brief_text_path"], (c.get("brief_text_sha256") or "")[:16]))
+    elif "brief_text_path" in c:
+        lines.append("  note   NOT EXPORTED: the judged brief text could not be kept (%s)"
+                     % c.get("brief_text_export_error"))
     rn = c.get("reply_named") or []
     if c.get("reply_graded", 0):
-        check("the brief names who is waiting on a reply (%d of %d)" % (sum(rn), len(rn)), all(rn))
+        check("the brief names who is waiting on a reply (%d of %d)%s"
+              % (sum(rn), len(rn), "; MISSED " + format_missed(c.get("reply_missed")) if c.get("reply_missed") else ""),
+              all(rn))
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
+    if "reply_drops" in c:
+        lines.append("  note   reply arm: cap %s (%s); the hub says owed %s, ambiguous %s; which rows are shown is not graded"
+                     % (c.get("reply_cap"), c.get("reply_cap_source"), c.get("reply_owed"), c.get("reply_ambiguous")))
+        if c.get("reply_cap"):
+            check("the brief lists nobody the hub says is not owed, and no invented name (%s wrong)" % c.get("reply_wrong_names"),
+                  not c.get("reply_wrong_names"))
+        for d in c.get("reply_drops") or []:
+            lines.append("  note   reply row NOT graded: reason=%s shape=%s resolved=%s age_h=%s"
+                         % (d.get("reason"), d.get("shape"), d.get("resolved"), d.get("age_hours")))
+        if c.get("reply_cap") and "reply_more_low" in c:
+            lo, hi, seen = c["reply_more_low"], c["reply_more_high"], c.get("reply_more_seen") or []
+            if hi > 0:
+                check('the brief\'s "and N more" equals the owed rows past the shown top %d (expected %s, brief says %s)'
+                      % (c["reply_cap"], lo if lo == hi else "%d to %d" % (lo, hi), seen or "no count"),
+                      any(lo <= n <= hi for n in seen))
     mn = c.get("meetings_named") or []
     if c.get("meetings_graded", 0):
         check("the brief names today's meetings (%d of %d)" % (sum(mn), len(mn)), all(mn))
@@ -405,10 +880,25 @@ def self_test():
         "an L3 person was named": dict(rd_good, l3_named=1),
         "nobody waiting, chat invented someone": dict(rd_good, count=0, graded=0, named=[], says_none=False),
         "endpoint 500": {"endpoint": 500, "endpoint_error": "HTTP 500, unparseable"},
+        "not connected although consent is accepted and the feed installed": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": True}),
+        "not connected, consent accepted, feed missing (installer defect)": dict(
+            rd_good, degraded=True, reason="imessage_not_connected",
+            imessage_grant={"consent": "accepted", "feed_installed": False}),
     }
+    for gname, grant in (("consent absent", {"consent": "absent", "feed_installed": False}),
+                         ("consent unreadable", {"consent": "unreadable", "feed_installed": False})):
+        _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="imessage_not_connected", imessage_grant=grant))
+        print("  %s  reply debt: not connected with %s is CANNOT-RUN, not FAIL" % ("ok   " if rc == EX_CANNOT else "FAIL ", gname))
+        ok &= rc == EX_CANNOT
+    _, rc = judge_reply_debt(dict(rd_good, degraded=True, reason="reply_debt_detector_unavailable"))
+    print("  %s  reply debt: a degradation that is not the missing consent stays FAIL" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
     mb_good = {"prompt_covers_today": True, "answered": True, "run_status": "ok", "owner_promise": True,
                "other_promise": False, "reply_graded": 1, "reply_named": [True], "reply_source": "ok",
-               "meetings_graded": 1, "meetings_named": [True]}
+               "meetings_graded": 1, "meetings_named": [True], "iso_date_leak": False, "chat_echo": False,
+               "repeats": 0}
     mb_mut = {
         "prompt still only about yesterday": dict(mb_good, prompt_covers_today=False),
         "owner's promise missing": dict(mb_good, owner_promise=False),
@@ -416,7 +906,63 @@ def self_test():
         "a reply owed left out": dict(mb_good, reply_named=[False]),
         "today's meeting left out": dict(mb_good, meetings_named=[False]),
         "empty brief": dict(mb_good, answered=False),
+        "a raw ISO date reached the owner": dict(mb_good, iso_date_leak=True),
+        "the owner's chats with the assistant retold as news": dict(mb_good, chat_echo=True),
+        "one person's birthday listed twice": dict(mb_good, repeats=1),
     }
+    # The repeat counter on synthetic text: one person three times (the walk's
+    # shape), the same on one line, and a clean brief.
+    for label, txt, want in (
+            ("three birthday lines for one person",
+             "Birthdays:\n- Jane Stewart, 2 Nov\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\n- Jane Stewart, 2 Nov", 2),
+            ("one person twice on one line", "Birthdays this week: Jane Stewart, Tom Jones and Jane Stewart.", 1),
+            ("a clean brief", "Birthdays:\n- Jane Stewart, 2 Nov\n- Tom Jones, 3 Nov\nNothing overdue.\nNothing overdue.", 0),
+            ("the provenance tag under two sections",
+             "You promised: send the pack.\nFrom your messages\nWaiting on a reply from you: Jane Stewart.\nFrom your messages", 0),
+            ("a person named twice next to a repeated provenance tag (control)",
+             "Waiting on a reply from you: Jane Stewart.\nFrom your messages\nWaiting on a reply from you: Jane Stewart.\nFrom your messages", 1),
+            ("a line that starts like a tag but names a person is not exempt",
+             "From your messages Jane Stewart wrote twice\nFrom your messages Jane Stewart wrote twice", 1)):
+        got = brief_repeats(txt)
+        print("  %s  brief_repeats: %s (%d, want %d)" % ("ok   " if got == want else "FAIL ", label, got, want))
+        ok &= got == want
+    # The shape reader itself, on the two real 2026-10-19 shapes (synthetic text).
+    shp = brief_shape("You promised to send the pack (due 2030-01-16). Yesterday you greeted me with 'Hola'.")
+    print("  %s  brief_shape reads a raw ISO date and a chat echo" % ("ok   " if shp == {"iso_date_leak": True, "chat_echo": True} else "FAIL "))
+    ok &= shp == {"iso_date_leak": True, "chat_echo": True}
+    shp = brief_shape("Pat flies at 1:25pm; the venue pack was due on the 16th and is overdue.")
+    print("  %s  brief_shape passes a clean brief" % ("ok   " if shp == {"iso_date_leak": False, "chat_echo": False} else "FAIL "))
+    ok &= shp == {"iso_date_leak": False, "chat_echo": False}
+    # Grading split: 2 resolved + 1 unresolved grades exactly the 2 resolved.
+    names, uns = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
+                                    {"person_name": "John Doe", "resolved": True},
+                                    {"person_name": "Unknown number", "resolved": False}])
+    split_ok = names == ["Jane Doe", "John Doe"] and uns == 1
+    print("  %s  2 resolved + 1 unresolved: graded %d of 2, unsaved %d not graded" % ("ok   " if split_ok else "FAIL ", len(names), uns))
+    ok &= split_ok
+    cap = dict(rd_good, count=3, graded=len(names), named=[True] * len(names), unsaved=uns)
+    _, rc = judge_reply_debt(cap)
+    print("  %s  reply debt: 2 resolved named + 1 unsaved passes 2/2" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(cap, named=[True, False]))
+    print("  %s  reply debt mutant rejected: a resolved person dropped from the answer" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    # All debts unsaved: the right answer passes, the answer that omits the line fails.
+    all_unsaved = dict(rd_good, count=1, graded=0, named=[], unsaved=1, says_none=None, says_unsaved=True)
+    _, rc = judge_reply_debt(all_unsaved)
+    print("  %s  reply debt: all debts unsaved and the answer says 'not in your contacts' passes" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(all_unsaved, says_unsaved=False))
+    print("  %s  reply debt mutant rejected: all debts unsaved and the answer omits the line" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
+                                      {"person_name": "Unknown number", "resolved": False}])
+    mut_ok = "Unknown number" not in mut_names
+    print("  %s  an unresolved number is never graded by name" % ("ok   " if mut_ok else "FAIL "))
+    ok &= mut_ok
+    win = unsaved_window_hours()
+    print("  %s  the age-out window is read from the shipped reply_debt.py (%s h)" % ("ok   " if win else "FAIL ", win))
+    ok &= bool(win)
     for name, judge, good, muts in (("reply debt", judge_reply_debt, rd_good, rd_mut),
                                     ("morning brief", judge_morning, mb_good, mb_mut)):
         _, rc = judge(good)

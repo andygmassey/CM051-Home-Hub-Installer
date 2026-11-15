@@ -109,7 +109,19 @@ else
     fails=$((fails+1))
 fi
 
-rm -f "$T/vendor/fake_component/c.py"
+# NOT A CLIENT: a dict lookup keyed "endpoints" next to a gated URL literal
+# (cm059 fdb11f2b emit_frontpage.py:172). The gate once read .get("endpoints"
+# as an HTTP call and refused a file that builds no request.
+mk c.py 'base = "http://127.0.0.1:8090"
+endpoints = cache.get("endpoints") if isinstance(cache, dict) else None
+'
+mk d.py 'import urllib.request
+req = urllib.request.Request("http://127.0.0.1:8090/api/v1/suggestions", headers={"Authorization": "Bearer " + tok})
+'
+if [ "$(rc)" = "0" ]; then echo "  ok   a dict .get(\"endpoints\") is not a request"
+else echo "  FAIL a dict .get(\"endpoints\") was read as a request"; fails=$((fails+1)); fi
+
+rm -f "$T/vendor/fake_component/c.py" "$T/vendor/fake_component/d.py"
 if [ "$(rc)" = "3" ]; then echo "  ok   NEGATIVE CONTROL: an empty tree is CANNOT-RUN, not PASS"
 else echo "  FAIL NEGATIVE CONTROL: empty tree did not report CANNOT-RUN"; fails=$((fails+1)); fi
 

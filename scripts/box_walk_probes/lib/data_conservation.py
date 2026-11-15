@@ -52,6 +52,7 @@ import re
 import sys
 
 PY2_GUARD = sys.version_info[0] >= 3
+P_NS = "https://schema.ostler.ai/ontology#"   # the Person namespace the people probes query
 
 STAGES = ("in", "stored", "graph", "shown")
 # KNOWN-GAP is a declared, expected-red row (never silently green, never fails the walk).
@@ -129,6 +130,14 @@ def adjudicate_row(row, facts):
     fk = row.get("facts", {})
     exp = row.get("expected", {})
     chain_on = row.get("chain", True)
+    if row.get("cross_run"):
+        # IN and STORED come from different runs, so no comparison between them
+        # is a measurement. NOT-MEASURED (CANNOT-RUN), never LOST and never a
+        # pass. A LOST elsewhere still FAILs the whole probe.
+        return {"id": row["id"], "source": row.get("source", ""), "category": row.get("category", ""),
+                "unit": row.get("unit", "items"), "in": None, "stored": None, "graph": None,
+                "shown": None, "expected": exp, "verdict": "NOT-MEASURED",
+                "why": "CANNOT-RUN (cross-run): " + row["cross_run"], "notes": ""}
     m = {s: _fact(facts, fk.get(s)) for s in STAGES}
     verdict = "CONSERVED"
     why, notes = [], []
@@ -312,9 +321,37 @@ def load_wiki_corpus(wiki_dir):
     return " \n ".join(parts), n
 
 
+class _Corpus(object):
+    """The normalised wiki, padded ONCE, with its word set. v1.0.121: is_shown rebuilt
+    " " + corpus + " " (110 MB on the walk box) on every call, up to SHOWN_SAMPLE_CAP times per
+    group, and the collect sat at 100% CPU past its 600s budget (CANNOT-RUN-BUDGET). Same answers."""
+
+    def __init__(self, corpus):
+        self.padded = " " + corpus + " "
+        self.words = set(corpus.split(" "))
+
+
+_PREPARED = [None, None]
+
+
+def _prepared(corpus):
+    if isinstance(corpus, _Corpus):
+        return corpus
+    if _PREPARED[0] is not corpus:
+        _PREPARED[0], _PREPARED[1] = corpus, _Corpus(corpus)
+    return _PREPARED[1]
+
+
 def is_shown(text, corpus):
     t = _norm(text)
-    return bool(t) and (" " + t + " ") in (" " + corpus + " ")
+    if not t:
+        return False
+    c = _prepared(corpus)
+    # a phrase cannot be a whole-word substring if one of its words is not a word of the corpus
+    for w in t.split(" "):
+        if w not in c.words:
+            return False
+    return (" " + t + " ") in c.padded
 
 
 # ===========================================================================
@@ -325,7 +362,7 @@ QDRANT = os.environ.get("OSTLER_QDRANT_URL", "http://127.0.0.1:6333")
 OXIGRAPH = os.environ.get("OSTLER_OXIGRAPH_URL", "http://127.0.0.1:7878/query")
 HOME = os.path.expanduser("~")
 STORE_CONF = os.environ.get("OSTLER_PROBE_STORE_CURL_CONF", os.path.join(HOME, ".ostler/secrets/store-curl.conf"))
-WIKI_DIR = os.environ.get("OSTLER_WIKI_DIR", os.path.join(HOME, "Documents/Ostler/Wiki"))
+WIKI_DIR = os.environ.get("OSTLER_WIKI_DIR", os.path.join(HOME, "Ostler/Wiki"))
 LOG_DIR = os.environ.get("OSTLER_LOG_DIR", os.path.join(HOME, ".ostler/logs"))
 
 # collection -> (payload keys to tally one by one, [(keyA, keyB) pairs], display key candidates)
@@ -377,8 +414,9 @@ def _http(url, body=None, headers=None, form=None, timeout=60):
         return 0, None
 
 
-def _scroll(coll, keys, hdr):
-    """Yield payload dicts (only `keys`) for every point. Read-only."""
+def _scroll_rows(coll, keys, hdr):
+    """Yield (point_id, payload) for every point, payload only `keys`. Read-only.
+    Yields None once, then stops, when the collection cannot be read."""
     offset = None
     while True:
         body = {"limit": 1000, "with_payload": {"include": keys}, "with_vector": False}
@@ -390,10 +428,16 @@ def _scroll(coll, keys, hdr):
             return
         res = js.get("result", {})
         for p in res.get("points", []):
-            yield p.get("payload", {}) or {}
+            yield (str(p.get("id")), p.get("payload", {}) or {})
         offset = res.get("next_page_offset")
         if offset is None:
             return
+
+
+def _scroll(coll, keys, hdr):
+    """Yield payload dicts (only `keys`) for every point. Read-only."""
+    for row in _scroll_rows(coll, keys, hdr):
+        yield None if row is None else row[1]
 
 
 def load_noise_reason(meta):
@@ -424,6 +468,17 @@ def load_noise_reason(meta):
 
 def _slug(text):
     return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")[:48]
+
+
+def shown_source_sum(facts, coll):
+    """SHOWN summed over EVERY source of a collection. The STORED total
+    (q.<coll>.total) counts all sources, so a row that reads one source's SHOWN
+    against it reads the other sources' items as lost (walk 131: people read
+    fda_people_index alone against a total that also holds icloud_contacts).
+    None when no source group was measured, which is absent, never 0."""
+    pref = "w.shown.%s.source=" % coll
+    vals = [int(v) for k, v in facts.items() if k.startswith(pref) and v is not None]
+    return sum(vals) if vals else None
 
 
 def collect_qdrant(facts, meta, hdr, corpus):
@@ -506,6 +561,7 @@ def collect_qdrant(facts, meta, hdr, corpus):
                 facts["w.shown.%s.%s" % (coll, g)] = int(round(hit * scale))
                 if scale != 1.0:
                     meta.setdefault("shown_sampled", []).append("%s.%s x%.1f" % (coll, g, scale))
+            facts["w.shown.%s.source_sum" % coll] = shown_source_sum(facts, coll)
 
 
 def _sparql(q, hdr):
@@ -520,9 +576,15 @@ def collect_oxigraph(facts, meta, hdr):
     if rows is None:
         meta["oxigraph"] = "unreadable"
         return
+    total = 0
     for r in rows:
         local = r["t"]["value"].rsplit("#", 1)[-1].rsplit("/", 1)[-1]
         facts["x.class.%s" % local] = int(r["n"]["value"])
+        total += int(r["n"]["value"])
+    # The control for an absent class: the GROUP BY answered, so a class with
+    # no row holds 0 nodes. Rows name it as {"key": "x.class.T", "zero_if":
+    # "x.class.total"}; without this a box with 0 Places read "unreadable".
+    facts["x.class.total"] = total
     # PREFERENCES, raw vs distinct. Every like/dislike is held twice (pwg:pref_<id>
     # from the CM019 writer and urn:ostler:preference:<sha256> from the CM059
     # projection), so raw is what a tile that counts nodes reads and distinct is
@@ -674,7 +736,7 @@ def collect_state(facts, meta):
     except (OSError, ValueError):
         meta["extraction_summary"] = "unreadable"
     # Bundle directories: one dir per conversation / capture.
-    conv = os.path.join(HOME, "Documents/Ostler/Conversations")
+    conv = os.path.join(HOME, "Ostler/Conversations")
     if os.path.isdir(conv):
         n = 0
         for day in os.listdir(conv):
@@ -698,9 +760,109 @@ def collect_doctor(facts, meta, hdr):
         k = r.get("source")
         if k is None:
             continue
+        # The Doctor counts each source in ITS OWN unit (whatsapp: 41,211 messages, imessage: messages,
+        # people: records). An unscoped fact would be compared against a people or chats row (v1.0.121:
+        # "whatsapp|people shown 41211 vs stored 314"), so a count in a unit other than contacts/people
+        # is filed under its unit and the unscoped item_count stays ABSENT = NOT-MEASURED, never INFLATED.
+        unit = r.get("item_unit")
         for f in ("item_count", "last_run_count"):
             if isinstance(r.get(f), int):
-                facts["doctor.%s.%s" % (k, f)] = r[f]
+                if f == "item_count" and unit and unit not in ("people", "contacts"):
+                    facts["doctor.%s.%s.%s" % (k, f, unit)] = r[f]
+                else:
+                    facts["doctor.%s.%s" % (k, f)] = r[f]
+
+
+# --- ROW EVIDENCE (instrumentation only) -------------------------------------
+# Per-row salted-hash ids, written ON THE BOX to an owner-only file. Counts go
+# to meta; facts are untouched, so adjudicate() cannot read any of this. The
+# driver output carries counts and the path only.
+ROW_EVIDENCE_NOTE_IN = ("NOT INSTRUMENTED: importers record counts only (install.log summary lines, "
+                        "hydrate .done item_count); no per-row IN set exists on the box to diff against")
+
+
+def _evidence_dir():
+    return os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(HOME, ".ostler", "walks", "probe-evidence")
+
+
+def _norm_content(text):
+    return " ".join(str(text).casefold().split())
+
+
+def collect_row_evidence(meta, hdr):
+    """Salted sha256 of every stored row id and content key, per source, plus the
+    people breakdown: Qdrant people vs Oxigraph Person nodes, duplicates within
+    each store, and the set differences. Hash lists go to the owner-only file;
+    meta carries counts only. Salt is per run and is written to that file, so an
+    operator on the box can test a candidate name against a hash."""
+    import binascii
+    import hashlib
+    import time
+    salt = binascii.hexlify(os.urandom(16)).decode()
+
+    def h(v):
+        return hashlib.sha256(("%s|%s" % (salt, v)).encode("utf-8")).hexdigest()
+
+    sources, unreadable = {}, []
+    people_q = []                       # (point content key or None) for the people collection
+    total_rows = 0
+    for coll, (keys, pairs, disp) in COLLECTION_SPEC.items():
+        want = ["source"] + list(disp)
+        for row in _scroll_rows(coll, want, hdr):
+            if row is None:
+                unreadable.append(coll)
+                break
+            pid, pl = row
+            src = str(pl.get("source") or "none")
+            text = ""
+            for d in disp:
+                if pl.get(d):
+                    text = _norm_content(pl[d])
+                    break
+            entry = sources.setdefault(src, {"in": {"status": "NOT INSTRUMENTED", "reason": ROW_EVIDENCE_NOTE_IN},
+                                             "stored": {"qdrant_ids": [], "qdrant_content": []},
+                                             "by_collection": {}})
+            entry["stored"]["qdrant_ids"].append(h("qdrant:%s:%s" % (coll, pid)))
+            if text:
+                entry["stored"]["qdrant_content"].append(h("content:%s" % text))
+            entry["by_collection"][coll] = entry["by_collection"].get(coll, 0) + 1
+            total_rows += 1
+            if coll == "people":
+                people_q.append(text or None)
+    people = {}
+    graph_rows = _sparql("SELECT DISTINCT ?p ?d WHERE { ?p a <%sPerson> . OPTIONAL { ?p <%sdisplayName> ?d } }"
+                         % (P_NS, P_NS), hdr)
+    if graph_rows is not None:
+        graph = [_norm_content(r["d"]["value"]) if r.get("d") else None for r in graph_rows]
+        q_names = [t for t in people_q if t]
+        g_names = [t for t in graph if t]
+        q_set, g_set = set(q_names), set(g_names)
+        people["per_store"] = {
+            "qdrant": {"rows": len(people_q), "distinct": len(q_set), "duplicate_rows": len(q_names) - len(q_set)},
+            "graph": {"rows": len(graph), "distinct": len(g_set), "duplicate_rows": len(g_names) - len(g_set)},
+        }
+        gnq = sorted(h("content:%s" % t) for t in g_set - q_set)
+        qng = sorted(h("content:%s" % t) for t in q_set - g_set)
+        people["diff"] = {"graph_not_qdrant": {"count": len(gnq), "hashes": gnq},
+                          "qdrant_not_graph": {"count": len(qng), "hashes": qng}}
+    else:
+        unreadable.append("oxigraph:Person")
+    blob = {"salt": salt, "sources": sources, "people": people, "unreadable": unreadable}
+    d = _evidence_dir()
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "data_conservation_rows_%s_%s.json" % (
+            time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), os.urandom(4).hex()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh, sort_keys=True)
+        err = None
+    except OSError as exc:
+        path, err = None, "%s: %s" % (type(exc).__name__, exc)
+    meta["row_evidence"] = {"path": path, "error": err, "stored_rows": total_rows,
+                            "sources": len(sources), "unreadable": unreadable,
+                            "people": {k: v for k, v in (people.get("per_store") or {}).items()},
+                            "diff_counts": {k: v["count"] for k, v in (people.get("diff") or {}).items()}}
 
 
 def collect():
@@ -721,6 +883,10 @@ def collect():
     collect_state(facts, meta)
     collect_ingest_logs(facts, meta)
     collect_doctor(facts, meta, hdr)
+    try:
+        collect_row_evidence(meta, hdr)
+    except Exception as exc:       # instrumentation must never cost the facts
+        meta["row_evidence"] = {"path": None, "error": "%s: %s" % (type(exc).__name__, exc)}
     return {"facts": facts, "meta": meta}
 
 

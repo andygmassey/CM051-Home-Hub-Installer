@@ -1,0 +1,51 @@
+name: no-pii-in-logs
+
+# S8 (118): vendored log sites carry ids, counts and statuses, never a
+# person's name, email, a meeting title, an address or coordinates. Logs
+# leave the box in diagnostics bundles. The test drives the VENDORED
+# meeting syncer (cm041) and both geocoders (cm019_preferences) with
+# synthetic records. The wiki compile-output half runs in ingest-slot.yml
+# (wiki-recompile/tests/test_wiki_recompile_tick.py).
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/cm041/meeting_syncer/**'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/cm019_preferences/services/enrich/src/geo/**'
+      - 'vendor/cm019_preferences/services/enrich/src/clients/**'
+      - 'vendor/cm019_preferences/requirements.txt'
+      - 'tests/test_vendored_logs_carry_no_personal_values.py'
+      - '.github/workflows/no-pii-in-logs.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  no-pii-in-logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the vendored trees' own declared dependencies
+        run: |
+          python -m pip install --quiet \
+            -r vendor/cm019_preferences/requirements.txt \
+            -r vendor/cm041/meeting_syncer/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt \
+            pytest
+
+      - name: Vendored log sites carry no personal values
+        run: python -m pytest tests/test_vendored_logs_carry_no_personal_values.py -v

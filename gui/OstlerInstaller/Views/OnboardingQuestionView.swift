@@ -31,6 +31,9 @@ struct OnboardingQuestionView: View {
     @State private var textValue: String = ""
     @State private var secretValue: String = ""
     @State private var yesnoValue: Bool = true
+    /// Set by the consent screen's Cancel; the install only ends on the
+    /// dialog's Stop install.
+    @State private var confirmingConsentCancel: Bool = false
     @State private var choiceValue: String = ""
     /// `folder` kind: holds the path the customer has picked (or
     /// the default `~/Downloads`). Empty string means "skip".
@@ -239,6 +242,19 @@ struct OnboardingQuestionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // English prevails (Owner ruling 2026-10-24): every legal/consent screen
+            // whose wording is shown translated carries the reviewed
+            // "English version prevails" line. nil (the line is untranslated)
+            // means the legal wording is English, so nothing is shown.
+            if ViewCopy.isLegalPrompt(q.prompt.id), let prevails = ViewCopy.shared.englishPrevailsNote() {
+                Text(prevails)
+                    .font(.ostlerCaption.italic())
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("legal_english_prevails")
+            }
+
             // CX-97 (DMG #48g+1, 2026-05-29): install.sh's secret-
             // confirm loops (recovery_passphrase, email_password) pass
             // a mismatch message via gui_read's $7 error_text arg,
@@ -429,8 +445,9 @@ struct OnboardingQuestionView: View {
     /// blocks, all fed from ViewCopy keys (Rule 0.9 catalogue):
     ///   - intro_body                (primary body copy)
     ///   - ask_heading + bullet_1..3 (a scannable ask list)
-    ///   - legal_note                (smaller italic .secondary fine
-    ///                                print)
+    ///   - legal note                (smaller italic .secondary fine
+    ///                                print), composed per REGION by
+    ///                                LegalRegion.spokenCaptureLegalNote
     ///
     /// Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so
     /// the TTY install path still renders the full text inline.
@@ -442,7 +459,12 @@ struct OnboardingQuestionView: View {
             ViewCopy.shared.string(for: "consent_spoken_capture.bullet_2"),
             ViewCopy.shared.string(for: "consent_spoken_capture.bullet_3")
         ]
-        let legal = ViewCopy.shared.string(for: "consent_spoken_capture.legal_note")
+        // Legal note chosen by the Mac's REGION (country part of
+        // AppleLocale), never its language; same rule as install.sh.
+        // Region lines are best-effort drafts needing local sign-off.
+        let legal = LegalRegion.spokenCaptureLegalNote(
+            appleLocale: LegalRegion.currentAppleLocale()
+        )
         return VStack(alignment: .leading, spacing: .ostlerSpace3) {
             Text(linkifiedHelp(intro))
                 .font(.ostlerBodyLg)
@@ -633,6 +655,13 @@ struct OnboardingQuestionView: View {
                 .disabled(q.isReview)
                 Spacer()
             }
+            // F&F (v1.0.125): on a prompt where "n" ends the install,
+            // Continue is disabled while the switch is off; say why.
+            if !q.isReview && !yesnoContinueEnabled(promptId: q.prompt.id, isOn: yesnoValue) {
+                Text(ViewCopy.shared.string(for: "onboarding_question.yesno_switch_on_to_continue"))
+                    .font(.ostlerCaption)
+                    .foregroundStyle(Color.ostlerInkMuted)
+            }
         case .choice:
             // F6.6: fda_preset gets a proper segmented / radio
             // control with all three options visible at once.
@@ -643,10 +672,17 @@ struct OnboardingQuestionView: View {
             if q.prompt.id == "fda_preset" {
                 fdaPresetSegmented(q)
             } else {
+                // F&F item 3: never render an empty picker. `options` falls
+                // back to the known list for this prompt id, and the selection
+                // is always one of them (ChoiceResolver).
+                let options = ChoiceResolver.choices(
+                    promptId: q.prompt.id, choices: q.prompt.choices,
+                    defaultValue: q.prompt.defaultValue)
                 Picker("", selection: q.isReview
-                       ? .constant(q.priorAnswer ?? (q.prompt.choices.first ?? ""))
-                       : $choiceValue) {
-                    ForEach(q.prompt.choices, id: \.self) { choice in
+                       ? .constant(resolvedChoice(q, current: q.priorAnswer))
+                       : Binding(get: { resolvedChoice(q, current: choiceValue) },
+                                 set: { choiceValue = $0 })) {
+                    ForEach(options, id: \.self) { choice in
                         Text(choiceLabel(promptId: q.prompt.id, value: choice))
                             .tag(choice)
                     }
@@ -849,10 +885,29 @@ struct OnboardingQuestionView: View {
                 let cancelSentinel = q.prompt.choices.count > 1
                     ? q.prompt.choices[1]
                     : "CANCEL"
+                // Cancel ends the install, so it asks first (tester report,
+                // 2 Nov 2026: one click on Cancel ended a third attempt).
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel")) {
-                    coordinator.respond(to: q.prompt, with: cancelSentinel)
+                    confirmingConsentCancel = true
                 }
                 .buttonStyle(.ostlerGhost)
+                .confirmationDialog(
+                    ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_title"),
+                    isPresented: $confirmingConsentCancel
+                ) {
+                    Button(
+                        ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_stop"),
+                        role: .destructive
+                    ) {
+                        coordinator.respond(to: q.prompt, with: cancelSentinel)
+                    }
+                    Button(
+                        ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_keep"),
+                        role: .cancel
+                    ) {}
+                } message: {
+                    Text(ViewCopy.shared.string(for: "onboarding_question.consent_install_cancel_confirm_body"))
+                }
 
                 Button(ViewCopy.shared.string(for: "onboarding_question.consent_install_primary")) {
                     submit(q)
@@ -883,6 +938,8 @@ struct OnboardingQuestionView: View {
                 }
                     .buttonStyle(.ostlerPrimary)
                     .keyboardShortcut(.defaultAction)
+                    .disabled(q.prompt.kind == .yesno
+                              && !yesnoContinueEnabled(promptId: q.prompt.id, isOn: yesnoValue))
             }
         }
     }
@@ -921,12 +978,22 @@ struct OnboardingQuestionView: View {
         folderValue = ""
     }
 
+    /// F&F item 3: the picker's value, always one of the rendered options.
+    private func resolvedChoice(_ q: DisplayedQuestion, current: String?) -> String {
+        let options = ChoiceResolver.choices(
+            promptId: q.prompt.id, choices: q.prompt.choices,
+            defaultValue: q.prompt.defaultValue)
+        return ChoiceResolver.selection(
+            promptId: q.prompt.id, current: current, options: options,
+            defaultValue: q.prompt.defaultValue)
+    }
+
     private func currentAnswer(_ q: DisplayedQuestion) -> String {
         switch q.prompt.kind {
         case .text:        return textValue
         case .secret:      return secretValue
         case .yesno:       return yesnoValue ? "y" : "n"
-        case .choice:      return choiceValue
+        case .choice:      return resolvedChoice(q, current: choiceValue)
         case .acknowledge:
             // Acknowledgement carries the default value back to
             // install.sh as the "answer". Most install.sh callers
@@ -983,7 +1050,13 @@ struct OnboardingQuestionView: View {
                     fills: ["options": options]
                 )
             }
-        case .yesno, .secret, .acknowledge, .folder:
+        case .yesno:
+            // Defence in depth behind the disabled Continue: never send
+            // "n" from Continue on a prompt where "n" ends the install.
+            if !yesnoContinueEnabled(promptId: q.prompt.id, isOn: answer == "y") {
+                return ViewCopy.shared.string(for: "onboarding_question.yesno_switch_on_to_continue")
+            }
+        case .secret, .acknowledge, .folder:
             // acknowledge: never empty (default carries the answer).
             // folder: Skip submits "" deliberately; Continue is
             //         disabled when folderValue is empty so validate
@@ -1163,6 +1236,25 @@ func typedInstallInputMatches(sentinel: String, input: String) -> Bool {
     guard !sentinel.isEmpty else { return false }
     let typed = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     return typed == sentinel.uppercased()
+}
+
+/// Yes/no prompts where install.sh ends the install on "n":
+/// perms_ok, consent_article_9 and consent_third_party reach
+/// gui_cancelled; filevault_skip exits 1. On these the GUI's Continue
+/// must never send "n" (F&F tester, v1.0.125: Continue with the switch
+/// off cancelled the install). The terminal path is unchanged; in the
+/// GUI the customer stops with Quit. ConsentContinueGateTests pins
+/// this set against install.sh.
+let yesnoPromptsWhereNoEndsInstall: Set<String> = [
+    "perms_ok",
+    "filevault_skip",
+    "consent_article_9",
+    "consent_third_party",
+]
+
+/// True when the yes/no prompt's Continue is enabled with the switch at `isOn`.
+func yesnoContinueEnabled(promptId: String, isOn: Bool) -> Bool {
+    return isOn || !yesnoPromptsWhereNoEndsInstall.contains(promptId)
 }
 
 /// B2 (CX-14): URL-regex post-processor that turns plain help text

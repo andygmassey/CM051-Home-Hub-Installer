@@ -42,6 +42,9 @@ def judge(f: dict) -> tuple[int, list[str]]:
     if status == "disabled_by_user":
         line("FAIL", "apple_music was not requested (status disabled_by_user); it is in the default preset, so either the preset regressed or this walk picked Customise and unticked it")
         return FAIL, out
+    if status == "not_tried":
+        line("CANNOT", f"the apple_music arm was skipped by the {am.get('writer', '?')} run and no earlier read is recorded ({am.get('reason', '')}); nothing about Apple Music was measured")
+        return CANNOT, out
     if status != "ok":
         line("FAIL", f"the apple_music arm reported status {status!r} (error: {am.get('error', '')!s}); a refused permission or an empty library is status ok with 0 tracks, so this is a crash")
         return FAIL, out
@@ -51,7 +54,8 @@ def judge(f: dict) -> tuple[int, list[str]]:
     native = am.get("native_status", "?")
     detail = am.get("native_detail", "")
     bundles = f.get("library_bundles")
-    line("note", f"reader={reader} native_status={native}{(' (' + detail + ')') if detail else ''} tracks={tracks} library_bundles={bundles}")
+    writer = am.get("writer") or "unrecorded"
+    line("note", f"writer={writer} reader={reader} native_status={native}{(' (' + detail + ')') if detail else ''} tracks={tracks} library_bundles={bundles}")
 
     if tracks == 0:
         if native == "unavailable":
@@ -87,6 +91,10 @@ def judge(f: dict) -> tuple[int, list[str]]:
 # ── self-test: every branch, from fixtures ───────────────────────────────
 _OK_AM = {"status": "ok", "total_tracks": 120, "reader": "native", "native_status": "ok", "native_detail": ""}
 _CASES = [
+    ("writer in detail", {"summary_present": True, "apple_music": {**_OK_AM, "writer": "install"}, "library_bundles": 1, "prefs_total": 900, "prefs_apple": 120}, PASS, "writer=install"),
+    ("writer unrecorded", {"summary_present": True, "apple_music": _OK_AM, "library_bundles": 1, "prefs_total": 900, "prefs_apple": 120}, PASS, "writer=unrecorded"),
+    ("skipped, nothing carried", {"summary_present": True, "apple_music": {"status": "not_tried", "reason": "owned by music-refresh", "writer": "fda-rerun"}}, CANNOT, "skipped by the fda-rerun run"),
+    ("ladder skipped, nothing carried", {"summary_present": True, "apple_music": {"status": "not_tried", "reason": "owned by music-refresh", "writer": "backfill-ladder"}}, CANNOT, "skipped by the backfill-ladder run"),
     ("pass", {"summary_present": True, "apple_music": _OK_AM, "library_bundles": 1, "prefs_total": 900, "prefs_apple": 120}, PASS, "ok"),
     ("no summary", {"summary_present": False}, CANNOT, "no FDA extraction summary"),
     ("no entry", {"summary_present": True, "apple_music": None}, FAIL, "no apple_music entry"),
@@ -96,6 +104,7 @@ _CASES = [
     ("no library at all", {"summary_present": True, "apple_music": {**_OK_AM, "total_tracks": 0, "native_status": "unavailable"}, "library_bundles": 0}, CANNOT, "EMPTY LIBRARY"),
     ("empty library", {"summary_present": True, "apple_music": {**_OK_AM, "total_tracks": 0, "native_status": "empty"}, "library_bundles": 1}, CANNOT, "EMPTY LIBRARY"),
     ("helper never run", {"summary_present": True, "apple_music": {**_OK_AM, "total_tracks": 0, "reader": "none", "native_status": "not_tried"}, "library_bundles": 1}, FAIL, "never run"),
+    ("walk #27 after an install read: native_status not_tried stays FAIL", {"summary_present": True, "apple_music": {**_OK_AM, "total_tracks": 0, "reader": "none", "native_status": "not_tried", "writer": "install"}, "library_bundles": 1}, FAIL, "never run"),
     ("helper hung", {"summary_present": True, "apple_music": {**_OK_AM, "total_tracks": 0, "native_status": "timeout"}, "library_bundles": 1}, FAIL, "helper broke"),
     ("read but not stored", {"summary_present": True, "apple_music": _OK_AM, "library_bundles": 1, "prefs_total": 900, "prefs_apple": 0}, FAIL, "never reached preferences"),
     ("store auth", {"summary_present": True, "apple_music": _OK_AM, "library_bundles": 1, "prefs_total": "AUTH", "prefs_apple": "AUTH"}, CANNOT, "did not answer"),

@@ -68,6 +68,19 @@ class ScaleFixtureForget(unittest.TestCase):
         self.assertIn(sf.NEIGHBOUR_FACT, upd)
         self.assertIn(sf.NEIGHBOUR_URI, upd)
 
+    def test_the_neighbour_vector_is_forgotten_by_exact_uri_only(self):
+        calls = []
+        out = sf.forget_neighbour_vector("http://q.invalid", "/x", post=lambda u, b: calls.append((u, b)) or {})
+        self.assertEqual(out, "forgotten")
+        (url, body), = calls
+        self.assertIn("/collections/people/points/delete", url)
+        self.assertEqual(body["filter"]["must"][0], {"key": "person_uri", "match": {"value": sf.NEIGHBOUR_URI}})
+
+    def test_a_failed_vector_delete_is_reported_not_swallowed(self):
+        def boom(u, b):
+            raise OSError("down")
+        self.assertEqual(sf.forget_neighbour_vector("http://q.invalid", "/x", post=boom), "failed-OSError")
+
 
 if __name__ == "__main__":
     unittest.main()
