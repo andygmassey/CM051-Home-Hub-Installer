@@ -36,6 +36,8 @@ on:
       - 'tests/test_derived_prefs_probe_is_run_by_the_walk.sh'
       - 'tests/test_the_generated_digest_names_derived_preferences.sh'
       - 'context-refresh/bin/generate_pwg_context.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'tests/test_the_interest_compile_reads_derived_preferences.py'
       - 'scripts/box_walk_probes/**'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
@@ -92,3 +94,6 @@ jobs:
       - name: The generated CONTEXT.md names a derived preference (real generator, real probe)
         if: always()
         run: bash tests/test_the_generated_digest_names_derived_preferences.sh
+      - name: The interest compile (Front Page, scouts) reads derived preferences
+        if: always()
+        run: python3 tests/test_the_interest_compile_reads_derived_preferences.py

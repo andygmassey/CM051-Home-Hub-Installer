@@ -771,12 +771,14 @@ test_the_forward_calendar_window_survives_the_rerun.sh	WIRED	.github/workflows/t
 test_the_front_page_cards_only_real_interests.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_front_page_catch_up_survives_a_late_ingest.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_the_front_page_catch_up_waits_out_hydration.sh	WIRED	.github/workflows/writer-reader-vocabulary.yml
+test_the_generated_digest_names_derived_preferences.sh	WIRED	.github/workflows/derived-preferences.yml
 test_the_generated_uninstaller_parses.sh	WIRED	.github/workflows/uninstall-removal-honesty.yml
 test_the_governor_revendor_guard_is_actually_run.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_the_hub_app_can_record_card_feedback.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_the_hub_reads_the_doctor_like_the_app.py	WIRED	.github/workflows/vendor-integrity.yml
 test_the_install_panel_says_it_is_reading_the_transcript.py	WIRED	.github/workflows/consent-data-handling.yml
 test_the_installer_downloads_from_the_repo_we_publish_to.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
+test_the_interest_compile_reads_derived_preferences.py	WIRED	.github/workflows/derived-preferences.yml
 test_the_licence_a_customer_paid_for_is_owner_only.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_licence_acknowledgement_reaches_the_customer.sh	WIRED	.github/workflows/consent-registry.yml
 test_the_licence_screen_says_what_we_hash.sh	WIRED	.github/workflows/consent-registry.yml
@@ -1066,4 +1068,3 @@ scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh	WIRED	.
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
-test_the_generated_digest_names_derived_preferences.sh	WIRED	.github/workflows/derived-preferences.yml
