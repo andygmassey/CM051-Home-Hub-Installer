@@ -613,7 +613,7 @@ _install_derive_preferences_agent() {
         <string>${cm019_dir}</string>
         <key>OSTLER_DERIVE_USER</key>
         <string>${derive_user}</string>
-        <key>OSTLER_CONVERSATIONS_DIR</key><string>${OSTLER_DIR}/state/conversations_mirror</string>
+        <key>OSTLER_DERIVE_CONVERSATIONS_DIR</key><string>${OSTLER_DIR}/state/conversations_mirror</string>
         <key>OXIGRAPH_URL</key>
         <string>${OXIGRAPH_URL:-http://localhost:7878}</string>
         <key>QDRANT_URL</key>

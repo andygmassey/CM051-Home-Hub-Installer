@@ -201,3 +201,10 @@ The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` P
 DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
 When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
 `vendor/cm048_pipeline/src/channel_adapter.py`.
+
+## Edit: OSTLER_CONVERSATIONS_DIR no longer overrides the conversations root (forget-followup, 2026-11-15)
+
+- Lines removed: `settings.py` 310-312 (the `_path_env("OSTLER_CONVERSATIONS_DIR", "PWG_CONVERSATIONS_DIR")` override of `output_conversations_dir`).
+- Why: the derive plist sets `OSTLER_DERIVE_CONVERSATIONS_DIR` to the transcript mirror for CM019. Honouring a generic name here would send the bundle writer and the forget scrub into the mirror. Upstream CM048 commit 4d97a50 made the same change: one resolver, `ostler_paths.conversations_dir()`.
+- Test: `tests/test_derive_reads_conversations_mirror_not_documents.sh` and the forget-followup writer/scrub test.
+- Not capturable by the patch because the removal is three whole lines and the patch base predates 4d97a50.

@@ -307,9 +307,6 @@ def settings_from_env_override(s: Settings) -> Settings:
     if (v := _path_env("OSTLER_PROCESSING_DIR", "OSTLER_STATE_DIR",
                        "PWG_PROCESSING_DIR")) is not None:
         s.processing_state_dir = Path(v).expanduser()
-    if (v := _path_env("OSTLER_CONVERSATIONS_DIR",
-                       "PWG_CONVERSATIONS_DIR")) is not None:
-        s.output_conversations_dir = Path(v).expanduser()
     if (v := _path_env("OSTLER_COACH_DB_PATH",
                        "PWG_COACH_DB_PATH")) is not None:
         s.coach_db_path = Path(v).expanduser()

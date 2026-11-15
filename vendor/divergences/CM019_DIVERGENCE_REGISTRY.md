@@ -328,3 +328,8 @@ Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream me
 
 Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
 - Retire: re-pin past the upstream merge commit.
+
+## derive/config.py: the derive env name (forget-followup, 2026-11-15)
+
+- `services/enrich/src/derive/config.py:144` reads `OSTLER_DERIVE_CONVERSATIONS_DIR` (was `OSTLER_CONVERSATIONS_DIR`). Set by `install.sh` derive plist (line 616, renamed in the same change, line count unchanged).
+- Reason: the generic name is also read by the CM048 writer path, which must keep `~/Ostler/Conversations`.

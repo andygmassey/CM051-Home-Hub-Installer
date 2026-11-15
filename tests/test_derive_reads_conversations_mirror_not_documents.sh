@@ -61,10 +61,10 @@ H="${SANDBOX}/home"; O="${H}/.ostler"; mkdir -p "${O}/logs" "${H}/Library/Launch
 ) >/dev/null 2>&1
 PLIST="${H}/Library/LaunchAgents/com.ostler.derive-preferences.plist"
 [ -f "$PLIST" ] || { echo "CANNOT-RUN: the function wrote no plist"; exit 2; }
-root="$(python3 -I -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb")).get("EnvironmentVariables",{}).get("OSTLER_CONVERSATIONS_DIR",""))' "$PLIST")"
+root="$(python3 -I -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb")).get("EnvironmentVariables",{}).get("OSTLER_DERIVE_CONVERSATIONS_DIR",""))' "$PLIST")"
 case "$root" in
-    '') bad "1 the derive plist sets no OSTLER_CONVERSATIONS_DIR; the reader falls back to ~/Documents" ;;
-    "${H}/Documents"*) bad "1 OSTLER_CONVERSATIONS_DIR is inside ~/Documents: ${root}" ;;
+    '') bad "1 the derive plist sets no OSTLER_DERIVE_CONVERSATIONS_DIR; the reader falls back to ~/Documents" ;;
+    "${H}/Documents"*) bad "1 OSTLER_DERIVE_CONVERSATIONS_DIR is inside ~/Documents: ${root}" ;;
     *) ok "1 derive plist reads conversations from ${root#"$H"/}" ;;
 esac
 

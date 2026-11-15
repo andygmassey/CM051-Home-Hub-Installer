@@ -74,7 +74,7 @@ TMP = Path(tempfile.mkdtemp(prefix="qid-pass-e2e-"))
 os.environ["HOME"] = str(TMP)
 os.environ["OSTLER_DIR"] = str(TMP / "ostler")
 os.environ["OSTLER_MINORS_FILE"] = str(TMP / "no-minors.json")
-os.environ["OSTLER_CONVERSATIONS_DIR"] = str(TMP / "Conversations")
+os.environ["OSTLER_DERIVE_CONVERSATIONS_DIR"] = str(TMP / "Conversations")
 os.environ["OSTLER_STATED_MODEL_CACHE"] = str(TMP / "verdicts.json")
 for k in ("OXIGRAPH_HOST", "QDRANT_HOST"):
     os.environ[k] = "localhost"
