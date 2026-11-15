@@ -59,6 +59,7 @@ on:
       - 'tests/test_cut_dispatch_is_dry.sh'
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
+      - 'tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh'
       - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
       - 'scripts/verify_daemon_hold_registers_agree.py'
       - 'tests/test_daemon_hold_registers_agree.sh'
@@ -110,6 +111,9 @@ on:
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
+      # ARM 9's gate and its test (a .py edited after seeding is not the code that runs).
+      - 'scripts/verify_seeded_pyc_matches_source.py'
+      - 'tests/test_verify_seeded_pyc_matches_source.py'
       - 'tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh'
       # The marker arms are three-state (0 found / 1 not found / 2 could not
       # look). The test is watched as well as run: a run: without a matching
@@ -315,6 +319,12 @@ jobs:
       - name: A cut tag is not pushed while the tag-time checklist is red
         if: always()
         run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
+      # v1.0.114 spent its one tag push when CM051 #2993 crossed 48h between the
+      # green candidate and the tag run's check-pr-age. push_cut_tag.sh now
+      # re-asks with a 3h lookahead immediately before the push.
+      - name: A cut tag is not pushed while a PR will cross 48h within the lookahead
+        if: always()
+        run: /bin/bash tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh
 
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether
@@ -622,6 +632,14 @@ jobs:
       - name: walk arms say CANNOT-RUN when they could not measure
         if: always()
         run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
+      - name: ARM 9 catches a .py edited after its unchecked-hash .pyc was seeded
+        if: always()
+        run: |
+          # A venv, never the runner's system Python (PEP 668:
+          # "externally-managed-environment" on macos-latest).
+          python3 -m venv "$RUNNER_TEMP/arm9-venv"
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pip install --quiet pytest
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pytest -q tests/test_verify_seeded_pyc_matches_source.py
       - name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
         if: always()
         run: |

@@ -50,6 +50,17 @@ except ImportError as exc:  # pragma: no cover - smoke
         f"[consent_cli] could not import legal package: {exc}", file=sys.stderr,
     )
     sys.exit(2)
+try:
+    from legal.consent_strings import (  # noqa: E402
+        SPOKEN_CAPTURE_LEGAL_VARIANTS,
+        spoken_capture_recorded_version,
+    )
+except ImportError as exc:  # pragma: no cover - smoke
+    print(
+        f"[consent_cli] legal package has no region variants: {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 
 # Map cli tickbox arg -> ConsentString. Single source of truth.
@@ -93,16 +104,58 @@ def _cmd_record(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Region-chosen legal note (spoken capture only, CM051 2026-10-24): pin
+    # exactly the note the customer was shown. All three flags or none; a
+    # partial set is refused rather than recorded as a half-pin.
+    legal_flags = (args.legal_region, args.legal_variant, args.legal_note_file)
+    legal_note = None
+    wording_version = cs.version
+    if any(legal_flags):
+        if not all(legal_flags):
+            print(
+                "[consent_cli] --legal-region, --legal-variant and "
+                "--legal-note-file go together",
+                file=sys.stderr,
+            )
+            return 2
+        region = args.legal_region
+        if region != "none" and not (len(region) == 2 and region.isascii()
+                                     and region.isalpha() and region.isupper()):
+            print(
+                f"[consent_cli] --legal-region must be ISO alpha-2 or 'none', "
+                f"got {region!r}",
+                file=sys.stderr,
+            )
+            return 2
+        if cs is not SPOKEN_CAPTURE_RECORDING_CONSENT:
+            print(
+                f"[consent_cli] {cs.tickbox_id} has no region-chosen legal note",
+                file=sys.stderr,
+            )
+            return 2
+        note_text = Path(args.legal_note_file).read_text(encoding="utf-8")
+        if not note_text.strip():
+            print("[consent_cli] --legal-note-file is empty", file=sys.stderr)
+            return 2
+        import hashlib
+        legal_note = {
+            "region": args.legal_region,
+            "variant": args.legal_variant,
+            "text": note_text,
+            "sha256": hashlib.sha256(note_text.encode("utf-8")).hexdigest(),
+        }
+        wording_version = spoken_capture_recorded_version(args.legal_variant)
     consent.record_consent(
         tickbox_id=cs.tickbox_id,
         wording_text=cs.text,
-        wording_version=cs.version,
+        wording_version=wording_version,
         decision=args.decision,
         region=args.region,
         wording_hash=cs.sha256(),
         hub_version=args.hub_version,
         user_id=args.user_id,
         scope=cs.scope,
+        legal_note=legal_note,
     )
     return 0
 
@@ -151,6 +204,39 @@ def _cmd_text(args: argparse.Namespace) -> int:
     return 0
 
 
+WORDING_HASHES_FILE = "consent_wording_hashes.json"
+
+
+def _cmd_publish_wording(_args: argparse.Namespace) -> int:
+    """Write the SHA-256 of every bundled wording to
+    ``posture/consent_wording_hashes.json``.
+
+    The Hub app (CM042 RemoteCapture) gates capture on a persisted
+    ``wording_hash``. It must compare that against the wording THIS install
+    ships, not a constant compiled into the app, or every wording change
+    refuses every customer. install.sh runs this on every install that has
+    the security module, so the file always describes the shipped build.
+    Absent or unreadable is refused by the app (fail closed).
+    """
+    posture = consent._consent_dir()
+    payload = {
+        "schema_version": 1,
+        "tickboxes": {
+            tickbox_id: {
+                "wording_hash": cs.sha256(),
+                "wording_version": cs.version,
+            }
+            for tickbox_id, cs in sorted(TICKBOX_REGISTRY.items())
+        },
+    }
+    path = posture / WORDING_HASHES_FILE
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+    return 0
+
+
 def _cmd_remove_all(_args: argparse.Namespace) -> int:
     """Wipe the consent registry. install.sh calls this when the user
     declines the Article 9 screen, to leave no ``~/.ostler/`` residue.
@@ -181,6 +267,17 @@ def main(argv: list[str] | None = None) -> int:
         "--hub-version",
         default=os.environ.get("OSTLER_HUB_VERSION", "0.1.0"),
     )
+    p_rec.add_argument(
+        "--legal-region",
+        help="ISO-3166 alpha-2 region the legal note was chosen for, or 'none'",
+    )
+    p_rec.add_argument(
+        "--legal-variant", choices=list(SPOKEN_CAPTURE_LEGAL_VARIANTS),
+    )
+    p_rec.add_argument(
+        "--legal-note-file",
+        help="file holding the verbatim legal note shown on screen",
+    )
     p_rec.set_defaults(func=_cmd_record)
 
     p_show = sub.add_parser("show", help="print one record as JSON")
@@ -198,6 +295,12 @@ def main(argv: list[str] | None = None) -> int:
         "--tickbox", required=True, choices=sorted(TICKBOX_REGISTRY),
     )
     p_txt.set_defaults(func=_cmd_text)
+
+    p_pub = sub.add_parser(
+        "publish-wording",
+        help="write posture/consent_wording_hashes.json for this build",
+    )
+    p_pub.set_defaults(func=_cmd_publish_wording)
 
     p_rm = sub.add_parser(
         "remove-all", help="wipe consent registry (decline-and-abort)",

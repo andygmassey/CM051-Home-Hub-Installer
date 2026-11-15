@@ -78,10 +78,19 @@ def background_fn():
     # the REAL helpers it needs from the shipped file, same technique.
     for helper in ("_retry_code_stamp", "_read_retry_sidecar", "_write_retry_sidecar",
                    "_read_state_json", "_conversation_retry_error_class",
-                   "_preserve_cm048_progress"):
+                   "_preserve_cm048_progress",
+                   # v1.0.112 (CM041 #225 graft): the writer resolves its state
+                   # dir through the path-safety guard, so pull that in too.
+                   "_valid_conversation_id", "_safe_conversation_dir"):
         helper_src = _extract_function(helper)
         assert helper_src, f"could not locate {helper}() in vendored ical-server.py"
         exec(compile(helper_src, str(SERVER), "exec"), ns)  # noqa: S102
+    # The guard's id grammar is a module-level constant, not a def: take the
+    # shipped line itself, so a change to the grammar is a change under test.
+    rx = [l for l in SERVER.read_text(encoding="utf-8").splitlines()
+          if l.startswith("_SAFE_CONVERSATION_ID_RE = ")]
+    assert len(rx) == 1, "could not locate _SAFE_CONVERSATION_ID_RE in vendored ical-server.py"
+    exec(compile(rx[0], str(SERVER), "exec"), ns)  # noqa: S102
     exec(compile(src, str(SERVER), "exec"), ns)  # noqa: S102 -- extracting real shipped code, not arbitrary input
     return ns["_conversation_process_background"]
 

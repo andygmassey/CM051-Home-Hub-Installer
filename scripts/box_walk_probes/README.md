@@ -19,6 +19,22 @@ installed on.
 whether it survives its own first use, which is the only arm that catches that
 class. On v1.0.45 five arms pass and arm 8 vetoes.
 
+## ▶ NETWORK SAMPLERS: START BEFORE THE INSTALL, REPORT AFTER THE WALK
+
+```sh
+scripts/walk_net_sampler.sh start  --out "$HOME/walk-net-v1.0.NN" --period 5
+scripts/walk_net_sampler.sh stop   --out "$HOME/walk-net-v1.0.NN"
+scripts/walk_net_sampler.sh report --out "$HOME/walk-net-v1.0.NN"
+```
+
+Run ON the box. The host sampler is `sudo -n lsof` every period plus nettop
+once a minute; the in-VM sampler waits for the colima VM, then reads its
+conntrack table and maps container IPs. Each has a held `nc example.com 80`
+control at start and at stop; a sampler whose control was not seen reports
+CANNOT-RUN. The report ends with `gws_spawn_count=` and `telemetry_hosts=`
+(list: `telemetry_hosts.tsv`), both 0 required. Exit 0 PASS, 1 FAIL,
+2 CANNOT-RUN. These are samples, not a capture.
+
 ## ▶ AFTER A DMG WALK, RUN THIS ONE COMMAND
 
 ```sh
@@ -299,6 +315,7 @@ the system it models misses them. Both cost the same amount of trust.
 | `install_error_honesty` | does the installer's summary agree with its own log? | #270 |
 | `pair_state_agreement` | do the pairing signals agree with each other? | #265, #208 |
 | `freshness_panel_has_dates` | does every source report a date, not `unknown`? | #349, #266 |
+| `front_page_not_me_is_saved` | does a Not me tap from the Hub app's origin (`tauri://localhost`) land in `interest_corrections.json` and `card_states.json` and survive a reload? | #2470 |
 | `people_count_agreement` | do the graph and the API agree on the count? | #273 |
 | `daemon_is_listening` | does the gateway accept connections, and can the daemon load its config at all? | #363 |
 | `installed_bundle_seal_intact` | does the installed bundle's signature still verify **on the box**, and can the reader prove what it looked at? | #375, v1.0.46 BOM row 6 |
@@ -363,7 +380,7 @@ and Ofcom drama-range numbers -- and it sweeps before seeding so a crashed
 earlier run cannot fake a pass. It is the only probe here that is not read-only.
 
 The install log lives under `$HOME/.ostler/`, per `install.sh:962`. It is **not**
-under `$HOME/Documents/Ostler/logs/` — that path was searched twice during the
+under `$HOME/Ostler/logs/` — that path was searched twice during the
 v1.0.31 walk and reported a false absence both times.
 
 ## Compatibility
@@ -372,3 +389,27 @@ Runs under **bash 3.2**, the system bash on macOS and the shell the installed
 box provides. No associative arrays, no `mapfile`, no `${var,,}`. A syntax error
 in a probe means it never ran, which is the exact failure this suite exists to
 prevent, so `bash -n` every probe before committing it.
+
+## Safari on the walk account: seeded, source-absent, or FDA-blocked
+
+`ingest_coverage` reads the box's own `~/.ostler/imports/fda/extraction_summary.json`
+when `safari_history` answers HTTP 404 (no collection):
+
+| extract status for safari_history | walk seed marker | verdict |
+|---|---|---|
+| `not_found` | not `planted` | CANNOT-RUN, SOURCE-ABSENT (Safari never opened, nothing to ingest) |
+| `no_fda` | any | CANNOT-RUN, FDA-BLOCKED (macOS refused the read) |
+| `ok`, `error`, anything else, or no readable summary | any | FAIL (v1.0.101 rule: a 404 over a source that was read is EMPTY) |
+| `not_found` | `planted` | FAIL (the reader missed a file the walk put there) |
+
+A FAIL elsewhere (another store EMPTY, dying top-up) still wins over these CANNOT-RUNs.
+
+`scripts/ttywalk.sh` plants a SYNTHETIC `History.db` (example domains only,
+`scripts/box_walk_probes/lib/safari_history_fixture.py`) into the walk account's
+`~/Library/Safari` before install (`scripts/lib_walk_safari_seed.sh`) and records the
+outcome in `~/.walk-safari-seed-run` (`planted(visits=N)`, `skipped-real-history-present`
+or `cannot-plant:<reason>`). It never overwrites a History.db that lacks the synthetic
+marker table. `~/Library/Safari` is TCC-protected: the plant can be refused over ssh, and
+even a planted file is unreadable to an installer without Full Disk Access (status
+`no_fda`). Which of these happens on a given walk account is NOT KNOWN until a walk runs;
+the record says which, and neither outcome is read as a pass.

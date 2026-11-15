@@ -200,6 +200,13 @@ class IMessageCatchup(oc.Adapter):
                                      bool(row and row["style"] == 43))
         return self._chat_meta[guid]
 
+    def _members(self, conn, guid):
+        """Every handle in the chat (chat_handle_join), for the thread key."""
+        rows = conn.execute(
+            "SELECT h.id AS id FROM chat c JOIN chat_handle_join chj ON chj.chat_id = c.ROWID "
+            "JOIN handle h ON h.ROWID = chj.handle_id WHERE c.guid = ?", (guid,)).fetchall()
+        return [r["id"] for r in rows if r["id"]]
+
     def next_batch(self, cursor, limit):
         conn = _connect_ro(self.db_path)
         try:
@@ -238,8 +245,13 @@ class IMessageCatchup(oc.Adapter):
             conn.close()
 
         msgs = [m for m in (_row_to_message(r, guid) for r in reversed(rows)) if m is not None]
+        conn = _connect_ro(self.db_path)
+        try:
+            members = self._members(conn, guid)
+        finally:
+            conn.close()
         sessions = thread_messages(guid, msgs, is_group=is_group, display_name=display_name,
-                                   gap=self.session_gap)
+                                   gap=self.session_gap, members=members)
         if nxt is None:
             del chats[guid]
         else:

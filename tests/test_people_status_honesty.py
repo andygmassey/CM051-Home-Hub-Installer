@@ -67,7 +67,9 @@ def test_e2_whatsapp_graph_write_is_not_swallowed():
     tail = INSTALL[i:i + 400]
     assert "|| true" not in tail.split("\n", 3)[2], tail
     assert "_wa_ingest_rc=$?" in INSTALL
-    assert "MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED" in INSTALL
+    # v1.0.121: the failure is named by source (the leg runs every source),
+    # and the warning is raised from the captured rc, not swallowed.
+    assert 'warn "$(printf "$MSG_HYDRATE_INGEST_SOURCES_FAILED"' in INSTALL
 
 
 def test_e1_people_hydrate_reads_status_error():
@@ -80,4 +82,7 @@ def test_e1_people_hydrate_reads_status_error():
 def test_e1_message_exists_in_strings():
     s = (ROOT / "install.sh.strings.en-GB.sh").read_text(encoding="utf-8")
     assert "MSG_HYDRATE_PEOPLE_FAILED=" in s
-    assert "MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED=" in s
+    m = re.search(r'^MSG_HYDRATE_INGEST_SOURCES_FAILED="([^"]*)"', s, re.M)
+    assert m, "MSG_HYDRATE_INGEST_SOURCES_FAILED missing from en-GB"
+    # An exit code is log language, never customer language.
+    assert "exit" not in m.group(1).lower(), m.group(1)

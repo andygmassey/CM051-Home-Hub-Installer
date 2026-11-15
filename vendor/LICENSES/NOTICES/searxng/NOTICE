@@ -1,0 +1,19 @@
+SearXNG - AGPL-3.0 source offer
+===============================
+
+Ostler's web search runs SearXNG (https://github.com/searxng/searxng),
+licensed under the GNU Affero General Public License, version 3
+(full text: ../../AGPL-3.0.txt).
+
+SearXNG runs inside the Vane container image Ostler pulls,
+ghcr.io/ostler-ai/vane. It is unmodified apart from configuration (the
+settings.yml, limiter.toml and uwsgi.ini that Vane ships with its image).
+
+Corresponding source for the exact version shipped:
+  https://github.com/searxng/searxng/tree/67af4894d4449d2343b1f690bcaa9832ff031335
+  (commit 67af4894d4449d2343b1f690bcaa9832ff031335)
+
+Written offer: to receive a copy of that source on a physical medium or by
+other means, write to legal@ostler.ai. We will provide it for as long as
+Ostler ships this version of SearXNG, and for at least three years from your
+download.

@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from .url_clean import strip_tracking
+
 logger = logging.getLogger(__name__)
 
 # Mac absolute time epoch offset (2001-01-01 to 1970-01-01)
@@ -156,7 +158,7 @@ def extract_history(
 
     entries = []
     for row in rows:
-        url = row["url"]
+        url = strip_tracking(row["url"])
 
         # Parse domain
         try:

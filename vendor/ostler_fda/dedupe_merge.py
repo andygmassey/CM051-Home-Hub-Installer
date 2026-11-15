@@ -28,14 +28,16 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import httpx
 
 try:
     from .person_audit import record_person_removal
+    from . import phone_twins
 except ImportError:  # run as a script, not as a package
     from person_audit import record_person_removal
+    import phone_twins  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -325,11 +327,368 @@ def _elect_survivor_name(canonical: str, keep_names: List[str], dupe_names: List
         )
 
 
+# ── P16: A SHARED PHONE ALONE IS NOT IDENTITY ───────────────────────────
+# RULE 1 merged every Person sharing a phone STRING, whatever their names, so
+# two family cards that both list the household landline became one person.
+# The household rule (the same one the number-named twin fold uses, P13):
+# same name plus a shared detail is one person; a shared detail alone is not.
+# For a PHONE collision, people with real names are joined only to people
+# with the SAME name; a number held by two differently named people joins
+# nobody (an unnamed holder of it is not handed to either). Email collisions
+# are unchanged.
+
+def _is_real_name(name: str) -> bool:
+    """A human name by the SAME ladder the name election uses
+    (pwg_ingest._display_name_tier): a phone, an email, a placeholder or a
+    kinship word ("Mum") is not a name, so it never splits a household."""
+    tier, tier_name, _ = _tier_fn()
+    return tier((name or "").strip()) >= tier_name
+
+
+def _name_key(name: str) -> str:
+    return " ".join((name or "").casefold().split())
+
+
+def _kinship_fn():
+    if __package__:
+        from .pwg_ingest import _is_relationship_label
+    else:  # run as a script, not as a package
+        from pwg_ingest import _is_relationship_label  # type: ignore
+    return _is_relationship_label
+
+
+def _kinship_words_of(persons: Set[str]) -> Dict[str, Set[str]]:
+    """``{person: {normalised kinship word, ...}}`` for people whose display
+    name is a kinship label ("Mum", "Dad"), in one query."""
+    if not persons:
+        return {}
+    values = " ".join(f"<{p}>" for p in sorted(persons))
+    rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        f"SELECT ?p ?n WHERE {{ VALUES ?p {{ {values} }} ?p pwg:displayName ?n . }}"
+    )
+    out: Dict[str, Set[str]] = {}
+    if not rows:
+        return out
+    # Lazy, like _tier_fn: pwg_ingest is only needed when there is a name.
+    is_kin = _kinship_fn()
+    for r in rows:
+        n = r["n"]["value"]
+        if is_kin(n):
+            out.setdefault(r["p"]["value"], set()).add(_name_key(n))
+    return out
+
+
+def _real_names_of(persons: Set[str]) -> Dict[str, Set[str]]:
+    """``{person: {normalised real display name, ...}}`` in one query."""
+    if not persons:
+        return {}
+    values = " ".join(f"<{p}>" for p in sorted(persons))
+    rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        f"SELECT ?p ?n WHERE {{ VALUES ?p {{ {values} }} ?p pwg:displayName ?n . }}"
+    )
+    out: Dict[str, Set[str]] = {}
+    for r in rows:
+        n = r["n"]["value"]
+        if _is_real_name(n):
+            out.setdefault(r["p"]["value"], set()).add(_name_key(n))
+    return out
+
+
+def apply_household_rule(
+    collisions: Dict[Tuple[str, str], List[str]],
+    names: Dict[str, Set[str]],
+    kin: Optional[Dict[str, Set[str]]] = None,
+    carded: Optional[Set[str]] = None,
+    refused_kinship: Optional[List[int]] = None,
+) -> Tuple[Dict[Tuple[str, str], List[str]], int]:
+    """Rewrite PHONE collisions so only same-named people are joined.
+    Returns ``(collisions, refused)``; ``refused`` counts phone values held by
+    two or more differently named people (left unjoined, counted)."""
+    out: Dict[Tuple[str, str], List[str]] = {}
+    refused = 0
+    for (typ, value), persons in collisions.items():
+        if typ != "phone":
+            out[(typ, value)] = persons
+            continue
+        # P16b: a kinship word ("Mum") is not a name, so it used to fall
+        # through to the old rule: "Mum" and "Dad" on one landline merged, and
+        # "Mum" plus a separate Contacts card for Tom Jones folded Tom into
+        # Mum. A kinship-labelled holder joins NOBODY on this number when the
+        # number carries two different kinship words, or a kinship word and a
+        # named person who is already their own card.
+        kin = kin or {}
+        kin_people = [p for p in persons if kin.get(p) and not names.get(p)]
+        if kin_people:
+            words = set().union(*(kin[p] for p in kin_people))
+            named_carded = [p for p in persons if names.get(p) and p in (carded or set())]
+            if len(words) > 1 or named_carded:
+                if refused_kinship is not None:
+                    refused_kinship.append(1)
+                persons = [p for p in persons if p not in kin_people]
+                if len(persons) < 2:
+                    continue
+        named = [p for p in persons if names.get(p)]
+        common = set.intersection(*(names[p] for p in named)) if named else set()
+        if len(named) <= 1 or common:
+            # Nobody named, one named holder, or every named holder shares a
+            # name: the old RULE 1 behaviour.
+            out[(typ, value)] = persons
+            continue
+        # Two or more differently named people hold this number. Join only
+        # people who share a name; unnamed holders join nobody.
+        refused += 1
+        groups: Dict[str, Set[str]] = {}
+        for p in named:
+            for key in names[p]:
+                groups.setdefault(key, set()).add(p)
+        for key, members in sorted(groups.items()):
+            if len(members) > 1:
+                out[("phone", f"{value}#name={key}")] = sorted(members)
+    return out, refused
+
+
+def merge_provisional_phone_twins(dry_run: bool = False) -> Dict[str, int]:
+    """P13: fold each number-named person (no human name, no Contacts card)
+    into the ONE named person who holds the same number, compared in
+    normalised form. A number held by two or more named people is shared (a
+    household landline) and is left alone, counted. See phone_twins.py.
+
+    The exact-string sweep above cannot do this: a card stored in national
+    form never string-matches the "+44..." handle. Raises on an unreadable
+    store, like every read in this module; ``run`` reports that.
+    """
+    index = phone_twins.load_index(_sparql_query)
+    # Instrumented (Archie #3144): which country the normalised compare ran
+    # with. None means DEFAULT_COUNTRY_CODE and USER_PHONE did not reach this
+    # process, and numbers are matched on a unique trailing 8 digits instead.
+    mode = {"phone_twins_country_code": index.default_cc,
+            "phone_twins_match": "e164" if index.default_cc is not None else "trailing8"}
+    logger.info("dedupe_merge: phone-twin pass country=%s match=%s",
+                mode["phone_twins_country_code"], mode["phone_twins_match"])
+    merged = 0
+    shared = 0
+    for person in sorted(p for p in index.phones if index.is_unnamed(p)):
+        holders: Set[str] = set()
+        for v in index.phones[person]:
+            holders |= index.named_holders(v)
+        holders.discard(person)
+        if not holders:
+            continue
+        if len(holders) > 1:
+            shared += 1
+            logger.info(
+                "dedupe_merge: a number-named person shares its number with %d "
+                "named people; not merged (household rule)", len(holders),
+            )
+            continue
+        if not dry_run:
+            _merge_pair(next(iter(holders)), person)
+        merged += 1
+    return {"phone_twins_merged": merged, "phone_twins_shared_refused": shared, **mode}
+
+
+# ── EMAIL TWINS: AN ADDRESS-ONLY PERSON IS THE CARD THAT HOLDS THE ADDRESS ──
+# v1.0.120 walk (Mini16, counts only): the People list showed a row named by
+# an email address while a human-named row held that same address. The
+# address-named node was written by the email ingest (vendor/cm021, its
+# _build_upsert): ``uuid5(address)``, the address as a bare ``pwg:email``
+# literal, a provisional displayName, and NO ``pwg:hasIdentifier``. Every
+# identity path keys on hasIdentifier -- find_collisions above,
+# IdentityResolver.find_by_identifier -- so this node was invisible to all of
+# them and could never merge. 33 such nodes on that box shared their address
+# with a live identifier-holding node.
+#
+# The rule is the ratified one, kept narrow: an address-only node folds into
+# the ONE live person holding that address as an identifier, when its name is
+# not a human name (the email-named case: a name-tier upgrade) or is the SAME
+# full name as that holder's. An address held by two or more people is shared
+# (a family inbox) and joins nobody; a different human name joins nobody. An
+# address-only node carries no Contacts card, so RULE 2 cannot be crossed.
+
+def merge_email_twins(dry_run: bool = False, max_folds: Optional[int] = None) -> Dict[str, int]:
+    """Fold each address-only Person into the one live holder of its address.
+    Raises on an unreadable store, like every read in this module; ``run``
+    reports that."""
+    twins = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?t ?m WHERE { "
+        "  ?t a pwg:Person ; pwg:email ?m . "
+        "  FILTER NOT EXISTS { ?t pwg:hasIdentifier ?x } "
+        "  FILTER NOT EXISTS { ?t pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?t a pwg:RetiredPerson } "
+        "}"
+    )
+    addrs: Dict[str, Set[str]] = {}
+    for r in twins:
+        addrs.setdefault(r["t"]["value"], set()).add(r["m"]["value"].strip().lower())
+    holders_rows = _sparql_query(
+        f"PREFIX pwg:<{PWG}> "
+        "SELECT ?p ?v WHERE { "
+        "  ?p a pwg:Person ; pwg:hasIdentifier ?id . "
+        '  ?id pwg:identifierType "email" ; pwg:identifierValue ?v . '
+        "  FILTER NOT EXISTS { ?p pwg:mergedInto ?f } "
+        "  FILTER NOT EXISTS { ?p a pwg:RetiredPerson } "
+        "}"
+    ) if addrs else []
+    holders: Dict[str, Set[str]] = {}
+    for r in holders_rows:
+        holders.setdefault(r["v"]["value"].strip().lower(), set()).add(r["p"]["value"])
+    merged = shared = name_differs = 0
+    plan: List[Tuple[str, str]] = []
+    for twin, mails in sorted(addrs.items()):
+        found: Set[str] = set()
+        for m in mails:
+            found |= holders.get(m, set())
+        found.discard(twin)
+        if not found:
+            continue
+        if len(found) > 1:
+            shared += 1
+            continue
+        plan.append((next(iter(found)), twin))
+    unjournalled = vector_unreconciled = deferred = 0
+    if plan:
+        names = _real_names_of({p for pair in plan for p in pair})
+        mj = jdir = None
+        if not dry_run:
+            mj = _merge_journal_module()
+            jdir = mj.default_journal_dir() if mj is not None else None
+        qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:6333")
+        for holder, twin in plan:
+            twin_real = names.get(twin, set())
+            if twin_real and not (twin_real & names.get(holder, set())):
+                name_differs += 1
+                continue
+            # UNATTENDED, SO CAPPED. The hourly tick folds with nobody watching:
+            # at most ``max_folds`` per call, the rest wait for the next tick and
+            # are counted. None (the install sweep, run()) means no cap.
+            if max_folds is not None and merged >= max_folds:
+                deferred += 1
+                continue
+            if dry_run:
+                merged += 1
+                continue
+            # LIKE EVERY OTHER MERGE: journalled BEFORE the first write, so the
+            # Hub's Split and ``batch_resolver --undo-merge`` can restore it,
+            # then a mergedInto tombstone (``_merge_pair``), then the loser's
+            # people vector deleted (CM051 #3235's ``delete_person_points``).
+            # No journal, no merge: an un-undoable fold is worse than a twin
+            # that waits for the next tick.
+            if mj is None or not jdir:
+                unjournalled += 1
+                continue
+            try:
+                transport = httpx.HTTPTransport(proxy=None)
+                with httpx.Client(timeout=60.0, transport=transport) as client:
+                    mj.record_merge(
+                        OXIGRAPH_URL, client, jdir, holder, twin,
+                        strategy="email_twin", confidence=1.0,
+                        details="identifier values withheld from the journal",
+                        qdrant_url=qdrant_url, qdrant_collection="people")
+            except Exception as exc:  # noqa: BLE001 -- counted, never a blind merge
+                unjournalled += 1
+                logger.warning("dedupe_merge: email twin NOT folded, no pre-merge "
+                               "snapshot (%s); the next tick retries", type(exc).__name__)
+                continue
+            _merge_pair(holder, twin)
+            merged += 1
+            if qdrant_url:
+                try:
+                    mj.delete_person_points(qdrant_url, "people", twin)
+                except Exception as exc:  # noqa: BLE001 -- counted; the repair sweeps it
+                    vector_unreconciled += 1
+                    logger.warning("dedupe_merge: email twin folded, its people vector "
+                                   "NOT deleted (%s)", type(exc).__name__)
+    logger.info(
+        "dedupe_merge: email-twin pass merged %d, refused %d shared address(es), "
+        "%d different name(s), %d not journalled, %d deferred by the cap%s",
+        merged, shared, name_differs, unjournalled, deferred,
+        " (dry-run, no writes)" if dry_run else "",
+    )
+    return {"email_twins_merged": merged, "email_twins_shared_refused": shared,
+            "email_twins_name_differs": name_differs,
+            "email_twins_unjournalled": unjournalled,
+            "email_twins_vector_unreconciled": vector_unreconciled,
+            "email_twins_deferred": deferred,
+            "email_twins_max_folds": max_folds}
+
+
+#: Folds one hourly tick may make with nobody watching. Measured read-only on
+#: the v1.0.120 walk box (Mini16, 2026-10-30): 672 live address-only persons,
+#: 24 with exactly one holder, 5 of those foldable. 25 clears that with room
+#: and bounds a pathological graph to 25 journalled, undoable folds an hour.
+TICK_MAX_EMAIL_TWIN_FOLDS = 25
+
+
+def tick_email_twins() -> str:
+    """One log line for the hourly fda-rerun tick (install.sh writes
+    ~/.ostler/bin/ostler-fda, whose python block calls this right after
+    ingest_all). The email ingest mints an address-only person for every new
+    correspondent and the install-time sweep never sees one made later, so
+    the fold runs on every tick. NEVER raises: bookkeeping must not fail the
+    tick it rides on; an unreadable store is a CANNOT-RUN line, not a count."""
+    import json
+    try:
+        try:
+            cap = int(os.environ.get("OSTLER_EMAIL_TWIN_MAX_FOLDS", TICK_MAX_EMAIL_TWIN_FOLDS))
+        except ValueError:
+            cap = TICK_MAX_EMAIL_TWIN_FOLDS
+        return "[email-twins] " + json.dumps(merge_email_twins(max_folds=max(cap, 0)), default=str)
+    except Exception as exc:  # noqa: BLE001 -- reported on the line, never swallowed
+        return "[email-twins] CANNOT-RUN: %s: %s" % (type(exc).__name__, str(exc)[:200])
+
+
+def _merge_journal_module():
+    """``identity_resolver.merge_journal``, the one merge journal every merge
+    path writes. It ships in the import pipeline, not in this package, so it
+    is found there when it is not already importable. None when it cannot be
+    found: the caller then makes no merge."""
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        pass
+    pipeline = os.environ.get("OSTLER_PIPELINE_DIR") or os.path.join(
+        os.path.expanduser("~"), ".ostler", "import-pipeline")
+    if not os.path.isdir(os.path.join(pipeline, "identity_resolver")):
+        return None
+    import sys
+    if pipeline not in sys.path:
+        sys.path.append(pipeline)
+    try:
+        from identity_resolver import merge_journal  # type: ignore
+        return merge_journal
+    except ImportError:
+        return None
+
+
 def run(dry_run: bool = False) -> Dict[str, int]:
     """Sweep the graph and merge all exact-identifier-colliding Persons.
     Returns ``{"collision_keys": N, "merged": M}`` (M = duplicate nodes
     folded away)."""
     collisions = find_collisions()
+    # P16: a shared phone joins only same-named people. A store error here is
+    # a store error: it propagates like find_collisions' own read.
+    phone_people = {p for (t, _), ps in collisions.items() if t == "phone" for p in ps}
+    kinship_refusals: List[int] = []
+    kin = _kinship_words_of(phone_people)
+    carded: Set[str] = set()
+    if kin:
+        # Only read card keys when a kinship word is in play. FAIL CLOSED:
+        # if they cannot be read, treat every holder as a separate card, so a
+        # kinship-labelled node joins nobody this run (a missed merge is
+        # visible and retried; a wrong one is a silently corrupted person).
+        try:
+            carded = set(canonical_keys_of(phone_people))
+        except Exception as exc:  # noqa: BLE001 -- fail closed, reported
+            logger.error("dedupe_merge: card keys unreadable for the kinship "
+                         "check (%s); kinship-labelled holders join nobody", exc)
+            carded = set(phone_people)
+    collisions, refused_shared_phone = apply_household_rule(
+        collisions, _real_names_of(phone_people),
+        kin=kin, carded=carded, refused_kinship=kinship_refusals)
     comps = _components(collisions)
 
     # ── RULE 2 VETO. THIS MODULE HAD NONE, AND IT IS WHY THE OVER-MERGE
@@ -409,8 +768,23 @@ def run(dry_run: bool = False) -> Dict[str, int]:
         refused,
         " (dry-run, no writes)" if dry_run else "",
     )
-    return {"collision_keys": len(collisions), "merged": merged,
-            "refused_rule2": refused, "refused_unreadable": False}
+    out = {"collision_keys": len(collisions), "merged": merged,
+           "refused_rule2": refused, "refused_unreadable": False,
+           "refused_shared_phone": refused_shared_phone,
+           "refused_kinship_phone": len(kinship_refusals)}
+    # P13: the number-named twins the exact-string pass cannot see.
+    try:
+        out.update(merge_provisional_phone_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: phone-twin pass could not read the store (%s)", exc)
+        out["phone_twins_unreadable"] = True
+    # The address-only twins neither pass above can see (no hasIdentifier).
+    try:
+        out.update(merge_email_twins(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 -- reported in the result, not swallowed
+        logger.error("dedupe_merge: email-twin pass could not read the store (%s)", exc)
+        out["email_twins_unreadable"] = True
+    return out
 
 
 def main() -> int:

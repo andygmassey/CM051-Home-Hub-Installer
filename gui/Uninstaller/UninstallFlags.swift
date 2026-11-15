@@ -26,7 +26,7 @@ import Foundation
 struct UninstallOptions: Equatable {
     var removeColima: Bool = false
     var purgeKnowledgeData: Bool = false
-    /// ~/Documents/Ostler (generated wiki, transcripts). Kept by default; the
+    /// ~/Ostler (generated wiki, transcripts). Kept by default; the
     /// minimal confirm screen does not offer to remove it, so this stays false.
     var removeUserContent: Bool = false
 }

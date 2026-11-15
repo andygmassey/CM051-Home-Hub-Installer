@@ -25,6 +25,7 @@ import json
 import os
 import stat
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -210,6 +211,97 @@ def test_a_later_denied_run_keeps_what_the_install_read(tmp_path, monkeypatch):
     assert am["native_status"] == "unavailable"
 
 
+# ── the hourly fda-rerun must not clobber what music-refresh owns ──────────
+# Measured by Archie on walk34: ostler-fda calls run_all() with no
+# OSTLER_MUSIC_LIBRARY_HELPER, so the apple_music arm overwrote
+# apple_music.json and the summary entry with 0 tracks / reader none every hour.
+
+N_PRIOR = 7
+PRIOR_ENTRY = {"status": "ok", "total_tracks": N_PRIOR, "reader": "native",
+               "native_status": "ok", "native_detail": "", "writer": "install"}
+
+
+def _seed_prior_read(out: Path) -> bytes:
+    """A synthetic earlier read: N_PRIOR tracks in apple_music.json and the
+    matching summary entry. No preference export file, so the previous-export
+    fallback cannot mask a clobber."""
+    out.mkdir(parents=True)
+    records = [{"id": f"S{i}", "title": f"fixture-song-{i}", "artist": "fixture-band"}
+               for i in range(N_PRIOR)]
+    (out / "apple_music.json").write_text(json.dumps(records, indent=2))
+    (out / "extraction_summary.json").write_text(json.dumps(
+        {"sources": {"apple_music": dict(PRIOR_ENTRY)}}, indent=2))
+    return (out / "apple_music.json").read_bytes()
+
+
+def _rerun_call_line() -> str:
+    """The run_all(...) line of the SHIPPED ostler-fda wrapper in install.sh."""
+    text = (ROOT / "install.sh").read_text()
+    start = text.index("cat > \"${OSTLER_DIR}/bin/ostler-fda\" <<'FDAEOF'")
+    body = text[start:text.index("\nFDAEOF\n", start)]
+    lines = [ln for ln in body.splitlines() if ln.startswith("_summary = run_all(")]
+    assert len(lines) == 1, lines
+    return lines[0]
+
+
+def _run_rerun_path(out: Path, tmp_path: Path) -> dict:
+    """Execute the wrapper's own run_all line, in a subprocess with no helper
+    and no grant, exactly as launchd runs it. Returns the summary it got."""
+    import subprocess
+    code = (
+        f"import sys, json\nsys.path.insert(0, {str(ROOT / 'vendor')!r})\n"
+        "from ostler_fda.extract_all import run_all\nfrom pathlib import Path\n"
+        f"fda_dir = Path({str(out)!r})\n{_rerun_call_line()}\n"
+        "print('SUMMARY ' + json.dumps(_summary, default=str))\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "OSTLER_MUSIC_LIBRARY_HELPER"}
+    env.update(HOME=str(tmp_path / "home"), OSTLER_FDA_SOURCES="apple_music",
+               OSTLER_MUSIC_LIBRARY_XML=str(tmp_path / "no-such-library.xml"))
+    (tmp_path / "home").mkdir(exist_ok=True)
+    r = subprocess.run([sys.executable, "-I", "-c", code], env=env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return json.loads([ln for ln in r.stdout.splitlines() if ln.startswith("SUMMARY ")][0][8:])
+
+
+def test_fda_rerun_preserves_the_music_read(tmp_path):
+    out = tmp_path / "fda"
+    before = _seed_prior_read(out)
+    summary = _run_rerun_path(out, tmp_path)
+    assert (out / "apple_music.json").read_bytes() == before
+    for am in (summary["sources"]["apple_music"],
+               json.loads((out / "extraction_summary.json").read_text())["sources"]["apple_music"]):
+        assert am["total_tracks"] == N_PRIOR and am["reader"] == "native", am
+        assert am["status"] == "ok" and am["writer"] == "install", am
+
+
+def test_run_all_skip_keeps_the_entry_and_its_writer(tmp_path):
+    from ostler_fda import extract_all
+    out = tmp_path / "fda"
+    _seed_prior_read(out)
+    am = extract_all.run_all(out, enabled_sources={"apple_music"},
+                             skip_sources={"apple_music"}, writer="fda-rerun")["sources"]["apple_music"]
+    assert am == PRIOR_ENTRY  # the install's entry keeps the install's writer
+
+
+def test_run_all_stamps_who_wrote_a_fresh_entry(tmp_path, monkeypatch):
+    from ostler_fda import extract_all
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, OK_PAYLOAD)))
+    out = tmp_path / "fda"
+    assert extract_all.run_all(out, enabled_sources={"apple_music"}, writer="install")["sources"]["apple_music"]["writer"] == "install"
+    assert extract_all.run_all(out, enabled_sources={"apple_music"}, writer="music-refresh")[
+        "sources"]["apple_music"]["writer"] == "music-refresh"
+
+
+def test_skip_with_no_earlier_read_says_not_tried_never_ok(tmp_path):
+    from ostler_fda import extract_all
+    out = tmp_path / "fda"
+    am = extract_all.run_all(out, enabled_sources={"apple_music"},
+                             skip_sources={"apple_music"}, writer="fda-rerun")["sources"]["apple_music"]
+    assert am["status"] == "not_tried" and am["writer"] == "fda-rerun"
+    assert not (out / "apple_music.json").exists()
+
+
 def test_extract_all_arm_is_ok_and_empty_when_denied(tmp_path, monkeypatch):
     from ostler_fda import extract_all
     monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, DENIED_PAYLOAD)))
@@ -326,3 +418,74 @@ def test_ingest_is_additive_only(tmp_path, monkeypatch):
     assert {v["source"] for v in new.values()} == {"apple_music"}
     assert pipe.qdrant.deletes == 0
     assert all("DELETE" not in t.upper() for t in pipe.oxigraph.inserts)
+
+
+# ── every non-install run_all caller keeps the music read (review round 2) ──
+
+def _ladder_box(tmp_path, monkeypatch, pending):
+    """Synthetic box for backfill_ladder.finish_pending_first_windows: home,
+    state dir and XML path all under tmp, no helper, no grant, ingest stubbed."""
+    state = tmp_path / "state"
+    state.mkdir()
+    for src in pending:
+        (state / f"first_window_pending_{src}").write_text(src)
+    monkeypatch.setenv("OSTLER_STATE_DIR", str(state))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir(exist_ok=True)
+    monkeypatch.delenv("OSTLER_MUSIC_LIBRARY_HELPER", raising=False)
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(tmp_path / "no-such-library.xml"))
+    # Replace the whole module, not just ingest_all: the real one imports
+    # httpx and phonenumbers at the top, which the CI job does not install
+    # (it passed locally only because this host had them). The ladder does
+    # `from .pwg_ingest import ingest_all`, which finds this entry first.
+    fake = types.ModuleType("ostler_fda.pwg_ingest")
+    fake.ingest_all = lambda *_a, **_k: {}
+    monkeypatch.setitem(sys.modules, "ostler_fda.pwg_ingest", fake)
+
+
+@pytest.mark.parametrize("pending", [["imessage"], ["apple_music"], ["imessage", "apple_music"]])
+def test_the_ladder_path_keeps_the_music_read(tmp_path, monkeypatch, pending):
+    from ostler_fda import backfill_ladder
+    out = tmp_path / "fda"
+    before = _seed_prior_read(out)
+    _ladder_box(tmp_path, monkeypatch, pending)
+    res = backfill_ladder.finish_pending_first_windows(out, busy=lambda: None)
+    assert res["status"] == "ok", res
+    assert (out / "apple_music.json").read_bytes() == before
+    am = json.loads((out / "extraction_summary.json").read_text())["sources"]["apple_music"]
+    assert am == PRIOR_ENTRY, am  # the install's entry, writer and all
+
+
+def test_the_ladder_stamps_its_own_writer_on_what_it_writes(tmp_path, monkeypatch):
+    from ostler_fda import backfill_ladder
+    out = tmp_path / "fda"
+    out.mkdir()
+    _ladder_box(tmp_path, monkeypatch, ["imessage"])
+    backfill_ladder.finish_pending_first_windows(out, busy=lambda: None)
+    am = json.loads((out / "extraction_summary.json").read_text())["sources"]["apple_music"]
+    assert am["status"] == "not_tried" and am["writer"] == "backfill-ladder", am
+
+
+def test_a_caller_passing_no_writer_is_not_reported_as_install(tmp_path, monkeypatch):
+    from ostler_fda import extract_all
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_HELPER", str(_json_helper(tmp_path, OK_PAYLOAD)))
+    am = extract_all.run_all(tmp_path / "fda", enabled_sources={"apple_music"})["sources"]["apple_music"]
+    assert am["writer"] == "unrecorded" and am["writer"] != "install"
+
+
+def test_the_install_call_passes_install_explicitly():
+    text = (ROOT / "install.sh").read_text()
+    lines = [ln for ln in text.splitlines() if ln.startswith("summary = run_all(Path('${OSTLER_DIR}/imports/fda')")]
+    assert len(lines) == 1 and "writer='install'" in lines[0], lines
+
+
+def test_the_extract_all_cli_skips_music_unless_asked(tmp_path, monkeypatch):
+    from ostler_fda import extract_all
+    out = tmp_path / "fda"
+    before = _seed_prior_read(out)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("OSTLER_MUSIC_LIBRARY_HELPER", raising=False)
+    monkeypatch.setenv("OSTLER_MUSIC_LIBRARY_XML", str(tmp_path / "no-such-library.xml"))
+    monkeypatch.setattr(sys, "argv", ["extract_all", "--output-dir", str(out)])
+    extract_all.main()
+    assert (out / "apple_music.json").read_bytes() == before

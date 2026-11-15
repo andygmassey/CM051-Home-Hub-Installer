@@ -13,7 +13,6 @@ py-matrix	address-book-source-guard.yml	address-book-source-guard
 py-matrix	browsing-summaries-and-save.yml	hub
 py-matrix	cm048-participants-as-strings.yml	cm048-participants-as-strings
 py-matrix	cm048-whatsapp-lid-not-phone.yml	cm048-whatsapp-lid-not-phone
-py-matrix	contact-card-repair.yml	contact-card-repair
 py-matrix	creation-name-writes.yml	creation-name-writes
 py-matrix	display-name-tiers.yml	display-name-tiers
 py-matrix	enrich-budget.yml	enrich-budget

@@ -38,11 +38,11 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 
 # ── #260 axis 1: install.sh defaults OSTLER_MAIL_BACKFILL_DAYS to a
 #    multi-year window (not 365) and threads it into the extractor env.
-grep -Eq '^[[:space:]]*:[[:space:]]*"\$\{OSTLER_MAIL_BACKFILL_DAYS:=1825\}"' "$INSTALL_SH" \
-    || fail "#260: OSTLER_MAIL_BACKFILL_DAYS default of 1825 not set in install.sh"
+grep -Eq '^[[:space:]]*:[[:space:]]*"\$\{OSTLER_MAIL_BACKFILL_DAYS:=18250\}"' "$INSTALL_SH" \
+    || fail "#260: OSTLER_MAIL_BACKFILL_DAYS default of 18250 not set in install.sh"
 grep -q 'OSTLER_MAIL_BACKFILL_DAYS="\${OSTLER_MAIL_BACKFILL_DAYS}"' "$INSTALL_SH" \
     || fail "#260: OSTLER_MAIL_BACKFILL_DAYS not passed into the FDA extractor env"
-echo "PASS [#260]: install.sh defaults mail window to 1825 days and exports it"
+echo "PASS [#260]: install.sh defaults mail window to 18250 days (all history) and exports it"
 
 # ── #260 axis 2: extract_all.py reads the env + no longer hard-codes 365.
 grep -q 'os.environ.get("OSTLER_MAIL_BACKFILL_DAYS"' "$EXTRACT_ALL" \
@@ -67,13 +67,14 @@ if grep -Eq 'since_days: int = 365' "$APPLE_MAIL"; then
 fi
 echo "PASS [#260]: apple_mail.py default window extended beyond one year"
 
-# ── #260 axis 4: the post-install "extend now?" affordance exists and is
-#    skippable (default No so a walk-away install never blocks).
-grep -q 'MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE' "$INSTALL_SH" \
-    || fail "#260: no post-install Mail extend prompt in install.sh"
-grep -q 'mail_extend_history' "$INSTALL_SH" \
-    || fail "#260: extend prompt missing its gui_read key"
-echo "PASS [#260]: post-install extend-history affordance is wired and skippable"
+# ── #260 axis 4: SUPERSEDED 2026-11-12 (founder ruling: all history by default,
+#    no "extend?" question). The prompt must be GONE; the default is 18250.
+if grep -q 'mail_extend_history' <<<"$(grep -vE '^[[:space:]]*#' "$INSTALL_SH")"; then
+    fail "#260: the mail_extend_history prompt is back in install.sh"
+fi
+grep -q ':=18250}"' "$INSTALL_SH" \
+    || fail "#260: OSTLER_MAIL_BACKFILL_DAYS no longer defaults to all history"
+echo "PASS [#260]: no extend prompt; mail defaults to all history"
 
 # ── #259 axis 1: extract_all.py emits a distinct status when Mail is
 #    configured but holds no content, instead of "ok" with zero rows.
@@ -95,9 +96,7 @@ for key in \
     MSG_INFO_APPLE_MAIL_NO_CONTENT_CONNECT_ACCOUNT \
     MSG_INFO_APPLE_MAIL_NO_CONTENT_RERUN \
     MSG_OK_MAIL_EXTENDING_FULL_HISTORY \
-    MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY \
-    MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE \
-    MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP ; do
+    MSG_OK_MAIL_KEEPING_DEFAULT_HISTORY ; do
     grep -q "^${key}=" "$STRINGS" \
         || fail "catalogue: ${key} referenced but not defined in en-GB strings"
 done

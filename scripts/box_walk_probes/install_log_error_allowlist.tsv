@@ -1,0 +1,5 @@
+# install_log_error_allowlist.tsv -- REVIEWED allowlist for probes/install_log_error_lines.sh.
+# One extended regex per line; an install.log `level=error` / `Command failed`
+# line that matches is printed as allowlisted and not counted. Every entry needs
+# Archie's review and a comment line above it naming why the error is benign.
+# Empty on purpose at creation: the first cut's advisory run is what fills it.
