@@ -62,11 +62,18 @@ arm "the early pass refuses unregistered names and seed-dependent probes" $? "re
 # READ-ONLY mode can only remove assertions: the complete list of probes that
 # read OSTLER_WALK_READ_ONLY, and what each does with it.
 ro="$(grep -l 'OSTLER_WALK_READ_ONLY' "$PROBES"/*.sh | xargs -n1 basename | sed 's/\.sh$//' | LC_ALL=C sort | tr '\n' ' ')"
-want="fda_rerun_second_tick_lands_a_new_row listener_watchdog_recovers_a_wedged_listener owner_knowledge_score "
-[ "$ro" = "$want" ]; arm "exactly the 3 reviewed probes read OSTLER_WALK_READ_ONLY (a new one needs review here)" $? "got: $ro"
+want="fda_rerun_second_tick_lands_a_new_row listener_watchdog_recovers_a_wedged_listener owner_knowledge_score people_count_agreement settling_json_refreshes "
+[ "$ro" = "$want" ]; arm "exactly the 5 reviewed probes read OSTLER_WALK_READ_ONLY (a new one needs review here)" $? "got: $ro"
 for b in fda_rerun_second_tick_lands_a_new_row listener_watchdog_recovers_a_wedged_listener; do
     grep -A1 'OSTLER_WALK_READ_ONLY' "$PROBES/$b.sh" | grep -q 'probe_cannot_run'
     arm "$b: read-only means CANNOT-RUN (skips), asserts nothing extra" $? "no probe_cannot_run under the read-only test"
+done
+# people_count_agreement and settling_json_refreshes read it ONLY to decide whether to
+# kickstart their job instead of waiting for its tick (writes allowed = exactly "0").
+# Read-only and unset keep the full wait and every assertion; nothing is removed.
+for b in people_count_agreement settling_json_refreshes; do
+    [ "$(grep -c 'OSTLER_WALK_READ_ONLY' "$PROBES/$b.sh")" -eq "$(grep -c 'OSTLER_WALK_READ_ONLY:-}" = "0"' "$PROBES/$b.sh")" ] || [ "$(grep -v '^ *#' "$PROBES/$b.sh" | grep -c 'OSTLER_WALK_READ_ONLY')" -eq "$(grep -v '^ *#' "$PROBES/$b.sh" | grep -c 'OSTLER_WALK_READ_ONLY:-}" = "0"')" ]
+    arm "$b: read-only is only the absence of the kickstart (same waits, same assertions)" $? "reads OSTLER_WALK_READ_ONLY for something other than the kick condition"
 done
 grep -q 'OSTLER_OWNER_SCORE_SEED:-.*OSTLER_WALK_READ_ONLY.*echo 0 || echo 1' "$PROBES/owner_knowledge_score.sh"
 arm "owner_knowledge_score: read-only means seed off (fewer writes, same probe)" $? "seed default changed"
