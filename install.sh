@@ -1556,6 +1556,32 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         return 0
     }
 
+    _upg_repair_pref_subject_duplicates() {
+        # One-shot, per box: graph preference nodes that carry two pwg:subject
+        # values (written before PWG #477). Dry run first, logged; the apply runs
+        # once, guarded by a marker, and only when the dry run reads cleanly.
+        local _src="${_UPG_OSTLER_DIR}/services/cm019/services/ingest"
+        local _marker="${HOME}/.ostler/state/repairs/pref-subjects-two-value.done"
+        local _conf="${HOME}/.ostler/secrets/store-curl.conf"
+        [[ -f "${_src}/src/repair_pref_subjects.py" ]] || { _upg_log "pref-subject repair: no module at ${_src}; skipping"; return 0; }
+        [[ -f "$_marker" ]] && { _upg_log "pref-subject repair: already applied on this box"; return 0; }
+        local _args=(--auth-conf "$_conf")
+        local _dry _rc=0
+        _dry="$(cd "$_src" && python3 -m src.repair_pref_subjects "${_args[@]}" 2>&1)" || _rc=$?
+        _upg_log "pref-subject repair dry run (rc=${_rc}): $(printf '%s' "$_dry" | tr '\n' ' ' | head -c 400)"
+        if [[ "$_rc" -ne 0 ]]; then
+            _upg_log "WARN: pref-subject repair dry run did not read cleanly (rc=${_rc}); not applying, marker not written"
+            return 0
+        fi
+        if (cd "$_src" && python3 -m src.repair_pref_subjects "${_args[@]}" --apply >>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}" 2>&1); then
+            mkdir -p "$(dirname "$_marker")" 2>/dev/null && : >"$_marker"
+            _upg_log "pref-subject repair: applied; marker written"
+        else
+            _upg_log "WARN: pref-subject repair apply FAILED; marker not written, retried next upgrade"
+        fi
+        return 0
+    }
+
     _upg_do_upgrade() {
         _upg_log "=== OSTLER_UPGRADE_MODE start ==="
         [[ -n "$_UPG_PAYLOAD" ]] || _upg_die 10 "OSTLER_UPGRADE_PAYLOAD_DIR not set"
@@ -1636,6 +1662,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         _upg_refresh_assistant_api || _upg_log "ERROR: assistant_api refresh FAILED; the derived route keeps the previous build's behaviour"
         _upg_refresh_context_refresh || _upg_log "ERROR: context-refresh refresh FAILED; the digest keeps the previous build's behaviour"
         _upg_repair_fda_venv
+        _upg_repair_pref_subject_duplicates
 
         # One-shot derive pass, so an upgraded box does not wait up to 6 hours
         # (the agent is RunAtLoad=false) for its derived graph to be rewritten
