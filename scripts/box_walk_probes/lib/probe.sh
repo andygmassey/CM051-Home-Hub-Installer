@@ -306,13 +306,13 @@ _probe_tick_state() {
     # from "launchctl is here and would not answer", which on a macOS box is a
     # missing prerequisite and must refuse. Absolute path, so PATH cannot make a
     # present launchctl look absent.
-    if ! box_run "[ -x /bin/launchctl ]"; then
+    if ! box_run "[ -x \"${OSTLER_PROBE_LAUNCHCTL:-/bin/launchctl}\" ]"; then
         printf 'noplatform'
         return 0
     fi
     # box_run_v, not box_run: when the read fails the message IS the answer, and
     # box_run sends it to /dev/null.
-    out="$(box_run_v "/bin/launchctl print gui/\$(id -u)/${label} 2>&1")"
+    out="$(box_run_v "\"${OSTLER_PROBE_LAUNCHCTL:-/bin/launchctl}\" print gui/\$(id -u)/${label} 2>&1")"
     rc=$?
     # NOT LOADED IS AN ANSWER, NOT A REFUSED READ, and the two arrive as the same
     # non-zero rc. Measured on macOS: an absent job exits 113 and prints

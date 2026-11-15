@@ -20,6 +20,8 @@
 # weaken as the graph grows.
 # ============================================================================
 
+# WALK_WRITES: on a walk that allows writes (OSTLER_WALK_READ_ONLY=0) and only when people are waiting for a vector, kickstarts com.ostler.fda-rerun ONCE (launchctl kickstart, the job's own entry point) instead of waiting for the hourly tick; a read-only or unset-mode run never kickstarts and waits as before
+
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
 
@@ -685,6 +687,19 @@ FDA_RERUN_INTERVAL_S="${OSTLER_PEOPLE_FDA_INTERVAL_S:-3600}"
 EMBED_DRAIN_MARGIN_S="${OSTLER_PEOPLE_EMBED_DRAIN_MARGIN_S:-600}"
 EMBED_DRAIN_WAIT_S="${OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S:-$((FDA_RERUN_INTERVAL_S + EMBED_DRAIN_MARGIN_S))}"
 EMBED_DRAIN_STEP_S="${OSTLER_PEOPLE_EMBED_DRAIN_STEP_S:-30}"
+# KICKSTART INSTEAD OF WAITING FOR THE HOURLY TICK. When the walk allows writes
+# (OSTLER_WALK_READ_ONLY=0 exactly; unset means a unit run or an unknown mode
+# and never kicks) and people are waiting for a vector with the tick idle, the
+# probe starts com.ostler.fda-rerun ONCE and waits OSTLER_PEOPLE_KICK_WAIT_S
+# (default 1800: a full tick measured ~1150 s on the 8.8k-person seed) for
+# people_index.tsv last_success_at to pass the first sighting. The FAIL rule
+# (last success older than 2 intervals = dead indexer) and CANNOT-RUN are the
+# same at expiry; a kick that is accepted but never advances the marker is a
+# dead indexer and FAILs, never PASSes. A refused kick falls back to the full
+# EMBED_DRAIN_WAIT_S bound.
+KICK_WAIT_S="${OSTLER_PEOPLE_KICK_WAIT_S:-1800}"
+case "$KICK_WAIT_S" in ''|*[!0-9]*) KICK_WAIT_S=1800 ;; esac
+KICK_LABEL="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
 
 # THE CLASSIFIER IS A PURE FUNCTION so the self-test drives the real decision.
 # _embed_drain_classify <awaiting> <index_status> <index_success_epoch> <first_seen_epoch>
@@ -706,7 +721,7 @@ _embed_drain_classify() {
 # It does not echo (see _await_converge: probe_note writes to stdout).
 _await_embed_drain() {
     _DRAIN_RESULT=""
-    local waited=0 t0="" prev_aw="" vis aw ist iep nowe cls tick label
+    local waited=0 t0="" prev_aw="" vis aw ist iep nowe cls tick label kicked=0 limit="$EMBED_DRAIN_WAIT_S" krc
     label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
     while :; do
         tick="$(_probe_tick_state "$label")"
@@ -716,7 +731,10 @@ _await_embed_drain() {
         esac
         if [ "$tick" = "running" ]; then
             # The writer is mid-run: nothing seen now is a sighting.
-            t0=""; prev_aw=""
+            # (Unless the run is the one this probe kickstarted: the sighting
+            # that justified the kick stays the reference, so the run's own
+            # completion marker counts as the drain signal.)
+            if [ "$kicked" -eq 0 ]; then t0=""; prev_aw=""; fi
         else
             vis="$(read_visible)"
             case "$vis" in
@@ -739,7 +757,19 @@ _await_embed_drain() {
                 UNMEASURED)     _DRAIN_RESULT="UNREADABLE the awaiting-embed set could not be measured (the vector points carry no person_uri, or the read answered '${aw:-<empty>}')"; return ;;
             esac
         fi
-        if [ "$waited" -ge "$EMBED_DRAIN_WAIT_S" ]; then
+        if [ "$kicked" -eq 0 ] && [ "$tick" != "running" ] && [ "${OSTLER_WALK_READ_ONLY:-}" = "0" ] \
+           && [ -n "$t0" ] && [ -n "$aw" ] && [ "$aw" != "-" ] && [ "$aw" -gt 0 ] 2>/dev/null; then
+            box_run "\"${OSTLER_PROBE_LAUNCHCTL:-/bin/launchctl}\" kickstart gui/\$(id -u)/${KICK_LABEL}" >/dev/null
+            krc=$?
+            kicked=1
+            if [ "$krc" -eq 0 ]; then
+                limit=$((waited + KICK_WAIT_S)); [ "$limit" -gt "$EMBED_DRAIN_WAIT_S" ] && limit="$EMBED_DRAIN_WAIT_S"
+                probe_note "kickstarted ${KICK_LABEL} once instead of waiting for the hourly tick; waiting for people_index.tsv last_success_at to pass epoch ${t0} (bound now ${limit}s)"
+            else
+                probe_note "kickstart of ${KICK_LABEL} was refused (rc ${krc}); falling back to the hourly tick and the full ${EMBED_DRAIN_WAIT_S}s bound"
+            fi
+        fi
+        if [ "$waited" -ge "$limit" ]; then
             _DRAIN_RESULT="EXPIRED ${waited} ${aw:--} ${ist:--} ${iep:--} ${t0:--} tick=${tick%% *} ${nowe:--}"
             return
         fi

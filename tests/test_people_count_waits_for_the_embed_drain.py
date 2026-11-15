@@ -63,7 +63,7 @@ def write_marker(home, status="ok", ts=None):
                  % (stamp(), status, stamp(ts)))
 
 
-def run_probe(w, tmp_path, probe=None, drain_wait=40, interval=3600):
+def run_probe(w, tmp_path, probe=None, drain_wait=40, interval=3600, extra=None, timeout=300):
     home = tmp_path / "acct"
     (home / ".ostler" / "secrets").mkdir(parents=True, exist_ok=True)
     (home / ".ostler" / "secrets" / "store-curl.conf").write_text('header = "Authorization: Bearer t"\n')
@@ -79,8 +79,9 @@ def run_probe(w, tmp_path, probe=None, drain_wait=40, interval=3600):
                OSTLER_PEOPLE_TOLERANCE_PCT="100", OSTLER_PEOPLE_TOLERANCE_CAP="0")
     for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):
         env.pop(k, None)
+    env.update(extra or {})
     t0 = time.time()
-    r = subprocess.run(["bash", str(probe or PROBE)], env=env, capture_output=True, text=True, timeout=300)
+    r = subprocess.run(["bash", str(probe or PROBE)], env=env, capture_output=True, text=True, timeout=timeout)
     text = r.stdout + r.stderr
     v = next((ln.split("VERDICT:")[1].strip() for ln in text.splitlines() if "VERDICT:" in ln), "NONE")
     return v, text, time.time() - t0
