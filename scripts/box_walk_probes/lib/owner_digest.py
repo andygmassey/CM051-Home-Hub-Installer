@@ -61,6 +61,9 @@ SECTION_STORE = {
     "Confirmed by you": "user_asserted_facts",
     "Recent meetings (last 7 days)": "meetings_7d",
     "Calendar events by owner": "calendar_events",
+    # Walk 132: "Routines and priorities" had no store measure, so its nothing-stored
+    # line was NOT MEASURED. Measured here by the open commitments the generator reads.
+    "Routines and priorities": "routines_priorities",
 }
 
 DECLARED = [
@@ -323,6 +326,20 @@ def measure_stores():
     cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
     cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s >= "%s")' % (today, ahead, at, now_s))
     out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
+    # Open commitments, the second half of "Routines and priorities" (the generator's
+    # _commitment_lines, GET /api/v1/commitments?owner=user&status=open). Stored as None
+    # when zero: the diary-timing half is not measured here, so zero commitments cannot
+    # prove the section empty, and a zero must read NOT MEASURED, never "empty store".
+    def daemon_commitments():
+        try:
+            tok = open(os.path.expanduser("~/.ostler/secrets/zeroclaw_admin_token"), encoding="utf-8").read().strip()
+            d = _http("http://127.0.0.1:8000/api/v1/commitments?owner=user&status=open&limit=50",
+                      headers={"Authorization": "Bearer " + tok})
+            rows = d.get("commitments") if isinstance(d, dict) else None
+            return len(rows) if isinstance(rows, list) and rows else None
+        except Exception:
+            return None
+    out["routines_priorities"] = daemon_commitments()
     uid = ""
     try:
         for line in open(os.path.expanduser("~/.ostler/config/.env")):

@@ -219,6 +219,11 @@ run_probe() {
         # Marked BEFORE the swap runs: restore is idempotent, and a signal landing
         # between the swap and this assignment must still restore.
         _PERSONA_LOADED=1
+        # Walk 132: the swap refused because nothing declared the walk box synthetic. Declare it
+        # ONLY for a walk account (lib/walk_box_identity.sh); the owner's account is never declared.
+        _wbl="$(cd "$(dirname "$0")/.." && pwd)/lib/walk_box_identity.sh"
+        _wb="$(box_run "rd=\$(mktemp -d) && printf %s '$(base64 < "${_wbl}" | tr -d '\n')' | base64 -d > \"\$rd/wbi.sh\" && . \"\$rd/wbi.sh\" && walk_box_declare_synthetic \"\$(id -un)\"; rm -rf \"\$rd\"" 2>/dev/null | tr -d '\r')"
+        probe_note "walk box declaration: ${_wb:-unreadable}"
         _sw="$(box_run "bash ${REMOTE_DIR}/context_swap.sh swap \"${WORKSPACE}\" ${REMOTE_DIR}/CONTEXT.persona.md ${_kp}; echo SWAP_RC=\$?" 2>&1)"
         case "$(printf '%s\n' "$_sw" | sed -n 's/^SWAP_RC=//p' | tail -1)" in
             0)  : ;;
