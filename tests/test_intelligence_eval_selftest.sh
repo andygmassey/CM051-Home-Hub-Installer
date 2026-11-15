@@ -25,4 +25,20 @@ if ! grep -Fq "CONTROL ASSERTIONS: ALL HOLD" <<< "$out"; then
     echo "FAIL: control assertions did not all hold"; fail=1
 fi
 
+# ARM: the model endpoint is DOWN. The run must exit non-zero and count every reply as ERROR,
+# never ABSTAINED. Port 9 (discard) refuses connections. This is a control, not a model run.
+down="$("$PY" -I "$HERE/scripts/intelligence_eval/run.py" --mode synthetic --model qwen3.5:4b \
+    --ollama http://127.0.0.1:9 2>&1)"
+down_rc=$?
+printf '%s\n' "$down" | grep -E "ERROR" | head -3
+if [ "$down_rc" -eq 0 ]; then
+    echo "FAIL: endpoint-down run exited 0"; fail=1
+fi
+if ! grep -Fq "ERROR" <<< "$down"; then
+    echo "FAIL: endpoint-down run printed no ERROR bucket"; fail=1
+fi
+if grep -Fq "CONTROL ASSERTIONS: ALL HOLD" <<< "$down"; then
+    echo "FAIL: endpoint-down run reported control assertions holding"; fail=1
+fi
+
 exit "$fail"
