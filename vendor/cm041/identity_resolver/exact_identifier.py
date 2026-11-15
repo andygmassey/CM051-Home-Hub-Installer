@@ -154,25 +154,37 @@ def usable_shared_keys(a, b, holders, normalise_linkedin
     return usable, guarded
 
 
-def card_uid_override(a, b, conflicts: Iterable[str], holders,
-                      normalise_linkedin) -> Tuple[bool, str]:
+def card_uid_override_keys(a, b, conflicts: Iterable[str], holders,
+                           normalise_linkedin) -> Tuple[bool, str, List[Key]]:
     """May an exact shared identifier override the card-uid RULE 2 refusal?
 
     ``conflicts`` is every canonical id_type on which the nodes conflict.
-    Returns (allowed, reason). The reason is a short token for logs and the
-    dry run, never a value.
+    Returns (allowed, reason, matched). The reason is a short token for logs
+    and the dry run, never a value. ``matched`` is the list of USABLE shared
+    keys that justified the override (empty when refused): the merge journal
+    records each one as {kind, keyed hash} so the walk probe can verify the
+    override from the journal alone, without any identifier value in it.
     """
     conflicts = set(conflicts)
     if conflicts != {OVERRIDABLE_CONFLICT}:
-        return False, "other_canonical_conflict:" + ",".join(sorted(conflicts))
+        return False, "other_canonical_conflict:" + ",".join(sorted(conflicts)), []
     if name_key(a.display_name) != name_key(b.display_name):
-        return False, "names_differ"
+        return False, "names_differ", []
     if not is_full_human_name(a.display_name):
-        return False, "name_not_a_full_name"
+        return False, "name_not_a_full_name", []
     veto = hard_veto(a, b, normalise_linkedin)
     if veto:
-        return False, f"hard_veto:{veto}"
+        return False, f"hard_veto:{veto}", []
     usable, guarded = usable_shared_keys(a, b, holders, normalise_linkedin)
     if not usable:
-        return False, "shared_identifier_guarded" if guarded else "no_usable_shared_key"
-    return True, "exact_identifier:" + "+".join(sorted({k[0] for k in usable}))
+        return (False, "shared_identifier_guarded" if guarded
+                else "no_usable_shared_key", [])
+    return True, "exact_identifier:" + "+".join(sorted({k[0] for k in usable})), usable
+
+
+def card_uid_override(a, b, conflicts: Iterable[str], holders,
+                      normalise_linkedin) -> Tuple[bool, str]:
+    """(allowed, reason) only. See ``card_uid_override_keys``."""
+    ok, reason, _ = card_uid_override_keys(a, b, conflicts, holders,
+                                           normalise_linkedin)
+    return ok, reason

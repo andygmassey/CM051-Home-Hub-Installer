@@ -1,13 +1,46 @@
-diff --git a/bin/email-bundle-tick.sh b/bin/email-bundle-tick.sh
-old mode 100644
-new mode 100755
-index 5f01b9b7..47827a4e
+--- a/__init__.py
++++ b/__init__.py
+@@ -8,7 +8,7 @@
+ speaker-labelled transcript plus CM048 metadata, and hands each thread
+ to the CM048 ConversationBundle processor (``pwg-convo process``).
+ CM048 then emits the four artefacts under
+-``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
++``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+ 
+ This is the CONVERSATION-MEMORY leg. It is deliberately separate from
+ the existing ``email-ingest/`` LaunchAgent (which drains Apple Mail
 --- a/bin/email-bundle-tick.sh
 +++ b/bin/email-bundle-tick.sh
-@@ -49,6 +49,147 @@ SINCE_DAYS="${OSTLER_EMAIL_SINCE_DAYS:-30}"
+@@ -12,7 +12,7 @@
+ # the same Apple Mail store, threads it into conversation threads,
+ # and hands each new/updated thread to CM048's pwg-convo processor,
+ # which emits the four artefacts under
+-# ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
++# ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
+ #
+ # Chain:
+ #   1. email_source.reader reads Apple Mail's .emlx tree (reusing
+@@ -49,6 +49,165 @@
  USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
  USER_EMAIL="${OSTLER_USER_EMAIL:-}"
  
++# --- Settling terminal state (emails shard) ---------------------------
++# This tick is the only emails producer. The Setting-up bar reads done/total
++# per channel, so the feed must say when it is FINISHED or cannot run;
++# otherwise the bar holds below 100% for good (Mini16, 2026-11-11: 71%).
++#   complete  a successful FULL-window run with nothing pending
++#   skip      mail_absent | mail_unreadable | no_messages (plain reason)
++# A daytime clamped window is not terminal: it has not seen the backlog.
++_ostler_settle_lib="${OSTLER_SETTLING_LIB:-${HOME}/.ostler/lib/settling_progress.sh}"
++_ostler_settle_clamped=0
++if [ -f "$_ostler_settle_lib" ]; then
++    . "$_ostler_settle_lib"
++else
++    echo "bundle tick: settling lib not found at ${_ostler_settle_lib}; the emails bar cannot reach a terminal state." >&2
++fi
++_ostler_settle() { command -v "$1" >/dev/null 2>&1 && "$@" || true; }
++# -----------------------------------------------------------------------
++
 +# --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
 +# Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
 +# replies, all routed through the daemon's agent turn) must win the one
@@ -144,6 +177,7 @@ index 5f01b9b7..47827a4e
 +        _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
 +        if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
 +            SINCE_DAYS="$_ostler_daytime_days"
++            _ostler_settle_clamped=1
 +        fi
 +    fi
 +fi
@@ -152,7 +186,11 @@ index 5f01b9b7..47827a4e
  ARGS=(--user-name "$USER_NAME" --since-days "$SINCE_DAYS")
  if [ -n "$USER_EMAIL" ]; then
      ARGS+=(--user-address "$USER_EMAIL")
-@@ -68,8 +209,116 @@ if [ ! -d "$MAIL_DIR" ]; then
+@@ -65,11 +224,156 @@
+ MAIL_DIR="${OSTLER_MAIL_DIR:-$HOME/Library/Mail}"
+ if [ ! -d "$MAIL_DIR" ]; then
+     echo "email-bundle tick: no Apple Mail store at $MAIL_DIR; nothing to do."
++    _ostler_settle settling_skip emails mail_absent
      exit 0
  fi
  
@@ -269,11 +307,65 @@ index 5f01b9b7..47827a4e
  # package it imports for the Apple Mail primitives.
 -exec "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}"
 +# (No exec -- we keep the shell alive so the EXIT trap releases the lock.)
-+_ostler_run "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}"
-diff --git a/launchd/com.creativemachines.ostler.email-bundle.plist b/launchd/com.creativemachines.ostler.email-bundle.plist
-index b6381d07..cc7411a2 100644
++# The summary is captured to read threads_* and to settle the emails shard,
++# then replayed to stdout so the log is unchanged.
++_ostler_summary="${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/email-bundle-summary.$$.json"
++set +e
++_ostler_run "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}" > "$_ostler_summary"
++_ostler_rc=$?
++set -e
++cat "$_ostler_summary"
++
++# _ostler_json_int <key> <file>: the integer for a top-level summary key, or fail.
++_ostler_json_int() {
++    local v
++    v="$(sed -n -E "s/^  \"$1\": ([0-9]+),?\$/\1/p" "$2" | head -n 1)"
++    case "$v" in ''|*[!0-9]*) return 1 ;; esac
++    printf '%s' "$v"
++}
++
++# Pipeline rc 1 = FileNotFoundError, rc 2 = PermissionError (run() in pipeline.py).
++case "$_ostler_rc" in
++    1) _ostler_settle settling_skip emails mail_absent ;;
++    2) _ostler_settle settling_skip emails mail_unreadable ;;
++    0)
++        if [ "$_ostler_settle_clamped" != 1 ] \
++            && _ostler_s="$(_ostler_json_int threads_scanned "$_ostler_summary")" \
++            && _ostler_d="$(_ostler_json_int threads_dispatched "$_ostler_summary")" \
++            && _ostler_k="$(_ostler_json_int threads_seeded "$_ostler_summary")" \
++            && _ostler_f="$(_ostler_json_int threads_failed "$_ostler_summary")"; then
++            if [ "$_ostler_s" -eq 0 ]; then
++                _ostler_settle settling_skip emails no_messages
++            elif [ $(( _ostler_d + _ostler_k + _ostler_f )) -eq 0 ]; then
++                _ostler_settle settling_complete emails
++            fi
++        fi
++        ;;
++esac
++rm -f "$_ostler_summary"
++exit "$_ostler_rc"
+--- a/INSTALL_HANDOFF_SPEC.md
++++ b/INSTALL_HANDOFF_SPEC.md
+@@ -9,7 +9,7 @@
+ Mail store, threads messages into conversation threads, renders a
+ cleaned transcript plus CM048 metadata, and invokes CM048's
+ `pwg-convo process` so the four artefacts land under
+-`~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/`.
++`~/Ostler/Conversations/<date>/<slug>-<short-id>/`.
+ 
+ It is SEPARATE from the existing `email-ingest/` LaunchAgent
+ (`com.creativemachines.ostler.email-ingest`), which drains Apple Mail
 --- a/launchd/com.creativemachines.ostler.email-bundle.plist
 +++ b/launchd/com.creativemachines.ostler.email-bundle.plist
+@@ -13,7 +13,7 @@
+         pwg-email-ingest; this agent reads the same .emlx tree, threads
+         it into conversation threads, and hands each new thread to
+         CM048's pwg-convo processor, which emits the four artefacts
+-        under ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
++        under ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
+ 
+         Pieces:
+           1. email_source/ is the reader + threader + dispatcher.
 @@ -38,8 +38,9 @@
  
      <key>ProgramArguments</key>
@@ -331,11 +423,18 @@ index b6381d07..cc7411a2 100644
      </dict>
  
      <key>ProcessType</key>
-diff --git a/pipeline.py b/pipeline.py
-index dde135a7..2d9da02e 100644
 --- a/pipeline.py
 +++ b/pipeline.py
-@@ -41,6 +41,7 @@ import os
+@@ -13,7 +13,7 @@
+      (``channel="email"`` plus the ``email_thread`` sidecar).
+   4. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
+      emits the four artefacts under
+-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
++     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+ 
+ CM048 owns classification, enrichment, the L3 short-circuit, the
+ email-domain privacy ladder, and the four-artefact write. This module
+@@ -41,6 +41,7 @@
  import subprocess
  import sys
  import tempfile
@@ -343,10 +442,12 @@ index dde135a7..2d9da02e 100644
  from pathlib import Path
  from typing import Callable, Optional
  
-@@ -50,6 +51,91 @@ from .threader import build_metadata, render_transcript, thread_messages
+@@ -48,6 +49,91 @@
+ from .threader import build_metadata, render_transcript, thread_messages
+ 
  logger = logging.getLogger(__name__)
- 
- 
++
++
 +# --- v1018-D020: every pwg-convo dispatch is bounded ---------------------
 +#
 +# `subprocess.run` without a timeout waits forever. One document that never
@@ -430,12 +531,10 @@ index dde135a7..2d9da02e 100644
 +    return f"<...{dropped} earlier chars dropped, showing last {limit}...>\n{text[-limit:]}"
 +# ------------------------------------------------------------------------
 +# ------------------------------------------------------------------------
-+
-+
+ 
+ 
  # Engine-zone state under ~/.ostler/ (two-zone architecture). The
- # watermark records the set of message-ids already bundled per thread.
- def _default_state_dir() -> Path:
-@@ -186,17 +272,203 @@ def _dispatch_to_cm048(
+@@ -186,17 +272,363 @@
              metadata["conversation_id"],
              " ".join(pwg_convo_cmd),
          )
@@ -480,7 +579,7 @@ index dde135a7..2d9da02e 100644
                  proc.returncode,
 -                proc.stderr.strip()[:500],
 +                _stderr_excerpt(proc.stderr),
-+            )
+             )
 +        else:
 +            # v1018-D021. The ONLY per-document timing that survives a
 +            # successful dispatch. capture_output=True discards pwg-convo's
@@ -494,22 +593,22 @@ index dde135a7..2d9da02e 100644
 +                "pwg-convo completed %s in %.1fs",
 +                metadata["conversation_id"],
 +                elapsed,
-             )
++            )
          return proc.returncode
- 
- 
++
++
 +def _seed_all(
 +    pending: list[tuple[str, dict]],
 +    *,
 +    pwg_convo_cmd: list[str],
 +) -> int:
 +    """v1018-D021 pass 1: make every new thread browseable, with no model.
-+
+ 
 +    Writes one JSONL manifest and hands the whole batch to a single
 +    ``pwg-convo seed``. Batched on purpose: a seed is milliseconds of real
 +    work, so one interpreter start per thread would cost more than the
 +    seeding does.
-+
+ 
 +    Returns the number of threads the seeder reported writing. Never
 +    raises: pass 2 is the durable path and must run whatever happens here.
 +    """
@@ -628,7 +727,8 @@ index dde135a7..2d9da02e 100644
 +            break
 +        days = rung
 +        messages = read_messages(mail_dir=mail_dir, since_days=rung, user_address=user_address)
-+        threads = thread_messages(messages, min_thread_messages=min_thread_messages)
++        threads = thread_messages(messages, min_thread_messages=min_thread_messages,
++                                  user_address=user_address)
 +        msgs, convs = len(messages), len(threads)
 +        if msgs >= FIRST_WINDOW_MIN_MESSAGES or convs >= FIRST_WINDOW_MIN_CONVERSATIONS:
 +            result = "widened"
@@ -639,10 +739,173 @@ index dde135a7..2d9da02e 100644
 +    return messages, threads
 +
 +
++# --- Reply-debt snapshot (the email leg of "waiting on a reply") ---------
++#
++# Same design as the iMessage feed's snapshot (imessage_source.pipeline,
++# CM051 #30): this tick already reads the Apple Mail tree, so it writes the
++# one thing reply debt needs, the LAST message of each recent thread with the
++# facts the email rules use, into the engine room. The Hub's
++# /api/v1/reply-debt (CM048 reply_debt_sources) reads it there and never
++# opens ~/Library/Mail itself.
++#
++# Copied out per thread: a hashed thread id, the subject (capped; the scam
++# guard reads it), the last message's From / To / Cc ADDRESSES, its text
++# (capped; CM048 strips the quoted part), time, direction, the list / bulk /
++# auto-reply / spam headers, its mailbox, whether the owner wrote in the
++# thread, and the operator's explicit privacy level. NEVER a From display
++# name: a name comes from the owner's Contacts card on the Hub side.
++# The file is 0600 in a 0700 directory, rewritten whole on every tick.
++REPLY_DEBT_SNAPSHOT_SCHEMA = 1
++# Reply debt looks back further than the daytime ingest clamp (2 days), so
++# the tick reads this window for the snapshot when its own is narrower.
++REPLY_DEBT_LOOKBACK_DAYS = 14
++_SNAPSHOT_TEXT_LIMIT = 1500
++_PRODUCER = "email_source (email-bundle tick)"
++
++
++def reply_debt_snapshot_path() -> Path:
++    """Must agree with CM048 ``reply_debt_sources.snapshot_path("email")``."""
++    explicit = (os.environ.get("OSTLER_REPLY_DEBT_EMAIL_SNAPSHOT") or "").strip()
++    if explicit:
++        return Path(explicit).expanduser()
++    root = (os.environ.get("OSTLER_DIR") or "").strip()
++    base = Path(root).expanduser() if root else Path.home() / ".ostler"
++    return base / "state" / "reply_debt" / "email_threads.json"
++
++
++def _write_snapshot_atomic(path: Path, payload: dict) -> None:
++    path.parent.mkdir(parents=True, exist_ok=True)
++    try:
++        os.chmod(path.parent, 0o700)
++    except OSError:
++        pass
++    fd, tmp = tempfile.mkstemp(prefix=".email_threads.", dir=str(path.parent))
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as fh:
++            json.dump(payload, fh, indent=1)
++        os.chmod(tmp, 0o600)
++        os.replace(tmp, path)
++    except BaseException:
++        try:
++            os.unlink(tmp)
++        except OSError:
++            pass
++        raise
++
++
++def build_reply_debt_snapshot(
++    messages: list,
++    *,
++    user_address: str = "",
++    privacy_map: Optional[dict] = None,
++    lookback_days: int = REPLY_DEBT_LOOKBACK_DAYS,
++) -> dict:
++    """Return the snapshot dict for already-read messages."""
++    import hashlib
++    from datetime import datetime, timezone
++
++    owner = (user_address or "").strip().lower()
++    threads = []
++    for thread in thread_messages(messages, min_thread_messages=1,
++                                  user_address=user_address):
++        dated = [m for m in thread.messages if m.timestamp is not None]
++        if not dated:
++            continue
++        last = max(dated, key=lambda m: m.timestamp)
++        row = {
++            "thread_id": hashlib.sha256(thread.thread_id.encode("utf-8")).hexdigest()[:16],
++            "subject": (thread.subject or "")[:200],
++            "headers": dict(last.headers or {}),
++            "mailbox": last.mailbox or "",
++            "owner_wrote": bool(owner) and any(m.from_address == owner for m in thread.messages),
++            "last": {
++                "from_address": last.from_address,
++                "to": [a for _, a in last.to_addresses],
++                "cc": [a for _, a in last.cc_addresses],
++                "text": (last.body or "")[:_SNAPSHOT_TEXT_LIMIT],
++                "is_from_me": bool(owner) and last.from_address == owner,
++                "timestamp": last.timestamp.isoformat(),
++            },
++        }
++        level = _level_for_addresses(thread.participant_addresses, privacy_map or {}, owner)
++        if level:
++            row["privacy_level"] = level
++        threads.append(row)
++    return {
++        "schema": REPLY_DEBT_SNAPSHOT_SCHEMA,
++        "status": "ok",
++        "generated_at": datetime.now(timezone.utc).isoformat(),
++        "producer": _PRODUCER,
++        "lookback_days": lookback_days,
++        "owner_addresses": [owner] if owner else [],
++        "threads": threads,
++    }
++
++
++def write_reply_debt_snapshot(
++    *,
++    messages: Optional[list] = None,
++    error: Optional[BaseException] = None,
++    user_address: str = "",
++    privacy_map: Optional[dict] = None,
++    out_path: Optional[Path] = None,
++) -> str:
++    """Write the reply-debt snapshot from ``messages``, or record ``error``
++    (the read that failed) so the Hub says "couldn't check", never "nothing
++    owed". No Mail tree at all is a true zero (``absent``). Never raises."""
++    from datetime import datetime, timezone
++
++    out = out_path or reply_debt_snapshot_path()
++    if isinstance(error, PermissionError):
++        payload = {"status": "unreadable", "reason": str(error)[:200]}
++    elif isinstance(error, FileNotFoundError):
++        payload = {"status": "absent", "threads": []}
++    elif error is not None:
++        payload = {"status": "error", "reason": f"{type(error).__name__}: {str(error)[:200]}"}
++    else:
++        try:
++            payload = build_reply_debt_snapshot(
++                messages or [], user_address=user_address, privacy_map=privacy_map
++            )
++        except Exception as exc:  # noqa: BLE001 -- recorded, never swallowed silently
++            payload = {"status": "error", "reason": f"{type(exc).__name__}: {str(exc)[:200]}"}
++    if payload.get("status") != "ok":
++        payload.update(
++            schema=REPLY_DEBT_SNAPSHOT_SCHEMA,
++            generated_at=datetime.now(timezone.utc).isoformat(),
++            producer=_PRODUCER,
++        )
++    try:
++        _write_snapshot_atomic(out, payload)
++    except OSError as exc:
++        logger.error("reply-debt snapshot could not be written to %s: %s", out, exc)
++        return "write_failed"
++    if payload["status"] == "ok":
++        logger.info("reply-debt snapshot: %d thread(s) -> %s",
++                    len(payload.get("threads") or []), out)
++    else:
++        logger.warning("reply-debt snapshot: status=%s -> %s", payload["status"], out)
++    return payload["status"]
++
++
++def _reply_debt_messages(messages, *, mail_dir, since_days, user_address):
++    """The messages the snapshot covers: the tick's own read when its window
++    is at least the reply-debt window, else one wider read."""
++    if not since_days or since_days >= REPLY_DEBT_LOOKBACK_DAYS:
++        return messages
++    return read_messages(mail_dir=mail_dir, since_days=REPLY_DEBT_LOOKBACK_DAYS,
++                         user_address=user_address)
++# ------------------------------------------------------------------------
++
++
  def process_email(
      *,
      mail_dir: Optional[Path] = None,
-@@ -211,8 +483,23 @@ def process_email(
+@@ -208,11 +640,27 @@
+     pwg_convo_cmd: Optional[list[str]] = None,
+     state_path: Optional[Path] = None,
+     dry_run: bool = False,
++    snapshot_path: Optional[Path] = None,
  ) -> dict:
      """Read Apple Mail, thread, and dispatch new/updated threads to CM048.
  
@@ -668,24 +931,80 @@ index dde135a7..2d9da02e 100644
      """
      pwg_convo_cmd = pwg_convo_cmd or _resolve_pwg_convo_cmd()
      state_file = state_path or _state_path()
-@@ -223,10 +510,15 @@ def process_email(
+@@ -223,14 +671,69 @@
      privacy_map = _load_privacy_map(contacts_path)
      name_for_address = _name_resolver(contacts)
  
 -    messages = read_messages(mail_dir=mail_dir, since_days=since_days)
-+    messages = read_messages(mail_dir=mail_dir, since_days=since_days,
-+                             user_address=user_address)
-     threads = thread_messages(messages, min_thread_messages=min_thread_messages)
+-    threads = thread_messages(messages, min_thread_messages=min_thread_messages)
++    # A caller that moved the state (tests, a second profile) gets the
++    # snapshot beside it, never in the real engine room.
++    if snapshot_path is None and state_path is not None:
++        snapshot_path = Path(state_path).parent / "reply_debt_email_threads.json"
++    try:
++        messages = read_messages(mail_dir=mail_dir, since_days=since_days,
++                                 user_address=user_address)
++    except (PermissionError, FileNotFoundError) as exc:
++        if not dry_run:
++            write_reply_debt_snapshot(error=exc, out_path=snapshot_path)
++        raise
++    # Reply-debt snapshot FIRST, before seeding and enrichment can spend the
++    # tick (same order as the iMessage feed).
++    if not dry_run:
++        try:
++            debt_messages = _reply_debt_messages(
++                messages, mail_dir=mail_dir, since_days=since_days,
++                user_address=user_address,
++            )
++            write_reply_debt_snapshot(
++                messages=debt_messages, user_address=user_address,
++                privacy_map=privacy_map, out_path=snapshot_path,
++            )
++        except Exception as exc:  # noqa: BLE001 -- recorded, never stops ingest
++            write_reply_debt_snapshot(error=exc, out_path=snapshot_path)
++    threads = thread_messages(messages, min_thread_messages=min_thread_messages,
++                                  user_address=user_address)
 +    if not dry_run:
 +        messages, threads = _widen_first_window(
 +            state, messages, threads, mail_dir, since_days, user_address, min_thread_messages)
  
      scanned = dispatched = skipped = failed = 0
 +    work: list[tuple[object, list[str], set, str, dict]] = []
++    # A thread GROWS: its earliest in-window message changes as the since-window
++    # moves or a missing parent arrives, and thread_id / conversation_id (hence
++    # the CM048 folder) are derived from that message. Without this a grown
++    # thread looked new and was bundled into a second folder, each folder then
++    # yielding its own facts and todos. Reuse the OLDEST prior entry that shares
++    # ANY Message-Id; merge, never delete (the older folder stays canonical).
++    thread_meta: dict[str, dict] = state.setdefault("thread_meta", {})
++    id_owner: dict[str, str] = {}
++    for key, ids in thread_state.items():  # file order = oldest first
++        for mid in ids:
++            id_owner.setdefault(mid, key)
++    claimed: set[str] = set()
      for thread in threads:
          scanned += 1
          current_ids = [m.message_id for m in thread.messages]
-@@ -254,6 +546,23 @@ def process_email(
+-        seen_ids = set(thread_state.get(thread.thread_id, []))
++        owners = [k for k in dict.fromkeys(id_owner.get(i) for i in current_ids) if k]
++        canonical = next((k for k in owners if k not in claimed), None)
++        if canonical is None:
++            canonical = thread.thread_id
++            owners = [canonical] if canonical in thread_state else []
++        claimed.add(canonical)
++        seen_ids = set()
++        for k in owners:
++            seen_ids.update(thread_state.get(k, []))
++        pin = thread_meta.get(canonical)
++        if pin:
++            thread.conversation_id = pin["conversation_id"]
++            thread.pinned_started_at = pin.get("started_at")
++            thread.pinned_date = pin.get("date")
++        thread.thread_id = canonical
+         # A thread is worth re-dispatching only if it carries a message
+         # we have not bundled before (a fresh reply, or a brand-new
+         # thread). Re-bundling on a new reply keeps the four-artefact
+@@ -254,6 +757,23 @@
              name_for_address=name_for_address,
              privacy_level=level,
          )
@@ -709,10 +1028,15 @@ index dde135a7..2d9da02e 100644
          rc = _dispatch_to_cm048(
              transcript,
              metadata,
-@@ -268,6 +577,13 @@ def process_email(
+@@ -268,6 +788,18 @@
                  thread_state[thread.thread_id] = sorted(
                      seen_ids.union(current_ids)
                  )
++                thread_meta.setdefault(thread.thread_id, {
++                    "conversation_id": thread.conversation_id,
++                    "started_at": thread.started_at,
++                    "date": thread.date,
++                })
 +                # Persist as we go. Before the seed pass existed a crash
 +                # mid-tick lost nothing that mattered, because nothing was
 +                # visible until the tick's work landed anyway. Now a tick
@@ -723,7 +1047,7 @@ index dde135a7..2d9da02e 100644
          else:
              failed += 1
              # Leave the watermark untouched so the next tick retries.
-@@ -277,6 +593,7 @@ def process_email(
+@@ -277,6 +809,7 @@
  
      summary = {
          "threads_scanned": scanned,
@@ -731,7 +1055,7 @@ index dde135a7..2d9da02e 100644
          "threads_dispatched": dispatched,
          "threads_skipped": skipped,
          "threads_failed": failed,
-@@ -285,6 +602,16 @@ def process_email(
+@@ -285,6 +818,16 @@
      return summary
  
  
@@ -748,12 +1072,20 @@ index dde135a7..2d9da02e 100644
  def _resolve_pwg_convo_cmd() -> list[str]:
      """Resolve how to invoke CM048's CLI.
  
-diff --git a/reader.py b/reader.py
-index 5c16cb88..2778054a 100644
 --- a/reader.py
 +++ b/reader.py
-@@ -66,8 +66,19 @@ class EmailMessage:
+@@ -64,10 +64,29 @@
+     timestamp: Optional[datetime] = None
+     body: str = ""
      source_path: Optional[Path] = None
++    # The few headers that say a message was not written personally (a
++    # list, a bulk send, an auto-reply, a spam verdict). Lower-cased names;
++    # only the ones in ``_ROBOT_HEADERS`` are kept. Read by the reply-debt
++    # snapshot, which must not count a newsletter as someone waiting.
++    headers: dict = field(default_factory=dict)
++    # The Apple Mail mailbox(es) the file sits in ("INBOX", "Junk"), from
++    # the ``.mbox`` folders on its path.
++    mailbox: str = ""
  
  
 -def _decode(value: Optional[str]) -> str:
@@ -774,7 +1106,46 @@ index 5c16cb88..2778054a 100644
      if not value:
          return ""
      if "=?" not in value:
-@@ -248,6 +259,7 @@ def read_messages(
+@@ -83,8 +102,29 @@
+         return " ".join(out)
+     except Exception:  # pragma: no cover -- defensive
+         return value
++
++
++_ROBOT_HEADERS = (
++    "list-id", "list-unsubscribe", "auto-submitted", "precedence",
++    "x-spam-flag", "x-spam-status", "x-autoreply", "x-auto-response-suppress",
++)
++
++
++def _robot_headers(msg: PyMessage) -> dict:
++    out: dict = {}
++    for name in _ROBOT_HEADERS:
++        value = msg.get(name)
++        if value is not None and str(value).strip():
++            out[name] = _decode(value).strip()[:200]
++    return out
+ 
+ 
++def _mailbox_of(path: Optional[Path]) -> str:
++    if path is None:
++        return ""
++    return "/".join(p[: -len(".mbox")] for p in Path(path).parts if p.endswith(".mbox"))
++
++
+ def _strip_angles(value: Optional[str]) -> str:
+     return (value or "").strip().strip("<>").strip()
+ 
+@@ -241,6 +281,8 @@
+         timestamp=timestamp,
+         body=_extract_body(msg),
+         source_path=source_path,
++        headers=_robot_headers(msg),
++        mailbox=_mailbox_of(source_path),
+     )
+ 
+ 
+@@ -248,6 +290,7 @@
      mail_dir: Optional[Path] = None,
      since_days: int = 365,
      now: Optional[datetime] = None,
@@ -782,7 +1153,7 @@ index 5c16cb88..2778054a 100644
  ) -> list[EmailMessage]:
      """Read Apple Mail ``.emlx`` files into a flat ``EmailMessage`` list.
  
-@@ -257,11 +269,20 @@ def read_messages(
+@@ -257,12 +300,21 @@
          since_days: only messages received within the last N days
              (``0`` disables the cutoff). The fresh-install clamp.
          now: override for "now" (tests).
@@ -794,16 +1165,17 @@ index 5c16cb88..2778054a 100644
      """
      from ostler_fda.apple_mail_mbox import discover_emlx_files, parse_emlx
 +    from ostler_fda.imessage import is_assistant_send
-+
+ 
 +    dropped_assistant = 0
 +    # The robot-emoji prefix rule applies only to mail FROM the owner's own
 +    # address; mail from anyone else is kept unless it carries the invisible
 +    # marker. No address configured: marker rule only.
 +    owner = (user_address or "").strip().lower()
- 
++
      mail_dir = mail_dir or _default_mail_dir()
      now = now or datetime.now(tz=timezone.utc)
-@@ -293,11 +314,21 @@ def read_messages(
+     cutoff = None
+@@ -293,11 +345,21 @@
          message = _parse_one(parsed.rfc822_bytes, emlx_path)
          if message is None:
              continue
@@ -825,866 +1197,72 @@ index 5c16cb88..2778054a 100644
 +        logger.info("Dropped %d assistant-sent email(s)", dropped_assistant)
      logger.info("Read %d email messages from %s", len(out), mail_dir)
      return out
-diff --git b/tests/test_email_source.py b/tests/test_email_source.py
-new file mode 100644
-index 00000000..77859e73
---- /dev/null
-+++ b/tests/test_email_source.py
-@@ -0,0 +1,499 @@
-+"""Synthetic-fixture tests for the HR015 email conversation feed.
-+
-+Builds a synthetic Apple Mail ``.emlx`` tree with SYNTHETIC data only
-+(no real names / addresses / transcripts), then exercises the reader,
-+threader, and the pipeline dispatch to a STUB pwg-convo. The stub
-+captures the transcript + metadata it was handed so we can assert the
-+four-artefact contract's inputs are correct, reference-graph threading
-+works, the watermark prevents re-dispatch, and a per-contact /
-+per-domain L3 mapping rides through to metadata.privacy_level.
-+
-+Run from the HR015 repo root:
-+    python -m pytest email_source/tests/test_email_source.py
-+"""
-+from __future__ import annotations
-+
-+import json
-+import sys
-+from datetime import datetime, timedelta, timezone
-+from email.utils import format_datetime
-+from pathlib import Path
-+
-+import pytest
-+
-+# Make the repo root importable so `import email_source` and
-+# `import ostler_fda` both resolve when pytest runs from anywhere.
-+_REPO_ROOT = Path(__file__).resolve().parents[2]
-+sys.path.insert(0, str(_REPO_ROOT))
-+
-+from email_source import reader, threader  # noqa: E402
-+from email_source.pipeline import process_email  # noqa: E402
-+
-+
-+# ---------------------------------------------------------------------------
-+# Synthetic .emlx fixture builder
-+# ---------------------------------------------------------------------------
-+
-+USER_ADDRESS = "operator@example.test"
-+
-+
-+def _emlx_bytes(
-+    *,
-+    message_id: str,
-+    from_addr: str,
-+    from_name: str,
-+    to_addr: str,
-+    subject: str,
-+    dt: datetime,
-+    body: str,
-+    in_reply_to: str | None = None,
-+    references: list[str] | None = None,
-+) -> bytes:
-+    """Build one .emlx file's raw bytes.
-+
-+    Format: ``<decimal byte-length>\\n<rfc822 bytes><trailing plist>``.
-+    parse_emlx reads the length prefix, slices the rfc822 portion, and
-+    discards the plist.
-+    """
-+    headers = [
-+        f"From: {from_name} <{from_addr}>",
-+        f"To: <{to_addr}>",
-+        f"Subject: {subject}",
-+        f"Date: {format_datetime(dt)}",
-+        f"Message-Id: <{message_id}>",
-+        "Content-Type: text/plain; charset=utf-8",
-+    ]
-+    if in_reply_to:
-+        headers.append(f"In-Reply-To: <{in_reply_to}>")
-+    if references:
-+        headers.append("References: " + " ".join(f"<{r}>" for r in references))
-+    rfc822 = ("\r\n".join(headers) + "\r\n\r\n" + body + "\r\n").encode("utf-8")
-+    plist = (
-+        b'<?xml version="1.0" encoding="UTF-8"?>\n'
-+        b'<plist version="1.0"><dict><key>flags</key>'
-+        b"<integer>0</integer></dict></plist>\n"
-+    )
-+    return f"{len(rfc822)}\n".encode("utf-8") + rfc822 + plist
-+
-+
-+def _write_emlx(mail_dir: Path, name: str, payload: bytes) -> None:
-+    """Drop one .emlx file deep in a realistic Apple Mail tree."""
-+    nested = (
-+        mail_dir
-+        / "V10"
-+        / "account.mbox"
-+        / "INBOX.mbox"
-+        / "ABCD-UUID"
-+        / "Data"
-+        / "1"
-+        / "Messages"
-+    )
-+    nested.mkdir(parents=True, exist_ok=True)
-+    (nested / f"{name}.emlx").write_bytes(payload)
-+
-+
-+def _build_two_threads(mail_dir: Path) -> None:
-+    """Two distinct synthetic threads.
-+
-+    Thread A: a 3-message project sync conversation (reference graph).
-+    Thread B: a single-message thread from a separate counterpart.
-+    """
-+    base = datetime(2026, 5, 30, 10, 0, tzinfo=timezone.utc)
-+    alex = "alex@partner.test"
-+
-+    # Thread A: root + two replies linked by In-Reply-To / References.
-+    _write_emlx(
-+        mail_dir,
-+        "a1",
-+        _emlx_bytes(
-+            message_id="threadA-root@partner.test",
-+            from_addr=alex,
-+            from_name="Alex Synthetic",
-+            to_addr=USER_ADDRESS,
-+            subject="Project sync tomorrow",
-+            dt=base,
-+            body="Hi, are we still on for the project sync at 2pm tomorrow?",
-+        ),
-+    )
-+    _write_emlx(
-+        mail_dir,
-+        "a2",
-+        _emlx_bytes(
-+            message_id="threadA-r1@example.test",
-+            from_addr=USER_ADDRESS,
-+            from_name="Operator Synthetic",
-+            to_addr=alex,
-+            subject="Re: Project sync tomorrow",
-+            dt=base + timedelta(minutes=20),
-+            body="Yes. I will book Room 3 and send the invite shortly.",
-+            in_reply_to="threadA-root@partner.test",
-+            references=["threadA-root@partner.test"],
-+        ),
-+    )
-+    _write_emlx(
-+        mail_dir,
-+        "a3",
-+        _emlx_bytes(
-+            message_id="threadA-r2@partner.test",
-+            from_addr=alex,
-+            from_name="Alex Synthetic",
-+            to_addr=USER_ADDRESS,
-+            subject="Re: Project sync tomorrow",
-+            dt=base + timedelta(minutes=35),
-+            body="Great, I will send the deck beforehand.",
-+            in_reply_to="threadA-r1@example.test",
-+            references=["threadA-root@partner.test", "threadA-r1@example.test"],
-+        ),
-+    )
-+
-+    # Thread B: a separate single-message thread.
-+    _write_emlx(
-+        mail_dir,
-+        "b1",
-+        _emlx_bytes(
-+            message_id="threadB-root@vendor.test",
-+            from_addr="sam@vendor.test",
-+            from_name="Sam Synthetic",
-+            to_addr=USER_ADDRESS,
-+            subject="Invoice question",
-+            dt=base + timedelta(hours=3),
-+            body="Quick question about last month's invoice line item.",
-+        ),
-+    )
-+
-+
-+# ---------------------------------------------------------------------------
-+# pwg-convo stub
-+# ---------------------------------------------------------------------------
-+
-+
-+class _StubDispatch:
-+    """Captures everything that would have gone to pwg-convo."""
-+
-+    def make_cmd(self, tmp_path: Path) -> list[str]:
-+        capture = tmp_path / "capture.jsonl"
-+        script = tmp_path / "fake_pwg_convo.py"
-+        # Handles BOTH subcommands the tick now issues (v1018-D021):
-+        # `seed <manifest>` for the zero-model first pass and `process`
-+        # for enrichment. Each record carries its `cmd` so a test can
-+        # assert the ORDER the two passes ran in, which is the whole
-+        # point of the split -- seeding after enrichment would be no
-+        # better than not seeding at all.
-+        script.write_text(
-+            "import json, sys\n"
-+            "args = sys.argv[1:]\n"
-+            f"cap = {str(capture)!r}\n"
-+            "if 'seed' in args:\n"
-+            "    manifest = args[args.index('seed') + 1]\n"
-+            "    n = 0\n"
-+            "    for line in open(manifest):\n"
-+            "        line = line.strip()\n"
-+            "        if not line:\n"
-+            "            continue\n"
-+            "        e = json.loads(line)\n"
-+            "        rec = {\n"
-+            "          'cmd': 'seed',\n"
-+            "          'transcript': open(e['transcript']).read(),\n"
-+            "          'metadata': json.load(open(e['metadata'])),\n"
-+            "        }\n"
-+            "        open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
-+            "        n += 1\n"
-+            "    print(json.dumps({'seeded': n, 'skipped_or_failed': 0}))\n"
-+            "    sys.exit(0)\n"
-+            "ti = args.index('process')\n"
-+            "tpath = args[ti + 1]\n"
-+            "mpath = args[ti + 2]\n"
-+            "rec = {\n"
-+            "  'cmd': 'process',\n"
-+            "  'transcript': open(tpath).read(),\n"
-+            "  'metadata': json.load(open(mpath)),\n"
-+            "  'dry_run': '--dry-run' in args,\n"
-+            "}\n"
-+            "open(cap, 'a').write(json.dumps(rec) + '\\n')\n"
-+        )
-+        self._capture = capture
-+        return [sys.executable, str(script)]
-+
-+    def load(self) -> list[dict]:
-+        """Enrichment dispatches only, so existing assertions about what
-+        CM048 was handed keep meaning what they meant."""
-+        return [r for r in self.load_all() if r.get("cmd") != "seed"]
-+
-+    def load_all(self) -> list[dict]:
-+        if not self._capture.exists():
-+            return []
-+        return [json.loads(line) for line in self._capture.read_text().splitlines()]
-+
-+
-+# ---------------------------------------------------------------------------
-+# Reader + threader
-+# ---------------------------------------------------------------------------
-+
-+
-+def test_reader_reads_all_messages(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    msgs = reader.read_messages(mail_dir=mail, since_days=0)
-+    assert len(msgs) == 4
-+    subjects = {m.subject for m in msgs}
-+    assert "Project sync tomorrow" in subjects
-+    assert "Invoice question" in subjects
-+    # In-Reply-To / References parsed.
-+    r2 = [m for m in msgs if m.message_id == "threadA-r2@partner.test"][0]
-+    assert r2.in_reply_to == "threadA-r1@example.test"
-+    assert "threadA-root@partner.test" in r2.references
-+
-+
-+def test_threader_groups_reference_graph(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    msgs = reader.read_messages(mail_dir=mail, since_days=0)
-+    threads = threader.thread_messages(msgs)
-+    assert len(threads) == 2
-+    by_count = sorted(len(t.messages) for t in threads)
-+    assert by_count == [1, 3]  # thread A has 3, thread B has 1
-+    # conversation_ids stable + distinct.
-+    ids = {t.conversation_id for t in threads}
-+    assert len(ids) == 2
-+
-+
-+def test_transcript_and_metadata_shape(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    msgs = reader.read_messages(mail_dir=mail, since_days=0)
-+    threads = threader.thread_messages(msgs)
-+    thread_a = [t for t in threads if len(t.messages) == 3][0]
-+
-+    name_for = lambda a: {"alex@partner.test": "Alex Synthetic"}.get(a, a)
-+    transcript = threader.render_transcript(
-+        thread_a, user_address=USER_ADDRESS, name_for_address=name_for
-+    )
-+    assert "**Alex Synthetic**" in transcript
-+    assert "**You**" in transcript
-+    assert "# Project sync tomorrow" in transcript
-+
-+    meta = threader.build_metadata(
-+        thread_a,
-+        user_display_name="Operator Synthetic",
-+        user_address=USER_ADDRESS,
-+        name_for_address=name_for,
-+    )
-+    assert meta["channel"] == "email"
-+    assert meta["source"] == "email"
-+    assert meta["source_app"] == "mail"
-+    assert meta["capture_source"] == "hr015_email_source"
-+    # email_thread sidecar (consumed by CM048 _email_adapter).
-+    sidecar = meta["email_thread"]
-+    assert sidecar["message_count"] == 3
-+    assert sidecar["thread_id"] == "threadA-root@partner.test"
-+    assert len(sidecar["message_ids"]) == 3
-+    assert sidecar["first_message_at"] and sidecar["last_message_at"]
-+    # participants: user first with email, then the other with email.
-+    roles = [p["role"] for p in meta["participants"]]
-+    assert roles[0] == "user"
-+    assert meta["participants"][0]["email"] == USER_ADDRESS
-+    other = [p for p in meta["participants"] if p["role"] == "other"]
-+    assert any(p["email"] == "alex@partner.test" for p in other)
-+
-+
-+# ---------------------------------------------------------------------------
-+# Pipeline dispatch + watermark
-+# ---------------------------------------------------------------------------
-+
-+
-+def test_pipeline_dispatches_both_threads(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    state = tmp_path / "state.json"
-+
-+    summary = process_email(
-+        mail_dir=mail,
-+        user_display_name="Operator Synthetic",
-+        user_address=USER_ADDRESS,
-+        since_days=0,
-+        pwg_convo_cmd=cmd,
-+        state_path=state,
-+    )
-+    assert summary["threads_dispatched"] == 2
-+    assert summary["threads_failed"] == 0
-+    calls = stub.load()
-+    assert len(calls) == 2
-+    for c in calls:
-+        assert c["metadata"]["channel"] == "email"
-+        assert c["metadata"]["capture_source"] == "hr015_email_source"
-+        assert c["transcript"].count("**") >= 2
-+
-+
-+def test_watermark_prevents_redispatch(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    state = tmp_path / "state.json"
-+
-+    first = process_email(
-+        mail_dir=mail, user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    assert first["threads_dispatched"] == 2
-+    # Second tick: same mailbox, nothing new -> all skipped.
-+    second = process_email(
-+        mail_dir=mail, user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    assert second["threads_dispatched"] == 0
-+    assert second["threads_skipped"] == 2
-+
-+
-+def test_new_reply_redispatches_thread(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    state = tmp_path / "state.json"
-+
-+    process_email(
-+        mail_dir=mail, user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    # A new reply lands on thread A.
-+    base = datetime(2026, 5, 30, 10, 0, tzinfo=timezone.utc)
-+    _write_emlx(
-+        mail,
-+        "a4",
-+        _emlx_bytes(
-+            message_id="threadA-r3@example.test",
-+            from_addr=USER_ADDRESS,
-+            from_name="Operator Synthetic",
-+            to_addr="alex@partner.test",
-+            subject="Re: Project sync tomorrow",
-+            dt=base + timedelta(hours=1),
-+            body="Booked. See you at 2.",
-+            in_reply_to="threadA-r2@partner.test",
-+            references=["threadA-root@partner.test", "threadA-r2@partner.test"],
-+        ),
-+    )
-+    second = process_email(
-+        mail_dir=mail, user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    # Thread A re-dispatched (new reply), thread B still skipped.
-+    assert second["threads_dispatched"] == 1
-+    assert second["threads_skipped"] == 1
-+
-+
-+def test_since_days_clamp(tmp_path):
-+    """A message outside the since-days window is not read."""
-+    mail = tmp_path / "Mail"
-+    old = datetime.now(timezone.utc) - timedelta(days=400)
-+    _write_emlx(
-+        mail,
-+        "old",
-+        _emlx_bytes(
-+            message_id="ancient@vendor.test",
-+            from_addr="sam@vendor.test",
-+            from_name="Sam Synthetic",
-+            to_addr=USER_ADDRESS,
-+            subject="Old thread",
-+            dt=old,
-+            body="This is well outside the clamp window.",
-+        ),
-+    )
-+    recent = reader.read_messages(mail_dir=mail, since_days=30)
-+    assert recent == []
-+    everything = reader.read_messages(mail_dir=mail, since_days=0)
-+    assert len(everything) == 1
-+
-+
-+# ---------------------------------------------------------------------------
-+# L3 privacy map (operator override)
-+# ---------------------------------------------------------------------------
-+
-+
-+def test_l3_address_map_rides_through(tmp_path):
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    contacts = tmp_path / "contacts.yaml"
-+    contacts.write_text(
-+        "contacts:\n"
-+        '  "alex@partner.test":\n'
-+        '    name: "Alex Synthetic"\n'
-+        '    privacy_level: "L3"\n'
-+    )
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    state = tmp_path / "state.json"
-+    process_email(
-+        mail_dir=mail, contacts_path=contacts,
-+        user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    calls = stub.load()
-+    # Thread A (with the L3-mapped address) must carry privacy_level L3.
-+    thread_a = [
-+        c for c in calls
-+        if c["metadata"]["email_thread"]["thread_id"] == "threadA-root@partner.test"
-+    ]
-+    assert thread_a, "thread A should have dispatched"
-+    assert thread_a[0]["metadata"]["privacy_level"] == "L3", (
-+        "L3 address mapping must ride through to metadata so CM048's "
-+        "writer short-circuits the gist arm"
-+    )
-+    # Thread B (unmapped) must NOT be forced L3 by us -- CM048's own
-+    # ladder decides.
-+    thread_b = [
-+        c for c in calls
-+        if c["metadata"]["email_thread"]["thread_id"] == "threadB-root@vendor.test"
-+    ]
-+    assert thread_b
-+    assert "privacy_level" not in thread_b[0]["metadata"]
-+
-+
-+def test_l3_domain_map_rides_through(tmp_path):
-+    """A bare-domain L3 entry marks every address on that domain L3."""
-+    mail = tmp_path / "Mail"
-+    _build_two_threads(mail)
-+    contacts = tmp_path / "contacts.yaml"
-+    contacts.write_text(
-+        "contacts:\n"
-+        '  "vendor.test":\n'
-+        '    privacy_level: "L3"\n'
-+    )
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    state = tmp_path / "state.json"
-+    process_email(
-+        mail_dir=mail, contacts_path=contacts,
-+        user_display_name="Op", user_address=USER_ADDRESS,
-+        since_days=0, pwg_convo_cmd=cmd, state_path=state,
-+    )
-+    calls = stub.load()
-+    thread_b = [
-+        c for c in calls
-+        if c["metadata"]["email_thread"]["thread_id"] == "threadB-root@vendor.test"
-+    ]
-+    assert thread_b
-+    assert thread_b[0]["metadata"]["privacy_level"] == "L3"
-+
-+
-+# ---------------------------------------------------------------------------
-+# Regression: _decode must survive an email.header.Header (the #3 crash)
-+# ---------------------------------------------------------------------------
-+
-+def test_decode_accepts_header_object():
-+    """The stdlib email parser hands some fields back as email.header.Header,
-+    not str. _decode previously did `"=?" in value`, which raises
-+    `TypeError: argument of type 'Header' is not iterable` and crashed every
-+    email-source run. It must coerce to str first."""
-+    from email.header import Header
-+
-+    assert reader._decode(Header("Test Sender", "utf-8")) == "Test Sender"
-+    assert reader._decode(None) == ""
-+    assert reader._decode("") == ""
-+    assert reader._decode("Plain Name") == "Plain Name"
-+    # an encoded-word Header round-trips through decode_header
-+    enc = Header()
-+    enc.append("Niño", "utf-8")
-+    assert "Ni" in reader._decode(str(enc))
-diff --git b/tests/test_seed_first_wiki.py b/tests/test_seed_first_wiki.py
-new file mode 100644
-index 00000000..30659e96
---- /dev/null
-+++ b/tests/test_seed_first_wiki.py
-@@ -0,0 +1,352 @@
-+"""v1018-D021: a thread must be readable on the tick it arrives.
-+
-+The defect is not that enrichment is slow. It is that NOTHING the
-+customer can read exists until enrichment finishes, because the
-+four-artefact bundle is produced by the sixth of six serialised model
-+calls. So these tests assert the two properties that fix costs:
-+
-+  1. A bundle can be written with ZERO model calls, and it is honest
-+     about being provisional.
-+  2. The seed pass runs BEFORE the enrichment pass in a tick, and never
-+     overwrites a bundle a model already wrote.
-+
-+Property 1 is proved by pointing the pipeline's Ollama URL at a port
-+nothing is listening on. If any code path in the seed reached for a
-+model, the test could not pass.
-+
-+All fixture content is synthetic: @example.test addresses, placeholder
-+names, filler bodies.
-+
-+Run from the CM051 repo root:
-+    python -m pytest vendor/email_source/tests/test_seed_first_wiki.py
-+"""
-+from __future__ import annotations
-+
-+import json
-+import socket
-+import sys
-+from datetime import datetime, timedelta, timezone
-+from pathlib import Path
-+
-+import pytest
-+
-+_VENDOR = Path(__file__).resolve().parents[2]
-+sys.path.insert(0, str(_VENDOR))
-+sys.path.insert(0, str(_VENDOR / "cm048_pipeline"))
-+
-+from email_source.pipeline import process_email  # noqa: E402
-+from src.settings import Settings  # noqa: E402
-+
-+from test_email_source import (  # noqa: E402
-+    USER_ADDRESS,
-+    _StubDispatch,
-+    _emlx_bytes,
-+    _write_emlx,
-+)
-+
-+
-+SUBJECT = "Quarterly filing question"
-+CONTACT = "contact.one@example.test"
-+
-+
-+def _seed_module():
-+    """Imported lazily so this file still COLLECTS on a tree without the
-+    seed module. A gate that dies at import proves only that a name is
-+    missing; the tick-order assertions below have to be able to run and
-+    fail on behaviour."""
-+    from src import seed  # noqa: PLC0415
-+
-+    return seed
-+
-+
-+def _closed_port() -> int:
-+    """A port with nothing behind it, so any model call fails loudly."""
-+    s = socket.socket()
-+    s.bind(("127.0.0.1", 0))
-+    port = s.getsockname()[1]
-+    s.close()
-+    return port
-+
-+
-+def _settings(tmp_path: Path) -> Settings:
-+    return Settings(
-+        user_id="test-user",
-+        ollama_url=f"http://127.0.0.1:{_closed_port()}",
-+        qdrant_url=f"http://127.0.0.1:{_closed_port()}",
-+        oxigraph_url=f"http://127.0.0.1:{_closed_port()}",
-+        processing_state_dir=tmp_path / "processing",
-+        output_conversations_dir=tmp_path / "Conversations",
-+        coach_db_path=tmp_path / "coach.db",
-+        settings_path=tmp_path / "settings.yaml",
-+    )
-+
-+
-+TRANSCRIPT = (
-+    f"# {SUBJECT}\n"
-+    "\n"
-+    "**Contact One** (2026-01-05T09:00:00+00:00):\n"
-+    "Could you confirm which filing window applies this quarter?\n"
-+    "\n"
-+    "**You** (2026-01-05T11:30:00+00:00):\n"
-+    "Checking now, will confirm before Friday.\n"
-+)
-+
-+METADATA = {
-+    "conversation_id": "2026-01-05_quarterly-filing-question_abcd1234",
-+    "date": "2026-01-05",
-+    "source": "email",
-+    "channel": "email",
-+    "shape": "correspondence",
-+    "started_at": "2026-01-05T09:00:00+00:00",
-+    "ended_at": "2026-01-05T11:30:00+00:00",
-+    "source_session_id": "thread-root@example.test",
-+    "source_app": "mail",
-+    "capture_source": "hr015_email_source",
-+    "participants": [
-+        {"id": "user", "display": "Operator", "role": "user",
-+         "email": USER_ADDRESS},
-+        {"id": "contact_one", "display": "Contact One", "role": "other",
-+         "email": CONTACT},
-+    ],
-+    "email_thread": {
-+        "thread_id": "thread-root@example.test",
-+        "subject": SUBJECT,
-+        "message_count": 2,
-+        "first_message_at": "2026-01-05T09:00:00+00:00",
-+        "last_message_at": "2026-01-05T11:30:00+00:00",
-+        "message_ids": ["a@example.test", "b@example.test"],
-+        "in_reply_to_chain": ["a@example.test"],
-+    },
-+}
-+
-+
-+# ---------------------------------------------------------------------------
-+# Property 1: a bundle with no model call
-+# ---------------------------------------------------------------------------
-+
-+
-+def test_seed_writes_four_artefacts_without_any_model_call(tmp_path):
-+    settings = _settings(tmp_path)
-+    folder = _seed_module().seed_conversation(
-+        METADATA["conversation_id"], TRANSCRIPT, dict(METADATA), settings
-+    )
-+    assert folder is not None, "seed produced no folder"
-+
-+    summary = (folder / "summary.md").read_text()
-+    transcript = (folder / "transcript.md").read_text()
-+    todos = (folder / "todos.md").read_text()
-+
-+    # The four-artefact contract: three files plus frontmatter on each.
-+    for text in (summary, transcript, todos):
-+        assert text.startswith("---\n"), "artefact has no frontmatter"
-+        assert f"conversation_id: \"{METADATA['conversation_id']}\"" in text
-+
-+    # Honest about being provisional, in the frontmatter every consumer
-+    # reads and not just in prose a renderer might drop.
-+    assert "enrichment_pending: true" in summary
-+
-+    # Useful, not filler: it says what the thread IS.
-+    assert SUBJECT in summary
-+    assert "Contact One" in summary
-+    assert "2 messages" in summary
-+    # And it skims the messages.
-+    assert "which filing window applies" in summary
-+
-+    # It does NOT invent commitments. "will confirm before Friday" is
-+    # exactly the sentence a naive extractor would turn into a todo.
-+    assert "(none extracted)" in todos
-+
-+    # The transcript artefact carries the real thread.
-+    assert "Could you confirm" in transcript
-+
-+
-+def test_seed_marks_provisional_classification_not_a_judgement(tmp_path):
-+    settings = _settings(tmp_path)
-+    folder = _seed_module().seed_conversation(
-+        METADATA["conversation_id"], TRANSCRIPT, dict(METADATA), settings
-+    )
-+    summary = (folder / "summary.md").read_text()
-+    # A seed must never look like the classifier ran.
-+    assert "sensitivity_level: \"normal\"" in summary
-+    assert "enrichment_pending: true" in summary
-+
-+
-+# ---------------------------------------------------------------------------
-+# Property 2: a seed never overwrites model output
-+# ---------------------------------------------------------------------------
-+
-+
-+def test_seed_refuses_to_overwrite_an_enriched_bundle(tmp_path):
-+    settings = _settings(tmp_path)
-+    conv_id = METADATA["conversation_id"]
-+
-+    # The full pipeline has already run this conversation.
-+    state_dir = settings.processing_state_dir / conv_id
-+    state_dir.mkdir(parents=True)
-+    (state_dir / "state.json").write_text(json.dumps({
-+        "conversation_id": conv_id,
-+        "current_step": "09_bundle",
-+        "completed_steps": ["00_raw", "01_classify", "02_enrich",
-+                            "09_bundle"],
-+        "failed_step": None,
-+    }))
-+
-+    assert _seed_module().already_enriched(conv_id, settings) is True
-+    assert _seed_module().seed_conversation(
-+        conv_id, TRANSCRIPT, dict(METADATA), settings
-+    ) is None
-+
-+    # And nothing was written, so a good summary could not have been
-+    # replaced by a placeholder.
-+    assert not list(settings.output_conversations_dir.rglob("summary.md"))
-+
-+
-+def test_already_enriched_is_false_before_the_bundle_step(tmp_path):
-+    """Control: the guard must not read every state file as enriched."""
-+    settings = _settings(tmp_path)
-+    conv_id = METADATA["conversation_id"]
-+    state_dir = settings.processing_state_dir / conv_id
-+    state_dir.mkdir(parents=True)
-+    (state_dir / "state.json").write_text(json.dumps({
-+        "conversation_id": conv_id,
-+        "current_step": "02_enrich",
-+        "completed_steps": ["00_raw", "01_classify", "02_enrich"],
-+        "failed_step": None,
-+    }))
-+    assert _seed_module().already_enriched(conv_id, settings) is False
-+    assert _seed_module().seed_conversation(
-+        conv_id, TRANSCRIPT, dict(METADATA), settings
-+    ) is not None
-+
-+
-+# ---------------------------------------------------------------------------
-+# Property 3: the tick seeds first, then enriches
-+# ---------------------------------------------------------------------------
-+
-+
-+def _build_thread(mail_dir: Path, *, tag: str, when: datetime) -> None:
-+    root = f"{tag}-root@example.test"
-+    _write_emlx(mail_dir, f"{tag}0.emlx", _emlx_bytes(
-+        message_id=root,
-+        from_addr=CONTACT, from_name="Contact One",
-+        to_addr=USER_ADDRESS, subject=f"Synthetic {tag}",
-+        dt=when, body="Synthetic body text with no real content.",
-+    ))
-+    _write_emlx(mail_dir, f"{tag}1.emlx", _emlx_bytes(
-+        message_id=f"{tag}-r1@example.test",
-+        from_addr=USER_ADDRESS, from_name="Operator",
-+        to_addr=CONTACT, subject=f"Re: Synthetic {tag}",
-+        dt=when + timedelta(hours=1),
-+        body="Synthetic reply text with no real content.",
-+        in_reply_to=root, references=[root],
-+    ))
-+
-+
-+def test_tick_seeds_every_thread_before_enriching_any(tmp_path):
-+    mail = tmp_path / "Mail"
-+    now = datetime.now(timezone.utc)
-+    _build_thread(mail, tag="alpha", when=now - timedelta(days=3))
-+    _build_thread(mail, tag="beta", when=now - timedelta(days=1))
-+
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    summary = process_email(
-+        mail_dir=mail,
-+        user_display_name="Operator",
-+        user_address=USER_ADDRESS,
-+        since_days=30,
-+        pwg_convo_cmd=cmd,
-+        state_path=tmp_path / "state.json",
-+    )
-+
-+    assert summary["threads_scanned"] == 2
-+    assert summary["threads_seeded"] == 2
-+    assert summary["threads_dispatched"] == 2
-+
-+    order = [r["cmd"] for r in stub.load_all()]
-+    # Every seed lands before the first enrichment. If enrichment came
-+    # first the split would buy the customer nothing.
-+    assert order == ["seed", "seed", "process", "process"], order
-+
-+
-+def test_tick_enriches_newest_thread_first(tmp_path):
-+    mail = tmp_path / "Mail"
-+    now = datetime.now(timezone.utc)
-+    _build_thread(mail, tag="older", when=now - timedelta(days=20))
-+    _build_thread(mail, tag="newer", when=now - timedelta(days=1))
-+
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    process_email(
-+        mail_dir=mail,
-+        user_display_name="Operator",
-+        user_address=USER_ADDRESS,
-+        since_days=60,
-+        pwg_convo_cmd=cmd,
-+        state_path=tmp_path / "state.json",
-+    )
-+
-+    enriched = [
-+        r["metadata"]["email_thread"]["subject"]
-+        for r in stub.load_all() if r["cmd"] == "process"
-+    ]
-+    assert enriched[0].endswith("newer"), enriched
-+
-+
-+def test_seed_pass_can_be_switched_off(tmp_path, monkeypatch):
-+    """The escape hatch must genuinely restore the old tick."""
-+    monkeypatch.setenv("OSTLER_SEED_FIRST", "0")
-+    mail = tmp_path / "Mail"
-+    _build_thread(mail, tag="gamma", when=datetime.now(timezone.utc))
-+
-+    stub = _StubDispatch()
-+    cmd = stub.make_cmd(tmp_path)
-+    summary = process_email(
-+        mail_dir=mail,
-+        user_display_name="Operator",
-+        user_address=USER_ADDRESS,
-+        since_days=30,
-+        pwg_convo_cmd=cmd,
-+        state_path=tmp_path / "state.json",
-+    )
-+    assert summary["threads_seeded"] == 0
-+    assert [r["cmd"] for r in stub.load_all()] == ["process"]
-+
-+
-+def test_a_broken_seeder_never_stops_enrichment(tmp_path):
-+    """A seed is an optimisation. It must not be able to block the
-+    durable path -- the failure mode that would turn a throughput fix
-+    into an outage."""
-+    mail = tmp_path / "Mail"
-+    _build_thread(mail, tag="delta", when=datetime.now(timezone.utc))
-+
-+    capture = tmp_path / "capture.jsonl"
-+    script = tmp_path / "half_broken_pwg_convo.py"
-+    script.write_text(
-+        "import json, sys\n"
-+        "args = sys.argv[1:]\n"
-+        "if 'seed' in args:\n"
-+        "    sys.stderr.write('synthetic seeder explosion\\n')\n"
-+        "    sys.exit(3)\n"
-+        "ti = args.index('process')\n"
-+        "rec = {'cmd': 'process',\n"
-+        "       'metadata': json.load(open(args[ti + 2]))}\n"
-+        f"open({str(capture)!r}, 'a').write(json.dumps(rec) + '\\n')\n"
-+    )
-+
-+    summary = process_email(
-+        mail_dir=mail,
-+        user_display_name="Operator",
-+        user_address=USER_ADDRESS,
-+        since_days=30,
-+        pwg_convo_cmd=[sys.executable, str(script)],
-+        state_path=tmp_path / "state.json",
-+    )
-+    assert summary["threads_seeded"] == 0
-+    assert summary["threads_dispatched"] == 1
-+    assert summary["threads_failed"] == 0
-+    assert capture.exists(), "enrichment did not run after the seed failed"
-+
-+
-+if __name__ == "__main__":
-+    raise SystemExit(pytest.main([__file__, "-q"]))
+--- a/threader.py
++++ b/threader.py
+@@ -45,10 +45,15 @@
+     subject: str
+     participant_addresses: list[str]  # non-user addresses, lower-cased
+     extra: dict = field(default_factory=dict)
++    # Set by the pipeline when this thread is the continuation of one already
++    # bundled: the folder is keyed on conversation_id AND the started_at date,
++    # so a grown thread whose earliest in-window message moved must keep both.
++    pinned_started_at: Optional[str] = None
++    pinned_date: Optional[str] = None
+ 
+     @property
+     def started_at(self) -> str:
+-        return _iso(self.messages[0])
++        return self.pinned_started_at or _iso(self.messages[0])
+ 
+     @property
+     def ended_at(self) -> str:
+@@ -56,6 +61,8 @@
+ 
+     @property
+     def date(self) -> str:
++        if self.pinned_date:
++            return self.pinned_date
+         ts = self.messages[0].timestamp
+         return ts.date().isoformat() if ts else "0000-00-00"
+ 
+@@ -113,6 +120,7 @@
+     *,
+     min_thread_messages: int = 1,
+     subject_fallback: bool = True,
++    user_address: str = "",
+ ) -> list[EmailThread]:
+     """Group a flat message list into ``EmailThread`` objects.
+ 
+@@ -121,6 +129,11 @@
+     sharing a normalised subject are unioned too, catching clients
+     that strip reference headers.
+ 
++    The subject fallback only joins messages that share a normalised
++    subject AND a counterpart address (any From / To / Cc address that
++    is not ``user_address``), so two strangers who both write "Invoice"
++    stay two conversations.
++
+     Threads shorter than ``min_thread_messages`` are dropped. Email
+     threading keeps singletons by default (a one-message thread is
+     still a conversation worth a bundle, unlike a lone "ok" iMessage)
+@@ -144,12 +157,18 @@
+             uf.union(m.message_id, ref)
+ 
+     if subject_fallback:
+-        subject_groups: dict[str, list[str]] = {}
++        owner = (user_address or "").strip().lower()
++        subject_groups: dict[tuple[str, str], list[str]] = {}
+         for m in by_id.values():
+             norm = _normalise_subject(m.subject)
+             if not norm:
+                 continue
+-            subject_groups.setdefault(norm, []).append(m.message_id)
++            addrs = {m.from_address} | {a for _, a in m.to_addresses} | {
++                a for _, a in m.cc_addresses
++            }
++            for addr in addrs:
++                if addr and addr != owner:
++                    subject_groups.setdefault((norm, addr), []).append(m.message_id)
+         for ids in subject_groups.values():
+             for other in ids[1:]:
+                 uf.union(ids[0], other)

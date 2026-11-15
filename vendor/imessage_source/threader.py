@@ -43,6 +43,11 @@ class Session:
     participant_handles: list[str]  # non-"me" handle ids in this session
     display_name: Optional[str] = None
     extra: dict = field(default_factory=dict)
+    # EVERY member of the chat (chat.db chat_handle_join), spoken or not. The
+    # follow-up thread key is built from these, as the assistant daemon builds
+    # it from chat.db; keying on speakers alone meant a group chat with a
+    # silent member never matched, so its follow-ups never closed (v1.0.122).
+    chat_handles: list[str] = field(default_factory=list)
 
     @property
     def started_at(self) -> str:
@@ -95,6 +100,7 @@ def thread_messages(
     display_name: Optional[str] = None,
     gap: timedelta = DEFAULT_SESSION_GAP,
     min_session_messages: int = 2,
+    members: Optional[list[str]] = None,
 ) -> list[Session]:
     """Segment one thread's messages into ``Session`` objects.
 
@@ -123,6 +129,7 @@ def thread_messages(
                 is_group=is_group,
                 participant_handles=handles,
                 display_name=display_name,
+                chat_handles=[h for h in (members or []) if h and h.strip()],
             )
         )
     return out
@@ -196,6 +203,8 @@ def build_metadata(
         "service": service,
         "is_group_chat": session.is_group,
     }
+    if session.chat_handles:
+        metadata["chat_handles"] = list(session.chat_handles)
     if privacy_level:
         metadata["privacy_level"] = privacy_level
     return metadata

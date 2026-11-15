@@ -219,16 +219,24 @@ def get_wizard_steps(snapshot: SystemSnapshot) -> list[dict]:
     return steps
 
 
+# The wizard's four status colours, NAMED so a test can assert "the green this
+# module uses" rather than pinning a literal (HR015 #979, fd10f28). Values are
+# the brand tokens already used by this tree's light palette, except "blocked",
+# which was a near-black grey (#4a4540) and is now the brand's muted grey.
+STATUS_COLOUR = {
+    "complete": "#2C4A2C",
+    "partial": "#5C4611",
+    "needed": "#7A1F1F",
+    "blocked": "#6B655C",
+}
+STATUS_COLOUR_UNKNOWN = "rgba(20,18,14,0.40)"
+
+
 def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
     """Render the first-run wizard as HTML."""
     steps_html = ""
     for step in steps:
-        status_color = {
-            "complete": "#2C4A2C",
-            "partial": "#5C4611",
-            "needed": "#7A1F1F",
-            "blocked": "#4a4540",
-        }.get(step["status"], "rgba(236,232,221,0.40)")
+        status_color = STATUS_COLOUR.get(step["status"], STATUS_COLOUR_UNKNOWN)
 
         status_icon = {
             "complete": "&#10003;",
@@ -240,7 +248,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
         action_html = ""
         if step.get("action_command"):
             action_html = f"""
-            <div style="margin-top:12px;background:#0a0908;border:1px solid var(--border);border-radius:6px;padding:12px 16px;">
+            <div style="margin-top:12px;background:#ECEBE5;border:1px solid var(--border);border-radius:6px;padding:12px 16px;">
                 <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:4px;">{step['action']}</div>
                 <code style="font-family:'SF Mono',monospace;font-size:0.82rem;color:var(--amber-light);cursor:pointer;user-select:all;"
                       onclick="navigator.clipboard.writeText(this.textContent).then(()=>this.style.color='#2C4A2C')"
@@ -272,10 +280,11 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         * {{ margin:0; padding:0; box-sizing:border-box; }}
         :root {{
-            /* Ostler dark palette (mirrors apple_style.css). The wizard
+            /* Ostler LIGHT palette (HR015 #979: --bg was still the Lifeline ground
+               under light cards and dark text). The wizard
                shares the dashboard's tokens so the welcome -> dashboard
                transition feels seamless. */
-            --bg: #0d0b08;
+            --bg: #F8F8F4;
             --bg-card: #FFFFFF;
             --bg-elevated: #FFFFFF;
             --border: rgba(20, 18, 14, 0.16);
@@ -346,7 +355,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
             color: var(--text-primary);
             background: var(--bg-elevated);
             transform: translateY(-1px);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
         }}
         .done-box {{
             background: var(--amber-glow);
@@ -355,7 +364,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
             padding: 28px;
             text-align: center;
             margin-top: 36px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 8px 24px rgba(0,0,0,0.32);
+            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 8px 24px rgba(20,18,14,0.08);
         }}
         .done-box h2 {{
             font-family: var(--font-display);

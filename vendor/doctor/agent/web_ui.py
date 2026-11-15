@@ -65,12 +65,25 @@ from dashboard_components import (
     render_whatsapp_keepalive,
 )
 # Documents-folder access posture (launch-blocker install UX fix). A
-# live write probe against ~/Documents/Ostler surfaced as a Doctor tile
+# live write probe against ~/Ostler surfaced as a Doctor tile
 # so a macOS Files-and-Folders denial -- which otherwise fails the wiki
 # and conversation-record writes silently -- is never invisible. Lives
 # in its own vendor-only module (CM051 probes a layout HR015 Doctor has
 # no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from documents_access_posture import render_documents_access_posture
+# "What you like" status row (smart-prefs): is the preference-derivation agent
+# scheduled, when did it last run, how many tastes did it leave in the derived
+# graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
+# has no equivalent of); see vendor/VENDOR_ONLY.tsv.
+from derived_preferences_status import render_derived_preferences_status
+from engine_watchdog_status import render_engine_watchdog_status
+from export_status import collect_import_state, render_export_section
+from loopback_guard_status import render_loopback_guard_status
+# Homebrew ownership row (same-shape sweep 2026-11-14). Vendor-only; see vendor/VENDOR_ONLY.tsv.
+from shared_prefix_status import render_shared_prefix_status
+# People search row (v1.0.126, item h): how many people the people sweep has
+# still to make searchable. Vendor-only; see vendor/VENDOR_ONLY.tsv.
+from people_index_status import render_people_index_status
 from web_ui_copy import (
     ALL_HEALTHY_DETAIL,
     ALL_HEALTHY_TITLE,
@@ -454,6 +467,33 @@ def _not_hub_local(request: Request) -> "JSONResponse | None":
             status_code=403,
         )
     return None
+
+
+async def _owner_refusal(request: Request) -> "JSONResponse | None":
+    """S1 (red team v1.0.124): refuse any caller that is not the Mac's owner.
+
+    The browser-shaped guards below cannot see a second macOS account or a
+    tailnet peer relayed by tailscaled onto loopback. This asks the kernel
+    which process holds the client end of the connection; see owner_peer.py
+    for the four conditions and what stays out of scope. Fails CLOSED: a
+    guard that cannot import or cannot look has not passed.
+    """
+    try:
+        import owner_peer as _owner_peer
+    except Exception:  # noqa: BLE001
+        return JSONResponse(
+            {"error": "refused: the owner check could not run", "refused_on": "guard-unavailable"},
+            status_code=403,
+        )
+    import asyncio as _asyncio
+    reason = await _asyncio.to_thread(
+        _owner_peer.verdict, request.scope.get("client"), request.scope.get("server"),
+    )
+    if reason is None:
+        return None
+    return JSONResponse(
+        {"error": _owner_peer.OWNER_ONLY_DETAIL, "refused_on": reason}, status_code=403,
+    )
 
 
 def _cross_site_refusal(request: Request) -> "JSONResponse | None":
@@ -1584,8 +1624,11 @@ def render_dashboard(
     # the same productisation-posture story as the iMessage tile.
     reminders_section = render_reminders_posture()
 
-    # Documents-folder access posture (launch-blocker install UX fix):
-    # a live write probe against ~/Documents/Ostler. Ostler's bundled
+    # Documents-folder access posture (launch-blocker install UX fix).
+    # NEW-121: Doctor READS ~/.ostler/state/documents_access.tsv, which the
+    # hourly fda-rerun tick writes by probing ~/Ostler as a child
+    # of the signed FDA holder; Doctor itself never touches Documents (a
+    # probe from here was a python3.11 Documents request). Ostler's bundled
     # interpreter writes the customer's wiki and conversation records
     # there, behind the macOS Files-and-Folders consent prompt (which
     # reads as coming from "python3.11"). A customer who declines it
@@ -1593,7 +1636,7 @@ def render_dashboard(
     # is refused; empty string on a fresh box where install.sh has not
     # reached its first Documents write (not-yet-asked), so Doctor does
     # not cry wolf. Catches a revoke-after-install the same way the
-    # Reminders runtime tile does, because the probe is live.
+    # Reminders runtime tile does, because the probe re-runs hourly.
     documents_access_section = render_documents_access_posture()
 
     # Reminders runtime push outcome (task #279, runtime half): reads
@@ -1618,6 +1661,16 @@ def render_dashboard(
     whatsapp_keepalive_section = render_whatsapp_keepalive()
 
     source_status_section = render_source_status()
+    # The same store read the age rule used (snapshot.export_imports), so the
+    # page and the findings cannot disagree. Collected only if the snapshot has none.
+    _exports = getattr(snapshot, "export_imports", None)
+    export_section = render_export_section(
+        _exports if _exports is not None else collect_import_state())
+    derived_preferences_section = render_derived_preferences_status()
+    engine_watchdog_section = render_engine_watchdog_status()
+    loopback_guard_section = render_loopback_guard_status()
+    shared_prefix_section = render_shared_prefix_status()
+    people_index_section = render_people_index_status()
 
     # Build findings
     findings_html = ""
@@ -2183,6 +2236,12 @@ def render_dashboard(
 
         {whatsapp_keepalive_section}
         {source_status_section}
+        {export_section}
+        {derived_preferences_section}
+        {engine_watchdog_section}
+        {loopback_guard_section}
+        {shared_prefix_section}
+        {people_index_section}
 
         <div class="section">
             <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
@@ -2816,6 +2875,10 @@ _FDA_EXTRACT_KINDS = {
     # Apple Music library (CM051 walk #27): chosen in the picker like the
     # two above, so its row appears only once install.sh records it.
     "apple_music": "source",
+    # Food evidence (CM051 #3234): deferred off install to the hourly tick;
+    # install.sh records food.done (no_data deferred_to_hourly_ingest, or an
+    # error when the deferral is unconfirmed), so the row appears once written.
+    "food": "operation",
 }
 _SOURCE_STATUS_INT_FIELDS = {"item_count", "rc"}
 
@@ -4191,7 +4254,7 @@ async def api_chat_token(request: Request):
     read its block above for what stays open and why the shipped
     Companion forbids requiring a credential here.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -4470,6 +4533,68 @@ async def api_reminders_turn_on(request: Request):
 from proxy import register_proxy_routes
 
 _registered_proxy_paths = register_proxy_routes(app)
+
+
+# ── S1: EVERY Doctor-native route answers the Mac's owner only ────────
+#
+# Red team v1.0.124, Archie's (b): the Doctor binds 127.0.0.1 (see __main__),
+# but loopback is shared by every macOS account and `tailscale serve` relays
+# tailnet peers onto it. Pages like /doctor, /api/v1/sources, the import and
+# config routes show or change the owner's data, so the owner check that the
+# five credential routes carry is applied to the whole Doctor-native surface
+# here. Three exceptions, each with its own credential:
+#   * the DOCTOR_PROXY_PATHS forwards (proxy.py): a paired device bearer,
+#     validated by the gateway oracle, is what admits those;
+#   * _BEARER_OR_OWNER: Doctor-native routes the paired iPhone calls with its
+#     bearer (CM031 CorrectFactTool -> wiki/correct); owner OR a paired bearer;
+#   * OPTIONS: a CORS preflight carries and returns no data;
+#   * _PUBLIC: payloads that are non-PII by construction and are polled by
+#     callers that are not the owner's own process (the wiki compiler runs in
+#     the colima VM and reaches the host through a relay).
+# The lookup is in-process (owner_peer.py, libproc / /proc), never a fork: the
+# Hub WebView polls this server about once a second.
+_BEARER_OR_OWNER = frozenset({
+    "/api/v1/wiki/correct",
+    "/api/v1/people/{slug}/suppress-suggestions",
+})
+
+
+_PUBLIC = frozenset({
+    "/api/v1/hydration/status",   # per-phase counts, states, ETA; see #178 above
+})
+
+
+def _route_for(scope):
+    from starlette.routing import Match
+    for r in app.router.routes:
+        m, _ = r.matches(scope)
+        if m == Match.FULL:
+            return r
+    return None
+
+
+@app.middleware("http")
+async def _owner_gate(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    route = _route_for(request.scope)
+    endpoint = getattr(route, "endpoint", None)
+    if getattr(route, "path", None) in _PUBLIC:
+        return await call_next(request)
+    if endpoint is not None and getattr(endpoint, "__module__", "") == "proxy":
+        return await call_next(request)
+    refusal = await _owner_refusal(request)
+    if refusal is None:
+        return await call_next(request)
+    if route is not None and getattr(route, "path", None) in _BEARER_OR_OWNER:
+        try:
+            from proxy import _extract_bearer_token, _is_paired_bearer
+            token = _extract_bearer_token(request.headers)
+            if token and await _is_paired_bearer(token):
+                return await call_next(request)
+        except Exception:  # noqa: BLE001 - a check that cannot run has not passed
+            pass
+    return refusal
 
 
 def _config_section_order() -> tuple[str, ...]:
@@ -6910,12 +7035,16 @@ async def whatsapp_pair_page():
 
 
 @app.get("/api/v1/whatsapp/pair", response_class=JSONResponse)
-async def api_whatsapp_pair():
+async def api_whatsapp_pair(request: Request):
     """Return the current WhatsApp pair code and its state.
 
     Read fresh on every call rather than cached: the code is short-lived and a
-    cached copy would outlive the thing it describes.
+    cached copy would outlive the thing it describes. Owner-only (S1): the code
+    links a WhatsApp account to this Hub.
     """
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
     from whatsapp_pair import fetch_pair_status
     return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
 
@@ -7185,7 +7314,7 @@ async def api_extension_token(request: Request):
     ``_render_extension_setup_page``), so the cross-site refusal costs the
     real consumer nothing and stops a drive-by page reading the ingest key.
     """
-    refusal = _cross_site_refusal(request)
+    refusal = await _owner_refusal(request) or _cross_site_refusal(request)
     if refusal is not None:
         return refusal
 
@@ -7210,7 +7339,8 @@ async def api_pair_status(request: Request):
     page the customer opened; the refusal below is what stops that. Its only
     caller here is the Doctor's own ``/pair-ios`` panel, same-origin.
     """
-    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    refusal = (await _owner_refusal(request)
+               or _not_hub_local(request) or _cross_site_refusal(request))
     if refusal is not None:
         return refusal
 
@@ -7232,7 +7362,8 @@ async def api_pair_regenerate(request: Request):
     POST, and that case was the gap. One predicate, so the four credential
     routes cannot drift apart the way this one and the chat-token mint had.
     """
-    refusal = _not_hub_local(request) or _cross_site_refusal(request)
+    refusal = (await _owner_refusal(request)
+               or _not_hub_local(request) or _cross_site_refusal(request))
     if refusal is not None:
         return refusal
 

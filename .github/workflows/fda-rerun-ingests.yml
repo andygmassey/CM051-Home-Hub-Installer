@@ -79,7 +79,7 @@ concurrency:
 
 jobs:
   ingest-half-controls:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -123,7 +123,7 @@ jobs:
 
   # SEPARATE JOB, deliberately. See the header.
   predicate-self-test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

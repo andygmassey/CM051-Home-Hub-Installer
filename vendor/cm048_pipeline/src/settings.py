@@ -116,7 +116,7 @@ class Settings:
     # Paths -- two-zone layout per
     # /tmp/tnm_brief_two_zone_architecture_2026-05-02.md.
     # Engine-room state under ~/.ostler/, customer-facing
-    # artefacts under ~/Documents/Ostler/.
+    # artefacts under ~/Ostler/.
     processing_state_dir: Path = field(
         default_factory=ostler_paths.processing_dir
     )

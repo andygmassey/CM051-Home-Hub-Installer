@@ -121,6 +121,31 @@ def _selftest() -> list[str]:
                 "SELFTEST: a resolvable symbol import WAS flagged. The checker "
                 "is loud rather than right and its findings cannot be trusted."
             )
+
+        # MUST-MISS: a stdlib name beside a same-named sibling file is the
+        # stdlib (absolute import), not the sibling.
+        std = root / "seeded_stdlib_name"
+        std.mkdir()
+        (std / "__init__.py").write_text("")
+        (std / "email.py").write_text("OTHER = 1\n")
+        (std / "consumer.py").write_text("from email import message_from_bytes\n")
+        if _check_package(std.name, std, root):
+            problems.append(
+                "SELFTEST: `from email import ...` beside an email.py was "
+                "resolved to the sibling. It is the stdlib."
+            )
+
+        # MUST-FLAG: a NON-stdlib bare sibling is still resolved.
+        sib = root / "seeded_bare_sibling"
+        sib.mkdir()
+        (sib / "__init__.py").write_text("")
+        (sib / "web_ui_copy.py").write_text("OTHER = 1\n")
+        (sib / "consumer.py").write_text("from web_ui_copy import missing_symbol\n")
+        if not _check_package(sib.name, sib, root):
+            problems.append(
+                "SELFTEST: a bare sibling import of a missing symbol was NOT "
+                "flagged; the stdlib exemption swallowed the sibling check."
+            )
     return problems
 
 
@@ -229,8 +254,13 @@ def _check_package(pkg_name: str, pkg_dir: Path, root: Path) -> list[str]:
                     # BARE SIBLING: only resolved when a file of that exact
                     # name sits beside the importer. See the module docstring
                     # for why this needs no third-party allowlist.
+                    # A stdlib name is NOT a sibling import: Python 3 imports
+                    # are absolute, so `from email import x` in a directory
+                    # that holds email.py still means the stdlib (the parsers
+                    # dir has an email.py; food_evidence.py reads the stdlib).
                     sibling = pyfile.parent / (node.module.split(".")[0] + ".py")
-                    if sibling.is_file() and "." not in node.module:
+                    if (sibling.is_file() and "." not in node.module
+                            and node.module not in sys.stdlib_module_names):
                         target = sibling
                         shown = node.module
 

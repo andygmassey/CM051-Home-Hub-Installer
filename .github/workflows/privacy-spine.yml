@@ -53,7 +53,7 @@ jobs:
       - name: Install python deps for the vendored-module tests
         # ostler_fda pwg_ingest (httpx/nameparser), cm041 identity_resolver
         # (rapidfuzz/httpx/phonenumbers), cm052 wire (pyyaml/httpx).
-        run: python3 -m pip install --quiet httpx nameparser rapidfuzz phonenumbers pyyaml
+        run: python3 -m pip install --quiet httpx "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
 
       # Each test is an INDIVIDUAL step with the path and an execution verb on
       # one line. NOT entries in a `for t in ...` loop: verify_new_tests_are_wired.sh

@@ -20,12 +20,22 @@ def _service_token():
         return ""
 
 
-def fetch_events(api_url, days=30):
+def fetch_events(api_url, days=30, events_provider=None, require_attendees=True):
     """Fetch calendar events from the unified calendar API.
 
-    Returns list of event dicts. Only events with both a UID and at least
-    one attendee are included.
+    Returns list of event dicts. Only events with a UID are included, and,
+    unless ``require_attendees`` is False, at least one attendee.
+    The pre-meeting brief passes False so attendee-less timed events reach
+    the sender, which nudges about them; the sync path keeps the old filter.
+
+    ``events_provider`` (``days -> list of event dicts``) reads the calendar
+    in-process instead of over HTTP. The Hub passes it when the brief runs
+    inside one of its own request handlers, where an HTTP call back to
+    ``api_url`` would hang the single-threaded server.
     """
+    if events_provider is not None:
+        events = events_provider(days)
+        return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]
     url = api_url.rstrip("/") + "/calendar"
     headers = {}
     token = _service_token()
@@ -42,5 +52,5 @@ def fetch_events(api_url, days=30):
     resp.raise_for_status()
     data = resp.json()
     events = data.get("events", [])
-    # Filter to events with attendees and a UID
-    return [e for e in events if e.get("attendees") and e.get("uid")]
+    # Filter to events with a UID (and attendees, unless the caller opts out)
+    return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]

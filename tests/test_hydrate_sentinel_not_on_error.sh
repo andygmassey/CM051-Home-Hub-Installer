@@ -103,7 +103,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
     # population is derived from. The gate must refuse rather than report a
     # population it did not establish.
     _st_mut3="$_st_work/mutant3.sh"
-    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g' \
+    # Every RECORDER form is renamed, not only two of four: with food (#3234) the
+    # no_data and cannot_run call sites alone reached 13 sources, so the old
+    # two-form mutation no longer broke the derivation and this arm went CANNOT-RUN.
+    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g; s/_hydrate_sentinel_record_no_data "/_hydrate_sentinel_recordND "/g; s/_hydrate_sentinel_record_cannot_run "/_hydrate_sentinel_recordCR "/g' \
         "$REPO_ROOT/install.sh" > "$_st_mut3"
     _st_left="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$_st_mut3" | grep -oE '"[a-z_]+"' | sort -u | wc -l | tr -d ' ')"
     if [[ "$_st_left" -ge 13 ]]; then

@@ -58,6 +58,18 @@ WALKS="${WALK_TRIAGE_WALKS:-${REPO}/walks}"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 
+# VACUOUS PASSES ARE NOT BASELINES. A walk record stores no per-probe
+# denominator, so a probe that is absent from failed_probe reads as PASSED even
+# when it examined nothing: no_person_holds_two_contact_cards graded v1.0.111
+# and v1.0.112 PASS with 1 icloud_contact_uid and 0 merge chances, and this tool
+# then named v1.0.112 as the last pass and sent a bisect to the wrong window
+# (the defect entered at v1.0.107). scripts/walk_vacuous_baselines.tsv lists the
+# (probe, version) pairs known to be vacuous; classify() reads them as
+# VACUOUS, which is skipped exactly like NOT-MEASURED. New walks cannot add to
+# the list by accident: the probe now reports CANNOT-RUN when its denominator is
+# zero, and CANNOT-RUN lands in not_measured_probe, which is already skipped.
+VACUOUS="${WALK_TRIAGE_VACUOUS:-${REPO}/scripts/walk_vacuous_baselines.tsv}"
+
 # All walk versions, oldest first, ordered by walked_at and NOT by filename --
 # a version string does not sort chronologically once a cut is re-walked, and
 # 1.0.9 vs 1.0.10 is the classic way a lexical sort picks the wrong baseline.
@@ -97,9 +109,9 @@ probe_changed_between() {
 }
 rows_of() { awk -F'\t' -v k="$2" '$1==k{print $2}' "$1"; }
 
-# classify <walk-file> <probe> -> FAILED | NOT-MEASURED | PASSED | UNRECORDED
+# classify <walk-file> <probe> -> FAILED | NOT-MEASURED | VACUOUS | PASSED | UNRECORDED
 classify() {
-    local f="$1" p="$2" nfail failed notm brok
+    local f="$1" p="$2" nfail failed notm brok wv
     nfail="$(rows_of "${f}" failed_probe | grep -c . || true)"
     # Herestrings, not pipes. `... | grep -q` exits on the first match and
     # SIGPIPEs the producer, which under `set -o pipefail` can invert the
@@ -125,6 +137,16 @@ classify() {
     # to prevent, produced by the tool. Found by using it on a real probe.
     if grep -qxF "${p}" <<< "${brok}"; then
         printf 'BROKEN\n'; return
+    fi
+    # A pass that examined nothing. An unreadable list is not "none listed":
+    # it is a missing instrument, so refuse rather than baseline on it.
+    if [ -r "${VACUOUS}" ]; then
+        wv="$(basename "${f}" .tsv)"
+        if awk -F'\t' -v p="${p}" -v v="${wv}" '$0 !~ /^#/ && $1==p && $2==v {f=1} END{exit f?0:1}' "${VACUOUS}"; then
+            printf 'VACUOUS\n'; return
+        fi
+    elif [ -e "${VACUOUS}" ]; then
+        die "CANNOT-RUN: ${VACUOUS} exists but is not readable"
     fi
     if [ "${nfail}" -eq 0 ]; then
         # No failed_probe rows AT ALL. See the header: this is a missing field,
@@ -177,6 +199,7 @@ triage() {
                 UNRECORDED) last_pass=""; break ;;
                 FAILED)       nfailed=$((nfailed+1)); nnamed=$((nnamed+1)) ;;
                 NOT-MEASURED) nnotm=$((nnotm+1));     nnamed=$((nnamed+1)) ;;
+                VACUOUS)      nnotm=$((nnotm+1));     nnamed=$((nnamed+1)) ;;
                 BROKEN)       nbroken=$((nbroken+1)); nnamed=$((nnamed+1)) ;;
             esac
         done

@@ -1,0 +1,46 @@
+# A grown email thread keeps one thread_id and one conversation folder across
+# ticks (the since-window moves; a missing parent arrives), and two strangers
+# who share only a subject line stay two conversations.
+name: email-thread-id-stable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/email_source/**'
+      - 'vendor/cm048_pipeline/src/seed.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'tests/test_email_thread_id_stable_across_ticks.py'
+      - '.github/workflows/email-thread-id-stable.yml'
+  pull_request:
+    paths:
+      - 'vendor/email_source/**'
+      - 'vendor/cm048_pipeline/src/seed.py'
+      - 'vendor/cm048_pipeline/src/conversation_writer.py'
+      - 'tests/test_email_thread_id_stable_across_ticks.py'
+      - '.github/workflows/email-thread-id-stable.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  email-thread-id-stable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --quiet pytest httpx pyyaml phonenumbers "nameparser>=2.1.0,<3.0"
+      - name: a grown thread keeps one thread_id and one folder
+        run: |
+          n="$(python -m pytest tests/test_email_thread_id_stable_across_ticks.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 4 ]; then
+            echo "REFUSING: expected at least 4 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_email_thread_id_stable_across_ticks.py -v -rs

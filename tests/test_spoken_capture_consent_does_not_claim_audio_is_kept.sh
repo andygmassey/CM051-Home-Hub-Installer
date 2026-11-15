@@ -5,7 +5,7 @@
 # failure and cancel, with no retention setting. The old copy said
 # "Keeping the captured audio on your own Mac ...", which is now false.
 #
-# Reads the two surfaces the customer actually sees: the GUI legal_note
+# Reads the two surfaces the customer actually sees: the GUI legal_local
 # (ViewCopy.json, parsed as JSON) and the TTY line (the strings file,
 # sourced by bash exactly as install.sh sources it).
 #
@@ -44,8 +44,10 @@ if check self-test-mac "$mac" >/dev/null; then
 fi
 echo "PASS self-test: on-this-Mac wording rejected"
 
-gui="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["consent_spoken_capture"]["legal_note"])' gui/OstlerInstaller/Resources/ViewCopy.json)"
-check "ViewCopy.json consent_spoken_capture.legal_note" "$gui" || fail=1
+# Since 2026-10-24 the GUI legal note is composed per region; legal_local is
+# the part every region shows that carries the audio claim.
+gui="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["consent_spoken_capture"]["legal_local"])' gui/OstlerInstaller/Resources/ViewCopy.json)"
+check "ViewCopy.json consent_spoken_capture.legal_local" "$gui" || fail=1
 
 tty="$(bash -c 'source ./install.sh.strings.en-GB.sh >/dev/null 2>&1; printf "%s" "${MSG_CONSENT_SPOKEN_CAPTURE_LOCAL:-}"')"
 [[ -n "$tty" ]] || { echo "FAIL tty: MSG_CONSENT_SPOKEN_CAPTURE_LOCAL is empty or unset"; exit 1; }

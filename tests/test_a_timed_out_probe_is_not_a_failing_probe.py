@@ -512,5 +512,67 @@ else:
         f"{vcm.ASSISTANT_GROUNDED_TIMEOUT_FLOOR_SECONDS}s")
 
 print()
+print("--- walk126: data_conservation's cap is its own collect budget plus a margin ---")
+for _k in ("OSTLER_CONSERVATION_COLLECT_BUDGET_S", "OSTLER_BOX_WALK_DATA_CONSERVATION_TIMEOUT_SECONDS"):
+    os.environ.pop(_k, None)
+# Run first, and read the margin with a default, so this arm goes RED (not a crash) on a tree without the fix:
+# there check_box_walk_probe hands data_conservation the flat 600 s.
+_DC_MARGIN = getattr(vcm, "DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS", 300)
+# END TO END: check_box_walk_probe must hand the derived cap to subprocess.run.
+write_probe("data_conservation", '#!/bin/bash\nDC_BUDGET_S="${OSTLER_CONSERVATION_COLLECT_BUDGET_S:-1800}"\necho "VERDICT: PASS"\nexit 0\n')
+captured.clear()
+vcm.subprocess.run = _fake_run
+try:
+    run("data_conservation")
+finally:
+    vcm.subprocess.run = _orig_subprocess_run
+if captured.get("timeout") == 1800 + _DC_MARGIN:
+    ok(f"check_box_walk_probe invoked data_conservation with the derived timeout "
+       f"({captured.get('timeout')}s), not the flat {vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS}s")
+else:
+    bad(f"check_box_walk_probe invoked data_conservation with timeout={captured.get('timeout')!r}, "
+        f"expected {1800 + _DC_MARGIN}s")
+_dc_declared = vcm._data_conservation_declared_budget(REPO)
+if isinstance(_dc_declared, int) and _dc_declared > 0:
+    ok(f"the collect budget was READ from the real probe file ({_dc_declared}s)")
+else:
+    bad(f"could not read the collect budget from the probe file (got {_dc_declared!r})")
+_dc_cap = vcm._data_conservation_timeout_seconds(_dc_declared)
+if isinstance(_dc_declared, int) and _dc_cap > _dc_declared:
+    ok(f"the cap ({_dc_cap}s) is above the probe's own budget ({_dc_declared}s), so the probe's "
+       f"CANNOT-RUN-BUDGET fires first and phase 2 never kills it mid-collect")
+else:
+    bad(f"the cap ({_dc_cap}s) does not clear the probe's own budget ({_dc_declared!r}s)")
+os.environ["OSTLER_CONSERVATION_COLLECT_BUDGET_S"] = "5400"
+try:
+    _dc_raised = vcm._data_conservation_timeout_seconds(_dc_declared)
+finally:
+    os.environ.pop("OSTLER_CONSERVATION_COLLECT_BUDGET_S", None)
+if _dc_raised == 5400 + vcm.DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS:
+    ok(f"CONTROL: the walk's raised collect budget (5400s) moves the cap with it ({_dc_raised}s)")
+else:
+    bad(f"the cap ignored OSTLER_CONSERVATION_COLLECT_BUDGET_S (got {_dc_raised}s)")
+if vcm._data_conservation_timeout_seconds(None) == vcm.BOX_WALK_PROBE_TIMEOUT_SECONDS:
+    ok("CONTROL: an unreadable declaration takes the flat cap, not a generous guess")
+else:
+    bad("an unreadable declaration did not take the flat cap")
+if vcm._data_conservation_timeout_seconds(10_000_000) == vcm.DATA_CONSERVATION_TIMEOUT_CEILING_SECONDS:
+    ok("MUST-MISS: an absurd budget is clamped at the ceiling")
+else:
+    bad("the ceiling did not clamp an absurd budget")
+# and a probe with the cap the walk 124 saw: a timeout is still CANNOT-RUN, never PASS.
+def _dc_timeout_run(args, capture_output=True, check=False, timeout=None):
+    raise subprocess.TimeoutExpired(args, timeout)
+vcm.subprocess.run = _dc_timeout_run
+try:
+    _dc_res = run("data_conservation")
+finally:
+    vcm.subprocess.run = _orig_subprocess_run
+if getattr(_dc_res, "status", None) == "CANNOT-RUN":
+    ok("a data_conservation that outruns even the derived cap is CANNOT-RUN, never PASS")
+else:
+    bad(f"a timed-out data_conservation read {getattr(_dc_res, 'status', _dc_res)!r}")
+
+print()
 print(f"== {PASS} pass / {FAIL} fail / {PASS + FAIL} total ==")
 sys.exit(1 if FAIL else 0)

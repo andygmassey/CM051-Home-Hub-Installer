@@ -58,6 +58,7 @@ on:
       # workflow that checks it.
       - 'tests/test_every_launchagent_is_torn_down.sh'
       - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
+      - 'tests/test_pause_unloads_model.sh'
       - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_uninstall_writes_deliberate_stop_marker.sh'
@@ -259,6 +260,10 @@ jobs:
       - name: The Ollama wedge watchdog heals only a wedge, and writes its evidence first
         if: always()
         run: bash tests/test_ollama_watchdog_heals_only_a_wedge.sh
+
+      - name: Pause unloads the chat model, and resume restores it (F&F 2026-11-13)
+        if: always()
+        run: bash tests/test_pause_unloads_model.sh
 
       - name: The promote merges logs/ so a running service's log keeps its path (#2434)
         if: always()

@@ -93,7 +93,7 @@ def load(name, path):
 hub = load("ical_server_for_digest", root + "/vendor/cm041/assistant_api/ical-server.py")
 gen = load("generate_pwg_context_for_digest", root + "/context-refresh/bin/generate_pwg_context.py")
 def get_json(path):
-    if path.startswith("/api/v1/preferences"):
+    if path.startswith("/api/v1/preferences?"):  # the interest route only; /derived is not served here
         return hub.api_preferences(limit=int(path.split("limit=")[1]))
     return None
 gen._get_json = get_json

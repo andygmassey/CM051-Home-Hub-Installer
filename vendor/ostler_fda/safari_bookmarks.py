@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from .url_clean import strip_tracking
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_BOOKMARKS_PATH = Path.home() / "Library" / "Safari" / "Bookmarks.plist"
@@ -161,7 +163,7 @@ def _walk_bookmarks(
     node_type = node.get("WebBookmarkType", "")
 
     if node_type == "WebBookmarkTypeLeaf":
-        url = node.get("URLString", "")
+        url = strip_tracking(node.get("URLString", ""))
         title = (node.get("URIDictionary", {}) or {}).get("title", "")
 
         if url and url.startswith(("http://", "https://")):

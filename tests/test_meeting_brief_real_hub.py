@@ -84,11 +84,13 @@ class Announce(BaseHTTPRequestHandler):
 
 
 class Calendar(BaseHTTPRequestHandler):
+    extra = []  # arm 6 adds an attendee-less timed event here, and only there
+
     def log_message(self, *a):
         pass
 
     def do_GET(self):
-        body = json.dumps({"events": seed.calendar_events()}).encode()
+        body = json.dumps({"events": seed.calendar_events() + Calendar.extra}).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -355,6 +357,63 @@ def main():
                       not any("BRIEF-FOR" in s["message"] for s in sent), f"sent={len(sent)}")
                 check("MUTANT: and it sent nothing at all on this Hub, so the old brief never arrived",
                       not sent, f"sent={len(sent)}")
+
+                print("-- 6 attendee-less: a timed meeting with no attendees gets a one-line nudge --")
+                base = seed.calendar_events()[0]
+                Calendar.extra = [{"uid": "fixture-uid-solo", "summary": "Dentist", "start": base["start"],
+                                   "start_formatted": base["start_formatted"], "location": "", "attendees": []},
+                                  {"uid": "fixture-uid-allday", "summary": "Bank holiday", "start": base["start"][:10],
+                                   "start_formatted": "", "location": "", "attendees": [], "all_day": True}]
+                try:
+                    stub_composer(composer, "ok", calls)
+                    calls.write_text("")
+                    up_solo =hub.get("/api/v1/meeting/upcoming?within_minutes=30")
+                    solo = [m for m in up_solo["meetings"] if m.get("uid") == "fixture-uid-solo"]
+                    check("the Hub returns the attendee-less timed meeting with no attendees",
+                          len(solo) == 1 and solo[0]["attendees"] == [], str(up_solo)[:300])
+                    check("the Hub says how many events it read and which it filtered, by uid and reason",
+                          isinstance(up_solo.get("considered"), int) and up_solo["considered"] >= 4
+                          and isinstance(up_solo.get("filtered"), list), str(up_solo)[:300])
+                    rc, sent, log = run_sender(script, hub, ann_port, composer, work)
+                    by_uid = {s["meeting_uid"]: s["message"] for s in sent}
+                    check("the sender sends the nudge 'You have <title> at <time>.' for it",
+                          by_uid.get("fixture-uid-solo") == f"You have Dentist at {base['start_formatted']}.",
+                          str(by_uid.get("fixture-uid-solo")))
+                    check("the three attendee meetings are still sent with the composer (4 in all)",
+                          rc == 0 and len(sent) == 4 and len(calls.read_text().splitlines()) == 3,
+                          f"rc={rc} sent={len(sent)}")
+                    check("the sender logs the count it was handed by the Hub",
+                          re.search(r"hub considered=\d+ meetings=4", log) is not None, log[-300:])
+                    allday = [f for f in up_solo.get("filtered", []) if f.get("uid") == "fixture-uid-allday"]
+                    check("an all-day event with no attendees is filtered, with its reason, and never sent",
+                          allday == [{"uid": "fixture-uid-allday", "reason": "all_day_no_attendees"}]
+                          and "fixture-uid-allday" not in by_uid, f"{allday} {sorted(by_uid)}")
+                    check("the sender logs that reason for that uid",
+                          "filtered uid=fixture-uid-allday reason=all_day_no_attendees" in log, log[-300:])
+                finally:
+                    Calendar.extra = []
+
+                print("-- 7 declined: a solo timed event the owner declined gets no nudge --")
+                Calendar.extra = [
+                    {"uid": "fixture-uid-declined", "summary": "Coffee", "start": base["start"],
+                     "start_formatted": base["start_formatted"], "location": "",
+                     "attendees": [{"name": "Sam Jones", "email": "sam@fixture.example",
+                                    "role": "attendee", "status": "DECLINED"}]},
+                    {"uid": "fixture-uid-busy-solo", "summary": "Dentist", "start": base["start"],
+                     "start_formatted": base["start_formatted"], "location": "", "attendees": []},
+                ]
+                try:
+                    rc, sent, log = run_sender(script, hub, ann_port, composer, work)
+                    by_uid7 = {s["meeting_uid"]: s["message"] for s in sent}
+                    check("CONTROL: a busy solo timed event is still nudged in the same run",
+                          by_uid7.get("fixture-uid-busy-solo") == f"You have Dentist at {base['start_formatted']}.",
+                          str(by_uid7))
+                    check("DECLINED: a solo timed event the owner declined is not nudged",
+                          "fixture-uid-declined" not in by_uid7, str(sorted(by_uid7)))
+                    check("DECLINED: the sender logs that skip by uid and reason",
+                          "filtered uid=fixture-uid-declined reason=declined" in log, log[-300:])
+                finally:
+                    Calendar.extra = []
         except RealHubUnavailable as exc:
             print("CANNOT-RUN:", exc)
             return 2
