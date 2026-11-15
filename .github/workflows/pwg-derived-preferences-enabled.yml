@@ -32,6 +32,7 @@ jobs:
         run: /bin/bash tests/test_pwg_derived_preferences_enabled.sh
 
       - name: the morning brief prompt round-trips through a real TOML parser and carries the preference rules
+        if: always()
         run: /bin/bash tests/test_morning_brief_prompt_roundtrip.sh
 
       - name: the gate itself parses
