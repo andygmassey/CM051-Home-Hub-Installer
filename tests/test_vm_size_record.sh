@@ -11,7 +11,7 @@ INSTALL="${ROOT}/install.sh"
 FIX="${ROOT}/tests/fixtures/vm_size_state_contract.txt"
 GIB=1073741824
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-export HOME="$W/home" OSTLER_STATE_DIR="$W/home/.ostler/state"
+export HOME="$W/fakehome" OSTLER_STATE_DIR="$W/fakehome/.ostler/state"
 STUB="$W/stub"; mkdir -p "$STUB" "$HOME/.colima/default"
 fails=0; total=0
 ok()  { total=$((total+1)); echo "PASS: $1"; }
@@ -74,7 +74,7 @@ yaml_before_start; printf 'cpu: 2\narch: aarch64\n' > "$HOME/.colima/default/col
 if ostler_vm_persist_colima_yaml "$HOME/.colima/default/colima.yaml" 3 6; then bad "yaml with no memory key was accepted"
 elif [ "$(cat "$HOME/.colima/default/colima.yaml")" = "$before" ]; then ok "yaml missing a key is refused and left byte-identical"
 else bad "refused yaml was modified"; fi
-reset; ( OSTLER_STATE_DIR="$W/home/file-not-dir/state"; : > "$W/home/file-not-dir"; ostler_vm_record_size 3 6 installer ) \
+reset; ( OSTLER_STATE_DIR="$W/fakehome/file-not-dir/state"; : > "$W/fakehome/file-not-dir"; ostler_vm_record_size 3 6 installer ) \
   && bad "record_size into an unwritable dir reported success" || ok "record_size into an unwritable dir returns non-zero"
 reset; ostler_vm_is_owned && bad "a VM with no marker reads as Ostler's" || ok "no marker: not owned"
 ostler_vm_mark_owned "test"; ostler_vm_is_owned && ok "marker written: owned" || bad "marker written but not read as owned"

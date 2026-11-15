@@ -29,11 +29,16 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 LEDGER = pathlib.Path("scripts/box_walk_probes/egress_hosts.tsv")
 DOC = pathlib.Path("docs/EGRESS_INVENTORY.md")
 INSTALL = pathlib.Path("install.sh")
+# The colima start flags live in the sizing lib since ostler_vm_install_start
+# (install.sh only keeps the no-lib fallback). Scan both, or a --kubernetes
+# added to the lib passes unseen.
+VM_LIB = pathlib.Path("lib/ostler-vm-size.sh")
 
 VM_CARRIED = ("en.wikipedia.org", "overpass-api.de", "musicbrainz.org",
               "nominatim.openstreetmap.org", "release-assets.githubusercontent.com")
 IMAGE_RE = re.compile(r"^\s*image:\s*([A-Za-z0-9.-]+)/", re.M)
 COLIMA_START_RE = re.compile(r"colima start\b[^\n]*")
+LIB_START_RE = re.compile(r'"\$_c" start\b[^\n]*')
 
 
 class CannotRun(Exception):
@@ -76,7 +81,7 @@ def check(root):
         out.append("the inventory still lists limactl as unattributed")
     if "usernet" not in doc:
         out.append("the inventory does not name limactl's usernet as the carrier")
-    starts = COLIMA_START_RE.findall(install)
+    starts = COLIMA_START_RE.findall(install) + LIB_START_RE.findall(read(root, VM_LIB))
     if not starts:
         raise CannotRun("no `colima start` found in install.sh")
     for s in starts:
@@ -90,7 +95,7 @@ def self_test():
     bad = 0
     with tempfile.TemporaryDirectory() as d:
         base = pathlib.Path(d)
-        for rel in (LEDGER, DOC, INSTALL):
+        for rel in (LEDGER, DOC, INSTALL, VM_LIB):
             (base / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(REPO / rel, base / rel)
         if check(base):
@@ -105,12 +110,20 @@ def self_test():
              lambda t: t + "\n### Still unattributed\n\n1. `limactl` again\n"),
             ("doc loses the carrier", DOC, lambda t: t.replace("usernet", "")),
             ("colima gains --kubernetes", INSTALL,
-             lambda t: t.replace("colima start --cpu ", "colima start --kubernetes --cpu ", 1)),
+             lambda t: t.replace('colima start 2>>"${INSTALL_LOG', 'colima start --kubernetes 2>>"${INSTALL_LOG', 1)),
+            ("colima gains --kubernetes in the sizing lib", VM_LIB,
+             lambda t: t.replace('"$_c" start --cpu ', '"$_c" start --kubernetes --cpu ', 1)),
         ]
         for name, rel, fn in muts:
             p = base / rel
             orig = p.read_text(encoding="utf-8")
-            p.write_text(fn(orig), encoding="utf-8")
+            mutated = fn(orig)
+            if mutated == orig:
+                # A mutant that did not apply looks exactly like one the gate missed.
+                print(f"  [FAIL] self-test: mutant '{name}' did not apply to {rel}; it proves nothing")
+                bad += 1
+                continue
+            p.write_text(mutated, encoding="utf-8")
             try:
                 if not check(base):
                     print(f"  [FAIL] self-test: mutant '{name}' stayed green")
