@@ -1138,6 +1138,7 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         # Assistant: preserve env generically, seed token fallback, lint, bootstrap.
         [[ -n "$_old_assistant" ]] && _upg_preserve_plist_env "$_old_assistant" "$_UPG_ASSISTANT_PLIST"
         _upg_ensure_token "$_UPG_ASSISTANT_PLIST"
+        [[ -r "${SCRIPT_DIR:-}/lib/ostler-people-circles-env.sh" ]] && . "${SCRIPT_DIR}/lib/ostler-people-circles-env.sh" && ostler_people_circles_env_apply "$_UPG_ASSISTANT_PLIST" "$_UPG_OSTLER_DIR" "${OSTLER_DIR}/import-pipeline" "${OXIGRAPH_URL:-http://localhost:7878}" "${USER_ID:-}" || _upg_log "WARN: people-circles env not applied to the assistant plist"
         if ! plutil -lint "$_UPG_ASSISTANT_PLIST" >/dev/null 2>&1; then
             _upg_log "ERROR: rendered assistant plist failed plutil lint"
             rm -rf "$_tmp" 2>/dev/null || true
@@ -32627,6 +32628,7 @@ if [[ "$ASSISTANT_BINARY_INSTALLED" == true && -f "${OSTLER_ASSISTANT_DIR}/INSTA
     done
     if [[ "$_snippet_ok" == "true" ]]; then
         ok "$MSG_OK_OSTLER_ASSISTANT_LAUNCHAGENT_LOADED_LABEL_COM"
+        . "${SCRIPT_DIR}/lib/ostler-people-circles-env.sh" && ostler_people_circles_env_apply "${HOME}/Library/LaunchAgents/com.creativemachines.ostler.assistant.plist" "${OSTLER_DIR}" "${PIPELINE_DIR}" "${OXIGRAPH_URL:-http://localhost:7878}" "${USER_ID:-}" || warn "people-circles env not applied to the assistant plist"  # i18n-exempt
         info "$(printf "$MSG_INFO_LOGS_OSTLER_ASSISTANT_LOG_ERR" "${LOGS_DIR}")"
         info "$MSG_INFO_MANUAL_RESTART_LAUNCHCTL_KICKSTART_K_GUI"
         if [[ "$ASSISTANT_INSTALL_KEEPALIVE" == "true" ]]; then
