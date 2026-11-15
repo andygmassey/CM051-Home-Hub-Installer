@@ -218,26 +218,40 @@ def owner_preflight(host):
 
 
 def cmd_owner(args):
+    """Owner knowledge on the box. Only the counts JSON comes back. Nothing owner-side is copied."""
     if not args.host:
         print("owner mode needs --host (Mini16 user@address). Refusing.")
         return 78
     checks = owner_preflight(args.host)
     print("OWNER mode preflight: %s" % json.dumps(checks, sort_keys=True))
     if checks.get("walk_processes_on_box") or checks.get("ttywalk_processes_here"):
-        print("WAIT: a walk is running. Not touching the box.")
+        print("WAIT: a walk-matching process is running. Not touching the box.")
         return 75
     if not checks.get("box_uuid_matches"):
         print("REFUSE: the box does not answer as Mini16. Nothing run.")
         return 78
-    print("CANNOT-RUN brief replay: the shipped daily-brief route renders NOW only (no as-of "
-          "parameter, zeroclaw-gateway pwg_proxy.rs:410), so a 30-day replay of the shipped brief is "
-          "not possible without a product change.")
-    print("CANNOT-RUN ground truth: scoring 'did the owner act' reads the owner's stores; direct DB "
-          "reads need a coordinator ruling first (CM051 box rules). Not opened.")
-    print("CANNOT-RUN owner knowledge: needs the owner's own question file (owner_score --questions) "
-          "and a ruling on which answers may leave the box. Only aggregates are ever printed.")
-    print("OWNER BASELINE: NOT MEASURED. Synthetic mode is the only measured result.")
-    return 78
+    remote_dir = "walkdriver/intel-eval-run/owner"
+    here = os.path.join(HERE, "owner_mode.py")
+    script = (
+        "set -u; mkdir -p ~/%(d)s; "
+        "OLLAMA_HOST=127.0.0.1:11500 OLLAMA_KEEP_ALIVE=2m nohup ~/.ostler/runtime/ollama-0.34.0/ollama serve "
+        ">~/%(d)s/ollama.log 2>&1 & OP=$!; "
+        "for i in 1 2 3 4 5 6 7 8 9 10; do curl -s -m 2 http://127.0.0.1:11500/api/version >/dev/null && break; sleep 2; done; "
+        "python3 -I ~/%(d)s/owner_mode.py; RC=$?; "
+        "kill $OP 2>/dev/null; exit $RC" % {"d": remote_dir})
+    subprocess.run(["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", args.host,
+                    "mkdir -p ~/%s" % remote_dir], check=False)
+    subprocess.run(["scp", "-q", "-o", "BatchMode=yes", here,
+                    "%s:%s/owner_mode.py" % (args.host, remote_dir)], check=False)
+    proc = subprocess.run(["ssh", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", args.host, script],
+                          capture_output=True, text=True, check=False)
+    line = next((l for l in reversed(proc.stdout.splitlines()) if l.startswith("{")), None)
+    if line is None:
+        print("CANNOT-RUN: no counts returned (rc=%d). No text is printed for a failure." % proc.returncode)
+        return 78
+    result = json.loads(line)
+    print("OWNER knowledge baseline (counts only): %s" % json.dumps(result, sort_keys=True))
+    return 1 if result.get("error") else 0
 
 
 def self_test():

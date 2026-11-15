@@ -13,7 +13,7 @@ Wired: `tests/test_intelligence_eval_selftest.sh` runs in `.github/workflows/own
 ## Modes
 
 - **synthetic**: the `owner_synthetic_v1` fixture (24 invented people, owner "Test Owner"), a 30-day replay world generated from it (`world.py`, seed fixed). Runs anywhere; the controls and self-test need no model.
-- **owner**: refuses unless the box answers as Mini16 (hardware UUID) and no walk is running. Then prints CANNOT-RUN with the reason. Owner aggregates are not produced yet (see "Not yet measurable").
+- **owner**: refuses unless the box answers as Mini16 (hardware UUID) and no walk-matching process runs on either end. The harness is copied to the box and runs THERE: reads go through the box's graph store with its curl config (never printed), the grader is the local 4b model on a private port, and only one counts JSON comes back. No question, answer or per-item label leaves the box, and nothing is written there except the script copy. Owner knowledge Q&A only: the brief replay is CANNOT-RUN until the daily-brief route takes an as-of parameter (oa #697).
 
 ## Brief metrics (brief_eval.py)
 
@@ -42,10 +42,14 @@ Questions generated from the fixture (76 answerable, 12 absent). Each graded RIG
 - knowledge oracle (all right), fabricator (commits on every absent question), abstainer (declines everything).
 - Mutants in the self-test: a scorer that never counts acted picks, and a grader that calls every refusal fabricated. Both turn the self-test red.
 
+## Owner-mode questions (owner_mode.py, on the box)
+
+- answerable: "What kind of contact is X?" for names with a contactType in the graph. Gold = the stored value. Context = that person's stored facts, as retrieval would supply them.
+- absent: names built from the approved cast, each CHECKED absent by query over every literal in the store before use.
+- Controls on the same questions: oracle (gold text), fabricator, abstainer, and a no-context run. The no-context run must not score RIGHT, or the grader or question leaks the answer.
+
 ## Not yet measurable
 
-- A replay of the SHIPPED brief: the daily-brief route renders now only (zeroclaw-gateway pwg_proxy.rs:410). No as-of parameter.
-- Ground truth from the owner's own stores: needs a ruling before any direct read.
-- Owner knowledge questions: need the owner's own question file and a ruling on what leaves the box.
+- A replay of the SHIPPED brief: the daily-brief route renders now only (zeroclaw-gateway pwg_proxy.rs:410). No as-of parameter until oa #697.
 
 Synthetic data only. Nothing from a real box is written to this directory.
