@@ -169,7 +169,6 @@ minors-registry-row.yml	minors-registry-row	unchanged	minors-registry-row.yml	mi
 misclassified-things.yml	misclassified-things	unchanged	misclassified-things.yml	misclassified-things
 model-download-honesty.yml	model-download-honesty	unchanged	model-download-honesty.yml	model-download-honesty
 music-scoring-one-scale.yml	music-scoring-one-scale	unchanged	music-scoring-one-scale.yml	music-scoring-one-scale
-name-repair.yml	name-repair	folded	fold-py-matrix.yml	py-matrix
 namespace-migrator-tests.yml	namespace-migrator-tests	unchanged	namespace-migrator-tests.yml	namespace-migrator-tests
 netflix-polarity-repair.yml	marker-skip	unchanged	netflix-polarity-repair.yml	marker-skip
 netflix-polarity-repair.yml	netflix-polarity-repair	folded	fold-py-matrix.yml	py-matrix

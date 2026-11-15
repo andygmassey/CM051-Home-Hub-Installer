@@ -159,6 +159,9 @@ on:
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
       - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
+      - 'tests/test_engine_supervisor_logind_selfheal.sh'
+      - 'tests/test_doctor_shows_engine_watchdog_status.py'
+      - 'vendor/doctor/agent/engine_watchdog_status.py'
       - 'bin/ostler-engine-supervisor.sh'
       # The listener watchdog (2026-10-17 incident) and its walk probe: both
       # tests are RUN below, so both are watched here.
@@ -770,6 +773,14 @@ jobs:
       - name: The engine supervisor judges the store ports, not colima list
         if: always()
         run: bash tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh
+
+      - name: The engine supervisor restarts a wedged logind in the VM, and only then
+        if: always()
+        run: bash tests/test_engine_supervisor_logind_selfheal.sh
+
+      - name: The Doctor shows the background engine row, and never "running" for a check that could not run
+        if: always()
+        run: python3 tests/test_doctor_shows_engine_watchdog_status.py
 
       # THE DAEMON WAS ALIVE AND ITS :8443 LISTENER WAS DEAD FOR 4 HOURS.
       #

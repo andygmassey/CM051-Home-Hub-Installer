@@ -220,9 +220,13 @@ _write_install() {
 # So: count our OWN fixture images by name and refuse if any is already
 # attached. A named refusal beats an intermittent red, and it beats
 # auto-detaching -- which would quietly repair the very leak worth seeing.
+#
+# Match `tmp.XXXX/` under ANY parent, not only macOS's default `/T/`. mktemp -d
+# honours $TMPDIR, and a CI fold block sets its own (fold-macos-15.yml), so a
+# `/T/`-only pattern could never see a fixture this file leaked inside a block.
 _stale_fixtures() {
     hdiutil info 2>/dev/null | awk '$1=="image-path"{print $3}' \
-        | /usr/bin/grep -cE '/T/tmp\.[A-Za-z0-9]+/(good|missing|partial|empty|pay_[a-z]+)\.dmg' || true
+        | /usr/bin/grep -cE '/tmp\.[A-Za-z0-9]+/(good|missing|partial|empty|pay_[a-z]+)\.dmg' || true
 }
 _stale="$(_stale_fixtures)"
 if [ "${_stale:-0}" -gt 0 ]; then
