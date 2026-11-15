@@ -165,7 +165,10 @@
     "fallback": "If Ostler is not in the list, click +, choose OstlerInstaller from your Applications folder, and switch it on.",
     "translocated_note": "Ostler is running from a temporary location, so macOS will list the wrong copy. Quit, move OstlerInstaller to your Applications folder, and open it from there.",
     "show_in_finder_button": "Show in Finder",
-    "recheck_button": "I've switched it on, continue"
+    "recheck_button": "I've switched it on, continue",
+    "quit_reopen_button": "Quit and reopen",
+    "continue_anyway_button": "Continue anyway",
+    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on."
   },
 
   "log_drawer": {
