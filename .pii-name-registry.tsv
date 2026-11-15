@@ -58,7 +58,6 @@ strict	vendor/ostler_fda/identifier_quality.py	vendored identity module: worked 
 strict	vendor/ostler_fda/given_name_variants.py	vendored identity module; carries a documented graft, scrubbed in place not re-pinned
 strict	vendor/ostler_fda/relationship_labels.py	vendored identity module: kinship words vs names. PUBLIC repo.
 strict	vendor/ostler_fda/role_addresses.py	vendored identity module: role vs person addresses. PUBLIC repo.
-strict	vendor/ostler_fda/repair_role_address_people.py	vendored identity repair tool, runs on customer data. PUBLIC repo.
 strict	vendor/ostler_fda/tests/*.py	vendored fixtures; a fixture is the likeliest place for a real contact to be pasted in verbatim
 strict	contact_syncer/instagram_social.py	root twin: username-to-display-name heuristic, worked examples
 strict	contact_syncer/syncer.py	root twin: dedupe worked examples
@@ -149,7 +148,6 @@ cast	johannes	generic German full name in a locale-override fixture, no surname 
 # spellings are different names. They carry no surname, no mailbox and no
 # number, so they identify nobody.
 # ---------------------------------------------------------------------------
-cast	alison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	allison	given-name spelling under test in the variants table; no surname or identifier attached
 cast	ali	given-name spelling under test in the variants table; no surname or identifier attached
 cast	catherine	given-name spelling under test in the variants table; no surname or identifier attached
@@ -2391,6 +2389,21 @@ nonperson	vendor/cm059_editor/compiler/interest_profile.py::ed1712d8189adcea	PRO
 # cm059_editor interest_profile.py (ORM 2026-10-21): a platform name in an upstream comment, PRODUCT.
 nonperson	vendor/cm059_editor/compiler/interest_profile.py::fcc24845717d3ab3	PRODUCT: the social platform name followed by the word watch in an upstream CM059 code comment describing the facebook_watched source weight; a product and a common noun, not a person.
 nonperson	vendor/cm019_preferences/services/enrich/src/cli.py::6259bfe5f6b92f31	PRODUCT: line 1007, the stderr banner that names the vendored CM019 topic-normalisation step by its product name, quoted in the source. It is the name of the shipped component, and the string is vendored verbatim from upstream, so renaming it would falsify the log line and diverge from upstream for no privacy gain.
+
+# Machine translations of the en-GB catalogues (l10n/). The SOURCE files stay examined.
+skip	install.sh.strings.??.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	install.sh.strings.pt-BR.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	install.sh.strings.pt-PT.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	install.sh.strings.en-US.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	install.sh.strings.zh-HK.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	install.sh.strings.zh-Hans.sh	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	gui/OstlerInstaller/Resources/*Copy.*.json	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+skip	l10n/REVIEW_FLAGS.*.tsv	TRANSLATION derived from an examined en-GB catalogue: the translator is sent only those English strings, so it cannot carry in data the source lacks, while German/Dutch noun capitalisation makes every PAIR a false finding (CM051 #2989; Archie to accept or reject)
+nonperson	l10n/glossary.yaml::4928967a80b398af	PRODUCT: Ostler's own product names (the app, its Pro tier, the Hub Mac) that every translation must keep untranslated
+nonperson	l10n/glossary.yaml::1fd85320979722e9	PRODUCT: Apple's macOS/iOS UI names (System Settings, Full Disk Access and similar) the glossary tells translators to localise officially
+skip	install.sh.strings.zh-Hant.sh	TRANSLATION derived from an examined en-GB catalogue (zh-Hant, Taiwan): same reasoning as the rows above; the ?? glob cannot match a 7-character code
+skip	l10n/legal_pending/*.json	TRANSLATION derived from an examined en-GB catalogue, parked until a named legal reviewer approves it (same reasoning as the rows above)
+skip	tests/bare_ollama_allowlist.l10n.tsv	verbatim copies of registry-skipped l10n catalogue lines
 nonperson	vendor/cm041/contact_syncer/qdrant_collection.py::4608035f277e70b0	PRODUCT: line 1 of the module docstring, the words 'Shared' and 'Qdrant' (the vector store product). No person is named in the file; vendored from CM041 #138 on 2026-10-22.
 nonperson	vendor/LICENSES/AGPL-3.0.txt::35885ee185b26422	STATUTE: line(s) 4, 572, 575, 637 of the verbatim GNU AGPL-3.0 licence text: a defined term or section heading of the licence, not a person. The licence text must stay byte-identical, so renaming it would corrupt the licence.
 nonperson	vendor/LICENSES/AGPL-3.0.txt::a701f1057e3756aa	STATUTE: line(s) 21 of the verbatim GNU AGPL-3.0 licence text: a defined term or section heading of the licence, not a person. The licence text must stay byte-identical, so renaming it would corrupt the licence.
@@ -2437,3 +2450,45 @@ nonperson	scripts/box_walk_probes/probes/derived_preferences_breadth.sh::bf4da12
 nonperson	scripts/walk_promote_scope.tsv::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_every_probe_on_disk_is_collected.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
 nonperson	tests/test_smart_prefs_probes.sh::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised as the product is named (the derived-preferences capability) as written in this file; a product name, not a person, and it must be named as the product is named.
+# NONPERSON, the spoken-capture legal note by region (2026-10-24). The pairs are
+# the country a region line is about ("In Germany", "In France", "In Hong Kong");
+# the line exists only because of that country, so a synthetic name would falsify it.
+nonperson	install.sh.strings.en-GB.sh::9c9af6101bd6b491	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE, the country whose recording law the line describes.
+nonperson	install.sh.strings.en-GB.sh::8d4f9085dbc23b57	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR, the country whose recording law the line describes.
+nonperson	install.sh.strings.en-GB.sh::d85533ba786e2766	JURISDICTION: the opening of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK, the territory whose data-protection law the line describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::9c9af6101bd6b491	JURISDICTION: consent_spoken_capture.legal_region_de, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE; the country whose recording law it describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::8d4f9085dbc23b57	JURISDICTION: consent_spoken_capture.legal_region_fr, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR; the country whose recording law it describes.
+nonperson	gui/OstlerInstaller/Resources/ViewCopy.json::d85533ba786e2766	JURISDICTION: consent_spoken_capture.legal_region_hk, the GUI twin of MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK; the territory whose data-protection law it describes.
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/sensitive.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored sensitive-term gate
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated.py::bf4da129f77f6bba	PRODUCT: the Ostler feature name smart preferences, capitalised in the module docstring of the vendored stated-preferences reader
+nonperson	vendor/cm019_preferences/services/enrich/src/derive/stated_model.py::8570b74a7dfae960	PRODUCT: the local model runtime (Ollama) on loopback, named in a vendored docstring; a software product, not a person
+nonperson	vendor/cm019_preferences/ontology/shacl/derived-preference-shapes.ttl::99a1b8e75f8ed287	PRODUCT: a SHACL shape title (sh:name) for the derived-preference pattern fields; an ontology term, not a person
+nonperson	scripts/verify_payload_app_icons.py::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
+nonperson	tests/test_payload_app_icons_gate.sh::129164929abe3198	PRODUCT: the AssetType value Apple's assetutil prints for an app-icon entry in an Assets.car, which the 118 U4 icon gate must match exactly to know an icon resolves; a two-word Apple format constant, not a person.
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::bfd7cc3114d50cd5	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [98]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::89627e7900bdcf46	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [98]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::5b842dc38724396a	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [102]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::e5194673ba5c8857	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [142]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::f16233369a59e7d0	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [142]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py::2fec0853c0a15340	PRODUCT: a grocery retailer or food brand name in the parser match table (food_evidence.py [143]), vendored byte-identical from CM019; the parser must match the exact trading name, so a substitute would make the table false
+nonperson	vendor/cm019_preferences/services/enrich/src/clients/osm_cuisine.py::ec2a75c05e7d6fb0	PRODUCT: Nominatim, the OpenStreetMap geocoding service this client calls, named in its module docstring (osm_cuisine.py line 3), vendored byte-identical from CM019
+
+# NONPERSON, care/helplines.tsv. 11 rows, all PRODUCT, all bound to that one path.
+# The file is the offline table of national crisis-line services the care rules quote to the customer.
+# Each flagged pair is the published name of an operator service (a charity or a government line), copied from
+# that operator's own page. The name IS the fact; a synthetic substitute would give a customer a wrong helpline.
+nonperson	care/helplines.tsv::ebfc9e1d3347666b	PRODUCT: line 8 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::a614374e608fe952	PRODUCT: line 9 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::ec8e1cbde1567617	PRODUCT: line 14 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::e3b3e5c7e65e1664	PRODUCT: line 14 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::67efda2a50e6594b	PRODUCT: line 16 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::74ae57d1460622c0	PRODUCT: line 18 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::3398a50ab1afe7a0	PRODUCT: line 19 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::602f780df1ee43b3	PRODUCT: line 23 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::d4f5125465011bab	PRODUCT: line 26 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::c063fb13a29a9b74	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+nonperson	care/helplines.tsv::baae82d31cac5af2	PRODUCT: line 29 of the crisis-line table, the published name of a national helpline service as it appears on the operator's own page; an organisation, not a person.
+phrase	smart prefs	walk probe and feature name (scripts/box_walk_probes smart_prefs), not a person
+phrase	smart preferences	feature name (derived preferences), not a person
+phrase	reply debt	Hub screen and feature name, not a person
+phrase	dark mode	macOS appearance setting, not a person

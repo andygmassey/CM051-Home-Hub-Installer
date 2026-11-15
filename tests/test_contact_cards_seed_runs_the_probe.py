@@ -2,7 +2,7 @@
 
 v1.0.115 (walk34) graded the BLOCKING probe CANNOT-RUN on a cold account (no Contacts).
 #3072 r1 wrote six cards straight into the graph: no syncer, no resolver, no vector,
-every number unique. The probe then hit its own "GUARD IS UNEXERCISED" pass, and the
+every number unique. The probe then hit its own "GUARD IS UNEXERCISED" pass (now CANNOT-RUN), and the
 six Persons had no Qdrant point (people_stores_reconcile red, people_count_agreement
 over its cap). This is the redesign: the walk seeds through the SHIPPED paths.
 
@@ -290,7 +290,10 @@ def _box_env(home, stores):
     return dict(os.environ, HOME=str(home), OSTLER_OXIGRAPH_URL=stores.oxi + "/query",
                 OSTLER_QDRANT_URL=stores.qdrant, OSTLER_DOCTOR_PEOPLE_URL=stores.doctor + "/api/v1/hydration/status",
                 OXIGRAPH_URL=stores.oxi, QDRANT_URL=stores.qdrant, OSTLER_BOX_HOST="", NO_PROXY="127.0.0.1,localhost",
-                PYTHONDONTWRITEBYTECODE="1")
+                PYTHONDONTWRITEBYTECODE="1",
+                # people_count_agreement imports the shipped people predicate
+                # (#3202); on a box it lives in ~/.ostler/services/shared.
+                OSTLER_PEOPLE_RULES_DIR=str(ROOT / "vendor" / "cm041" / "assistant_api"))
 
 
 def seed_script(home, mutate=None):
@@ -372,16 +375,16 @@ def test_seeded_run_exercises_the_guard_and_passes(stores, home):
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
     assert v.startswith("PASS"), text
-    assert "GUARD IS UNEXERCISED" not in text, text
+    assert "ZERO candidate merge pairs" not in text, text
     assert "so the zero was earned, not vacuous" in text, text
     m = re.search(r"collision opportunities: (\d+) Person node", text)
     assert m and int(m.group(1)) >= 1, text
     assert "EXAMINED: %d icloud_contact_uid" % len(fx.CARDS) in text, text
 
 
-def test_the_r1_direct_insert_was_a_vacuous_pass(stores, home):
+def test_the_r1_direct_insert_is_cannot_run_not_a_vacuous_pass(stores, home):
     """The control for the finding: six cards written straight into the graph, unique
-    numbers. The probe passes, and says the guard was never asked."""
+    numbers. The probe is CANNOT-RUN (it used to PASS), and says the guard was never asked."""
     t = []
     for n in range(1, 7):
         p = "<%sperson_direct%d>" % (PWG, n)
@@ -393,7 +396,8 @@ def test_the_r1_direct_insert_was_a_vacuous_pass(stores, home):
               '%s pwg:identifierValue "+4477009002%02d"' % (j, n)]
     stores.g.update("PREFIX pwg: <%s> INSERT DATA { %s }" % (PWG, " . ".join(t)))
     v, text = probe("no_person_holds_two_contact_cards", home, stores)
-    assert v.startswith("PASS") and "GUARD IS UNEXERCISED" in text, text
+    assert v.startswith("CANNOT-RUN"), text
+    assert "ZERO candidate merge pairs" in text and "6 distinct icloud_contact_uid" in text, text
     assert len(stores.points) == 0, "and not one of those Persons has a vector"
 
 
@@ -433,10 +437,15 @@ def test_people_count_agreement_passes_with_the_seed_and_the_cap_is_a_probe_tole
     assert v.startswith("PASS"), text
     assert "oxigraph SPARQL count : %d" % len(fx.CARDS) in text, text
     assert "doctor api count      : %d" % len(fx.CARDS) in text, text
-    # control: without vectors the Doctor count is 0 and the same probe is not a pass
+    # control: without vectors the Doctor count is 0 and the same probe is not a pass.
+    # Every seeded person is now waiting for a vector (the embed queue, v1.0.121), and
+    # no people_index run completes after they are seen, so there is no drain signal:
+    # CANNOT-RUN after a short bound (the shipped bound is 70 minutes), never a PASS.
     stores.points.clear()
-    v2, text2 = probe("people_count_agreement", home, stores, knobs)
+    v2, text2 = probe("people_count_agreement", home, stores,
+                      dict(knobs, OSTLER_PEOPLE_EMBED_DRAIN_STEP_S="1", OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S="4"))
     assert not v2.startswith("PASS"), text2
+    assert v2.startswith("CANNOT-RUN") and "NO DRAIN SIGNAL ARRIVED" in text2, text2
 
 
 def test_seed_skips_when_the_box_has_real_contacts_and_writes_nothing(stores, home):

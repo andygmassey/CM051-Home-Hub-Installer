@@ -131,7 +131,16 @@ PY" > "${boxf}" 2>/dev/null
     "${_PY}" "${_HERE}/lib/customer_read.py" "$@" | tee "${out}/verdict.txt"
     rc=${PIPESTATUS[0]}
     # A run that printed no assertion row is a FAIL, never a quiet pass.
-    n="$(/usr/bin/grep -cE '^  (ok|FAIL|CANNOT|N/A) ' "${out}/verdict.txt" 2>/dev/null || echo 0)"
+    # grep -c prints the count (0 included) and exits 1 on zero matches, so an
+    # echo-zero fallback printed a SECOND zero ("0\n0"), which made the
+    # `[ -gt ]` below a malformed test (v1.0.120 walk). Take the one integer
+    # grep printed; exit 1 only means "zero matches". Exit >= 2 is a read error:
+    # that is CANNOT-RUN, never a count.
+    n="$(/usr/bin/grep -cE '^  (ok|FAIL|CANNOT|N/A) ' "${out}/verdict.txt")"; grc=$?
+    if [ "${grc}" -ge 2 ]; then
+        probe_examined 0 "customer-read assertions"
+        probe_cannot_run "could not read the customer-read verdict (grep rc=${grc})"
+    fi
     probe_examined "${n}" "customer-read assertions"
     [ "${n}" -gt 0 ] || probe_fail "the customer read printed no assertion at all (rc=${rc}); a silent probe is not a pass"
     probe_note "screens and facts: ${out}"

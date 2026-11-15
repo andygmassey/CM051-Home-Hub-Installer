@@ -252,7 +252,43 @@ SUBPATH="$(vlib_field "$TREE" source_path)"
 if [ "$PINNED_SHA" != "WORKING_TREE" ] && [ -d "$SRC_REPO" ] \
    && git -C "$SRC_REPO" rev-parse --git-dir >/dev/null 2>&1; then
     _spec="."; [ -n "$SUBPATH" ] && [ "$SUBPATH" != "." ] && _spec="$SUBPATH"
-    AHEAD="$(git -C "$SRC_REPO" log --oneline "${PINNED_SHA}..HEAD" -- "$_spec" 2>/dev/null || true)"
+    # The SAME ref and the SAME hold_ack ladder as verify_vendor_fresh.sh.
+    #
+    # This used to read `${PINNED_SHA}..HEAD` and refuse on ANY commit, with no
+    # hold_ack subtraction. Every cm041 tree carries a hold_ack (pins are held
+    # behind upstream on purpose, the shipping fixes grafted by hand), so the
+    # tool refused every one of them for ever: measured 2026-11-04 on
+    # cm041/meeting_syncer and cm041/assistant_api, and the 2026-10-30 tracker
+    # row ("--write at pin f2ef7891 REFUSES") is this line. Meanwhile pins kept
+    # moving (#3111, #3162, #3311) with no regeneration possible, and four of
+    # the six cm041 patches stopped reconstructing their trees (rows 2206, 2212).
+    #
+    # A commit the manifest has ACKNOWLEDGED as held, with
+    # shipping_bugfixes_grafted asserted and a reason recorded, is by
+    # declaration already present in the vendored tree as a graft, which is
+    # exactly what a divergence patch records. Only an UNACKNOWLEDGED commit is
+    # upstream work this tool would misattribute, and that still refuses.
+    _ref="HEAD"
+    git -C "$SRC_REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1 && _ref="origin/main"
+    _delta="$(git -C "$SRC_REPO" log --format='%H %s' "${PINNED_SHA}..${_ref}" -- "$_spec" 2>/dev/null || true)"
+    _holds="$(vlib_field "$TREE" hold_ack_shas)"
+    _grafted="$(vlib_manifest_bool "$TREE" shipping_bugfixes_grafted)"
+    _hreason="$(vlib_field "$TREE" hold_ack_reason)"
+    AHEAD=""
+    while IFS= read -r _c; do
+        [ -z "$_c" ] && continue
+        if [ -n "$_holds" ] && [ "$_grafted" = "true" ] && [ -n "$_hreason" ] \
+           && vlib_sha_in_list "${_c%% *}" "$_holds"; then
+            continue
+        fi
+        AHEAD="${AHEAD}$(printf '%s' "$_c" | cut -c1-7) ${_c#* }
+"
+    done <<EOF_DELTA
+$_delta
+EOF_DELTA
+    if [ -n "$_delta" ] && [ -z "$AHEAD" ]; then
+        echo "  source has $(printf '%s\n' "$_delta" | grep -c .) commit(s) past the pin on $_ref, ALL held by hold_ack (grafted asserted): recording is safe."
+    fi
     if [ -n "$AHEAD" ]; then
         echo "The SOURCE has advanced past the pin. Unshipped commits touching this tree:" >&2
         printf '%s\n' "$AHEAD" | sed 's/^/    /' >&2
@@ -278,43 +314,19 @@ fi
 # this operation cannot change shipped bytes: the vendored side of the diff is
 # the input, never the output.
 NEW_PATCH="$SRC.new"
-# --no-prefix is load-bearing, do not remove it.
+# THE PATCH IS THE GATE'S OWN DIFF, vlib_vendor_diff, and nothing else.
 #
-# Without it git emits `diff --git a/<SRC-path> b/<DST-path>`, prepending its
-# own a/ and b/. The sed below then matches ${SRC}/ INSIDE that string, one
-# character in, and prepends a SECOND prefix. The result was `aa/`, `ab/` and
-# `bb/` rather than `a/` and `b/`.
-#
-# That was not cosmetic. `vlib_patch_new_files` (scripts/_vendor_lib.sh)
-# decides which files this patch CREATES by matching, literally, `^+++ b/`.
-# `bb/` gives b then b, so it matched NOTHING: measured 2026-09-02, the doctor
-# patch carried 8 new-file hunks and the consumer extracted 0. sync_vendor.sh
-# therefore believed the patch created nothing, and every one of those 8 files
-# -- including agent/extension_token.py and agent/pause_control.py -- would
-# have been deleted by the next re-vendor.
-#
-# It stayed invisible because the patch still APPLIED: git strips at -p1, so
-# every apply-side check remained green. Only the DETECTION was dead.
-( cd "$VLIB_REPO_ROOT" && git diff --no-index --no-color --no-prefix -- "$SRC" "$ABS_VENDOR" ) > "$NEW_PATCH" 2>/dev/null || true
-# Rewrite the temp-dir prefixes to stable a/ b/ paths so the patch is portable
-# and does not embed this run's mktemp path.
-#
-# BOTH forms are matched on purpose. Under --no-prefix git prints the paths
-# with the LEADING SLASH STRIPPED, so a pattern anchored on the absolute path
-# matches nothing and the rewrite silently no-ops. Measured on a fixture
-# 2026-09-02: with only the absolute form, 0 of 1 new files came out visible.
-_rdp_src_nl="${SRC#/}"
-_rdp_dst_nl="${ABS_VENDOR#/}"
-sed -i.bak \
-    -e "s#${SRC}/#a/#g" -e "s#${ABS_VENDOR}/#b/#g" \
-    -e "s#${_rdp_src_nl}/#a/#g" -e "s#${_rdp_dst_nl}/#b/#g" \
-    -e "s#${SRC}#a#g" -e "s#${ABS_VENDOR}#b#g" \
-    -e "s#${_rdp_src_nl}#a#g" -e "s#${_rdp_dst_nl}#b#g" \
-    "$NEW_PATCH" 2>/dev/null
+# This used to be `git diff --no-index` over the two whole trees, plus a sed
+# pass to rewrite the temp paths to a/ and b/. That is a DIFFERENT question
+# from the one the gate asks: it ignores the tree's exclude globs, so every
+# vendor-only file the manifest says is deliberately not compared (tests/,
+# test_vendor_import.sh) was recorded as a new-file hunk. Measured 2026-11-04
+# on cm041/assistant_api: 39 files proposed where the gate compares 8, 31 of
+# them vendored tests, and the PII scan then refused on a test fixture line
+# that is not part of the divergence at all. Two definitions of "the
+# divergence" in one tool is how a patch drifts from the gate that reads it.
+cp "$SRC.diff" "$NEW_PATCH"
 
-# SELF-CHECK: a patch whose new-file hunks the real consumer cannot see is
-# worse than no patch, because it reads as protection that is not there. Assert
-# the invariant with the consumer's OWN predicate rather than trusting the sed.
 _rdp_devnull=$(grep -c '^--- /dev/null$' "$NEW_PATCH" || true)
 _rdp_seen=$(awk '
     /^--- \/dev\/null$/ { pending = 1; next }
@@ -423,12 +435,12 @@ echo "                UNKNOWN, not clean -- see tests/vendor_person_name_sweep.p
 echo ""
 echo "PROPOSED PATCH -- this is what would be RECORDED as a deliberate graft:"
 echo ""
-printf '  files touched : %s\n' "$(grep -c '^diff --git' "$NEW_PATCH" || echo 0)"
+printf '  files touched : %s\n' "$(grep -c '^+++ b/' "$NEW_PATCH" || echo 0)"
 printf '  lines added   : %s\n' "$(grep -c '^+[^+]' "$NEW_PATCH" || echo 0)"
 printf '  lines removed : %s\n' "$(grep -c '^-[^-]' "$NEW_PATCH" || echo 0)"
 echo ""
 echo "  per-file:"
-grep '^diff --git' "$NEW_PATCH" | sed 's#^diff --git a/##; s# b/.*##' | sed 's/^/    /'
+grep '^+++ b/' "$NEW_PATCH" | sed 's#^+++ b/##' | sed 's/^/    /'
 echo ""
 
 if [ -f "$ABS_PATCH" ]; then

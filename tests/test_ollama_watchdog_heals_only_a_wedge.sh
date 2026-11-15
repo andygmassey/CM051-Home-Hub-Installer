@@ -157,7 +157,8 @@ S="$WORK/s9"; rm -f "$WORK/curl.s9"
 for i in 1 2; do SHIM_EMBED=000 SHIM_ENV_FILE="$WORK/ostler.env" SHIM_CURL_CALLS="$WORK/curl.s9" run prewarm "$S"; done
 [ "$(restarts prewarm)" = 1 ] && ok "prewarm case: the wedge was restarted" || bad "prewarm case: expected 1 restart, got $(restarts prewarm)"
 gen=$(grep -n '/api/generate' "$WORK/curl.s9" 2>/dev/null | head -1 | cut -d: -f1)
-emb=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.s9" 2>/dev/null | head -1 | cut -d: -f1)
+# The probe now carries keep_alive too, so the PREWARM embed is the LAST embed call.
+emb=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.s9" 2>/dev/null | tail -1 | cut -d: -f1)
 [ -n "$gen" ] && ok "after the restart the chat model is pre-warmed (/api/generate)" || bad "no chat-model prewarm after the restart"
 grep '/api/generate' "$WORK/curl.s9" 2>/dev/null | grep -q '"model":"gemma4:e2b"' \
     && ok "the prewarm loads AI_MODEL from ~/.ostler/.env" || bad "the prewarm does not load AI_MODEL"
@@ -190,7 +191,7 @@ a=$(grep -n 'PREWARM embed' "$MUT3" | head -1 | cut -d: -f1); b=$(grep -n 'PREWA
 { [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; } && ok "order mutation applied" || bad "order mutation did not apply"
 rm -f "$WORK/curl.mo"
 for i in 1 2; do PATH="$WORK/bin:$PATH" SHIM_CALLS="$WORK/calls.mo" OSTLER_WATCHDOG_STATE_DIR="$WORK/smo" OSTLER_WATCHDOG_EVIDENCE_DIR="$WORK/smo/evidence" OSTLER_WATCHDOG_OLLAMA_LOG_DIR="$WORK/ologs" OSTLER_WATCHDOG_PROBE_S=1 OSTLER_WATCHDOG_UP_POLL_S=0 OSTLER_WATCHDOG_ENV_FILE="$WORK/ostler.env" SHIM_EMBED=000 SHIM_CURL_CALLS="$WORK/curl.mo" "$MUT3" >> "$WORK/log.mo" 2>&1; done
-g2=$(grep -n '/api/generate' "$WORK/curl.mo" 2>/dev/null | head -1 | cut -d: -f1); e2=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.mo" 2>/dev/null | head -1 | cut -d: -f1)
+g2=$(grep -n '/api/generate' "$WORK/curl.mo" 2>/dev/null | head -1 | cut -d: -f1); e2=$(grep -n '/api/embed.*keep_alive' "$WORK/curl.mo" 2>/dev/null | tail -1 | cut -d: -f1)
 { [ -n "$g2" ] && [ -n "$e2" ] && [ "$e2" -lt "$g2" ]; } && ok "MUST-FAIL mutant (embed first) is caught by the ORDER predicate" || bad "the embed-first mutant was not distinguishable: the ORDER arm proves nothing"
 
 echo "$PASS passed, $FAIL failed"

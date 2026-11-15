@@ -323,13 +323,19 @@ def test_round_robin_does_not_let_one_source_starve_another(oc):
 _FIXTURE_MODULE = textwrap.dedent('''
     """Synthetic catch-up source for the kill test. Sink: one file per key
     (a keyed upsert, like a CM048 state dir) plus an append-only write log."""
-    import os, signal
+    import os, signal, time
     from pathlib import Path
     import ostler_catchup as oc
 
     N = int(os.environ["FX_N"])
     SINK = Path(os.environ["FX_SINK"])
     KILL_AT = int(os.environ.get("FX_KILL_AT_WRITE", "-1"))
+    # Backstop for the external-kill test: on reaching this write the process
+    # blocks until it is killed from outside, so it can never finish first.
+    HOLD_AT = int(os.environ.get("FX_HOLD_AT_WRITE", "-1"))
+    # Harness-only knob: a per-item delay, to prove the kill count does not
+    # depend on how fast the runner is.
+    DELAY = float(os.environ.get("FX_ITEM_DELAY_S", "0") or 0)
 
     class Fx(oc.Adapter):
         source = "killfx"
@@ -357,6 +363,11 @@ _FIXTURE_MODULE = textwrap.dedent('''
             if n == KILL_AT:
                 # The worst moment: the sink has it, the ledger does not.
                 os.kill(os.getpid(), signal.SIGKILL)
+            if n == HOLD_AT:
+                while True:
+                    time.sleep(1)
+            if DELAY:
+                time.sleep(DELAY)
             return True
 
     def adapters():
@@ -412,35 +423,98 @@ def test_kill_between_sink_and_ledger_repeats_one_keyed_write_and_loses_nothing(
     print(f"\n[kill] sink={len(sink)} distinct of {n}; repeated writes={repeated}")
 
 
+def _write_count(tmp_path) -> int:
+    log = tmp_path / "out" / "writes.log"
+    try:
+        with open(log, "rb") as fh:
+            return fh.read().count(b"\n")
+    except FileNotFoundError:
+        return 0
+
+
+def _last_write(tmp_path):
+    log = tmp_path / "out" / "writes.log"
+    lines = log.read_text().split() if log.exists() else []
+    return lines[-1] if lines else None
+
+
+KILLS_PLANNED = 6
+HOLD_SLACK = 150    # writes after a kill target before the child blocks
+
+
 def test_random_external_kills_never_lose_or_duplicate(tmp_path):
+    """External SIGKILLs at random PROGRESS points, never on a timer.
+
+    Each run gets a target write count drawn at random. The test watches the
+    write log and SIGKILLs the child from outside once the target is reached,
+    so the kill lands wherever the child happens to be (sink write, ledger
+    commit, next batch read). The child also blocks at target + HOLD_SLACK, so
+    it can never finish before it is killed: KILLS_PLANNED kills land on every
+    runner, however fast or slow. Then one clean run finishes the walk.
+    """
     _load()
     n = 3_000
-    env = _cli_env(tmp_path, n)
     rng = random.Random(20261015)
+    # Sorted, distinct, spaced: each target lies beyond the previous hold, so
+    # every run makes progress before its kill.
+    gap = HOLD_SLACK + 50
+    span = n - HOLD_SLACK - 100 - 50
+    slots = sorted(rng.sample(range(50, span, gap), KILLS_PLANNED))
+    targets = [s + rng.randrange(0, gap - HOLD_SLACK) for s in slots]
+    assert all(b - a > HOLD_SLACK for a, b in zip(targets, targets[1:])), targets
+    assert targets[-1] + HOLD_SLACK < n, targets
+
     kills = 0
-    for attempt in range(60):
+    in_flight = []          # last key in the write log at each kill
+    for target in targets:
+        env = _cli_env(tmp_path, n)
+        env["FX_HOLD_AT_WRITE"] = str(target + HOLD_SLACK)
         p = subprocess.Popen(
             [sys.executable, "-m", "ostler_catchup", "run", "--family", "killfx",
              "--adapters", "killfx_adapter:adapters", "--budget-seconds", "600"],
-            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 120
         try:
-            p.wait(timeout=rng.uniform(0.05, 0.6))
-        except subprocess.TimeoutExpired:
+            while _write_count(tmp_path) < target:
+                if p.poll() is not None:
+                    pytest.fail(f"the child exited rc={p.returncode} before write {target}: "
+                                f"{p.stderr.read().decode(errors='replace')[-800:]}")
+                if time.monotonic() > deadline:
+                    pytest.fail(f"write {target} not reached in 120s (at {_write_count(tmp_path)})")
+                time.sleep(0.001)
             p.send_signal(signal.SIGKILL)
             p.wait()
-            kills += 1
-            continue
-        if p.returncode == 0:
-            st = json.loads((tmp_path / "home" / "state" / "catchup" / "killfx.json").read_text())
-            if st.get("complete"):
-                break
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            p.stderr.close()
+        assert p.returncode == -signal.SIGKILL, f"the child was not killed: rc={p.returncode}"
+        kills += 1
+        in_flight.append(_last_write(tmp_path))
+
+    st_path = tmp_path / "home" / "state" / "catchup" / "killfx.json"
+    assert not (st_path.exists() and json.loads(st_path.read_text()).get("complete")), (
+        "the walk completed during the kill phase: the kills did not interrupt it")
+    r = _cli(_cli_env(tmp_path, n))
+    assert r.returncode == 0, r.stderr[-800:]
+    assert json.loads(st_path.read_text()).get("complete"), "the clean run did not finish the walk"
+
     sink = {p.name for p in (tmp_path / "out" / "sink").iterdir()}
     writes = _writes(tmp_path)
     extra = sum(c - 1 for c in writes.values())
     assert len(sink) == n, f"{len(sink)} of {n} after {kills} kills"
     assert extra <= kills, f"{extra} repeated writes from {kills} kills: more than one per kill"
+    # Stronger: a kill can only repeat the item it caught in flight, the last
+    # one written before it. Any other repeat is a duplicate the machinery made.
+    from collections import Counter
+    allowed = Counter(k for k in in_flight if k)
+    repeated = Counter({k: c - 1 for k, c in writes.items() if c > 1})
+    stray = {k: c for k, c in repeated.items() if c > allowed.get(k, 0)}
+    assert not stray, f"repeated writes no kill accounts for: {stray} (in flight at kills: {in_flight})"
     assert kills >= 3, f"only {kills} kills landed; the test did not exercise the restart path"
-    print(f"\n[random kills] kills={kills} repeated keyed writes={extra} distinct={len(sink)}/{n}")
+    print(f"\n[random kills] kills={kills} at writes {targets} repeated keyed writes={extra} "
+          f"distinct={len(sink)}/{n}")
 
 
 # ── the quiet-machine predicate ──────────────────────────────────────────────

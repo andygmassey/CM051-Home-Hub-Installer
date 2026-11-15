@@ -99,13 +99,21 @@ REQUIRED_PROXY_PATHS=(
     "/api/v1/contacts/diff"
     "/api/safari/save"
     "/api/v1/browsing/search"
+    # 118 (2026-10-23): the owner's under-18 list. The Hub People page marks a
+    # person as under 18, lists who is marked, and answers the "these contacts
+    # look under 18" suggestion. /api/v1/minors is a literal (not a {slug}
+    # route) so it cannot be swallowed by a path-parameter route.
+    "/api/v1/minors"
+    "/api/v1/minors/suggestions"
+    "/api/v1/people/{slug}/minor"
+    "/api/v1/people/{slug}/minor-suggestion/dismiss"
 )
 
 # A floor, in the ratchet sense. If someone deletes an entry above, the
 # array silently shrinks and the gate silently checks less while still
 # printing PASS. Removing a required endpoint is a real decision and it has
 # to be made in two places, deliberately.
-EXPECTED_REQUIRED_COUNT=22
+EXPECTED_REQUIRED_COUNT=26
 
 INSTALL_SH="${1:-}"
 if [[ -z "$INSTALL_SH" ]]; then

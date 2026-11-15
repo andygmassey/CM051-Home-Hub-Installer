@@ -22,6 +22,11 @@ on:
       - 'vendor/cm048_pipeline/src/reply_debt_service.py'
       - 'vendor/cm048_pipeline/src/handle_identity.py'
       - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'vendor/cm048_pipeline/src/reply_debt_sources.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/whatsapp_source/**'
+      - 'vendor/email_source/**'
+      - 'tests/test_reply_debt_whatsapp_email.py'
       - 'tests/test_reply_debt_names_people_p13.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/imessage_source/**'
@@ -69,6 +74,17 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_reply_debt_never_opens_protected_data.py -v -rs
+      - name: WhatsApp and email reply debt, producer snapshot to the real ical-server
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_reply_debt_whatsapp_email.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_reply_debt_whatsapp_email.py -v -rs
       - name: The Doctor never opens chat.db, and its FDA cards follow the signed side
         if: always()
         run: |

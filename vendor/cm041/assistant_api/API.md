@@ -313,6 +313,29 @@ Per-section failure capture: a section that fails will have its array
 present-but-empty plus a sibling `<section>_error` field. Aliases
 mirror the legacy section, so they too will be empty in that case.
 
+### Under-18 list (`minors`)
+
+The owner-set list of people who are under 18. A minor is stored and searchable
+but never nudged, never sent to Reminders and never used for facts or
+suggestions. All four routes need the service token. The list lives in
+`~/.ostler/minors.json` (`OSTLER_MINORS_FILE`), written atomically, mode 0600.
+It holds children's names: it never leaves the box and is never logged.
+
+- `GET /api/v1/minors` returns `{"registry":"ok","minors":[{"slug","name"}]}`.
+  A file that exists but cannot be read returns 503
+  `{"registry":"unreadable","minors":[],"error":"under-18 list unreadable"}`.
+- `POST /api/v1/people/{slug}/minor` with `{"minor": true|false}` returns
+  `{"slug","minor","changed","identifiers_recorded"}`. 404 for an unknown slug
+  when marking; 503 (and no write) when the list is unreadable. Marking also
+  writes the do-not-suggest record with reason `minor`; unmarking clears that
+  record only if its reason is `minor`.
+- `GET /api/v1/minors/suggestions` returns `{"suggestions":[{"slug","name","age"}]}`
+  for contacts whose full birthday says they are under 18 today and who are not
+  marked, dismissed or already do-not-suggest. Read-only: it never marks anyone.
+- `POST /api/v1/people/{slug}/minor-suggestion/dismiss` returns
+  `{"slug","dismissed":true}`; remembered (slugs only, mode 0600) in
+  `~/.ostler/state/minors-dismissed.json` (`OSTLER_MINORS_DISMISSED_FILE`).
+
 ### `GET /api/v1/email/recent?hours=<n>&limit=<n>`
 
 Recent emails from Gmail via `gws`. Returns subject + from + date +

@@ -174,11 +174,11 @@ fi
 
 # The ships-dark check: both channels must have at least one real call site.
 for ch in contacts emails; do
-    n="$(grep -c "settling_report ${ch}" "$INSTALL" || true)"
+    n="$(grep -cE "settling_(report|report_measured|complete|skip) ${ch}" "$INSTALL" || true)"
     if [[ "${n:-0}" -ge 1 ]]; then
         ok "install.sh reports the '$ch' channel ($n call site(s))"
     else
-        bad "install.sh never calls settling_report for '$ch' -- ships blank"
+        bad "install.sh never calls a settling writer for '$ch' -- ships blank"
     fi
 done
 
@@ -285,6 +285,24 @@ if grep -qE '^[[:space:]]*"lib"' "$REPO_ROOT/release.sh"; then
     ok "release.sh tarball ships the whole lib/ directory"
 else
     bad "release.sh no longer ships lib/ wholesale; add settling_progress.sh explicitly"
+fi
+
+# ── 9. B4: a later 0-of-0 report must not collapse a backlog shard ───────────
+# A shard at 17441 of 121893 (the emails backlog), then `settling_report emails
+# 0 0 true`: total was set to max(req_total, done) and ignored prev_total, so
+# total fell to 17441 and the bar read 100% on an unfinished backlog.
+(
+    export OSTLER_STATE_DIR="$TMP/b4"; export HOME="$TMP/b4home"; mkdir -p "$HOME"
+    # shellcheck disable=SC1090
+    . "$LIB"
+    settling_report emails 17441 121893 false
+    settling_report emails 0 0 true
+)
+b4="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["done"],d["total"],d["complete"])' "$TMP/b4/settling_progress.d/emails.json" 2>&1)"
+if [[ "$b4" == "17441 121893 False" ]]; then
+    ok "B4: 0-of-0 report keeps prev_total (done/total/complete = $b4)"
+else
+    bad "B4: 0-of-0 report collapsed the backlog shard (done total complete = $b4, want 17441 121893 False)"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

@@ -329,18 +329,28 @@ def main() -> int:
             "arm 4b (control): with no key file the same module resolves no "
             "key, which is the state every shipped install was in",
         )
-        conn = ical_plain._memory_corrections_connect()
-        conn.execute("CREATE TABLE IF NOT EXISTS probe (body TEXT)")
-        conn.execute("INSERT INTO probe VALUES (?)", (CANARY,))
-        conn.commit()
-        conn.close()
-        blob_plain = corrections_plain.read_bytes()
+        # v1.0.129: the plaintext fallthrough this control used to
+        # EXPECT is the bug being fixed. With no key the service must
+        # refuse, and must leave no readable file behind.
+        refused = False
+        try:
+            ical_plain._memory_corrections_connect()
+        except ical_plain.DbKeyMissingError:
+            refused = True
         check(
-            blob_plain.startswith(SQLITE_MAGIC)
-            and CANARY.encode() in blob_plain,
-            "arm 4b (control): that unkeyed run produces a plaintext SQLite "
-            "file with the canary readable in it, so arm 4 is a measurement "
-            "and this test can tell the two apart",
+            refused,
+            "arm 4b: with no key the REAL ical-server REFUSES to open "
+            "corrections.db (DbKeyMissingError), it does not fall through "
+            "to plaintext",
+        )
+        check(
+            not corrections_plain.exists()
+            or (
+                not is_plaintext_sqlite(corrections_plain)
+                and CANARY.encode() not in corrections_plain.read_bytes()
+            ),
+            "arm 4b: after the refusal there is no readable plaintext "
+            "corrections.db on disk",
         )
         posture_plain = posture_for(home4, "ical-server")
         check(
@@ -348,6 +358,28 @@ def main() -> int:
             and posture_plain.get("reason") == db_key.REASON_NO_KEY,
             "arm 4b (control): and the posture marker says disabled/no_key "
             "rather than staying silent",
+        )
+        # CONTROL for arm 4's byte check: the explicit, loud opt-in is the
+        # only route to plaintext from this module. If it writes a readable
+        # canary, the byte check above could have seen plaintext had the
+        # refusal failed, so it is a measurement and not a vacuous pass.
+        os.environ["OSTLER_ALLOW_PLAINTEXT_DB"] = "1"
+        try:
+            conn = ical_plain._memory_corrections_connect()
+            conn.execute("CREATE TABLE IF NOT EXISTS probe (body TEXT)")
+            conn.execute("INSERT INTO probe VALUES (?)", (CANARY,))
+            conn.commit()
+            conn.close()
+        finally:
+            os.environ.pop("OSTLER_ALLOW_PLAINTEXT_DB", None)
+        blob_plain = corrections_plain.read_bytes()
+        check(
+            blob_plain.startswith(SQLITE_MAGIC)
+            and CANARY.encode() in blob_plain,
+            "arm 4b (control): the explicit OSTLER_ALLOW_PLAINTEXT_DB=1 "
+            "opt-in produces a plaintext SQLite file with the canary "
+            "readable in it, so arm 4 is a measurement and this test can "
+            "tell the two apart",
         )
 
         # ── ARM 5: the real CM048 writer, to the bytes ───────────────

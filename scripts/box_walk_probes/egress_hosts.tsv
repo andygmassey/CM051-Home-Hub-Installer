@@ -72,7 +72,7 @@ search.brave.com	ostler-vane SearXNG engine `brave` (same shipped settings and t
 # ── build-time dependency registries reached BY the installer, not by us ─────
 #    We invoke these; the customer's Mac is what makes the request. Named here
 #    because "we did not write the client" is not a reason to omit a row.
-formulae.brew.sh	installer: Homebrew formula index (29 `brew install` call sites)	package names. Homebrew's own analytics are separate and OFF unless the customer enabled them.
+formulae.brew.sh	installer: Homebrew formula index (29 `brew install` call sites)	package names. Homebrew analytics are ON by default upstream (audit 2026-11-04 D3); install.sh now exports HOMEBREW_NO_ANALYTICS=1 for every brew call, and the walk probe third_party_telemetry_off asserts zero connections to analytics.brew.sh (host read from brew 7.0.9 utils/analytics.rb).
 pypi.org	installer: Python dependency resolution (57 pip call sites)	package names and versions.
 files.pythonhosted.org	pypi.org wheel CDN	HTTPS GET of public wheels. No request body.
 #

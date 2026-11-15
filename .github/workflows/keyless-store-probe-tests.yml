@@ -20,6 +20,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -27,6 +28,9 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -37,6 +41,9 @@ on:
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
+      - 'tests/test_rule2_override_is_rechecked_in_the_graph.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
   push:
     branches: [main]
@@ -46,6 +53,7 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
       - 'scripts/tests/test_walk_safari_seed.sh'
       - 'scripts/lib_walk_safari_seed.sh'
@@ -53,6 +61,9 @@ on:
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
+      - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/run_box_walk.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
@@ -63,6 +74,9 @@ on:
       - 'vendor/cm041/identity_resolver/**'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
+      - 'tests/test_rule2_override_is_rechecked_in_the_graph.py'
       - '.github/workflows/keyless-store-probe-tests.yml'
 
 concurrency:
@@ -72,7 +86,10 @@ concurrency:
 jobs:
   probe-tests:
     runs-on: macos-latest
-    timeout-minutes: 60
+    # 90, not 60: on 2026-11-06/07 this job was cancelled at exactly 60 min on
+    # #3352 #3364 #3367 #3368 alike, and successful runs took 61-78 min wall.
+    # The cap was cutting a slow suite, not catching a hang. Split owed (r25).
+    timeout-minutes: 90
     steps:
       # fetch-depth 0: test_ingest_coverage_probe.sh pins its negative control
       # to the pre-fix blob (git show ae5707d4:...), the tree whose parser read
@@ -86,6 +103,26 @@ jobs:
       - name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         if: always()
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
+
+      # A graph with 1 icloud_contact_uid or 0 candidate merge pairs examined
+      # nothing; the probe must say CANNOT-RUN with the denominator, and a real
+      # 2+ uid fixture with 0 violations must still PASS.
+      - name: two-cards probe is CANNOT-RUN on a vacuous graph, PASS on a real one
+        if: always()
+        run: /bin/bash scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh
+
+      # instr119: the people and screens probes print CAUSES (join key, C split,
+      # category breakdown, launchctl exit + install.sh fda-rerun line, 5xx body,
+      # Needs-you-now keys) against synthetic stores, with exit codes unchanged.
+      - name: walk probes print causes, masked, exit codes unchanged (instr119)
+        if: always()
+        run: python3 tests/test_walk_probes_print_causes.py
+
+      # Archie's three holes on #3231: unmeasured denominators are CANNOT-RUN (no
+      # substitute value), and journal-excused merges count as candidate pairs.
+      - name: two-cards probe verdict holes (unmeasured denominators, excused merges)
+        if: always()
+        run: python3 tests/test_two_cards_probe_verdict_holes.py
 
       # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
       # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts
@@ -103,6 +140,20 @@ jobs:
             -r vendor/cm041/contact_syncer/requirements.txt \
             -r vendor/cm041/identity_resolver/requirements.txt
           out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py tests/test_install_repairs_merge_consistency_after_dedupe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+
+      # v1.0.121, RULE 2 exception (Andy 2026-10-30): the REAL BatchResolver
+      # writes the graph, journal and snapshots; the REAL probe re-checks every
+      # journalled override in the graph (same full name with suffixes kept,
+      # shared key, 3+ names guard). A skip (importorskip) is NOT a pass.
+      - name: RULE 2 override is re-checked in the graph, never taken on the journal's word
+        if: always()
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/rule2-venv"
+          "${RUNNER_TEMP}/rule2-venv/bin/python" -m pip install --quiet pytest rdflib qdrant-client pyoxigraph \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          out="$("${RUNNER_TEMP}/rule2-venv/bin/python" -m pytest tests/test_rule2_override_is_rechecked_in_the_graph.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
 
@@ -125,6 +176,14 @@ jobs:
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
 
       # #2362: a self-test is fixtures only; it must not reach the box.
+      - name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_probes_l3_and_maps.sh
+
+      - name: Core memory holds no prefetch block (#2436) probe, RED/GREEN/blind + mutant
+        if: always()
+        run: /bin/bash scripts/tests/test_walk_probe_core_memory_prefetch.sh
+
       - name: Probe self-tests never reach the box
         if: always()
         run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh

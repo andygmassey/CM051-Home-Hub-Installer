@@ -57,7 +57,7 @@
          except Exception:
 --- a/frontpage.py
 +++ b/frontpage.py
-@@ -355,6 +355,134 @@
+@@ -355,8 +355,136 @@
          source="ostler:editor",
          privacy="L1",  # generic product copy; about the operator, no PII
      )
@@ -132,8 +132,8 @@
 +        subject = subject.replace("_", " ")
 +        subject = subject[:1].upper() + subject[1:]
 +    return subject
-+
-+
+ 
+ 
 +# The interest card's body says WHERE an interest came from, from the card's
 +# own `sources` and `last_seen`, instead of one sentence on every card ("One of
 +# the things Ostler reckons you're into."). Source keys measured on a walk box:
@@ -189,9 +189,11 @@
 +    if year.isdigit() and int(year) < now.year:
 +        line += f", last seen in {year}"
 +    return line + "."
- 
- 
++
++
  def interest_card(it: dict, now: datetime, rank: int, n: int) -> dict:
+     """Phase C card: one inferred interest, with its evidence and the rate/
+     correct affordances. Priority is the interest's own score mapped into the
 @@ -368,12 +496,12 @@
          1.0 - rank / span) if n > 1 else PRIORITY_INTEREST_TOP
      # CM051 #2534: one evidence line per card, not two joined with " - ".
@@ -263,10 +265,12 @@
              continue
          dom = it.get("domain", "Other")
          if per_domain.get(dom, 0) >= MAX_PER_DOMAIN:
-@@ -762,6 +906,83 @@
+@@ -760,8 +904,89 @@
+             signals_kept += 1
+         kept.append(c)
      return kept[:MAX_FEED_CARDS]
- 
- 
++
++
 +# ---------------------------------------------------------------------------
 +# What may become an interest CARD (#106c, items h and i; Andy's walk
 +# 2026-09-28). The Front Page showed a raw social hashtag, including a
@@ -279,16 +283,10 @@
 +# ---------------------------------------------------------------------------
 +import re as _re
 +
-+_SENSITIVE_STEMS = (
-+    "politic", "election", "memorial", "campaign", "protest", "maga",
-+    "democrat", "republican", "conservative party", "labour party", "tory",
-+    "religio", "church", "mosque", "synagogue", "temple", "islam", "muslim",
-+    "christian", "catholic", "jewish", "judaism", "hindu", "sikh", "atheis",
-+    "diabet", "cancer", "hiv", "aids", "depress", "anxiety", "mental health",
-+    "therapy", "rehab", "addiction", "ozempic", "wegovy", "pregnan", "ivf",
-+    "fertility", "abortion", "lgbt", "gay", "lesbian", "transgender",
-+    "sexual", "trade union",
-+)
++# The special-category list lives in ONE place, sensitive_topics.py (board
++# row 2471: the stem list that used to sit here had no ethnicity, genetic or
++# biometric class, and matched mid-word, so "History" read as political).
++from compiler import sensitive_topics as _sensitive_topics
 +
 +_SITE_SUFFIX = _re.compile(
 +    r"\s+[-|\u2013\u2014:]\s+(?:the\s+)?(?:best|official|home|homepage|"
@@ -307,8 +305,8 @@
 +            break
 +        out = cleaned
 +    return out
-+
-+
+ 
+ 
 +def is_cardable_interest(it: dict) -> bool:
 +    """False for a hashtag or a special-category topic (see above)."""
 +    subject = (it.get("subject") or "").strip()
@@ -316,12 +314,22 @@
 +        return False
 +    if not any(ch.isalpha() for ch in subject) or _EMAIL_SHAPE.match(subject):
 +        return False  # a bare number or address is not a thing to be into
-+    low = subject.lower()
-+    if any(stem in low for stem in _SENSITIVE_STEMS):
++    if _sensitive_topics.is_sensitive_topic(subject):
 +        return False
 +    if (it.get("privacy") or "").upper() == "L3":
 +        return False
 +    return True
++
++
++def sensitive_card_gate(cards: list[dict]) -> list[dict]:
++    """Last gate over the assembled feed: no interest card (ordinary, rotated
++    or hunch, or any interest-kind card a scout adds) whose title names a
++    GDPR Art. 9 special-category topic. ``_cardable_profile`` already removes
++    them at the source; this catches any path that builds an interest card
++    from something other than the filtered profile."""
++    return [c for c in cards
++            if not (c.get("kind") == "interest"
++                    and _sensitive_topics.is_sensitive_topic(c.get("title")))]
 +
 +
 +def _cardable_profile(profile: dict) -> dict:
@@ -347,7 +355,7 @@
  def build_frontpage(profile: dict, *, now: datetime | None = None,
                      settling: dict | None = None,
                      card_states: dict | None = None,
-@@ -786,6 +1007,7 @@
+@@ -786,6 +1011,7 @@
      ``None`` = enforcement off (legacy behaviour), ``True`` = Pro verified,
      anything else = fail-closed deny -> proactive families suppressed and one
      honest pro-locked card shown."""
@@ -355,9 +363,11 @@
      now = now or datetime.now(timezone.utc)
      phase = decide_phase(profile, settling)
      cards: list[dict] = []
-@@ -874,6 +1096,12 @@
+@@ -873,7 +1099,14 @@
+     cards = apply_card_states(cards, card_states, now)
      cards = drop_resting(cards)
      cards = privacy_gate(cards)
++    cards = sensitive_card_gate(cards)
      cards = entitlement_gate(cards, entitled, now)
 +    # A card must never appear without a working action. The app routes only
 +    # open_interest_profile; the consent_grant:<key> verb a consent card
@@ -393,7 +403,15 @@
  
  # ---------------------------------------------------------------------------
  # Taxonomy: how far to trust each source category, and which coarse domain it
-@@ -488,20 +489,130 @@
+@@ -172,6 +173,7 @@
+     "politics", "political",
+     "sexuality", "sexual_orientation", "gender_identity",
+     "finance", "financial", "money", "legal", "addiction",
++    "dietary", "diet",  # dietary-guard: grocery diet signals, health-adjacent (Art. 9)
+ }
+ 
+ 
+@@ -488,20 +490,130 @@
  _HANDLE_RE = re.compile(r"^@\w[\w.]{1,29}$")
  # A one-off signal this old is not a current interest, regardless of shape.
  _ANCIENT_YEARS = 15
@@ -432,8 +450,8 @@
 +    )\s*$""",
 +    re.VERBOSE,
 +)
-+
-+
+ 
+ 
 +def subject_is_identifier(subject: str) -> bool:
 +    """True when the subject IS an email address or telephone number.
 +
@@ -463,12 +481,12 @@
 +    if not any(ch.isalpha() for ch in s):
 +        return True
 +    return False
- 
- 
++
++
  # ---------------------------------------------------------------------------
  # Scoring layer (pure)
  # ---------------------------------------------------------------------------
- 
++
 +# A bookmark title is a HEADLINE PLUS A PUBLISHER, and the publisher is not
 +# part of what anyone is interested in. Measured on the rendered cards from a
 +# real box:
@@ -489,7 +507,7 @@
 +_PUBLISHER_TAIL_RE = re.compile(
 +    r"^(?P<head>.+?)\s*[|\u2013\u2014]\s*(?P<tail>[^|\u2013\u2014]{1,40})$"
 +)
-+
+ 
 +
 +def strip_publisher_tail(subject: str) -> str:
 +    """Remove a trailing ' | Publisher' from a saved-article title.
@@ -525,7 +543,7 @@
      s = re.sub(r"\s+", " ", s)
      return s
  
-@@ -920,7 +1031,46 @@
+@@ -920,7 +1032,46 @@
  
  def compile_profile(raws: list[dict], now: datetime | None = None,
                      corrections: dict | None = None,
@@ -573,7 +591,7 @@
                      contact_lexicon: frozenset = frozenset()) -> dict:
      """Full pipeline: raw rows -> grouped, ranked, corrected profile dict.
      ``contact_lexicon`` (see build_contact_lexicon) screens every subject
-@@ -940,8 +1090,16 @@
+@@ -940,8 +1091,16 @@
      domains: dict[str, list[dict]] = {}
      dislikes: list[dict] = []
      suppressed = 0
@@ -590,7 +608,7 @@
          if not corrected and it["confidence"] < min_confidence:
              suppressed += 1
              continue
-@@ -967,6 +1125,9 @@
+@@ -967,6 +1126,9 @@
              "interests": sum(len(b["interests"]) for b in domain_blocks),
              "dislikes": len(dislikes),
              "suppressed_low_confidence": suppressed,
@@ -600,7 +618,7 @@
              "domains": len(domain_blocks),
          },
          "domains": domain_blocks,
-@@ -977,16 +1138,77 @@
+@@ -977,16 +1139,77 @@
  # ---------------------------------------------------------------------------
  # I/O layer (read-only Oxigraph)
  # ---------------------------------------------------------------------------
@@ -682,7 +700,7 @@
      rows = list(csv.DictReader(io.StringIO(body)))
      return rows
  
-@@ -1012,7 +1234,8 @@
+@@ -1012,7 +1235,8 @@
      oxigraph_url = oxigraph_url or os.environ.get(
          "OSTLER_OXIGRAPH_URL", "http://localhost:7878")
      out: list[dict] = []
@@ -694,7 +712,7 @@
                  "subject": row.get("subject", ""),
 --- /dev/null
 +++ b/project_preferences.py
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,428 @@
 +"""Project preference facts from Qdrant into the RDF graph.
 +
 +WHY THIS EXISTS, measured on a live v1.0.98 box 2026-09-16:
@@ -889,6 +907,11 @@
 +        strength = pl.get("strength")
 +        source = pl.get("source")
 +        if not node_type or not subject or not category or strength is None or not source:
++            skipped += 1
++            continue
++        if str(category).strip().lower() in ("dietary", "diet"):  # dietary-guard
++            # Grocery diet signals are stored private (compartment 0) and are never
++            # projected: this graph feeds the Front Page and the brief.
 +            skipped += 1
 +            continue
 +        s = f"<{_iri(p)}>"
@@ -1156,6 +1179,168 @@
                   'still settling in.</p>')
      return (f'<style>{_CSS}</style>{_ICON_DEFS}'
              f'<div class="fp"><div id="bands">{bands}</div></div>'
+--- a/scout_external.py
++++ b/scout_external.py
+@@ -56,6 +56,7 @@
+ from datetime import datetime, timezone
+ 
+ from compiler import scouts as sc
++from compiler import sensitive_topics
+ from compiler.interest_profile import (MEDIA_CATEGORIES, names_person_or_org,
+                                        subject_names_known_contact)
+ from compiler.scouts import Scout
+@@ -176,6 +177,10 @@
+                 continue
+             if it.get("polarity") == "dislike":
+                 continue
++            # A GDPR Art. 9 topic never feeds a query (it would leave the
++            # machine) nor the scout card built from its results (row 2471).
++            if sensitive_topics.is_sensitive_topic(it.get("subject")):
++                continue
+             if (_interest_privacy(it) not in QUERYABLE_LEVELS
+                     and not (agreed and _consent_widens(it))):
+                 continue
+--- /dev/null
++++ b/sensitive_topics.py
+@@ -0,0 +1,138 @@
++"""The ONE list of GDPR Art. 9 special-category topics that must never become
++an interest or preference CARD (board row 2471).
++
++Every path in this package that turns a profile interest into a card, or into
++an outbound scout query whose results become a card, asks ``sensitive_class``
++of the subject. Add a term HERE, never a second list elsewhere:
++
++  * frontpage.is_cardable_interest  (interest, rotation and hunch cards)
++  * frontpage.sensitive_card_gate   (last gate over the assembled feed)
++  * scout_external.l1_interests     (scout topics, so a special-category
++                                      subject never leaves the machine nor
++                                      comes back as a scout card)
++
++The interest is NOT deleted from the profile; it is only never carded.
++
++Art. 9(1) classes, all eight required:
++  racial_ethnic_origin, political_opinions, religious_philosophical_beliefs,
++  trade_union_membership, genetic_data, biometric_data, health,
++  sex_life_orientation.
++
++Matching (stdlib only; the Front Page producer has no third-party deps):
++  * text is NFKC-normalised and case-folded; hyphens, dots, slashes,
++    underscores, apostrophes and '#' read as spaces;
++  * a term ending in ``*`` is a STEM: it matches at the START of a word
++    ("diabet*" matches "diabetes" and "diabetic", never mid-word);
++  * any other term matches as whole word(s), with an optional plural -s/-es
++    (so "tory" never matches "history");
++  * an ``EXCEPTIONS`` phrase is blanked out first, so "retail therapy" and
++    "diet coke" are not read as health.
++Word-start matching is deliberate: the previous substring list blocked
++"History", "Story", "Magazine" and "Archive" as political or health topics.
++"""
++
++from __future__ import annotations
++
++import re
++import unicodedata
++from typing import Dict, Optional, Tuple
++
++ART9_CLASSES: Dict[str, Tuple[str, ...]] = {
++    "racial_ethnic_origin": (
++        "ethnicity", "ethnic*", "racial*", "racism", "racist*", "race relations",
++        "black lives matter", "black history", "african american",
++        "afro caribbean", "south asian heritage", "indigenous", "first nations",
++        "aboriginal", "hispanic", "latino", "latina", "latinx", "romani",
++    ),
++    "political_opinions": (
++        "politic*", "election*", "memorial", "campaign*", "protest*", "maga",
++        "democrat*", "republican*", "conservative party", "labour party",
++        "tory", "tories", "brexit*", "socialis*", "communis*", "fascis*",
++        "libertarian*", "activis*", "left wing", "right wing", "far right",
++        "far left", "green party", "liberal democrats",
++    ),
++    "religious_philosophical_beliefs": (
++        "religio*", "church*", "mosque*", "synagogue*", "temple", "gurdwara*",
++        "islam*", "muslim*", "christian*", "catholic*", "protestant*",
++        "evangelical*", "jewish", "judaism", "kosher", "halal", "hindu*",
++        "buddhis*", "sikh*", "atheis*", "agnostic*", "humanist*", "bible*",
++        "quran", "koran", "prayer*", "ramadan", "worship*", "spiritual*",
++        "scientolog*", "faith",
++    ),
++    "trade_union_membership": (
++        "trade union*", "labour union*", "labor union*", "union member*",
++        "unionis*", "teamsters", "tuc", "collective bargaining", "picket line*",
++    ),
++    "genetic_data": (
++        "genetic*", "genome*", "genomic*", "dna test*", "dna kit*",
++        "ancestry dna", "23andme", "carrier status", "brca*", "gene therap*",
++    ),
++    "biometric_data": (
++        "biometric*", "fingerprint*", "face id", "facial recognition",
++        "iris scan*", "retina scan*", "retinal scan*", "voiceprint*",
++        "voice print*", "palm print*", "palm vein*",
++    ),
++    "health": (
++        "diabet*", "cancer*", "oncolog*", "chemo*", "tumour*", "tumor*", "hiv",
++        "aids", "depression", "depressed", "anxiety", "mental health",
++        "therap*", "rehab*", "addiction*", "ozempic", "wegovy", "mounjaro",
++        "pregnan*", "ivf", "fertility", "abortion*", "adhd", "autism",
++        "autistic", "bipolar", "ptsd", "eating disorder*", "anorexi*",
++        "bulimi*", "dialysis", "hospice*", "psychiatr*", "disabilit*",
++        "chronic illness", "medication*", "prescription*", "insulin",
++        "asthma*", "epilep*", "dementia", "alzheimer*", "parkinson*",
++        "multiple sclerosis", "crohn*", "coeliac", "celiac", "sober",
++        "sobriety", "alcoholics anonymous", "in recovery", "health condition*",
++    ),
++    "sex_life_orientation": (
++        "lgbt*", "gay", "gays", "lesbian*", "bisexual*", "transgender*",
++        "queer", "homosexual*", "non binary", "nonbinary", "gender identity",
++        "grindr", "pride parade", "pride march", "sexual*", "sex life",
++        "kink*", "fetish*", "bdsm", "polyamor*", "asexual*",
++    ),
++}
++
++# Common names that merely CONTAIN a term. Whole phrase, same normalisation.
++EXCEPTIONS: Tuple[str, ...] = (
++    "retail therapy", "diet coke", "great depression", "tropical depression",
++    "as roma",
++)
++
++REQUIRED_CLASSES = frozenset(ART9_CLASSES)
++
++
++def _norm(text) -> str:
++    t = unicodedata.normalize("NFKC", str(text or "")).casefold()
++    return re.sub(r"[\s\-_./'’#]+", " ", t).strip()
++
++
++def _compile(terms) -> "re.Pattern[str]":
++    alts = []
++    for raw in terms:
++        stem = raw.endswith("*")
++        w = _norm(raw[:-1] if stem else raw)
++        if not w:
++            raise ValueError("empty sensitive term")
++        alts.append(re.escape(w) + (r"\w*" if stem else r"(?:e?s)?(?!\w)"))
++    alts.sort(key=len, reverse=True)
++    return re.compile(r"(?<!\w)(?:%s)" % "|".join(alts))
++
++
++_RX = {cls: _compile(terms) for cls, terms in ART9_CLASSES.items()}
++_EXC = re.compile(r"(?<!\w)(?:%s)(?!\w)" % "|".join(
++    re.escape(_norm(e)) for e in sorted(EXCEPTIONS, key=len, reverse=True)))
++
++
++def sensitive_class(text) -> Optional[str]:
++    """The Art. 9 class ``text`` falls in, else None."""
++    low = _EXC.sub(" ", _norm(text))
++    if not low.strip():
++        return None
++    for cls, rx in _RX.items():
++        if rx.search(low):
++            return cls
++    return None
++
++
++def is_sensitive_topic(text) -> bool:
++    return sensitive_class(text) is not None
 --- a/signals.py
 +++ b/signals.py
 @@ -62,6 +62,19 @@

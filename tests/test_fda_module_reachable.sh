@@ -258,11 +258,15 @@ else
     bad "this repo is RED (rc=$rc) -- a module ships that can never run"
     printf '%s\n' "$out" | sed 's/^/      /'
 fi
-if grep -q "repair_placeholder_names" <<< "$out"; then
-    ok "the D658/D659 repair pass is on the record as dormant"
+# repair_placeholder_names, repair_role_address_people, subscription_gate and
+# first_import were DELETED from the payload 2026-11-15 (no caller existed). The
+# real repo must now name none of them and report zero dormant modules.
+if grep -q "repair_placeholder_names\|repair_role_address_people\|first_import\|subscription_gate" <<< "$out"; then
+    bad "a removed dormant module is still named by the gate"
 else
-    bad "repair_placeholder_names is not named -- the finding has gone quiet"
+    ok "the real repo names none of the four removed dormant modules"
 fi
+
 # THE LITERAL COUNT IS THE POINT. It is not a maintenance burden to be
 # engineered away by deriving it from the register: deriving it would make
 # this assertion agree with whatever the register says, and the whole reason
@@ -276,19 +280,14 @@ fi
 # HR015 Notion/Linear/GitHub entry points) so they all depend on ONE copy.
 # Bumped 4 -> 5 for first_import (2026-10-19): the free-first-export-import
 # rule, vendored with the gate before its first caller, same reason.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   5" <<< "$out"; then
-    ok "this repo reports 5 dormant modules, visible as five"
+# Dropped 5 -> 4 (2026-10-30, Archie): repair_overmerged_contact_cards DELETED.
+# Andy ratified the exact-identifier exception to RULE 2 that day, and that
+# module splits every 2-card node, so wired it would undo ratified merges.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   0" <<< "$out"; then
+    ok "this repo reports 0 dormant modules after the 2026-11-15 removals"
 else
-    bad "the five dormant modules were absorbed into another count"
+    bad "the real repo reports a dormant count other than 0 after the removals"
 fi
-# The whole point of the row is that the next person to ship the household
-# split finds it. If that string ever drops out, the handoff is gone.
-if grep -q "household-split.done" <<< "$out"; then
-    ok "the blocker names the marker path, so the handoff survives"
-else
-    bad "the register no longer names the concrete blocker"
-fi
-
 echo ""
 if [ "$fail" -eq 0 ]; then
     printf '\033[0;32mGREEN -- %d assertion(s); a shipped module with no caller is RED\033[0m\n' "$pass"

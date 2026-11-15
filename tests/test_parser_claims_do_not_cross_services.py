@@ -492,6 +492,7 @@ def build_fixtures(root: Path) -> dict:
     f["CSVParser"] = write_file(
         root, "my_preferences.csv",
         "subject,type,strength\nSynthetic Topic,Like,high\n")
+    f["FoodEvidenceParser"] = write_file(root, "calendar_events.json", "[]")
 
     return f
 
@@ -575,6 +576,7 @@ POSITIVE_CONTROLS = [
     ("MetaParser", "instagram_zip", "an Instagram export ZIP"),
     ("MetaParser", "facebook_zip_unbranded", "an unbranded Facebook export ZIP"),
     ("CSVParser", "CSVParser", "a generic preference CSV"),
+    ("FoodEvidenceParser", "FoodEvidenceParser", "an FDA calendar_events.json extract"),
 ]
 
 

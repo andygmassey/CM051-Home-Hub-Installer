@@ -13,6 +13,8 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py'
+      - 'vendor/cm041/assistant_api/tests/test_employer_org_nonlatin.py'
       - 'tests/test_facebook_export_imports_once.py'
       - 'tests/test_merged_people_are_not_recreated.py'
       - 'vendor/cm021/src/cli.py'
@@ -26,6 +28,8 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py'
+      - 'vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py'
+      - 'vendor/cm041/assistant_api/tests/test_employer_org_nonlatin.py'
       - 'tests/test_facebook_export_imports_once.py'
       - 'tests/test_merged_people_are_not_recreated.py'
       - 'vendor/cm021/src/cli.py'
@@ -46,7 +50,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: Every syncer and ingest leaves a forgotten person absent
         run: |
           set -eu
@@ -74,7 +78,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml beautifulsoup4
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml beautifulsoup4
       - name: A merged person is never re-created by the next ingest
         run: |
           set -eu
@@ -98,7 +102,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: "F6: one Facebook export is imported once and re-imports keep their node"
         run: |
           set -eu
@@ -121,7 +125,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+        run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: Forget says done only when the person is gone from both stores
         run: |
           set -eu
@@ -129,3 +133,11 @@ jobs:
           echo "collected ${n} test(s)"
           [ "${n:-0}" -ge 15 ] || { echo "REFUSING: expected at least 15 tests, got ${n:-0}" >&2; exit 1; }
           python -m pytest vendor/cm041/assistant_api/tests/test_forget_reports_only_what_it_erased.py -v
+          # Wrong-person forget (2026-11-14): a shared slug is a 409 and erases
+          # nobody; forget by person_uri erases exactly that person.
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 18 ] || { echo "REFUSING: expected at least 18 tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py -v
+          # CM041 #249 (2026-11-14, batch B): Unicode-aware org key, unknown org never equal.
+          python -m pytest vendor/cm041/assistant_api/tests/test_employer_org_nonlatin.py -q

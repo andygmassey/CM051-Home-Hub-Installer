@@ -50,7 +50,7 @@ arm "the apply sits inside the READ_ONLY gate" "$g" "nearest gate: $gate"
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkbox() { # $1 = importer rc, $2 = 1 if refresh rewrites the digest, $3 = 1 if the importer writes the fact, $4 = profile: 1 recompiled (file pre-exists), 2 recompiled (file absent before), 0 never
-    local h="$T/box-$1-$2-${3:-1}-${4:-1}"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
+    local h; h="$(mktemp -d "$T/box-$1-$2-${3:-1}-${4:-1}.XXXXXX")"; mkdir -p "$h/.ostler/bin" "$h/.ostler/assistant-config/workspace" "$h/stub"
     echo 0 > "$h/facts"
     # The importer stub prints a marker line to its log, and writes the fact
     # (the count the stub Oxigraph reports) only when told to.
@@ -121,6 +121,43 @@ out4=$( ( export HOME="$H4" PATH="$H4/stub:$PATH" OSTLER_OES_CURL="$H4/stub/oes-
           . "$LIB"; _oes_box() { bash -c "$1"; }; owner_employer_seed_apply 2>&1 ) )
 arm "the importer's own log tail reaches the walk log" "$(b grep -q 'OES log | IMPORTER-LOG-MARKER rc=2' <<< "$out4")" "$out4"
 arm "the count is printed before and after the import" "$(b grep -q 'OES count before=0' <<< "$out4")" "$out4"
+
+echo "4. the profile wait is a budget, polled, never a pass on expiry (v1.0.125: 120 s hardcoded)"
+# The editor-frontpage stub writes nothing; the sleep stub counts its calls and,
+# when told, writes the profile on call N or holds the tick lock for calls A..B.
+slowbox() { # $1 = sleep call that writes the profile (0 = never)  $2 = first call holding the lock  $3 = last
+    local h; h=$(mkbox 0 1 1 0)
+    printf '#!/bin/sh
+n=$(( $(cat "%s/sleeps" 2>/dev/null || echo 0) + 1 )); echo $n > "%s/sleeps"
+[ "%s" != 0 ] && [ $n -eq %s ] && echo "{}" > "%s/.ostler/preferences/interest_profile.json"
+if [ $n -ge %s ] && [ $n -le %s ]; then mkdir -p "%s/.ostler/.editor-frontpage.lock"; else rmdir "%s/.ostler/.editor-frontpage.lock" 2>/dev/null; fi
+exit 0
+' \
+        "$h" "$h" "$1" "$1" "$h" "$2" "$3" "$h" "$h" > "$h/stub/sleep"
+    chmod +x "$h/stub/sleep"; echo "$h"
+}
+run_seed_out() { # $1 = box home, rest = env assignments; prints the seed output then STATE=<state>
+    local h="$1"; shift
+    ( export HOME="$h" PATH="$h/stub:$PATH" OSTLER_OES_CURL="$h/stub/oes-curl" OSTLER_OES_PY="$(command -v python3)"; unset OSTLER_BOX_HOST
+      for kv in "$@"; do export "$kv"; done
+      . "$LIB"; _oes_box() { bash -c "$1"; }
+      owner_employer_seed_apply 2>&1; echo "STATE=$OSTLER_OWNER_SEED_STATE" )
+}
+# 30 polls x 5 s = 150 s: the profile lands AFTER the old fixed 120 s. MUST-FAIL on the old code.
+H=$(slowbox 30 0 0); o=$(run_seed_out "$H")
+arm "a profile that lands at 150 s (past the old 120 s) inside the default budget reads seeded" "$(b grep -q '^STATE=seeded$' <<< "$o")" "$o"
+arm "the wait it took is printed" "$(b grep -q 'OES profile recompiled after 1[45][05]s' <<< "$o")" "$o"
+H=$(slowbox 30 0 0); o=$(run_seed_out "$H" OSTLER_OWNER_SEED_PROFILE_WAIT_S=60)
+arm "MUST-FAIL: the budget (60 s) expires before the profile lands: failed, never seeded" "$(b grep -q '^STATE=failed$' <<< "$o")" "$o"
+arm "the expiry names the waited time and the knob" "$(b grep -q 'NOT recompiled within the 60s budget (OSTLER_OWNER_SEED_PROFILE_WAIT_S=60' <<< "$o")" "$o"
+arm "and the poll stopped at the budget: exactly 12 polls of 5 s" "$(b [ "$(cat "$H/sleeps")" = 12 ])" "sleeps=$(cat "$H/sleeps")"
+# The tick takes its lock on poll 2, releases it on poll 6 and never wrote the profile.
+H=$(slowbox 0 2 5); o=$(run_seed_out "$H")
+arm "MUST-FAIL: tick lock seen then released with no rewrite reads failed" "$(b grep -q '^STATE=failed$' <<< "$o")" "$o"
+arm "and it stops early as a compile fault, not at the budget" "$(b grep -q 'OES profile tick FINISHED after' <<< "$o")" "$o"
+arm "within 10 polls of the release, not 180" "$(b [ "$(cat "$H/sleeps")" -le 10 ])" "sleeps=$(cat "$H/sleeps")"
+o=$(run_seed_out "$(mkbox 0 1)" OSTLER_OWNER_SEED_PROFILE_WAIT_S=ten)
+arm "MUST-FAIL: a non-numeric budget is refused and reads failed" "$(b grep -q '^STATE=failed$' <<< "$o")" "$o"
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

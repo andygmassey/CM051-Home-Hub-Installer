@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     PRODUCT_BUNDLE_IDENTIFIER: ai.ostler.installer
     PRODUCT_NAME: OstlerInstaller
-    CURRENT_PROJECT_VERSION: "11200"
-    MARKETING_VERSION: "1.0.112"
+    CURRENT_PROJECT_VERSION: "12800"
+    MARKETING_VERSION: "1.0.128"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_INJECT_BASE_ENTITLEMENTS: YES
     OTHER_CODE_SIGN_FLAGS: "--timestamp"
@@ -48,8 +48,8 @@ targets:
         CFBundleName: OstlerInstaller
         CFBundleDisplayName: Ostler Installer
         CFBundleIdentifier: ai.ostler.installer
-        CFBundleShortVersionString: "1.0.112"
-        CFBundleVersion: "11200"
+        CFBundleShortVersionString: "1.0.128"
+        CFBundleVersion: "12800"
         CFBundlePackageType: APPL
         CFBundleExecutable: $(EXECUTABLE_NAME)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
@@ -62,7 +62,7 @@ targets:
         NSContactsUsageDescription: "Ostler reads your contacts to pre-fill names and addresses during install, and to recognise who you talk to most. Contacts never leave this Mac."
         NSDesktopFolderUsageDescription: "Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac."
         NSDownloadsFolderUsageDescription: "Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac."
-        NSDocumentsFolderUsageDescription: "Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac."
+        NSDocumentsFolderUsageDescription: "Ostler looks in your Documents folder for data exports you have saved there, such as a Google Takeout or LinkedIn export. Files stay on this Mac."
         NSPhotoLibraryUsageDescription: "Ostler reads photo metadata (date, location, captions) so the Hub can tie memories to people, places, and events on the wiki. Photos themselves stay on this Mac."
         NSRemindersFullAccessUsageDescription: "Ostler reads and writes reminders so the Hub can push to-dos from emails, meetings, and chats into Apple Reminders. Reminders stay on this Mac and your iCloud account."
         ATSApplicationFontsPath: Fonts
@@ -250,6 +250,12 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # ostler-vm-size.sh (v1.0.126): install.sh sources it from
+          # ${SCRIPT_DIR}/lib/ostler-vm-size.sh to size the colima VM from host
+          # RAM. Missing = the old fixed 4 GiB VM, which OOM-killed the wiki
+          # compile on the 125 walk.
+          cp "${SRCROOT}/../lib/ostler-vm-size.sh"               "${DEST}/lib/ostler-vm-size.sh"
+          chmod 755 "${DEST}/lib/ostler-vm-size.sh"
           # settling_progress.sh: install.sh sources it from
           # ${SCRIPT_DIR}/lib/settling_progress.sh to report the `contacts` and
           # `emails` channels on the wiki's settling panel. Those two producers
@@ -259,6 +265,12 @@ targets:
           # falls back to a silent no-op and both channels ship permanently
           # blank, which looks identical to a feature nobody built.
           cp "${SRCROOT}/../lib/settling_progress.sh"            "${DEST}/lib/settling_progress.sh"
+          # settling_channels.json: the fixed channel set the Setting-up bar
+          # divides by. install.sh copies ${SCRIPT_DIR}/lib/settling_channels.json
+          # to ~/.ostler/state/; CM044 reads it from there. Missing = the bar
+          # falls back to whichever shards exist, so it can read 100 early.
+          cp "${SRCROOT}/../lib/settling_channels.json"          "${DEST}/lib/settling_channels.json"
+          chmod 644 "${DEST}/lib/settling_channels.json"
           # ostler-container-engine.sh + ostler-engine-supervisor.sh: the
           # periodic container-engine liveness check and its recovery path.
           # install.sh stages both into ~/.ostler and schedules
@@ -273,6 +285,15 @@ targets:
           cp "${SRCROOT}/../lib/ostler-container-engine.sh"      "${DEST}/lib/ostler-container-engine.sh"
           cp "${SRCROOT}/../bin/ostler-engine-supervisor.sh"     "${DEST}/bin/ostler-engine-supervisor.sh"
           chmod 755 "${DEST}/lib/ostler-container-engine.sh" "${DEST}/bin/ostler-engine-supervisor.sh"
+          # ostler-conversations-mirror.sh: sourced by bin/ostler-fda each tick so the
+          # derive tick reads a copy, not ~/Documents. Missing = no mirror = derive sees no
+          # conversations.
+          cp "${SRCROOT}/../lib/ostler-conversations-mirror.sh"  "${DEST}/lib/ostler-conversations-mirror.sh"
+          chmod 755 "${DEST}/lib/ostler-conversations-mirror.sh"
+          # ostler-loopback-guard.sh: the admin shell (AuthorizationHelper.swift) runs
+          # its install-root from HERE, and install.sh FAILS CLOSED without it.
+          cp "${SRCROOT}/../lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"
+          chmod 755 "${DEST}/lib/ostler-loopback-guard.sh"
           # End-of-install confirmation helpers (whose calendars + who you
           # are): install.sh's confirmation block probes
           # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
@@ -290,7 +311,32 @@ targets:
           # warns and no older history is ever read on a .app install.
           cp "${SRCROOT}/../lib/ostler_catchup.py"               "${DEST}/lib/ostler_catchup.py"
           chmod 644 "${DEST}/lib/ostler_catchup.py"
+          # Records the language and reviewed-translation ids a consent screen
+          # was shown with (install.sh _consent_cli_record). Missing here = every
+          # .app install logs "display-language record failed" per consent.
+          cp "${SRCROOT}/../lib/ostler_consent_display.py"       "${DEST}/lib/ostler_consent_display.py"
+          chmod 644 "${DEST}/lib/ostler_consent_display.py"
           cp "${SRCROOT}/../install.sh.strings.en-GB.sh"         "${DEST}/install.sh.strings.en-GB.sh"
+          # Translated install.sh catalogues, one per language InstallerLanguage
+          # ships (en-US de fr es it nl pt-BR pt-PT ja ko zh-Hans zh-Hant zh-HK ar). OSTLER_LANG picks
+          # one at run time; a missing file falls back to en-GB. One explicit cp
+          # per file, so tests/test_bundle_phase_declares_every_copy.sh can
+          # match each against its inputFiles/outputFiles entry.
+          cp "${SRCROOT}/../install.sh.strings.de.sh" "${DEST}/install.sh.strings.de.sh"
+          cp "${SRCROOT}/../install.sh.strings.fr.sh" "${DEST}/install.sh.strings.fr.sh"
+          cp "${SRCROOT}/../install.sh.strings.es.sh" "${DEST}/install.sh.strings.es.sh"
+          cp "${SRCROOT}/../install.sh.strings.it.sh" "${DEST}/install.sh.strings.it.sh"
+          cp "${SRCROOT}/../install.sh.strings.nl.sh" "${DEST}/install.sh.strings.nl.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-BR.sh"
+          cp "${SRCROOT}/../install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.pt-PT.sh"
+          cp "${SRCROOT}/../install.sh.strings.en-US.sh" "${DEST}/install.sh.strings.en-US.sh"
+          cp "${SRCROOT}/../install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ja.sh"
+          cp "${SRCROOT}/../install.sh.strings.ko.sh" "${DEST}/install.sh.strings.ko.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-Hans.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.zh-HK.sh"
+          cp "${SRCROOT}/../install.sh.strings.ar.sh" "${DEST}/install.sh.strings.ar.sh"
+          cp "${SRCROOT}/../install.sh.strings.zh-Hant.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
+          chmod 644 "${DEST}/install.sh.strings.de.sh" "${DEST}/install.sh.strings.fr.sh" "${DEST}/install.sh.strings.es.sh" "${DEST}/install.sh.strings.it.sh" "${DEST}/install.sh.strings.nl.sh" "${DEST}/install.sh.strings.pt-BR.sh" "${DEST}/install.sh.strings.pt-PT.sh" "${DEST}/install.sh.strings.en-US.sh" "${DEST}/install.sh.strings.ja.sh" "${DEST}/install.sh.strings.ko.sh" "${DEST}/install.sh.strings.zh-Hans.sh" "${DEST}/install.sh.strings.zh-HK.sh" "${DEST}/install.sh.strings.ar.sh" "${DEST}/install.sh.strings.zh-Hant.sh"
           chmod 755 "${DEST}/install.sh" "${DEST}/lib/progress_emitter.sh" "${DEST}/lib/ostler-model-fit.sh" "${DEST}/lib/settling_progress.sh"
           chmod 644 "${DEST}/install.sh.strings.en-GB.sh" "${DEST}/lib/write_pipeline_signals.py"
           # Second chmod rather than a continuation of the line above, purely so
@@ -377,26 +423,64 @@ targets:
           - $(SRCROOT)/../lib/ostler_store_auth.py
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
+          - $(SRCROOT)/../lib/settling_channels.json
           - $(SRCROOT)/../lib/ostler-container-engine.sh
+          - $(SRCROOT)/../lib/ostler-conversations-mirror.sh
+          - $(SRCROOT)/../lib/ostler-loopback-guard.sh
           - $(SRCROOT)/../bin/ostler-engine-supervisor.sh
           - $(SRCROOT)/../lib/ostler-confirm-calendars.py
           - $(SRCROOT)/../lib/ostler-confirm-identity.py
           - $(SRCROOT)/../lib/ostler_catchup.py
+          - $(SRCROOT)/../lib/ostler_consent_display.py
           - $(SRCROOT)/../install.sh.strings.en-GB.sh
+          - $(SRCROOT)/../install.sh.strings.de.sh
+          - $(SRCROOT)/../install.sh.strings.fr.sh
+          - $(SRCROOT)/../install.sh.strings.es.sh
+          - $(SRCROOT)/../install.sh.strings.it.sh
+          - $(SRCROOT)/../install.sh.strings.nl.sh
+          - $(SRCROOT)/../install.sh.strings.pt-BR.sh
+          - $(SRCROOT)/../install.sh.strings.pt-PT.sh
+          - $(SRCROOT)/../install.sh.strings.en-US.sh
+          - $(SRCROOT)/../install.sh.strings.ja.sh
+          - $(SRCROOT)/../install.sh.strings.ko.sh
+          - $(SRCROOT)/../install.sh.strings.zh-Hans.sh
+          - $(SRCROOT)/../install.sh.strings.zh-HK.sh
+          - $(SRCROOT)/../install.sh.strings.ar.sh
+          - $(SRCROOT)/../install.sh.strings.zh-Hant.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/progress_emitter.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_store_auth.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_channels.json
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-container-engine.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-conversations-mirror.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-loopback-guard.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ostler-engine-supervisor.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-calendars.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-confirm-identity.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_catchup.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_consent_display.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-GB.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.de.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.fr.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.es.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.it.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.nl.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-BR.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.pt-PT.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.en-US.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ja.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ko.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-Hans.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-HK.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.ar.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/install.sh.strings.zh-Hant.sh
       - name: Compile + bundle ostler-mecard helper into Resources
         # BW2-1 (box-walk recut #2, 2026-07-25): a signed native helper that
         # reads the macOS "My Card" via AddressBook (-[ABAddressBook me]) and
@@ -526,6 +610,10 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
           mkdir -p "${DEST}/ostler_fda"
           cp -R "${VENDOR_SRC}/." "${DEST}/ostler_fda/"
+          # NEW-119: test suites are not product. vendor/ostler_fda/tests/
+          # imports pytest, which no customer venv has, and the install-time
+          # runtime-ready scan reported it as a missing runtime dependency.
+          find "${DEST}/ostler_fda" -type d -name tests -prune -exec rm -rf {} +
           /usr/bin/xattr -cr "${DEST}/ostler_fda"
         inputFiles:
           - $(SRCROOT)/../vendor/ostler_fda
@@ -841,7 +929,7 @@ targets:
           # CM052 package, pip-installs it NON-editable into a dedicated
           # venv under ${OSTLER_DIR}/services/cm052/, and runs the
           # pwg-ai-convo producer to drain external-LLM chat history into
-          # ~/Documents/Ostler/AI Conversations/ (the CM044 AI Chats wing).
+          # ~/Ostler/AI Conversations/ (the CM044 AI Chats wing).
           #
           # The whole leg is gated behind OSTLER_AI_CONVERSATIONS_ENABLED
           # (OFF for v1.0.x -- the section ships dark), but the package is
@@ -1199,6 +1287,50 @@ targets:
           - $(SRCROOT)/../context-refresh/INSTALL_SNIPPET.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/context-refresh/INSTALL_SNIPPET.sh
+      - name: Bundle uninstaller helpers (stop orphaned background ticks)
+        script: |
+          set -euo pipefail
+          # install.sh copies ${SCRIPT_DIR}/uninstall/stop_orphan_ticks.sh to
+          # ~/.ostler/bin/ostler-stop-background; the generated ostler-uninstall
+          # calls it to stop tick scripts that no launchctl bootout can reach.
+          # Source-of-truth: CM051 repo root /uninstall/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../uninstall"
+          if [ ! -f "${SRC}/stop_orphan_ticks.sh" ]; then
+            echo "ERROR: uninstall/stop_orphan_ticks.sh not found at ${SRC}" >&2
+            exit 1
+          fi
+          echo "Bundling uninstaller helpers from ${SRC} into Resources/uninstall/"
+          mkdir -p "${DEST}/uninstall"
+          cp -R "${SRC}/"* "${DEST}/uninstall/"
+          /usr/bin/xattr -cr "${DEST}/uninstall" || true
+          chmod 755 "${DEST}/uninstall/stop_orphan_ticks.sh"
+        inputFiles:
+          - $(SRCROOT)/../uninstall/stop_orphan_ticks.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/uninstall/stop_orphan_ticks.sh
+      - name: Bundle care rules (AGENTS.md template + offline helplines)
+        script: |
+          set -euo pipefail
+          # install.sh runs ${SCRIPT_DIR}/care/write_agents_md.sh to write the
+          # care rules and the customer's local helpline into the daemon
+          # workspace before the daemon starts. Source-of-truth: CM051 repo
+          # root /care/.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          SRC="${SRCROOT}/../care"
+          if [ ! -f "${SRC}/write_agents_md.sh" ] || [ ! -f "${SRC}/AGENTS_CARE.md.tmpl" ] || [ ! -f "${SRC}/helplines.tsv" ]; then
+            echo "ERROR: care/ incomplete at ${SRC} (need write_agents_md.sh, AGENTS_CARE.md.tmpl, helplines.tsv)" >&2
+            exit 1
+          fi
+          echo "Bundling care rules from ${SRC} into Resources/care/"
+          mkdir -p "${DEST}/care"
+          cp -R "${SRC}/"* "${DEST}/care/"
+          /usr/bin/xattr -cr "${DEST}/care" || true
+          chmod 755 "${DEST}/care/write_agents_md.sh"
+        inputFiles:
+          - $(SRCROOT)/../care/write_agents_md.sh
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/care/write_agents_md.sh
       - name: Bundle legal Python package (consent-string constants)
         script: |
           set -euo pipefail
@@ -1355,15 +1487,30 @@ targets:
           echo "Bundling scripts/repair_netflix_rating_polarity.py into Resources/scripts/"
           cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"
           chmod 644 "${DEST}/scripts/repair_netflix_rating_polarity.py"
+          #
+          # RemoteCapture transcription toggle. install.sh installs
+          # ${SCRIPT_DIR}/scripts/remotecapture_transcription.sh into
+          # ${OSTLER_DIR}/bin so Hub Settings can enable or disable spoken
+          # capture later without a reinstall. Bundled here like the scripts above.
+          SRC_RCT="${SRCROOT}/../scripts/remotecapture_transcription.sh"
+          if [ ! -f "${SRC_RCT}" ]; then
+            echo "ERROR: scripts/remotecapture_transcription.sh not found at ${SRC_RCT}" >&2
+            exit 1
+          fi
+          echo "Bundling scripts/remotecapture_transcription.sh into Resources/scripts/"
+          cp "${SRC_RCT}" "${DEST}/scripts/remotecapture_transcription.sh"
+          chmod 755 "${DEST}/scripts/remotecapture_transcription.sh"
           /usr/bin/xattr -cr "${DEST}/scripts" || true
         inputFiles:
           - $(SRCROOT)/../scripts/deferred-register-device.sh
           - $(SRCROOT)/../scripts/migrate_graph_namespace.py
           - $(SRCROOT)/../scripts/repair_netflix_rating_polarity.py
+          - $(SRCROOT)/../scripts/remotecapture_transcription.sh
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/deferred-register-device.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/migrate_graph_namespace.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/repair_netflix_rating_polarity.py
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/scripts/remotecapture_transcription.sh
       - name: Strip xattrs from .app bundle (pre-CodeSign hygiene)
         script: |
           set -euo pipefail
@@ -1421,6 +1568,18 @@ targets:
       - path: Uninstaller
       - path: OstlerInstaller/ProgressProtocol.swift
       - path: OstlerInstaller/OutputLineBuffer.swift
+      # Customer copy in the Mac's language (L10N audit 2026-11-04): the
+      # installer's own catalogue loader, language resolver and ViewCopy*.json,
+      # so this app says what the installer says, in the same words.
+      - path: OstlerInstaller/Steps/ViewCopy.swift
+      - path: OstlerInstaller/Steps/InstallerLanguage.swift
+      - path: OstlerInstaller/Resources
+        includes: ["ViewCopy*.json"]
+        buildPhase: resources
+      # The Ostler brand mark, the installer's own AppIcon set, so Finder shows
+      # it in /Applications/Ostler (118 U4: it shipped with the blank icon).
+      # Guarded by scripts/verify_payload_app_icons.py on the staged DMG.
+      - path: OstlerInstaller/Assets.xcassets
     # NO `info:` BLOCK, deliberately, for the reason the Recover Ostler target
     # below records: a second CFBundleShortVersionString key in this file is
     # the ambiguity the installer-version-consistency gate fails on. The plist
@@ -1470,6 +1629,14 @@ targets:
     sources:
       - path: Recovery
       - path: OstlerInstaller/Theme/OstlerTheme.swift
+      # Customer copy in the Mac's language, as for the Uninstaller above.
+      - path: OstlerInstaller/Steps/ViewCopy.swift
+      - path: OstlerInstaller/Steps/InstallerLanguage.swift
+      - path: OstlerInstaller/Resources
+        includes: ["ViewCopy*.json"]
+        buildPhase: resources
+      # The Ostler brand mark (118 U4), same set and guard as the Uninstaller.
+      - path: OstlerInstaller/Assets.xcassets
     # NO `info:` BLOCK, AND THAT IS DELIBERATE. An `info:` block makes
     # xcodegen GENERATE the plist from properties listed here, which would
     # put a second `CFBundleShortVersionString:` key into project.yml. The

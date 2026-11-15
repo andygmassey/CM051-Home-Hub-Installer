@@ -118,7 +118,43 @@ held=0
 ackd=0
 checked=0
 
-echo "vendor-freshness gate -- manifest: $VLIB_MANIFEST"
+# VENDOR_FRESH_SCOPE=<name prefix>, e.g. "cm041/": examine ONLY the trees whose
+# name starts with it, strictly. Added for the CUT (rows 2206/2212, v1.0.124):
+# the cut runner can check out CM041 and nothing else, so the full-manifest run
+# there can only ever be RED-unverifiable or DEGRADED. A scoped run is a real,
+# strict verdict on the trees it names and says out loud, in its first line and
+# in its verdict, how many it did NOT examine. It is never quoted as a
+# whole-manifest GREEN, because every verdict line below carries the scope.
+SCOPE="${VENDOR_FRESH_SCOPE:-}"
+SCOPE_TAG=""
+if [ -n "$SCOPE" ]; then
+    _full_manifest="$VLIB_MANIFEST"
+    _scoped="$(mktemp)"
+    awk -v pfx="$SCOPE" '
+        function flush() { if (buf != "" && keep) printf "%s", buf; buf=""; keep=0 }
+        /^[[:space:]]*\[\[tree\]\][[:space:]]*$/ { flush(); intree=1; buf=$0 "\n"; next }
+        intree {
+            buf = buf $0 "\n"
+            if ($0 ~ /^[[:space:]]*name[[:space:]]*=/) {
+                n=$0; sub(/^[^=]*=[[:space:]]*"/, "", n); sub(/".*$/, "", n)
+                if (index(n, pfx) == 1) keep=1
+            }
+        }
+        END { flush() }
+    ' "$_full_manifest" > "$_scoped"
+    _in_scope="$(grep -cE '^[[:space:]]*\[\[tree\]\][[:space:]]*$' "$_scoped" || true)"
+    _all="$(grep -cE '^[[:space:]]*\[\[tree\]\][[:space:]]*$' "$_full_manifest" || true)"
+    if [ "${_in_scope:-0}" = "0" ]; then
+        echo "GATE: CANNOT-RUN -- VENDOR_FRESH_SCOPE='$SCOPE' matches 0 of ${_all:-0} tree(s). A scope that names nothing examines nothing." >&2
+        rm -f "$_scoped"
+        exit 2
+    fi
+    VLIB_MANIFEST="$_scoped"
+    SCOPE_TAG=" [SCOPED to '$SCOPE': ${_in_scope} of ${_all} tree(s); the other $((_all - _in_scope)) NOT EXAMINED by this run]"
+    trap 'rm -f "$_scoped"' EXIT
+fi
+
+echo "vendor-freshness gate -- manifest: ${_full_manifest:-$VLIB_MANIFEST}${SCOPE_TAG}"
 echo
 
 # Which ref does the advance arm compare the pin against?
@@ -278,6 +314,15 @@ while IFS= read -r tree; do
     if [ "$rc" = "2" ] || [ "$rc" = "3" ]; then
         # Source not available / sha absent -> warning, not a silent pass.
         report_unverifiable "$tree" "could not verify (see above)"
+        rm -rf "$tmp"
+        continue
+    fi
+    if [ "$rc" != "0" ]; then
+        # rc 5: a declared source_mask is malformed or stale. A content verdict
+        # was NOT reached, and that is a defect in the manifest, not an
+        # unverifiable source: RED, naming the tree.
+        echo "FAIL  $tree -- source materialise failed (rc=$rc, see above)" >&2
+        fail=$((fail + 1))
         rm -rf "$tmp"
         continue
     fi
@@ -518,12 +563,12 @@ if [ "$checked" -ne "$_declared_blocks" ]; then
 fi
 
 if [ "$fail" -gt 0 ]; then
-    echo "GATE: RED -- $fail tree(s) are stale or have drifted from source." >&2
+    echo "GATE: RED -- $fail tree(s) are stale or have drifted from source.${SCOPE_TAG}" >&2
     exit 1
 fi
 
 if [ "$warn" -gt 0 ] && [ "$STRICT" = "1" ]; then
-    echo "GATE: RED -- $warn tree(s) could NOT BE VERIFIED." >&2
+    echo "GATE: RED -- $warn tree(s) could NOT BE VERIFIED.${SCOPE_TAG}" >&2
     echo "      Not verified is not the same as verified fresh. This gate guards" >&2
     echo "      what ships; an unverifiable vendored tree is exactly the state it" >&2
     echo "      exists to refuse." >&2
@@ -536,7 +581,7 @@ if [ "$warn" -gt 0 ]; then
     # Reached only when a caller has explicitly opted out. Do NOT print GREEN.
     # The previous wording was "GATE: GREEN with N warning(s)", which is the
     # whole defect in one line: the reader takes the first word and moves on.
-    echo "GATE: DEGRADED -- $warn tree(s) NOT VERIFIED (VENDOR_FRESH_STRICT=0 was set explicitly)."
+    echo "GATE: DEGRADED -- $warn tree(s) NOT VERIFIED (VENDOR_FRESH_STRICT=0 was set explicitly).${SCOPE_TAG}"
     echo "      $ok tree(s) were checked and are fresh. The other $warn were not checked at all."
     echo "      This is not a pass for those trees. The cut must run with all source"
     echo "      repos present and the default strictness."
@@ -548,11 +593,13 @@ elif [ "$ackd" -gt 0 ]; then
     # checked; the only thing that changed is that we now know which trees, why,
     # and whose job it is. Say the number out loud in the verdict as well as the
     # denominator, because the verdict is the line people quote.
-    echo "GATE: GREEN WITH $ackd ACKNOWLEDGED-UNVERIFIABLE TREE(S) -- $ok tree(s) verified fresh."
+    echo "GATE: GREEN WITH $ackd ACKNOWLEDGED-UNVERIFIABLE TREE(S) -- $ok tree(s) verified fresh.${SCOPE_TAG}"
     echo "      Those $ackd were NOT checked against their source. Each is declared in"
     echo "      vendor/VENDOR_MANIFEST.toml with a measured reason and a named owner, which"
     echo "      makes the gap auditable. It does not make it verified, and it is not a pass"
     echo "      for those trees. Retire them; do not inherit them."
+elif [ -n "$SCOPE" ]; then
+    echo "GATE: GREEN FOR SCOPE '$SCOPE' ONLY -- every tree in scope matches its pinned source.${SCOPE_TAG}"
 else
     echo "GATE: GREEN -- every vendored tree matches its pinned source."
 fi

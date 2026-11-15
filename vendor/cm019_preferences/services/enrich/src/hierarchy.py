@@ -9,6 +9,7 @@ This transforms isolated topic strings into a connected knowledge graph.
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Set
@@ -16,7 +17,12 @@ from typing import List, Optional, Set
 import httpx
 
 from .config import settings
+from .consent import public_lookup_allowed
 from .clients.wikidata import WikidataClient, WikidataEntity, BroaderConceptsResult
+from .derive.sensitive import derived_value_is_sensitive, is_sensitive
+from .derive.thematic import THEME_DIMENSION, bridge_query, leaf_is_sensitive
+
+_QID_RX = re.compile(r"^Q[1-9][0-9]*$")
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +190,12 @@ class TopicHierarchyService:
             HierarchyStorageResult with storage details
         """
         result = HierarchyStorageResult(qid=qid, label="")
+
+        # Fail closed: get_entity and get_broader_concepts send the QID (which
+        # names the owner's topic) to wikidata.org. No consent, no request.
+        if not public_lookup_allowed():
+            result.error = "no_consent"
+            return result
 
         # Validate Q-ID format
         if not qid or not qid.startswith("Q"):
@@ -622,27 +634,22 @@ class TopicHierarchyService:
             prefs = await service.find_preferences_by_broader_concept("Q34749")
             # Returns: psychology books, economics podcasts, sociology videos, etc.
         """
-        # This query joins the hierarchy graph with the main preferences graph
-        sparql = f"""
-        PREFIX wd: <http://www.wikidata.org/entity/>
-        PREFIX pwg: <https://schema.ostler.ai/enrichment/ontology#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-        SELECT DISTINCT ?pref ?name ?category ?platform ?topic ?topicLabel WHERE {{
-            # Find topics that have the target as a broader concept
-            GRAPH <{self.HIERARCHY_GRAPH}> {{
-                ?topic pwg:broaderConcept wd:{qid} .
-                OPTIONAL {{ ?topic rdfs:label ?topicLabel . }}
-            }}
-
-            # Find preferences linked to those topics
-            ?pref pwg:hasWikidataTopic ?topic .
-            ?pref pwg:name ?name .
-            OPTIONAL {{ ?pref pwg:category ?category . }}
-            OPTIONAL {{ ?pref pwg:platform ?platform . }}
-        }}
-        LIMIT {limit}
-        """
+        # The join the stores actually hold (derive/thematic.py bridge_query):
+        # pref -enr:hasTopic-> topic -enr:wikidataId-> "Qxxx" (a STRING), bridged
+        # to the wd: IRI at query time, then broaderConcept in the hierarchy
+        # graph. The old template joined ?pref pwg:hasWikidataTopic ?topic, a
+        # shape nothing writes for an enriched topic, so it returned a FALSE
+        # ZERO on real data (tests/derive/test_thematic_rollup.py).
+        #
+        # Gated like every rolled-up output: a sensitive leaf topic or title is
+        # dropped, and a target concept whose label is a sensitive theme
+        # returns nothing. This method reads Oxigraph only, so it CANNOT see a
+        # point's privacy level; the surfaced path is the derived theme.concept
+        # node (ThematicReader), which drops L3 and minors. No caller today.
+        if not qid or not _QID_RX.match(qid):
+            return []
+        sparql = bridge_query(self.HIERARCHY_GRAPH, target_qid=qid, with_title=True)
+        sparql += f"\nLIMIT {int(limit)}"
 
         result = await self._execute_query(sparql)
         if not result:
@@ -652,19 +659,26 @@ class TopicHierarchyService:
         bindings = result.get("results", {}).get("bindings", [])
 
         for binding in bindings:
+            broader_label = binding.get("broaderLabel", {}).get("value", "")
+            if not broader_label or derived_value_is_sensitive(THEME_DIMENSION, broader_label):
+                # An unlabelled or sensitive concept is never read out.
+                return []
+            topic_label = binding.get("topicLabel", {}).get("value", "")
+            title = binding.get("title", {}).get("value", "")
+            if leaf_is_sensitive(topic_label) or (title and is_sensitive(title)):
+                continue
+
             pref_uri = binding.get("pref", {}).get("value", "")
             pref_id = pref_uri.split(":")[-1] if ":" in pref_uri else pref_uri
 
-            topic_uri = binding.get("topic", {}).get("value", "")
-            topic_qid = topic_uri.split("/")[-1] if "/" in topic_uri else ""
-
             preferences.append({
                 "id": pref_id,
-                "name": binding.get("name", {}).get("value", ""),
-                "category": binding.get("category", {}).get("value", ""),
-                "platform": binding.get("platform", {}).get("value", ""),
-                "topic_qid": topic_qid,
-                "topic_label": binding.get("topicLabel", {}).get("value", ""),
+                "name": title,
+                "category": "",
+                "platform": "",
+                "topic_qid": binding.get("qid", {}).get("value", ""),
+                "topic_label": topic_label,
+                "broader_label": broader_label,
             })
 
         return preferences

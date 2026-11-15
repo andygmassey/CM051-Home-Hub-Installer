@@ -15,10 +15,10 @@
 #      prompt + flag handling, not the service-tear-down plumbing.
 #
 # Coverage:
-#   - --keep-content flag: ~/Documents/Ostler/ survives.
-#   - --remove-content flag: ~/Documents/Ostler/ is removed.
-#   - Interactive Y (default): ~/Documents/Ostler/ survives.
-#   - Interactive N: ~/Documents/Ostler/ is removed.
+#   - --keep-content flag: ~/Ostler/ survives.
+#   - --remove-content flag: ~/Ostler/ is removed.
+#   - Interactive Y (default): ~/Ostler/ survives.
+#   - Interactive N: ~/Ostler/ is removed.
 #   - --help exits 0 and prints usage.
 #   - Unknown flag exits non-zero.
 #
@@ -77,14 +77,14 @@ STUBEOF
         chmod +x "${STUB_BIN}/${cmd}"
     done
     mkdir -p "${SANDBOX}/.ostler" \
-             "${SANDBOX}/Documents/Ostler/Wiki" \
-             "${SANDBOX}/Documents/Ostler/Transcripts" \
-             "${SANDBOX}/Documents/Ostler/Daily-Briefs" \
-             "${SANDBOX}/Documents/Ostler/Captures" \
-             "${SANDBOX}/Documents/Ostler/Exports"
+             "${SANDBOX}/Ostler/Wiki" \
+             "${SANDBOX}/Ostler/Transcripts" \
+             "${SANDBOX}/Ostler/Daily-Briefs" \
+             "${SANDBOX}/Ostler/Captures" \
+             "${SANDBOX}/Ostler/Exports"
     # Seed a sample file so we can confirm the tree was actually
     # left in place (rather than just the empty dir).
-    echo "test wiki page" > "${SANDBOX}/Documents/Ostler/Wiki/sample.md"
+    echo "test wiki page" > "${SANDBOX}/Ostler/Wiki/sample.md"
 }
 
 run_uninstaller() {
@@ -110,29 +110,29 @@ cleanup_sandbox() {
 # ── Test 1: --keep-content keeps the tree ────────────────────
 make_sandbox
 run_uninstaller "YES" --keep-content
-if [[ ! -d "${SANDBOX}/Documents/Ostler" ]]; then
-    echo "FAIL [keep-flag]: ~/Documents/Ostler/ was removed despite --keep-content" >&2
+if [[ ! -d "${SANDBOX}/Ostler" ]]; then
+    echo "FAIL [keep-flag]: ~/Ostler/ was removed despite --keep-content" >&2
     cleanup_sandbox
     exit 1
 fi
-if [[ ! -f "${SANDBOX}/Documents/Ostler/Wiki/sample.md" ]]; then
+if [[ ! -f "${SANDBOX}/Ostler/Wiki/sample.md" ]]; then
     echo "FAIL [keep-flag]: seeded wiki page was deleted" >&2
     cleanup_sandbox
     exit 1
 fi
 cleanup_sandbox
-echo "PASS: --keep-content preserves ~/Documents/Ostler/"
+echo "PASS: --keep-content preserves ~/Ostler/"
 
 # ── Test 2: --remove-content removes the tree ────────────────
 make_sandbox
 run_uninstaller "YES" --remove-content
-if [[ -d "${SANDBOX}/Documents/Ostler" ]]; then
-    echo "FAIL [remove-flag]: ~/Documents/Ostler/ survived --remove-content" >&2
+if [[ -d "${SANDBOX}/Ostler" ]]; then
+    echo "FAIL [remove-flag]: ~/Ostler/ survived --remove-content" >&2
     cleanup_sandbox
     exit 1
 fi
 cleanup_sandbox
-echo "PASS: --remove-content removes ~/Documents/Ostler/"
+echo "PASS: --remove-content removes ~/Ostler/"
 
 # ── Test 3: interactive Y (default) keeps the tree ──────────
 # Stdin: "YES\nY\n" -- YES for the up-front gate, Y for the keep
@@ -140,13 +140,13 @@ echo "PASS: --remove-content removes ~/Documents/Ostler/"
 # explicitly to make the assertion intent clear.
 make_sandbox
 run_uninstaller $'YES\nY'
-if [[ ! -d "${SANDBOX}/Documents/Ostler" ]]; then
-    echo "FAIL [interactive-Y]: ~/Documents/Ostler/ removed despite Y reply" >&2
+if [[ ! -d "${SANDBOX}/Ostler" ]]; then
+    echo "FAIL [interactive-Y]: ~/Ostler/ removed despite Y reply" >&2
     cleanup_sandbox
     exit 1
 fi
 cleanup_sandbox
-echo "PASS: interactive Y reply preserves ~/Documents/Ostler/"
+echo "PASS: interactive Y reply preserves ~/Ostler/"
 
 # ── Test 4: interactive default (just newline) keeps the tree ─
 # An empty reply must default to Y, matching the bolded letter
@@ -154,24 +154,24 @@ echo "PASS: interactive Y reply preserves ~/Documents/Ostler/"
 # NOT lose their content.
 make_sandbox
 run_uninstaller $'YES\n'
-if [[ ! -d "${SANDBOX}/Documents/Ostler" ]]; then
+if [[ ! -d "${SANDBOX}/Ostler" ]]; then
     echo "FAIL [interactive-default]: empty reply removed content (default must be keep)" >&2
     cleanup_sandbox
     exit 1
 fi
 cleanup_sandbox
-echo "PASS: interactive default (Enter) preserves ~/Documents/Ostler/"
+echo "PASS: interactive default (Enter) preserves ~/Ostler/"
 
 # ── Test 5: interactive N removes the tree ──────────────────
 make_sandbox
 run_uninstaller $'YES\nn'
-if [[ -d "${SANDBOX}/Documents/Ostler" ]]; then
-    echo "FAIL [interactive-N]: ~/Documents/Ostler/ survived n reply" >&2
+if [[ -d "${SANDBOX}/Ostler" ]]; then
+    echo "FAIL [interactive-N]: ~/Ostler/ survived n reply" >&2
     cleanup_sandbox
     exit 1
 fi
 cleanup_sandbox
-echo "PASS: interactive n reply removes ~/Documents/Ostler/"
+echo "PASS: interactive n reply removes ~/Ostler/"
 
 # ── Test 6: --help exits 0 and prints usage ─────────────────
 HELP_OUT="$(bash "$UNINSTALLER" --help 2>&1)" || {
