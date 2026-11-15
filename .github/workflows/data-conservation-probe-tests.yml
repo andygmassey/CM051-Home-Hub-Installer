@@ -15,6 +15,14 @@ on:
       - 'scripts/tests/test_data_conservation_probe.sh'
       - 'scripts/tests/test_data_conservation_collect_budget.sh'
       - 'tests/test_data_conservation_row_evidence.py'
+      - 'tests/test_data_conservation_walk_fixture_is_typed.py'
+      - 'tests/test_data_conservation_people_shown_and_whatsapp_runs.py'
+      - 'tests/test_data_conservation_counted_run_row.sh'
+      - 'tests/test_swap_curve_sampler.sh'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/counted_run.sh'
+      - 'scripts/box_walk_probes/lib/swap_curve.sh'
+      - 'scripts/post_walk_qa.sh'
       - 'scripts/walk_promote_scope.tsv'
       - '.github/workflows/data-conservation-probe-tests.yml'
   push:
@@ -26,6 +34,14 @@ on:
       - 'scripts/tests/test_data_conservation_probe.sh'
       - 'scripts/tests/test_data_conservation_collect_budget.sh'
       - 'tests/test_data_conservation_row_evidence.py'
+      - 'tests/test_data_conservation_walk_fixture_is_typed.py'
+      - 'tests/test_data_conservation_people_shown_and_whatsapp_runs.py'
+      - 'tests/test_data_conservation_counted_run_row.sh'
+      - 'tests/test_swap_curve_sampler.sh'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/counted_run.sh'
+      - 'scripts/box_walk_probes/lib/swap_curve.sh'
+      - 'scripts/post_walk_qa.sh'
       - '.github/workflows/data-conservation-probe-tests.yml'
 
 concurrency:
@@ -45,6 +61,18 @@ jobs:
       - name: per-row salted-hash evidence is written on the box, never a plaintext fixture name, and counts are unchanged
         if: always()
         run: python3 tests/test_data_conservation_row_evidence.py
+      - name: the walk's preference fixture is seeded as typed preferences the graph counter reads
+        if: always()
+        run: python3 tests/test_data_conservation_walk_fixture_is_typed.py
+      - name: people SHOWN is summed over every source, and a cross-run row is CANNOT-RUN, never LOST
+        if: always()
+        run: python3 tests/test_data_conservation_people_shown_and_whatsapp_runs.py
+      - name: the walk record names the data_conservation run that counts (the manifest replay)
+        if: always()
+        run: /bin/bash tests/test_data_conservation_counted_run_row.sh
+      - name: the swap and pageout curve reads the box, writes NA never 0, brackets only the chat battery, and stops itself
+        if: always()
+        run: /bin/bash tests/test_swap_curve_sampler.sh
       - name: probe --self-test must come back FAIL (its negative control fired)
         run: |
           set +e

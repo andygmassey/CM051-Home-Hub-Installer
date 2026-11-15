@@ -109,6 +109,17 @@ EXEMPT: dict[str, str] = {
         "(WhatsApp on, synthetic number), so a walk box never enables WhatsApp. "
         "It has no PROBE_NAME and no verdict. It IS invoked: "
         "lib/brief_channel_probe.py runs it to judge the real writer.",
+    "lib/counted_run.sh":
+        "a sourced library, not a probe: post_walk_qa.sh sources it and calls "
+        "counted_run_row, which prints the walk-record row naming the "
+        "data_conservation run that counts. It has no PROBE_NAME and no verdict. "
+        "tests/test_data_conservation_counted_run_row.sh drives it.",
+    "lib/swap_curve.sh":
+        "a sourced library, not a probe: post_walk_qa.sh starts the whole-walk "
+        "swap and pageout sampler from it and stops it, and run_box_walk.sh "
+        "brackets the chat-battery probes with it. It reads vm_stat and "
+        "vm.swapusage and verdicts nothing. tests/test_swap_curve_sampler.sh "
+        "drives it.",
     "lib/smart_prefs_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it above the "
         "phase-2 loop and calls smart_prefs_seed_apply, which writes the "

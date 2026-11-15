@@ -599,7 +599,12 @@ PY
 conversation_seed_apply() {
     printf -- '--- CONVERSATION SEED: one fictional voice note, through the shipped pipeline ---\n'
 
-    _CS_CLI="${OSTLER_CONVO_SEED_CLI:-/usr/local/bin/pwg-convo}"
+    # Owner-side link first: a GUI install links into ${OSTLER_DIR}/bin (no /usr/local/bin chown).
+    _CS_CLI="${OSTLER_CONVO_SEED_CLI:-}"
+    if [ -z "$_CS_CLI" ]; then
+        if [ -x "${OSTLER_DIR:-$HOME/.ostler}/bin/pwg-convo" ]; then _CS_CLI="${OSTLER_DIR:-$HOME/.ostler}/bin/pwg-convo"
+        else _CS_CLI=/usr/local/bin/pwg-convo; fi
+    fi
     _CS_SETTINGS="${OSTLER_CONVO_SEED_SETTINGS:-\$HOME/.ostler/settings.yaml}"
     _CS_BUDGET="${OSTLER_CONVO_SEED_BUDGET_S:-900}"
     _CS_CURL="${OSTLER_CONVO_SEED_CURL:-/usr/bin/curl}"
