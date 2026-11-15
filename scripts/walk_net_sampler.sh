@@ -347,6 +347,13 @@ vm_loop() {
 }
 
 control_hold() { # seconds a control connection is held: 2 x PERIOD unless overridden
+    # The hold chosen at start is persisted in ${OUT}/control_hold and wins
+    # over the environment, so stop's end-of-window controls (a separate
+    # invocation, often without NETSAMP_CONTROL_HOLD set) hold as long as the
+    # start controls did. Measured 2026-11-05: a hold of 60 on start, 10 on stop.
+    local saved=""
+    [ -r "${OUT}/control_hold" ] && saved="$(cat "${OUT}/control_hold")"
+    case "${saved}" in ""|*[!0-9]*) ;; *) echo "${saved}"; return 0 ;; esac
     case "${NETSAMP_CONTROL_HOLD:-}" in
         ""|*[!0-9]*) echo $(( PERIOD * 2 )) ;;
         *) echo "${NETSAMP_CONTROL_HOLD}" ;;
@@ -356,7 +363,11 @@ control_hold() { # seconds a control connection is held: 2 x PERIOD unless overr
 # ---------------------------------------------------------------------------
 # CONTROLS. A connection to CONTROL_HOST:80 held for HOLD = 2 x PERIOD, and
 # re-opened if the far end closes it early, so at least one sample lands
-# inside it.
+# inside it. In the VM the tool must HOLD the socket for the whole window:
+# socat first, then nc. curl and wget are a last resort and are marked weak:
+# measured 2026-11-05 on a colima VM (no nc, has socat), curl completed its GET
+# in ~0.025 s and the 5 s ss sampler saw the control in 0 of 2 windows, while
+# a held socat connection was seen in 3 consecutive samples.
 # ---------------------------------------------------------------------------
 fire_control() { # sampler phase [profile]
     local s="$1" ph="$2" prof="${3:-}" hold
@@ -378,14 +389,19 @@ fire_control() { # sampler phase [profile]
     else
         printf '%s\n' "
 end=\$(( \$(date +%s) + ${hold} ))
-if command -v nc >/dev/null 2>&1; then t=nc
+if command -v socat >/dev/null 2>&1; then t=socat
+elif command -v nc >/dev/null 2>&1; then t=nc
 elif command -v curl >/dev/null 2>&1; then t=curl
 elif command -v wget >/dev/null 2>&1; then t=wget
 else echo '#tool none'; exit 3; fi
-echo \"#tool \$t\"
+case \$t in
+    curl|wget) echo \"#tool \$t (weak: a GET completes in well under a second, so a 1-in-PERIOD sample rarely lands inside it)\" ;;
+    *) echo \"#tool \$t\" ;;
+esac
 while [ \$(date +%s) -lt \$end ]; do
     left=\$(( end - \$(date +%s) )); [ \$left -lt 1 ] && left=1
     case \$t in
+        socat) sleep \$left | socat - TCP:${CONTROL_HOST}:80 ;;
         nc) sleep \$left | nc ${CONTROL_HOST} 80 ;;
         curl) curl -s -o /dev/null --max-time \$left http://${CONTROL_HOST}/ ;;
         wget) wget -q -O /dev/null -T \$left http://${CONTROL_HOST}/ ;;
@@ -412,6 +428,8 @@ cmd_start() {
     rm -f "${OUT}/STOP"
     printf '%s\t%s\t%s\n' "$(epoch)" "$(utc)" "$(date '+%Y-%m-%d %H:%M:%S')" > "${OUT}/window_start"
     printf '%s\n' "${PERIOD}" > "${OUT}/period"
+    rm -f "${OUT}/control_hold"
+    control_hold > "${OUT}/control_hold"
     status sampler start "out=${OUT} period=${PERIOD}"
 
     # Host preflight: one real read. Empty means sudo -n or lsof cannot run,

@@ -37,6 +37,7 @@ on:
       - 'tests/test_derive_preferences_is_scheduled.sh'
       - 'tests/test_derive_is_kicked_once_after_install_and_upgrade.sh'
       - 'tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh'
+      - 'tests/test_derive_first_run_retries_within_30_min.sh'
       - 'tests/test_derive_agent_env_can_read_system_load.sh'
       - 'tests/test_derive_reads_conversations_mirror_not_documents.sh'
       - 'tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh'
@@ -59,6 +60,9 @@ on:
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derived_route_privacy_level.py'
       - 'tests/test_vendored_derived_negatives_survive_cap.py'
+      - 'tests/test_derive_first_pass_progress.py'
+      - 'tests/test_derived_still_learning_surface.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
       - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
@@ -135,6 +139,9 @@ jobs:
       - name: The derive tick records every exit (deferred, yielded, cannot start) and a ceiling runs it anyway under taskpolicy -b
         if: always()
         run: bash tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh
+      - name: A first derive pass that comes back empty is retried within 30 min, then settles to 6h (with mutants)
+        if: always()
+        run: bash tests/test_derive_first_run_retries_within_30_min.sh
       - name: The derive LaunchAgent's own environment can read system load and cores (sysctl is on its PATH)
         if: always()
         run: bash tests/test_derive_agent_env_can_read_system_load.sh
@@ -172,6 +179,19 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: A first pass says how far it has got while it runs (per-reader timings, in_progress, Doctor reads it)
+        # Real derive_runner.run() over a synthetic pyoxigraph fixture.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_first_pass_progress.py
+      - name: What you like is never blank while the first pass runs (still_learning from the interest profile)
+        # Real ical-server subprocess against a stub store. ical-server refuses
+        # to start without ostler_security (and its cryptography dependency).
+        if: always()
+        run: |
+          python3 -m pip install --quiet cryptography ./vendor/ostler_security
+          python3 tests/test_derived_still_learning_surface.py
       - name: A stated dislike is served alongside the capped list (any tier, bounded, no dupes)
         if: always()
         run: |
@@ -183,7 +203,7 @@ jobs:
         # lookup makes zero requests unless the owner accepted enrichment.
         if: always()
         run: |
-          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers nameparser
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
           python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
           python3 tests/test_food_mbox_consumed_and_pruned.py
       - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
@@ -266,7 +286,7 @@ jobs:
         if: always()
         run: |
           python3 -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt \
-            nameparser rapidfuzz phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
           n="$(python3 -m pytest tests/test_ingest_contract.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 30 ]; then

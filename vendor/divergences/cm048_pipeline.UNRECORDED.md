@@ -151,32 +151,53 @@ reference vector for three members).
 
 Owed upstream: yes, CM048 `src/channel_adapter.py`.
 
-## 2026-11-05: reply debt reads WhatsApp and email (graft of CM048 #113)
+## 2026-11-05: CM048 #113 and #114 grafts RETIRED (v1.0.124 re-pin)
 
-Tree `cm048_pipeline`. A graft of CM048 PR #113 (branch `feat/reply-debt-wa-email`,
-head ca47022 plus the `addressed_in_group` follow-up), open for review. The four files
-below are BYTE-IDENTICAL to that branch. Not at the pin and not in the patch.
+The reply-debt WhatsApp and email graft (CM048 #113, ada91103) and the marketing SMS
+graft (CM048 #114, ec837ea4) are native at the new pin: the cm048_pipeline re-pin past
+ec837ea4 found src/reply_debt.py, src/reply_debt_adapters.py, src/reply_debt_service.py
+and src/reply_debt_sources.py byte-identical to source@ec837ea4, so neither graft is
+carried here or in the patch any more.
 
-- new `src/reply_debt_sources.py`: reads the WhatsApp and email reply-debt snapshots
-  (`$OSTLER_DIR/state/reply_debt/{whatsapp,email}_threads.json`) and applies the
-  per-channel rules. Identity is Contacts-card evidence only: no push names, no
-  From display names.
-- `src/reply_debt_service.py`: reads all three channels, adds `sources`, `channels`
-  and `partial` to the payload.
-- `src/reply_debt.py`: a WhatsApp group message that @mentions the owner is a
-  personal ask (`Thread.addresses_owner`); `addressed_in_group` only when true.
-- `src/reply_debt_adapters.py`: unchanged from this tree (CM048 #113 upstreams it).
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), cm048_pipeline
 
-Producers: `whatsapp_source/pipeline.py` and `email_source/pipeline.py` +
-`email_source/reader.py` (recorded in their own trees' records). Proof:
-`tests/test_reply_debt_whatsapp_email.py`, run by
-`.github/workflows/reply-debt-never-reads-protected-data.yml`.
+Regeneration REFUSED: the source has advanced past the pin (005ebd7, reply debt). A patch regenerated here would record upstream commits as local edits. The two hunks the PR added to `cm048_pipeline.patch` are hand edits to the patch file, not regenerated output. Every other path edit below is NOT in the patch and is recorded here.
 
-Retire: re-pin cm048_pipeline to the CM048 commit that merges #113.
+- `settings.yaml.example` (1 line): default root.
+- `src/capture_truth.py` (1 line): docstring path. No upstream counterpart at head, so the edit has no upstream PR.
+- `src/conversation_writer.py` (3 lines): default root and docstring paths.
+- `src/ostler_paths.py` (5 lines): `user_facing_root()` returns `Path.home() / "Ostler"`, plus comments.
+- `src/processor.py` (4 lines): docstring and comment paths.
+- `src/settings.py` (1 line): default path.
 
-## 2026-11-05: a shop's marketing SMS is never a reply owed (graft of CM048 #114)
+Upstream: andygmassey/CM048-PWG-Conversation-Processing PR #117, not merged. Tests: full suite 1158 passed, 1 skipped, exit 0; the CM048 agent measured the old source against the new assertions as 4 failures.
 
-Tree `cm048_pipeline`, file `src/reply_debt.py`, BYTE-IDENTICAL to CM048 main at
-ec837ea4 (the squash merge of #114). `owed_verdict` answers no (rule "marketing") for
-an opt-out instruction or promotional wording in EN / ZH / JA / KO. Retire: re-pin
-cm048_pipeline to ec837ea4 or later.
+## 2026-11-14: undated bundles fail closed in the writer gate, cm048_pipeline
+
+`src/reminders_push.py`, `_is_stale` and `_has_future_deadline` (called from `decide_push`). The same-shape sweep of 2026-11-14 (item 3, evidence `~/walkdriver/evidence/same_shape_sweep_2026-11-14.md`) found that `_is_stale` returned "not stale" for a bundle with neither `started_at` nor `date`, so catch-up pushed years-old todos into Apple Reminders.
+
+Upstream is already correct: CM048 #120 (merged 68897402) gates on `_in_push_window`, which returns False for an undated bundle unless the todo's deadline is today or later. The defect was only in this vendored copy, which carries a CM051-side age gate that upstream never had. Re-vendoring is NOT a clean option: the vendored file carries about 690 lines of CM051-only logic (organisation filter, duplicate-thread skip, title-length skip, `FLAG_ORG_FILTER_UNAVAILABLE`) that no CM048 branch contains. So the rule is ported by hand, as #120 states it.
+
+- Undated bundle: not pushed, regardless of `OSTLER_TODO_MAX_AGE_DAYS`. The env value <= 0 now switches off only the age cutoff for dated bundles.
+- Open todo with a deadline today or later: pushed whatever the source date (#120). This changes the dated path: an old bundle with a future deadline is now pushed, as upstream does.
+- Not ported: upstream's `ended_at` as the first activity stamp (the vendored `_source_datetime` reads `started_at` then `date`).
+
+Tests: `tests/test_cm048_undated_bundle_not_pushed.py` (6). RED on the pre-change vendored file: 3 fail (undated, undated with past deadline, age cutoff disabled). Mutant (`return True` restored to `return False`): 3 fail. Existing reminders suites: green on the new code.
+## 2026-11-14: the WhatsApp resolver guard (CM051 #3423)
+
+Edited in `vendor/cm048_pipeline/src/channel_adapter.py`, `_whatsapp_resolve_privacy`:
+after the explicit `privacy_level` override, a missing classification, or one with no
+sensitivity level, returns L3. Before, a classification with no level fell through to
+L2. This is the unavailable-verdict rule: fail toward the higher level.
+
+The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not checked
+out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
+keep it, or a missing verdict falls back to L2 again.
+Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.
+
+## PORT OWED: upstream as CM048 PR #121 (2026-11-14)
+
+The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` PR #121,
+DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
+When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
+`vendor/cm048_pipeline/src/channel_adapter.py`.

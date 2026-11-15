@@ -198,9 +198,79 @@
      try:
          result = _sparql_query(oxigraph_url, sparql)
      except Exception as exc:
+@@ -432,7 +478,19 @@
+     return todos
+ 
+ 
+-def pre_meeting_brief(days=1, events_provider=None):
++def _owner_declined(attendees, owner_emails):
++    """True when an owner address is listed on the event with PARTSTAT /
++    responseStatus DECLINED. Both calendar paths expose that as ``status``
++    (ical-server.py _parse_attendee, query_google_calendar)."""
++    owners = {e.lower() for e in owner_emails}
++    return any(
++        (a.get("email") or "").lower() in owners
++        and str(a.get("status") or "").upper() == "DECLINED"
++        for a in attendees
++    )
++
++
++def pre_meeting_brief(days=1, events_provider=None, report=None):
+     """Generate pre-meeting briefs for upcoming meetings with attendees.
+ 
+     See ``SCHEMA.md`` for the wire shape this function returns. The
+@@ -441,16 +499,26 @@
+     ``attendees`` top-level shape, where each attendee has
+     ``name`` / ``wiki_url`` / ``facts`` / ``times_met`` /
+     ``last_met`` / ``last_discussion_url`` / ``outstanding_todos``.
++
++    A timed event with no attendees is kept with ``attendees: []``: the
++    sender sends it as a one-line nudge. An all-day event with no attendees
++    is dropped (it has no time to nudge about), and so is a solo event the
++    owner DECLINED. Free/transparent is not dropped: no calendar path exposes it. ``report``, when given, is
++    filled with ``considered`` (events read) and ``filtered`` (``{uid,
++    reason}`` for each event dropped here), so the sender can log why.
+     """
+     owner_emails = set(config.OWNER_EMAILS)
+     oxigraph_url = config.OXIGRAPH_URL
+ 
+     if events_provider is None:
+-        events = fetch_events(config.CALENDAR_API_URL, days)
++        events = fetch_events(config.CALENDAR_API_URL, days, require_attendees=False)
+     else:
+         events = fetch_events(
+-            config.CALENDAR_API_URL, days, events_provider=events_provider
++            config.CALENDAR_API_URL, days, events_provider=events_provider,
++            require_attendees=False,
+         )
++    if report is not None:
++        report.update(considered=len(events or []), filtered=[])
+     if not events:
+         return []
+ 
+@@ -461,7 +529,18 @@
+             a for a in attendees
+             if a.get("email", "").lower() not in owner_emails
+         ]
+-        if not other_attendees:
++        if not other_attendees and (
++            event.get("all_day") or not event.get("start")
++            or _owner_declined(attendees, owner_emails)
++        ):
++            if report is not None:
++                if event.get("all_day"):
++                    reason = "all_day_no_attendees"
++                elif not event.get("start"):
++                    reason = "no_start"
++                else:
++                    reason = "declined"
++                report["filtered"].append({"uid": event.get("uid", ""), "reason": reason})
+             continue
+ 
+         location = event.get("location", "")
 --- a/calendar_client.py
 +++ b/calendar_client.py
-@@ -2,9 +2,24 @@
+@@ -2,14 +2,31 @@
  
  from typing import List, Optional
  
@@ -209,6 +279,7 @@
  import httpx
  
  
+-def fetch_events(api_url, days=30, events_provider=None):
 +def _service_token():
 +    """Loopback service token the ical-server requires on every non-public route."""
 +    tok = (os.environ.get("PWG_SERVICE_TOKEN") or os.environ.get("OSTLER_SERVICE_TOKEN") or "").strip()
@@ -222,12 +293,24 @@
 +        return ""
 +
 +
- def fetch_events(api_url, days=30, events_provider=None):
++def fetch_events(api_url, days=30, events_provider=None, require_attendees=True):
      """Fetch calendar events from the unified calendar API.
  
-@@ -20,7 +35,18 @@
+-    Returns list of event dicts. Only events with both a UID and at least
+-    one attendee are included.
++    Returns list of event dicts. Only events with a UID are included, and,
++    unless ``require_attendees`` is False, at least one attendee.
++    The pre-meeting brief passes False so attendee-less timed events reach
++    the sender, which nudges about them; the sync path keeps the old filter.
+ 
+     ``events_provider`` (``days -> list of event dicts``) reads the calendar
+     in-process instead of over HTTP. The Hub passes it when the brief runs
+@@ -18,11 +35,22 @@
+     """
+     if events_provider is not None:
          events = events_provider(days)
-         return [e for e in events if e.get("attendees") and e.get("uid")]
+-        return [e for e in events if e.get("attendees") and e.get("uid")]
++        return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]
      url = api_url.rstrip("/") + "/calendar"
 -    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0, trust_env=False)
 +    headers = {}
@@ -245,6 +328,10 @@
      resp.raise_for_status()
      data = resp.json()
      events = data.get("events", [])
+-    # Filter to events with attendees and a UID
+-    return [e for e in events if e.get("attendees") and e.get("uid")]
++    # Filter to events with a UID (and attendees, unless the caller opts out)
++    return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]
 --- a/config.py
 +++ b/config.py
 @@ -26,7 +26,10 @@

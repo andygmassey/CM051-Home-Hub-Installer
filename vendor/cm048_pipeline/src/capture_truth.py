@@ -14,7 +14,7 @@ an example frontmatter block and an example roster, and the model copied
 them: the model label and ``(new acquaintance, ex-[company])`` are
 literals in prompts/02_enrich_social_casual.md, and nothing told the
 model the capture had one speaker. The writer then copied the model's
-frontmatter verbatim to ~/Documents/Ostler/Conversations/<id>.md
+frontmatter verbatim to ~/Ostler/Conversations/<id>.md
 (ingest._write_conversation_md).
 
 So the rule here is the shape, not the instance: every frontmatter field

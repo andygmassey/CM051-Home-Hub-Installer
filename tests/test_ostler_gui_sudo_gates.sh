@@ -147,14 +147,16 @@ fi
 
 # ── 5. ostler-knowledge symlink carries an OSTLER_GUI no-sudo branch ─
 
-SYMLINK_LINE=$(grep -n 'ln -sf "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT" | head -1 | cut -d: -f1)
+SYMLINK_LINE=$(grep -n '_ostler_link_cli "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT" | head -1 | cut -d: -f1)
 if [[ -z "$SYMLINK_LINE" ]]; then
     echo "FAIL [symlink-callsite]: ostler-knowledge symlink line not found" >&2
     FAILED=1
 else
-    WINDOW_START=$((SYMLINK_LINE - 15))
-    [[ $WINDOW_START -lt 1 ]] && WINDOW_START=1
-    WINDOW_END=$((SYMLINK_LINE + 5))
+    # The GUI fork lives in _ostler_link_cli (called from here), so the window
+    # is the helper definition, not the call site.
+    HELPER_START=$(grep -n '^_ostler_link_cli() {' "$INSTALL_SCRIPT" | head -1 | cut -d: -f1)
+    WINDOW_START=${HELPER_START:-1}
+    WINDOW_END=$((WINDOW_START + 14))
     if sed -n "${WINDOW_START},${WINDOW_END}p" "$INSTALL_SCRIPT" \
             | grep -qE 'if\s*\[\[\s*"\$\{OSTLER_GUI'; then
         echo "PASS [symlink-gate]: ostler-knowledge symlink is OSTLER_GUI-forked at line $SYMLINK_LINE"

@@ -73,8 +73,8 @@ OSTLER_MODEL_FIT_NUM_CTX="${OSTLER_MODEL_FIT_NUM_CTX:-32768}"
 # until about 21 Nov because no 48GB+ test box exists. 35b restored after the
 # M5 red team, tracked as a 122 row. Removing the row (not just raising its
 # threshold) also keeps it out of the customer-facing fit list.
-OSTLER_MODEL_TAGS=(   "qwen3.5:9b" "gemma4:e2b" )
-OSTLER_MODEL_WEIGHTS=( 6            5            )
+OSTLER_MODEL_TAGS=(   "qwen3.5:9b" "qwen3.5:4b" )
+OSTLER_MODEL_WEIGHTS=( 6            4            )
 OSTLER_MODEL_QUANT=(  "q4_K_M"     "q4_K_M"      )
 # size_label PROVENANCE. gemma4:e2b read "~5 GB" until v1061-D002 (reg #623).
 # It was MEASURED at 7.2 GB on the v1.0.61 walk box -- a 44% understatement of
@@ -84,10 +84,20 @@ OSTLER_MODEL_QUANT=(  "q4_K_M"     "q4_K_M"      )
 # "7.2 GB of models". Only this customer-facing label still said 5.
 # The other two labels are NOT measured -- they are still inherited from
 # weights_gb and are the remaining live half of the download-honesty class.
-OSTLER_MODEL_SIZELBL=("~6.6 GB"    "~7.2 GB"     )
+#
+# The 16 GB tier moved from gemma4:e2b to qwen3.5:4b (the founder's October
+# decision). e2b failed to look anything up on 41/80 questions in the 80Q
+# replay; on a 16 GB Mini, qwen3.5:9b grew swap at 16k with a p90 of 129 s
+# against 4b's 11.5 s, so the 9b could not move down a tier either. The 7.2 GB
+# above was gemma4:e2b's and no longer describes this tier. qwen3.5:4b's
+# "~3.3 GB" is MEASURED for the Ollama install.sh pins today (0.34.0, which
+# pulls the GGUF build): the registry manifest for qwen3.5:4b is byte-identical
+# to docs/model-pins/ollama-0.34.0/qwen3.5_4b.json, the on-disk manifest of a
+# clean pull, and its layers sum to 3,324,173,757 bytes.
+OSTLER_MODEL_SIZELBL=("~6.6 GB"    "~3.3 GB"     )
 # min_fit: comfortable at num_ctx 32768.
 #   9b     : ~6 GB weights  + ~2 GB 32k KV + headroom -> needs ~24 GB box.
-#   e2b    : ~5 GB weights  + ~1 GB 32k KV + headroom -> needs ~16 GB box.
+#   4b     : ~3.3 GB weights + 32k KV + headroom -> needs ~16 GB box.
 OSTLER_MODEL_MINFIT=( 24           16           )
 # min_slow: will load but tight (swap risk) below min_fit.
 OSTLER_MODEL_MINSLOW=(18           12           )

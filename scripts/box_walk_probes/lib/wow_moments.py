@@ -163,6 +163,151 @@ def grade_reply_debts(debts):
     return names, len(rows) - len(resolved)
 
 
+# --------------------------------------------------------------------------
+# morning brief: who the brief MUST name (oa #671 caps the list at
+# REPLY_MAX_ITEMS and counts the rest as "and N more in the app")
+# --------------------------------------------------------------------------
+
+_CAP_RE = re.compile(r"^(?:pub(?:\([a-z]+\))?\s+)?const\s+REPLY_MAX_ITEMS\s*:\s*usize\s*=\s*(\d+)\s*;", re.M)
+_MORE_RE = re.compile(r"\band (\d+) more\b", re.I)
+
+
+def reply_cap_from_source(text):
+    """REPLY_MAX_ITEMS out of oa's brief/catchup.rs source text, or None."""
+    m = _CAP_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def reply_cap():
+    """(cap, source). The cap is READ, never typed here: OSTLER_REPLY_MAX_ITEMS
+    (the probe wrapper forwards what it read from the oa source it was given),
+    else (None, "NOT INSTRUMENTED") and the arm falls back to its legacy top 3,
+    which can never reach past the cap."""
+    v = os.environ.get("OSTLER_REPLY_MAX_ITEMS", "").strip()
+    if v.isdigit() and int(v) > 0:
+        return int(v), os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs")
+    return None, "NOT INSTRUMENTED"
+
+
+def _owed_state(d):
+    """-> (state, reason). state in owed | dropped | ambiguous. The hub's own verdict
+    (CM048 reply_debt `owed`: yes / no / ambiguous); a row with no verdict cannot be
+    classified here: graded as owed, as before."""
+    if d.get("resolved") is False:
+        return "dropped", "unsaved_number"
+    if _withheld(d.get("privacy_level")):
+        return "dropped", "withheld_privacy"
+    if d.get("deceased") or d.get("suggestions_suppressed"):
+        return "dropped", "suppressed_person"
+    if not d.get("person_name"):
+        return "dropped", "nameless"
+    v = str(d.get("owed") or "").strip().lower()
+    if v == "yes" or d.get("owner_promised") is True:
+        return "owed", "owed"
+    if v == "no":
+        return "dropped", "not_owed"
+    if v == "ambiguous":
+        return "ambiguous", "no_judge"
+    # An older Hub sends no verdict at all: graded as before (the old arm did), so a
+    # missing field can never quietly shrink the graded set.
+    return "owed", "no_hub_verdict_assumed_owed"
+
+
+def plan_morning_replies(debts, cap):
+    """Which hub rows are owed, which are not graded, and why. The daemon's own ranking
+    (importance, then age) is NOT re-implemented: which N of the owed rows are shown is
+    not graded, only how many and that each is owed.
+    -> {"cap", "owed": [rows], "ambiguous": [rows], "not_owed": [rows], "drops": [(row, reason)]}"""
+    rows = [d for d in debts if isinstance(d, dict)]
+    owed, amb, not_owed, drops = [], [], [], []
+    for d in rows:
+        st, why = _owed_state(d)
+        if st == "owed":
+            owed.append(d)
+        elif st == "ambiguous":
+            amb.append(d)
+            drops.append((d, why))
+        else:
+            drops.append((d, why))
+            if why == "not_owed":
+                not_owed.append(d)
+    return {"cap": cap, "owed": owed, "ambiguous": amb, "not_owed": not_owed, "drops": drops}
+
+
+def _named_morning(text, row, all_rows):
+    """Full name as before, or the first name alone when no other hub reply-debt row
+    shares that first name (a unique first name is how a person is named in prose)."""
+    name = row.get("person_name") or ""
+    if _named(text, name):
+        return True
+    first = (re.split(r"\s+", name.strip()) or [""])[0].lower()
+    if len(first) < 2:
+        return False
+    others = [(o.get("person_name") or "").strip().lower() for o in all_rows if o is not row]
+    if any(re.split(r"\s+", o)[0] == first for o in others if o):
+        return False
+    return bool(re.search(r"(?<![\w])" + re.escape(first) + r"(?![\w])", text.lower()))
+
+
+def more_seen(text):
+    """Every N in an "and N more" line of the brief."""
+    return [int(n) for n in _MORE_RE.findall(text or "")]
+
+
+_LISTED_RE = re.compile(r"^\s*[-*\u2022]\s*(.+?)\s*(?:\(waiting|,\s*\d+\s*(?:minute|hour|day|week)s?\b)", re.I | re.M)
+
+
+def listed_who(text):
+    """The name part of each list line that says how long someone has waited."""
+    return [m.group(1).strip() for m in _LISTED_RE.finditer(text or "")]
+
+
+def grade_morning_replies(debts, text, cap):
+    """The reply-naming arm of the morning brief, as counts and flags only.
+
+    owed <= cap: every owed row is named. owed > cap: exactly cap owed rows are named
+    (which ones is the daemon's ranking and is not graded), and no row the hub says is
+    not owed, and no invented name, is listed. Without a cap: the legacy top 3 owed
+    rows, no count check."""
+    plan = plan_morning_replies(debts, cap)
+    all_rows = [d for d in debts if isinstance(d, dict)]
+    owed, amb = plan["owed"], plan["ambiguous"]
+    named_of = lambda rows: [_named_morning(text, d, all_rows) for d in rows]
+    wrong, missed = 0, []
+    if not cap:
+        must = owed[:GRADED_MAX]
+        rn = named_of(must)
+        missed = [debt_evidence(d) for d, ok in zip(must, rn) if not ok]
+        expect = None
+    elif len(owed) + len(amb) <= cap:
+        # every owed row is shown; an ambiguous one may or may not be, and is not required
+        rn = named_of(owed)
+        missed = [debt_evidence(d) for d, ok in zip(owed, rn) if not ok]
+        expect = (len(owed), len(owed) + len(amb))
+    else:
+        lo = cap if len(owed) >= cap else len(owed)
+        hi = cap
+        have = sum(named_of(owed + amb))
+        rn = [i < have for i in range(lo)] + [False] * max(0, have - hi)
+        expect = (lo, hi)
+    if cap:
+        # a hub row that is not owed must not be listed; neither may a name that is no hub row
+        wrong += sum(named_of(plan["not_owed"]))
+        known = owed + amb
+        for who in listed_who(text):
+            if not any(_named_morning(who, d, all_rows) for d in known + plan["not_owed"]):
+                wrong += 1
+    out = {"reply_graded": len(rn), "reply_named": rn, "reply_missed": missed,
+           "reply_cap": cap, "reply_cap_source": os.environ.get("OSTLER_REPLY_CAP_SRC", "oa catchup.rs") if cap else "NOT INSTRUMENTED",
+           "reply_owed": len(owed), "reply_ambiguous": len(amb), "reply_wrong_names": wrong,
+           "reply_drops": [dict(debt_evidence(d), reason=why) for d, why in plan["drops"]],
+           "reply_more_seen": more_seen(text)}
+    if cap:
+        out["reply_more_low"] = max(0, len(owed) - cap)
+        out["reply_more_high"] = max(0, len(owed) + len(amb) - cap)
+    return out
+
+
 _WINDOW_RE = re.compile(r"^UNSAVED_MAX_WAITING_HOURS\s*=\s*(\d+)(?:\s*\*\s*(\d+))?(?:\s*\*\s*(\d+))?\s*(?:#.*)?$", re.M)
 
 
@@ -426,38 +571,107 @@ _ITEM_SPLIT = re.compile(r"\s*(?:[,;:]|\band\b)\s*", re.I)
 PROVENANCE_LINE = re.compile(r"^from your (?:messages|calendar|[a-z' ]* calendars?)$")
 
 
+# Strip LIST MARKERS only: "- ", "* ", a bullet, "N. " or "N) ". Never bare
+# leading digits. "09:00 Standup" and "15:00 Standup" are two meetings, and "2
+# emails" and "5 emails" are two counts; stripping digits made both pairs one
+# repeat, a false FAIL (the same defect Archie caught in the oa brief dedupe).
+_LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
+
+
 def _norm_item(t):
-    t = re.sub(r"^[\s\-\*\u2022\d\.\)]+", "", t or "")
+    t = _LIST_MARKER.sub("", t or "", count=1)
     return " ".join(re.sub(r"[^\w' ]+", " ", t.casefold()).split())
 
 
-def brief_repeats(text):
-    """How many lines, or list items within one line, the brief says twice.
+def brief_repeat_events(text):
+    """Every repeat in the brief, one dict each: line (1-based), first_line (the
+    line it first appeared on; the same line for an item repeated inside one
+    line), kind ("line" or "item"), and norm (the normalised text, which is
+    hashed before anything is written to disk).
 
     The v1.0.120 walk listed one person's birthday three times (three Person
-    nodes for one human). A repeat is a COUNT, so it can leave the box; the
-    text itself stays there. Only items of 2+ words count, and never an
+    nodes for one human). Only items of 2+ words count, and never an
     empty-section phrase ("nothing overdue"), so a heading or a "none" line
     repeated across sections is not a repeat."""
-    seen_lines, seen_items, repeats = set(), set(), 0
-    for line in (text or "").splitlines():
+    seen_lines, first_at, events = set(), {}, []
+    for lno, line in enumerate((text or "").splitlines(), 1):
         n = _norm_item(line)
         if PROVENANCE_LINE.match(n):
             continue
         if len(n.split()) >= 2 and not NONE_WORDS.search(n):
             if n in seen_lines:
-                repeats += 1
+                events.append({"line": lno, "first_line": first_at[n], "kind": "line", "norm": n})
                 continue
             seen_lines.add(n)
+            first_at[n] = lno
         items = [_norm_item(i) for i in _ITEM_SPLIT.split(line)]
         items = [i for i in items if len(i.split()) >= 2 and not NONE_WORDS.search(i)]
         local = set()
         for i in items:
             if i in local:
-                repeats += 1
+                events.append({"line": lno, "first_line": lno, "kind": "item", "norm": i})
             local.add(i)
-        seen_items |= local
-    return repeats
+    return events
+
+
+def brief_repeats(text):
+    """How many lines, or list items within one line, the brief says twice. A
+    repeat is a COUNT, so it can leave the box; see brief_repeat_events."""
+    return len(brief_repeat_events(text))
+
+
+def _source_strings(*bodies):
+    """Every string inside the source rows the brief was built from (Hub
+    commitments, reply debts, calendar), flattened, for the in_sources check."""
+    out = []
+
+    def walk(x):
+        if isinstance(x, str):
+            out.append(x)
+        elif isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    for b in bodies:
+        walk(b)
+    return out
+
+
+def write_repeat_evidence(events, source_texts):
+    """On a repeated line, keep the evidence ON THE BOX, owner-only: the sha256
+    of each repeated line, its line numbers, and whether the line also appears
+    in the source rows. The line text itself is never written. The facts block
+    is NOT INSTRUMENTED: no daemon route or log exposes it (ostler-assistant
+    brief/catchup.rs renders it into the model prompt only).
+
+    Returns {"path", "error", "in_sources"}; error is None when written."""
+    import hashlib
+    if not events:
+        return {"path": None, "error": None, "in_sources": 0}
+    norm_sources = " \n ".join(_norm_item(s) for s in source_texts)
+    rows = []
+    for ev in events:
+        n = ev["norm"]
+        rows.append({"line": ev["line"], "first_line": ev["first_line"], "kind": ev["kind"],
+                     "sha256": hashlib.sha256(n.encode("utf-8")).hexdigest(),
+                     "in_sources": bool(n) and n in norm_sources,
+                     "in_facts": "NOT INSTRUMENTED"})
+    blob = {"repeats": len(rows), "events": rows,
+            "source_strings": len(source_texts),
+            "facts_block": "NOT INSTRUMENTED: no daemon route or log exposes the catch-up facts block"}
+    d = os.environ.get("OSTLER_WALK_EVIDENCE_DIR") or os.path.join(OSTLER, "walks", "probe-evidence")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        path = os.path.join(d, "morning_brief_repeats_%s_%s.json" % (
+            time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), os.urandom(4).hex()))
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh, sort_keys=True)
+        return {"path": path, "error": None, "in_sources": sum(1 for r in rows if r["in_sources"])}
+    except OSError as exc:
+        return {"path": None, "error": "%s: %s" % (type(exc).__name__, exc), "in_sources": 0}
 
 
 def export_brief_text(text):
@@ -532,6 +746,7 @@ def box_morning(wait_s=600):
     job_id = None
     try:
         code, body = _hub("/api/v1/commitments?owner=user&status=open")
+        commit_body = body
         seeded_visible = code == 200 and any(OWNER_PROMISE == (c.get("action") or "")
                                              for c in (body or {}).get("commitments") or [])
         if not seeded_visible:
@@ -540,7 +755,7 @@ def box_morning(wait_s=600):
         rcode, rbody = _hub("/api/v1/reply-debt")
         rd = rbody if rcode == 200 and isinstance(rbody, dict) and not rbody.get("degraded") else None
         reply_debts = (rd or {}).get("debts") or []
-        reply_names, _unsaved = grade_reply_debts(reply_debts)
+        cap, _cap_src = reply_cap()
         ccode, cbody = _hub("/api/v1/calendar/today")
         meetings = [(e.get("title") or e.get("summary") or "").strip()
                     for e in ((cbody or {}).get("events") or []) if ccode == 200
@@ -571,14 +786,16 @@ def box_morning(wait_s=600):
             return out
         out["answered"] = bool(text.strip())
         out.update(brief_shape(text))
-        out["repeats"] = brief_repeats(text)
+        events = brief_repeat_events(text)
+        out["repeats"] = len(events)
+        ev_out = write_repeat_evidence(events, _source_strings(commit_body, rbody, cbody))
+        out["repeat_evidence_path"], out["repeat_evidence_error"] = ev_out["path"], ev_out["error"]
+        out["repeat_in_sources"] = ev_out["in_sources"]
         p, h, err = export_brief_text(text)
         out["brief_text_path"], out["brief_text_sha256"], out["brief_text_export_error"] = p, h, err
         out["owner_promise"] = "walk-probe budget sheet" in text.lower()
         out["other_promise"] = "walk-probe venue list" in text.lower()
-        out["reply_graded"] = len(reply_names)
-        out["reply_named"] = [_named(text, n) for n in reply_names]
-        out["reply_missed"] = missed_debts(reply_debts, out["reply_named"])
+        out.update(grade_morning_replies(reply_debts, text, cap))
         out["reply_source"] = "ok" if rd is not None else "unavailable"
         out["meetings_graded"] = len(meetings)
         out["meetings_named"] = [all(w in text.lower() for w in re.findall(r"[\w']{3,}", m.lower())[:4])
@@ -608,6 +825,10 @@ def judge_morning(c):
     check("the brief does not retell the owner's chats with the assistant", not c.get("chat_echo", True))
     if "repeats" in c:
         check("the brief lists nobody and nothing twice (%d repeated)" % c["repeats"], c["repeats"] == 0)
+        if c["repeats"]:
+            lines.append("  note   repeated lines kept on the box: %s (%s in the source rows; facts block NOT INSTRUMENTED)"
+                         % (c.get("repeat_evidence_path") or "NOT WRITTEN: %s" % c.get("repeat_evidence_error"),
+                            c.get("repeat_in_sources", "NOT MEASURED")))
     else:
         lines.append("  note   NOT MEASURED: this capture predates the repeat count")
     if c.get("brief_text_path"):
@@ -623,6 +844,21 @@ def judge_morning(c):
               all(rn))
     else:
         lines.append("  note   no reply debt on this box to grade (source %s)" % c.get("reply_source"))
+    if "reply_drops" in c:
+        lines.append("  note   reply arm: cap %s (%s); the hub says owed %s, ambiguous %s; which rows are shown is not graded"
+                     % (c.get("reply_cap"), c.get("reply_cap_source"), c.get("reply_owed"), c.get("reply_ambiguous")))
+        if c.get("reply_cap"):
+            check("the brief lists nobody the hub says is not owed, and no invented name (%s wrong)" % c.get("reply_wrong_names"),
+                  not c.get("reply_wrong_names"))
+        for d in c.get("reply_drops") or []:
+            lines.append("  note   reply row NOT graded: reason=%s shape=%s resolved=%s age_h=%s"
+                         % (d.get("reason"), d.get("shape"), d.get("resolved"), d.get("age_hours")))
+        if c.get("reply_cap") and "reply_more_low" in c:
+            lo, hi, seen = c["reply_more_low"], c["reply_more_high"], c.get("reply_more_seen") or []
+            if hi > 0:
+                check('the brief\'s "and N more" equals the owed rows past the shown top %d (expected %s, brief says %s)'
+                      % (c["reply_cap"], lo if lo == hi else "%d to %d" % (lo, hi), seen or "no count"),
+                      any(lo <= n <= hi for n in seen))
     mn = c.get("meetings_named") or []
     if c.get("meetings_graded", 0):
         check("the brief names today's meetings (%d of %d)" % (sum(mn), len(mn)), all(mn))

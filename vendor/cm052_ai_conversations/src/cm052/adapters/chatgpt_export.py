@@ -1,6 +1,6 @@
 """Adapter for ChatGPT user-initiated exports.
 
-Source: a "drop folder" (default ``~/Documents/Ostler/imports/chatgpt/``,
+Source: a "drop folder" (default ``~/Ostler/imports/chatgpt/``,
 override via ``OSTLER_CHATGPT_IMPORT_DIR``) into which the user drops
 the contents of an export downloaded from chatgpt.com -> Settings ->
 Data Controls -> Export Data.
@@ -78,7 +78,7 @@ from ..schemas import Conversation, Message
 log = logging.getLogger(__name__)
 
 
-_DEFAULT_DROP_FOLDER = "~/Documents/Ostler/imports/chatgpt"
+_DEFAULT_DROP_FOLDER = "~/Ostler/imports/chatgpt"
 
 
 def _drop_folder() -> Path:
@@ -328,7 +328,7 @@ def _conversations_from_export(
 
 def read(drop_folder: Path | None = None) -> Iterable[Conversation]:
     """Yield Conversations from every ``conversations.json`` under
-    ``drop_folder`` (default ``~/Documents/Ostler/imports/chatgpt``).
+    ``drop_folder`` (default ``~/Ostler/imports/chatgpt``).
 
     The adapter is read-only: it never deletes or moves the export
     files, so the user can safely re-run an import or compare it

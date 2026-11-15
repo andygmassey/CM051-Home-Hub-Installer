@@ -156,3 +156,21 @@ An unreadable store is `status: unreadable`, never an empty list. Read by CM048
 `reply_debt_sources` (cm048_pipeline record, same date). Proof:
 `tests/test_reply_debt_whatsapp_email.py`. Owed upstream: HR015 whatsapp_source.
 Regeneration not used: the dry run would also record unrelated drift (catchup.py).
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), whatsapp_source
+
+Not in any patch: `whatsapp_source` has `divergence_patch` pointing at `whatsapp_source.patch`, which #3429 does not change. Each edit is one line of path text, `~/Documents/Ostler` becoming `~/Ostler`:
+
+- `INSTALL_HANDOFF_SPEC.md`, `__init__.py`, `pipeline.py`.
+- `bin/whatsapp-bundle-tick.sh`.
+- `launchd/com.creativemachines.ostler.whatsapp-bundle.plist`.
+
+Upstream: NO PR. The pin `af4ae658` is not reachable from HR015's `main`, so the same archive problem as email_source applies. Not done here.
+
+## 2026-11-14: live WhatsApp index written after each successful bundle
+
+Edited in `vendor/whatsapp_source/pipeline.py`: `_record_live_index` is called
+after `_dispatch_to_cm048` returns 0 and not in dry run. It writes the chat's
+message keys (hashes only) to `whatsapp_live_message_keys.json` in the state dir,
+so the export supplement can dedupe against them. A write failure is reported on
+stderr. Re-vendor must keep this hook. Proof: `tests/test_whatsapp_export_dedupe.py`.

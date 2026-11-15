@@ -3,7 +3,7 @@
 # tests/test_time_machine_exclusion_is_measured.sh
 #
 # Status-honesty sweep I1 (walk #28 grading, privacy). install.sh set the Time
-# Machine exclusion on ~/.ostler (secrets, .env), ~/Documents/Ostler and
+# Machine exclusion on ~/.ostler (secrets, .env), ~/Ostler and
 # ~/.colima (the plaintext graph) with `tmutil addexclusion ... 2>/dev/null ||
 # true` and then printed, unconditionally, that all three "are excluded from
 # Spotlight indexing and Time Machine backups". A refused exclusion went to the
@@ -67,7 +67,7 @@ ok_lines() { grep '^OK' "$1" || true; }
 
 run_install() {  # run_install <mode> [refuse-path] -> output in $WORK/out.<mode>
     local mode="$1" h="$WORK/home-$1"
-    mkdir -p "$h/.ostler" "$h/Documents/Ostler" "$h/.colima"
+    mkdir -p "$h/.ostler" "$h/Ostler" "$h/.colima"
     cat > "$WORK/run-$mode.sh" <<RUN
 set -Eeuo pipefail
 trap 'echo "ABORTED at line \$LINENO" >&2' ERR
@@ -76,7 +76,7 @@ warn() { echo "WARN: \$*"; }
 info() { echo "INFO: \$*"; }
 source "$STRINGS"
 source "$WORK/helpers.sh"
-HOME="$h"; OSTLER_DIR="$h/.ostler"; USER_FACING_ROOT="$h/Documents/Ostler"
+HOME="$h"; OSTLER_DIR="$h/.ostler"; USER_FACING_ROOT="$h/Ostler"
 source "$WORK/callsite.sh"
 echo "REACHED THE END"
 RUN
@@ -133,7 +133,7 @@ done
 
 # ── Doctor: the live rule ─────────────────────────────────────────────────
 PY="${PYTHON:-python3}"
-dh="$WORK/doctor-home"; mkdir -p "$dh/.ostler" "$dh/Documents/Ostler"
+dh="$WORK/doctor-home"; mkdir -p "$dh/.ostler" "$dh/Ostler"
 # NEW-121: Doctor no longer runs tmutil. The fda-rerun tick (a child of the
 # signed FDA holder) measures the folders with _ostler_tm_status_record, from
 # the ostler-fda wrapper in install.sh, and Doctor reads what it wrote. So the
@@ -141,8 +141,8 @@ dh="$WORK/doctor-home"; mkdir -p "$dh/.ostler" "$dh/Documents/Ostler"
 awk '/^_ostler_tm_status_record\(\) \{/{f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" > "$WORK/tm_writer.sh"
 grep -q '^_ostler_tm_status_record() {' "$WORK/tm_writer.sh" || cannot "could not extract _ostler_tm_status_record from the ostler-fda wrapper"
 doctor() {  # doctor <FAKE_TM mode> <pre-exclude 0|1>
-    rm -f "$dh"/.ostler.fake-tm-excluded "$dh"/Documents/Ostler.fake-tm-excluded
-    if [[ "$2" == 1 ]]; then : > "$dh/.ostler.fake-tm-excluded"; : > "$dh/Documents/Ostler.fake-tm-excluded"; fi
+    rm -f "$dh"/.ostler.fake-tm-excluded "$dh"/Ostler.fake-tm-excluded
+    if [[ "$2" == 1 ]]; then : > "$dh/.ostler.fake-tm-excluded"; : > "$dh/Ostler.fake-tm-excluded"; fi
     HOME="$dh" OSTLER_DIR="$dh/.ostler" PATH="$WORK/bin:$PATH" FAKE_TM="$1" \
         /bin/bash -c 'set -Eeuo pipefail; source "$1"; _ostler_tm_status_record || true' _ "$WORK/tm_writer.sh"
     HOME="$dh" PATH="$WORK/bin:$PATH" FAKE_TM="$1" "$PY" - "$REPO/vendor/doctor/agent" <<'PYEOF'
@@ -162,7 +162,7 @@ PYEOF
 out="$(doctor honours 0)"
 case "$out" in IMPORT-FAILED*) cannot "the Doctor rules module does not import: $out";; esac
 if grep -q "Ostler's secrets folder is NOT excluded from Time Machine" <<< "$out" \
-   && grep -q "Documents/Ostler is NOT excluded" <<< "$out" && grep -q '^REGISTERED' <<< "$out"; then
+   && grep -q "/Ostler is NOT excluded" <<< "$out" && grep -q '^REGISTERED' <<< "$out"; then
     pass "Doctor: both included folders are named, the secrets folder in its own words, and the rule is registered"
 else fail "Doctor, included: $out"; fi
 out="$(doctor honours 1)"

@@ -138,6 +138,9 @@ def test_a_fresh_install_with_no_collection_indexes_everyone(world, monkeypatch)
 
     class NoCollection(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            # Read the body first: closing with it unread resets the socket
+            # and the client sees a ReadError (a race, not Qdrant's answer).
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             self.send_response(404)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

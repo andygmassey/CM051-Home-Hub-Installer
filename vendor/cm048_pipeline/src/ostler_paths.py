@@ -3,7 +3,7 @@
 The two-zone layout splits customer-generated content from
 engine-internal state:
 
-    ~/Documents/Ostler/    user-facing artefacts (wiki, transcripts, conversations)
+    ~/Ostler/    user-facing artefacts (wiki, transcripts, conversations)
     ~/.ostler/             engine room (databases, configs, logs, caches)
 
 This module exposes the two roots and their key subpaths plus the
@@ -66,11 +66,11 @@ def settings_yaml_path() -> Path:
     return ostler_root() / "settings.yaml"
 
 
-# ── User-facing: ~/Documents/Ostler/ ───────────────────────────
+# ── User-facing: ~/Ostler/ ───────────────────────────
 
 def user_facing_root() -> Path:
-    """User-facing root: ``~/Documents/Ostler/``."""
-    return Path.home() / "Documents" / "Ostler"
+    """User-facing root: ``~/Ostler/``."""
+    return Path.home() / "Ostler"
 
 
 def conversations_dir() -> Path:
@@ -326,7 +326,7 @@ def _rewrite_yaml_line(line: str) -> str:
     indent = line[: len(line) - len(stripped)]
     rest = value[len("~/.pwg/"):]
     if key == "output_conversations_dir":
-        new_value = "~/Documents/Ostler/Conversations"
+        new_value = "~/Ostler/Conversations"
     elif key == "processing_state_dir":
         new_value = f"~/.ostler/{rest}" if rest else "~/.ostler/processing"
     elif key == "coach_db_path":

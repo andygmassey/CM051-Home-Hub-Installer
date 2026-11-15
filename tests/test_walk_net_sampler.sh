@@ -15,6 +15,10 @@
 #   F  gws only in the unified log             -> gws_spawn_count>0, rc 1
 #   G  host row to a telemetry address         -> telemetry_hosts>0, rc 1
 #   H  VM container flow to a telemetry address -> telemetry_hosts>0, rc 1
+#   I  VM has socat and curl, no nc            -> socat chosen, VM control seen, rc 0
+#      (the colima VM as measured 2026-11-05: curl-first left it unseen)
+#   J  hold set on start only                  -> stop's controls hold as long
+#      as start's (the hold is persisted in the run dir, not re-read from env)
 # Then code mutants of the sampler itself; each must turn its case red.
 #
 # Debug knobs (never set in CI): ONLY_CASES="A C" runs those cases and skips
@@ -106,7 +110,7 @@ case "$1" in
         [ -e "$SHIM_STATE/vm_up" ] || { echo "colima is not running" >&2; exit 1; }
         while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done
         shift
-        PATH="$SHIM_VM:/usr/bin:/bin" exec "$@" ;;
+        PATH="$SHIM_VM:$SHIM_VMBASE" exec "$@" ;;
 esac
 exit 1
 EOF
@@ -140,7 +144,35 @@ echo "$(date +%s) vm nc open" >> "$SHIM_STATE/nc.log"
 : > "$SHIM_STATE/vm_nc_held"; cat >/dev/null; rm -f "$SHIM_STATE/vm_nc_held"
 echo "$(date +%s) vm nc closed" >> "$SHIM_STATE/nc.log"
 EOF
-chmod +x "$H"/* "$V"/*
+V2="${T}/vmshim_socat"; mkdir -p "$V2"   # second VM shape: socat and curl, no nc
+cat > "$V2/socat" <<'EOF'
+#!/bin/sh
+# socat - TCP:host:port -- holds the connection until stdin closes.
+echo "$(date +%s) vm socat open $2" >> "$SHIM_STATE/nc.log"
+: > "$SHIM_STATE/vm_nc_held"; cat >/dev/null; rm -f "$SHIM_STATE/vm_nc_held"
+echo "$(date +%s) vm socat closed" >> "$SHIM_STATE/nc.log"
+EOF
+cat > "$V2/curl" <<'EOF'
+#!/bin/sh
+# A GET that completes at once: the socket never outlives a sample interval.
+echo "$(date +%s) vm curl GET done" >> "$SHIM_STATE/nc.log"
+exit 0
+EOF
+chmod +x "$H"/* "$V"/* "$V2"/*
+
+# The "VM" userland: the runner's own tools, minus every network client, so
+# which control tool the sampler picks is decided by the shims alone (a real
+# nc, socat or curl on the runner would otherwise be chosen and dial out).
+VB="${T}/vmbase"; mkdir -p "$VB"
+for d in /usr/bin /bin; do
+    for f in "$d"/*; do
+        b="${f##*/}"
+        case "$b" in nc|ncat|netcat|nc.*|socat|curl|wget|busybox) continue ;; esac
+        [ -e "$VB/$b" ] || ln -s "$f" "$VB/$b"
+    done
+done
+# The second VM shape, as measured on the colima VM 2026-11-05.
+cp "$V/sudo" "$V/conntrack" "$V/docker" "$V2/"
 
 # ------------------------------------------------------------------ fixtures
 # lsof -F: an ssh session (LAN, not outbound), a listener, and one declared
@@ -187,9 +219,9 @@ run_case() {
         H) echo "tcp      6 100 ESTABLISHED src=172.17.0.2 dst=198.51.100.8 sport=42000 dport=443 src=198.51.100.8 dst=192.168.5.15 sport=443 dport=42000 [ASSURED] mark=0 use=1" > "$st/conntrack_extra" ;;
     esac
     local env_common
-    env_common="SHIM_FIX=${FIX} SHIM_STATE=${st} SHIM_VM=${V} NETSAMP_SUDO=${H}/sudo NETSAMP_LSOF=${H}/lsof NETSAMP_NETTOP=${H}/nettop NETSAMP_LOG=${H}/log NETSAMP_PGREP=${H}/pgrep NETSAMP_NC=${H}/nc NETSAMP_DSCACHEUTIL=${H}/dscacheutil NETSAMP_COLIMA=${H}/colima NETSAMP_TELEMETRY_LIST=${TELEMETRY} NETSAMP_CONTROL_HOLD=8"
+    env_common="SHIM_FIX=${FIX} SHIM_STATE=${st} SHIM_VM=${V} SHIM_VMBASE=${VB} NETSAMP_SUDO=${H}/sudo NETSAMP_LSOF=${H}/lsof NETSAMP_NETTOP=${H}/nettop NETSAMP_LOG=${H}/log NETSAMP_PGREP=${H}/pgrep NETSAMP_NC=${H}/nc NETSAMP_DSCACHEUTIL=${H}/dscacheutil NETSAMP_COLIMA=${H}/colima NETSAMP_TELEMETRY_LIST=${TELEMETRY} NETSAMP_CONTROL_HOLD=8"
     # The VM comes up AFTER the sampler starts: the sampler must wait for it.
-    env ${env_common} ${1+"$@"} "${sampler}" start --out "${OUTD}" --period 1 > "${OUTD}.start.log" 2>&1
+    env ${env_common} ${1+"$@"} ${START_ENV:-} "${sampler}" start --out "${OUTD}" --period 1 > "${OUTD}.start.log" 2>&1
     # Wait on conditions, not on the clock: a loaded CI runner can stall a
     # 1 s loop for several seconds.
     wait_for "${OUTD}/host_samples.tsv" 1
@@ -244,6 +276,19 @@ expect_case() {
            [ "$(num telemetry_hosts)" -gt 0 ] 2>/dev/null || { echo "    H: VM telemetry flow not counted"; e=1; }
            has "fonts.gstatic.com	vm:ostler-qdrant" || { echo "    H: VM telemetry hit not attributed to its container"; e=1; }
            [ "$RC" -eq 1 ] || { echo "    H: rc=$RC, want 1"; e=1; } ;;
+        I) run_case "$s" I SHIM_VM="${V2}"
+           has "vm control tool: socat" || { echo "    I: socat not chosen when the VM has socat and no nc"; e=1; }
+           has "vm control (start): SEEN" || { echo "    I: VM start control not seen"; e=1; }
+           has "vm control (stop): SEEN" || { echo "    I: VM stop control not seen"; e=1; }
+           has "vm_sampler=PASS" || { echo "    I: no vm_sampler=PASS"; e=1; }
+           [ "$RC" -eq 0 ] || { echo "    I: rc=$RC, want 0"; e=1; } ;;
+        J) START_ENV="NETSAMP_CONTROL_HOLD=8" run_case "$s" J NETSAMP_CONTROL_HOLD=
+           # Without the persisted hold, stop falls back to 2 x period = 2.
+           local rows
+           rows="$(awk -F'\t' '{ print $1 ":" $2 ":" ($4 - $3) }' "${OUTD}/controls.tsv" 2>/dev/null | sort | tr '\n' ' ')"
+           [ "${rows}" = "host:start:8 host:stop:8 vm:start:8 vm:stop:8 " ] \
+               || { echo "    J: control holds are '${rows}', want all four at 8"; e=1; }
+           [ "$(cat "${OUTD}/control_hold" 2>/dev/null)" = "8" ] || { echo "    J: start's hold not persisted"; e=1; } ;;
     esac
     if [ "$e" -ne 0 ]; then
         printf '%s\n' "${REPORT}" | sed 's/^/      | /'
@@ -256,7 +301,7 @@ expect_case() {
 }
 
 echo "== cases against scripts/walk_net_sampler.sh"
-for c in ${ONLY_CASES:-A B C D E F G H}; do
+for c in ${ONLY_CASES:-A B C D E F G H I J}; do
     if expect_case "${SAMPLER}" "$c"; then ok "case $c"; else bad "case $c"; fi
 done
 
@@ -286,11 +331,14 @@ mutant() { # label case old new
 [ -n "${ONLY_CASES:-}" ] || mutant gws_socket_rows_dropped E '$3 == "gws" { print $4 }' '$3 == "nothing" { print $4 }'
 [ -n "${ONLY_CASES:-}" ] || mutant gws_log_ignored F 'if [ "$lrc" -eq 0 ]; then printf' 'if false; then printf'
 [ -n "${ONLY_CASES:-}" ] || mutant telemetry_match_off G '($3 in h) {' '(0) {'
+[ -n "${ONLY_CASES:-}" ] || mutant vm_control_curl_first I 'if command -v socat >/dev/null 2>&1; then t=socat' 'if command -v curl >/dev/null 2>&1; then t=curl
+elif command -v socat >/dev/null 2>&1; then t=socat'
+[ -n "${ONLY_CASES:-}" ] || mutant stop_rereads_hold_from_env J 'case "${saved}" in ""|*[!0-9]*) ;; *) echo "${saved}"; return 0 ;; esac' ':'
 [ -n "${ONLY_CASES:-}" ] || mutant vm_rows_not_in_telemetry H 'awk -F'"'"'\t'"'"' '"'"'{ print "vm\t" $9 "\t" $6 }'"'"'' 'true'
 
 echo
 echo "test_walk_net_sampler: ${PASSES} ok, ${FAILS} failed (of $((PASSES + FAILS)))"
 [ "${FAILS}" -eq 0 ] || exit 1
-# The denominator: 8 cases + 6 mutants. Fewer means something did not run.
-[ -n "${ONLY_CASES:-}" ] || [ "${PASSES}" -eq 14 ] || { echo "denominator: ${PASSES} of 14 ran"; exit 1; }
+# The denominator: 10 cases + 8 mutants. Fewer means something did not run.
+[ -n "${ONLY_CASES:-}" ] || [ "${PASSES}" -eq 18 ] || { echo "denominator: ${PASSES} of 18 ran"; exit 1; }
 exit 0

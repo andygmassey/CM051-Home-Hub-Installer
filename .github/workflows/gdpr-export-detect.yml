@@ -15,6 +15,8 @@ on:
       - 'tests/test_f010_clt_wait_and_scan_budget.sh'
       - 'tests/test_export_detect_large_zip_behaviour.sh'
       - 'tests/test_unzip_every_archive_is_opened_or_reported.sh'
+      - 'tests/test_chatgpt_export_detect_and_stage.sh'
+      - 'vendor/cm052_ai_conversations/src/cm052/adapters/chatgpt_export.py'
       - 'install.sh'
       - '.github/workflows/gdpr-export-detect.yml'
   push:
@@ -52,6 +54,12 @@ jobs:
       - name: CLT wait never aborts + bounded export scan (F010)
         if: always()
         run: bash tests/test_f010_clt_wait_and_scan_budget.sh
+
+      # ChatGPT (2026-11-14): detected by its conversations.json + chat.html
+      # pair, staged into the CM052 drop folder, read by the real adapter.
+      - name: ChatGPT export detected, staged and read by CM052
+        if: always()
+        run: bash tests/test_chatgpt_export_detect_and_stage.sh
 
   # ==========================================================================
   # #889 RESIDUAL -- AND IT HAS TO RUN ON macOS, WHICH WAS MEASURED, NOT ASSUMED.

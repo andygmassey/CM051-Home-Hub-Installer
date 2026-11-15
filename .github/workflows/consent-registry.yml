@@ -42,6 +42,7 @@ on:
       - 'lib/ostler_consent_display.py'
       - 'tests/test_consent_display_record.py'
       - 'vendor/ostler_security/consent.py'
+      - 'tests/test_consent_wording_hashes_published.py'
   push:
     branches: [main]
 
@@ -130,6 +131,12 @@ jobs:
         # the consent registry. A record naming wording the person never saw is
         # worse than no record, because it looks like evidence.
         run: bash tests/test_the_licence_screen_says_what_we_hash.sh
+      - name: the installed wording hashes match the wording the app is gated on
+        # CM042 RemoteCapture refuses capture unless its consent record carries
+        # the hash in posture/consent_wording_hashes.json. This drives publish-wording
+        # for real and checks the published hash is the SHA-256 of the screen text.
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_wording_hashes_published.py
       - name: Customer copy says the app, not the repository (#1008)
         if: always()
         # MEASURED on main 2026-09-18: the strings file the installer PRINTS

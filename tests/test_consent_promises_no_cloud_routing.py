@@ -133,9 +133,16 @@ h = hits((ROOT / "vendor" / "legal" / "consent_strings.py").read_text(encoding="
 report(not h, f"consent_strings.py source carries no cloud-routing clause anywhere {h if h else ''}")
 
 # 3. every ViewCopy locale
+# An unreviewed change to consent copy ships the ENGLISH body in every locale
+# (translations wait in l10n/legal_pending). Only a body that IS the English
+# body, byte for byte, may be held to the English phrase.
+EN_BODY = json.loads((RES / "ViewCopy.en-US.json").read_text(encoding="utf-8")) \
+    .get("consent_article_9", {}).get("intro_body", "")
 for fname, keep in KEEP.items():
     d = json.loads((RES / fname).read_text(encoding="utf-8"))
     body = d.get("consent_article_9", {}).get("intro_body", "")
+    if EN_BODY and body == EN_BODY:
+        keep = KEEP["ViewCopy.en-US.json"]
     report("ostler.ai/privacy" in body and keep in body,
            f"{fname} consent_article_9/intro_body still lists the update-check exception (positive control)")
     h = hits(json.dumps(d, ensure_ascii=False))

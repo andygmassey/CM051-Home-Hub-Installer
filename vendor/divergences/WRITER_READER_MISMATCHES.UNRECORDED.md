@@ -1339,7 +1339,7 @@ Tree `ostler_fda`. `vendor/ostler_fda/apple_music.py`: `read_native_library` is 
 `vendor/doctor/agent/diagnostic_rules.py` gains `_tm_isexcluded()` and
 `check_time_machine_exclusion()` (registered last in `ALL_RULES`);
 `vendor/doctor/agent/diagnostic_copy.py` gains the `TM_*` copy. The rule asks
-`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Documents/Ostler`
+`tmutil isexcluded` on every Doctor run for `~/.ostler`, `~/Ostler`
 and `~/.colima` (each only if it exists): "[Excluded]" is silent, "[Included]"
 is a warning naming the folder ("Ostler's secrets folder is NOT excluded from
 Time Machine" for `~/.ostler`), anything else is an info "could not check",
@@ -1352,7 +1352,7 @@ regenerated (`regenerate_forbidden`); the HR015 doctor twin is OWED. Guarded by
 
 MEASURED on the v1.0.120 box: the rule above ran `tmutil isexcluded` from
 Doctor's launchd python, so TCC charged the reads to python3.11, and the
-`~/Documents/Ostler` argv (plus the `os.path.isdir()` gating it) made a
+`~/Ostler` argv (plus the `os.path.isdir()` gating it) made a
 NON-preflight SystemPolicyDocumentsFolder request, the prompt-capable shape.
 
 `_tm_isexcluded()` is DELETED. `check_time_machine_exclusion()` now reads
@@ -1378,7 +1378,7 @@ back.
 ### 2026-10-30, v1.0.121 (NEW-121, Archie (b)): the Documents tile reads, never probes
 
 `vendor/doctor/agent/documents_access_posture.py` (VENDOR_ONLY) no longer
-probe-writes into `~/Documents/Ostler` from Doctor's python on every render.
+probe-writes into `~/Ostler` from Doctor's python on every render.
 `probe_documents_access` and `_default_write_probe` are DELETED;
 `read_documents_access()` reads `~/.ostler/state/documents_access.tsv`
 (`STATUS_FILE_REL`, `STATUS_MAX_AGE_SECONDS` = 6 h) and
@@ -1659,7 +1659,7 @@ Tree `doctor`, files `vendor/doctor/agent/diagnostic_rules.py` (new `check_ollam
 
 ### What a future sync must preserve
 
-`check_ollama_pin`, `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+CM051 #3468 extends the #2977 graft (CM051-local, absent upstream at the pin, so it rides on that graft): `vendor/doctor/agent/diagnostic_rules.py:1896-1902` (collects `model_unverified=<model>`) and `:1912` (appends the copy), import at `:194`; `vendor/doctor/agent/diagnostic_copy.py:746` (`OLLAMA_MODELS_UNVERIFIED_FMT`) and `:741-745` (the `OLLAMA_NOT_PINNED_DETAIL_FMT` sentence that said no models are downloaded, now removed). Preserve `check_ollama_pin` (`diagnostic_rules.py:1879`, including its repeated `model_unverified=<model>` key, appended by install.sh when a model is pulled under a deferred pin), `_ollama_pin_state_path`, the `OLLAMA_NOT_PINNED_*` copy plus `OLLAMA_MODELS_UNVERIFIED_FMT`, and the `ALL_RULES` entry. The writer/reader contract is the key set above. Guarded by `tests/test_doctor_says_when_ollama_is_not_pinned.sh` (workflow `vendor-integrity.yml`). That test runs the shipped install.sh writer and the shipped Doctor `render_dashboard`. With the rule unregistered, arm A goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
 
 ## doctor: a refused macOS permission reads "needs access" with the pane named, not "could not look" -- `doctor`
 
@@ -1791,3 +1791,117 @@ Then extended to the WHOLE Doctor-native surface by the `_owner_gate` middleware
 ### What a future sync must preserve
 
 `_owner_gate`, `_owner_refusal` on all five routes, and `owner_peer.py`. Guarded by `tests/test_doctor_credential_routes_owner_only.sh` (workflow `vendor-integrity.yml`): with the call removed from any route, or any of the uid, relay or loopback conditions removed, it goes RED. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## 2026-11-06: doctor shows the loopback guard and box-status carries it (CM051 #3362) -- `doctor`
+
+Tree `doctor`, files `vendor/doctor/agent/web_ui.py` (imports `render_loopback_guard_status`, calls it as `loopback_guard_section`, places `{loopback_guard_section}` after the derived-preferences section) and `vendor/doctor/agent/box_status.py` (new `_privacy_guard()`, and `box_status()` gains the `privacy_guard` key, which the Hub reads through its `/api/v1/box-status` proxy). The reader itself, `agent/loopback_guard_status.py`, is vendor-only (VENDOR_ONLY.tsv row). It READS the status file the v1.0.126 root daemon writes (`lib/ostler-loopback-guard.sh`) and never touches pf.
+
+Not regenerated into doctor.patch: the tree is `regenerate_forbidden` (CM051 #2219), the same refusal recorded above.
+
+### What a future sync must preserve
+
+The import, the call, the placeholder and the `privacy_guard` key. Guarded by `tests/test_doctor_shows_loopback_guard.py` (workflow `cold-box-source-truth.yml`) and arm 15 of `tests/test_loopback_guard.sh`, which feeds the reader the status files the real lib wrote. Owed upstream: none (HR015 Doctor runs as a service with no installer daemon to report on).
+
+## doctor: a killed wiki compile is a RED row (v1.0.126 b1/b2, from the 125 walk) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. Files:
+
+- `agent/status_collector.py`, appended at the end: `WIKI_COMPILE_KILL_PHASES`, `WIKI_COMPILE_KILL_CAUSES`, dataclass `WikiCompileKill`, and `read_wiki_compile_kills()`, which reads `state/wiki-recompile/compile-killed.<phase>.json` (written by CM051 `wiki-recompile/bin/wiki-recompile-tick.sh` when a compile exits 137/143). An unparseable marker is returned with `unreadable=True`; an unknown cause stays `"unknown"`.
+- `agent/diagnostic_rules.py`: nine new copy imports and `read_wiki_compile_kills` imported from status_collector; new `_wiki_compile_kill_findings()` placed just above `_WIKI_STALL_MIN_TICKS`; `check_wiki_health` calls it right after the refresh-stall block and before the port probe. One CRITICAL finding per killed phase, a WARNING ("could not check") for an unreadable marker.
+- `agent/diagnostic_copy.py`: a new block after `WIKI_REFRESH_STALLED_FIX_COMMAND`: `WIKI_COMPILE_KILLED_TITLE_FMT` / `WIKI_SUMMARIES_KILLED_TITLE_FMT` (dicts keyed by cause: oom, timeout, killed, unknown; the oom title is "Your wiki stopped updating at {time}: not enough memory"), the two details, fix, fix command (kickstart of `com.creativemachines.ostler.wiki-recompile`), the unreadable title and detail, and `WIKI_COMPILE_KILL_TIME_FMT`.
+
+### What a future sync must preserve
+
+All three, and the marker contract with the tick (path, `phase`, `exit`, `cause`, `at` in UTC). Guarded by `tests/test_a_killed_wiki_compile_is_a_doctor_red.py` (workflow `vendor-integrity.yml`), which runs the real tick into the real rule: 11 of its checks fail on the pre-change tree. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## doctor: a store OOM-killed and restarted is a RED row (v1.0.126, from the 125 box) -- `doctor`
+
+Tree `doctor`. Pin NOT moved. `agent/status_collector.py` appends `STORE_CONTAINERS`, `STORE_RESTART_WINDOW_S`, dataclass `StoreRestart` and `collect_store_restarts()` (one `docker inspect` of the three store containers for RestartCount / State.OOMKilled / StartedAt, one `docker events --filter event=oom` for the last day; `OSTLER_DOCTOR_DOCKER_BIN` overrides the binary for tests). It also adds `STORE_RESTART_STATE`, `store_restart_state_path`, `read_store_restart_state` and `write_store_restart_state` (`state/doctor/store-restarts.json`, the last-seen RestartCount per store); a store missing from a partial inspect comes back with `restart_count = -1`. `agent/diagnostic_rules.py` adds `check_store_restarts` (registered in `ALL_RULES` after `check_wiki_health`) and its imports: RED only on an oom event / OOMKilled for that store or a RestartCount rise past the recorded count (a reboot is silent; the first look is a baseline), held 24 h; a store docker did not report gets a 'could not check' warning. `agent/diagnostic_copy.py` adds the `STORE_RESTARTED_*`, `STORE_RESTART_UNCHECKED_*` strings and `STORE_LABELS` after `WIKI_COMPILE_KILL_TIME_FMT`. Guarded by `tests/test_a_store_oom_restart_is_a_doctor_red.py` (vendor-integrity.yml), including the reboot and partial-inspect cases. Owed upstream to HR015 doctor; retire on a re-pin that carries it.
+
+## 2026-11-06: the People search row (v1.0.126, item h) -- `doctor`
+
+Tree `doctor`. Pin NOT moved; regeneration is forbidden for this tree (manifest
+`regenerate_forbidden`). Files: `vendor/doctor/agent/web_ui.py` (import
+`render_people_index_status`, call it beside `render_derived_preferences_status`,
+placeholder `{people_index_section}` after `{derived_preferences_section}`) and the
+new vendor-only `vendor/doctor/agent/people_index_status.py` (VENDOR_ONLY.tsv row).
+
+The row reads `state/people-index.json`, written by the vendored ostler_fda people
+sweep, and says "Making N people searchable" (amber) while people still have no
+search vector, "All N people are searchable" (green) at zero, and goes red only when
+the end-of-pass backlog grew on each of the last three passes. Guarded by
+`tests/test_people_index_embeds_only_what_changed.py` (workflow
+`dedupe-merge-rule-2.yml`), which also asserts the import, call and placeholder.
+Owed upstream: none until the writer itself is lifted into HR015 ostler_fda.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), doctor
+
+Regeneration REFUSED, measured 2026-11-11 (dry run): "doctor is marked regenerate_forbidden in VENDOR_MANIFEST.toml". Recorded here instead.
+
+- `agent/diagnostic_rules.py` (4 edits): comments naming the root; the `os.path.join(home, "Documents", "Ostler")` entry in the folders list becomes `os.path.join(home, "Ostler")`.
+- `agent/web_ui.py` (2 comment lines): probe comments.
+- `agent/documents_access_posture.py`: VENDOR_ONLY (no upstream file). Route (d) of the gate, not recorded here.
+
+Upstream: andygmassey/HR015-Gaming-PC has `doctor/agent/` at head, but the vendored lines are gone there in part. Upstream leftovers still name `Documents/Ostler` (`diagnostic_rules.py:1373,1374,1393`, `web_ui.py:2370`, `dashboard_components.py:1399`, `status_collector.py`, three test files). No upstream PR. The change is not made upstream yet.
+
+## 2026-11-14: "Your data exports" section, per-platform stale rule, Q11 links (CM051 export-doctor PR), doctor
+
+Regeneration REFUSED by the manifest (`regenerate_forbidden`). Recorded here instead. Stacked on CM051 #3503 (head 33cdee0b).
+
+- `agent/export_status.py`: VENDOR_ONLY (no upstream file). Reads the watcher's `${OSTLER_DIR}/state/export-scan/high_water.tsv`, renders the "Your data exports" section, and produces the stale-import findings.
+- `agent/export_platforms.tsv`: VENDOR_ONLY. The one platform table, shared with installer Q11 and checked by `tests/test_export_platforms_match_q11.py`.
+- `agent/diagnostic_rules.py`: `check_gdpr_export_age` now reads `snapshot.export_imports` through `export_status.stale_findings`. The `STALE_IMPORT_*` imports are removed.
+- `agent/diagnostic_copy.py`: the dev-CLI `STALE_IMPORT_*` copy (which named `ostler-import --exports-dir`) is removed. Its replacement is in `export_status.py`, with the request link.
+- `agent/status_collector.py`: `SystemSnapshot.export_imports` field, set in `collect_full_snapshot` from `export_status.collect_import_state()`. Imports `export_status`.
+- `agent/web_ui.py`: imports `render_export_section`, calls it in `render_dashboard` beside `source_status_section`, places `{export_section}` after the sources table.
+
+Upstream: none. The "Your data exports" section and its state model exist only in CM051. Owed upstream: none until the Doctor source-status panel is lifted (see DOCTOR_SOURCE_STATUS_PANEL_2219.md).
+
+## Graft: Doctor "Background engine" row (CM051 #3515, 2026-11-14)
+
+Tree `doctor`. NEW FILE `vendor/doctor/agent/engine_watchdog_status.py` plus
+three lines in `vendor/doctor/agent/web_ui.py` (one import, one call, one
+`{engine_watchdog_section}` placeholder after the derived-preferences row).
+
+Not in `doctor.patch`: the patch was not regenerated, because the doctor pin is
+behind upstream and regeneration would fold upstream commits in as local edits.
+This is recorded here instead. A grep of `doctor.patch` for
+`engine_watchdog` returns nothing, and that means NOT RECORDED in the patch,
+not NOT DIVERGED.
+
+Why: the engine supervisor restarts a wedged systemd-logind inside the colima
+VM and writes `~/.ostler/state/engine-supervisor/logind_health.json`. This row
+is the customer-visible surface for that restart: "a system service was stuck
+and was restarted at <time>", "running normally", or "couldn't check". It reads
+the file only. A check that could not run is never shown as "running".
+
+Gated by `tests/test_doctor_shows_engine_watchdog_status.py` (15 cases,
+synthetic records; 3 red under a mutant that reads CANNOT-RUN as running).
+Wired in `.github/workflows/vendor-integrity.yml`.
+
+Retire: when the doctor pin moves to a commit that carries this row natively.
+
+
+## doctor: Homebrew prefix row (agent/web_ui.py), 2026-11-14
+
+`agent/web_ui.py` (two additions, both recorded here, the tree is regenerate-forbidden):
+
+- import: `from shared_prefix_status import render_shared_prefix_status`
+- the page: `shared_prefix_section = render_shared_prefix_status()` and `{shared_prefix_section}` placed after `{loopback_guard_section}`.
+
+New vendor-only file `agent/shared_prefix_status.py` (listed in `vendor/VENDOR_ONLY.tsv`). It reads the owner of `/opt/homebrew` and never changes it.
+
+Why: the GUI admin shell chowned `/opt/homebrew` to the owner on every install. It now refuses to take another account's Homebrew and never chowns an existing prefix. Archie's ruling (8b/8d) asks Doctor to say so: another account's Homebrew is refused (warning, no account named), and a prefix owned by the running account is INFO with no auto-fix, because an earlier chown cannot be reverted.
+
+Tests: `tests/test_doctor_shows_shared_prefix.py` (13 checks; mutant that reads a foreign owner as INFO fails 4). On origin/main the module does not exist and web_ui.py has no import, so that test cannot pass there.
+# doctor: export_platforms.tsv gains a ChatGPT row (CM051, 2026-11-14)
+
+Vendored edit in `vendor/doctor/agent/export_platforms.tsv`: one row, `ChatGPT`.
+It mirrors the watcher's new ChatGPT label in `lib/ostler-detect-exports.sh` (SIGS).
+Its request URL is also in installer Q11 (`install.sh`), which the drift test checks.
+
+- request_url: `https://chatgpt.com/#settings/DataControls` (UNVERIFIED-FETCH: the
+  help page at help.openai.com returned HTTP 403 to the fetcher; the path is the
+  documented Settings > Data Controls > Export data).
+- No upstream patch: the row lives only in CM051 until the same change lands in the
+  Doctor source table. Re-vendor must keep this row or the drift test goes red.

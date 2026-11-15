@@ -81,6 +81,12 @@ done
 fx="$(_row "$V" assistant_answers_grounded | cut -f5)"
 [ "$fx" = "seed-fixture" ] && ok "assistant_answers_grounded fixture column reads seed-fixture (in SEED_DEPENDENT_PROBES)" || bad "assistant_answers_grounded: fixture column reads '${fx}', expected seed-fixture"
 
+# Per-probe seconds: one TIMING line per probe that ran, and a sorted top 15 (Archie, #3450).
+nt=$(grep -c '^  TIMING probe=' "${WORK}/out.txt")
+[ "$nt" -eq 4 ] && ok "one TIMING line per probe that ran (4 of 5 stubs; the BROKEN one is skipped)" || bad "expected 4 TIMING probe lines, read ${nt}"
+grep -q '^  TIMING top15 probe=stub_' "${WORK}/out.txt" && grep -q '^  TIMING phase2_probes_total seconds=' "${WORK}/out.txt" \
+    && ok "and a top-15 block and a total" || bad "no TIMING top15 / total in the run output"
+
 # The two probes whose seeds are forgotten before the replay must be listed,
 # or phase 2 overwrites their phase 1 verdict with CANNOT-RUN (walk #10).
 for sp in conversation_capture_end_to_end owner_digest_knows_the_owner; do

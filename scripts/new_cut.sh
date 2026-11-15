@@ -227,6 +227,9 @@ run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
 CUT_VERSION_SOURCE=tag \
 run_gate "installer version IS the cut version" \
     bash tests/test_installer_version_matches_the_cut.sh "$VERSION"
+# LAST, as in cut.yml's preflight: every build-free ship prerequisite (check-orphans,
+# check-pr-age last), from scripts/ship_prereq_classes.tsv. rc is run_gate's own, unmasked.
+run_gate "ship prerequisites (LINUX class)" bash scripts/run_ship_prereqs.sh LINUX
 
 echo
 if [ "$RED" = "0" ]; then

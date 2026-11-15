@@ -63,6 +63,8 @@ _HUB = ("Hub-only route; NOT read by context-refresh or meeting_syncer.brief "
 
 OUTBOUND = {
     (ICAL, "person_context"), (ICAL, "person_enrichment"), (ICAL, "person_timeline"),
+    # CM041 #251 Photos rows, merged into api_timeline: outbound to iOS and the digest, L3 withheld.
+    (ICAL, "_timeline_photos"),
     (ICAL, "commitments_list"),
     (ICAL, "_query_operator_career_facts"),
     # /api/v1/timeline?outbound=1, read by the 7-day digest (generate_pwg_context.py _meetings_section)
@@ -77,6 +79,7 @@ ONBOX = {
     (ICAL, "_personal_identifiers_for"): _ID, (ICAL, "_suppression_reason"): _ID,
     (ICAL, "_suppressed_identity_index"): _ID, (ICAL, "_merge_aware_name_rows"): _ID,
     (ICAL, "_merged_cluster"): _ID, (ICAL, "_operator_email_domains"): _ID,
+    (ICAL, "_raw_identity_roots"): _ID,
     (ICAL, "_hygiene_verdicts"): "hygiene overlay verdicts (fact ids), no content",
     (ICAL, "_assert_fact_person"): "write path (resolves the subject), not a read for output",
     (ICAL, "_memory_query_facts"):
