@@ -1,10 +1,9 @@
 name: g7-gate-copies
 
 # The G7 subscription gate ships as three byte-identical copies
-# (vendor/cm041/assistant_api, vendor/cm052_ai_conversations, vendor/ostler_fda).
+# (vendor/cm041/assistant_api, vendor/cm052_ai_conversations). ostler_fda's copy was removed 2026-11-15.
 # They are ONE gate: tests/test_g7_gate_copies_are_one.py fails if any copy
-# drifts from the pinned digest (and pins vendor/ostler_fda/first_import.py,
-# the free-first-import rule, to CM052's), and proves the --check contract the Pro-gated
+# drifts from the pinned digest, and proves the --check contract the Pro-gated
 # ostler_fda sources rely on (0 active, 3 paused, anything else fail open).
 # Python 3.11 (the Hub's). No em dashes.
 
@@ -13,8 +12,6 @@ on:
     paths:
       - 'vendor/cm041/assistant_api/subscription_gate.py'
       - 'vendor/cm052_ai_conversations/src/cm052/subscription_gate.py'
-      - 'vendor/ostler_fda/subscription_gate.py'
-      - 'vendor/ostler_fda/first_import.py'
       - 'tests/test_g7_gate_copies_are_one.py'
       - '.github/workflows/g7-gate-copies.yml'
   push:
