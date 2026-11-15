@@ -41,4 +41,17 @@ if grep -Fq "CONTROL ASSERTIONS: ALL HOLD" <<< "$down"; then
     echo "FAIL: endpoint-down run reported control assertions holding"; fail=1
 fi
 
+# ARM: made-up-answer measurement on the shipped /ws/chat path (owner_fabrication.py). Dry run
+# against a stand-in gateway and a fixture store, with known verdicts per mode, planted grader
+# controls, and refusals. It never touches a box; the real run is on Mini16, by hand.
+out_fab="$("$PY" -I "$HERE/scripts/intelligence_eval/owner_fabrication_selftest.py" 2>&1)"
+rc_fab=$?
+printf '%s\n' "$out_fab" | tail -3
+if [ "$rc_fab" -ne 0 ]; then
+    echo "FAIL: owner_fabrication dry run exited $rc_fab"; fail=1
+fi
+if ! grep -Fq "18 passed, 0 failed" <<< "$out_fab"; then
+    echo "FAIL: owner_fabrication dry run did not report 18 passed, 0 failed"; fail=1
+fi
+
 exit "$fail"
