@@ -171,3 +171,33 @@ Regeneration REFUSED: the source has advanced past the pin (005ebd7, reply debt)
 - `src/settings.py` (1 line): default path.
 
 Upstream: andygmassey/CM048-PWG-Conversation-Processing PR #117, not merged. Tests: full suite 1158 passed, 1 skipped, exit 0; the CM048 agent measured the old source against the new assertions as 4 failures.
+
+## 2026-11-14: undated bundles fail closed in the writer gate, cm048_pipeline
+
+`src/reminders_push.py`, `_is_stale` and `_has_future_deadline` (called from `decide_push`). The same-shape sweep of 2026-11-14 (item 3, evidence `~/walkdriver/evidence/same_shape_sweep_2026-11-14.md`) found that `_is_stale` returned "not stale" for a bundle with neither `started_at` nor `date`, so catch-up pushed years-old todos into Apple Reminders.
+
+Upstream is already correct: CM048 #120 (merged 68897402) gates on `_in_push_window`, which returns False for an undated bundle unless the todo's deadline is today or later. The defect was only in this vendored copy, which carries a CM051-side age gate that upstream never had. Re-vendoring is NOT a clean option: the vendored file carries about 690 lines of CM051-only logic (organisation filter, duplicate-thread skip, title-length skip, `FLAG_ORG_FILTER_UNAVAILABLE`) that no CM048 branch contains. So the rule is ported by hand, as #120 states it.
+
+- Undated bundle: not pushed, regardless of `OSTLER_TODO_MAX_AGE_DAYS`. The env value <= 0 now switches off only the age cutoff for dated bundles.
+- Open todo with a deadline today or later: pushed whatever the source date (#120). This changes the dated path: an old bundle with a future deadline is now pushed, as upstream does.
+- Not ported: upstream's `ended_at` as the first activity stamp (the vendored `_source_datetime` reads `started_at` then `date`).
+
+Tests: `tests/test_cm048_undated_bundle_not_pushed.py` (6). RED on the pre-change vendored file: 3 fail (undated, undated with past deadline, age cutoff disabled). Mutant (`return True` restored to `return False`): 3 fail. Existing reminders suites: green on the new code.
+## 2026-11-14: the WhatsApp resolver guard (CM051 #3423)
+
+Edited in `vendor/cm048_pipeline/src/channel_adapter.py`, `_whatsapp_resolve_privacy`:
+after the explicit `privacy_level` override, a missing classification, or one with no
+sensitivity level, returns L3. Before, a classification with no level fell through to
+L2. This is the unavailable-verdict rule: fail toward the higher level.
+
+The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not checked
+out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
+keep it, or a missing verdict falls back to L2 again.
+Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.
+
+## PORT OWED: upstream as CM048 PR #121 (2026-11-14)
+
+The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` PR #121,
+DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
+When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
+`vendor/cm048_pipeline/src/channel_adapter.py`.

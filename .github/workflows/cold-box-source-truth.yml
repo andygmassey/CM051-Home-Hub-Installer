@@ -61,6 +61,13 @@ on:
       - 'tests/test_loopback_guard.sh'
       - 'lib/ostler-loopback-guard.sh'
       - 'tests/test_doctor_shows_loopback_guard.py'
+      - 'tests/test_doctor_shows_shared_prefix.py'
+      - 'tests/test_cli_symlink_owner_path.sh'
+      - 'tests/test_pwg_convo_bin_owner_side_first.py'
+      - 'tests/test_homebrew_refusal_reaches_the_screen.py'
+      - 'tests/test_cm048_window_drift.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/doctor/agent/shared_prefix_status.py'
       - 'vendor/doctor/agent/loopback_guard_status.py'
       - 'vendor/doctor/agent/box_status.py'
       - 'vendor/doctor/agent/web_ui.py'
@@ -218,6 +225,18 @@ jobs:
       - name: Doctor and the Hub's box-status read the loopback guard's status (three answers, never two)
         if: always()
         run: python3 tests/test_doctor_shows_loopback_guard.py
+      - name: Homebrew prefix Doctor row, another account's Homebrew is refused and the owner is INFO
+        if: always()
+        run: python3 tests/test_doctor_shows_shared_prefix.py
+      - name: GUI install never reaches for sudo to link a CLI (owner-side link instead)
+        if: always()
+        run: bash tests/test_cli_symlink_owner_path.sh
+      - name: ical-server finds the owner-side pwg-convo before the /usr/local/bin link
+        if: always()
+        run: PYTHONPATH="$GITHUB_WORKSPACE/vendor" python3 tests/test_pwg_convo_bin_owner_side_first.py
+      - name: The Homebrew refusal is shown on the retry gate, not only logged
+        if: always()
+        run: python3 tests/test_homebrew_refusal_reaches_the_screen.py
       - name: a KeepAlive agent that can never bind is not reported as a green install
         # always(), because this is the ending the SIBLING gate above does not
         # cover: there the readiness loop times out and the install aborts;

@@ -647,6 +647,12 @@ def _whatsapp_resolve_privacy(
     if isinstance(explicit_meta, str) and explicit_meta:
         return _privacy.normalise(explicit_meta)
 
+    # No verdict: fail toward the HIGHER level, never the lower. A missing
+    # classification, or one without a sensitivity level, is unavailable.
+    if classification is None or classification.sensitivity is None \
+            or classification.sensitivity.level is None:
+        return "L3"
+
     sensitivity = (
         classification.sensitivity.level
         if classification.sensitivity is not None

@@ -166,3 +166,11 @@ Not in any patch: `whatsapp_source` has `divergence_patch` pointing at `whatsapp
 - `launchd/com.creativemachines.ostler.whatsapp-bundle.plist`.
 
 Upstream: NO PR. The pin `af4ae658` is not reachable from HR015's `main`, so the same archive problem as email_source applies. Not done here.
+
+## 2026-11-14: live WhatsApp index written after each successful bundle
+
+Edited in `vendor/whatsapp_source/pipeline.py`: `_record_live_index` is called
+after `_dispatch_to_cm048` returns 0 and not in dry run. It writes the chat's
+message keys (hashes only) to `whatsapp_live_message_keys.json` in the state dir,
+so the export supplement can dedupe against them. A write failure is reported on
+stderr. Re-vendor must keep this hook. Proof: `tests/test_whatsapp_export_dedupe.py`.

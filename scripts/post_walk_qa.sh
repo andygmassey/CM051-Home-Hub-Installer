@@ -356,6 +356,14 @@ if [[ "${TIER:-full}" == "smoke" ]]; then
     # --allow-writes: the blocking probes need their seeds, and --only alone implies read-only (no seeds).
     RUN_ARGS=(--allow-writes --only "$(printf '%s\n' "$SMOKE_SELECTED" | cut -f1 | paste -sd, -)")
 fi
+# SWAP AND PAGEOUT CURVE, FOR THE WHOLE WALK (walk 131: swap 11.6 of 13.3 GB at the
+# end, and nothing recorded how it got there). Sampled from before phase 1 until the
+# walk's own shell exits. Written to <evidence>/swap_curve.tsv. The sampler also stops
+# itself if this shell dies, so no exit path can leave it running.
+. "${REPO_ROOT}/scripts/box_walk_probes/lib/swap_curve.sh"
+_swap_saved_host="${OSTLER_BOX_HOST-}"
+OSTLER_BOX_HOST="$BOX" swap_curve_start "${PROBE_LOG%.log}.evidence"
+OSTLER_BOX_HOST="$_swap_saved_host"
 OSTLER_BOX_HOST="$BOX" OSTLER_WALK_REMOTE_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
@@ -1159,6 +1167,11 @@ if [[ -n "$CUT_VERSION" ]]; then
         fi
         printf 'verdict\t%s\n'     "$VERDICT"
         printf 'qa_exit\t%s\n'     "$overall"
+        # WHICH data_conservation RUN COUNTS (Archie ruling: the manifest replay; the
+        # in-walk run is advisory). Two verdicts for one probe in one walk was walk 131's finding.
+        # shellcheck source=../scripts/box_walk_probes/lib/counted_run.sh
+        . "${REPO_ROOT}/scripts/box_walk_probes/lib/counted_run.sh"
+        counted_run_row "${MANIFEST_LOG:-}"
         # RECONCILE THE NAMES AGAINST THE COUNT, IN THE FILE.
         # If the parser above ever stops matching -- a header reworded, an
         # indent changed -- it returns nothing and the record would quietly go
@@ -1316,4 +1329,6 @@ if [[ -n "$CUT_VERSION" ]]; then
     fi
 fi
 
+OSTLER_BOX_HOST="$BOX" swap_curve_stop
+OSTLER_BOX_HOST="$_swap_saved_host"
 exit "$overall"

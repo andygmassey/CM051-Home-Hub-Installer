@@ -100,6 +100,7 @@ jobs:
       # Oxigraph and a verdict taken from rdflib alone is a verdict about
       # rdflib. Installing only one would silently reduce that arm to a note.
       - name: Install both SPARQL engines for the erasure gate
+        if: always()
         run: python3 -m pip install --quiet pyoxigraph rdflib
 
       - name: A forget erases the sentence, not only its link to a person
@@ -168,7 +169,10 @@ jobs:
       - name: The brief's meeting, conversation and employer readers withhold L3
         if: always()
         run: |
-          python3 -m pip install --quiet pytest httpx
+          # rdflib is named HERE, not only in the step above: that step has no
+          # `if: always()`, so an earlier failure skipped it and this step then
+          # imported rdflib into a runner that lacked it (CANNOT-RUN read as PASS).
+          python3 -m pip install --quiet pytest httpx rdflib
           python3 -m pytest tests/test_vendored_brief_outbound_l3.py tests/test_vendored_employer_outbound_l3.py -q
       - name: The timeline route and the 7-day digest withhold L3 (real SPARQL engine)
         if: always()
