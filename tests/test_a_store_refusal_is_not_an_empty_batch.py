@@ -196,6 +196,11 @@ class _Loader:
         self.calls += 1
         return self.answer
 
+    # The shipped pipeline mirrors through replace_preference_triples since
+    # personal-world-graph #471 (d9797d88), Qdrant first; same capture.
+    async def replace_preference_triples(self, _ids, _turtle):
+        return await self.insert_triples(_turtle)
+
     async def upsert_vectors(self, vectors=None, payloads=None, ids=None):
         self.calls += 1
         return self.answer
@@ -263,19 +268,28 @@ def main() -> int:
 
     print()
     print("ARM 3: THE SECOND INSTANCE. The vector store refuses. Same shape, next function down.")
-    vrefused, _, _ = run_arm(mod, True, False)
+    vrefused, vox, _ = run_arm(mod, True, False)
     if vrefused["vectors"] == 0 and vrefused["errors"]:
         ok(f"(3) a refused vector write is recorded too: {len(vrefused['errors'])} error(s)")
     else:
         bad("(3) a refused vector write reported vectors 0 with no error", repr(vrefused))
+    # personal-world-graph #471 (d9797d88): Qdrant is written FIRST and the graph
+    # mirror only after every point is in, so a refused vector write must leave
+    # NO typed node behind (the split brain the other way round).
+    if vrefused["triples"] == 0 and vox.calls == 0:
+        ok("(3b) the graph was not written for a batch whose vectors were refused")
+    else:
+        bad(f"(3b) graph written with no Qdrant point: triples={vrefused['triples']} "
+            f"graph calls={vox.calls}", repr(vrefused))
 
     print()
-    print("ARM 4: BOTH REFUSE. Two failures must not collapse into one.")
-    both, _, _ = run_arm(mod, False, False)
-    if both["triples"] == 0 and both["vectors"] == 0 and len(both["errors"]) >= 2:
-        ok(f"(4) {len(both['errors'])} errors recorded for two refused writes")
+    print("ARM 4: BOTH WOULD REFUSE. Since #471 the graph is not attempted once the")
+    print("       vectors are refused, so ONE refusal is recorded and NOTHING is written.")
+    both, box, _ = run_arm(mod, False, False)
+    if both["triples"] == 0 and both["vectors"] == 0 and both["errors"] and box.calls == 0:
+        ok(f"(4) {len(both['errors'])} error(s) recorded, graph not attempted, 0 written")
     else:
-        bad(f"(4) two refusals produced {len(both['errors'])} error(s)", repr(both))
+        bad(f"(4) errors={len(both['errors'])} graph calls={box.calls}", repr(both))
 
     print()
     print("ARM 5: MUST-MISS. A genuinely EMPTY batch must still report no error.")
