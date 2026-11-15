@@ -72,16 +72,15 @@ esac
 # ── arm 2: install.sh uses the table at the colima start ─────────────
 arm2() {  # file -> 0 when the start is table-sized and the creation is marked
     local f="$1"
-    grep -qE '^[[:space:]]*if colima start --cpu "\$OSTLER_VM_CPUS" --memory "\$OSTLER_VM_MEM_GIB" --disk 30 ' "$f" || return 1
+    grep -qE '^[[:space:]]*if ostler_vm_install_start ' "$f" || return 1
     grep -vE '^[[:space:]]*#' "$f" | grep -qE 'colima start --cpu [0-9]+ --memory [0-9]+' && return 1
     grep -qF '_ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"' "$f" || return 1
     grep -qF 'ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"' "$f" || return 1
-    grep -qF '[[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned' "$f" || return 1
     return 0
 }
 if arm2 "$INSTALL_SH"; then ok "arm 2: install.sh starts colima at the table's size, logs it, marks a VM it created"
 else bad "arm 2: install.sh does not start colima from the table (or does not log/mark it)"; fi
-sed 's/if colima start --cpu "\$OSTLER_VM_CPUS" --memory "\$OSTLER_VM_MEM_GIB" --disk 30 /if colima start --cpu 2 --memory 4 --disk 30 /' "$INSTALL_SH" > "$TMP/install.mutant.sh"
+sed 's/if ostler_vm_install_start /if colima start --cpu 2 --memory 4 --disk 30 /' "$INSTALL_SH" > "$TMP/install.mutant.sh"
 if cmp -s "$INSTALL_SH" "$TMP/install.mutant.sh"; then
     bad "arm 2 MUTANT did not apply; the arm cannot be shown to fail"
 elif arm2 "$TMP/install.mutant.sh"; then
@@ -97,7 +96,7 @@ fi
 # the start, logs the size, and marks ONLY a VM it created.
 BLK="$TMP/start_block.sh"
 awk '/_ostler_vm_lib="\$\{SCRIPT_DIR\}\/lib\/ostler-vm-size.sh"/{f=1} f{print} f && /^            done$/{exit}' "$INSTALL_SH" > "$BLK"
-if ! grep -q 'colima start --cpu' "$BLK" || ! grep -q '^            done$' "$BLK"; then
+if ! grep -q 'ostler_vm_install_start' "$BLK" || ! grep -q '^            done$' "$BLK"; then
     bad "arm 2b premise: could not extract the colima start block from install.sh"
 else
     run_block() {  # vm_existed(0/1) -> prints the stub log
@@ -126,8 +125,8 @@ STUB
        && grep -q 'started=1' <<< "$out0" && grep -q 'MARKER WRITTEN' <<< "$out0" && ! grep -q 'ERR TRAP\|BLOCK EXIT' <<< "$out0"; then
         ok "arm 2b: the real block, under set -Eeuo pipefail + ERR trap: 16 GB host starts colima at 6 GiB / 3 CPUs, logs it, marks the VM it created"
     else bad "arm 2b: real block on a fresh Mac: $(tr '\n' ';' <<< "$out0")"; fi
-    if grep -q 'colima start --cpu 3 --memory 6' <<< "$out1" && ! grep -q 'MARKER WRITTEN' <<< "$out1" && ! grep -q 'ERR TRAP\|BLOCK EXIT' <<< "$out1"; then
-        ok "arm 2b control: a VM that existed before the start is NOT marked as Ostler's"
+    if grep -q '^colima start$' <<< "$out1" && ! grep -q -- '--cpu' <<< "$out1" && ! grep -q 'MARKER WRITTEN' <<< "$out1" && ! grep -q 'ERR TRAP\|BLOCK EXIT' <<< "$out1"; then
+        ok "arm 2b control: a VM that existed before is started with its OWN size (no flags) and NOT marked as Ostler's"
     else bad "arm 2b control: pre-existing VM: $(tr '\n' ';' <<< "$out1")"; fi
 fi
 

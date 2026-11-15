@@ -115,7 +115,7 @@ cmp -s "$W/yaml.s1" "$HOME/.colima/default/colima.yaml" && ok "S1 customer VM: c
 [ ! -e "$OSTLER_STATE_DIR/vm_size" ] && [ ! -e "$OSTLER_STATE_DIR/colima-vm-owner" ] && ok "S1 customer VM: no size record and no ownership marker" || bad "S1 customer VM: record or marker written"
 grep -q 'colima_started=1' <<< "$out" && ok "S1 customer VM: the install still counts the start as done" || bad "S1 customer VM: start not counted: $out"
 
-# S2. Fresh Mac: Ostler creates the VM at the table size, marks it, records what it measured.
+# S2. A new install: Ostler creates the VM at the table size, marks it, records what it measured.
 reset; yaml_before_start
 out="$(run_block)"
 grep -q '^colima start --cpu 3 --memory 6 --disk 30$' "$STUB/calls" && ok "S2 fresh: colima created at the table size 3 CPU / 6 GiB, disk 30" || bad "S2 fresh: start args wrong: $(cat "$STUB/calls")"

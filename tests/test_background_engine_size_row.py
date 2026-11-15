@@ -103,5 +103,49 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         del os.environ["OSTLER_STATE_DIR"]
 
+# NDJSON: `colima list --json` prints one object per line. Two profiles is the
+# real case (a second profile is a second line). json.loads on the whole text
+# raises, so the old reader called the row "unknown" on every Mac with two profiles.
+other = json.dumps({"name": "other", "status": "Running", "cpus": 12, "memory": 32 * GIB})
+dflt = json.dumps({"name": "default", "status": "Running", "cpus": 3, "memory": 6 * GIB})
+two_profiles = other + "\n" + dflt + "\n"
+check("NDJSON, two profiles (default second): default read as 3 CPU / 6 GiB",
+      row.parse_running(two_profiles) == (3, 6), repr(row.parse_running(two_profiles)))
+check("NDJSON, two profiles: the row is ok, not unknown",
+      row.evaluate(FIXTURE, two_profiles)["state"] == "ok", str(row.evaluate(FIXTURE, two_profiles)))
+check("NDJSON, one profile: parsed",
+      row.parse_running(dflt + "\n") == (3, 6))
+check("NDJSON, a junk line is skipped, default still read",
+      row.parse_running("not json\n" + dflt + "\n") == (3, 6))
+check("NDJSON, no default profile is None (not a guess)",
+      row.parse_running(other + "\n") is None)
+
+# The fix command names the colima that was FOUND, never a hard-coded Apple Silicon path.
+import stat as _stat
+with tempfile.TemporaryDirectory() as _tmp:
+    _fake = os.path.join(_tmp, "colima")
+    with open(_fake, "w") as _f:
+        _f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(_fake, os.stat(_fake).st_mode | _stat.S_IXUSR)
+    check("colima_bin: the first executable candidate wins",
+          hasattr(row, "colima_bin") and row.colima_bin(["/nonexistent/colima", _fake]) == _fake)
+    check("colima_bin: none found is the bare name, not a guessed path",
+          hasattr(row, "colima_bin") and row.colima_bin(["/nonexistent/colima"]) == "colima")
+    _orig = getattr(row, "colima_bin", None)
+    if _orig is not None:
+        row.colima_bin = lambda: "/usr/local/bin/colima"  # an Intel Mac
+        try:
+            _found = rules.check_background_engine_size(snap(small))
+            check("Intel Mac: the smaller-than-installed fix uses the found path, not /opt/homebrew",
+                  len(_found) == 1 and _found[0]["fix_command"] == "/usr/local/bin/colima stop && /usr/local/bin/colima start"
+                  and "/opt/homebrew" not in _found[0]["fix_command"], str(_found))
+            _u = rules.check_background_engine_size(snap(unk))
+            check("Intel Mac: the unknown fix names the found path too",
+                  len(_u) == 1 and _u[0]["fix_command"] == "/usr/local/bin/colima list", str(_u))
+        finally:
+            row.colima_bin = _orig
+    else:
+        check("Intel Mac: the fix command resolves colima (colima_bin missing)", False)
+
 print(f"background_engine_size_row: {total} checks run, {fails} failed")
 sys.exit(1 if fails else 0)

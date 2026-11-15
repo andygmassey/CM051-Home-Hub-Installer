@@ -17,15 +17,45 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
-COLIMA = "/opt/homebrew/bin/colima"
-FIX_COMMAND_SMALLER = f"{COLIMA} stop && {COLIMA} start"
-FIX_COMMAND_UNKNOWN = f"{COLIMA} list"
 _GIB = 1024 ** 3
 _LIST_TIMEOUT_S = 10
+
+
+def colima_bin(candidates: Optional[list[str]] = None) -> str:
+    """The colima binary that exists, in order of preference.
+
+    Apple Silicon Homebrew is /opt/homebrew, Intel Homebrew is /usr/local, and a
+    customer's PATH may hold either. The Doctor's fix commands must name the one
+    that is really there, so this resolves it instead of hard-coding one prefix.
+    With none found it returns the bare name, which the shell resolves (or fails
+    on, visibly) rather than a guessed path.
+    """
+    if candidates is None:
+        candidates = [
+            shutil.which("colima") or "",
+            os.path.join(os.environ.get("HOMEBREW_PREFIX", ""), "bin", "colima")
+            if os.environ.get("HOMEBREW_PREFIX") else "",
+            "/opt/homebrew/bin/colima",
+            "/usr/local/bin/colima",
+        ]
+    for c in candidates:
+        if c and os.access(c, os.X_OK) and os.path.isfile(c):
+            return c
+    return "colima"
+
+
+def fix_command_smaller() -> str:
+    c = colima_bin()
+    return f"{c} stop && {c} start"
+
+
+def fix_command_unknown() -> str:
+    return f"{colima_bin()} list"
 
 
 def record_path() -> Path:
@@ -54,16 +84,29 @@ def parse_record(text: Optional[str]) -> Optional[tuple[int, int]]:
 
 
 def parse_running(list_json: Optional[str]) -> Optional[tuple[int, int]]:
-    """(cpus, memory_gib) of the `default` colima instance, or None."""
+    """(cpus, memory_gib) of the `default` colima instance, or None.
+
+    `colima list --json` is NDJSON: one object per line, one line per profile.
+    It is parsed line by line. A whole-text json.loads raises on two profiles and
+    made the row "unknown" on every Mac with more than one. A line that is not
+    JSON is skipped; the default's own line must still be complete.
+    """
     if not list_json:
         return None
-    try:
-        rows = json.loads(list_json)
-    except ValueError:
-        return None
-    if isinstance(rows, dict):
-        rows = [rows]
-    for row in rows if isinstance(rows, list) else []:
+    rows: list = []
+    for line in list_json.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(parsed, list):  # a JSON array on one line, the older shape
+            rows.extend(parsed)
+        elif isinstance(parsed, dict):
+            rows.append(parsed)
+    for row in rows:
         if not isinstance(row, dict) or row.get("name") != "default":
             continue
         try:
@@ -101,9 +144,9 @@ def read_inputs() -> tuple[Optional[str], Optional[str]]:
         record = record_path().read_text(encoding="utf-8")
     except OSError:
         record = None
-    binary = next((c for c in (COLIMA, "/usr/local/bin/colima") if os.access(c, os.X_OK)), None)
+    binary = colima_bin()
     listing = None
-    if binary is not None:
+    if os.path.isabs(binary) and os.access(binary, os.X_OK):
         try:
             out = subprocess.run([binary, "list", "--json"], capture_output=True, text=True,
                                  timeout=_LIST_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)

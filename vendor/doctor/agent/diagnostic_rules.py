@@ -25,6 +25,7 @@ import time
 from typing import Any
 
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
+import vm_size_row
 
 from diagnostic_copy import (
     MINORS_UNREADABLE_TITLE,
@@ -3198,7 +3199,7 @@ def check_background_engine_size(snapshot: Any) -> list[dict]:
             "title": "Background engine is smaller than installed",
             "detail": row.get("text", ""),
             "fix": "Stop and start the background engine so it takes the installed size.",
-            "fix_command": "/opt/homebrew/bin/colima stop && /opt/homebrew/bin/colima start",
+            "fix_command": vm_size_row.fix_command_smaller(),
             "risk": "low",
             "category": "runtime",
         }]
@@ -3208,7 +3209,7 @@ def check_background_engine_size(snapshot: Any) -> list[dict]:
             "title": "Couldn't check the background engine size",
             "detail": row.get("text", ""),
             "fix": "Check that the background engine answers.",
-            "fix_command": "/opt/homebrew/bin/colima list",
+            "fix_command": vm_size_row.fix_command_unknown(),
             "risk": "low",
             "category": "runtime",
         }]
