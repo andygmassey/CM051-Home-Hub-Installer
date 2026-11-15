@@ -399,3 +399,17 @@ personal name, and email-only people with personal addresses) must stay.
 `vendor/ostler_fda/universal_import.py`: `_owner_side_or(name, fallback)`, used by `_DEFAULT_KNOWLEDGE_BIN` and `_DEFAULT_PWG_CONVO_BIN`. Order: the `OSTLER_KNOWLEDGE_BIN` / `PWG_CONVO_BIN` env vars (unchanged, checked first at the call sites), then `${OSTLER_DIR}/bin/<name>` if it exists, then `/usr/local/bin/<name>`.
 
 Why: a GUI install links these CLIs into the owner's `${OSTLER_DIR}/bin` because `/usr/local/bin` is root-owned on a stock Mac (install.sh `_ostler_link_cli`). The default ran `/usr/local/bin/...`, which does not exist there, so the import path could not find the CLI. Tests: the same owner-side-first check as `tests/test_pwg_convo_bin_owner_side_first.py` covers the ical-server copy; this file has no separate test, so it is covered by the reasoning above and by that test's pattern only. Named as such, not claimed as tested here.
+
+## 2026-11-15: calendar id (owner calendar rules, CM051 T2)
+
+Vendor-side edits, not in upstream CM041/HR015 yet:
+
+- `calendar.py`: `CalendarEvent.calendar_id` (the Calendar-table UUID). Read in
+  a separate query (`_calendar_uuids`), so a schema without a UUID column loses
+  only the id. The main query carries `ci.calendar_id` as `calendar_rowid`.
+- `pwg_ingest.py`: a Meeting node gets `pwg:calendarName` and `pwg:calendarId`
+  when the extract carries them.
+- Test: `tests/test_calendar_id_from_store.py` (synthetic databases, wired in
+  `.github/workflows/calendar-id-from-store.yml`).
+
+Not verified against a real macOS Calendar database (CANNOT-RUN).

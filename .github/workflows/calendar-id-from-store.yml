@@ -1,0 +1,54 @@
+# The Apple Calendar extractor (vendor/ostler_fda/calendar.py) carries each
+# event's calendar id (the Calendar UUID). The owner's calendar rules bind to
+# that id, so an event without it cannot be matched to a rule. Runs against the
+# vendored copy that ships in the DMG. Synthetic databases only.
+name: calendar-id-from-store
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/ostler_fda/calendar.py'
+      - 'vendor/ostler_fda/tests/test_calendar_id_from_store.py'
+      - '.github/workflows/calendar-id-from-store.yml'
+  pull_request:
+    paths:
+      - 'vendor/ostler_fda/calendar.py'
+      - 'vendor/ostler_fda/tests/test_calendar_id_from_store.py'
+      - '.github/workflows/calendar-id-from-store.yml'
+
+concurrency:
+  # Supersede in-flight runs for the same workflow on the same branch/PR.
+  # NEVER cancels main or a tag: a cancelled main run is a gate that did not
+  # report, and cut.yml fires on 'v1.0.*' tags.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  calendar-id-from-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+      # Collection and the run are one step, so a red floor cannot hide behind
+      # a skipped run (same reasoning as whatsapp-lid-not-phone.yml).
+      - name: The calendar id reaches each event from a synthetic store
+        run: |
+          cd vendor
+          n="$(python -m pytest ostler_fda/tests/test_calendar_id_from_store.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest ostler_fda/tests/test_calendar_id_from_store.py -v

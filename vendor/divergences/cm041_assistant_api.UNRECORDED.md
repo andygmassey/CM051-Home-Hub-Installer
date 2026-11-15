@@ -1749,3 +1749,12 @@ is `install.sh` (the `ical-query.sh` heredoc). Without this branch the owner's
 "ignore calendar X" cannot match an iCloud event. Test:
 `tests/test_ical_producer_calendar_line.py` (mutant: branch removed, red).
 Upstream CM041 carries the same branch on the #250 stack (df6e964).
+
+## 2026-11-15: CALENDAR_ID line and calendar_id on local events (CM051 T2)
+
+- `parse_ical_output` reads a `CALENDAR_ID:<url>` line into `calendar_id`.
+- `read_local_calendar_events` carries `calendar_id` from the store.
+
+Owner calendar rules (`owner_instructions`, the rule match, the build_calendar_response
+filter) are NOT in this vendored tree: they live in CM041 PR #250, which is still
+open. This record covers only the id plumbing.

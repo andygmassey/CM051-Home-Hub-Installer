@@ -61,6 +61,9 @@ class CalendarEvent:
     is_all_day: bool
     notes: Optional[str]
     recurrence: Optional[str]
+    # The calendar's stable identifier (its Calendar-table UUID). It survives a
+    # rename, so an owner rule bound to it keeps holding. None when unreadable.
+    calendar_id: Optional[str] = None
 
 
 
@@ -179,6 +182,26 @@ def _load_attendees(conn: sqlite3.Connection) -> dict[int, list[str]]:
     return attendee_map
 
 
+def _calendar_uuids(conn) -> dict:
+    """Calendar ROWID -> stable UUID. A separate query, so a schema without a
+    UUID column loses only the id (never the rows: the main query must not
+    depend on it). An unreadable map is an empty one, and events carry no id."""
+    try:
+        return {r[0]: r[1] for r in conn.execute(
+            "SELECT ROWID, UUID FROM Calendar").fetchall() if r[1]}
+    except sqlite3.OperationalError as e:
+        logger.warning("Calendar UUIDs unreadable, events carry no calendar id: %s", e)
+        return {}
+
+
+def _calendar_uuid(cal_uuids: dict, row) -> Optional[str]:
+    try:
+        rowid = row["calendar_rowid"]
+    except (IndexError, KeyError):
+        return None
+    return cal_uuids.get(rowid) if rowid is not None else None
+
+
 def extract_events(
     db_path: Optional[Path] = None,
     since_days: int = 365,
@@ -257,6 +280,7 @@ def extract_events(
         return []
 
     conn.row_factory = sqlite3.Row
+    cal_uuids = _calendar_uuids(conn)
 
     now_mac = datetime.now(timezone.utc).timestamp() - MAC_EPOCH_OFFSET
     start_mac = now_mac - (since_days * 86400)
@@ -274,6 +298,7 @@ def extract_events(
                 ci.description as notes,
                 l.title as location,
                 c.title as calendar_name,
+                ci.calendar_id as calendar_rowid,
                 ci.has_recurrences
             FROM CalendarItem ci
             LEFT JOIN Location l ON l.ROWID = ci.location_id
@@ -296,6 +321,7 @@ def extract_events(
                     description as notes,
                     NULL as location,
                     NULL as calendar_name,
+                    NULL as calendar_rowid,
                     0 as has_recurrences
                 FROM CalendarItem
                 WHERE start_date > ?
@@ -375,6 +401,7 @@ def extract_events(
                 is_all_day=bool(row["is_all_day"]),
                 notes=row["notes"],
                 recurrence="recurring" if row["has_recurrences"] else None,
+                calendar_id=_calendar_uuid(cal_uuids, row),
             ))
         except Exception as e:
             logger.warning("Skipping malformed Calendar row: %s", e)

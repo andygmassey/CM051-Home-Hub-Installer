@@ -1809,6 +1809,18 @@ def ingest_calendar(fda_dir: Path) -> dict:
                     f'<{meeting_uri}> pwg:meetingAllDay '
                     f'"{"true" if event["is_all_day"] else "false"}"^^xsd:boolean'
                 )
+            # The calendar the event came from, so a rule the owner sets later
+            # ("ignore calendar Work") can be applied to past meetings at read.
+            # Written only when the extract carries them; a meeting that is in
+            # two calendars keeps both tags (the node is shared by title+date).
+            cal_name = (event.get("calendar_name") or "").strip()
+            if cal_name:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:calendarName "{_escape(cal_name)}"')
+            cal_id = (event.get("calendar_id") or "").strip()
+            if cal_id:
+                m_triples.append(
+                    f'<{meeting_uri}> pwg:calendarId "{_escape(cal_id)}"')
             if location:
                 m_triples.append(
                     f'<{meeting_uri}> pwg:meetingLocation "{_escape(location)}"'

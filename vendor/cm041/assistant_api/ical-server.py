@@ -1795,6 +1795,11 @@ def parse_ical_output(raw):
             date_str = line.split(":")[-1].strip()
             if "202" in date_str:
                 current["end"] = date_str
+        elif line.startswith("CALENDAR_ID:"):
+            # Stable identity of the calendar (its CalDAV URL). Optional.
+            cid = line.split(":", 1)[1].strip()
+            if cid:
+                current["calendar_id"] = cid
         elif line.startswith("CALENDAR:"):
             # Calendar identity: the producer names the calendar before each
             # event's lines. A feed without the line adds no key.
@@ -9392,6 +9397,7 @@ def read_local_calendar_events(days=1, now=None):
             "all_day": bool(r.get("is_all_day")),
             "attendees": [{"name": a} for a in attendees],
             "calendar": r.get("calendar_name") or "",
+            "calendar_id": r.get("calendar_id") or "",
             "source": "Apple Calendar",
         })
     return out, age
