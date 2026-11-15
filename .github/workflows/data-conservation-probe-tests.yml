@@ -1,0 +1,59 @@
+# The data conservation probe (IN -> STORED -> SHOWN, per source and category).
+# Its self-test mutates the facts (a deleted store, an unexplained shown drop, an
+# over-declared exclusion, mirrored graph nodes) and a real wiki-text reader fed
+# an allow-list copy with "apple" removed, and every mutation MUST come out LOST
+# or INFLATED while the unmutated control stays clean.
+# runs-on macos-latest on purpose: the probe ships to a macOS / bash 3.2 box.
+name: data-conservation-probe-tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/probes/data_conservation.sh'
+      - 'scripts/box_walk_probes/lib/data_conservation.py'
+      - 'scripts/box_walk_probes/fixtures/data_conservation/**'
+      - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/tests/test_data_conservation_collect_budget.sh'
+      - 'tests/test_data_conservation_row_evidence.py'
+      - 'tests/test_data_conservation_walk_fixture_is_typed.py'
+      - 'tests/test_data_conservation_people_shown_and_whatsapp_runs.py'
+      - 'tests/test_data_conservation_counted_run_row.sh'
+      - 'tests/test_swap_curve_sampler.sh'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/counted_run.sh'
+      - 'scripts/box_walk_probes/lib/swap_curve.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'scripts/walk_promote_scope.tsv'
+      - '.github/workflows/data-conservation-probe-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/box_walk_probes/probes/data_conservation.sh'
+      - 'scripts/box_walk_probes/lib/data_conservation.py'
+      - 'scripts/box_walk_probes/fixtures/data_conservation/**'
+      - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/tests/test_data_conservation_collect_budget.sh'
+      - 'tests/test_data_conservation_row_evidence.py'
+      - 'tests/test_data_conservation_walk_fixture_is_typed.py'
+      - 'tests/test_data_conservation_people_shown_and_whatsapp_runs.py'
+      - 'tests/test_data_conservation_counted_run_row.sh'
+      - 'tests/test_swap_curve_sampler.sh'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/counted_run.sh'
+      - 'scripts/box_walk_probes/lib/swap_curve.sh'
+      - 'scripts/post_walk_qa.sh'
+      - '.github/workflows/data-conservation-probe-tests.yml'
+
+concurrency:
+  group: data-conservation-probe-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  collect-budget:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: collect budget kills the process group and yields CANNOT-RUN-BUDGET
+        run: /bin/bash scripts/tests/test_data_conservation_collect_budget.sh

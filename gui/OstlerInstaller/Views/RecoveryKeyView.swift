@@ -57,6 +57,11 @@ struct RecoveryKeyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: .ostlerSpace3) {
+            // F&F item 5: the key, its actions and the explainer scroll if they
+            // must; the checkbox and Continue are PINNED below and always visible
+            // (window is 880x620 fixed).
+            ScrollView {
+              VStack(alignment: .leading, spacing: .ostlerSpace3) {
             // Hero: shield icon + heading.
             HStack(alignment: .top, spacing: .ostlerSpace3) {
                 Image(systemName: "key.horizontal.fill")
@@ -135,6 +140,11 @@ struct RecoveryKeyView: View {
                 }
                 .padding(.vertical, 4)
             }
+
+              }
+            }
+            .frame(maxHeight: 380)
+            .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 

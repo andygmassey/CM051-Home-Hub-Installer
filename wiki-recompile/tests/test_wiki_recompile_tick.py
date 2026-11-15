@@ -1072,3 +1072,103 @@ def test_detached_compile_survives_a_launchd_process_group_kill(stub_env, tmp_pa
         "process-group kill sent the instant the wrapper exited -- it is "
         "still a member of the wrapper's process group (v1.0.107 walk #4)"
     )
+
+
+# ---------------------------------------------------------------------------
+# S8 (118): compile output never reaches a log. The compiler logs every page
+# it renders by the person's name and slug; the tick's stdout is the
+# LaunchAgent log and the backfill writes wiki-recompile-summaries.log, and
+# both leave the box in a diagnostics bundle. Each log must carry a one-line
+# summary of shape instead. Synthetic cast values only.
+# ---------------------------------------------------------------------------
+
+_PII_LINES = (
+    "INFO Compiling page: Margaret Andersen -> margaret-andersen.md",
+    "WARNING no photo for margaret.andersen@example.com",
+    "ERROR SPARQL update failed for Margaret Andersen: +44 7700 900123",
+)
+_PII_VALUES = ("Margaret", "Andersen", "margaret-andersen", "example.com", "7700")
+
+
+def _make_chatty_docker(stub_dir: Path, *, log_path: Path, done_marker: Path) -> Path:
+    """A docker stub whose compile arms print synthetic personal values on
+    stdout AND stderr, the way the real compiler logs pages by name."""
+    out = "\n".join(_PII_LINES[:2])
+    err = _PII_LINES[2]
+    stub = stub_dir / "docker"
+    stub.write_text(f"""#!/usr/bin/env bash
+echo "$@" >> "{log_path}"
+if [ "$1" = "info" ]; then
+    exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "--profile" ] && [ "$3" = "compile" ] && [ "$4" = "run" ]; then
+    printf '%s\\n' "{out}"
+    printf '%s\\n' "{err}" >&2
+    for a in "$@"; do
+        case "$a" in
+            *OSTLER_WIKI_SKIP_LLM*) exit 0 ;;
+        esac
+    done
+    : > "{done_marker}"
+    exit 0
+fi
+exit 0
+""")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return stub
+
+
+def _assert_no_pii(text: str) -> None:
+    leaked = [v for v in _PII_VALUES if v in text]
+    assert not leaked, f"{len(leaked)} synthetic personal value(s) reached a log"
+
+
+def _run_chatty(stub_env, tmp_path, slot_lib: str):
+    log = stub_env["tmp_path"] / "docker.log"
+    done_marker = tmp_path / "full-compile-done"
+    _make_chatty_docker(stub_env["stub_dir"], log_path=log, done_marker=done_marker)
+    logs_dir = tmp_path / "logs"
+    home = tmp_path / "home"
+    home.mkdir()
+    result = _run_wrapper(
+        {
+            "HOME": str(home),
+            "OSTLER_DIR": str(stub_env["ostler_dir"]),
+            "OSTLER_LOGS": str(logs_dir),
+            "OSTLER_INGEST_SLOT_LIB": slot_lib,
+            "OSTLER_STATE_DIR": str(tmp_path / "slot-state"),
+        },
+        stub_env["stub_dir"],
+    )
+    assert result.returncode == 0, f"wrapper failed (rc={result.returncode})"
+    bg_log = logs_dir / "wiki-recompile-summaries.log"
+    deadline = time.monotonic() + 15.0
+    text = ""
+    while time.monotonic() < deadline:
+        text = bg_log.read_text() if bg_log.exists() else ""
+        if "wiki-summaries: compile output withheld" in text:
+            break
+        time.sleep(0.1)
+    return result, text, done_marker
+
+
+@_skip_if_real_docker
+def test_baseline_compile_output_never_reaches_the_tick_log(stub_env, tmp_path):
+    result, _, _ = _run_chatty(stub_env, tmp_path, str(tmp_path / "no-slot-lib.sh"))
+    _assert_no_pii(result.stdout + result.stderr)
+    assert ("wiki-compile baseline: compile output withheld from this log "
+            "(it names people): 3 lines, 1 warning, 1 error") in result.stdout
+
+
+@_skip_if_real_docker
+@pytest.mark.parametrize("arm", ["shared-slot-lib", "fail-safe-no-lib"])
+def test_backfill_compile_output_never_reaches_the_summaries_log(stub_env, tmp_path, arm):
+    lib = str(_SLOT_LIB) if arm == "shared-slot-lib" else str(tmp_path / "no-slot-lib.sh")
+    if arm == "shared-slot-lib":
+        assert _SLOT_LIB.exists(), f"shared slot lib missing at {_SLOT_LIB}"
+    _, text, done_marker = _run_chatty(stub_env, tmp_path, lib)
+    assert done_marker.exists(), "the backfill compile never ran"
+    assert ("wiki-summaries: compile output withheld from this log "
+            "(it names people): 3 lines, 1 warning, 1 error") in text, \
+        "no summary line in the summaries log"
+    _assert_no_pii(text)

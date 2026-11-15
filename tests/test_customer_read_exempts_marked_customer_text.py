@@ -60,15 +60,37 @@ CASES = [
 ]
 
 
-def verdict(pw_page, html):
+def verdict(pw_page, html, which=1):
     pw_page.set_content(html)
     text = pw_page.evaluate("() => document.querySelector('article').innerText")
     titles = pw_page.evaluate(cr.CUSTOMER_TITLES_JS) or []
     facts = copy.deepcopy(cr._good())
     facts["wiki"]["nav_links"].append("Trends/")
     facts["wiki"]["crawl"]["Trends/"] = {"text": text, "mono_dates": 0, "customer_titles": titles}
-    got = [ok for name, ok, _ in cr.judge(facts) if name == cr.DECLARED[1]]
+    got = [ok for name, ok, _ in cr.judge(facts) if name == cr.DECLARED[which]]
     return got[0] if len(got) == 1 else ("rows", got)
+
+
+# W9 (walks v1.0.116/117): the Conversations timeline row quotes the
+# customer's email subject inside Ostler's sentence. The subject's ISO date
+# and snake_case word are the sender's; Ostler's own date and keys still count.
+SUBJ = "fix(ci): require_pairing on 2026-10-02"
+CONV = ('<li><strong>Email</strong> -- Thread "' + (M % SUBJ) + '". 1 message. %s</li>')
+# (label, html, DECLARED index, expected verdict)
+W9_CASES = [
+    ("W9: a marked subject's ISO date PASSES the ISO check",
+     page(CONV % "2 October 2026."), 0, True),
+    ("W9: a marked subject's snake_case word PASSES the internal-values check",
+     page(CONV % "2 October 2026."), 2, True),
+    ("W9: Ostler's own ISO date beside the marked subject still FAILS",
+     page(CONV % "2026-10-02."), 0, False),
+    ("W9: Ostler's own key beside the marked subject still FAILS",
+     page(CONV % "source_kind email."), 2, False),
+    ("W9: the same subject UNMARKED fails the ISO check (the v1.0.117 shape)",
+     page(CONV.replace(M % SUBJ, SUBJ) % "2 October 2026."), 0, False),
+    ("W9: the same subject UNMARKED fails the internal-values check",
+     page(CONV.replace(M % SUBJ, SUBJ) % "2 October 2026."), 2, False),
+]
 
 
 # Hub screens (walk #15): the Hub People row marks a contact-written subtitle.
@@ -105,6 +127,10 @@ def main():
     if good != [True]:
         print("CANNOT-RUN: the good fixture does not pass the em dash assertion ({!r})".format(good))
         return 2
+    good02 = [ok for name, ok, _ in cr.judge(cr._good()) if name in (cr.DECLARED[0], cr.DECLARED[2])]
+    if good02 != [True, True]:
+        print("CANNOT-RUN: the good fixture does not pass the ISO and internal-value assertions ({!r})".format(good02))
+        return 2
     fails = []
     try:
         with sync_playwright() as p:
@@ -117,11 +143,19 @@ def main():
                 else:
                     fails.append(label)
                     print("  FAIL  {} (verdict {!r}, wanted {!r})".format(label, got, want))
+            for label, html, which, want in W9_CASES:
+                got = verdict(pw_page, html, which)
+                if got is want:
+                    print("  ok    " + label)
+                else:
+                    fails.append(label)
+                    print("  FAIL  {} (verdict {!r}, wanted {!r})".format(label, got, want))
             browser.close()
     except Exception as exc:  # no browser binary is a harness fault, not a verdict
         print("CANNOT-RUN: the browser could not run ({})".format(str(exc)[:200]))
         return 2
-    print("{} of {} cases as expected".format(len(CASES) + len(HUB_CASES) - len(fails), len(CASES) + len(HUB_CASES)))
+    total = len(CASES) + len(HUB_CASES) + len(W9_CASES)
+    print("{} of {} cases as expected".format(total - len(fails), total))
     return 1 if fails else 0
 
 

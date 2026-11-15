@@ -134,6 +134,17 @@ def report(facts):
     for ok, label in res:
         print(("  ok     " if ok else "  FAIL   ") + label)
         bad += 0 if ok else 1
+    if bad:
+        # NOT INSTRUMENTED until v1.0.118 walk 3: three [rich]/[none] FAILs
+        # printed no text, so nobody could tell WHICH fact the composer lacked.
+        # The cast is fictional (meeting_brief_seed), so the sent text is safe
+        # to print. One line per announce, then the sender's own log tail.
+        for a in facts.get("announces") or []:
+            who = EXPECT.get(a.get("meeting_uid"), "unknown")
+            print(f"  SENT   [{who}] " + (a.get("message") or "").replace("\n", " | "))
+        print(f"  SENDER rc={facts.get('sender_rc')} via {facts.get('channel_source')}")
+        tail = (facts.get("log_tail") or "").strip().replace("\n", " | ")
+        print(f"  SENDER log tail: {tail[-600:] or '(empty)'}")
     return 1 if bad else 0
 
 
@@ -225,6 +236,21 @@ def self_test():
     res, cannot = judge({"cannot": "no sender installed"})
     print(f"  {'ok     ' if cannot else 'FAIL   '}a missing prerequisite is CANNOT-RUN, not a pass or a fail")
     ok &= bool(cannot)
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = report(_mut(MUTANTS["none says 'first meeting' instead of 'no meetings logged'"]))
+    shown = buf.getvalue()
+    shown_ok = rc == 1 and "SENT   [none]" in shown and "first meeting" in shown and "SENDER rc=" in shown
+    print(f"  {'ok     ' if shown_ok else 'FAIL   '}a FAIL prints the sent text and the sender log tail")
+    ok &= shown_ok
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = report(GOOD)
+    quiet_ok = rc == 0 and "SENT   [" not in buf.getvalue()
+    print(f"  {'ok     ' if quiet_ok else 'FAIL   '}a pass stays quiet (no sent text printed)")
+    ok &= quiet_ok
     print(f"\n{len(MUTANTS) + 2} mutants; {'every one went red' if ok else 'SELF-TEST BROKEN'}")
     return 0 if ok else 1
 

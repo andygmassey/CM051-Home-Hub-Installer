@@ -12,38 +12,37 @@
 # block, so one block failing cannot skip another block's tests. The source
 # workflows' own header comments are carried verbatim above each block.
 #
-# Folded jobs (31):
+# Folded jobs (30):
 #   b01  address-book-source-guard.yml :: address-book-source-guard
 #   b02  browsing-summaries-and-save.yml :: hub
 #   b03  cm048-participants-as-strings.yml :: cm048-participants-as-strings
 #   b04  cm048-whatsapp-lid-not-phone.yml :: cm048-whatsapp-lid-not-phone
-#   b05  contact-card-repair.yml :: contact-card-repair
-#   b06  creation-name-writes.yml :: creation-name-writes
-#   b07  display-name-tiers.yml :: display-name-tiers
-#   b08  enrich-budget.yml :: enrich-budget
-#   b09  failed-conversations-auto-retry-guard.yml :: auto-retry
-#   b10  fda-reachable.yml :: fda-reachable
-#   b11  kinship-label-write-guard.yml :: kinship-label-write-guard
-#   b12  lane11-hub-routes.yml :: hub
-#   b13  name-repair.yml :: name-repair
-#   b14  netflix-polarity-repair.yml :: netflix-polarity-repair
-#   b15  people-projection-prune.yml :: people-projection-prune
-#   b16  people-sweep-partial-landing.yml :: partial-landing-is-an-error
-#   b17  person-removal-audit.yml :: person-removal-audit
-#   b18  repair-lid-as-phone-vendored.yml :: vendored-suite
-#   b19  section-contract.yml :: section-contract
-#   b20  stderr-tail.yml :: stderr-tail
-#   b21  walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard
-#   b22  walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard
-#   b23  walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id
-#   b24  walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard
-#   b25  walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant
-#   b26  walk6-people-list-correctness-guard.yml :: people-list-correctness
-#   b27  walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters
-#   b28  walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names
-#   b29  walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces
-#   b30  whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone
-#   b31  writer-reader-vocabulary.yml :: writer-reader-vocabulary
+#   b05  creation-name-writes.yml :: creation-name-writes
+#   b06  display-name-tiers.yml :: display-name-tiers
+#   b07  enrich-budget.yml :: enrich-budget
+#   b08  failed-conversations-auto-retry-guard.yml :: auto-retry
+#   b09  fda-reachable.yml :: fda-reachable
+#   b10  kinship-label-write-guard.yml :: kinship-label-write-guard
+#   b11  lane11-hub-routes.yml :: hub
+#   b12  name-repair.yml :: name-repair
+#   b13  netflix-polarity-repair.yml :: netflix-polarity-repair
+#   b14  people-projection-prune.yml :: people-projection-prune
+#   b15  people-sweep-partial-landing.yml :: partial-landing-is-an-error
+#   b16  person-removal-audit.yml :: person-removal-audit
+#   b17  repair-lid-as-phone-vendored.yml :: vendored-suite
+#   b18  section-contract.yml :: section-contract
+#   b19  stderr-tail.yml :: stderr-tail
+#   b20  walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard
+#   b21  walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard
+#   b22  walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id
+#   b23  walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard
+#   b24  walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant
+#   b25  walk6-people-list-correctness-guard.yml :: people-list-correctness
+#   b26  walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters
+#   b27  walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names
+#   b28  walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces
+#   b29  whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone
+#   b30  writer-reader-vocabulary.yml :: writer-reader-vocabulary
 name: fold-py-matrix
 
 on:
@@ -54,6 +53,7 @@ on:
       - 'contact_syncer/syncer.py'
       - 'tests/helpers/check_address_book_source_guard.py'
       - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - 'tests/test_address_book_photos_reach_photo_dir.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/browsing_enrich.py'
       - 'vendor/cm041/assistant_api/tests/test_browsing_enrich.py'
@@ -78,11 +78,24 @@ on:
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'tests/test_cm048_bulk_mail_no_commitment_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'tests/test_cm048_window_drift.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -92,21 +105,22 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
-      - 'vendor/imessage_source/threader.py'
       - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
       - 'vendor/cm048_pipeline/src/capture_truth.py'
       - 'vendor/cm048_pipeline/src/prompts.py'
       - 'vendor/cm048_pipeline/src/schemas.py'
       - 'vendor/cm048_pipeline/prompts/**'
       - 'tests/test_cm048_handle_resolver.py'
-      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_whatsapp_lid_not_phone.py'
-      - 'vendor/ostler_fda/repair_overmerged_contact_cards.py'
-      - 'vendor/ostler_fda/identity_resolver.py'
-      - 'tests/test_repair_overmerged_contact_cards.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/helpers/check_creation_name_writes.py'
       - 'tests/test_creation_name_writes.sh'
@@ -145,6 +159,7 @@ on:
       - 'tests/test_repair_netflix_rating_polarity_marker_skip.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/netflix.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/test_people_projection_service_senders.py'
       - 'tests/test_people_sweep_partial_landing_is_not_success.py'
       - 'tests/test_people_hydrate_partial_landing_sentinel.sh'
       - 'vendor/**/person_audit.py'
@@ -160,7 +175,6 @@ on:
       - 'tests/test_section_contract.sh'
       - 'vendor/email_source/pipeline.py'
       - 'vendor/whatsapp_source/pipeline.py'
-      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/spoken_source/pipeline.py'
       - 'tests/test_stderr_tail.sh'
       - 'tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py'
@@ -182,6 +196,9 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - 'vendor/ostler_fda/whatsapp_history.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py'
@@ -207,6 +224,7 @@ on:
       - 'contact_syncer/syncer.py'
       - 'tests/helpers/check_address_book_source_guard.py'
       - 'tests/test_only_the_users_own_address_book_is_read.sh'
+      - 'tests/test_address_book_photos_reach_photo_dir.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/browsing_enrich.py'
       - 'vendor/cm041/assistant_api/tests/test_browsing_enrich.py'
@@ -231,11 +249,24 @@ on:
       - 'tests/test_cm048_reminders_sidecar_never_reaches_the_body.py'
       - 'tests/test_cm048_participants_line_display_names_only.py'
       - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/meeting_syncer/brief.py'
       - 'tests/test_cm048_reminder_title_has_no_iso_date.py'
       - 'tests/test_cm048_reminder_title_has_no_handle.py'
+      - 'tests/test_cm048_reminder_title_quality_gate.py'
+      - 'tests/test_cm048_scam_todos_and_owed_replies_vendored.py'
+      - 'tests/test_cm048_bulk_mail_no_commitment_vendored.py'
+      - 'vendor/cm048_pipeline/src/scam_guard.py'
+      - 'vendor/cm048_pipeline/src/reply_debt.py'
+      - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_reminder_long_title_not_dropped.py'
       - 'tests/test_cm048_reminder_push_person_parity.py'
+      - 'tests/test_cm048_undated_bundle_not_pushed.py'
+      - 'tests/test_cm048_window_drift.py'
+      - 'vendor/divergences/cm048_pipeline.UNRECORDED.md'
       - 'tests/test_cm048_reminder_push_people_rules_installed_layout.py'
       - 'tests/test_people_rules_is_stdlib_only.py'
+      - 'tests/test_people_rules_short_codes_up_to_8_digits.py'
+      - 'tests/test_people_rules_overlong_digit_id.py'
       - 'tests/fixtures/people_rules_golden.json'
       - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
       - 'vendor/cm041/assistant_api/people_rules.py'
@@ -245,21 +276,22 @@ on:
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
       - 'tests/test_cm048_reminder_push_thread_and_sender.py'
+      - 'tests/test_cm048_reminder_supersede_before_duplicate_thread.py'
+      - 'tests/cm048_vendored_sweep/**'
       - 'tests/test_cm048_thread_key_matches_the_daemon.py'
+      - 'tests/test_group_followup_key_counts_silent_members.py'
+      - 'vendor/imessage_source/threader.py'
+      - 'vendor/imessage_source/catchup.py'
+      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/cm048_pipeline/src/channel_adapter.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
-      - 'vendor/imessage_source/threader.py'
       - 'tests/test_cm048_single_speaker_capture_is_a_memo.py'
       - 'vendor/cm048_pipeline/src/capture_truth.py'
       - 'vendor/cm048_pipeline/src/prompts.py'
       - 'vendor/cm048_pipeline/src/schemas.py'
       - 'vendor/cm048_pipeline/prompts/**'
       - 'tests/test_cm048_handle_resolver.py'
-      - 'vendor/cm048_pipeline/src/handle_resolver.py'
       - 'tests/test_cm048_whatsapp_lid_not_phone.py'
-      - 'vendor/ostler_fda/repair_overmerged_contact_cards.py'
-      - 'vendor/ostler_fda/identity_resolver.py'
-      - 'tests/test_repair_overmerged_contact_cards.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/helpers/check_creation_name_writes.py'
       - 'tests/test_creation_name_writes.sh'
@@ -298,6 +330,7 @@ on:
       - 'tests/test_repair_netflix_rating_polarity_marker_skip.sh'
       - 'vendor/cm019_preferences/services/ingest/src/parsers/netflix.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
+      - 'tests/test_people_projection_service_senders.py'
       - 'tests/test_people_sweep_partial_landing_is_not_success.py'
       - 'tests/test_people_hydrate_partial_landing_sentinel.sh'
       - 'vendor/**/person_audit.py'
@@ -313,7 +346,6 @@ on:
       - 'tests/test_section_contract.sh'
       - 'vendor/email_source/pipeline.py'
       - 'vendor/whatsapp_source/pipeline.py'
-      - 'vendor/imessage_source/pipeline.py'
       - 'vendor/spoken_source/pipeline.py'
       - 'tests/test_stderr_tail.sh'
       - 'tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py'
@@ -335,6 +367,9 @@ on:
       - 'tests/_fake_oxigraph.py'
       - 'tests/_fake_qdrant.py'
       - 'tests/test_cm041_deceased_excluded_from_proactive_surfaces.py'
+      - 'tests/test_cm041_conversation_process_privacy_passthrough_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_vendored.py'
+      - 'tests/test_cm041_conversation_path_safety_mutants_vendored.py'
       - 'vendor/ostler_fda/whatsapp_history.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_lid_not_phone.py'
       - 'vendor/ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py'
@@ -370,7 +405,7 @@ permissions:
 jobs:
   py-matrix:
     runs-on: ubuntu-latest
-    # Sum of the folded jobs' own timeouts (645 min), capped at 70 so the
+    # Sum of the folded jobs' own timeouts (615 min), capped at 70 so the
     # CI Required Gate (75 min hard cap) still sees a verdict. Every step below
     # keeps its old job's timeout, so a hang is bounded where it always was.
     timeout-minutes: 70
@@ -491,6 +526,19 @@ jobs:
       # above fail for a reason that has nothing to do with the address book,
       # and that is exactly the run where the distinction is wanted (#683).
       - id: b01_s02
+        if: ${{ steps.select.outputs.b01 != 'false' && ((!cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure') || (!cancelled() && (steps.b01_isolate.conclusion == 'failure' || steps.b01_s01.conclusion == 'failure'))) }}
+        timeout-minutes: 30
+        name: Install the shipped syncer's declared dependencies
+        run: |
+          python -m pip install --quiet \
+            -r vendor/cm041/contact_syncer/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt
+      - id: b01_s03
+        if: ${{ steps.select.outputs.b01 != 'false' && ((!cancelled() && steps.b01_isolate.conclusion != 'failure' && steps.b01_s01.conclusion != 'failure' && steps.b01_s02.conclusion != 'failure') || (!cancelled() && (steps.b01_isolate.conclusion == 'failure' || steps.b01_s01.conclusion == 'failure' || steps.b01_s02.conclusion == 'failure'))) }}
+        timeout-minutes: 30
+        name: Apple Contacts photos reach PHOTO_DIR and foaf:img (v1.0.111)
+        run: python tests/test_address_book_photos_reach_photo_dir.py
+      - id: b01_s04
         if: ${{ steps.select.outputs.b01 != 'false' && (always()) }}
         timeout-minutes: 30
         name: SELF-CHECK -- the test and its helper still parse
@@ -707,6 +755,54 @@ jobs:
       - id: b03_s06
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
+        name: A reminder needs a specific title, a human notes line and a fresh source
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_title_quality_gate.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_title_quality_gate.py -v
+      - id: b03_s07
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A scammer's instruction is never a todo, and a reply debt is listed only when owed (CM048 #110, #111)
+        run: |
+          n="$(python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 19 ]; then
+            echo "REFUSING: expected at least 19 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_scam_todos_and_owed_replies_vendored.py -v
+      - id: b03_s08
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: Bulk, marketing and automated mail is never the owner's commitment (CM048 #115)
+        run: |
+          n="$(python -m pytest tests/test_cm048_bulk_mail_no_commitment_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_bulk_mail_no_commitment_vendored.py -v
+      - id: b03_s09
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A valid todo is never dropped for length (cut at a word boundary, full text in notes)
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_long_title_not_dropped.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 30 ]; then
+            echo "REFUSING: expected at least 30 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_long_title_not_dropped.py -v
+      - id: b03_s10
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
         name: A redacted reminder title never carries a raw messaging handle
         run: |
           n="$(python -m pytest tests/test_cm048_reminder_title_has_no_handle.py --collect-only -q | grep -cE '::test_')" || n=0
@@ -716,7 +812,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_title_has_no_handle.py -v
-      - id: b03_s07
+      - id: b03_s11
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: One open reminder per person/thread; no push for organisations or automated senders
@@ -728,7 +824,69 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_thread_and_sender.py -v
-      - id: b03_s08
+      - id: b03_s12
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: An updated conversation keeps its reminder (supersede before the duplicate_thread gate)
+        run: |
+          n="$(python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_reminder_supersede_before_duplicate_thread.py -v
+      - id: b03_s13
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: The stale-bundle sweep cannot hang pwg-convo (CM048 #99 re-pin, v1.0.112)
+        run: |
+          python -m pip install --quiet pyoxigraph
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_stale_bundle_sweep.py tests/cm048_vendored_sweep/test_update_reprocess.py -v
+      - id: b03_s14
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: L3 todos never reach the brief or the commitments API even with the writer guards off
+        run: |
+          python -m pip install --quiet pyoxigraph
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py -v
+      - id: b03_s15
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: Topics are written only for a known non-L3 privacy level, in both layers (CM048 #109)
+        run: |
+          n="$(python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 26 ]; then
+            echo "REFUSING: expected at least 26 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/cm048_vendored_sweep/test_topic_write_privacy_guard.py -v
+      - id: b03_s16
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A group chat's follow-up key counts every member, silent ones too (v1.0.122)
+        run: |
+          n="$(python -m pytest tests/test_group_followup_key_counts_silent_members.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_group_followup_key_counts_silent_members.py -v
+      - id: b03_s17
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: The reminder thread_key equals the assistant daemon's chat.db key (walk #25)
@@ -740,7 +898,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_thread_key_matches_the_daemon.py -v
-      - id: b03_s09
+      - id: b03_s18
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: reminders_push decides person-ness with the People list's own predicates (parity)
@@ -752,7 +910,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_person_parity.py -v
-      - id: b03_s10
+      - id: b03_s19
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: doctor tile for a removed reminders list
@@ -764,7 +922,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_doctor_reminders_list_removed.py -v
-      - id: b03_s11
+      - id: b03_s20
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: The People rules load in the layout install.sh lays down (walk 20)
@@ -776,7 +934,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_reminder_push_people_rules_installed_layout.py -v
-      - id: b03_s12
+      - id: b03_s21
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: people_rules.py is stdlib only and behaves exactly as the rules did inside ical-server
@@ -788,12 +946,36 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_people_rules_is_stdlib_only.py -v
-      - id: b03_s13
+      - id: b03_s22
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A short code is up to 8 digits with no country code; a 9+ digit or "+" number is a person (P13)
+        run: |
+          n="$(python -m pytest tests/test_people_rules_short_codes_up_to_8_digits.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_short_codes_up_to_8_digits.py -v
+      - id: b03_s23
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A bare digit run over 15 digits is an id, never a person's name (walk v1.0.122)
+        run: |
+          n="$(python -m pytest tests/test_people_rules_overlong_digit_id.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_people_rules_overlong_digit_id.py -v
+      - id: b03_s24
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: A carded name always shows, and the name ladder holds in list, search, stale, recent and birthdays
         run: PYTHONPATH=vendor python tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py
-      - id: b03_s14
+      - id: b03_s25
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: A gateway chat's assistant turns are never extracted as facts or todos about the owner (Mini16 #27)
@@ -805,7 +987,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_gateway_extracts_owner_turns_only.py -v
-      - id: b03_s15
+      - id: b03_s26
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: A fact about another person's family is theirs, not the owner's (DMG #27)
@@ -817,7 +999,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_third_party_facts_keep_their_subject.py -v
-      - id: b03_s16
+      - id: b03_s27
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: A one-speaker capture is written as a memo, with the real time and the model that ran (Mini16 2026-10-15)
@@ -829,7 +1011,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_single_speaker_capture_is_a_memo.py -v
-      - id: b03_s17
+      - id: b03_s28
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: A carded handle is resolved to its name before extraction, never for L3 (CM048 #87)
@@ -841,7 +1023,7 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_handle_resolver.py -v
-      - id: b03_s18
+      - id: b03_s29
         if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
         timeout-minutes: 15
         name: An iPhone capture's unnamed speaker ("Speaker 1") reaches speaker naming; "S1" does not (CM031 #303)
@@ -853,6 +1035,33 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_ios_unnamed_speaker_reaches_naming.py -v
+      - id: b03_s30
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: An undated conversation bundle is never pushed to Apple Reminders
+        run: |
+          n="$(python -m pytest tests/test_cm048_undated_bundle_not_pushed.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_undated_bundle_not_pushed.py -v
+      - id: b03_s31
+        if: ${{ steps.select.outputs.b03 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: The vendored window rule agrees with CM048 main over a shared table
+        run: |
+          # A plain script, not a pytest module: pytest collects 0 from it, so the
+          # vacuity guard counts the script's own numbered checks instead.
+          rc=0; out="$(python tests/test_cm048_window_drift.py)" || rc=$?
+          printf '%s\n' "$out"
+          n="$(printf '%s\n' "$out" | grep -cE '^\s*(PASS|ok|FAIL)\b|^\s*[0-9]+ ' || true)"
+          echo "ran ${n} check line(s), rc=${rc}"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected at least 4 check lines, got ${n:-0}" >&2; exit 1; }
+          printf '%s\n' "$out" | grep -qF 'All window-rule drift checks passed.' \
+            || { echo "REFUSING: the drift script did not report its success line" >&2; exit 1; }
 
       # ========================================================================
       # b04: cm048-whatsapp-lid-not-phone.yml :: cm048-whatsapp-lid-not-phone
@@ -930,37 +1139,25 @@ jobs:
           n="$(python -m pytest tests/test_cm048_whatsapp_lid_not_phone.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 9 ]; then
-            echo "REFUSING: expected at least 9 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           python -m pytest tests/test_cm048_whatsapp_lid_not_phone.py -v
 
       # ========================================================================
-      # b05: contact-card-repair.yml :: contact-card-repair
+      # b05: creation-name-writes.yml :: creation-name-writes
       # ========================================================================
-      # Task #659 repair. identity_resolver RULE 2 stops NEW over-merges; this
-      # repairs the graph already written, un-merging Person nodes that carry 2+
-      # distinct icloud_contact_uid.
-      #
-      # THE LOAD-BEARING PROPERTIES ARE NEGATIVE ONES, which is why this runs at
-      # all rather than being trusted because it passed once on a box:
-      #   * no Person node is ever DELETED -- these nodes carry real identifiers,
-      #     attributes and inbound edges, unlike the role-address robots
-      #   * --undo restores the graph EXACTLY, proven both directions on a live box
-      #     (128 nodes/263 cards -> 99/204 -> back to 128/263, total triples
-      #     248082 -> 248065 -> 248082, with a 2259-identifier control that never
-      #     moved, so no card was destroyed)
-      #   * it REFUSES to run at all when the icloud_contact_uid control is zero,
-      #     so an empty or wrong graph cannot be silently "repaired"
-      #
-      # The module is DORMANT by design (scripts/fda_unwired_modules.tsv): it
-      # repairs the 30 of 128 it can PROVE and leaves 98 by design, and firing a
-      # partial repair at every customer graph is a product call nobody has made.
-      # Dormant is not untested. This workflow is what keeps it honest while it
-      # waits.
+      # v1018-D011. The name rule lives in `_display_name_tier` and is enforced by
+      # `_upsert_display_name`, which every ingest source calls -- but that was
+      # never the only writer. Each source also emitted a `pwg:displayName` inside
+      # its own `if not _person_exists(uri)` creation INSERT, and that write went
+      # nowhere near the tier. On a fresh install the creation branch is the branch
+      # every customer takes, so a kinship label was written and then declined, and
+      # a handle from calendar/photos/mail was written with no provisional flag --
+      # permanently un-renameable, 30 of 33 email-named people on the founder box.
       - id: b05_isolate
-        name: "[b05] contact-card-repair.yml :: contact-card-repair -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b05] creation-name-writes.yml :: creation-name-writes -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b05 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1003,74 +1200,31 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # rdflib is a TEST dependency, not a runtime one. It is deliberately
-      # absent from vendor/ostler_fda/pyproject.toml, whose only deps are
-      # httpx and nameparser, because the shipped module talks to Oxigraph
-      # over HTTP and never imports rdflib. The test uses it to stand up an
-      # in-memory graph.
-      #
-      # INSTALLING IT IS LOAD-BEARING, NOT HOUSEKEEPING. The test opens with
-      # `pytest.importorskip("rdflib")`, so WITHOUT this line the entire
-      # module skips: measured on the first run of this workflow, all three
-      # interpreters reported "collected 0 items / 1 skipped". Twenty-seven
-      # assertions, an anti-vacuity fixture check and ten killed mutants,
-      # all silently not run.
+      # pwg_ingest imports phonenumbers at module scope (CM051 #2543: a
+      # WhatsApp LID must be told apart from a genuine phone number), so
+      # without it the import fails and every assertion errors rather than
+      # running -- not a failing assertion, an unimportable module.
       - id: b05_s01
         if: ${{ steps.select.outputs.b05 != 'false' && !cancelled() && steps.b05_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
-        name: Install pytest and the graph the fixtures need
-        run: python -m pip install --quiet pytest rdflib
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.
-      #
-      # They were two steps and ci-maskless was right to refuse it: a failing
-      # floor would SKIP the step below, so the real test result would be
-      # hidden behind an earlier red. `if: always()` would satisfy the gate,
-      # but folding them into one step is better -- there is then no second
-      # step to mask, the floor provably runs first, and one step cannot hide
-      # another that does not exist.
-      #
-      # pytest exits 5 on "no tests collected" and `bash -e` honours it, so
-      # the skip WAS already caught. The floor is here so that property is
-      # STATED rather than inherited from another tool's exit convention. A
-      # gate whose fail-closed behaviour is an accident is one edit from
-      # silent.
+        name: Install the module's runtime dependencies
+        run: python -m pip install --quiet phonenumbers
       - id: b05_s02
         if: ${{ steps.select.outputs.b05 != 'false' && !cancelled() && steps.b05_isolate.conclusion != 'failure' && steps.b05_s01.conclusion != 'failure' }}
         timeout-minutes: 30
-        name: The repair never deletes a person, and undo restores exactly
-        run: |
-          # `|| n=0` on the ASSIGNMENT, not inside the pipe. grep -c prints
-          # its count AND exits 1 when that count is zero, so under `bash -e`
-          # the step would die at this line and the message below would never
-          # print -- fail-closed, but silently, which is half the value. And
-          # `|| echo 0` INSIDE the substitution is wrong: grep already emitted
-          # "0", so n would become "0\n0" and the numeric test would error.
-          # No `2>/dev/null` either: a pytest usage error must not be laundered
-          # into a clean zero.
-          n="$(python -m pytest tests/test_repair_overmerged_contact_cards.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 20 ]; then
-            echo "REFUSING: expected at least 20 collected tests, got ${n:-0}." >&2
-            echo "A skipped module reports success in any runner that reads" >&2
-            echo "'no failures' as 'passed'. Check rdflib installed." >&2
-            exit 1
-          fi
-          python -m pytest tests/test_repair_overmerged_contact_cards.py -v
+        name: A creation write cannot outrank the name rule
+        run: bash tests/test_creation_name_writes.sh
 
       # ========================================================================
-      # b06: creation-name-writes.yml :: creation-name-writes
+      # b06: display-name-tiers.yml :: display-name-tiers
       # ========================================================================
-      # v1018-D011. The name rule lives in `_display_name_tier` and is enforced by
-      # `_upsert_display_name`, which every ingest source calls -- but that was
-      # never the only writer. Each source also emitted a `pwg:displayName` inside
-      # its own `if not _person_exists(uri)` creation INSERT, and that write went
-      # nowhere near the tier. On a fresh install the creation branch is the branch
-      # every customer takes, so a kinship label was written and then declined, and
-      # a handle from calendar/photos/mail was written with no provisional flag --
-      # permanently un-renameable, 30 of 33 email-named people on the founder box.
+      # v1018-D658. Ingest names an unknown person after their raw handle and
+      # flags it provisional -- "replace me when a real name arrives" -- and
+      # nothing ever did, because every displayName write sits inside an
+      # `if not _person_exists(uri)` branch. 43 person nodes on the founder box
+      # carry two names; 5 wiki pages show one person's identity on another's.
       - id: b06_isolate
-        name: "[b06] creation-name-writes.yml :: creation-name-writes -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b06] display-name-tiers.yml :: display-name-tiers -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b06 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1113,31 +1267,23 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # pwg_ingest imports phonenumbers at module scope (CM051 #2543: a
-      # WhatsApp LID must be told apart from a genuine phone number), so
-      # without it the import fails and every assertion errors rather than
-      # running -- not a failing assertion, an unimportable module.
       - id: b06_s01
         if: ${{ steps.select.outputs.b06 != 'false' && !cancelled() && steps.b06_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
-        name: Install the module's runtime dependencies
-        run: python -m pip install --quiet phonenumbers
-      - id: b06_s02
-        if: ${{ steps.select.outputs.b06 != 'false' && !cancelled() && steps.b06_isolate.conclusion != 'failure' && steps.b06_s01.conclusion != 'failure' }}
-        timeout-minutes: 30
-        name: A creation write cannot outrank the name rule
-        run: bash tests/test_creation_name_writes.sh
+        name: A placeholder name cannot outlive a better one
+        run: bash tests/test_display_name_tiers.sh
 
       # ========================================================================
-      # b07: display-name-tiers.yml :: display-name-tiers
+      # b07: enrich-budget.yml :: enrich-budget
       # ========================================================================
-      # v1018-D658. Ingest names an unknown person after their raw handle and
-      # flags it provisional -- "replace me when a real name arrives" -- and
-      # nothing ever did, because every displayName write sits inside an
-      # `if not _person_exists(uri)` branch. 43 person nodes on the founder box
-      # carry two names; 5 wiki pages show one person's identity on another's.
+      # v1018-D031. Every model call in the enrichment step was already bounded
+      # at 900s individually, which is why no per-call timeout could fix this.
+      # The step's BOUNDED worst case was ~4h30m for one email (3-4 chunks +
+      # merge + validation retry, times MAX_RETRIES). A 236KB newsletter thread
+      # sat in it holding the shared ingest lock while all four conversation
+      # feeds stopped behind it. The ceiling belongs on the step.
       - id: b07_isolate
-        name: "[b07] display-name-tiers.yml :: display-name-tiers -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b07] enrich-budget.yml :: enrich-budget -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b07 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1183,20 +1329,19 @@ jobs:
       - id: b07_s01
         if: ${{ steps.select.outputs.b07 != 'false' && !cancelled() && steps.b07_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
-        name: A placeholder name cannot outlive a better one
-        run: bash tests/test_display_name_tiers.sh
+        name: Enrichment cannot outrun its allowance
+        run: bash tests/test_enrich_budget.sh
 
       # ========================================================================
-      # b08: enrich-budget.yml :: enrich-budget
+      # b08: failed-conversations-auto-retry-guard.yml :: auto-retry
       # ========================================================================
-      # v1018-D031. Every model call in the enrichment step was already bounded
-      # at 900s individually, which is why no per-call timeout could fix this.
-      # The step's BOUNDED worst case was ~4h30m for one email (3-4 chunks +
-      # merge + validation retry, times MAX_RETRIES). A 236KB newsletter thread
-      # sat in it holding the shared ingest lock while all four conversation
-      # feeds stopped behind it. The ceiling belongs on the step.
+      # CM051 v1.0.107 #11: a failed conversation is retried automatically, on a
+      # backoff, capped, and its raw data is never deleted; the manual retry no
+      # longer crashes on the dispatcher's failed_step. Mirrors CM041 (ical-server
+      # retry sweeper) and CM048 (resume guard). A new test that no workflow runs
+      # is not wired, so this runs both.
       - id: b08_isolate
-        name: "[b08] enrich-budget.yml :: enrich-budget -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b08] failed-conversations-auto-retry-guard.yml :: auto-retry -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b08 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1241,20 +1386,47 @@ jobs:
           } >> "$GITHUB_ENV"
       - id: b08_s01
         if: ${{ steps.select.outputs.b08 != 'false' && !cancelled() && steps.b08_isolate.conclusion != 'failure' }}
-        timeout-minutes: 30
-        name: Enrichment cannot outrun its allowance
-        run: bash tests/test_enrich_budget.sh
+        timeout-minutes: 15
+        name: Install pytest and the CM048 runtime dependencies
+        run: python -m pip install --quiet pytest httpx pyyaml phonenumbers
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in
+      # a separate step would SKIP the run below and hide the real result.
+      - id: b08_s02
+        if: ${{ steps.select.outputs.b08 != 'false' && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' }}
+        timeout-minutes: 15
+        name: The retry sweeper, the cap, the dispatch-failure keep, the resume guard
+        run: |
+          n="$(python -m pytest \
+                 vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py \
+                 tests/test_cm048_resume_after_dispatcher_failure.py \
+                 tests/test_vendored_conversation_process_failure_reason.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 21 ]; then
+            echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          rc=0
+          python -m pytest vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py -v || rc=1
+          python -m pytest tests/test_cm048_resume_after_dispatcher_failure.py -v || rc=1
+          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v || rc=1
+          exit "$rc"
 
       # ========================================================================
-      # b09: failed-conversations-auto-retry-guard.yml :: auto-retry
+      # b09: fda-reachable.yml :: fda-reachable
       # ========================================================================
-      # CM051 v1.0.107 #11: a failed conversation is retried automatically, on a
-      # backoff, capped, and its raw data is never deleted; the manual retry no
-      # longer crashes on the dispatcher's failed_step. Mirrors CM041 (ical-server
-      # retry sweeper) and CM048 (resume guard). A new test that no workflow runs
-      # is not wired, so this runs both.
+      # A shipped ostler_fda module with no caller must be RED.
+      #
+      # repair_placeholder_names.py is merged, tested by tests/test_name_repair.sh,
+      # gated by .github/workflows/name-repair.yml, registered in VENDOR_ONLY.tsv and
+      # PRESENT in the shipped v1.0.26 DMG. Nothing calls it. Every one of those
+      # signals reads as a shipped fix.
+      #
+      # MERGED is not DELIVERED is not INVOKED. verify_test_wiring.sh already reads
+      # the third gate for tests; its surface is tests/*.sh, so it is structurally
+      # blind to this. This is the same reader pointed at the shipping Python.
       - id: b09_isolate
-        name: "[b09] failed-conversations-auto-retry-guard.yml :: auto-retry -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b09] fda-reachable.yml :: fda-reachable -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b09 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1299,47 +1471,19 @@ jobs:
           } >> "$GITHUB_ENV"
       - id: b09_s01
         if: ${{ steps.select.outputs.b09 != 'false' && !cancelled() && steps.b09_isolate.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: Install pytest and the CM048 runtime dependencies
-        run: python -m pip install --quiet pytest httpx pyyaml phonenumbers
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in
-      # a separate step would SKIP the run below and hide the real result.
-      - id: b09_s02
-        if: ${{ steps.select.outputs.b09 != 'false' && !cancelled() && steps.b09_isolate.conclusion != 'failure' && steps.b09_s01.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: The retry sweeper, the cap, the dispatch-failure keep, the resume guard
-        run: |
-          n="$(python -m pytest \
-                 vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py \
-                 tests/test_cm048_resume_after_dispatcher_failure.py \
-                 tests/test_vendored_conversation_process_failure_reason.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 21 ]; then
-            echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          rc=0
-          python -m pytest vendor/cm041/assistant_api/tests/test_failed_conversation_auto_retry.py -v || rc=1
-          python -m pytest tests/test_cm048_resume_after_dispatcher_failure.py -v || rc=1
-          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v || rc=1
-          exit "$rc"
+        timeout-minutes: 30
+        name: A module with no caller is not a shipped fix
+        run: bash tests/test_fda_module_reachable.sh
 
       # ========================================================================
-      # b10: fda-reachable.yml :: fda-reachable
+      # b10: kinship-label-write-guard.yml :: kinship-label-write-guard
       # ========================================================================
-      # A shipped ostler_fda module with no caller must be RED.
-      #
-      # repair_placeholder_names.py is merged, tested by tests/test_name_repair.sh,
-      # gated by .github/workflows/name-repair.yml, registered in VENDOR_ONLY.tsv and
-      # PRESENT in the shipped v1.0.26 DMG. Nothing calls it. Every one of those
-      # signals reads as a shipped fix.
-      #
-      # MERGED is not DELIVERED is not INVOKED. verify_test_wiring.sh already reads
-      # the third gate for tests; its surface is tests/*.sh, so it is structurally
-      # blind to this. This is the same reader pointed at the shipping Python.
+      # CM051 #2556: a bare kinship word ("Mum", "Wife", "Dad") must never become
+      # a person's permanent displayName at any of CM041's contact_syncer
+      # name-writers, or at IdentityResolver.create_person. Mirrors CM041 PR
+      # #185's own test suite against the copy that actually ships.
       - id: b10_isolate
-        name: "[b10] fda-reachable.yml :: fda-reachable -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b10] kinship-label-write-guard.yml :: kinship-label-write-guard -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b10 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1382,21 +1526,58 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
+      # httpx: identity_resolver.resolver's own runtime dep. rapidfuzz,
+      # phonenumbers: normalise.py imports both at module scope, and
+      # resolver.py imports normalise.py. vobject: contact_syncer.syncer
+      # imports contact_syncer.vcard_parser at module scope, which imports
+      # vobject. qdrant-client: contact_syncer.syncer imports QdrantClient
+      # at module scope too. All confirmed from the actual CI log, found one
+      # at a time as each prior gap was fixed (ModuleNotFoundError at
+      # vcard_parser.py:8, then at syncer.py:46) -- verified together in a
+      # clean venv with none of this repo's other test dependencies present,
+      # so this list is not missing a further one. Missing any one makes
+      # pytest exit 2 on COLLECTION, not a failing assertion.
       - id: b10_s01
         if: ${{ steps.select.outputs.b10 != 'false' && !cancelled() && steps.b10_isolate.conclusion != 'failure' }}
-        timeout-minutes: 30
-        name: A module with no caller is not a shipped fix
-        run: bash tests/test_fda_module_reachable.sh
+        timeout-minutes: 20
+        name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # the other vendored-suite workflows in this repo: a failing floor in
+      # a separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - id: b10_s02
+        if: ${{ steps.select.outputs.b10 != 'false' && !cancelled() && steps.b10_isolate.conclusion != 'failure' && steps.b10_s01.conclusion != 'failure' }}
+        timeout-minutes: 20
+        name: A kinship word never becomes a person's permanent displayName
+        run: |
+          n="$(python -m pytest tests/test_kinship_label_write_guard_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_kinship_label_write_guard_vendored.py -v
+      - id: b10_s03
+        if: ${{ steps.select.outputs.b10 != 'false' && (always()) }}
+        timeout-minutes: 20
+        name: A bare Instagram handle stays @handle, never a person's name (S9), both shipped copies
+        run: python -m pytest contact_syncer/tests/test_instagram_handle_is_not_a_name.py -v
 
       # ========================================================================
-      # b11: kinship-label-write-guard.yml :: kinship-label-write-guard
+      # b11: lane11-hub-routes.yml :: hub
       # ========================================================================
-      # CM051 #2556: a bare kinship word ("Mum", "Wife", "Dad") must never become
-      # a person's permanent displayName at any of CM041's contact_syncer
-      # name-writers, or at IdentityResolver.create_person. Mirrors CM041 PR
-      # #185's own test suite against the copy that actually ships.
+      # Lane 11: the Hub routes the phone and the Mac app call that had no server
+      # side (speaker naming, chunked conversation upload) and the 401/405/413/
+      # traversal matrix over them and over forget. Mirrors CM041 branch
+      # claude/lane11-hub-route-gaps.
+      #
+      # vendor/cm041/assistant_api/tests/ is not collected by any other workflow, so
+      # these tests are not wired until a workflow invokes them. This is that
+      # workflow, with collected-count floors so a quietly shrinking suite cannot pass.
       - id: b11_isolate
-        name: "[b11] kinship-label-write-guard.yml :: kinship-label-write-guard -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b11] lane11-hub-routes.yml :: hub -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b11 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1439,58 +1620,41 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # httpx: identity_resolver.resolver's own runtime dep. rapidfuzz,
-      # phonenumbers: normalise.py imports both at module scope, and
-      # resolver.py imports normalise.py. vobject: contact_syncer.syncer
-      # imports contact_syncer.vcard_parser at module scope, which imports
-      # vobject. qdrant-client: contact_syncer.syncer imports QdrantClient
-      # at module scope too. All confirmed from the actual CI log, found one
-      # at a time as each prior gap was fixed (ModuleNotFoundError at
-      # vcard_parser.py:8, then at syncer.py:46) -- verified together in a
-      # clean venv with none of this repo's other test dependencies present,
-      # so this list is not missing a further one. Missing any one makes
-      # pytest exit 2 on COLLECTION, not a failing assertion.
       - id: b11_s01
         if: ${{ steps.select.outputs.b11 != 'false' && !cancelled() && steps.b11_isolate.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
-      # the other vendored-suite workflows in this repo: a failing floor in
-      # a separate step would SKIP the run below and hide the real result
-      # behind an earlier red.
+        timeout-minutes: 15
+        name: Install
+        run: python -m pip install --quiet pytest rapidfuzz phonenumbers httpx fastapi rdflib
       - id: b11_s02
         if: ${{ steps.select.outputs.b11 != 'false' && !cancelled() && steps.b11_isolate.conclusion != 'failure' && steps.b11_s01.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: A kinship word never becomes a person's permanent displayName
+        timeout-minutes: 15
+        name: Route matrix, speaker naming, chunked upload
         run: |
-          n="$(python -m pytest tests/test_kinship_label_write_guard_vendored.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 16 ]; then
-            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest tests/test_kinship_label_write_guard_vendored.py -v
-      - id: b11_s03
-        if: ${{ steps.select.outputs.b11 != 'false' && (always()) }}
-        timeout-minutes: 20
-        name: A bare Instagram handle stays @handle, never a person's name (S9), both shipped copies
-        run: python -m pytest contact_syncer/tests/test_instagram_handle_is_not_a_name.py -v
+          set -eu
+          check() {
+            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
+            echo "$1: collected ${n} test(s)"
+            if [ "${n:-0}" -lt "$2" ]; then
+              echo "REFUSING: expected at least $2 collected tests in $1, got ${n:-0}." >&2
+              exit 1
+            fi
+          }
+          d=vendor/cm041/assistant_api/tests
+          check $d/test_lane11_routes.py 8
+          check $d/test_speaker_identify.py 9
+          check $d/test_conversation_upload.py 8
+          python -m pytest $d/test_lane11_routes.py $d/test_speaker_identify.py $d/test_conversation_upload.py -v
 
       # ========================================================================
-      # b12: lane11-hub-routes.yml :: hub
+      # b12: name-repair.yml :: name-repair
       # ========================================================================
-      # Lane 11: the Hub routes the phone and the Mac app call that had no server
-      # side (speaker naming, chunked conversation upload) and the 401/405/413/
-      # traversal matrix over them and over forget. Mirrors CM041 branch
-      # claude/lane11-hub-route-gaps.
-      #
-      # vendor/cm041/assistant_api/tests/ is not collected by any other workflow, so
-      # these tests are not wired until a workflow invokes them. This is that
-      # workflow, with collected-count floors so a quietly shrinking suite cannot pass.
+      # v1018-D658 repair. CM051 #548 stopped the writer stacking names; this
+      # collapses the ones already stacked. The load-bearing property is a
+      # NEGATIVE one: when two names are of equal standing the repair must not
+      # choose (Andy 2026-08-10, "review list"), because a deleted name has no
+      # undo.
       - id: b12_isolate
-        name: "[b12] lane11-hub-routes.yml :: hub -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b12] name-repair.yml :: name-repair -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b12 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1535,39 +1699,30 @@ jobs:
           } >> "$GITHUB_ENV"
       - id: b12_s01
         if: ${{ steps.select.outputs.b12 != 'false' && !cancelled() && steps.b12_isolate.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: Install
-        run: python -m pip install --quiet pytest rapidfuzz phonenumbers httpx fastapi rdflib
-      - id: b12_s02
-        if: ${{ steps.select.outputs.b12 != 'false' && !cancelled() && steps.b12_isolate.conclusion != 'failure' && steps.b12_s01.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: Route matrix, speaker naming, chunked upload
-        run: |
-          set -eu
-          check() {
-            n="$(python -m pytest "$1" --collect-only -q | grep -cE '::test_')" || n=0
-            echo "$1: collected ${n} test(s)"
-            if [ "${n:-0}" -lt "$2" ]; then
-              echo "REFUSING: expected at least $2 collected tests in $1, got ${n:-0}." >&2
-              exit 1
-            fi
-          }
-          d=vendor/cm041/assistant_api/tests
-          check $d/test_lane11_routes.py 8
-          check $d/test_speaker_identify.py 9
-          check $d/test_conversation_upload.py 8
-          python -m pytest $d/test_lane11_routes.py $d/test_speaker_identify.py $d/test_conversation_upload.py -v
+        timeout-minutes: 30
+        name: The repair cannot guess a winner
+        run: bash tests/test_name_repair.sh
 
       # ========================================================================
-      # b13: name-repair.yml :: name-repair
+      # b13: netflix-polarity-repair.yml :: netflix-polarity-repair
       # ========================================================================
-      # v1018-D658 repair. CM051 #548 stopped the writer stacking names; this
-      # collapses the ones already stacked. The load-bearing property is a
-      # NEGATIVE one: when two names are of equal standing the repair must not
-      # choose (Andy 2026-08-10, "review list"), because a deleted name has no
-      # undo.
+      # Walk #6 candidate #10. The Netflix thumbs-value polarity bug (genuinely-
+      # liked shows stored as Dislikes) is fixed at the parser (CM019 PR #396,
+      # grafted into vendor/cm019_preferences/.../netflix.py in this same PR). This
+      # workflow is for the REPAIR half: scripts/repair_netflix_rating_polarity.py
+      # fixes points already written by the buggy parser on an upgraded box.
+      #
+      # THE LOAD-BEARING PROPERTY IS THE MARKER, which is why this runs at all
+      # rather than being trusted because it passed once on a box: without checking
+      # the per-point repair marker BEFORE dispatching on the stored (wrong) label,
+      # a second run would read an already-fixed record as new damage and flip it
+      # straight back -- measured in this test suite by deliberately breaking that
+      # ordering and watching the control fail (see
+      # test_control_already_repaired_two_thumbs_down_is_not_touched_again and its
+      # sibling). This workflow keeps that control green on every PR that touches
+      # either file.
       - id: b13_isolate
-        name: "[b13] name-repair.yml :: name-repair -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b13] netflix-polarity-repair.yml :: netflix-polarity-repair -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b13 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1610,32 +1765,47 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
+      # Stdlib only (urllib, json) -- deliberately, so this script runs
+      # under install.sh's repair step with no dependency on anything
+      # beyond the interpreter itself. pytest is the only install needed.
       - id: b13_s01
         if: ${{ steps.select.outputs.b13 != 'false' && !cancelled() && steps.b13_isolate.conclusion != 'failure' }}
-        timeout-minutes: 30
-        name: The repair cannot guess a winner
-        run: bash tests/test_name_repair.sh
+        timeout-minutes: 10
+        name: Install pytest
+        run: python -m pip install --quiet pytest
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE (same reasoning as
+      # contact-card-repair.yml): a floor failure must not be maskable by a
+      # later step never running.
+      - id: b13_s02
+        if: ${{ steps.select.outputs.b13 != 'false' && !cancelled() && steps.b13_isolate.conclusion != 'failure' && steps.b13_s01.conclusion != 'failure' }}
+        timeout-minutes: 10
+        name: The marker is checked before the label, in both directions
+        run: |
+          n=$(python -m pytest --collect-only -q tests/test_repair_netflix_rating_polarity.py 2>/dev/null | grep -c "^tests/" || true)
+          if [ "${n:-0}" -lt 10 ]; then
+            echo "::error::anti-vacuity floor: expected >=10 collected tests, got ${n:-0}. A silent collection failure must not read as a pass." >&2
+            exit 1
+          fi
+          python -m pytest -q tests/test_repair_netflix_rating_polarity.py
 
       # ========================================================================
-      # b14: netflix-polarity-repair.yml :: netflix-polarity-repair
+      # b14: people-projection-prune.yml :: people-projection-prune
       # ========================================================================
-      # Walk #6 candidate #10. The Netflix thumbs-value polarity bug (genuinely-
-      # liked shows stored as Dislikes) is fixed at the parser (CM019 PR #396,
-      # grafted into vendor/cm019_preferences/.../netflix.py in this same PR). This
-      # workflow is for the REPAIR half: scripts/repair_netflix_rating_polarity.py
-      # fixes points already written by the buggy parser on an upgraded box.
+      # people-projection-prune -- the people sweep must be able to REMOVE, and must
+      # refuse to remove anything when it could not look.
       #
-      # THE LOAD-BEARING PROPERTY IS THE MARKER, which is why this runs at all
-      # rather than being trusted because it passed once on a box: without checking
-      # the per-point repair marker BEFORE dispatching on the stored (wrong) label,
-      # a second run would read an already-fixed record as new damage and flip it
-      # straight back -- measured in this test suite by deliberately breaking that
-      # ordering and watching the control fail (see
-      # test_control_already_repaired_two_thumbs_down_is_not_touched_again and its
-      # sibling). This workflow keeps that control green on every PR that touches
-      # either file.
+      # ingest_people_to_qdrant projects Oxigraph Person nodes into the Qdrant
+      # `people` collection. It could only ever ADD, so a node that LEFT the graph
+      # left its point behind for good: measured on a real box 2026-09-05, 84 points
+      # whose person_uri had no presence anywhere in the graph, all stamped
+      # source=fda_people_index, all carrying a full contact payload.
+      #
+      # ⚠️ THE FIX IS MORE DANGEROUS THAN THE BUG. A prune driven by a failed read
+      # deletes the customer's entire people index, and a source-blind prune deletes
+      # the 1610 icloud_contacts points this sweep does not own. Both of those are
+      # arms in the suite below, and both are the reason this workflow exists.
       - id: b14_isolate
-        name: "[b14] netflix-polarity-repair.yml :: netflix-polarity-repair -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b14] people-projection-prune.yml :: people-projection-prune -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b14 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1678,47 +1848,86 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # Stdlib only (urllib, json) -- deliberately, so this script runs
-      # under install.sh's repair step with no dependency on anything
-      # beyond the interpreter itself. pytest is the only install needed.
+      # httpx is a RUNTIME dependency of pwg_ingest (it is imported at module
+      # scope), so without it the import fails and every arm errors rather
+      # than running. pytest is the runner.
+      # ALL THREE runtime deps, taken from vendor/ostler_fda/pyproject.toml
+      # rather than from what happens to be installed on a laptop. pwg_ingest
+      # imports httpx and phonenumbers at module scope (CM051 #2543: a
+      # WhatsApp LID must be told apart from a genuine phone number) AND
+      # relatively imports identifier_quality, which imports nameparser.
+      # Missing any of the three makes pytest exit 2 on COLLECTION -- not a
+      # failing assertion, an unimportable module.
       - id: b14_s01
         if: ${{ steps.select.outputs.b14 != 'false' && !cancelled() && steps.b14_isolate.conclusion != 'failure' }}
-        timeout-minutes: 10
-        name: Install pytest
-        run: python -m pip install --quiet pytest
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE (same reasoning as
-      # contact-card-repair.yml): a floor failure must not be maskable by a
-      # later step never running.
+        timeout-minutes: 20
+        name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers
+      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, copying
+      # contact-card-repair.yml: a floor in a SEPARATE step would skip this
+      # one when it failed, hiding the real result behind an earlier red.
+      # There is then no second step to mask.
+      #
+      # pytest exits 5 on "collected 0 items", which `bash -e` honours, so a
+      # silent skip is already fatal. The floor STATES that property instead
+      # of inheriting it from another tool's exit convention.
       - id: b14_s02
         if: ${{ steps.select.outputs.b14 != 'false' && !cancelled() && steps.b14_isolate.conclusion != 'failure' && steps.b14_s01.conclusion != 'failure' }}
-        timeout-minutes: 10
-        name: The marker is checked before the label, in both directions
+        timeout-minutes: 20
+        name: A projection prunes what left the graph, and prunes nothing when blind
         run: |
-          n=$(python -m pytest --collect-only -q tests/test_repair_netflix_rating_polarity.py 2>/dev/null | grep -c "^tests/" || true)
-          if [ "${n:-0}" -lt 10 ]; then
-            echo "::error::anti-vacuity floor: expected >=10 collected tests, got ${n:-0}. A silent collection failure must not read as a pass." >&2
+          # ⚠️ `|| true` ON THE ASSIGNMENT, AND IT IS THE WHOLE REASON THIS
+          # STEP IS DEBUGGABLE. Under `bash -e` a failing pytest kills the step
+          # AT THIS LINE, so `echo "$out"` never runs and the log shows the
+          # script text and an exit code and nothing else. MEASURED: the first
+          # CI run of this workflow failed on all three interpreters with
+          # "exit code 2" and ZERO diagnostic output, and the real cause (a
+          # missing nameparser, i.e. a collection error) was invisible until
+          # this was fixed. The sibling contact-card-repair.yml carries the
+          # same warning about `grep -c`; I copied its comment and not its
+          # lesson.
+          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py tests/test_people_projection_service_senders.py -q 2>&1)" || true
+          echo "$out"
+          # `|| n=0` on the ASSIGNMENT: grep -c prints its count AND exits 1
+          # when the count is zero, which would kill the step under `bash -e`
+          # before the message below could explain why.
+          n="$(printf '%s' "$out" | grep -cE '^[0-9]+ passed' )" || n=0
+          if [ "$n" -eq 0 ]; then
+            echo "::error::pytest reported no passing summary line -- the suite did not run"
             exit 1
           fi
-          python -m pytest -q tests/test_repair_netflix_rating_polarity.py
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if [ "${got:-0}" -lt 5 ]; then
+            echo "::error::expected at least 5 arms, saw ${got:-0}. An arm that stops"
+            echo "::error::matching does not fail, it DISAPPEARS -- a shrinking"
+            echo "::error::denominator is the only tell."
+            exit 1
+          fi
+          echo "arms passed: ${got}"
 
       # ========================================================================
-      # b15: people-projection-prune.yml :: people-projection-prune
+      # b15: people-sweep-partial-landing.yml :: partial-landing-is-an-error
       # ========================================================================
-      # people-projection-prune -- the people sweep must be able to REMOVE, and must
-      # refuse to remove anything when it could not look.
+      # people-sweep-partial-landing -- a partial people-sweep delivery must be
+      # reported as an error, and must not write a success sentinel.
       #
-      # ingest_people_to_qdrant projects Oxigraph Person nodes into the Qdrant
-      # `people` collection. It could only ever ADD, so a node that LEFT the graph
-      # left its point behind for good: measured on a real box 2026-09-05, 84 points
-      # whose person_uri had no presence anywhere in the graph, all stamped
-      # source=fda_people_index, all carrying a full contact payload.
+      # MEASURED on a real customer install, ten hours after it completed: the graph
+      # held 8679 Person nodes, the Qdrant `people` collection held 8643 points, a
+      # gap of 36 that stayed exactly 36. ingest_people_to_qdrant's only failure
+      # guard was `sent == 0`; a partial landing (some points dropped for an empty
+      # vector, or one chunk of several failing) fell through that guard and
+      # returned "ok" carrying the smaller count, and install.sh only ever read the
+      # process exit code -- 0, because the function catches its own exceptions --
+      # to decide whether to write a success sentinel. The sentinel's own multi-day
+      # freshness window then suppressed the retry that would otherwise have picked
+      # the 36 back up.
       #
-      # ⚠️ THE FIX IS MORE DANGEROUS THAN THE BUG. A prune driven by a failed read
-      # deletes the customer's entire people index, and a source-blind prune deletes
-      # the 1610 icloud_contacts points this sweep does not own. Both of those are
-      # arms in the suite below, and both are the reason this workflow exists.
+      # Two suites pin this: the Python one drives the real ingest_people_to_qdrant
+      # with its network I/O stubbed; the shell one extracts the real hydrate_people
+      # message + sentinel block out of install.sh and drives it directly, so
+      # neither can pass against a copy of the logic.
       - id: b15_isolate
-        name: "[b15] people-projection-prune.yml :: people-projection-prune -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b15] people-sweep-partial-landing.yml :: partial-landing-is-an-error -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b15 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1761,57 +1970,36 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # httpx is a RUNTIME dependency of pwg_ingest (it is imported at module
-      # scope), so without it the import fails and every arm errors rather
-      # than running. pytest is the runner.
-      # ALL THREE runtime deps, taken from vendor/ostler_fda/pyproject.toml
-      # rather than from what happens to be installed on a laptop. pwg_ingest
-      # imports httpx and phonenumbers at module scope (CM051 #2543: a
-      # WhatsApp LID must be told apart from a genuine phone number) AND
-      # relatively imports identifier_quality, which imports nameparser.
-      # Missing any of the three makes pytest exit 2 on COLLECTION -- not a
-      # failing assertion, an unimportable module.
+      # httpx is a RUNTIME dependency of pwg_ingest (imported at module
+      # scope), and pwg_ingest relatively imports identifier_quality, which
+      # imports nameparser. Missing either makes pytest exit 2 on COLLECTION,
+      # not a failing assertion -- an unimportable module, same as the
+      # sibling people-projection-prune.yml workflow.
       - id: b15_s01
         if: ${{ steps.select.outputs.b15 != 'false' && !cancelled() && steps.b15_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
         name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
-      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, copying
-      # contact-card-repair.yml: a floor in a SEPARATE step would skip this
-      # one when it failed, hiding the real result behind an earlier red.
-      # There is then no second step to mask.
-      #
-      # pytest exits 5 on "collected 0 items", which `bash -e` honours, so a
-      # silent skip is already fatal. The floor STATES that property instead
-      # of inheriting it from another tool's exit convention.
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers
+      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # people-projection-prune.yml: a floor in a separate step would skip
+      # this one when it failed, hiding the real result behind an earlier
+      # red, and pytest exits 5 on "collected 0 items" which `|| true` on the
+      # assignment below would otherwise mask entirely.
       - id: b15_s02
         if: ${{ steps.select.outputs.b15 != 'false' && !cancelled() && steps.b15_isolate.conclusion != 'failure' && steps.b15_s01.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: A projection prunes what left the graph, and prunes nothing when blind
+        name: A partial sweep is an error, not an ok, and never prunes
         run: |
-          # ⚠️ `|| true` ON THE ASSIGNMENT, AND IT IS THE WHOLE REASON THIS
-          # STEP IS DEBUGGABLE. Under `bash -e` a failing pytest kills the step
-          # AT THIS LINE, so `echo "$out"` never runs and the log shows the
-          # script text and an exit code and nothing else. MEASURED: the first
-          # CI run of this workflow failed on all three interpreters with
-          # "exit code 2" and ZERO diagnostic output, and the real cause (a
-          # missing nameparser, i.e. a collection error) was invisible until
-          # this was fixed. The sibling contact-card-repair.yml carries the
-          # same warning about `grep -c`; I copied its comment and not its
-          # lesson.
-          out="$(python -m pytest tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
+          out="$(python -m pytest tests/test_people_sweep_partial_landing_is_not_success.py -q 2>&1)" || true
           echo "$out"
-          # `|| n=0` on the ASSIGNMENT: grep -c prints its count AND exits 1
-          # when the count is zero, which would kill the step under `bash -e`
-          # before the message below could explain why.
           n="$(printf '%s' "$out" | grep -cE '^[0-9]+ passed' )" || n=0
           if [ "$n" -eq 0 ]; then
             echo "::error::pytest reported no passing summary line -- the suite did not run"
             exit 1
           fi
           got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
-          if [ "${got:-0}" -lt 5 ]; then
-            echo "::error::expected at least 5 arms, saw ${got:-0}. An arm that stops"
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected at least 6 arms, saw ${got:-0}. An arm that stops"
             echo "::error::matching does not fail, it DISAPPEARS -- a shrinking"
             echo "::error::denominator is the only tell."
             exit 1
@@ -1819,28 +2007,18 @@ jobs:
           echo "arms passed: ${got}"
 
       # ========================================================================
-      # b16: people-sweep-partial-landing.yml :: partial-landing-is-an-error
+      # b16: person-removal-audit.yml :: person-removal-audit
       # ========================================================================
-      # people-sweep-partial-landing -- a partial people-sweep delivery must be
-      # reported as an error, and must not write a success sentinel.
+      # Every writer that can remove a Person leaves a record (walk #15).
       #
-      # MEASURED on a real customer install, ten hours after it completed: the graph
-      # held 8679 Person nodes, the Qdrant `people` collection held 8643 points, a
-      # gap of 36 that stayed exactly 36. ingest_people_to_qdrant's only failure
-      # guard was `sent == 0`; a partial landing (some points dropped for an empty
-      # vector, or one chunk of several failing) fell through that guard and
-      # returned "ok" carrying the smaller count, and install.sh only ever read the
-      # process exit code -- 0, because the function catches its own exceptions --
-      # to decide whether to write a success sentinel. The sentinel's own multi-day
-      # freshness window then suppressed the retry that would otherwise have picked
-      # the 36 back up.
-      #
-      # Two suites pin this: the Python one drives the real ingest_people_to_qdrant
-      # with its network I/O stubbed; the shell one extracts the real hydrate_people
-      # message + sentinel block out of install.sh and drives it directly, so
-      # neither can pass against a copy of the logic.
+      # WIRED HERE, because a test no workflow invokes is not wired (launch directive
+      # item 9). The suite drives each audited writer with its I/O stubbed and asserts
+      # the removal lands in ~/.ostler/logs/person-deletions.jsonl (redirected to a
+      # temp file), pins the four person_audit.py copies byte-identical, and checks
+      # that people_stores_reconcile joins an orphan to its record. It also runs the
+      # people-sweep prune suite, since the prune now records what it deletes.
       - id: b16_isolate
-        name: "[b16] people-sweep-partial-landing.yml :: partial-landing-is-an-error -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b16] person-removal-audit.yml :: person-removal-audit -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b16 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1883,55 +2061,38 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # httpx is a RUNTIME dependency of pwg_ingest (imported at module
-      # scope), and pwg_ingest relatively imports identifier_quality, which
-      # imports nameparser. Missing either makes pytest exit 2 on COLLECTION,
-      # not a failing assertion -- an unimportable module, same as the
-      # sibling people-projection-prune.yml workflow.
       - id: b16_s01
         if: ${{ steps.select.outputs.b16 != 'false' && !cancelled() && steps.b16_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
-      # THE FLOOR AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
-      # people-projection-prune.yml: a floor in a separate step would skip
-      # this one when it failed, hiding the real result behind an earlier
-      # red, and pytest exits 5 on "collected 0 items" which `|| true` on the
-      # assignment below would otherwise mask entirely.
+        name: Install pytest and the writers' runtime dependencies
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers rapidfuzz vobject qdrant-client
       - id: b16_s02
         if: ${{ steps.select.outputs.b16 != 'false' && !cancelled() && steps.b16_isolate.conclusion != 'failure' && steps.b16_s01.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: A partial sweep is an error, not an ok, and never prunes
+        name: Each Person-removing writer leaves a record, and the prune leaves a trace
         run: |
-          out="$(python -m pytest tests/test_people_sweep_partial_landing_is_not_success.py -q 2>&1)" || true
+          out="$(python -m pytest tests/test_person_removal_audit.py tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
           echo "$out"
-          n="$(printf '%s' "$out" | grep -cE '^[0-9]+ passed' )" || n=0
-          if [ "$n" -eq 0 ]; then
-            echo "::error::pytest reported no passing summary line -- the suite did not run"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then
+            echo "::error::a removal-audit arm failed"
             exit 1
           fi
-          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
-          if [ "${got:-0}" -lt 6 ]; then
-            echo "::error::expected at least 6 arms, saw ${got:-0}. An arm that stops"
-            echo "::error::matching does not fail, it DISAPPEARS -- a shrinking"
-            echo "::error::denominator is the only tell."
+          if [ "${got:-0}" -lt 20 ]; then
+            echo "::error::expected at least 20 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
             exit 1
           fi
           echo "arms passed: ${got}"
 
       # ========================================================================
-      # b17: person-removal-audit.yml :: person-removal-audit
+      # b17: repair-lid-as-phone-vendored.yml :: vendored-suite
       # ========================================================================
-      # Every writer that can remove a Person leaves a record (walk #15).
-      #
-      # WIRED HERE, because a test no workflow invokes is not wired (launch directive
-      # item 9). The suite drives each audited writer with its I/O stubbed and asserts
-      # the removal lands in ~/.ostler/logs/person-deletions.jsonl (redirected to a
-      # temp file), pins the four person_audit.py copies byte-identical, and checks
-      # that people_stores_reconcile joins an orphan to its record. It also runs the
-      # people-sweep prune suite, since the prune now records what it deletes.
+      # CM051 #2543: the LID-as-phone repair (CM041 #181, vendored at
+      # vendor/cm041/identity_resolver/repair_lid_as_phone.py) must actually be
+      # tested against the copy that ships, and install.sh's one-time upgrade step
+      # that invokes it must never be able to abort the customer's install.
       - id: b17_isolate
-        name: "[b17] person-removal-audit.yml :: person-removal-audit -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b17] repair-lid-as-phone-vendored.yml :: vendored-suite -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b17 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -1974,38 +2135,46 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
+      # httpx, phonenumbers: repair_lid_as_phone.py's own runtime deps.
+      # rapidfuzz: normalise.py imports `from rapidfuzz.distance import
+      # JaroWinkler` at module scope, and repair_lid_as_phone.py imports
+      # `from identity_resolver.normalise import is_valid_phone` -- so
+      # importing the repair module transitively executes normalise.py's
+      # top-level imports. Missing any of the three makes pytest exit 2 on
+      # COLLECTION, not a failing assertion.
       - id: b17_s01
         if: ${{ steps.select.outputs.b17 != 'false' && !cancelled() && steps.b17_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: Install pytest and the writers' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers rapidfuzz vobject qdrant-client
+        name: Install pytest and the vendored module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx phonenumbers rapidfuzz
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # contact-card-repair.yml: a failing floor in a separate step would SKIP
+      # the run below and hide the real result behind an earlier red.
       - id: b17_s02
         if: ${{ steps.select.outputs.b17 != 'false' && !cancelled() && steps.b17_isolate.conclusion != 'failure' && steps.b17_s01.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: Each Person-removing writer leaves a record, and the prune leaves a trace
+        name: The LID-as-phone repair, against the copy that ships
         run: |
-          out="$(python -m pytest tests/test_person_removal_audit.py tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
-          echo "$out"
-          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
-          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then
-            echo "::error::a removal-audit arm failed"
+          n="$(python -m pytest tests/test_repair_lid_as_phone_vendored.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 24 ]; then
+            echo "REFUSING: expected at least 24 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          if [ "${got:-0}" -lt 20 ]; then
-            echo "::error::expected at least 20 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
-            exit 1
-          fi
-          echo "arms passed: ${got}"
+          python -m pytest tests/test_repair_lid_as_phone_vendored.py -v
 
       # ========================================================================
-      # b18: repair-lid-as-phone-vendored.yml :: vendored-suite
+      # b18: section-contract.yml :: section-contract
       # ========================================================================
-      # CM051 #2543: the LID-as-phone repair (CM041 #181, vendored at
-      # vendor/cm041/identity_resolver/repair_lid_as_phone.py) must actually be
-      # tested against the copy that ships, and install.sh's one-time upgrade step
-      # that invokes it must never be able to abort the customer's install.
+      # v1018-D014b. 29 of 129 conversation summaries rendered `### Participants`
+      # and `### Thread` with no `### Narrative` -- the prose the section exists
+      # for was simply absent, and the surrounding metadata read as raw prompt
+      # scaffolding. The chunk-merge pass loads a template that declares no
+      # sub-headings, and the expected-heading check was `##`-only, so nothing
+      # asked for the section and nothing noticed it was gone.
       - id: b18_isolate
-        name: "[b18] repair-lid-as-phone-vendored.yml :: vendored-suite -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b18] section-contract.yml :: section-contract -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b18 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2048,46 +2217,22 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # httpx, phonenumbers: repair_lid_as_phone.py's own runtime deps.
-      # rapidfuzz: normalise.py imports `from rapidfuzz.distance import
-      # JaroWinkler` at module scope, and repair_lid_as_phone.py imports
-      # `from identity_resolver.normalise import is_valid_phone` -- so
-      # importing the repair module transitively executes normalise.py's
-      # top-level imports. Missing any of the three makes pytest exit 2 on
-      # COLLECTION, not a failing assertion.
       - id: b18_s01
         if: ${{ steps.select.outputs.b18 != 'false' && !cancelled() && steps.b18_isolate.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: Install pytest and the vendored module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx phonenumbers rapidfuzz
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
-      # contact-card-repair.yml: a failing floor in a separate step would SKIP
-      # the run below and hide the real result behind an earlier red.
-      - id: b18_s02
-        if: ${{ steps.select.outputs.b18 != 'false' && !cancelled() && steps.b18_isolate.conclusion != 'failure' && steps.b18_s01.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: The LID-as-phone repair, against the copy that ships
-        run: |
-          n="$(python -m pytest tests/test_repair_lid_as_phone_vendored.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 24 ]; then
-            echo "REFUSING: expected at least 24 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest tests/test_repair_lid_as_phone_vendored.py -v
+        timeout-minutes: 30
+        name: A merged document keeps every section it declared
+        run: bash tests/test_section_contract.sh
 
       # ========================================================================
-      # b19: section-contract.yml :: section-contract
+      # b19: stderr-tail.yml :: stderr-tail
       # ========================================================================
-      # v1018-D014b. 29 of 129 conversation summaries rendered `### Participants`
-      # and `### Thread` with no `### Narrative` -- the prose the section exists
-      # for was simply absent, and the surrounding metadata read as raw prompt
-      # scaffolding. The chunk-merge pass loads a template that declares no
-      # sub-headings, and the expected-heading check was `##`-only, so nothing
-      # asked for the section and nothing noticed it was gone.
+      # v1018-D032. A failed dispatch's captured stderr is the only record of
+      # what pwg-convo was doing. Keeping the FIRST N characters of it discards
+      # exactly the part that localises a hang. A 13-hour wedge on the shipped
+      # box surfaced 500 characters, all from its first ten seconds, and a
+      # conclusion was drawn from the truncation.
       - id: b19_isolate
-        name: "[b19] section-contract.yml :: section-contract -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b19] stderr-tail.yml :: stderr-tail -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b19 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2133,19 +2278,18 @@ jobs:
       - id: b19_s01
         if: ${{ steps.select.outputs.b19 != 'false' && !cancelled() && steps.b19_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
-        name: A merged document keeps every section it declared
-        run: bash tests/test_section_contract.sh
+        name: Captured stderr keeps its useful end
+        run: bash tests/test_stderr_tail.sh
 
       # ========================================================================
-      # b20: stderr-tail.yml :: stderr-tail
+      # b20: walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard
       # ========================================================================
-      # v1018-D032. A failed dispatch's captured stderr is the only record of
-      # what pwg-convo was doing. Keeping the FIRST N characters of it discards
-      # exactly the part that localises a hang. A 13-hour wedge on the shipped
-      # box surfaced 500 characters, all from its first ten seconds, and a
-      # conclusion was drawn from the truncation.
+      # CM051 walk-defect D (v1.0.107): a non-phone value (WhatsApp-LID/internal-id
+      # shape) must never reach identifierType "phone" at any of contact_syncer's
+      # phone-writing sites, in the copy that actually ships (vendor/cm041).
+      # Mirrors CM041 PR #186's own test suite against the vendored tree.
       - id: b20_isolate
-        name: "[b20] stderr-tail.yml :: stderr-tail -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b20] walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b20 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2188,21 +2332,56 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
+      # Same dependency list as kinship-label-write-guard.yml, which imports
+      # this exact vendored tree: httpx (identity_resolver.resolver), rapidfuzz
+      # + phonenumbers (normalise.py, module scope), vobject (syncer.py ->
+      # vcard_parser.py), qdrant-client (syncer.py, module scope). Verified
+      # together in a clean venv with none of this repo's other test
+      # dependencies present, so this list is not missing a further one.
       - id: b20_s01
         if: ${{ steps.select.outputs.b20 != 'false' && !cancelled() && steps.b20_isolate.conclusion != 'failure' }}
-        timeout-minutes: 30
-        name: Captured stderr keeps its useful end
-        run: bash tests/test_stderr_tail.sh
+        timeout-minutes: 20
+        name: Install pytest and the vendored modules' runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
+      # separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
+      - id: b20_s02
+        if: ${{ steps.select.outputs.b20 != 'false' && !cancelled() && steps.b20_isolate.conclusion != 'failure' && steps.b20_s01.conclusion != 'failure' }}
+        timeout-minutes: 20
+        name: A non-phone value never reaches identifierType "phone"
+        run: |
+          n="$(python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py -v
+      - id: b20_s03
+        if: ${{ steps.select.outputs.b20 != 'false' && (always()) }}
+        timeout-minutes: 20
+        name: is_possible_phone refuses the 14-digit possible-but-invalid shape (walk #2)
+        run: |
+          n="$(python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py -v
 
       # ========================================================================
-      # b21: walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard
+      # b21: walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard
       # ========================================================================
-      # CM051 walk-defect D (v1.0.107): a non-phone value (WhatsApp-LID/internal-id
-      # shape) must never reach identifierType "phone" at any of contact_syncer's
-      # phone-writing sites, in the copy that actually ships (vendor/cm041).
-      # Mirrors CM041 PR #186's own test suite against the vendored tree.
+      # CM051 walk-defect E (v1.0.107, walk #3): a duplicate pair's evidence must
+      # name every shared identifier, not just the strategy that won the
+      # confidence slot, in the copy that actually ships (vendor/cm041). Mirrors
+      # CM041 PR #188's own test suite against the vendored tree.
       - id: b21_isolate
-        name: "[b21] walk-defect-d-phone-identifier-guard.yml :: walk-defect-d-phone-identifier-guard -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b21] walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b21 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2245,56 +2424,65 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # Same dependency list as kinship-label-write-guard.yml, which imports
-      # this exact vendored tree: httpx (identity_resolver.resolver), rapidfuzz
-      # + phonenumbers (normalise.py, module scope), vobject (syncer.py ->
-      # vcard_parser.py), qdrant-client (syncer.py, module scope). Verified
-      # together in a clean venv with none of this repo's other test
-      # dependencies present, so this list is not missing a further one.
+      # identity_resolver.tidy imports identity_resolver.batch_resolver,
+      # which imports httpx + rapidfuzz + phonenumbers at module scope.
+      # Verified together in a clean venv with none of this repo's other
+      # test dependencies present.
       - id: b21_s01
         if: ${{ steps.select.outputs.b21 != 'false' && !cancelled() && steps.b21_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
-        name: Install pytest and the vendored modules' runtime dependencies
-        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers vobject qdrant-client
+        name: Install pytest and the vendored module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
       # separate step would SKIP the run below and hide the real result
       # behind an earlier red.
       - id: b21_s02
-        if: ${{ steps.select.outputs.b21 != 'false' && !cancelled() && steps.b21_isolate.conclusion != 'failure' && steps.b21_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b21 != 'false' && (always()) }}
         timeout-minutes: 20
-        name: A non-phone value never reaches identifierType "phone"
+        name: A duplicate pair's evidence names every shared identifier
         run: |
-          n="$(python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py \
+          n="$(python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py -v
+      # DMG #27 item 4 (Archie ruling: SUGGEST only). An identical full name
+      # is a "Same person?" review suggestion, never an automatic merge; a
+      # common name at different employers, and conflicting phones, stay apart.
+      - id: b21_s03
+        if: ${{ steps.select.outputs.b21 != 'false' && (always()) }}
+        timeout-minutes: 20
+        name: An identical name is a suggestion, never an automatic merge
+        run: |
+          n="$(python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 6 ]; then
             echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py -v
-      - id: b21_s03
-        if: ${{ steps.select.outputs.b21 != 'false' && (always()) }}
-        timeout-minutes: 20
-        name: is_possible_phone refuses the 14-digit possible-but-invalid shape (walk #2)
-        run: |
-          n="$(python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 5 ]; then
-            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest tests/test_vendored_is_possible_phone_14_digit_gap.py -v
+          python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py -v
 
       # ========================================================================
-      # b22: walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard
+      # b22: walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id
       # ========================================================================
-      # CM051 walk-defect E (v1.0.107, walk #3): a duplicate pair's evidence must
-      # name every shared identifier, not just the strategy that won the
-      # confidence slot, in the copy that actually ships (vendor/cm041). Mirrors
-      # CM041 PR #188's own test suite against the vendored tree.
+      # CM051 v1.0.107 candidate #10 (SILENT DATA LOSS): api_conversation_process
+      # built conversation_id as date_firstTwoSpeakerLabels_type and ignored
+      # metadata.meeting_id, the per-session UUID the iOS/Watch app sends. Every
+      # Watch conversation on the same day collided as <date>_s1_wearable: the
+      # second POST overwrote the first conversation's raw transcript, CM048 then
+      # skipped the overwritten one as already-complete, and the Hub still
+      # returned 202 so the app deleted its (now only) copy. Mirrors CM041 PR
+      # #196 (vendor graft, see vendor/divergences/cm041_assistant_api.UNRECORDED.md,
+      # Eleventh graft).
+      #
+      # New test file added by this change -- wired here per
+      # "a new test that is not invoked is not wired."
       - id: b22_isolate
-        name: "[b22] walk-defect-e-duplicate-evidence-guard.yml :: walk-defect-e-duplicate-evidence-guard -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b22] walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b22 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2337,65 +2525,76 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # identity_resolver.tidy imports identity_resolver.batch_resolver,
-      # which imports httpx + rapidfuzz + phonenumbers at module scope.
-      # Verified together in a clean venv with none of this repo's other
-      # test dependencies present.
+      # Same dependency profile as the walk6 people-list guard: this file's
+      # own stubs (ostler_security, _invoke_pwg_convo, _subscription_paused)
+      # mean no third-party package is needed to import and exercise
+      # api_conversation_process.
       - id: b22_s01
         if: ${{ steps.select.outputs.b22 != 'false' && !cancelled() && steps.b22_isolate.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: Install pytest and the vendored module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx rapidfuzz phonenumbers
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
-      # separate step would SKIP the run below and hide the real result
-      # behind an earlier red.
+        timeout-minutes: 15
+        name: Install pytest
+        run: python -m pip install --quiet pytest
       - id: b22_s02
         if: ${{ steps.select.outputs.b22 != 'false' && (always()) }}
-        timeout-minutes: 20
-        name: A duplicate pair's evidence names every shared identifier
+        timeout-minutes: 15
+        name: conversation_id prefers metadata.meeting_id and the fallback never overwrites
         run: |
-          n="$(python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py \
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 2 ]; then
-            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_vendored_tidy_cross_strategy_phone_visibility.py -v
-      # DMG #27 item 4 (Archie ruling: SUGGEST only). An identical full name
-      # is a "Same person?" review suggestion, never an automatic merge; a
-      # common name at different employers, and conflicting phones, stay apart.
+          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py -v
       - id: b22_s03
         if: ${{ steps.select.outputs.b22 != 'false' && (always()) }}
-        timeout-minutes: 20
-        name: An identical name is a suggestion, never an automatic merge
+        timeout-minutes: 15
+        name: conversation status reads where CM048 writes (~/.ostler/processing)
         run: |
-          n="$(python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py \
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 6 ]; then
-            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_same_name_is_a_suggestion_not_a_merge.py -v
+          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py -v
+      - id: b22_s04
+        if: ${{ steps.select.outputs.b22 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: hydration conversations counter tracks CM048 completions (#11)
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 5 ]; then
+            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py -v
+      - id: b22_s05
+        if: ${{ steps.select.outputs.b22 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: coach reader reads where CM048 writes and refuses loudly
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py -v
 
       # ========================================================================
-      # b23: walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id
+      # b23: walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard
       # ========================================================================
-      # CM051 v1.0.107 candidate #10 (SILENT DATA LOSS): api_conversation_process
-      # built conversation_id as date_firstTwoSpeakerLabels_type and ignored
-      # metadata.meeting_id, the per-session UUID the iOS/Watch app sends. Every
-      # Watch conversation on the same day collided as <date>_s1_wearable: the
-      # second POST overwrote the first conversation's raw transcript, CM048 then
-      # skipped the overwritten one as already-complete, and the Hub still
-      # returned 202 so the app deleted its (now only) copy. Mirrors CM041 PR
-      # #196 (vendor graft, see vendor/divergences/cm041_assistant_api.UNRECORDED.md,
-      # Eleventh graft).
-      #
-      # New test file added by this change -- wired here per
-      # "a new test that is not invoked is not wired."
+      # CM051 walk #5 (v1.0.107): a processor crash's failure_reason must keep
+      # the TAIL of the subprocess's stderr, not the head, in the copy that
+      # actually ships (vendor/cm041). Mirrors CM041 PR #190's own test suite.
       - id: b23_isolate
-        name: "[b23] walk-meeting-id-collision-guard.yml :: conversation-id-prefers-meeting-id -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b23] walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b23 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2438,76 +2637,54 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # Same dependency profile as the walk6 people-list guard: this file's
-      # own stubs (ostler_security, _invoke_pwg_convo, _subscription_paused)
-      # mean no third-party package is needed to import and exercise
-      # api_conversation_process.
+      # This test extracts _conversation_process_background's body and
+      # exec()s it with _invoke_pwg_convo stubbed, deliberately avoiding
+      # the full module's heavy ostler_security/qdrant/httpx import chain --
+      # no runtime dependency beyond pytest itself.
       - id: b23_s01
         if: ${{ steps.select.outputs.b23 != 'false' && !cancelled() && steps.b23_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
         name: Install pytest
         run: python -m pip install --quiet pytest
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
+      # separate step would SKIP the run below and hide the real result
+      # behind an earlier red.
       - id: b23_s02
         if: ${{ steps.select.outputs.b23 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: conversation_id prefers metadata.meeting_id and the fallback never overwrites
+        name: A processor crash's failure_reason keeps the tail, not the head
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py \
+          n="$(python -m pytest tests/test_vendored_conversation_process_failure_reason.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 7 ]; then
-            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_process_meeting_id.py -v
-      - id: b23_s03
-        if: ${{ steps.select.outputs.b23 != 'false' && (always()) }}
-        timeout-minutes: 15
-        name: conversation status reads where CM048 writes (~/.ostler/processing)
-        run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 3 ]; then
-            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_conversation_status_processing_path.py -v
-      - id: b23_s04
-        if: ${{ steps.select.outputs.b23 != 'false' && (always()) }}
-        timeout-minutes: 15
-        name: hydration conversations counter tracks CM048 completions (#11)
-        run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 5 ]; then
-            echo "REFUSING: expected at least 5 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_hydration_conversations_counter.py -v
-      - id: b23_s05
-        if: ${{ steps.select.outputs.b23 != 'false' && (always()) }}
-        timeout-minutes: 15
-        name: coach reader reads where CM048 writes and refuses loudly
-        run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 7 ]; then
-            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py -v
+          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v
 
       # ========================================================================
-      # b24: walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard
+      # b24: walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant
       # ========================================================================
-      # CM051 walk #5 (v1.0.107): a processor crash's failure_reason must keep
-      # the TAIL of the subprocess's stderr, not the head, in the copy that
-      # actually ships (vendor/cm041). Mirrors CM041 PR #190's own test suite.
+      # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
+      # notification senders, prefers a known real name over a bare email/phone
+      # identifier, and excludes the owner's own identities. Mirrors CM041 PR
+      # #191 (identity_resolver Qdrant-sync graft) and #192 (ical-server.py
+      # people_list fixes). Three jobs: identity_resolver's Qdrant-sync half,
+      # ical-server.py's people_list half, and (candidate #10) the suggestion
+      # producers (people_stale/people_recent/people_birthdays) that read from
+      # the same filters but never applied them.
+      #
+      # vendor/cm041/assistant_api/tests/ had NO CI coverage at all until this
+      # file -- measured: a repo-wide grep for any workflow invoking that
+      # directory (this file's own comment excepted) returned nothing, for this
+      # file's first test or its three pre-existing siblings
+      # (test_ical_server_wire_shape.py, test_subscription_endpoint.py,
+      # test_subscription_gate.py). Fixing those three is a separate, larger PR;
+      # wiring each test this walk adds is this file's job, per "a new test
+      # that is not invoked is not wired."
       - id: b24_isolate
-        name: "[b24] walk5-conversation-failure-reason-guard.yml :: walk5-conversation-failure-reason-guard -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b24] walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b24 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2550,34 +2727,36 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # This test extracts _conversation_process_background's body and
-      # exec()s it with _invoke_pwg_convo stubbed, deliberately avoiding
-      # the full module's heavy ostler_security/qdrant/httpx import chain --
-      # no runtime dependency beyond pytest itself.
+      # The test drives the REAL vendored IdentityResolver (sys.path
+      # points at vendor/cm041, same shim as tests/test_resolver_robustness.py)
+      # with _sparql_query/_sparql_update overridden and qdrant_client
+      # mocked, so no live Oxigraph/Qdrant is needed -- just resolver.py's
+      # own import chain: httpx, phonenumbers, rapidfuzz (via normalise.py),
+      # qdrant_client (patched, but must be importable to patch).
       - id: b24_s01
         if: ${{ steps.select.outputs.b24 != 'false' && !cancelled() && steps.b24_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
-        name: Install pytest
-        run: python -m pip install --quiet pytest
+        name: Install dependencies
+        run: python -m pip install --quiet pytest httpx qdrant-client phonenumbers rapidfuzz
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
       # separate step would SKIP the run below and hide the real result
       # behind an earlier red.
       - id: b24_s02
         if: ${{ steps.select.outputs.b24 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: A processor crash's failure_reason keeps the tail, not the head
+        name: canonicalise_display_name syncs the chosen name to Qdrant
         run: |
-          n="$(python -m pytest tests/test_vendored_conversation_process_failure_reason.py \
+          n="$(python -m pytest tests/test_canonicalise_syncs_qdrant.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 2 ]; then
             echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_vendored_conversation_process_failure_reason.py -v
+          python -m pytest tests/test_canonicalise_syncs_qdrant.py -v
 
       # ========================================================================
-      # b25: walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant
+      # b25: walk6-people-list-correctness-guard.yml :: people-list-correctness
       # ========================================================================
       # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
       # notification senders, prefers a known real name over a bare email/phone
@@ -2597,7 +2776,7 @@ jobs:
       # wiring each test this walk adds is this file's job, per "a new test
       # that is not invoked is not wired."
       - id: b25_isolate
-        name: "[b25] walk6-people-list-correctness-guard.yml :: canonicalise-syncs-qdrant -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b25] walk6-people-list-correctness-guard.yml :: people-list-correctness -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b25 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2640,36 +2819,44 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # The test drives the REAL vendored IdentityResolver (sys.path
-      # points at vendor/cm041, same shim as tests/test_resolver_robustness.py)
-      # with _sparql_query/_sparql_update overridden and qdrant_client
-      # mocked, so no live Oxigraph/Qdrant is needed -- just resolver.py's
-      # own import chain: httpx, phonenumbers, rapidfuzz (via normalise.py),
-      # qdrant_client (patched, but must be importable to patch).
+      # ical-server.py's module-level imports are stdlib plus two local,
+      # dependency-free files (pwg_privacy.py, identity_resolver/compartment.py)
+      # -- measured by reading every top-level import in the file. No
+      # third-party package is needed to import and exercise people_list.
       - id: b25_s01
         if: ${{ steps.select.outputs.b25 != 'false' && !cancelled() && steps.b25_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
-        name: Install dependencies
-        run: python -m pip install --quiet pytest httpx qdrant-client phonenumbers rapidfuzz
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a failing floor in a
-      # separate step would SKIP the run below and hide the real result
-      # behind an earlier red.
+        name: Install pytest
+        run: python -m pip install --quiet pytest
       - id: b25_s02
         if: ${{ steps.select.outputs.b25 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: canonicalise_display_name syncs the chosen name to Qdrant
+        name: The Hub's People list excludes junk senders, fixes bare-identifier names, excludes the owner
         run: |
-          n="$(python -m pytest tests/test_canonicalise_syncs_qdrant.py \
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 2 ]; then
             echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_canonicalise_syncs_qdrant.py -v
+          python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
+      - id: b25_s03
+        if: ${{ steps.select.outputs.b25 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: The assistant's decisions tool reads the store the wiki Decisions page reads
+        run: |
+          out="$(python -m pytest vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py -q 2>&1)" || true
+          echo "$out"
+          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
+          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then exit 1; fi
+          if [ "${got:-0}" -lt 6 ]; then
+            echo "::error::expected 6 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
+            exit 1
+          fi
 
       # ========================================================================
-      # b26: walk6-people-list-correctness-guard.yml :: people-list-correctness
+      # b26: walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters
       # ========================================================================
       # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
       # notification senders, prefers a known real name over a bare email/phone
@@ -2689,7 +2876,7 @@ jobs:
       # wiring each test this walk adds is this file's job, per "a new test
       # that is not invoked is not wired."
       - id: b26_isolate
-        name: "[b26] walk6-people-list-correctness-guard.yml :: people-list-correctness -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b26] walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b26 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2732,10 +2919,9 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # ical-server.py's module-level imports are stdlib plus two local,
-      # dependency-free files (pwg_privacy.py, identity_resolver/compartment.py)
-      # -- measured by reading every top-level import in the file. No
-      # third-party package is needed to import and exercise people_list.
+      # Same dependency profile as people-list-correctness above: this
+      # file exercises people_stale/people_recent/people_birthdays, which
+      # pull in no third-party package either.
       - id: b26_s01
         if: ${{ steps.select.outputs.b26 != 'false' && !cancelled() && steps.b26_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
@@ -2744,32 +2930,19 @@ jobs:
       - id: b26_s02
         if: ${{ steps.select.outputs.b26 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: The Hub's People list excludes junk senders, fixes bare-identifier names, excludes the owner
+        name: The suggestion producers apply the same owner/automated/service-mailbox filters people_list does
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py \
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 2 ]; then
-            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_people_list_endpoint.py -v
-      - id: b26_s03
-        if: ${{ steps.select.outputs.b26 != 'false' && (always()) }}
-        timeout-minutes: 15
-        name: The assistant's decisions tool reads the store the wiki Decisions page reads
-        run: |
-          out="$(python -m pytest vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py -q 2>&1)" || true
-          echo "$out"
-          got="$(printf '%s' "$out" | sed -nE 's/^([0-9]+) passed.*/\1/p' | head -1)"
-          if printf '%s' "$out" | grep -qE '[0-9]+ (failed|error)'; then exit 1; fi
-          if [ "${got:-0}" -lt 6 ]; then
-            echo "::error::expected 6 arms, saw ${got:-0}. An arm that stops matching does not fail, it DISAPPEARS."
-            exit 1
-          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py -v
 
       # ========================================================================
-      # b27: walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters
+      # b27: walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names
       # ========================================================================
       # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
       # notification senders, prefers a known real name over a bare email/phone
@@ -2789,7 +2962,7 @@ jobs:
       # wiring each test this walk adds is this file's job, per "a new test
       # that is not invoked is not wired."
       - id: b27_isolate
-        name: "[b27] walk6-people-list-correctness-guard.yml :: suggestions-apply-people-list-filters -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b27] walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b27 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2832,30 +3005,42 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # Same dependency profile as people-list-correctness above: this
-      # file exercises people_stale/people_recent/people_birthdays, which
-      # pull in no third-party package either.
+      # The query is run by a REAL pyoxigraph engine (tests/_fake_oxigraph.py),
+      # not a stubbed _sparql_select: the v1.0.107 defect is in the SPARQL text.
       - id: b27_s01
         if: ${{ steps.select.outputs.b27 != 'false' && !cancelled() && steps.b27_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
-        name: Install pytest
-        run: python -m pip install --quiet pytest
+        name: Install pytest and pyoxigraph
+        run: python -m pip install --quiet pytest pyoxigraph
       - id: b27_s02
         if: ${{ steps.select.outputs.b27 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: The suggestion producers apply the same owner/automated/service-mailbox filters people_list does
+        name: Chat finds a person by a human name a contact merge retired (v1.0.107)
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py \
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 12 ]; then
-            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_suggestions_apply_people_list_filters.py -v
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py -v
+      - id: b27_s03
+        if: ${{ steps.select.outputs.b27 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: Person view, timeline, forget, memory/assert, decisions, speakers and birthdays follow merges (walk #27)
+        run: |
+          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 11 ]; then
+            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py -v
 
       # ========================================================================
-      # b28: walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names
+      # b28: walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces
       # ========================================================================
       # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
       # notification senders, prefers a known real name over a bare email/phone
@@ -2874,8 +3059,12 @@ jobs:
       # test_subscription_gate.py). Fixing those three is a separate, larger PR;
       # wiring each test this walk adds is this file's job, per "a new test
       # that is not invoked is not wired."
+      # CM041 #216 (v1.0.108): a do-not-suggest (deceased) person appears in no
+      # proactive surface, stays excluded after a re-sync mints a new node or a
+      # merge, and never hides a living relative on a shared landline or email.
+      # phonenumbers: _is_fixed_line keeps landlines out of the suppression record.
       - id: b28_isolate
-        name: "[b28] walk6-people-list-correctness-guard.yml :: person-context-finds-merged-names -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b28] walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b28 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -2918,66 +3107,71 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # The query is run by a REAL pyoxigraph engine (tests/_fake_oxigraph.py),
-      # not a stubbed _sparql_select: the v1.0.107 defect is in the SPARQL text.
+      # ostler_security: the vendored ical-server refuses to import without
+      # it (ostler_security.db_key), so the test's minimal stub is not enough.
       - id: b28_s01
         if: ${{ steps.select.outputs.b28 != 'false' && !cancelled() && steps.b28_isolate.conclusion != 'failure' }}
         timeout-minutes: 15
-        name: Install pytest and pyoxigraph
-        run: python -m pip install --quiet pytest pyoxigraph
+        name: Install pytest, phonenumbers and ostler_security
+        run: |
+          python -m pip install --quiet pytest phonenumbers
+          python -m pip install --quiet ./vendor/ostler_security
       - id: b28_s02
         if: ${{ steps.select.outputs.b28 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: Chat finds a person by a human name a contact merge retired (v1.0.107)
+        name: CM052-shaped conversations reach CM048 with their privacy level and stable id (CM041 #221 graft)
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py \
+          n="$(python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 7 ]; then
-            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 6 ]; then
+            echo "REFUSING: expected at least 6 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_person_context_finds_merged_names.py -v
+          python -m pytest tests/test_cm041_conversation_process_privacy_passthrough_vendored.py -v
       - id: b28_s03
         if: ${{ steps.select.outputs.b28 != 'false' && (always()) }}
         timeout-minutes: 15
-        name: Person view, timeline, forget, memory/assert, decisions, speakers and birthdays follow merges (walk #27)
+        name: Conversation routes refuse path traversal, and every guard has a killed mutant (CM041 #225 graft)
         run: |
-          n="$(python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py \
+          n="$(python -m pytest tests/test_cm041_conversation_path_safety_vendored.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 11 ]; then
-            echo "REFUSING: expected at least 11 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 16 ]; then
+            echo "REFUSING: expected at least 16 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest vendor/cm041/assistant_api/tests/test_person_reads_follow_merges.py -v
+          python -m pytest tests/test_cm041_conversation_path_safety_vendored.py -v
+          python -m pytest tests/test_cm041_conversation_path_safety_mutants_vendored.py -v
+      - id: b28_s04
+        if: ${{ steps.select.outputs.b28 != 'false' && (always()) }}
+        timeout-minutes: 15
+        name: A deceased person is suggested nowhere; a living relative on the family line stays visible
+        run: |
+          n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 18 ]; then
+            echo "REFUSING: expected at least 18 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py -v
 
       # ========================================================================
-      # b29: walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces
+      # b29: whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone
       # ========================================================================
-      # CM051 walk #6 (v1.0.107): the Hub's People list excludes service/
-      # notification senders, prefers a known real name over a bare email/phone
-      # identifier, and excludes the owner's own identities. Mirrors CM041 PR
-      # #191 (identity_resolver Qdrant-sync graft) and #192 (ical-server.py
-      # people_list fixes). Three jobs: identity_resolver's Qdrant-sync half,
-      # ical-server.py's people_list half, and (candidate #10) the suggestion
-      # producers (people_stale/people_recent/people_birthdays) that read from
-      # the same filters but never applied them.
+      # CM051 #2543: a WhatsApp LID (linked-device id) presented through the
+      # ordinary phone-JID suffix (@s.whatsapp.net, not only @lid) must never be
+      # written as a "phone" identifier or rendered as a digit-shaped displayName.
       #
-      # vendor/cm041/assistant_api/tests/ had NO CI coverage at all until this
-      # file -- measured: a repo-wide grep for any workflow invoking that
-      # directory (this file's own comment excepted) returned nothing, for this
-      # file's first test or its three pre-existing siblings
-      # (test_ical_server_wire_shape.py, test_subscription_endpoint.py,
-      # test_subscription_gate.py). Fixing those three is a separate, larger PR;
-      # wiring each test this walk adds is this file's job, per "a new test
-      # that is not invoked is not wired."
-      # CM041 #216 (v1.0.108): a do-not-suggest (deceased) person appears in no
-      # proactive surface, stays excluded after a re-sync mints a new node or a
-      # merge, and never hides a living relative on a shared landline or email.
-      # phonenumbers: _is_fixed_line keeps landlines out of the suppression record.
+      # Runs against THIS vendored copy of pwg_ingest.py (vendor/ostler_fda), the
+      # one that actually ships in the DMG -- this tree carries its own grafts
+      # (_creation_name_triples / _upsert_display_name, v1018-D658/D659) that
+      # HR015's own copy does not, so a test proven only against HR015 proves
+      # nothing about what a customer runs. See HR015 PR #1017 for the
+      # upstream-converging fix this mirrors.
       - id: b29_isolate
-        name: "[b29] walk6-people-list-correctness-guard.yml :: deceased-excluded-from-proactive-surfaces -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b29] whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b29 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -3020,44 +3214,71 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # ostler_security: the vendored ical-server refuses to import without
-      # it (ostler_security.db_key), so the test's minimal stub is not enough.
+      # httpx, nameparser, phonenumbers: pwg_ingest's own runtime
+      # dependencies (vendor/ostler_fda/pyproject.toml), all imported at
+      # module scope either directly or via identifier_quality. Missing any
+      # one makes pytest exit 2 on COLLECTION -- not a failing assertion, an
+      # unimportable module.
       - id: b29_s01
         if: ${{ steps.select.outputs.b29 != 'false' && !cancelled() && steps.b29_isolate.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: Install pytest, phonenumbers and ostler_security
-        run: |
-          python -m pip install --quiet pytest phonenumbers
-          python -m pip install --quiet ./vendor/ostler_security
+        timeout-minutes: 20
+        name: Install pytest and the module's runtime dependencies
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers
+      # `from ostler_fda import pwg_ingest` needs `vendor/` on sys.path.
+      # `python -m pytest` inserts the CURRENT WORKING DIRECTORY as
+      # sys.path[0] (python -m semantics), so running from inside vendor/
+      # makes ostler_fda importable as a top-level package with no
+      # PYTHONPATH hack and no sys.path.insert inside the test file itself.
+      #
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
+      # contact-card-repair.yml: a failing floor in a separate step would
+      # SKIP the run below and hide the real result behind an earlier red.
       - id: b29_s02
         if: ${{ steps.select.outputs.b29 != 'false' && !cancelled() && steps.b29_isolate.conclusion != 'failure' && steps.b29_s01.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: A deceased person is suggested nowhere; a living relative on the family line stays visible
+        timeout-minutes: 20
+        name: A WhatsApp LID is never written or shown as a phone number
         run: |
-          n="$(python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py \
+          cd vendor
+          n="$(python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py \
                  --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 18 ]; then
-            echo "REFUSING: expected at least 18 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 13 ]; then
+            echo "REFUSING: expected at least 13 collected tests, got ${n:-0}." >&2
             exit 1
           fi
-          python -m pytest tests/test_cm041_deceased_excluded_from_proactive_surfaces.py -v
+          python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py -v
+          python -m pytest ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py -v
 
       # ========================================================================
-      # b30: whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone
+      # b30: writer-reader-vocabulary.yml :: writer-reader-vocabulary
       # ========================================================================
-      # CM051 #2543: a WhatsApp LID (linked-device id) presented through the
-      # ordinary phone-JID suffix (@s.whatsapp.net, not only @lid) must never be
-      # written as a "phone" identifier or rendered as a digit-shaped displayName.
+      # Five places where a writer stored one name and a reader asked for another.
       #
-      # Runs against THIS vendored copy of pwg_ingest.py (vendor/ostler_fda), the
-      # one that actually ships in the DMG -- this tree carries its own grafts
-      # (_creation_name_triples / _upsert_display_name, v1018-D658/D659) that
-      # HR015's own copy does not, so a test proven only against HR015 proves
-      # nothing about what a customer runs. See HR015 PR #1017 for the
-      # upstream-converging fix this mirrors.
+      # Every one of them failed the same way: both sides returned success, nothing
+      # went red anywhere, and the customer got a blank screen. Measured on a live
+      # box on 2026-09-16, before any fix:
+      #
+      #   people.last_contact_ts   absent on 3784 of 3784   -> stale + reconnect
+      #                                                        lists permanently empty
+      #   pwg:PersonFact           0 in every graph         -> "what do you know
+      #                            (990 urn:ostler:Fact)       about me" empty
+      #   notion_knowledge         a collection nothing     -> Notion + Obsidian
+      #                            reads                       imports vanish
+      #   compartment_level        4804 hold "L2", the      -> compartment-scoped
+      #                            reader sends a numeric      search dead
+      #                            range that matches 0
+      #   user_id                  absent on 5733 of 5733   -> every user-scoped
+      #                                                        read returns nothing
+      #
+      # THE POINT OF RUNNING THIS IN CI. None of the five could be caught by a test
+      # of either side alone -- each half was internally consistent and passed its
+      # own tests for months. The suite below joins the two sides: it runs the real
+      # writer and checks the key the real reader filters on, executes the reader's
+      # actual SPARQL against fixtures in the writer's actual vocabulary, and
+      # evaluates the reader's actual filter body against the payload shape the live
+      # store really holds. A regression on EITHER side breaks a test.
       - id: b30_isolate
-        name: "[b30] whatsapp-lid-not-phone.yml :: whatsapp-lid-not-phone -- fresh tree, venv, HOME, TMPDIR"
+        name: "[b30] writer-reader-vocabulary.yml :: writer-reader-vocabulary -- fresh tree, venv, HOME, TMPDIR"
         if: ${{ !cancelled() && steps.select.outputs.b30 != 'false' }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
@@ -3100,113 +3321,6 @@ jobs:
             echo "TMPDIR=$BLOCK/tmp"
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
-      # httpx, nameparser, phonenumbers: pwg_ingest's own runtime
-      # dependencies (vendor/ostler_fda/pyproject.toml), all imported at
-      # module scope either directly or via identifier_quality. Missing any
-      # one makes pytest exit 2 on COLLECTION -- not a failing assertion, an
-      # unimportable module.
-      - id: b30_s01
-        if: ${{ steps.select.outputs.b30 != 'false' && !cancelled() && steps.b30_isolate.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: Install pytest and the module's runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers
-      # `from ostler_fda import pwg_ingest` needs `vendor/` on sys.path.
-      # `python -m pytest` inserts the CURRENT WORKING DIRECTORY as
-      # sys.path[0] (python -m semantics), so running from inside vendor/
-      # makes ostler_fda importable as a top-level package with no
-      # PYTHONPATH hack and no sys.path.insert inside the test file itself.
-      #
-      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE, same reasoning as
-      # contact-card-repair.yml: a failing floor in a separate step would
-      # SKIP the run below and hide the real result behind an earlier red.
-      - id: b30_s02
-        if: ${{ steps.select.outputs.b30 != 'false' && !cancelled() && steps.b30_isolate.conclusion != 'failure' && steps.b30_s01.conclusion != 'failure' }}
-        timeout-minutes: 20
-        name: A WhatsApp LID is never written or shown as a phone number
-        run: |
-          cd vendor
-          n="$(python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py \
-                 --collect-only -q | grep -cE '::test_')" || n=0
-          echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 13 ]; then
-            echo "REFUSING: expected at least 13 collected tests, got ${n:-0}." >&2
-            exit 1
-          fi
-          python -m pytest ostler_fda/tests/test_whatsapp_lid_not_phone.py -v
-          python -m pytest ostler_fda/tests/test_whatsapp_placeholder_not_a_name.py -v
-
-      # ========================================================================
-      # b31: writer-reader-vocabulary.yml :: writer-reader-vocabulary
-      # ========================================================================
-      # Five places where a writer stored one name and a reader asked for another.
-      #
-      # Every one of them failed the same way: both sides returned success, nothing
-      # went red anywhere, and the customer got a blank screen. Measured on a live
-      # box on 2026-09-16, before any fix:
-      #
-      #   people.last_contact_ts   absent on 3784 of 3784   -> stale + reconnect
-      #                                                        lists permanently empty
-      #   pwg:PersonFact           0 in every graph         -> "what do you know
-      #                            (990 urn:ostler:Fact)       about me" empty
-      #   notion_knowledge         a collection nothing     -> Notion + Obsidian
-      #                            reads                       imports vanish
-      #   compartment_level        4804 hold "L2", the      -> compartment-scoped
-      #                            reader sends a numeric      search dead
-      #                            range that matches 0
-      #   user_id                  absent on 5733 of 5733   -> every user-scoped
-      #                                                        read returns nothing
-      #
-      # THE POINT OF RUNNING THIS IN CI. None of the five could be caught by a test
-      # of either side alone -- each half was internally consistent and passed its
-      # own tests for months. The suite below joins the two sides: it runs the real
-      # writer and checks the key the real reader filters on, executes the reader's
-      # actual SPARQL against fixtures in the writer's actual vocabulary, and
-      # evaluates the reader's actual filter body against the payload shape the live
-      # store really holds. A regression on EITHER side breaks a test.
-      - id: b31_isolate
-        name: "[b31] writer-reader-vocabulary.yml :: writer-reader-vocabulary -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b31 != 'false' }}
-        env:
-          PY: ${{ steps.python.outputs.python-path }}
-          BLOCK: ${{ runner.temp }}/ci-fold/b31
-        run: |
-          set -eu
-          # A fresh machine also had no processes left over from another job.
-          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
-          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
-          # anything an earlier block left running still carries it. Kill exactly
-          # those: nothing else on the machine carries the marker.
-          cf="$RUNNER_TEMP/ci-fold"
-          mkdir -p "$cf"
-          me=$$
-          ps -A -o pid=,ppid= > "$cf/procs" || true
-          # ONE read of every process's environment, not one per process: on
-          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
-          if [ -d /proc/self ]; then
-            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
-            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
-          else
-            ps eww -A -o pid=,command= > "$cf/marked.raw"
-            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
-          fi
-          marked=" $(tr '\n' ' ' < "$cf/marked") "
-          while read -r pid ppid; do
-            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            case "$marked" in *" $pid "*) ;; *) continue ;; esac
-            kill -KILL "$pid" 2>/dev/null || true
-          done < "$cf/procs"
-          echo "CI_FOLD_BLOCK=b31" >> "$GITHUB_ENV"
-          git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
-          git -C "$GITHUB_WORKSPACE" clean -ffdxq
-          rm -rf "$BLOCK"
-          mkdir -p "$BLOCK/home" "$BLOCK/tmp"
-          "$PY" -m venv "$BLOCK/venv"
-          echo "$BLOCK/venv/bin" >> "$GITHUB_PATH"
-          {
-            echo "HOME=$BLOCK/home"
-            echo "TMPDIR=$BLOCK/tmp"
-            echo "VIRTUAL_ENV=$BLOCK/venv"
-          } >> "$GITHUB_ENV"
       # EVERY ONE OF THESE IS LOAD-BEARING, not housekeeping. The suite opens
       # with pytest.importorskip on three of them, so a missing wheel does not
       # fail the run -- it SKIPS the module and reports success, which is the
@@ -3227,14 +3341,14 @@ jobs:
       #                      ical-server.py REFUSES to import without it,
       #                      by design: it will not start against
       #                      potentially unencrypted databases.
-      - id: b31_s01
-        if: ${{ steps.select.outputs.b31 != 'false' && !cancelled() && steps.b31_isolate.conclusion != 'failure' }}
+      - id: b30_s01
+        if: ${{ steps.select.outputs.b30 != 'false' && !cancelled() && steps.b30_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
         name: Install the dependencies the suite refuses to run without
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet pytest rdflib pydantic-settings \
-            nameparser httpx phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" httpx phonenumbers pyyaml
           python -m pip install --quiet ./vendor/ostler_security
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.
       #
@@ -3249,8 +3363,8 @@ jobs:
       # property is STATED rather than inherited from another tool's exit
       # convention, and so a PARTIAL skip (rdflib missing, ical-server
       # unimportable) is caught too -- that one exits 0 today.
-      - id: b31_s02
-        if: ${{ steps.select.outputs.b31 != 'false' && !cancelled() && steps.b31_isolate.conclusion != 'failure' && steps.b31_s01.conclusion != 'failure' }}
+      - id: b30_s02
+        if: ${{ steps.select.outputs.b30 != 'false' && !cancelled() && steps.b30_isolate.conclusion != 'failure' && steps.b30_s01.conclusion != 'failure' }}
         timeout-minutes: 20
         name: A writer's name and its reader's name still meet
         run: |
@@ -3275,8 +3389,8 @@ jobs:
       # PRIVACY, and 5 is L5Commercial which privacy_model.py maps to the
       # publishable level. The comment stated the intent and the number said the
       # opposite. `if: always()` so an earlier red cannot delete this.
-      - id: b31_s03
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s03
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: No parser labels private data publishable
         run: python3 tests/test_no_parser_labels_sensitive_data_publishable.py
@@ -3301,8 +3415,8 @@ jobs:
       # four arms red while the control arm still passes.
       #
       # `if: always()` so an earlier red cannot delete this.
-      - id: b31_s04
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s04
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: A store refusal is recorded, not reported as an empty batch
         run: python3 tests/test_a_store_refusal_is_not_an_empty_batch.py
@@ -3326,8 +3440,8 @@ jobs:
       # Its mutant is origin/main's own pre-fix blob, which turns it red.
       #
       # `if: always()` so an earlier red cannot delete this.
-      - id: b31_s05
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s05
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: The preference projection runs before the compile that reads it
         run: bash tests/test_the_preference_projection_runs_before_the_compile_that_reads_it.sh
@@ -3355,13 +3469,13 @@ jobs:
       # origin/main's own install.sh, which carves 0 lines and turns it red.
       #
       # `if: always()` so an earlier red cannot delete this.
-      - id: b31_s06
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s06
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: The Front Page catch-up survives a late ingest
         run: bash tests/test_the_front_page_catch_up_survives_a_late_ingest.sh
-      - id: b31_s07
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s07
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: The Front Page catch-up never removes itself on an empty read while the install is running (walk #27)
         run: bash tests/test_the_front_page_catch_up_waits_out_hydration.sh
@@ -3369,8 +3483,8 @@ jobs:
       # about other people go to about_others. Real query over rdflib, real
       # api_memory_list. Floor + run in one step; `if: always()` so an
       # earlier red cannot delete it.
-      - id: b31_s08
-        if: ${{ steps.select.outputs.b31 != 'false' && (always()) }}
+      - id: b30_s08
+        if: ${{ steps.select.outputs.b30 != 'false' && (always()) }}
         timeout-minutes: 20
         name: About you holds only the owner's facts (F12b)
         run: |

@@ -7,7 +7,7 @@
 
 ## Current active workstream: channel configurator for launch
 
-Status: **proposed, awaiting Andy's sign-off before agent dispatch**
+Status: **proposed, awaiting the owner's sign-off before agent dispatch**
 
 ### Goal
 
@@ -16,7 +16,7 @@ At the end of the installer, walk the user through configuring every ZeroClaw ch
 ### Why
 
 - Users should not have to hand-edit TOML to onboard a messaging channel.
-- Andy's first beta tester (Jeffrey) uses Telegram — we need a painless path to "enable Telegram" at install time, not a bash session editing config files.
+- The owner's first beta tester (Jeffrey) uses Telegram — we need a painless path to "enable Telegram" at install time, not a bash session editing config files.
 - Productisation win: the current setup expects a developer audience; the configurator makes it accessible to non-technical users.
 
 ### Scope for launch (mid-late May 2026)
@@ -67,7 +67,7 @@ Why split this way: the config schemas already live in ZeroClaw's Rust. Duplicat
 
 ### Risks
 
-- OAuth app registration (Google + Microsoft) requires creating OAuth clients in each provider's developer console. Andy needs to do this once, reusable afterwards.
+- OAuth app registration (Google + Microsoft) requires creating OAuth clients in each provider's developer console. The owner needs to do this once, reusable afterwards.
 - Google's OAuth has a verification process for sensitive scopes. Gmail read is unrestricted; Gmail modify may need verification. Assess before committing to scope.
 - Microsoft OAuth has different flow vs Google — two separate code paths.
 - WhatsApp Web channel in ZeroClaw may have staleness issues under the installer context (session not yet established); may want to defer WhatsApp pairing to a post-install "run once" step.

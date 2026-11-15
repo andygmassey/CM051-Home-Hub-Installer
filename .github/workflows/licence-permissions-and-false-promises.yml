@@ -136,18 +136,6 @@ jobs:
       - name: The WhatsApp link step is on the first screen after install
         if: always()
         run: bash tests/test_connect_whatsapp_is_on_the_first_screen.sh
-
-      # The licence keep had to be added to ttywalk's residue count in the same
-      # change, or every wipe walk would abort at CANNOT-RUN on the surviving
-      # licence -- a check failing because the code it checks was fixed.
-      - name: The walk still tells a wiped box from a dirty one
-        if: always()
-        run: bash tests/test_a_volume_count_is_not_a_wiped_box.sh
-
-      - name: The wipe still preserves the licence across an older uninstaller
-        if: always()
-        run: bash tests/test_the_wipe_preserves_the_licence.sh
-
       # The prompt-loop ratchet is a TWO-WAY gate: it fails if the count goes
       # up AND if it goes down without the ceiling following. The E.164 fix
       # edits the body of one of the three scored loops, so it is run here

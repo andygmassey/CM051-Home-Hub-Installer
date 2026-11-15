@@ -442,11 +442,11 @@ printf '{"session_id": "cm048-abc", "usage": {"purpose": "conversation_enrich"}}
 # The four artefacts a completed run leaves on disk, in the shapes the writers
 # use: the processing dir, the flat markdown, the bundle folder named by
 # sha1(id)[:8], and a decoy bundle whose short id is somebody else's.
-mkdir -p "$B_F/Documents/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT"
-printf 'x\n' > "$B_F/Documents/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT/summary.md"
-mkdir -p "$B_F/Documents/Ostler/Conversations/2026-09-09/someone-else-deadbeef"
-printf 'x\n' > "$B_F/Documents/Ostler/Conversations/2026-09-09/someone-else-deadbeef/summary.md"
-printf 'x\n' > "$B_F/Documents/Ostler/Conversations/$SEED_ID.md"
+mkdir -p "$B_F/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT"
+printf 'x\n' > "$B_F/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT/summary.md"
+mkdir -p "$B_F/Ostler/Conversations/2026-09-09/someone-else-deadbeef"
+printf 'x\n' > "$B_F/Ostler/Conversations/2026-09-09/someone-else-deadbeef/summary.md"
+printf 'x\n' > "$B_F/Ostler/Conversations/$SEED_ID.md"
 COACH="$B_F/.ostler/coach/observations.db"
 mkdir -p "$(dirname "$COACH")"
 SQLITE="$(command -v sqlite3 || true)"
@@ -477,13 +477,13 @@ arm "the forget always returns 0, so a tidy-up cannot fail a walk" $? "$fout"
 [ ! -d "$B_F/.ostler/processing/$SEED_ID" ]
 arm "the processing directory is gone" $? "still at $B_F/.ostler/processing/$SEED_ID"
 
-[ ! -f "$B_F/Documents/Ostler/Conversations/$SEED_ID.md" ]
+[ ! -f "$B_F/Ostler/Conversations/$SEED_ID.md" ]
 arm "the flat Conversations markdown is gone" $? "still there"
 
-[ ! -d "$B_F/Documents/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT" ]
+[ ! -d "$B_F/Ostler/Conversations/2026-09-09/note-to-self-$SEED_SHORT" ]
 arm "the bundle folder named by sha1(id)[:8] is gone" $? "still there"
 
-[ -d "$B_F/Documents/Ostler/Conversations/2026-09-09/someone-else-deadbeef" ]
+[ -d "$B_F/Ostler/Conversations/2026-09-09/someone-else-deadbeef" ]
 arm "THE DECOY SURVIVES: a bundle with a different short id is left alone" $? \
     "the forget deleted somebody else's conversation"
 

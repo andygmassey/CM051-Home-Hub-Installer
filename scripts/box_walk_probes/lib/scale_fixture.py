@@ -56,7 +56,7 @@ from datetime import datetime, timedelta, timezone
 
 # Approved synthetic cast (.pii-name-registry.tsv), lower case on purpose.
 _FIRST = ("jane john alex alexander alexandra mary raj liz elizabeth sam samuel jonathan ana ben "
-          "carl tom thomas hans alison allison ali catherine katherine kathryn kathleen geoffrey "
+          "carl tom thomas hans allison ali catherine katherine kathryn kathleen geoffrey "
           "jeffrey stephen steven philip phillip lawrence laurence nathaniel nathan charles rebecca "
           "margaret bob robert").split()
 _LAST = "doe smith jones ross coe patel brown andersen stewart".split()
@@ -390,6 +390,23 @@ def neighbour_forget_update():
             "DELETE WHERE { <%s> ?p ?o }" % (NEIGHBOUR_FACT, NEIGHBOUR_URI))
 
 
+def forget_neighbour_vector(qdrant, home, post=None):
+    """Delete the neighbour's projection in the Qdrant `people` collection.
+
+    seed_neighbour writes a Person node; the people sweep then projects it to a
+    vector (source=fda_people_index). Forgetting only the graph side left an
+    orphan vector: v1.0.112 walk33 people_stores_reconcile B=1 and
+    people_count_agreement oxigraph=2 doctor=3. Filter-delete by the exact
+    person_uri, so no customer point can match. -> state word."""
+    post = post or (lambda url, body: _post(url, body, _qdrant_headers(home)))
+    try:
+        post("%s/collections/people/points/delete?wait=true" % qdrant,
+             {"filter": {"must": [{"key": "person_uri", "match": {"value": NEIGHBOUR_URI}}]}})
+        return "forgotten"
+    except Exception as e:
+        return "failed-%s" % type(e).__name__
+
+
 def forget_neighbour(home, store="http://127.0.0.1:7878"):
     import urllib.request
     tok = os.environ.get("OXIGRAPH_TOKEN") or ""
@@ -421,7 +438,9 @@ def main(argv=None):
     g.add_argument("--notes", type=int, default=6000)
     r = sub.add_parser("replay")
     r.add_argument("--fixture", required=True)
-    r.add_argument("--knowledge-bin", default=os.environ.get("OSTLER_KNOWLEDGE_BIN", "/usr/local/bin/ostler-knowledge"))
+    _owner_bin = os.path.join(os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler"), "bin", "ostler-knowledge")
+    _kb_default = _owner_bin if os.path.exists(_owner_bin) else "/usr/local/bin/ostler-knowledge"
+    r.add_argument("--knowledge-bin", default=os.environ.get("OSTLER_KNOWLEDGE_BIN", _kb_default))
     r.add_argument("--qdrant", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
     r.add_argument("--ollama", default=os.environ.get("EMBED_OLLAMA_URL", "http://localhost:11434"))
     r.add_argument("--home", default=os.path.expanduser("~"))
@@ -432,7 +451,8 @@ def main(argv=None):
     fg.add_argument("--home", default=os.path.expanduser("~"))
     a = ap.parse_args(argv)
     if a.cmd == "forget":
-        res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home)}
+        res = {"points": forget(a.qdrant.rstrip("/"), a.home), "neighbour": forget_neighbour(a.home),
+               "neighbour_vector": forget_neighbour_vector(a.qdrant.rstrip("/"), a.home)}
         print(json.dumps(res))
         ok = all(v.get("left") == 0 for v in res["points"].values()) and res["neighbour"] == "forgotten"
         return 0 if ok else 1

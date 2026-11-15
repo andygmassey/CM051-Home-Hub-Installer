@@ -97,5 +97,26 @@ sh = open(os.path.join(os.path.dirname(LIB), "probes", "todos_reach_reminders.sh
 check("probe folds the forget output into the judged facts", "f['cleanup']" in sh)
 check("the fold lets its stderr through", '"${facts}" "${forgot}" 2>/dev/null' not in sh)
 
+# 6. a delete that times out once (a cold Reminders launch) is retried, and the
+#    retry is judged by the verifying count, not by the first call's timeout
+st2 = Stub()
+calls = {"n": 0}
+def flaky(argv, **kw):
+    if " delete " in argv[2]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise subprocess.TimeoutExpired(argv, kw.get("timeout", 0))
+    return st2(argv, **kw)
+r = box.delete_reminder(ID, flaky)
+check("a delete that times out once is retried and reaches deleted (delete calls={})".format(calls["n"]),
+      r["state"] == "deleted" and calls["n"] == 2 and not st2.present)
+# 7. the osascript budget covers a cold Reminders launch (the old budget was 20 s)
+seen = {}
+def capture(argv, **kw):
+    seen["timeout"] = kw.get("timeout")
+    return P(0, "0\n")
+box.delete_reminder(ID, capture)
+check("osascript budget is at least 60 s (got {})".format(seen.get("timeout")), (seen.get("timeout") or 0) >= 60)
+
 print("FAIL: " + "; ".join(fails) if fails else "PASS")
 sys.exit(1 if fails else 0)

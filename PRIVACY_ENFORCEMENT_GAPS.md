@@ -22,7 +22,7 @@ when the writer is improved.
 artefact with a privacy level, defaulting to `L3` as of this change (it
 defaulted to `L2`, against the locked contract in `CLAUDE.md`, until
 2026-09-16). The level lands in the markdown frontmatter of every file under
-`~/Documents/Ostler/AI Conversations/`.
+`~/Ostler/AI Conversations/`.
 
 **Nothing in the DMG reads it back.** Measured:
 
@@ -81,7 +81,7 @@ Mirrored, not read (CM051 #2931, 2026-10-15):
   `_retention_tier_for` and hands the value to
 - `vendor/cm048_pipeline/src/capture_truth.py` `stamp_frontmatter`, which
   writes it into the enrichment frontmatter (`02_enrichment.md`, copied to
-  `~/Documents/Ostler/Conversations/<id>.md`). The model used to copy a tier
+  `~/Ostler/Conversations/<id>.md`). The model used to copy a tier
   out of its prompt there instead. Nothing reads that frontmatter field and
   neither file branches on it; `tests/test_the_retention_tier_is_written_and_read_by_nothing.py`
   holds both to that. This makes the decorative value consistent; it does

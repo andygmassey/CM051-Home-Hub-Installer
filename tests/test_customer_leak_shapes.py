@@ -156,3 +156,24 @@ def test_rendered_front_page_has_no_leak_shape_and_judge_holds():
     f["wiki"]["pages"]["front"]["text"] += "\n" + text
     new = {n for n, ok, d in customer_read.judge(f) if ok is False} - base
     assert not new, "customer_read judge fails on the rendered fixture: %s" % sorted(new)
+
+
+def _sources_verdict(tab_rows):
+    f = customer_read._good()
+    f["api"]["sources"] = [["email", "no_data"], ["imessage", "no_data"], ["calendar", "ok"]]
+    f["screens"]["doctor_sources"] = {"rows": tab_rows}
+    return [(n, ok, d) for n, ok, d in customer_read.judge(f)
+            if n == "sources: the Doctor data sources tab agrees with /api/v1/sources"]
+
+
+def test_sources_tab_never_fresh_over_an_empty_box_walk33_2551():
+    # walk33 v1.0.112: tab said Up to date, /api/v1/sources said empty.
+    (_, ok, d), = _sources_verdict([["Mail", "Up to date"], ["iMessage", "Up to date"]])
+    assert ok is False and "Mail reads 'Up to date'" in d
+    # the fixed tab wording agrees with an empty box, and is MEASURED (not skipped)
+    (_, ok, d), = _sources_verdict([["Mail", "Nothing to import yet"], ["iMessage", "Nothing to import yet"],
+                                    ["Calendar", "Up to date"]])
+    assert ok is True, d
+    # control: fresh wording over a box that holds data still fails the other way
+    (_, ok, d), = _sources_verdict([["Calendar", "Nothing to import yet"]])
+    assert ok is False

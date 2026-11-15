@@ -517,7 +517,12 @@ OSTLER_VENV_EXPECT="${OSTLER_VENV_EXPECT:-fail}"
 # ⚠️ THE REGION CEILING IS A PINNED ROW, same contract as the floors: the three
 # upgrade sites measured at 473, 496, 530 on main 36085632. Raise it only when
 # the Sparkle leg genuinely grows, in the PR that grows it, and say so.
-OSTLER_VENV_UPGRADE_REGION_END="${OSTLER_VENV_UPGRADE_REGION_END:-1000}"
+# RAISED 2026-10-24 (CM051 #3119): 1000 -> 1700. That PR grows the Sparkle
+# leg: _upg_refresh_cm019 adds a fourth upgrade venv site (:1182) and the
+# leg's functions now run to _upg_do_rollback (defined :1557), so the three
+# existing sites moved to 1036, 1061 and 1097. Population with the new ceiling:
+# 10 fatal-safe + 4 upgrade + 1 fn-local + 1 soft = 16.
+OSTLER_VENV_UPGRADE_REGION_END="${OSTLER_VENV_UPGRADE_REGION_END:-1700}"
 
 # Reads "N:line" rows on stdin, emits those in (or NOT in, with --invert) the
 # upgrade leg. $1 = the file the line numbers refer to.
