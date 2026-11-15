@@ -25258,6 +25258,11 @@ for cal in calendars:
         cal_name = (getattr(cal, "name", None) or "").replace("\n", " ").strip()
         if cal_name:
             print(f"CALENDAR:{cal_name}")
+        # Stable identity: the CalDAV calendar URL. It survives a rename, so an
+        # owner rule bound to it keeps holding. Optional, like CALENDAR.
+        cal_id = str(getattr(cal, "url", "") or "").replace("\n", " ").strip()
+        if cal_id:
+            print(f"CALENDAR_ID:{cal_id}")
         # Print only the lines parse_ical_output looks for.
         for line in raw.splitlines():
             stripped = line.strip()
