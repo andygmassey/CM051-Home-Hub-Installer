@@ -4595,6 +4595,33 @@ def _route_for(scope):
     return None
 
 
+# DEPRECATED STATIC CREDENTIAL, ONE RELEASE (task 133, Aesop 2026-11-15). An app
+# build that predates the passkey mint still sends the static machine credential
+# to these two routes. Accepted for one release, logged, and the Doctor row says
+# "Re-pair your iPhone". TODO(2026-11-15): refuse a static credential on these
+# routes in release 134 (delete _deprecated_static_ok and its gate branch).
+_STATIC_BEARER_ACCEPTED_ROUTES = frozenset({
+    "/api/v1/wiki/correct",
+    "/api/v1/people/{slug}/suppress-suggestions",
+})
+
+
+async def _deprecated_static_ok(request: Request, route_path: str) -> bool:
+    """True only for a STATIC credential on a deprecated route. Logs and marks."""
+    if route_path not in _STATIC_BEARER_ACCEPTED_ROUTES:
+        return False
+    try:
+        from proxy import _extract_bearer_token, _is_static_credential
+        from passkey_proxy import note_static_bearer_accepted
+        token = _extract_bearer_token(request.headers)
+        if token and _is_static_credential(token):
+            note_static_bearer_accepted(route_path)
+            return True
+    except Exception:  # noqa: BLE001 - a check that cannot run has not passed
+        return False
+    return False
+
+
 async def _device_bearer_ok(request: Request) -> bool:
     """True when the request carries a VALID paired-device bearer (gateway oracle,
     asked every time). Static credentials never qualify. Fails closed."""
@@ -4621,6 +4648,8 @@ async def _owner_gate(request: Request, call_next):
         return await call_next(request)
     if route is not None and getattr(route, "path", None) in _BEARER_OR_OWNER:
         if await _device_bearer_ok(request):
+            return await call_next(request)
+        if await _deprecated_static_ok(request, route.path):
             return await call_next(request)
     return refusal
 

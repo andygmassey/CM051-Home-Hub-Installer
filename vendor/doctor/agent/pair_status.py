@@ -58,6 +58,8 @@ log = logging.getLogger(__name__)
 
 # Shown when a passkey mint was refused as repair_needed. Exact text, never silent.
 REPAIR_ROW_TEXT = "Re-pair this iPhone to use Ostler away from home."
+# Shown when an app build still sends a DEPRECATED static credential (task 133, one release).
+STATIC_BEARER_ROW_TEXT = "Re-pair your iPhone. This app build uses a credential that stops working in release 134."
 
 
 @dataclass
@@ -265,6 +267,10 @@ def fetch_pair_status(
         from passkey_proxy import repair_needed
         if repair_needed():
             status = dataclasses.replace(status, repair_row=REPAIR_ROW_TEXT)
+        else:
+            from passkey_proxy import static_bearer_seen
+            if static_bearer_seen():
+                status = dataclasses.replace(status, repair_row=STATIC_BEARER_ROW_TEXT)
     except Exception:  # noqa: BLE001 - the row is additive; the QR must still render
         log.warning("could not read the re-pair marker", exc_info=True)
     return status

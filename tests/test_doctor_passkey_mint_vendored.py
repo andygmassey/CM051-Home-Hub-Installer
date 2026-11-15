@@ -221,5 +221,56 @@ class RepairRow(Base):
         self.assertFalse(self.pp.repair_needed())
 
 
+class StaticDeprecated(Base):
+    """Task 133, Aesop 2026-11-15: a static credential on wiki/correct is ACCEPTED for one
+    release, logged, with the "Re-pair your iPhone" row. Refused in 134 (TODO 2026-11-15).
+    suppress-suggestions is registered in this tree, so the same acceptance applies there."""
+    WIKI = "/api/v1/wiki/correct"
+    SUPPRESS = "/api/v1/people/abc/suppress-suggestions"
+    LOG = "static credential accepted on"
+
+    def post(self, path, token=None, body=None):
+        headers = {"Authorization": "Bearer " + token} if token else {}
+        return self.client().post(path, json=body or {"text": "x"}, headers=headers)
+
+    def test_static_credential_accepted_with_log_line_and_marker(self):
+        os.environ["OSTLER_ADMIN_TOKEN"] = STATIC
+        seen = self.gateway(lambda req: httpx.Response(200, json={"ok": True}))
+        with self.assertLogs("passkey_proxy", level="WARNING") as cm:
+            r = self.post(self.WIKI, STATIC)
+        self.assertNotEqual(r.status_code, 403, r.text)
+        self.assertTrue(any(self.LOG in line for line in cm.output))
+        self.assertTrue(self.pp.static_bearer_seen())
+
+    def test_paired_bearer_accepted_without_the_deprecation_log(self):
+        os.environ["OSTLER_ADMIN_TOKEN"] = STATIC
+        self.gateway(lambda req: httpx.Response(200, json={"ok": True}))
+        import logging
+        with self.assertNoLogs("passkey_proxy", level=logging.WARNING):
+            r = self.post(self.WIKI, MINTED)
+        self.assertNotEqual(r.status_code, 403, r.text)
+        self.assertFalse(self.pp.static_bearer_seen())
+
+    def test_no_credential_refused_and_gateway_not_called(self):
+        seen = self.gateway(lambda req: httpx.Response(200, json={"ok": True}))
+        r = self.post(self.WIKI)
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(seen, [])
+
+    def test_suppress_static_credential_is_accepted_with_log_line_in_this_tree(self):
+        # In the vendored tree the suppress route IS registered, so the deprecated
+        # acceptance is reachable there (upstream #1501 has no route, see its arm).
+        os.environ["OSTLER_ADMIN_TOKEN"] = STATIC
+        with self.assertLogs("passkey_proxy", level="WARNING") as cm:
+            r = self.post(self.SUPPRESS, STATIC)
+        self.assertNotEqual(r.status_code, 403, r.text)
+        self.assertTrue(any(self.LOG in line for line in cm.output))
+
+    def test_repair_row_text_after_static_use(self):
+        import pair_status
+        self.pp.note_static_bearer_accepted(self.WIKI)
+        self.assertIn("Re-pair your iPhone", pair_status.STATIC_BEARER_ROW_TEXT)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

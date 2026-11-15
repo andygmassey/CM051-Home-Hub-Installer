@@ -58,6 +58,36 @@ def _set_repair_marker() -> None:
         log.warning("could not record the re-pair marker: %s", exc)
 
 
+def static_bearer_marker() -> Path:
+    base = os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
+    return Path(base) / "state" / "static_bearer_seen.json"
+
+
+def static_bearer_seen() -> bool:
+    try:
+        return static_bearer_marker().is_file()
+    except OSError:
+        return False
+
+
+def note_static_bearer_accepted(route: str) -> None:
+    """A STATIC credential was accepted on a deprecated route (task 133, one release).
+
+    Logs the use and records the marker that shows the "Re-pair your iPhone" row.
+    Accepted for one release only: TODO(2026-11-15) refuse these in release 134.
+    """
+    log.warning(
+        "static credential accepted on %s: deprecated, refused from release 134; "
+        "re-pair your iPhone", route)
+    p = static_bearer_marker()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"at": int(time.time()), "route": route}))
+        os.chmod(p, 0o600)
+    except OSError as exc:
+        log.warning("could not record the static-credential marker: %s", exc)
+
+
 def _clear_repair_marker() -> None:
     try:
         repair_marker().unlink()
