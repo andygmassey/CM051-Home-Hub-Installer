@@ -67,8 +67,13 @@ def _summary_hits(bundle: Path):
     return forgotten, control
 
 
-def _vector_hits(qdrant: str, collection: str):
-    """Scroll every conversation_summary point; the payload text is the store's copy."""
+def _vector_hits(qdrant: str, collection: str, control_conv: str):
+    """Scroll every conversation_summary point.
+
+    forgotten: the forgotten text is in ANY summary payload.
+    control:   the CONTROL conversation's own summary point still exists AND holds the
+               control text. A re-embed that deleted it, or wiped its text, reads FAIL.
+    """
     import httpx
     try:
         with httpx.Client(timeout=30.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
@@ -83,7 +88,11 @@ def _vector_hits(qdrant: str, collection: str):
     if not points:
         return None, None
     texts = [str(p.get("payload", {}).get("text", "")) for p in points]
-    return (any(FORGOTTEN_TEXT in t for t in texts), any(CONTROL_TEXT in t for t in texts))
+    forgotten = any(FORGOTTEN_TEXT in t for t in texts)
+    control_points = [p for p in points if p.get("payload", {}).get("conversation_id") == control_conv]
+    control = bool(control_points) and any(
+        CONTROL_TEXT in str(p["payload"].get("text", "")) for p in control_points)
+    return forgotten, control
 
 
 FORGOTTEN_TEXT = ""
@@ -99,13 +108,15 @@ def main(argv=None) -> int:
     ap.add_argument("--collection", required=True)
     ap.add_argument("--forgotten", required=True)
     ap.add_argument("--control", required=True)
+    ap.add_argument("--control-conv", required=True,
+                    help="the control conversation whose own summary point must survive")
     a = ap.parse_args(argv)
     FORGOTTEN_TEXT, CONTROL_TEXT = a.forgotten, a.control
 
     results = {
         "facts": _verdict(*_facts_hits(a.processing, FORGOTTEN_TEXT)),
         "summary.md": _verdict(*_summary_hits(a.bundle)),
-        "summary vector": _verdict(*_vector_hits(a.qdrant, a.collection)),
+        "summary vector": _verdict(*_vector_hits(a.qdrant, a.collection, a.control_conv)),
     }
     for store, verdict in results.items():
         print("%-15s %s" % (store, verdict))
