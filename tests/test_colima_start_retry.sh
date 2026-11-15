@@ -52,10 +52,22 @@ echo "PASS: bounded retry loop with backoff present"
 
 # The success condition inside the loop must re-check docker readiness,
 # not just trust `colima start`'s exit code (the whole point of CX-80).
-grep -Eq 'colima start .*&&[[:space:]]*\\?[[:space:]]*$' <<<"$REGION" \
-    || grep -Eq 'colima start .*\\$' <<<"$REGION" \
-    || fail_test "colima start success not chained to a readiness check"
-grep -q 'docker info' <<<"$REGION" || fail_test "no in-loop 'docker info' readiness re-check"
+# The start moved into lib/ostler-vm-size.sh (ostler_vm_install_start, the sized,
+# ownership-gated start). The loop now calls it, so the chain must be checked in
+# the function body: a start that succeeds must still be gated on `docker info`,
+# and a failed docker check must return non-zero so the loop retries.
+LIB_FN="$(awk '/^ostler_vm_install_start\(\) \{/{c=1} c{print} c && /^}/{exit}' "${REPO_ROOT}/lib/ostler-vm-size.sh")"
+if grep -q 'ostler_vm_install_start' <<<"$REGION"; then
+    [[ -n "$LIB_FN" ]] || fail_test "loop calls ostler_vm_install_start but the function is not in lib/ostler-vm-size.sh"
+    grep -Eq '"\$_c" start' <<<"$LIB_FN" || fail_test "ostler_vm_install_start does not run colima start"
+    grep -Eq 'docker info.*\|\|[[:space:]]*return 1' <<<"$LIB_FN" \
+        || fail_test "colima start success not chained to a readiness check (ostler_vm_install_start has no 'docker info || return 1')"
+else
+    grep -Eq 'colima start .*&&[[:space:]]*\\?[[:space:]]*$' <<<"$REGION" \
+        || grep -Eq 'colima start .*\\$' <<<"$REGION" \
+        || fail_test "colima start success not chained to a readiness check"
+    grep -q 'docker info' <<<"$REGION" || fail_test "no in-loop 'docker info' readiness re-check"
+fi
 echo "PASS: in-loop docker-info readiness re-check present"
 
 # Between attempts the half-started instance must be cleared so the next
