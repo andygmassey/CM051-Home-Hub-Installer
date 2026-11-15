@@ -473,10 +473,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -1058,10 +1061,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "install.sh"
   },
@@ -1431,10 +1443,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -1548,6 +1563,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -3644,10 +3660,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3862,6 +3887,42 @@
     "device_bearer"
    ],
    "body_limit_bytes": null,
+   "id": "gateway GET /api/v1/people/timeline",
+   "listener": "gateway",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:GET:/api/v1/people/timeline",
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
    "id": "gateway GET /api/v1/people/{slug}/enrichment",
    "listener": "gateway",
    "method": "GET",
@@ -3878,6 +3939,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -3909,10 +3971,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -4006,7 +4071,9 @@
    "response_fields": [
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "match_count",
     "nodes_matched",
     "person_uris",
     "reason",
@@ -5250,10 +5317,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -5472,7 +5542,20 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "found"
+    "confidence",
+    "conflict",
+    "conflicting_employers",
+    "corroboration",
+    "corroboration_available",
+    "employer",
+    "former_employers",
+    "found",
+    "identity_fragmented",
+    "job_title",
+    "signal",
+    "source_fact",
+    "start_date",
+    "verified"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5661,10 +5744,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5935,6 +6027,39 @@
     "service_token"
    ],
    "body_limit_bytes": null,
+   "id": "ical GET /api/v1/people/timeline",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
    "id": "ical GET /api/v1/people/{slug}/enrichment",
    "listener": "ical",
    "method": "GET",
@@ -5949,6 +6074,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -5977,10 +6103,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -6065,7 +6194,9 @@
    "response_fields": [
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "match_count",
     "nodes_matched",
     "person_uris",
     "reason",
@@ -6102,6 +6233,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
