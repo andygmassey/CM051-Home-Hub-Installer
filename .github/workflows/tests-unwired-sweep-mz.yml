@@ -63,11 +63,36 @@ jobs:
         if: always()
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
 
+      # INDIVIDUAL STEP, macOS: real processes at PPID 1 and BSD ps. The
+      # uninstaller stops every Ostler tick by exact path + uid after the
+      # bootouts, leaves look-alikes alone, and reports any survivor.
+      - name: The uninstaller stops orphaned Ostler ticks by exact path and reports survivors
+        if: always()
+        run: bash tests/test_uninstall_stops_orphaned_ticks.sh
+
       # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
       # config digest and verified after the pull; a moved tag stops the install.
       - name: Every pulled AI model has a pinned digest and a mismatch stops the install
         if: always()
         run: bash tests/test_model_digest_pins.sh
+
+      - name: The installer language reaches config.toml as owner_language
+        if: always()
+        run: bash tests/test_owner_language_from_installer.sh
+
+      # INDIVIDUAL STEP: an empty name or id is re-asked (GUI + terminal) or
+      # refused by name with no TTY; it never reaches _consent_cli_record.
+      - name: An empty owner name or id is re-asked or refused at the prompt, never at consent
+        if: always()
+        run: bash tests/test_owner_name_id_never_empty.sh
+
+      - name: No mail extend-history prompt; mail, Safari and browser default to all history
+        if: always()
+        run: bash tests/test_ingest_all_history_no_mail_prompt.sh
+
+      - name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
+        if: always()
+        run: bash tests/test_tier48_picks_9b.sh
 
       - name: install.sh structural + helper regression tests (m..z batch)
         if: always()
@@ -75,6 +100,7 @@ jobs:
           set -uo pipefail
           fail=0
           for t in \
+            tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
@@ -85,13 +111,22 @@ jobs:
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
+            tests/test_setup_progress_advancing.sh \
+            tests/test_settling_channels_survive_promote.sh \
+            tests/test_settling_refresh_agent.sh \
+            tests/test_settling_denominator_terminal_writes.sh \
+            tests/test_settling_seed_fixture_terminal.sh \
+            tests/test_settling_writers_end_to_end.sh \
+            tests/test_settling_zero_is_discovering.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_uninstall_legacy_documents_root.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
+            tests/test_user_root_is_home_ostler_not_documents.sh \
             tests/test_usr_local_bin_symlinks_gui_safe.sh \
             tests/test_v1010_at_rest_exclusions.sh \
             tests/test_v1010_ingest_reroute_plists.sh \
@@ -260,6 +295,22 @@ jobs:
           python tests/test_pinterest_parser.py
           python tests/test_pref_noise_source_cap.py
 
+      - name: Plaintext import staging is removed after persist; L3 is never staged (HR015 #1171 graft)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_staging_cleanup_vendored.py -q -rs -p no:cacheprovider
+
+      - name: Vendored Doctor takes HR015 #975 (timeout is not a dropped conversation) and the #979 wizard residue
+        if: always()
+        run: python -m pytest tests/test_doctor_a_timeout_is_not_a_dispatch_failure.py tests/test_doctor_wizard_is_light_not_lifeline_dark.py -q -rs -p no:cacheprovider
+
+      - name: Vendored ostler_fda carries the Instagram DM route and the one G7 gate (HR015 #1164, #1169 re-vendor at fd10f28)
+        if: always()
+        run: python -m pytest tests/test_ostler_fda_instagram_dms_vendored.py tests/test_ostler_fda_facebook_routing_unchanged_vendored.py -q -rs -p no:cacheprovider
+
+      - name: A paused AI conversation is never watermarked as done (CM052 #18 backport)
+        if: always()
+        run: python -m pytest tests/test_cm052_paused_conversation_is_not_watermarked.py -q -rs -p no:cacheprovider
+
       - name: pytest-driven vendored contracts (rc=5 on zero-collected fails the step)
         if: always()
         run: |
@@ -327,6 +378,14 @@ jobs:
           python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
           python3 tests/test_notion_obsidian_import_runs_end_to_end.py
 
+      # walk v1.0.122: one timed-out chunk upsert dropped a note chunk for good.
+      - name: a knowledge chunk upsert retries a transient store error
+        if: always()
+        run: |
+          set -e
+          python -m pip install --quiet -r vendor/cm024_knowledge/requirements.txt
+          python3 tests/test_cm024k_upsert_chunk_retries_a_timeout.py
+
       # Consumer-half gap (2026-09-13): cli.py's _ai_adapters() excluded the
       # gateway's own sessions.db from the ONLY entrypoint production ever
       # invokes, so the customer's direct chats with their own assistant never
@@ -349,3 +408,26 @@ jobs:
       - name: A finished contact sync lets the settling bar reach 100% (walk #16 F8)
         if: always()
         run: bash tests/test_settling_contacts_reaches_100_when_sync_finished.sh
+
+      # Invoked BY NAME (an execution verb and the filename on one line), which
+      # is what scripts/verify_new_tests_are_wired.sh scores WIRED. The `for t`
+      # loop above only mentions these. The writers end-to-end test runs every
+      # settling writer over a synthetic input and reads the bar with the CM044
+      # reader; CI has no CM044 checkout, so there its bar assertions are
+      # CANNOT-RUN (a ::warning::, never a PASS) and the shard assertions run.
+      - name: Every Setting-up writer finishes with an explicit terminal marker
+        if: always()
+        env:
+          SETTLING_E2E_READER_OPTIONAL: "1"
+        run: |
+          rc=0
+          bash tests/test_settling_writers_end_to_end.sh || rc=1
+          python3 tests/test_settling_writers_end_to_end.py || rc=1
+          bash tests/test_settling_denominator_terminal_writes.sh || rc=1
+          bash tests/test_settling_zero_is_discovering.sh || rc=1
+          bash tests/test_settling_seed_fixture_terminal.sh || rc=1
+          bash tests/test_setup_progress_advancing.sh || rc=1
+          bash tests/test_settling_channels_survive_promote.sh || rc=1
+          bash tests/test_settling_refresh_agent.sh || rc=1
+          bash tests/test_emails_settling_terminal.sh || rc=1
+          exit "${rc}"

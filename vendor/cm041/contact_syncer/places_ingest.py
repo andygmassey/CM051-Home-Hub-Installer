@@ -310,7 +310,7 @@ def _embed_text(ollama_url: str, text: str, model: str) -> Optional[List[float]]
             )
             resp.raise_for_status()
             data = resp.json()
-            from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+            from contact_syncer.usage import record_embed_usage  # usage journal (#482): enriching
             record_embed_usage(data, model)
         embs = data.get("embeddings") or [data.get("embedding")]
         if embs and embs[0]:

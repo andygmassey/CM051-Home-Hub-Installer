@@ -43,10 +43,10 @@ STORE_CURL_CONF="${OSTLER_PROBE_STORE_CURL_CONF:-\$HOME/.ostler/secrets/store-cu
 
 self_test() {
     if python3 "${_HERE}/lib/apple_music_probe.py" --self-test; then
-        probe_examined 13 "Apple Music judge fixtures"
+        probe_examined 16 "Apple Music judge fixtures"
         probe_pass "SELF-TEST BROKEN: the Apple Music judge let a known-bad fixture through"
     fi
-    probe_examined 13 "Apple Music judge fixtures"
+    probe_examined 16 "Apple Music judge fixtures"
     probe_fail "negative controls behaved: a missing summary, an unrequested source, a crashed arm, a refused permission, an empty library, a helper never run, a hung helper, tracks read but not stored, and an unreadable store were each judged by their own branch"
 }
 

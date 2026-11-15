@@ -231,7 +231,39 @@
 +Then `## Summary`. No preamble.
 --- a/prompts/09_bundle_extract.md
 +++ b/prompts/09_bundle_extract.md
-@@ -71,7 +71,13 @@
+@@ -24,7 +24,7 @@
+   ],
+   "todos": [
+     {
+-      "text": "What needs to be done. Imperative voice.",
++      "text": "A standalone title: verb + object + person, 60 characters or fewer (for example \"Send the landlord the signed lease\"). Imperative voice. No @handles, slugs, emails, file paths or dates. If you cannot write it this specifically, leave the todo out.",
+       "owner": "user | other | both | <participant id>",
+       "deadline": "ISO 8601 date if explicitly stated or confidently inferrable. Otherwise null.",
+       "source_anchor": "Free-form pointer back to the transcript moment (line offset, timestamp, message id). Optional."
+@@ -42,13 +42,20 @@
+ - Points are prose bullets, NOT raw quotes. Quotes belong in the
+   transcript.md artefact, not summary.md.
+ - Todos are actions someone has to take. That covers BOTH
+-  commitments ("I'll send you the doc", "We need to follow up on
+-  X") AND requests or instructions addressed to someone ("please
++  commitments ("I'll send you the doc", "We need to send Alex the
++  invoice") AND requests or instructions addressed to someone ("please
+   use the new reference", "chase the supplier about it", "if she
+   calls, tell her it is on track", "message me rather than ring").
+   A conditional instruction is still a todo; keep the condition in
+   the text ("If the client calls, tell her ...").
+   General discussion is not a todo. Pure hypotheticals are not todos.
++- Every todo ``text`` is verb + object + person, at most 60
++  characters, and readable on its own with no other context. Never
++  write "Follow up on X", "Follow up with <person>" or "Follow up on
++  the conversation": name the concrete action ("Send the plumber the
++  quote"). Never put handles, slugs, emails, file paths or dates in
++  the text. If a request is too vague to name a concrete action,
++  OMIT it: return ``"todos": []`` rather than a vague todo.
+ - One action per todo. Do not merge separate requests into one,
+   and do not drop one because another is in the same sentence.
+   Name the person to deal with when the transcript names them
+@@ -71,7 +78,13 @@
    id, include it. Otherwise omit.
  - If there are no todos, return ``"todos": []`` -- empty list,
    not omitted.
@@ -630,7 +662,7 @@
 +them: the model label and ``(new acquaintance, ex-[company])`` are
 +literals in prompts/02_enrich_social_casual.md, and nothing told the
 +model the capture had one speaker. The writer then copied the model's
-+frontmatter verbatim to ~/Documents/Ostler/Conversations/<id>.md
++frontmatter verbatim to ~/Ostler/Conversations/<id>.md
 +(ingest._write_conversation_md).
 +
 +So the rule here is the shape, not the instance: every frontmatter field
@@ -996,12 +1028,21 @@
          source_session_id=str(
              metadata.get("source_session_id") or conversation_id
          ),
-@@ -261,7 +266,24 @@
+@@ -261,9 +266,35 @@
          transcript=transcript or "",
          todos=_build_todos(conversation_id, extraction),
          extra_metadata=extra,
-+        participant_handles=_counterpart_handles(metadata),
++        participant_handles=_thread_basis_handles(metadata),
      )
+ 
+ 
++def _thread_basis_handles(metadata: dict) -> tuple[str, ...]:
++    """The handles the follow-up thread key is built from: EVERY chat member
++    (the source's ``chat_handles``, chat.db chat_handle_join) when supplied,
++    so a silent group member still counts as the daemon counts them; else the
++    speakers' handles."""
++    members = tuple(h.strip() for h in (metadata.get("chat_handles") or []) if isinstance(h, str) and h.strip())
++    return members or _counterpart_handles(metadata)
 +
 +
 +def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
@@ -1018,8 +1059,10 @@
 +        if handle:
 +            out.append(handle)
 +    return tuple(out)
- 
- 
++
++
+ # ---------------------------------------------------------------------------
+ # Email adapter (CM046)
  # ---------------------------------------------------------------------------
 --- a/src/chunker.py
 +++ b/src/chunker.py
@@ -1075,36 +1118,19 @@
  from .schemas import PIPELINE_STEP_ORDER, PipelineState, read_json
  from .settings import ensure_directories, load_settings, settings_from_env_override
  
-@@ -154,14 +154,21 @@
-         print("metadata.json must include a conversation_id", file=sys.stderr)
-         return 2
- 
--    state = process(
--        conv_id,
--        transcript,
--        metadata,
--        settings,
--        dry_run=args.dry_run,
--        ingest_sinks=not args.no_sinks,
--    )
-+    try:
-+        state = process(
-+            conv_id,
-+            transcript,
-+            metadata,
-+            settings,
-+            dry_run=args.dry_run,
-+            ingest_sinks=not args.no_sinks,
-+        )
+@@ -165,6 +165,12 @@
+             dry_run=args.dry_run,
+             ingest_sinks=not args.no_sinks,
+         )
 +    except SinkUnavailableError as exc:
 +        # EX_TEMPFAIL: could not REACH the model/gateway, nothing about this
 +        # document. Distinct from 1 (the item failed) so a catch-up caller does
 +        # not count an outage as a poison attempt.
 +        print(f"sink unavailable: {exc}", file=sys.stderr)
 +        return 75
-     print(json.dumps(state.to_dict(), indent=2))
-     return 0 if state.failed_step is None else 1
- 
+     except UpdateDeferred as exc:
+         # EX_TEMPFAIL, the same code a feed already reads as "retry on a
+         # later tick, nothing wrong with this item": the watermark stays
 --- a/src/conversation_writer.py
 +++ b/src/conversation_writer.py
 @@ -47,6 +47,7 @@
@@ -1550,7 +1576,7 @@
          file=sys.stderr,
          flush=True,
      )
-@@ -177,8 +208,8 @@
+@@ -178,8 +209,8 @@
      real country code. SAME technique already used in ostler_fda's
      ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
      ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
@@ -1561,7 +1587,7 @@
      """
      if not local.isdigit():
          return False
-@@ -1053,7 +1084,15 @@
+@@ -1091,7 +1122,15 @@
          return 1
  
      settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1578,7 +1604,7 @@
      # ostler_security is guaranteed importable (hard-fails at module
      # load if not). The remaining branch is whether a key is set.
      if encryption_key:
-@@ -1108,7 +1147,7 @@
+@@ -1146,7 +1185,7 @@
                  json.dumps(obs.get("flags") or {}),
                  settings.user_id,
                  "private",
@@ -1587,7 +1613,7 @@
                  datetime.now(timezone.utc).isoformat(),
              ),
          )
-@@ -1150,7 +1189,56 @@
+@@ -1188,7 +1227,56 @@
      return str(uuid.uuid5(ns, seed))
  
  
@@ -2185,7 +2211,7 @@
          # Backup BEFORE touching anything. shutil.copytree
 --- a/src/outstanding_todos.py
 +++ b/src/outstanding_todos.py
-@@ -166,10 +166,61 @@
+@@ -168,10 +168,61 @@
  # Match a markdown table. The Action items section can appear in any of
  # the work / coaching / one-on-one variants; the heading is always
  # "## Action items" per _conventions.md and the variant prompts.
@@ -2248,7 +2274,7 @@
  # Match the next H2 heading after Action items so we know where the
  # table ends. Anchoring to "^## " avoids accidentally matching ###
  # subsection headings inside the table content.
-@@ -223,7 +274,10 @@
+@@ -225,7 +276,10 @@
      header_cells = _split_row(header_line)
      if not header_cells:
          return []
@@ -2260,7 +2286,7 @@
  
      rows: list[dict[str, str]] = []
      for line in body_lines:
-@@ -329,9 +383,22 @@
+@@ -331,9 +385,22 @@
  
  
  _PRIORITY_TOKENS = {
@@ -2286,7 +2312,7 @@
  }
  
  
-@@ -342,7 +409,9 @@
+@@ -344,7 +411,9 @@
          return None
      v = cell.strip().lower()
      for bucket, tokens in _PRIORITY_TOKENS.items():
@@ -2297,7 +2323,7 @@
              return bucket
      return None
  
-@@ -463,9 +532,11 @@
+@@ -465,9 +534,11 @@
  
      text = cell.strip().lower()
  
@@ -2311,7 +2337,7 @@
          return (base + timedelta(days=1)).isoformat()
  
      n_days = _IN_N_DAYS_RE.search(text)
-@@ -516,11 +587,21 @@
+@@ -518,11 +589,21 @@
      "wrapped up", "taken care of", "sorted out",
      "has been done", "has been sent", "was sent", "was completed",
      "no longer needed", "no longer required",
@@ -2336,12 +2362,13 @@
  def detect_status(
 --- a/src/processor.py
 +++ b/src/processor.py
-@@ -19,11 +19,17 @@
+@@ -19,12 +19,18 @@
  import hashlib
  import json
  import logging
 +import os
 +import re
+ import threading
 +import time
  import uuid
  from dataclasses import asdict
@@ -2354,7 +2381,7 @@
  from . import prompts
  from . import enrichment_validation
  from . import bulk_classifier as _bulk_classifier
-@@ -140,6 +146,53 @@
+@@ -171,6 +177,53 @@
      if classification is None:
          logger.error("No classification available; aborting.")
          return state
@@ -2408,7 +2435,7 @@
  
      if classification.processing_depth == "none":
          logger.info("processing_depth=none  –  pipeline stops here.")
-@@ -390,6 +443,8 @@
+@@ -482,6 +535,8 @@
  def _should_run_relationship(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2417,7 +2444,7 @@
      if c.setting in ("public", "service"):
          return False
      if c.sensitivity.level == "highly-sensitive":
-@@ -400,6 +455,8 @@
+@@ -492,6 +547,8 @@
  def _should_run_coach(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2426,7 +2453,7 @@
      if c.setting in ("family", "service"):
          return False
      if c.sensitivity.level in ("sensitive", "highly-sensitive"):
-@@ -412,9 +469,99 @@
+@@ -504,9 +561,99 @@
  
  
  MAX_RETRIES = 3
@@ -2526,7 +2553,7 @@
  def _is_retryable(exc: Exception) -> bool:
      """Classify whether an exception is worth retrying.
  
-@@ -425,6 +572,14 @@
+@@ -517,6 +664,14 @@
      JSON parse failures, value errors  –  retrying won't help.
      """
      import httpx
@@ -2541,7 +2568,7 @@
  
      if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
          return True
-@@ -486,6 +641,11 @@
+@@ -578,6 +733,11 @@
                  )
                  state.fail(step, reason)
                  _save_state(state_dir, state)
@@ -2553,7 +2580,7 @@
                  raise RuntimeError(
                      f"Step {step} failed "
                      f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "
-@@ -639,7 +799,50 @@
+@@ -1173,7 +1333,50 @@
      sidecar_path = state_dir / "02_enrichment_sidecar.json"
      if out_path.exists():
          return
@@ -2604,7 +2631,7 @@
      prompt_name = prompts.enrichment_prompt_name_for(
          classification.suggested_type_slug
      )
-@@ -682,7 +885,7 @@
+@@ -1216,7 +1419,7 @@
              full_prompt,
              system=enrichment_system,
              priority="medium",
@@ -2613,7 +2640,7 @@
          )
          rendered, retry_attempted, validation = _validate_and_maybe_retry(
              client=client,
-@@ -692,6 +895,29 @@
+@@ -1226,6 +1429,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2643,7 +2670,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -759,7 +985,7 @@
+@@ -1293,7 +1519,7 @@
                  full_prompt,
                  system=enrichment_system,
                  priority="medium",
@@ -2652,7 +2679,7 @@
              )
              per_chunk_outputs.append(result.raw_response)
  
-@@ -794,6 +1020,29 @@
+@@ -1328,6 +1554,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2682,7 +2709,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -831,6 +1080,75 @@
+@@ -1365,6 +1614,75 @@
                  },
              },
          )
@@ -2712,7 +2739,7 @@
 +    solo: bool,
 +) -> str:
 +    """Last edit before 02_enrichment.md is written (and copied verbatim
-+    to ~/Documents/Ostler/Conversations/<id>.md). See capture_truth."""
++    to ~/Ostler/Conversations/<id>.md). See capture_truth."""
 +    if solo:
 +        rendered = _capture_truth.scrub_solo_body(
 +            rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
@@ -2758,7 +2785,7 @@
  
  
  def _validate_and_maybe_retry(
-@@ -851,9 +1169,7 @@
+@@ -1385,9 +1703,7 @@
      is still written - downstream consumers will see whatever the model
      produced and the sidecar records the gap.
      """
@@ -2769,7 +2796,7 @@
      if validation.ok:
          if validation.extras:
              logger.info(
-@@ -875,10 +1191,10 @@
+@@ -1409,10 +1725,10 @@
          full_prompt,
          system=retry_system,
          priority="medium",
@@ -2783,7 +2810,7 @@
      )
      if not retry_validation.ok:
          logger.warning(
-@@ -936,6 +1252,7 @@
+@@ -1470,6 +1786,7 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2791,7 +2818,7 @@
  --- CONVENTIONS ---
  {conventions}
  
-@@ -994,10 +1311,13 @@
+@@ -1528,10 +1845,13 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2805,7 +2832,7 @@
  """
      merge_system = (
          "You are merging multiple enrichment outputs into one coherent "
-@@ -1010,7 +1330,7 @@
+@@ -1544,7 +1864,7 @@
          full_prompt,
          system=merge_system,
          priority="medium",
@@ -2814,7 +2841,7 @@
      )
      return result.raw_response
  
-@@ -1085,6 +1405,13 @@
+@@ -1619,6 +1939,13 @@
      return facts
  
  
@@ -2828,7 +2855,7 @@
  def _build_enrichment_input(
      transcript_chunk: str,
      metadata: dict,
-@@ -1105,8 +1432,18 @@
+@@ -1639,8 +1966,18 @@
          ),
          "other",
      )
@@ -2847,7 +2874,7 @@
  
      body = f"""
  --- CLASSIFICATION ---
-@@ -1125,6 +1462,7 @@
+@@ -1659,6 +1996,7 @@
  """
      if chunk_note:
          body += f"Note: {chunk_note}\n"
@@ -2855,7 +2882,7 @@
      body += f"""
  --- CONVENTIONS ---
  {conventions}
-@@ -1134,17 +1472,10 @@
+@@ -1668,17 +2006,10 @@
  invent your own headings. Do NOT skip sections. If a section has no
  content, write the heading followed by "_Nothing to report._"
  
@@ -2875,7 +2902,7 @@
  
  --- TRANSCRIPT ---
  {transcript_chunk}
-@@ -1308,6 +1639,107 @@
+@@ -1842,6 +2173,107 @@
      write_json(out_path, result.parsed_json)
  
  
@@ -2983,7 +3010,7 @@
  # ── Step 05: fact extraction ────────────────────────────────────────
  
  
-@@ -1327,6 +1759,8 @@
+@@ -1861,6 +2293,8 @@
      # lacks the specific dialogue turns and speaker attributions the
      # model needs to produce evidenced facts.
      raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
@@ -2992,7 +3019,7 @@
      template = prompts.load_prompt("05_fact_extraction")
  
      if dry_run:
-@@ -1383,6 +1817,10 @@
+@@ -1917,6 +2351,10 @@
      # output "other:speaker" or "other:speaker_1" despite the mapping
      # hint. Map these back to actual participant IDs from metadata.
      facts = _fix_speaker_subjects(facts, metadata)
@@ -3003,7 +3030,7 @@
  
      # Stamp every freshly-extracted fact as a candidate. The 08_linked
      # step promotes facts to candidate=False when a second independent
-@@ -1951,13 +2389,20 @@
+@@ -2485,13 +2923,20 @@
          )
          write_json(bundle_json_path, extraction.to_dict())
      else:
@@ -3052,10 +3079,11 @@
                               text).
      L1 / L0               -- pushed with full title + notes.
      Unknown level         -- treated as L3 (no push). Defence in
-@@ -53,11 +54,12 @@
+@@ -53,11 +54,13 @@
  from __future__ import annotations
  
  import logging
++import os
 +import re
  import sqlite3
  from dataclasses import dataclass
@@ -3065,11 +3093,17 @@
 +from typing import TYPE_CHECKING, Callable, Optional
  
  from . import ostler_paths
- 
-@@ -94,6 +96,15 @@
+ from . import scam_guard
+@@ -95,6 +98,21 @@
  SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
  SKIP_REASON_OWNER_OTHER = "owed_by_other"
  SKIP_REASON_EMPTY_TEXT = "empty_text"
++SKIP_REASON_NO_SPECIFIC_ACTION = "no_specific_action"
++# The title cannot be shortened to MAX_TITLE_CHARS at a word boundary (one
++# unbroken run of characters longer than the limit). Distinct from
++# no_specific_action so a walk can tell "too long" from "too vague".
++SKIP_REASON_TITLE_TOO_LONG = "title_too_long"
++SKIP_REASON_STALE = "stale_source"
 +# An organisation or automated sender (the People list's own rules say so).
 +SKIP_REASON_NON_HUMAN = "non_human_sender"
 +# The People rules could not be loaded. The organisation filter is a QUALITY
@@ -3079,10 +3113,10 @@
 +FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 +# Another open reminder already exists for this person / thread.
 +SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
- 
- 
- # ---------------------------------------------------------------------------
-@@ -124,6 +135,11 @@
+ # Junk / spam / fraud mail, a fraud-worded todo, or a payment todo for
+ # someone the owner has never written to (scam_guard.py). Reminders has no
+ # room for a caveat, so these never reach it.
+@@ -153,6 +171,11 @@
      push_title: str
      push_notes: str
      push_deadline: Optional[str]
@@ -3094,7 +3128,7 @@
  
  
  # ---------------------------------------------------------------------------
-@@ -165,46 +181,432 @@
+@@ -194,86 +217,606 @@
          p for p in participants
          if p and p.strip().lower() not in user_synonyms
      ]
@@ -3299,8 +3333,8 @@
 +            _PEOPLE_TRY_LOG.append("%s: %s" % (cand, exc))
 +            log.warning("reminders_push: cannot load People rules from %s (%s)", cand, exc)
 +    return None
-+
-+
+ 
+ 
 +def is_listed_as_a_person(payload: dict, name: str) -> Optional[bool]:
 +    """Would the Hub People list show this record as a person?
 +
@@ -3398,8 +3432,8 @@
 +    if not verdict:
 +        return KIND_NON_HUMAN, None
 +    return KIND_PERSON, label.strip()
- 
- 
++
++
 +# ---------------------------------------------------------------------------
 +# Short commitment text for a private 1:1 title, and the stable thread key
 +# ---------------------------------------------------------------------------
@@ -3484,6 +3518,131 @@
 +    return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
 +
 +
++# ---------------------------------------------------------------------------
++# Title quality gate + staleness
++# ---------------------------------------------------------------------------
++
++MAX_TITLE_CHARS = 80  # prompt asks for <=60; the gate only rejects runaways
++DEFAULT_MAX_AGE_DAYS = 30
++MAX_AGE_ENV = "OSTLER_TODO_MAX_AGE_DAYS"
++
++_HANDLE_RE = re.compile(r"(?<![\w])@\w")
++_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
++_PATH_RE = re.compile(
++    r"(file://|https?://|(?:^|\s)~/|(?:^|\s)/(?:Users|home|var|tmp|private)/"
++    r"|\.(?:md|txt|json|yaml|yml|pdf|csv)\b)",
++    re.IGNORECASE,
++)
++_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
++_FOLLOW_UP_RE = re.compile(r"^follow[\s-]?up\b[\s:,-]*", re.IGNORECASE)
++_VAGUE_OBJECT_RE = re.compile(
++    r"^(on|with|about|regarding)?\s*(the|a|an|this|that|these|those|our|your|my|it|"
++    r"commitment|conversation|discussion|thread|chat|call|meeting|message|"
++    r"investigation|matter|issue|item|items)\b",
++    re.IGNORECASE,
++)
++_FILLER_WORDS = frozenset(
++    {"on", "with", "about", "regarding", "the", "a", "an", "to", "of", "and"}
++)
++
++
++TITLE_ELLIPSIS = "\u2026"
++
++
++def truncate_title(text: str, limit: int = MAX_TITLE_CHARS) -> Optional[str]:
++    """``text`` cut at a word boundary to ``limit`` chars or fewer.
++
++    Returned unchanged when it already fits. Otherwise the cut lands on
++    whitespace and ends in one ellipsis character, the whole being
++    ``<= limit``. None when no word boundary exists inside the limit (a
++    single unbroken run): the caller refuses with ``title_too_long``.
++    """
++    t = (text or "").strip()
++    if len(t) <= limit:
++        return t
++    head = t[: limit - 1]
++    if not t[limit - 1].isspace():
++        cut = max((i for i, c in enumerate(head) if c.isspace()), default=-1)
++        head = head[:cut] if cut > 0 else ""
++    head = head.rstrip(" \t\n,;:.-")
++    if not head:
++        return None
++    return head + TITLE_ELLIPSIS
++
++
++def title_quality_reason(title: str, *, check_length: bool = True) -> Optional[str]:
++    """Return why ``title`` is not fit to show a customer, or None if it is.
++
++    Deterministic, no LLM. Rejects: empty, over-long, handles, emails,
++    file paths / URLs, ISO dates, and the generic "Follow up ..." family
++    that names neither an object nor a person.
++    """
++    t = (title or "").strip()
++    if not t or t == "(empty commitment)":
++        return "empty"
++    if check_length and len(t) > MAX_TITLE_CHARS:
++        return "too_long"
++    if _EMAIL_RE.search(t):
++        return "email"
++    if _HANDLE_RE.search(t):
++        return "handle"
++    if _PATH_RE.search(t):
++        return "path"
++    if _ISO_DATE_RE.search(t):
++        return "iso_date"
++    m = _FOLLOW_UP_RE.match(t)
++    if m:
++        rest = t[m.end():].strip(" .")
++        words = [w for w in re.findall(r"[\w'-]+", rest) if w.lower() not in _FILLER_WORDS]
++        if len(words) < 2:
++            # "Follow up", "Follow up with Sam": no object.
++            return "generic_follow_up"
++        if _VAGUE_OBJECT_RE.match(rest):
++            # "Follow up on the ...", "Follow up on a conversation".
++            return "vague_follow_up"
++    return None
++
++
++def max_age_days() -> Optional[int]:
++    """Staleness cutoff in days. ``OSTLER_TODO_MAX_AGE_DAYS`` overrides;
++    0 or a negative value disables the cutoff."""
++    raw = os.environ.get(MAX_AGE_ENV, "").strip()
++    if raw:
++        try:
++            v = int(raw)
++        except ValueError:
++            return DEFAULT_MAX_AGE_DAYS
++        return v if v > 0 else None
++    return DEFAULT_MAX_AGE_DAYS
++
++
++def _source_datetime(bundle: "ConversationBundle") -> Optional[datetime]:
++    """When the source conversation happened, or None if unknowable."""
++    for raw in (bundle.started_at, bundle.date):
++        if not raw or not isinstance(raw, str):
++            continue
++        try:
++            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
++        except ValueError:
++            continue
++        if dt.tzinfo is None:
++            dt = dt.replace(tzinfo=timezone.utc)
++        return dt
++    return None
++
++
++def _is_stale(
++    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int]
++) -> bool:
++    if limit_days is None:
++        return False
++    src = _source_datetime(bundle)
++    if src is None:
++        return False  # age unknowable: the other gates still apply
++    ref = now or datetime.now(timezone.utc)
++    return (ref - src).days > limit_days
++
++
  def _format_push_title(
      todo: "Todo",
      privacy_level: str,
@@ -3533,42 +3692,65 @@
 -        if todo.deadline:
 -            return f"{base} -- {todo.deadline}"
 -        return base
+-    return (todo.text or "").strip() or "(empty commitment)"
 +            kind, name = participant or _classify_participant(others[0], name_resolver)
 +            if kind == KIND_PERSON and name:
 +                text = _short_text(todo.text or "")
-+                return f"{name}: {text}" if text else f"Follow up with {name}"
-+            return GENERIC_FOLLOW_UP_TITLE
-+        if others:
-+            return GENERIC_FOLLOW_UP_TITLE
-+        # Solo / no-other-party (e.g. a meeting note where the user is the
-+        # only labelled participant). Don't name anyone.
-+        return "Follow up on commitment"
-     return (todo.text or "").strip() or "(empty commitment)"
++                # No text left after stripping: "" is rejected by the gate.
++                return f"{name}: {text}" if text else ""
++            return ""
++        # Group / solo / unresolved partner: any title would be generic,
++        # which the quality gate rejects, so none is built.
++        return ""
++    return (todo.text or "").strip()
  
  
-@@ -214,34 +616,25 @@
++_DISPLAY_NAME_RE = re.compile(r"^[^\W\d_]+(?:[ '.][^\W\d_]+)*$")
++
++
++def _display_name(label: str) -> Optional[str]:
++    """A participant label fit to print, or None for handles, emails,
++    phone numbers and slugs (anything that is not plain words)."""
++    lab = (label or "").strip()
++    if not lab or "@" in lab or not _DISPLAY_NAME_RE.match(lab):
++        return None
++    return lab
++
++
++def _human_date(bundle: "ConversationBundle") -> str:
++    src = _source_datetime(bundle)
++    if src is None:
++        return ""
++    return f"{src.day} {src.strftime('%b %Y')}"
++
++
+ def _format_push_notes(
+     todo: "Todo",
+     bundle: "ConversationBundle",
      *,
      privacy_level: str,
      summary_path: Path,
 +    name_resolver: Optional[NameResolver] = None,
 +    participant: Optional[tuple] = None,
  ) -> str:
-     """Notes body. Short context line + a ``file://`` deep link back
-     to the bundle's ``summary.md`` so a tap in Reminders.app opens
+-    """Notes body. Short context line + a ``file://`` deep link back
+-    to the bundle's ``summary.md`` so a tap in Reminders.app opens
 -    the source. No transcript dump (Apple Restraint -- the user
 -    doesn't want their conversations in their reminders body).
-+    the source. No transcript dump.
- 
+-
 -    L2 emits a neutral context line so the redacted title isn't
 -    naked. L3 never reaches here (filtered upstream). L0 / L1 emit
 -    the full context with participant labels.
-+    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
-+    the partner only when they resolve to a person; never a raw handle.
++    """Notes body: one human line, e.g. "From your conversation with Sam,
++    12 Aug 2021". No ISO date, no ``file://`` path or any link, no
++    transcript. The partner is named only when they resolve to a person;
++    never a raw handle. ``todo`` / ``summary_path`` kept for call
++    compatibility. L3 never reaches here.
      """
-     started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
-     if privacy_level == "L2":
-         context = f"From a private conversation on {started}"
-     else:
+-    started = (bundle.started_at or "")[:10] or bundle.date or "unknown date"
+-    if privacy_level == "L2":
+-        context = f"From a private conversation on {started}"
+-    else:
 -        # The "with @X" line uses the participant axis the operator
 -        # cares about. Pick the first non-user participant; if the
 -        # bundle is one-on-one this is unambiguous, multi-party we
@@ -3581,28 +3763,50 @@
 -            who = "the group"
 -        elif len(others) == 1:
 -            who = f"@{others[0]}"
--        else:
++    others = _other_participants(bundle.participants, user_id="")
++    if len(others) == 1:
++        kind, name = participant or _classify_participant(others[0], name_resolver)
++        if kind == KIND_PERSON and name and _display_name(name):
++            context = f"From your conversation with {name}"
+         else:
 -            who = "the group"
-+        others = _other_participants(bundle.participants, user_id="")
-+        who = "the group"
-+        if len(others) == 1:
-+            kind, name = participant or _classify_participant(others[0], name_resolver)
-+            who = name if (kind == KIND_PERSON and name) else "a contact"
-         context = f"From conversation with {who} on {started}"
-     file_link = f"file://{summary_path}"
-     return f"{context}\n\n{file_link}"
-@@ -254,6 +647,7 @@
+-        context = f"From conversation with {who} on {started}"
+-    file_link = f"file://{summary_path}"
+-    return f"{context}\n\n{file_link}"
++            context = "From your conversation"
++    elif len(others) > 1:
++        context = "From your group conversation"
++    else:
++        context = "From your conversation"
++    date = _human_date(bundle)
++    return f"{context}, {date}" if date else context
+ 
+ 
+ def decide_push(
+@@ -283,6 +826,9 @@
      demo_mode: bool,
      user_id: str,
      summary_path: Path,
 +    name_resolver: Optional[NameResolver] = None,
++    now: Optional[datetime] = None,
++    max_age_days_override: Optional[int] = None,
  ) -> PushDecision:
      """Run the writer-side gate for one todo.
  
-@@ -301,16 +695,36 @@
+@@ -350,16 +896,74 @@
              push_deadline=None,
          )
  
++    limit = (
++        max_age_days_override if max_age_days_override is not None
++        else max_age_days()
++    )
++    if _is_stale(bundle, now=now, limit_days=limit):
++        return PushDecision(
++            eligible=False, skip_reason=SKIP_REASON_STALE,
++            push_title="", push_notes="", push_deadline=None,
++        )
++
 +    others = _other_participants(bundle.participants, user_id=user_id)
 +    classified = [(_classify_participant(o, name_resolver)) for o in others]
 +    kinds = [k for k, _ in classified]
@@ -3619,33 +3823,74 @@
 +        # fail open: name the person if we have a name, else stay generic
 +        participant = (KIND_PERSON, participant[1]) if participant[1] else (KIND_UNKNOWN, None)
 +
++    title = _format_push_title(
++        todo, level, bundle=bundle, user_id=user_id,
++        name_resolver=name_resolver, participant=participant,
++    )
++    # Every quality rule except length runs on the FULL text first, so cutting
++    # the title can never hide an email, path or date in the part that then
++    # goes to the notes.
++    if title_quality_reason(title, check_length=False) is not None:
++        return PushDecision(
++            eligible=False, skip_reason=SKIP_REASON_NO_SPECIFIC_ACTION,
++            push_title="", push_notes="", push_deadline=None,
++        )
++    full_text = ""
++    if len(title.strip()) > MAX_TITLE_CHARS:
++        # A valid commitment longer than the limit is shortened, never
++        # dropped. Only L0 / L1 titles are the raw text (L2 titles are built
++        # short), so the full text may go to the notes only there.
++        shortened = truncate_title(title)
++        if shortened is None or title_quality_reason(shortened) is not None:
++            return PushDecision(
++                eligible=False, skip_reason=SKIP_REASON_TITLE_TOO_LONG,
++                push_title="", push_notes="", push_deadline=None,
++            )
++        if level in ("L0", "L1"):
++            full_text = title.strip()
++        title = shortened
++
++    notes = _format_push_notes(
++        todo, bundle, privacy_level=level, summary_path=summary_path,
++        name_resolver=name_resolver, participant=participant,
++    )
++    if full_text:
++        notes = f"{full_text}\n\n{notes}"
++
      return PushDecision(
          eligible=True,
          skip_reason=None,
-         push_title=_format_push_title(
-             todo, level, bundle=bundle, user_id=user_id,
-+            name_resolver=name_resolver, participant=participant,
-         ),
-         push_notes=_format_push_notes(
-             todo, bundle, privacy_level=level, summary_path=summary_path,
-+            name_resolver=name_resolver, participant=participant,
-         ),
+-        push_title=_format_push_title(
+-            todo, level, bundle=bundle, user_id=user_id,
+-        ),
+-        push_notes=_format_push_notes(
+-            todo, bundle, privacy_level=level, summary_path=summary_path,
+-        ),
++        push_title=title,
++        push_notes=notes,
          push_deadline=todo.deadline,
 +        thread_key=thread_key_for(bundle, user_id),
 +        flag=flag,
      )
  
  
-@@ -355,10 +769,38 @@
+@@ -404,10 +1008,12 @@
      conn = sqlite3.connect(str(db_path), timeout=5.0)
      conn.execute("PRAGMA journal_mode=WAL;")
      conn.execute(_SCHEMA)
-+    # thread_key: stable person/thread id (additive; the assistant's
-+    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected).
-+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
-+    if "thread_key" not in cols:
-+        conn.execute("ALTER TABLE reminders_map ADD COLUMN thread_key TEXT")
-     conn.commit()
+-    # Writer-owned identity columns, added in place on an existing DB
+-    # (same additive pattern the assistant uses for its own columns).
++    # Writer-owned additive columns, added in place on an existing DB. thread_key
++    # is the vendored stable person/thread id (CM051 divergence; the assistant's
++    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected);
++    # todo_key and conversation_id are upstream CM048 #93/#96 identity columns.
+     cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
+-    for column in ("todo_key", "conversation_id"):
++    for column in ("thread_key", "todo_key", "conversation_id"):
+         if column not in cols:
+             try:
+                 conn.execute(f"ALTER TABLE reminders_map ADD COLUMN {column} TEXT")
+@@ -418,6 +1024,29 @@
      return conn
  
  
@@ -3672,10 +3917,10 @@
 +    return row is not None
 +
 +
- def _now_iso() -> str:
-     return datetime.now(timezone.utc).isoformat()
- 
-@@ -412,6 +854,13 @@
+ def _resolve_row_id(
+     conn: sqlite3.Connection,
+     *,
+@@ -542,6 +1171,13 @@
      conn.commit()
  
  
@@ -3689,7 +3934,7 @@
  def _upsert_pending(
      conn: sqlite3.Connection,
      *,
-@@ -443,12 +892,13 @@
+@@ -573,12 +1209,13 @@
      if existing is None:
          conn.execute(
              "INSERT INTO reminders_map "
@@ -3706,7 +3951,7 @@
              ),
          )
          conn.commit()
-@@ -458,11 +908,12 @@
+@@ -588,11 +1225,12 @@
      conn.execute(
          "UPDATE reminders_map SET "
          "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
@@ -3721,7 +3966,7 @@
              user_id, session_id, todo_id,
          ),
      )
-@@ -520,6 +971,13 @@
+@@ -650,6 +1288,13 @@
      if db_path is None:
          db_path = default_db_path()
  
@@ -3735,7 +3980,51 @@
      try:
          conn = _open_db(db_path)
      except (sqlite3.Error, OSError) as exc:
-@@ -560,6 +1018,27 @@
+@@ -668,12 +1313,13 @@
+     try:
+         out: list = []
+         session_id = bundle.source_session_id
++        # PRE-PASS. Re-bind every todo to the row it already owns (found by
++        # its exact id, else by its wording-tolerant key) so an updated
++        # conversation's re-extraction never creates a second row, and so
++        # never a second reminder, for the same todo.
++        rebound: list = []
+         seen_ids: set = set()
+         for todo in todos:
+-            # Re-bind to the row this todo already owns (found by its
+-            # exact id, else by its wording-tolerant key) so an updated
+-            # conversation's re-extraction never creates a second row,
+-            # and so never a second reminder, for the same todo.
+             todo_key = make_todo_key(bundle.conversation_id, todo.owner, todo.text)
+             row_id = _resolve_row_id(
+                 conn, user_id=user_id, session_id=session_id,
+@@ -682,6 +1328,25 @@
+             if row_id != todo.id:
+                 todo = _replace_status(todo, todo.status, new_id=row_id)
+             seen_ids.add(todo.id)
++            rebound.append((todo, todo_key))
++        # SUPERSEDE BEFORE THE duplicate_thread GATE (CM051 v1.0.111, Archie's
++        # condition on the CM048 #93/#95/#96 re-vendor). Upstream supersedes
++        # after the loop. Here the vendored thread_key gate below would then
++        # find this conversation's OWN stale pending row for the thread, skip
++        # the updated todo as a duplicate, and supersede the stale row after:
++        # the customer would get no reminder at all. Superseding first means
++        # the gate only sees rows the current run still wants.
++        superseded = _supersede_unseen_pending(
++            conn, user_id=user_id, session_id=session_id,
++            conversation_id=bundle.conversation_id, seen_ids=seen_ids,
++        )
++        if superseded:
++            log.info(
++                "reminders_push: %d pending todo(s) of %s no longer in the "
++                "updated conversation; marked %s",
++                superseded, bundle.conversation_id, SKIP_REASON_SUPERSEDED,
++            )
++        for todo, todo_key in rebound:
+             decision = decide_push(
+                 todo,
+                 bundle,
+@@ -709,6 +1374,27 @@
                  out.append(todo)
                  continue
  
@@ -3763,10 +4052,19 @@
              current_status = _upsert_pending(
                  conn,
                  user_id=user_id,
-@@ -592,6 +1071,21 @@
+@@ -747,16 +1433,21 @@
                  # 'pending' or anything else: writer leaves the
                  # status as supplied.
                  out.append(todo)
+-        superseded = _supersede_unseen_pending(
+-            conn, user_id=user_id, session_id=session_id,
+-            conversation_id=bundle.conversation_id, seen_ids=seen_ids,
+-        )
+-        if superseded:
+-            log.info(
+-                "reminders_push: %d pending todo(s) of %s no longer in the "
+-                "updated conversation; marked %s",
+-                superseded, bundle.conversation_id, SKIP_REASON_SUPERSEDED,
 +        if unverifiable_rows:
 +            # ONE line per run, not per row. FAIL OPEN: these todos WERE
 +            # pushed, without the organisation filter, and flagged.
@@ -3779,473 +4077,21 @@
 +                    unverifiable_rows, FLAG_ORG_FILTER_UNAVAILABLE,
 +                    "; ".join(_PEOPLE_TRY_LOG) or "(no candidate paths)",
 +                )
-+            )
+             )
 +            log.error("%s", msg)
 +            _append_reminders_log(msg)
          return tuple(out)
      finally:
          conn.close()
---- a/src/reply_debt_adapters.py
-+++ b/src/reply_debt_adapters.py
-@@ -7,10 +7,17 @@
- 
- Three adapters, in increasing order of how much live data they need to prove:
- 
--  * ``iter_imessage_threads``    -  reads Apple's chat.db directly. ``is_from_me``
--    gives ground-truth per-message direction; ``OSTLER_IMESSAGE_SELF_HANDLES``
--    + the chat.db owner are the "me" signal. THIS IS THE STRONGEST SOURCE for
--    reply debt and the one that needs the real box + Full Disk Access to prove.
-+  * ``iter_imessage_threads``    -  reads the reply-debt SNAPSHOT that the
-+    iMessage feed writes under ``~/.ostler/state/reply_debt/``. It NEVER opens
-+    chat.db. The feed runs as ``ostler-assistant run-source imessage``, so its
-+    chat.db read happens under the signed assistant's Full Disk Access; this
-+    module runs inside ical-server, a bare python3.11 that TCC would attribute
-+    the read to and deny (CM051 #30, studio29: the customer was shown a Full
-+    Disk Access entry for "python3.11" and then told "you're all caught up").
-+    ``is_from_me`` from chat.db is still the direction signal, carried in the
-+    snapshot; ``OSTLER_IMESSAGE_SELF_HANDLES`` is applied here as before.
-+    A missing, unreadable, malformed or stale snapshot RAISES
-+    ``ReplyDebtSourceUnavailable``: it is "could not check", never "nothing owed".
- 
-   * ``iter_email_threads``       -  reads the CM048 conversation store's
-     email-thread sidecars (``email_thread`` in ``extra_metadata`` /
-@@ -34,9 +41,9 @@
- from __future__ import annotations
- 
- import logging
-+import json
- import os
- import re
--import sqlite3
- from datetime import datetime, timezone
- from pathlib import Path
- from typing import Iterator, Optional
-@@ -101,144 +108,211 @@
- 
- 
- # ---------------------------------------------------------------------------
--# iMessage chat.db adapter (strongest direction signal; needs the box)
-+# iMessage adapter: reads the signed feed's snapshot, never chat.db
- # ---------------------------------------------------------------------------
- 
- 
--CHAT_DB_DEFAULT = Path.home() / "Library" / "Messages" / "chat.db"
-+class ReplyDebtSourceUnavailable(RuntimeError):
-+    """A reply-debt source could not be read. ``reason`` is a short stable
-+    code the endpoint returns as ``degraded`` + ``reason``. Raising (rather
-+    than yielding nothing) is the whole point: an empty source and an
-+    unreadable one must never produce the same answer."""
- 
--# Apple epoch is 2001-01-01; message.date is nanoseconds since then for modern
--# macOS. We convert to aware UTC datetimes.
--_APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
-+    def __init__(self, reason: str, detail: str = ""):
-+        super().__init__(f"{reason}: {detail}" if detail else reason)
-+        self.reason = reason
-+        self.detail = detail
- 
- 
--def _apple_ts_to_dt(raw: int) -> datetime:
--    # Modern chat.db stores nanoseconds; older stored seconds. Detect by
--    # magnitude.
--    if raw > 1_000_000_000_000:  # ns
--        seconds = raw / 1_000_000_000
--    else:
--        seconds = float(raw)
--    return _APPLE_EPOCH.fromtimestamp(
--        _APPLE_EPOCH.timestamp() + seconds, tz=timezone.utc
--    )
-+IMESSAGE_SNAPSHOT_SCHEMA = 1
- 
-+# Older than this and the snapshot no longer says who is waiting NOW: a reply
-+# sent since would still read as owed. The feed ticks every 15 minutes but
-+# yields to live chat and to the shared ingest lock, so allow some slack.
-+DEFAULT_SNAPSHOT_MAX_AGE_HOURS = 6.0
- 
--def iter_imessage_threads(
--    *,
--    db_path: Optional[Path] = None,
--    strength_lookup=None,
--    lookback_days: int = 90,
--    max_messages_per_thread: int = 40,
--) -> Iterator[Thread]:
--    """Yield normalised threads from Apple's chat.db (READ-ONLY).
- 
--    ``is_from_me`` is the ground-truth direction signal  -  no heuristic needed.
--    Group chats are flagged via ``chat.style`` / participant count. Opens the
--    db read-only (``mode=ro``) so it never mutates Messages.
-+def imessage_snapshot_path() -> Path:
-+    """Must agree with ``imessage_source.pipeline.reply_debt_snapshot_path``."""
-+    explicit = (os.environ.get("OSTLER_REPLY_DEBT_SNAPSHOT") or "").strip()
-+    if explicit:
-+        return Path(explicit).expanduser()
-+    root = (os.environ.get("OSTLER_DIR") or "").strip()
-+    base = Path(root).expanduser() if root else Path.home() / ".ostler"
-+    return base / "state" / "reply_debt" / "imessage_threads.json"
- 
--    NOTE: requires the real box + Full Disk Access to read chat.db. Cannot be
--    proven in CI / off-box. The query shape is conservative and well-trodden
--    (it mirrors the assistant daemon's poll query) but live correctness is
--    UNPROVEN until run on the box.
--    """
--    db_path = db_path or CHAT_DB_DEFAULT
--    if not db_path.exists():
--        log.info("reply_debt: chat.db not found at %s  -  skipping", db_path)
--        return
- 
--    uri = f"file:{db_path}?mode=ro&immutable=1"
--    try:
--        conn = sqlite3.connect(uri, uri=True)
--    except sqlite3.Error as exc:  # pragma: no cover - needs the box
--        log.warning("reply_debt: could not open chat.db: %s", exc)
--        return
-+# The iMessage feed exists only when install.sh decided to install it
-+# (install.sh, "iMessage body feed"): chat.db present AND the third-party
-+# consent (tickbox ``third_party_data_personal_records``) accepted. A Mac
-+# without it never gets a snapshot, and reporting that as "couldn't check,
-+# will try again" would be a promise nothing keeps. So the decision is read
-+# from what the install WROTE, never inferred from the missing snapshot:
-+#   * the durable consent registry (ostler_security.consent, the same
-+#     record ``consent_cli check`` answers for the installer), and
-+#   * the feed's LaunchAgent, which install.sh renders only on that branch.
-+IMESSAGE_CONSENT_TICKBOX = "third_party_data_personal_records"
-+IMESSAGE_FEED_LABEL = "com.creativemachines.ostler.imessage-bundle"
- 
--    try:
--        conn.row_factory = sqlite3.Row
--        # One row per chat with its participant count + style (43 == group).
--        chats = conn.execute(
--            """
--            SELECT c.ROWID AS chat_id,
--                   c.chat_identifier AS chat_identifier,
--                   c.display_name AS display_name,
--                   c.style AS style,
--                   COUNT(DISTINCT chj.handle_id) AS participant_count
--            FROM chat c
--            LEFT JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
--            GROUP BY c.ROWID
--            """
--        ).fetchall()
- 
--        for chat in chats:
--            rows = conn.execute(
--                """
--                SELECT m.text AS text,
--                       m.is_from_me AS is_from_me,
--                       m.date AS date,
--                       h.id AS handle
--                FROM message m
--                JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
--                LEFT JOIN handle h ON h.ROWID = m.handle_id
--                WHERE cmj.chat_id = ?
--                  AND m.text IS NOT NULL AND m.text != ''
--                ORDER BY m.date DESC
--                LIMIT ?
--                """,
--                (chat["chat_id"], max_messages_per_thread),
--            ).fetchall()
--            if not rows:
--                continue
-+def imessage_feed_plist_path() -> Path:
-+    return Path.home() / "Library" / "LaunchAgents" / f"{IMESSAGE_FEED_LABEL}.plist"
- 
--            messages: list[Message] = []
--            for r in reversed(rows):  # chronological
--                ts = _apple_ts_to_dt(r["date"])
--                is_owner = bool(r["is_from_me"]) or is_owner_handle(
--                    r["handle"] or ""
--                )
--                messages.append(
--                    Message(
--                        sender=(r["handle"] or "me") if not is_owner else "me",
--                        text=r["text"] or "",
--                        timestamp=ts,
--                        is_from_owner=is_owner,
--                    )
--                )
--            if not messages:
--                continue
- 
--            # Respect the lookback window on the last message.
--            last_ts = messages[-1].timestamp
--            age_days = (datetime.now(timezone.utc) - last_ts).days
--            if age_days > lookback_days:
--                continue
-+def imessage_connection_state() -> tuple[str, str]:
-+    """``("connected" | "not_connected" | "unknown", detail)``.
- 
--            is_group = (chat["style"] == 43) or (
--                (chat["participant_count"] or 0) > 1
--            )
--            counterpart = chat["display_name"] or chat["chat_identifier"] or ""
-+    ``unknown`` means the consent registry could not be consulted; the caller
-+    then reports "couldn't check", because guessing "not connected" would
-+    hide a broken feed and guessing "connected" is what this replaces.
-+    """
-+    # The recorded DECISION, not wording-hash currency: a wording update
-+    # flags renewal but does not uninstall a feed that is still running, and
-+    # calling that "not connected" would hide a live source. Not consent_cli:
-+    # it sys.exit()s when the ``legal`` package is absent, which would take
-+    # the whole server down from inside a request.
-+    try:
-+        from ostler_security import consent as _consent
-+        record = _consent.read_consent(IMESSAGE_CONSENT_TICKBOX)
-+    except Exception as exc:  # noqa: BLE001 -- recorded as unknown, never guessed
-+        return "unknown", f"consent registry unreadable: {type(exc).__name__}"
-+    consented = isinstance(record, dict) and record.get("decision") == "accepted"
-+    if not consented:
-+        return "not_connected", "third-party data consent not accepted"
-+    if not imessage_feed_plist_path().is_file():
-+        return "not_connected", "the iMessage feed is not installed on this Mac"
-+    return "connected", ""
- 
--            person_uri = None
--            strength = None
--            if strength_lookup and not is_group:
--                resolved = strength_lookup(counterpart)
--                if resolved:
--                    person_uri, strength = resolved
- 
--            yield Thread(
--                thread_id=f"imessage:{chat['chat_id']}",
-+def _snapshot_max_age_hours() -> float:
-+    raw = (os.environ.get("OSTLER_REPLY_DEBT_MAX_AGE_HOURS") or "").strip()
-+    if not raw:
-+        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
-+    try:
-+        v = float(raw)
-+    except ValueError:
-+        return DEFAULT_SNAPSHOT_MAX_AGE_HOURS
-+    return v if v > 0 else DEFAULT_SNAPSHOT_MAX_AGE_HOURS
-+
-+
-+def load_imessage_threads(
-+    *,
-+    snapshot_path: Optional[Path] = None,
-+    strength_lookup=None,
-+    lookback_days: int = 90,
-+    max_age_hours: Optional[float] = None,
-+    now: Optional[datetime] = None,
-+) -> list[Thread]:
-+    """Return normalised threads from the iMessage reply-debt snapshot.
-+
-+    Raises ``ReplyDebtSourceUnavailable`` with reason
-+    ``imessage_not_connected`` when the install never set the iMessage feed up
-+    (no consent, or no feed), and otherwise when the snapshot is absent,
-+    unreadable, malformed, stale, or records that the feed itself could not
-+    read Messages. A snapshot whose feed found no chat.db at all
-+    (``status: absent``) is a true zero and returns ``[]``.
-+    """
-+    path = snapshot_path or imessage_snapshot_path()
-+    now = now or datetime.now(timezone.utc)
-+    state, why = imessage_connection_state()
-+    if state == "not_connected":
-+        raise ReplyDebtSourceUnavailable("imessage_not_connected", why)
-+    if state == "unknown":
-+        raise ReplyDebtSourceUnavailable("imessage_connection_unknown", why)
-+    try:
-+        raw = path.read_text(encoding="utf-8")
-+    except FileNotFoundError:
-+        raise ReplyDebtSourceUnavailable(
-+            "imessage_snapshot_missing",
-+            "the iMessage feed has not written its reply-debt snapshot yet",
-+        )
-+    except OSError as exc:
-+        raise ReplyDebtSourceUnavailable("imessage_snapshot_unreadable", str(exc)[:200])
-+    try:
-+        snap = json.loads(raw)
-+    except ValueError as exc:
-+        raise ReplyDebtSourceUnavailable("imessage_snapshot_malformed", str(exc)[:200])
-+    if not isinstance(snap, dict) or snap.get("schema") != IMESSAGE_SNAPSHOT_SCHEMA:
-+        raise ReplyDebtSourceUnavailable(
-+            "imessage_snapshot_malformed", "unknown snapshot schema"
-+        )
-+
-+    status = snap.get("status")
-+    if status == "absent":
-+        return []
-+    if status != "ok":
-+        raise ReplyDebtSourceUnavailable(
-+            "messages_not_readable",
-+            str(snap.get("reason") or status or "unknown")[:200],
-+        )
-+
-+    generated = _parse_iso(snap.get("generated_at"))
-+    if generated is None:
-+        raise ReplyDebtSourceUnavailable(
-+            "imessage_snapshot_malformed", "no generated_at"
-+        )
-+    age_h = (now - generated).total_seconds() / 3600.0
-+    limit_h = max_age_hours if max_age_hours is not None else _snapshot_max_age_hours()
-+    if age_h > limit_h:
-+        raise ReplyDebtSourceUnavailable(
-+            "imessage_snapshot_stale",
-+            f"snapshot is {age_h:.1f}h old (limit {limit_h:g}h)",
-+        )
-+
-+    threads: list[Thread] = []
-+    for row in snap.get("threads") or []:
-+        if not isinstance(row, dict):
-+            continue
-+        last = row.get("last") or {}
-+        ts = _parse_iso(last.get("timestamp"))
-+        text = last.get("text") or ""
-+        if ts is None or not text:
-+            continue
-+        if (now - ts).days > lookback_days:
-+            continue
-+        handle = last.get("sender") or ""
-+        is_owner = bool(last.get("is_from_me")) or is_owner_handle(handle)
-+        is_group = bool(row.get("is_group")) or len(row.get("participants") or []) > 1
-+        counterpart = (
-+            row.get("display_name")
-+            or (handle if not is_owner else "")
-+            or ", ".join(row.get("participants") or [])
-+            or str(row.get("chat_id") or "")
-+        )
-+        person_uri = None
-+        strength = None
-+        if strength_lookup and not is_group:
-+            resolved = strength_lookup(counterpart)
-+            if resolved:
-+                person_uri, strength = resolved
-+        threads.append(
-+            Thread(
-+                thread_id=f"imessage:{row.get('chat_id')}",
-                 channel="imessage",
--                messages=tuple(messages),
-+                messages=(
-+                    Message(
-+                        sender="me" if is_owner else (handle or counterpart),
-+                        text=text,
-+                        timestamp=ts,
-+                        is_from_owner=is_owner,
-+                    ),
-+                ),
-                 privacy_level="L2",  # iMessage default; per-thread gating TBD
-                 is_group=is_group,
-                 counterpart_name=counterpart,
-                 person_uri=person_uri,
-                 relationship_strength=strength,
-             )
--    finally:
--        conn.close()
-+        )
-+    return threads
- 
- 
-+def iter_imessage_threads(**kwargs) -> Iterator[Thread]:
-+    """Back-compatible name. Loads EAGERLY so an unavailable source raises at
-+    the call, where ``compute_reply_debts`` can see it, not lazily mid-merge."""
-+    return iter(load_imessage_threads(**kwargs))
-+
-+
- # ---------------------------------------------------------------------------
- # Email-thread adapter (CM048 store sidecars)
- # ---------------------------------------------------------------------------
-@@ -324,6 +398,9 @@
- __all__ = [
-     "is_owner_handle",
-     "iter_imessage_threads",
-+    "load_imessage_threads",
-+    "imessage_snapshot_path",
-+    "ReplyDebtSourceUnavailable",
-+    "imessage_connection_state",
-     "thread_from_email_transcript",
--    "CHAT_DB_DEFAULT",
- ]
---- a/src/reply_debt_service.py
-+++ b/src/reply_debt_service.py
-@@ -25,8 +25,9 @@
-      FallbackBriefData field that fetches the same endpoint.
- 
- Proven vs not: the service + endpoint logic is unit-tested with injected
--threads. The live feed (iMessage chat.db) needs the box + Full Disk Access and
--is UNPROVEN on real data until run there.
-+threads and a synthetic snapshot. The live feed is the snapshot written by the
-+iMessage feed (``ostler-assistant run-source imessage``); this process never
-+opens chat.db, so it never asks TCC for Full Disk Access.
- """
- from __future__ import annotations
- 
-@@ -54,8 +55,8 @@
-     """Compute ranked reply debts across all sources.
- 
-     ``thread_sources`` lets a test inject pre-built thread iterables. When
--    omitted, the default live source is the iMessage chat.db adapter (the
--    strongest direction signal). Email / WhatsApp adapters can be appended here
-+    omitted, the default live source is the iMessage adapter, which reads the
-+    snapshot the signed iMessage feed writes (never chat.db from this process). Email / WhatsApp adapters can be appended here
-     as they are proven on the box.
-     """
-     if thread_sources is None:
-@@ -66,13 +67,22 @@
-             ),
-         ]
- 
-+    # A source that could not be read is NOT a source with nothing owed. This
-+    # loop used to log and skip a failing source, so a Hub that could not read
-+    # Messages at all answered "No replies owed - you're all caught up." with
-+    # degraded:false (CM051 #30, studio29). Any unreadable source now raises,
-+    # and the endpoint turns that into degraded:true with the reason.
-     all_threads: list[Thread] = []
-     for src in thread_sources:
-         try:
-             all_threads.extend(src)
--        except Exception as exc:  # pragma: no cover - source failures are
--            # isolated so one bad adapter does not sink the whole brief datum
--            logger.warning("reply_debt: source failed, skipping: %s", exc)
-+        except adapters.ReplyDebtSourceUnavailable:
-+            raise
-+        except Exception as exc:
-+            logger.warning("reply_debt: source failed: %s", exc)
-+            raise adapters.ReplyDebtSourceUnavailable(
-+                "reply_debt_source_failed", f"{type(exc).__name__}: {str(exc)[:200]}"
-+            ) from exc
- 
-     return reply_debt.detect(
-         all_threads,
-@@ -88,9 +98,19 @@
-         "count": len(debts),
-         "brief_line": reply_debt.render_brief_block(debts, limit=brief_limit),
-         "debts": [d.to_dict() for d in debts],
-+        "degraded": False,
-     }
- 
- 
-+def degraded_payload(reason: str, detail: str = "") -> dict:
-+    """The ONLY shape an unreadable source may produce: no all-clear copy."""
-+    out = {"count": 0, "brief_line": "", "debts": [], "degraded": True,
-+           "reason": reason}
-+    if detail:
-+        out["detail"] = detail[:200]
-+    return out
-+
-+
- def handle_reply_debt(handler: BaseHTTPRequestHandler) -> None:
-     """Handle GET /api/v1/reply-debt.
- 
-@@ -102,9 +122,12 @@
-         debts = compute_reply_debts()
-         payload = reply_debt_payload(debts)
-         status = 200
-+    except adapters.ReplyDebtSourceUnavailable as exc:
-+        payload = degraded_payload(exc.reason, exc.detail)
-+        status = 200
-     except Exception as exc:  # pragma: no cover - defensive
-         logger.warning("reply_debt endpoint failed: %s", exc)
--        payload = {"count": 0, "brief_line": "", "debts": [], "error": str(exc)}
-+        payload = degraded_payload("reply_debt_failed", str(exc))
-         status = 200  # brief should degrade gracefully, not 500
- 
-     body = json.dumps(payload, indent=2).encode("utf-8")
-@@ -118,5 +141,6 @@
- __all__ = [
-     "compute_reply_debts",
-     "reply_debt_payload",
-+    "degraded_payload",
-     "handle_reply_debt",
- ]
+@@ -788,7 +1479,7 @@
+     "STATUS_PERMISSION_DENIED",
+     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
+     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+-    "SKIP_REASON_SUPERSEDED",
++    "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
+     "apply_push_status_to_todos",
+     "decide_push",
+     "default_db_path",
 --- a/src/schemas.py
 +++ b/src/schemas.py
 @@ -59,7 +59,9 @@
@@ -4274,7 +4120,7 @@
      coaching_tone: CoachingTone = "supportive"
      redaction: RedactionPolicy = field(default_factory=RedactionPolicy)
      work_geofence: WorkGeofence = field(default_factory=WorkGeofence)
-@@ -125,6 +131,7 @@
+@@ -146,6 +152,7 @@
      "user_id",
      "user_display_name",
      "locale",

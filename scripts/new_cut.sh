@@ -216,10 +216,20 @@ fi
 # within the day, which is the argument for the drift TEST that now accompanies
 # this line rather than for more careful list-keeping.
 run_gate "BOM rows are in the pin" bash scripts/verify_bom_rows_are_in_the_pin.sh "$VERSION"
+run_gate "daemon hold in both registers" python3 scripts/verify_daemon_hold_registers_agree.py "$VERSION"
+# Rows 2206/2212 (v1.0.124): cut.yml preflight runs the cm041 reconstruction
+# gate STRICT. Run it here too, or this script prints ALL GREEN on a cut that
+# preflight refuses. Needs CM041 pointing at a full CM041 checkout; without it
+# the gate is RED-unverifiable, which is the honest answer.
+VENDOR_FRESH_SCOPE=cm041/ VENDOR_FRESH_STRICT=1 \
+run_gate "cm041 vendored trees rebuild from pin + patch" bash scripts/verify_vendor_fresh.sh
 run_gate "cut record exists"    test -f "cut-manifests/${VERSION}.yaml"
 CUT_VERSION_SOURCE=tag \
 run_gate "installer version IS the cut version" \
     bash tests/test_installer_version_matches_the_cut.sh "$VERSION"
+# LAST, as in cut.yml's preflight: every build-free ship prerequisite (check-orphans,
+# check-pr-age last), from scripts/ship_prereq_classes.tsv. rc is run_gate's own, unmasked.
+run_gate "ship prerequisites (LINUX class)" bash scripts/run_ship_prereqs.sh LINUX
 
 echo
 if [ "$RED" = "0" ]; then

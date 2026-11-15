@@ -56,7 +56,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install pytest and the writers' runtime dependencies
-        run: python -m pip install --quiet pytest httpx nameparser phonenumbers rapidfuzz vobject qdrant-client
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers rapidfuzz vobject qdrant-client
       - name: Each Person-removing writer leaves a record, and the prune leaves a trace
         run: |
           out="$(python -m pytest tests/test_person_removal_audit.py tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true

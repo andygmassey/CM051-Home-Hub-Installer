@@ -6,7 +6,7 @@
 #
 # It builds a FAKE ~/.ostler (fake OstlerAssistant.app, fake doctor/ +
 # services/{knowledge,cm048}/, and populated data/ secrets/ license/ wiki/
-# ~/Documents/Ostler/ plus the service STATE dirs), a fake payload, mocks
+# ~/Ostler/ plus the service STATE dirs), a fake payload, mocks
 # launchctl + codesign via PATH shims, points install.sh at the fixture via
 # HOME, and asserts the data-loss-prevention invariants:
 #
@@ -62,7 +62,7 @@ _digest() {
         fi
     done ; } | md5 -q
 }
-PROTECTED=(.ostler/data .ostler/secrets .ostler/license .ostler/wiki "Documents/Ostler" \
+PROTECTED=(.ostler/data .ostler/secrets .ostler/license .ostler/wiki "~/Ostler" \
            .ostler/processing .ostler/coach .ostler/posture .ostler/config .ostler/assistant-config \
            .ostler/services/knowledge .ostler/services/cm048)
 
@@ -89,13 +89,13 @@ build_home() {
              "${O}/logs" "${O}/processing" "${O}/coach" "${O}/posture" \
              "${O}/config" "${O}/assistant-config" \
              "${O}/services/knowledge" "${O}/services/cm048" "${O}/doctor" \
-             "${H}/Documents/Ostler" "${H}/Library/LaunchAgents"
+             "${H}/Ostler" "${H}/Library/LaunchAgents"
     # Irreplaceable customer state (the thing an upgrade must never lose).
     printf 'qdrant-and-oxigraph-bytes\n' > "${O}/data/graph.db"
     printf 'CUSTOMER_TOKEN_abc123\n'      > "${O}/secrets/service_token"
     printf 'signed-licence-json\n'        > "${O}/license/license.json"
     printf 'compiled wiki page\n'         > "${O}/wiki/index.html"
-    printf 'conversation transcript\n'    > "${H}/Documents/Ostler/convo.md"
+    printf 'conversation transcript\n'    > "${H}/Ostler/convo.md"
     printf 'in-flight bundle\n'           > "${O}/processing/state.json"
     printf 'coach state\n'                > "${O}/coach/state.json"
     printf 'posture state\n'              > "${O}/posture/install.json"

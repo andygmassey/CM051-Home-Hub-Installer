@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chat_latency_baseline -- ADVISORY (scripts/walk_promote_scope.tsv). Scale-walk gate, v1.0.107 #17.
+# chat_latency_baseline -- ADVISORY (scripts/walk_promote_scope.tsv); asserts streaming (#2416). Scale-walk gate, v1.0.107 #17.
 #
 # Box side: lib/assistant_chat.py latency-box asks the installed assistant over
 # /ws/chat and grades ON the box; only verdicts, tool-name tokens and timings

@@ -35,7 +35,7 @@ run_probe() {
     [ -n "${OSTLER_BOX_HOST:-}" ] || probe_cannot_run "OSTLER_BOX_HOST is unset: a request from the box itself is loopback and proves nothing about the LAN"
     box_reachable || probe_cannot_run "cannot reach the box"
     local host log before cap
-    host="${OSTLER_PAIR_PROBE_HOST:-${OSTLER_BOX_HOST##*@}}"
+    host="$(box_lan_host)"
     log='$HOME/.ostler/logs/ostler-assistant.err'
     before="$(box_run "wc -c < ${log}" | tr -dc '0-9')"
     cap="$(mktemp)"
@@ -46,7 +46,10 @@ run_probe() {
             out="$(curl -sk --noproxy '*' -m 15 -o - -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' \
                    -H 'X-Pairing-Code: 000000' --data '{"code":"000000"}' "https://${host}:${PORT}${path}" 2>/dev/null)"
             st="${out##*$'\n'}"; body="${out%$'\n'*}"
-            printf '%s{"path": "%s", "status": %s, "body": %s}' "$sep" "$path" "${st:-0}" \
+            # curl -w prints 000 when no HTTP answer came back; 000 is not valid
+            # JSON (the v1.0.112 JSONDecodeError). Decimal-normalise it to 0.
+            st="$(printf '%s' "$st" | tr -dc '0-9')"; st=$((10#${st:-0}))
+            printf '%s{"path": "%s", "status": %s, "body": %s}' "$sep" "$path" "$st" \
                 "$(printf '%s' "$body" | head -c 400 | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
             sep=", "
         done

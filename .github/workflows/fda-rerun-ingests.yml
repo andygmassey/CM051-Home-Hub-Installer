@@ -51,6 +51,7 @@ on:
       - 'install.sh'
       - 'scripts/lib/strip_comments.sh'
       - 'tests/test_fda_rerun_ingests.sh'
+      - 'tests/lib/fda_run_all.sh'
       - 'tests/test_notes_are_opened_and_refreshed.sh'
       - 'tests/test_contacts_and_reminders_are_reread.sh'
       - 'vendor/doctor/agent/routine_status.py'
@@ -78,7 +79,7 @@ concurrency:
 
 jobs:
   ingest-half-controls:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +123,7 @@ jobs:
 
   # SEPARATE JOB, deliberately. See the header.
   predicate-self-test:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

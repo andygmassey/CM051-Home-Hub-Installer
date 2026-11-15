@@ -58,6 +58,11 @@ class _Oxigraph:
         self.triples_bytes += len(ttl)
         return True
 
+    # The shipped pipeline mirrors through replace_preference_triples since
+    # personal-world-graph #471 (d9797d88), Qdrant first; same capture.
+    async def replace_preference_triples(self, ids, ttl):
+        return await self.insert_triples(ttl)
+
 
 def _write_history(root: Path, n_tracks: int) -> Path:
     """A synthetic Spotify StreamingHistory with n_tracks distinct tracks.
@@ -214,6 +219,8 @@ class Q:
         return True
 class O:
     async def insert_triples(self, ttl, graph=None):
+        return True
+    async def replace_preference_triples(self, ids, ttl):
         return True
 def emb(texts):
     time.sleep(0.02)

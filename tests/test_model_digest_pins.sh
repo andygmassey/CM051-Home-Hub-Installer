@@ -31,7 +31,7 @@
 #
 # Exit 0 all pass, 1 any FAIL, 2 CANNOT-RUN.
 #
-# TO UPDATE A PIN (e.g. gemma4:e2b replaced in v1.0.109): resolve the new tag's
+# TO UPDATE A PIN (e.g. gemma4:e2b replaced by qwen3.5:4b for the 16 GB tier): resolve the new tag's
 # manifest from https://registry.ollama.ai/v2/library/<name>/manifests/<tag>
 # with `Accept: application/vnd.docker.distribution.manifest.v2+json`, read
 # .config.digest, do it direct (`--noproxy '*'`) AND default-routed and require
@@ -92,25 +92,27 @@ coverage() {   # coverage <install.sh>  -> prints "MISSING <m>" / "BADDIGEST <m>
         echo "N $n"
     '
 }
+# Floor 4 -> 3 on 2026-10-31 (v1.0.121): the picker withholds 35b-a3b, so the
+# pullable set is 9b, e2b, embed (the 35b pin row stays for its restoration).
 out="$(coverage "$INSTALL")"
 if grep -q '^NOTABLE' <<<"$out"; then
     bad "A coverage: install.sh has no OSTLER_MODEL_PINS table / ostler_model_pinned_digest (pulls are unpinned)"
 else
     n="$(sed -n 's/^N //p' <<<"$out")"
     miss="$(grep -E '^(MISSING|BADDIGEST|UNKNOWNVAR)' <<<"$out" || true)"
-    if [ -z "$miss" ] && [ "${n:-0}" -ge 4 ]; then
+    if [ -z "$miss" ] && [ "${n:-0}" -ge 3 ]; then
         pass "A coverage: $n pullable models examined, every one has a sha256 pin"
     else
-        bad "A coverage: examined ${n:-0} (need >=4); $(tr '\n' ';' <<<"$miss")"
+        bad "A coverage: examined ${n:-0} (need >=3); $(tr '\n' ';' <<<"$miss")"
     fi
-    # Mutant: delete the gemma4:e2b row; the arm must go RED for that model.
-    grep -v '^    "gemma4:e2b ' "$INSTALL" > "$W/mutant.sh"
+    # Mutant: delete the qwen3.5:4b row; the arm must go RED for that model.
+    grep -v '^    "qwen3.5:4b ' "$INSTALL" > "$W/mutant.sh"
     if cmp -s "$INSTALL" "$W/mutant.sh"; then
-        bad "A mutant did not apply (no gemma4:e2b row to delete)"
-    elif grep -q '^MISSING gemma4:e2b$' <<<"$(coverage "$W/mutant.sh")"; then
-        pass "A mutant: deleting the gemma4:e2b pin turns coverage RED"
+        bad "A mutant did not apply (no qwen3.5:4b row to delete)"
+    elif grep -q '^MISSING qwen3.5:4b$' <<<"$(coverage "$W/mutant.sh")"; then
+        pass "A mutant: deleting the qwen3.5:4b pin turns coverage RED"
     else
-        bad "A mutant: deleting the gemma4:e2b pin was NOT caught"
+        bad "A mutant: deleting the qwen3.5:4b pin was NOT caught"
     fi
 fi
 
@@ -342,6 +344,7 @@ scenario() {   # scenario <name> <preinstalled-embed-seed|-> <chat-seed> [preins
         echo "qwen3.5:9b    6488c96fa5fa    6.6 GB    3 weeks ago" >> "$st/list"
     fi
     PATH="$W/bin:/usr/bin:/bin" STATE="$st" OLLAMA_MODELS="$st/models" SEED_qwen3_5="$chat" \
+    OLLAMA_APP_BIN="$W/bin/ollama" \
     GE="$ge" GC="$gc" FNS="$W/fns.sh" SEC="$W/section.sh" STRINGS="$STRINGS" bash -c '
         set -Eeuo pipefail
         trap "echo x >> \"\$STATE/errs\"" ERR
