@@ -1,7 +1,7 @@
 """By-URI person timeline: two people who fold to one wiki slug.
 
 Synthetic fixture only: two people named alike, so they share the slug
-``pat-example``. The by-URI route must return the exact person the caller named, with that
+``philip-coe``. The by-URI route must return the exact person the caller named, with that
 person's own meetings, and must never run slug resolution.
 
 Red on origin/main: the route and function do not exist there.
@@ -28,8 +28,8 @@ SERVER_FILE = HERE.parent / "ical-server.py"
 
 PERSON_A = "https://schema.ostler.ai/ontology#person_aaaaaaaaaaaa"
 PERSON_B = "https://schema.ostler.ai/ontology#person_bbbbbbbbbbbb"
-NAME_A = "Pat Example"
-NAME_B = "pat example"  # folds to the same wiki slug as NAME_A
+NAME_A = "Philip Coe"
+NAME_B = "philip coe"  # folds to the same wiki slug as NAME_A
 
 
 def _install_ostler_security_stub() -> None:
@@ -84,7 +84,7 @@ server = _load_server_module()
 
 
 class _Store:
-    """Fake Oxigraph: answers the queries the timeline path issues."""
+    """Fake SPARQL store: answers the queries the timeline path issues."""
 
     def __init__(self) -> None:
         self.queries: list[str] = []
