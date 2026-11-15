@@ -85,14 +85,25 @@ def _model_prompt(rows):
         "ITEMS:\n%s" % (PICK_CAP, payload))
 
 
+# A local endpoint must never go through an environment proxy. With HTTP_PROXY set, urllib sent
+# 127.0.0.1 through the proxy and a DOWN model read as HTTP 503 "Forwarding failure" (measured).
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def chat(url, model, prompt, timeout=240):
     body = json.dumps({"model": model, "stream": False, "think": False,
                        "messages": [{"role": "user", "content": prompt}],
                        "options": {"temperature": 0, "seed": 1, "num_predict": 300}}).encode()
     req = urllib.request.Request(url.rstrip("/") + "/api/chat", data=body,
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())["message"]["content"]
+    with _OPENER.open(req, timeout=timeout) as r:
+        j = json.loads(r.read())
+    if "error" in j:
+        raise RuntimeError("model error: %s" % str(j["error"])[:200])
+    text = (j.get("message") or {}).get("content", "")
+    if not text.strip():
+        raise RuntimeError("empty reply (done_reason=%s)" % j.get("done_reason"))
+    return text
 
 
 def parse_picks(reply, valid_ids):

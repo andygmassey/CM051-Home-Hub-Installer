@@ -25,4 +25,33 @@ if ! grep -Fq "CONTROL ASSERTIONS: ALL HOLD" <<< "$out"; then
     echo "FAIL: control assertions did not all hold"; fail=1
 fi
 
+# ARM: the model endpoint is DOWN. The run must exit non-zero and count every reply as ERROR,
+# never ABSTAINED. Port 9 (discard) refuses connections. This is a control, not a model run.
+down="$("$PY" -I "$HERE/scripts/intelligence_eval/run.py" --mode synthetic --model qwen3.5:4b \
+    --ollama http://127.0.0.1:9 2>&1)"
+down_rc=$?
+printf '%s\n' "$down" | grep -E "ERROR" | head -3
+if [ "$down_rc" -eq 0 ]; then
+    echo "FAIL: endpoint-down run exited 0"; fail=1
+fi
+if ! grep -Fq "ERROR" <<< "$down"; then
+    echo "FAIL: endpoint-down run printed no ERROR bucket"; fail=1
+fi
+if grep -Fq "CONTROL ASSERTIONS: ALL HOLD" <<< "$down"; then
+    echo "FAIL: endpoint-down run reported control assertions holding"; fail=1
+fi
+
+# ARM: made-up-answer measurement on the shipped /ws/chat path (owner_fabrication.py). Dry run
+# against a stand-in gateway and a fixture store, with known verdicts per mode, planted grader
+# controls, and refusals. It never touches a box; the real run is on Mini16, by hand.
+out_fab="$("$PY" -I "$HERE/scripts/intelligence_eval/owner_fabrication_selftest.py" 2>&1)"
+rc_fab=$?
+printf '%s\n' "$out_fab" | tail -3
+if [ "$rc_fab" -ne 0 ]; then
+    echo "FAIL: owner_fabrication dry run exited $rc_fab"; fail=1
+fi
+if ! grep -Fq "18 passed, 0 failed" <<< "$out_fab"; then
+    echo "FAIL: owner_fabrication dry run did not report 18 passed, 0 failed"; fail=1
+fi
+
 exit "$fail"

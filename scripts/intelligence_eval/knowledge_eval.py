@@ -1,4 +1,7 @@
-"""Owner knowledge: grounded Q&A over the synthetic fixture, graded RIGHT / WRONG / FABRICATED / ABSTAINED.
+"""Owner knowledge: grounded Q&A over the synthetic fixture, graded RIGHT / WRONG / FABRICATED / ABSTAINED, or ERROR.
+ERROR is a reply that is missing, empty, or an error body. It is NOT an abstention: a crashed
+call must never read as perfect abstention (the first Mini16 sweep scored 86 of 88 blank replies
+as ABSTAINED). Any ERROR fails the run.
 
 Every question is generated from the fixture, so the gold answer is known.
   answerable  -> RIGHT if every alias group appears and no wrong token does;
@@ -16,8 +19,33 @@ import brief_eval as B
 ABSTAIN = re.compile(
     r"\b(don'?t know|do not know|do not have|don'?t have|not (in|listed|recorded|"
     r"mentioned|available|known|in the (context|fixture|data))|no (record|information|"
-    r"data|mention)|cannot (find|tell|say)|can'?t (find|tell|say)|unknown|not sure)\b", re.I)
-OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED")
+    r"data|mention)|cannot (find|tell|say|determine)|can'?t (find|tell|say)|unknown|not sure|"
+    r"(does|do) not (contain|hold|provide|include|have|say|state|list|show|give|specify|"
+    r"mention|record)|(is|are|was|were) not (in|mentioned|recorded|listed|stated|provided)|"
+    r"isn'?t (in|mentioned|recorded|listed)|impossible to (determine|tell|say)|"
+    r"not in (your|the) (records|data|context|fixture|information)|"
+    r"not (included|specified|stated|detailed|shown|given|provided) (in|within|by) (the|your|this)|"
+    r"no specific |cannot (provide|give|share))\b", re.I)
+
+# Every decline form a model or the gate uses. Each must grade ABSTAINED on an absent
+# question. A decline the grader calls FABRICATED makes the absent bucket measure nothing.
+DECLINE_FORMS = (
+    "I do not know.",
+    "I don't have that in your records.",
+    "That is not in your data.",
+    "The context does not contain Mary Doe's blood type.",
+    "The CONTEXT does not hold the answer.",
+    "The provided context does not provide information about the owner's salary.",
+    "No record of that.",
+    "I cannot determine that from the records.",
+    "It is impossible to determine.",
+    "That isn't mentioned in your records.",
+    "Not in your records.",
+    "I cannot provide Mary Doe's email address because it is not included in the provided data.",
+    "There is no specific date for the half marathon listed.",
+    "There is no specific monetary amount mentioned for the seed round.",
+)
+OUTCOMES = ("RIGHT", "WRONG", "FABRICATED", "ABSTAINED", "ERROR")
 
 
 def build_questions(fixture):
@@ -53,9 +81,9 @@ def _has(low, alias):
 
 
 def grade(question, answer):
-    text = (answer or "").strip()
+    text = answer.strip() if isinstance(answer, str) else ""
     if not text:
-        return "ABSTAINED", "empty"
+        return "ERROR", "no reply (missing, empty, or error body)"
     abstains = bool(ABSTAIN.search(text))
     if question["kind"] == "absent":
         return ("ABSTAINED", "declined") if abstains else ("FABRICATED", "committed an answer")
@@ -135,5 +163,8 @@ def make_model_answerer(url, model, fixture):
         prompt = ("Answer the question using ONLY the CONTEXT. If the CONTEXT does not hold "
                   "the answer, say you do not know. One sentence.\n\nCONTEXT:\n%s\n\nQUESTION: %s"
                   % (ctx, q["q"]))
-        return B.chat(url, model, prompt, timeout=120)
+        try:
+            return B.chat(url, model, prompt, timeout=120)
+        except (OSError, RuntimeError, ValueError):
+            return None  # counted as ERROR, never as an abstention
     return answer

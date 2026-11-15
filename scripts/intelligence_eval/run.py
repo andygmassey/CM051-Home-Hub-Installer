@@ -162,16 +162,27 @@ def cmd_synthetic(args):
         model_runs = []
         for _ in range(RUNS):
             ans = B.build_model(args.ollama, args.model)
-            rates, _ = B.run_brief(world, None, days, builder=ans)
+            try:
+                rates, _ = B.run_brief(world, None, days, builder=ans)
+            except (OSError, RuntimeError, ValueError) as e:
+                # An endpoint that is down or errors is ERROR, not a zero score and not a crash.
+                failed.append("brief model endpoint ERROR: %s" % type(e).__name__)
+                print("ERROR brief model endpoint: %s" % e)
+                break
             model_runs.append(rates)
         print("\n== MODEL %s brief, %d runs (synthetic world) ==" % (args.model, RUNS))
-        for m in B.METRICS:
+        for m in (B.METRICS if model_runs else []):
             vals = [r[m]["value"] for r in model_runs]
             print("%-17s run values %s  spread %.1f pts  den %s" % (
                 m, ", ".join("n/a" if v is None else "%.1f%%" % (100 * v) for v in vals),
                 100 * spread(vals), model_runs[0][m]["den"]))
         k_runs = run_knowledge_suite(fixture, K.make_model_answerer(args.ollama, args.model, fixture), RUNS)
+        model_runs = model_runs if model_runs else None
         knowledge_report("MODEL %s owner knowledge" % args.model, k_runs, fixture)
+        for i, kr in enumerate(k_runs):
+            if kr["counts"]["ERROR"]:
+                failed.append("model run %d: %d ERROR replies (missing, empty or error body). "
+                              "Not a result: an error is not an abstention" % (i + 1, kr["counts"]["ERROR"]))
 
     print("\nSMALLEST GAP RESOLVED (95%%, this sample size, good vs bad): %s" % ", ".join(
         "%s %.1f pts" % (m, 100 * max(gap[m]["ci95_halfwidth"] or 0, gap[m]["run_spread"]))
@@ -295,6 +306,27 @@ def self_test():
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "I do not know.")[0] == "ABSTAINED")
     check("grader: a committed answer on an absent question is FABRICATED",
           K.grade({"kind": "absent", "groups": [], "wrong": []}, "It is O positive.")[0] == "FABRICATED")
+    for form in K.DECLINE_FORMS:
+        check("grader: decline form is ABSTAINED, not FABRICATED: %r" % form,
+              K.grade({"kind": "absent", "groups": [], "wrong": []}, form)[0] == "ABSTAINED")
+    # POSITIVE CONTROL: a planted invented value must grade FABRICATED. Without this, a grader that
+    # learned only declines could drift to scoring every absent answer ABSTAINED and pass the arms above.
+    for planted in ("Mary Doe's blood type is O positive.", "The seed round closes on 2027-06-30.",
+                    "Sam Ross sent 412 messages.", "Tom Coe is in Operators."):
+        check("positive control: planted invented value is FABRICATED: %r" % planted,
+              K.grade({"kind": "absent", "groups": [], "wrong": []}, planted)[0] == "FABRICATED")
+    check("grader: an empty reply is ERROR, never ABSTAINED",
+          K.grade({"kind": "absent", "groups": [], "wrong": []}, "")[0] == "ERROR")
+    check("grader: a missing reply (None) is ERROR, never ABSTAINED",
+          K.grade({"kind": "answerable", "groups": [["40"]], "wrong": []}, None)[0] == "ERROR")
+    check("grader: a whitespace-only reply is ERROR",
+          K.grade({"kind": "absent", "groups": [], "wrong": []}, "   \n ")[0] == "ERROR")
+    blank = K.run(fixture, lambda q, f: None)
+    check("MUTANT-GUARD: a run whose every reply is missing lands in ERROR, not ABSTAINED",
+          blank["counts"]["ERROR"] == blank["n"] and blank["counts"]["ABSTAINED"] == 0)
+    dead = K.make_model_answerer("http://127.0.0.1:9", "no-such-model", fixture)
+    check("an unreachable model is ERROR on every question (connection refused, not a declined answer)",
+          K.run(fixture, lambda q, f: dead(q, f))["counts"]["ERROR"] == blank["n"])
     check("grader: '400' does not satisfy a '40' expectation (word boundary)",
           K.grade({"kind": "answerable", "groups": [["40"]], "wrong": []}, "400 messages")[0] == "WRONG")
 
