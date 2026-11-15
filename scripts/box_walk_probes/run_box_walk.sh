@@ -391,8 +391,10 @@ walk_cleanup() {
         declare -F conversation_seed_forget >/dev/null && { conversation_seed_forget || true; }
         declare -F usage_seed_forget >/dev/null && { usage_seed_forget || true; }
         declare -F owner_employer_seed_forget >/dev/null && { owner_employer_seed_forget || true; }
+        declare -F smart_prefs_seed_forget >/dev/null && { smart_prefs_seed_forget || true; }
         declare -F conversation_capture_seed_forget >/dev/null && { conversation_capture_seed_forget || true; }
         declare -F scale_fixture_forget >/dev/null && { scale_fixture_forget || true; }
+        declare -F contact_cards_forget >/dev/null && { contact_cards_forget || true; }
         declare -F companion_walk_unpair >/dev/null && { companion_walk_unpair || true; }
     fi
 }
@@ -407,6 +409,9 @@ trap _walk_exit_trap EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 . "$HERE/lib/grounding_seed.sh"
+# Swap and pageout curve: the whole-walk sampler is started by post_walk_qa.sh;
+# this file only brackets the chat-battery probes (no-op when no sampler runs).
+. "$HERE/lib/swap_curve.sh"
 
 # 🔴 THE SEED STATE REACHED NOTHING, AND THAT IS WHY 17 OF 21 COMMITTED WALKS
 # CANNOT BE READ. grounding_seed.sh has always set GROUNDING_SEED_STATE to one
@@ -475,8 +480,26 @@ fi
 if [ "$READ_ONLY" -eq 0 ]; then
     # Flush left: see the grounding seed's comment above this same shape.
 preference_seed_apply || true
+OSTLER_PREF_SEED_STATE="${PREFERENCE_SEED_STATE:-unrun}"; export OSTLER_PREF_SEED_STATE
 else
     printf '  SKIPPED (read-only): preference seed not applied.\n\n'
+fi
+
+# ── AND THE SMART PREFERENCES FIXTURE (v1.0.118, five BLOCKING probes) ──
+# derived_preferences_{runs,breadth,dislike,not_others} and
+# dislike_respected_in_brief measure what the derive engine made of a known,
+# synthetic fixture: ten broad categories of evidence, an owner dislike, the
+# owner's own like (the control) and ANOTHER person's like. Without this step
+# they would read whatever the box happened to hold. lib/smart_prefs_seed.sh
+# writes it, reads it back out of the stores, kicks the derive agent and waits
+# for a pass; a seed that fails leaves the probes at CANNOT-RUN naming why.
+. "$HERE/lib/smart_prefs_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+    # Flush left: see the grounding seed's comment above this same shape.
+smart_prefs_seed_apply || true
+else
+    OSTLER_SMARTPREFS_SEED_STATE="skipped-read-only"; export OSTLER_SMARTPREFS_SEED_STATE
+    printf '  SKIPPED (read-only): smart-preferences seed not applied.\n\n'
 fi
 
 # ── AND THE OWNER'S EMPLOYER, through the customer's own import path ──
@@ -594,6 +617,18 @@ else
     printf '  SKIPPED (read-only): scale fixture not replayed.\n\n'
 fi
 
+# ── AND THE CONTACT CARDS, so no_person_holds_two_contact_cards can run ──
+# lib/contact_cards_seed.sh: v1.0.115 (walk34) graded that BLOCKING probe
+# CANNOT-RUN, "ZERO icloud_contact_uid identifiers in the graph", because a cold
+# account has no Contacts. Six synthetic cards are written when the graph holds
+# none; real contacts are never touched. Gated on READ_ONLY like every writer.
+. "$HERE/lib/contact_cards_seed.sh"
+if [ "$READ_ONLY" -eq 0 ]; then
+contact_cards_apply || true
+else
+    printf '  SKIPPED (read-only): contact cards not seeded.\n\n'
+fi
+
 # ── AND WAIT FOR THE WIKI SUMMARY BACKFILL, so cm044_wiki_compiler has written ──
 #
 # The four seeds above give the box a person, a preference, a conversation and
@@ -634,7 +669,9 @@ fi
 # (DMG #23); sourced here, called late, right before that probe.
 . "$HERE/lib/real_person_choose.sh"
 if [ "$READ_ONLY" -eq 0 ]; then
-wiki_summaries_wait || true
+printf -- '--- WAIT CHANGE vs before: the wiki-summaries recompile is kickstarted HERE with no wait; it is waited for ONCE, before usage_journal_producers, with the same predicate and a budget of %ss (was: a blocking wait of %ss here, plus a second wait of %ss when the first ended cannot-run) ---\n' \
+    "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" "${OSTLER_WIKI_WAIT_BUDGET_S:-900}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+OSTLER_WIKI_WAIT_MODE=kick wiki_summaries_wait || true
 else
     printf '  SKIPPED (read-only): wiki recompile LaunchAgent not kickstarted.\n\n'
 fi
@@ -720,9 +757,10 @@ CANNOT_REASONS="$(mktemp)"
 # grounded cost across walks 9 and 10, red both times and undiagnosed both
 # times.
 FAIL_REASONS="$(mktemp)"
+PROBE_TIMINGS="$(mktemp)"
 # Removed by _walk_exit_trap (one EXIT trap: a second `trap ... EXIT` here
 # would replace the cleanup trap above).
-WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
+WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS $PROBE_TIMINGS"
 
 # OSTLER_PHASE1_VERDICTS: when set, every verdict the loop below reaches is
 # appended there as <probe>\t<PASS|FAIL|CANNOT-RUN|BROKEN>\t<utc>\t<reason>\t<fixture>,
@@ -746,7 +784,7 @@ WALK_TEMP_FILES="$CANNOT_REASONS $FAIL_REASONS"
 # reads OSTLER_OWNER_SEED_STATE (lib/owner_employer_seed.sh). Both seeds are
 # forgotten before the replay, so a phase 2 re-run reads "unrun" and reports
 # CANNOT-RUN over a measured phase 1 verdict (walk #10, v1.0.107).
-SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner"
+SEED_DEPENDENT_PROBES="assistant_answers_grounded assistant_grounds_the_opening_turn ingest_coverage usage_journal_producers conversation_capture_end_to_end owner_digest_knows_the_owner derived_preferences_reach_digest_and_tool"
 _record_verdict() {
     [ -n "${OSTLER_PHASE1_VERDICTS:-}" ] || return 0
     local fixture=live
@@ -794,6 +832,11 @@ fi
 # promotion never moves it, and this puts it behind the p..z probes that the C
 # sort would otherwise run after it. tests/test_owner_score_instrument_is_valid.sh
 # asserts the order.
+# A pairing mutator runs after the pairing-state readers: apply_pins puts
+# gateway_never_serves_a_stored_secret behind pair_state_agreement (the C sort
+# has it ahead). tests/test_a_pairing_reader_runs_before_the_pairing_mutator.sh
+# asserts the order.
+PROBES="$(apply_pins)"
 PROBES="$(pin_last owner_knowledge_score)"
 # The probe seeds only on a walk that may write: --only implies --read-only, and
 # the probe reads this to leave the graph alone.
@@ -855,10 +898,10 @@ for p in $PROBES; do
         # top-of-file wait gates on READ_ONLY -- it must obey the same gate,
         # or `--only usage_journal_producers` alone would still kickstart a
         # write the top-level skip just refused.
-        if [ "$READ_ONLY" -eq 0 ] && [ "${WIKI_WAIT_STATE:-unrun}" = "cannot-run" ]; then
-            printf '\n  wiki summaries: the first wait ended cannot-run (%s); waiting once more here, before the only probe that needs it, budget %ss\n' \
-                "${WIKI_WAIT_DETAIL:-no detail}" "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
-            OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
+        if [ "$READ_ONLY" -eq 0 ]; then
+            printf '\n  wiki summaries: the one wait for the recompile kicked off earlier in this walk, before the only probe that needs it, budget %ss\n' \
+                "${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}"
+            OSTLER_WIKI_WAIT_MODE=wait OSTLER_WIKI_WAIT_BUDGET_S="${OSTLER_WIKI_WAIT_SECOND_BUDGET_S:-2700}" wiki_summaries_wait || true
         fi
         export OSTLER_WIKI_WAIT_STATE="${WIKI_WAIT_STATE:-unrun}"
         export OSTLER_WIKI_WAIT_DETAIL="${WIKI_WAIT_DETAIL:-}"
@@ -871,7 +914,9 @@ for p in $PROBES; do
         # needs it, rather than in front of all of phase 2.
         if [ "$_CONVERGE_WAIT_DONE" -eq 0 ]; then
             printf '\n'
+            _cw_t0=$SECONDS
             converge_wait || true
+            printf '  TIMING wait=converge seconds=%s\n' "$((SECONDS - _cw_t0))"
             _CONVERGE_WAIT_DONE=1
         fi
         if [ "$CONVERGE_STATE" != "stable" ]; then
@@ -885,9 +930,15 @@ for p in $PROBES; do
     fi
 
     printf '\n[%s]\n' "$b"
+    _probe_t0=$SECONDS
+    swap_bracket_begin "$b"
     out="$(bash "$p" 2>&1)"
     rc=$?
+    swap_bracket_end "$b"
     printf '%s\n' "$out" | sed 's/^/  /'
+    # Seconds this probe took (phase 2). One line per probe, a sorted top 15 below.
+    printf '  TIMING probe=%s seconds=%s\n' "$b" "$((SECONDS - _probe_t0))"
+    printf '%s\t%s\n' "$((SECONDS - _probe_t0))" "$b" >> "$PROBE_TIMINGS"
 
     if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^VERDICT: ADVISORY -- ')" -gt 0 ]; then
         ADVISORY=$((ADVISORY + 1)); ADVISORY_LIST="$ADVISORY_LIST $b"
@@ -948,9 +999,11 @@ preference_seed_forget || true
 conversation_seed_forget || true
 usage_seed_forget || true
 owner_employer_seed_forget || true
+smart_prefs_seed_forget || true
 conversation_capture_seed_forget || true
 if [ "$READ_ONLY" -eq 0 ]; then
 scale_fixture_forget || true
+contact_cards_forget || true
 companion_walk_unpair || true
 fi
 # Done on the normal path: the EXIT trap (walk_cleanup, above) only acts on an
@@ -974,6 +1027,9 @@ fi
 # REPORT -- four numbers, never one.
 # -------------------------------------------------------------------------
 printf '\n============================================================\n'
+printf '\n--- TIMING: the slowest probes of phase 2 (seconds) ---\n'
+sort -rn "$PROBE_TIMINGS" | head -15 | awk -F'\t' '{printf "  TIMING top15 probe=%s seconds=%s\n", $2, $1}'
+awk -F'\t' '{t+=$1} END {printf "  TIMING phase2_probes_total seconds=%d (probes only; waits are not in it)\n", t}' "$PROBE_TIMINGS"
 printf 'RESULT\n'
 printf '  PASS        %s\n' "$PASS"
 printf '  FAIL        %s\n' "$FAIL"

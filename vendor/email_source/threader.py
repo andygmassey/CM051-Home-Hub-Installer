@@ -45,10 +45,15 @@ class EmailThread:
     subject: str
     participant_addresses: list[str]  # non-user addresses, lower-cased
     extra: dict = field(default_factory=dict)
+    # Set by the pipeline when this thread is the continuation of one already
+    # bundled: the folder is keyed on conversation_id AND the started_at date,
+    # so a grown thread whose earliest in-window message moved must keep both.
+    pinned_started_at: Optional[str] = None
+    pinned_date: Optional[str] = None
 
     @property
     def started_at(self) -> str:
-        return _iso(self.messages[0])
+        return self.pinned_started_at or _iso(self.messages[0])
 
     @property
     def ended_at(self) -> str:
@@ -56,6 +61,8 @@ class EmailThread:
 
     @property
     def date(self) -> str:
+        if self.pinned_date:
+            return self.pinned_date
         ts = self.messages[0].timestamp
         return ts.date().isoformat() if ts else "0000-00-00"
 
@@ -113,6 +120,7 @@ def thread_messages(
     *,
     min_thread_messages: int = 1,
     subject_fallback: bool = True,
+    user_address: str = "",
 ) -> list[EmailThread]:
     """Group a flat message list into ``EmailThread`` objects.
 
@@ -120,6 +128,11 @@ def thread_messages(
     References). Secondary key (when ``subject_fallback``): messages
     sharing a normalised subject are unioned too, catching clients
     that strip reference headers.
+
+    The subject fallback only joins messages that share a normalised
+    subject AND a counterpart address (any From / To / Cc address that
+    is not ``user_address``), so two strangers who both write "Invoice"
+    stay two conversations.
 
     Threads shorter than ``min_thread_messages`` are dropped. Email
     threading keeps singletons by default (a one-message thread is
@@ -144,12 +157,18 @@ def thread_messages(
             uf.union(m.message_id, ref)
 
     if subject_fallback:
-        subject_groups: dict[str, list[str]] = {}
+        owner = (user_address or "").strip().lower()
+        subject_groups: dict[tuple[str, str], list[str]] = {}
         for m in by_id.values():
             norm = _normalise_subject(m.subject)
             if not norm:
                 continue
-            subject_groups.setdefault(norm, []).append(m.message_id)
+            addrs = {m.from_address} | {a for _, a in m.to_addresses} | {
+                a for _, a in m.cc_addresses
+            }
+            for addr in addrs:
+                if addr and addr != owner:
+                    subject_groups.setdefault((norm, addr), []).append(m.message_id)
         for ids in subject_groups.values():
             for other in ids[1:]:
                 uf.union(ids[0], other)

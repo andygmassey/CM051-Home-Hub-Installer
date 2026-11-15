@@ -207,3 +207,80 @@ final class OnboardingQuestionViewSnapshotTests: XCTestCase {
         XCTAssertNotNil(image, "consent_spoken_capture render should not crash.")
     }
 }
+
+/// The spoken-capture legal note follows the Mac's REGION, not its language
+/// (the owner, 2026-10-24). Reads tests/fixtures/legal_region_contract.tsv, the
+/// SAME fixture tests/test_spoken_capture_legal_note_follows_region.sh runs
+/// install.sh's functions against, so the two sides cannot drift apart.
+/// Region lines are best-effort drafts needing local professional sign-off;
+/// this pins WHICH lines show, not the law in them.
+final class LegalRegionContractTests: XCTestCase {
+    private struct Row {
+        let locale: String?
+        let iso: String?
+        let jurisdiction: String
+        let keys: [String]
+    }
+
+    private func rows() throws -> [Row] {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/legal_region_contract.tsv")
+        let text = try String(contentsOf: fixture, encoding: .utf8)
+        var out: [Row] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.hasPrefix("#") || line.hasPrefix("apple_locale\t") { continue }
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            XCTAssertEqual(f.count, 4, "malformed fixture row: \(line)")
+            guard f.count == 4 else { continue }
+            out.append(Row(
+                locale: f[0] == "<unset>" ? nil : f[0],
+                iso: f[1] == "-" ? nil : f[1],
+                jurisdiction: f[2],
+                keys: f[3] == "-" ? [] : f[3].split(separator: ",").map(String.init)
+            ))
+        }
+        return out
+    }
+
+    func testEveryFixtureRowPicksTheSameLinesAsInstallSh() throws {
+        let all = try rows()
+        XCTAssertGreaterThanOrEqual(all.count, 20, "fixture shrank; denominator matters")
+        for r in all {
+            let iso = LegalRegion.country(fromAppleLocale: r.locale)
+            XCTAssertEqual(iso, r.iso, "iso for \(r.locale ?? "<unset>")")
+            XCTAssertEqual(LegalRegion.jurisdiction(forCountry: iso).rawValue, r.jurisdiction,
+                           "jurisdiction for \(r.locale ?? "<unset>")")
+            XCTAssertEqual(LegalRegion.spokenCaptureRegionKeys(forCountry: iso), r.keys,
+                           "region lines for \(r.locale ?? "<unset>")")
+        }
+    }
+
+    /// The rendered note, end to end through ViewCopy.json: a Chinese
+    /// (Traditional) language with a GB region gets the UK line and no other.
+    func testChineseLanguageWithUKRegionGetsTheUKLine() {
+        let copy = ViewCopy.shared
+        let k = "consent_spoken_capture."
+        let note = LegalRegion.spokenCaptureLegalNote(appleLocale: "zh-Hant_GB", copy: copy)
+        XCTAssertTrue(note.hasPrefix(copy.string(for: k + "legal_prefix") + " " + copy.string(for: k + "legal_core")))
+        XCTAssertTrue(note.hasSuffix(copy.string(for: k + "legal_responsibility")))
+        XCTAssertTrue(note.contains(copy.string(for: k + "legal_region_gb")))
+        for other in ["eu", "de", "fr", "hk", "us"] {
+            XCTAssertFalse(note.contains(copy.string(for: k + "legal_region_" + other)), "zh-Hant_GB showed \(other)")
+        }
+        XCTAssertFalse(note.contains("consent_spoken_capture."), "a ViewCopy key did not resolve: \(note)")
+    }
+
+    func testUnknownRegionGetsTheNeutralCoreOnly() {
+        let copy = ViewCopy.shared
+        let k = "consent_spoken_capture."
+        let note = LegalRegion.spokenCaptureLegalNote(appleLocale: "ja_JP", copy: copy)
+        let want = [k + "legal_prefix", k + "legal_core", k + "legal_local", k + "legal_responsibility"]
+            .map { copy.string(for: $0) }.joined(separator: " ")
+        XCTAssertEqual(note, want)
+    }
+
+    func testTheSeamOverridesTheRealDefault() {
+        XCTAssertEqual(LegalRegion.currentAppleLocale(environment: ["OSTLER_APPLE_LOCALE": "en_HK"]), "en_HK")
+    }
+}

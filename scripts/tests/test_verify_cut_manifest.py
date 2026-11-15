@@ -12,6 +12,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -3053,3 +3054,189 @@ def test_box_walk_probe_phase1_summary_silent_without_box_rows(fake_cm051, fake_
     r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
     assert r.returncode == 0, r.stdout
     assert "OSTLER_PHASE1_VERDICTS" not in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Live-state rows reuse THIS walk's full-pass PASS, keyed on walk id, box and
+# installed version (WALK-SPEED PR 1). A mismatch, a missing header, or any
+# verdict other than PASS re-runs the probe.
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib
+
+_LIVE_BOX = "192.0.2.7"
+_LIVE_FP = _hashlib.sha256(_LIVE_BOX.encode()).hexdigest()[:16]
+
+
+def _live_setup(cm051, tmp_path, monkeypatch, probe, rows, headers, expect, body="exit 0"):
+    marker = _phase1_setup(cm051, tmp_path, monkeypatch, probe, [], body=body)
+    vf = tmp_path / "phase1.tsv"
+    vf.write_text("".join(h + "\n" for h in headers) + "".join(r + "\n" for r in rows))
+    monkeypatch.setenv("OSTLER_BOX_HOST", _LIVE_BOX)
+    # The identity arms below are about identity, not about WHICH probes are allowed: allow the stub probe here.
+    al = tmp_path / "allow.tsv"
+    al.write_text(f"{probe}\tstub probe for an identity arm\n")
+    monkeypatch.setenv("OSTLER_MANIFEST_REUSE_ALLOWLIST", str(al))
+    for k in ("OSTLER_WALK_ID", "OSTLER_WALK_BOX_FP", "OSTLER_WALK_INSTALLED_VERSION"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in expect.items():
+        monkeypatch.setenv(k, v)
+    return marker
+
+
+_GOOD_HEADERS = ["# walk_id v1.0.9-20260101T000000Z.log", f"# box_fp {_LIVE_FP}", "# installed_version v1.0.9"]
+_GOOD_EXPECT = {"OSTLER_WALK_ID": "v1.0.9-20260101T000000Z.log", "OSTLER_WALK_INSTALLED_VERSION": "1.0.9"}
+
+
+def test_live_row_pass_from_same_walk_box_build_is_reused(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livegreen",
+                         ["livegreen\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT,
+                         body="exit 1")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "REUSED probe=livegreen" in r.stderr and "phase1.tsv" in r.stderr, r.stderr
+    assert "reused the PASS" in r.stdout and "phase1.tsv" in r.stdout, r.stdout
+    assert not marker.exists(), "probe re-ran although identity matched"
+
+
+def test_live_row_from_a_different_walk_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "liveother",
+                         ["liveother\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS,
+                         {**_GOOD_EXPECT, "OSTLER_WALK_ID": "v1.0.9-20260202T000000Z.log"})
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists(), "mismatched walk id must re-run the probe"
+    assert "reused the PASS" not in r.stdout and "walk_id mismatch" in r.stdout, r.stdout
+
+
+def test_live_row_from_a_different_build_or_box_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livebuild",
+                         ["livebuild\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS,
+                         {**_GOOD_EXPECT, "OSTLER_WALK_INSTALLED_VERSION": "1.0.10"})
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "installed_version mismatch" in r.stdout, r.stdout
+    marker.unlink()
+    monkeypatch.setenv("OSTLER_WALK_INSTALLED_VERSION", "1.0.9")
+    monkeypatch.setenv("OSTLER_WALK_BOX_FP", "0" * 16)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "box_fp mismatch" in r.stdout, r.stdout
+
+
+def test_live_row_missing_result_or_non_pass_is_rerun_never_reused(fake_cm051, fake_app, tmp_path, monkeypatch):
+    # No row at all for the probe.
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livemissing",
+                         ["someother\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "reused the PASS" not in r.stdout, r.stdout
+    # CANNOT-RUN, FAIL, BROKEN and an unknown word: all re-run, none reused as PASS.
+    for word in ("CANNOT-RUN", "FAIL", "BROKEN", "ADVISORY", "WAT"):
+        marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "livenonpass",
+                             [f"livenonpass\t{word}\t2026-01-01T00:10:00Z\tx\tlive"], _GOOD_HEADERS, _GOOD_EXPECT)
+        r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+        assert marker.exists(), f"{word} row must re-run"
+        assert "reused the PASS" not in r.stdout, (word, r.stdout)
+
+
+def test_live_row_without_header_or_expected_identity_is_rerun(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _live_setup(fake_cm051, tmp_path, monkeypatch, "liveheaderless",
+                         ["liveheaderless\tPASS\t2026-01-01T00:10:00Z\t\tlive"], [], _GOOD_EXPECT)
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "no walk_id header" in r.stdout, r.stdout
+    marker.unlink()
+    for k in _GOOD_EXPECT:
+        monkeypatch.delenv(k)
+    (tmp_path / "phase1.tsv").write_text("".join(h + "\n" for h in _GOOD_HEADERS)
+                                         + "liveheaderless\tPASS\t2026-01-01T00:10:00Z\t\tlive\n")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists() and "this run has no walk_id" in r.stdout, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# THE ALLOWLIST (Archie, #3450): only probes whose subject cannot change after install may be reused.
+# ---------------------------------------------------------------------------
+
+_FORBIDDEN_REUSE = {
+    # explicitly named by the reviewer
+    "people_stores_reconcile", "people_count_agreement", "no_person_holds_two_contact_cards", "data_conservation",
+    # everything touching stores, people, ingest, assistant, briefs, latency or egress
+    "assistant_answers_grounded", "chat_latency_baseline", "no_unexpected_egress", "ingest_coverage",
+    "no_store_port_is_tcp_reachable", "people_seed_and_retrieval", "morning_brief_catches_me_up",
+    "qdrant_has_fd_headroom_and_writes_land", "usage_journal_producers",
+    # runs-state: the digests the box pulled AND RUNS change on a container restart or a compose pull (Archie, #3450)
+    "image_pulls_match_pins",
+}
+_FORBIDDEN_WORDS = ("people", "person", "store", "ingest", "assistant", "brief", "latency", "egress", "contact", "conservation")
+_REAL_ALLOWLIST = Path(__file__).resolve().parents[1] / "box_walk_probes" / "manifest_reuse_allowlist.tsv"
+
+
+def _allowlist_problems(path) -> list:
+    rows = [ln.rstrip("\n").split("\t") for ln in Path(path).read_text().splitlines()
+            if ln.strip() and not ln.startswith("#")]
+    bad = []
+    for r in rows:
+        if len(r) < 2 or not r[1].strip():
+            bad.append(f"{r[0]}: no one-line reason")
+        if r[0] in _FORBIDDEN_REUSE or any(w in r[0] for w in _FORBIDDEN_WORDS):
+            bad.append(f"{r[0]}: a state probe must be re-run at manifest time")
+    return bad
+
+
+def test_reuse_allowlist_names_no_state_probe():
+    assert _REAL_ALLOWLIST.is_file()
+    assert _allowlist_problems(_REAL_ALLOWLIST) == []
+    names = [ln.split("\t")[0] for ln in _REAL_ALLOWLIST.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    assert names, "an empty allowlist reuses nothing; that is safe but this PR ships five"
+    probes = Path(__file__).resolve().parents[1] / "box_walk_probes" / "probes"
+    for n in names:
+        assert (probes / f"{n}.sh").is_file(), f"allowlisted probe {n} does not exist"
+
+
+def test_reuse_allowlist_mutation_adding_people_stores_reconcile_is_caught(tmp_path):
+    mutant = tmp_path / "mutant.tsv"
+    mutant.write_text(_REAL_ALLOWLIST.read_text() + "people_stores_reconcile\tsupposedly static\n")
+    problems = _allowlist_problems(mutant)
+    assert any("people_stores_reconcile" in p for p in problems), problems
+
+
+def test_allowlisted_pass_is_reused_and_non_allowlisted_pass_reruns(fake_cm051, fake_app, tmp_path, monkeypatch):
+    # REAL allowlist file (no override): install_manifest_complete is on it, people_stores_reconcile is not.
+    m1 = _live_setup(fake_cm051, tmp_path, monkeypatch, "install_manifest_complete",
+                     ["install_manifest_complete\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT, body="exit 1")
+    monkeypatch.delenv("OSTLER_MANIFEST_REUSE_ALLOWLIST")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert r.returncode == 0, r.stdout
+    assert "REUSED probe=install_manifest_complete" in r.stderr, r.stderr
+    assert not m1.exists(), "allowlisted PASS with matching identity must not re-run"
+    m2 = _live_setup(fake_cm051, tmp_path, monkeypatch, "people_stores_reconcile",
+                     ["people_stores_reconcile\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT, body="exit 0")
+    monkeypatch.delenv("OSTLER_MANIFEST_REUSE_ALLOWLIST")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert m2.exists(), "a PASS for a probe that is not allowlisted MUST be measured again"
+    assert "REUSED" not in r.stderr and "reused the PASS" not in r.stdout, r.stdout
+
+
+def test_mutated_allowlist_would_reuse_a_state_probe_so_the_guard_test_is_load_bearing(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """With people_stores_reconcile on the allowlist the gate DOES reuse it: nothing but the allowlist test stands
+    between the two, which is why test_reuse_allowlist_names_no_state_probe exists."""
+    m = _live_setup(fake_cm051, tmp_path, monkeypatch, "people_stores_reconcile",
+                    ["people_stores_reconcile\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT, body="exit 1")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")   # _live_setup allowlisted the stub name
+    assert not m.exists() and "REUSED probe=people_stores_reconcile" in r.stderr
+
+
+def test_every_box_walk_row_prints_its_seconds(fake_cm051, fake_app, tmp_path, monkeypatch):
+    marker = _phase1_setup(fake_cm051, tmp_path, monkeypatch, "timed", [], body="exit 0")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert marker.exists()
+    assert re.search(r"TIMING manifest_row id=\S+ probe=timed status=PASS reused=no seconds=\d", r.stderr), r.stderr
+    assert re.search(r"TIMING manifest_total rows=\d+ box_walk_rows=1 seconds=", r.stderr), r.stderr
+    assert "TIMING manifest_top15 probe=timed" in r.stderr, r.stderr
+
+
+def test_image_pulls_match_pins_reruns_even_with_a_matching_full_pass_pass(fake_cm051, fake_app, tmp_path, monkeypatch):
+    """Real allowlist, matching walk/box/version, PASS recorded: it is runtime state, so it is measured again."""
+    m = _live_setup(fake_cm051, tmp_path, monkeypatch, "image_pulls_match_pins",
+                    ["image_pulls_match_pins\tPASS\t2026-01-01T00:10:00Z\t\tlive"], _GOOD_HEADERS, _GOOD_EXPECT, body="exit 0")
+    monkeypatch.delenv("OSTLER_MANIFEST_REUSE_ALLOWLIST")
+    r = _run(fake_cm051, fake_app, "--skip-source-at-sha")
+    assert m.exists(), "image_pulls_match_pins must re-run"
+    assert "REUSED" not in r.stderr and "reused the PASS" not in r.stdout, r.stdout

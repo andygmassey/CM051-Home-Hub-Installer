@@ -266,8 +266,17 @@ def _imessage_adapter(
         transcript=transcript or "",
         todos=_build_todos(conversation_id, extraction),
         extra_metadata=extra,
-        participant_handles=_counterpart_handles(metadata),
+        participant_handles=_thread_basis_handles(metadata),
     )
+
+
+def _thread_basis_handles(metadata: dict) -> tuple[str, ...]:
+    """The handles the follow-up thread key is built from: EVERY chat member
+    (the source's ``chat_handles``, chat.db chat_handle_join) when supplied,
+    so a silent group member still counts as the daemon counts them; else the
+    speakers' handles."""
+    members = tuple(h.strip() for h in (metadata.get("chat_handles") or []) if isinstance(h, str) and h.strip())
+    return members or _counterpart_handles(metadata)
 
 
 def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
@@ -638,6 +647,12 @@ def _whatsapp_resolve_privacy(
     if isinstance(explicit_meta, str) and explicit_meta:
         return _privacy.normalise(explicit_meta)
 
+    # No verdict: fail toward the HIGHER level, never the lower. A missing
+    # classification, or one without a sensitivity level, is unavailable.
+    if classification is None or classification.sensitivity is None \
+            or classification.sensitivity.level is None:
+        return "L3"
+
     sensitivity = (
         classification.sensitivity.level
         if classification.sensitivity is not None
@@ -673,6 +688,113 @@ def _resolve_whatsapp_source_app(metadata: dict) -> str:
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
     return "whatsapp"
+
+
+# ---------------------------------------------------------------------------
+# Chat-export adapters: Facebook Messenger, Instagram DMs, Telegram
+# ---------------------------------------------------------------------------
+#
+# HR015 ostler_fda hands these to ``pwg-convo process`` from an owner-dropped
+# export (facebook_messenger.py, instagram_dms.py, telegram_export.py). With
+# no adapter registered, make_bundle raised NotImplementedError and step 09
+# wrote NO bundle: no summary, todos or transcript on disk, measured
+# 2026-10-19 against the real make_bundle + write_conversation (whatsapp and
+# im as controls wrote theirs). The shape is WhatsApp's minus its
+# operator-label ladder, which these exports do not carry.
+#
+# Privacy: the importer's explicit ``privacy_level`` is a FLOOR, not a
+# ceiling. A sensitive classifier verdict may RAISE it (L2 -> L3), never
+# lower it; an explicit L3 (Telegram Saved Messages) stays L3.
+
+_CHAT_EXPORT_EXTRA_KEYS = (
+    "chat_type",            # "private" | "group" (| "channel" for Telegram)
+    "is_group_chat",        # bool
+    "group_subject",        # group title
+    "thread_slug",          # export folder name (Meta)
+    "chat_id",              # Telegram chat id
+    "contact_source_tier",  # importer's T1/T2 tier
+    "message_count",        # messages in the transcript
+)
+
+_CHAT_EXPORT_SOURCE_APPS = {
+    "facebook_messenger": "messenger",
+    "instagram": "instagram",
+    "telegram": "telegram",
+}
+
+_LEVEL_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
+
+
+def _chat_export_privacy(
+    channel: str, metadata: dict, classification: Classification
+) -> str:
+    explicit = metadata.get("privacy_level")
+    floor = _privacy.normalise(explicit) if isinstance(explicit, str) and explicit else None
+    without_explicit = {k: v for k, v in metadata.items() if k != "privacy_level"}
+    inferred = _privacy.infer(
+        channel=channel, classification=classification, metadata=without_explicit
+    )
+    if floor is None:
+        return inferred
+    return max(floor, inferred, key=lambda lv: _LEVEL_RANK.get(lv, 3))
+
+
+def _make_chat_export_adapter(channel: str):
+    def _adapter(
+        *,
+        metadata: dict,
+        classification: Classification,
+        extraction: BundleExtraction,
+        transcript: str,
+        privacy_level: Optional[str],
+    ) -> ConversationBundle:
+        level = privacy_level if privacy_level is not None else _chat_export_privacy(
+            channel, metadata, classification
+        )
+        conversation_id = metadata["conversation_id"]
+        started_at, ended_at = _resolve_timestamps(metadata)
+        extra = _build_extra_metadata(metadata, classification)
+        for key in _CHAT_EXPORT_EXTRA_KEYS:
+            value = metadata.get(key)
+            if value is None or value == "":
+                continue
+            extra[key] = value
+        explicit_app = metadata.get("source_app")
+        source_app = (
+            explicit_app.strip()
+            if isinstance(explicit_app, str) and explicit_app.strip()
+            else _CHAT_EXPORT_SOURCE_APPS[channel]
+        )
+        return ConversationBundle(
+            conversation_id=conversation_id,
+            source_kind="channel",
+            source_subtype=str(metadata.get("source") or channel),
+            source_session_id=str(
+                metadata.get("source_session_id")
+                or metadata.get("chat_id")
+                or metadata.get("thread_slug")
+                or conversation_id
+            ),
+            channel=channel,
+            participants=tuple(_normalise_participants(metadata)),
+            started_at=started_at,
+            ended_at=ended_at,
+            date=_resolve_date(metadata, started_at),
+            privacy_level=level,
+            source_app=source_app,
+            summary=_build_summary(extraction),
+            transcript=transcript or "",
+            todos=_build_todos(conversation_id, extraction),
+            extra_metadata=extra,
+        )
+
+    _adapter.__name__ = f"_{channel}_adapter"
+    return _adapter
+
+
+_facebook_messenger_adapter = _make_chat_export_adapter("facebook_messenger")
+_instagram_adapter = _make_chat_export_adapter("instagram")
+_telegram_adapter = _make_chat_export_adapter("telegram")
 
 
 # ---------------------------------------------------------------------------
@@ -899,6 +1021,10 @@ _ADAPTERS = {
     "sms": _imessage_adapter,
     "email": _email_adapter,
     "whatsapp": _whatsapp_adapter,
+    # Owner-dropped chat exports (HR015 ostler_fda importers).
+    "facebook_messenger": _facebook_messenger_adapter,
+    "instagram": _instagram_adapter,
+    "telegram": _telegram_adapter,
 }
 
 

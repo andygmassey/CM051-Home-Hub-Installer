@@ -337,6 +337,67 @@ vlib_materialise() {
         fi
     done < <(vlib_excludes "$tree")
 
+    vlib_apply_source_mask "$tree" "$dest" || return $?
+
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# source_mask: a DECLARED, per-tree, per-file shape mask on the SOURCE side.
+#
+#   source_mask = "syncer.py::[(][0-9]{3}[)] [0-9]{3}-[0-9]{4} ;; other.py::ERE"
+#
+# WHY IT EXISTS (rows 2206/2212, v1.0.124). A divergence patch must carry the
+# SOURCE text of every line it changes, on its minus side. Where the vendored
+# copy changed a line precisely to remove a phone- or id-shaped literal from
+# this PUBLIC repo, the honest patch re-publishes that literal, and the PII
+# shape scan refuses it, correctly. Until now the only escapes were to hand-
+# edit the literal out of the patch (#1186 did, and the patch stopped applying)
+# or to leave the tree unreconstructable (rows 2206, 2212).
+#
+# The mask replaces each match of the ERE in that one source file with a fixed
+# token BEFORE the patch is applied, so the patch's minus side carries the
+# token, never the value, and pin + patch still rebuilds the vendored tree byte
+# for byte. Guardrails:
+#   - it touches only the SOURCE materialisation, never the vendored tree, so
+#     it cannot hide a vendored byte from the content diff;
+#   - every entry names one file and one ERE, in the manifest, in review;
+#   - an entry whose ERE matches NOTHING in its file is RED (rc 5): a mask that
+#     no longer finds its literal is stale and must be removed, not inherited;
+#   - EREs are written without backslashes (use [+], [(]) so the manifest stays
+#     valid TOML and this awk reader sees exactly what tomllib sees.
+# ---------------------------------------------------------------------------
+VLIB_MASK_TOKEN="MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK"
+
+vlib_apply_source_mask() {
+    local tree="$1" dest="$2" spec entry file ere n
+    spec="$(vlib_field "$tree" source_mask)"
+    [ -z "$spec" ] && return 0
+    while IFS= read -r entry; do
+        entry="$(printf '%s' "$entry" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+        [ -z "$entry" ] && continue
+        file="${entry%%::*}"
+        ere="${entry#*::}"
+        if [ "$file" = "$entry" ] || [ -z "$file" ] || [ -z "$ere" ]; then
+            echo "  FAIL: $tree source_mask entry is malformed (want <file>::<ERE>)" >&2
+            return 5
+        fi
+        case "$ere" in */*)
+            echo "  FAIL: $tree source_mask ERE for $file contains '/', which the sed form cannot carry" >&2
+            return 5 ;;
+        esac
+        if [ ! -f "$dest/$file" ]; then
+            echo "  FAIL: $tree source_mask names $file, absent from source@pinned_sha" >&2
+            return 5
+        fi
+        n="$(grep -cE -e "$ere" "$dest/$file" || true)"
+        if [ "${n:-0}" = "0" ]; then
+            echo "  FAIL: $tree source_mask on $file matches NOTHING at the pin: a stale mask, remove it" >&2
+            return 5
+        fi
+        sed -E -i.vlibmask "s/${ere}/${VLIB_MASK_TOKEN}/g" "$dest/$file"
+        rm -f "$dest/$file.vlibmask"
+    done < <(printf '%s\n' "${spec//;;/$'\n'}")
     return 0
 }
 

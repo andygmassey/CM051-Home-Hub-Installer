@@ -83,9 +83,30 @@ jobs:
         if: always()
         run: bash tests/test_spoken_capture_consent_does_not_claim_audio_is_kept.sh
 
+      - name: Q23 spoken-capture copy stays short enough to keep the toggle visible
+        if: always()
+        run: bash tests/test_q23_spoken_capture_copy_fits_the_window.sh
+
+      # the owner 2026-10-24: the spoken-capture legal note is chosen by the Mac's
+      # REGION (AppleLocale country), never its language. Runs install.sh's own
+      # functions against the fixture the GUI's Swift tests also read.
+      - name: spoken-capture legal note follows the Mac's region, not its language
+        if: always()
+        run: bash tests/test_spoken_capture_legal_note_follows_region.sh
+
+      # Archie 2026-10-24: the consent record must pin exactly the note shown.
+      # Drives install.sh's own recorder into the real vendored consent_cli.
+      - name: spoken-capture consent record pins the region note it showed
+        if: always()
+        run: bash tests/test_spoken_capture_consent_record_pins_the_region_note.sh
+
       - name: install confirmation body does not duplicate its headline
         if: always()
         run: bash tests/test_cx18_q20_consent_install_body_shape.sh
+
+      - name: legal text says the English version prevails
+        if: always()
+        run: bash tests/test_legal_text_says_english_prevails.sh
 
       # BOARD ROW 1589. Every service row on the success screen is grepped out
       # of the installer's own transcript, so the customer is shown what the
@@ -120,6 +141,14 @@ jobs:
       - name: A derived requirement excludes optional and intra-package imports
         if: always()
         run: bash tests/test_runtime_ready_does_not_require_optional_imports.sh
+
+      # NEW-119. ...and a TEST SUITE is not a runtime. A clean 27.2 install
+      # reported "MISSING pytest" from vendor/ostler_fda/tests/. Asserts the
+      # scan ignores tests/, a real missing runtime import still fails, and
+      # the DMG build phase (project.yml AND pbxproj) ships no tests/.
+      - name: The runtime scan ignores tests, and the DMG ships none
+        if: always()
+        run: bash tests/test_runtime_ready_ignores_shipped_tests.sh
 
       # Every osascript dialog must `activate` System Events first.
       #
@@ -193,6 +222,22 @@ jobs:
         if: always()
         run: bash tests/test_no_literal_backslash_n_in_strings.sh
 
+      - name: exports screen and folder pre-warm lines explain themselves, promise no button
+        if: always()
+        run: bash tests/test_exports_and_folder_prompts_explain_themselves.sh
+
+      - name: translated install.sh / GUI catalogues are drop-in for en-GB
+        if: always()
+        run: |
+          bash tests/test_install_strings_translations.sh
+          # The test must be able to fail: drop one %s from a scratch copy.
+          if TEST_INSTALL_STRINGS_MUTATE=1 bash tests/test_install_strings_translations.sh; then
+            echo "self-test: a dropped placeholder was NOT caught"; exit 1
+          fi
+      - name: customer copy states the real source count
+        if: always()
+        run: bash tests/test_source_count_copy.sh
+
       - name: daemon TCC pre-probe covers the legacy client on upgrade
         if: always()
         run: bash tests/test_daemon_fda_app_bundle_path.sh
@@ -262,6 +307,29 @@ jobs:
       - name: ollama pinned release -- sha256 enforced, updater refused
         if: always()
         run: bash tests/test_ollama_pin_install_verifies_sha256.sh
+
+      # NEW-119: every model pull / list goes through the PINNED engine, run
+      # under env -i PATH=/usr/bin:/bin with no ollama on PATH; four mutants
+      # (each site put back to a bare `ollama`) must be caught. Then the
+      # tree-wide guard: no tracked shipped file reaches ollama by name, with
+      # a planted-positive control proving the scanner can see.
+      - name: model pull and list use the pinned ollama, not PATH (NEW-119)
+        if: always()
+        run: bash tests/test_model_pull_uses_the_pinned_ollama.sh
+
+      - name: model pull shows one overall bar, never 100 before success (F&F 2026-11-05)
+        if: always()
+        run: bash tests/test_model_pull_progress_is_one_overall_bar.sh
+
+      - name: no shipped script calls a bare ollama (NEW-119 guard)
+        if: always()
+        run: bash tests/test_no_shipped_script_calls_a_bare_ollama.sh
+
+      # NEW-119: hub power's restart action kickstarts the Hub's own agent,
+      # com.ostler.ollama, not ai.ollama (which the Hub never installs).
+      - name: hub power restarts com.ostler.ollama, not ai.ollama (NEW-119)
+        if: always()
+        run: bash tests/test_hub_power_restarts_the_hub_ollama_agent.sh
 
       # A killed contacts wrapper must not be reported as an empty address
       # book. The bound added alongside this would otherwise have INTRODUCED

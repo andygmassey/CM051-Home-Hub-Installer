@@ -34,6 +34,7 @@ Sources span TWO repos (CM051 + HR015):
 ```
 install/
 ├── install.sh              ← CM051: ./install.sh
+├── install.sh.strings.*.sh ← CM051: en-GB plus the 13 translated catalogues (de fr es it nl pt-BR pt-PT ja ko zh-Hans zh-Hant zh-HK ar)
 ├── lib/                    ← CM051: ./lib/
 ├── assistant-agent/        ← CM051: ./assistant-agent/
 ├── wiki-recompile/         ← CM051: ./wiki-recompile/
@@ -154,7 +155,8 @@ gh release upload v0.3.0 \
     "ostler-assistant-aarch64-apple-darwin-v0.3.0.tar.gz.sha256"
 
 # 7. Verify the live install.sh fetches the new release
-curl -sI https://github.com/ostler-ai/ostler-installer/releases/latest/download/install.tar.gz | head -10
+# (No install.tar.gz is published since v0.3.0: that URL 404s. The shipped artefact is the DMG.)
+curl -sI https://ostler.ai/install.dmg | head -10   # expect a 302 to the GitHub OstlerInstaller.dmg
 
 # 8. Smoke-test the SHA guard (cache-bust required)
 curl -sL "https://ostler.ai/install.sh?cb=$(date +%s)" | grep 'DEFAULT_INSTALLER_TARBALL_SHA256'

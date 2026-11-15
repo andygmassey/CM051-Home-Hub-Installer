@@ -9,7 +9,7 @@
 #   1. <DARWIN_USER_TEMP_DIR>RemoteCapture/<session>/  the live capture dir
 #      (AudioSessionManager.swift: temporaryDirectory/RemoteCapture/<id>/
 #      system_audio.wav + microphone.wav)
-#   2. ~/Documents/Ostler/Transcripts/                 where builds <= 0.1.6
+#   2. ~/Ostler/Transcripts/                 where builds <= 0.1.6
 #      moved retained audio next to the transcript
 #   3. ~/Documents/CM042-Transcripts/                  the legacy transcripts dir
 # and, as the control that a capture actually happened, the transcripts
@@ -39,7 +39,7 @@ read -r -d '' _GATHER <<'GATHER'
 tmp="${RC_TMP_ROOT:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null)RemoteCapture}"
 home="${RC_HOME:-$HOME}"
 audio=0; transcripts=0; unreadable=0; roots=0
-for r in "$tmp" "$home/Documents/Ostler/Transcripts" "$home/Documents/CM042-Transcripts"; do
+for r in "$tmp" "$home/Ostler/Transcripts" "$home/Documents/CM042-Transcripts"; do
   roots=$((roots+1))
   [ -e "$r" ] || continue
   if ! ls "$r" >/dev/null 2>&1; then unreadable=$((unreadable+1)); continue; fi
@@ -85,18 +85,18 @@ self_test() {
         got="$( (judge "${got}") | sed -n 's/^VERDICT: \([A-Z-]*\).*/\1/p')"
         [ "${got}" = "$2" ] || { echo "  self-test case $1: expected $2, got '${got}'"; bad=1; }
     }
-    mkdir -p "${t}/live/tmp/RemoteCapture/S1" "${t}/live/hm/Documents/Ostler/Transcripts/2026/10"
+    mkdir -p "${t}/live/tmp/RemoteCapture/S1" "${t}/live/hm/Ostler/Transcripts/2026/10"
     : > "${t}/live/tmp/RemoteCapture/S1/system_audio.wav"
-    : > "${t}/live/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    : > "${t}/live/hm/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case live FAIL
-    mkdir -p "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10"
-    : > "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-mic.wav"
-    : > "${t}/kept/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    mkdir -p "${t}/kept/hm/Ostler/Transcripts/2026/10"
+    : > "${t}/kept/hm/Ostler/Transcripts/2026/10/2026-10-19-1200-mic.wav"
+    : > "${t}/kept/hm/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case kept FAIL
-    mkdir -p "${t}/nocap/hm/Documents/Ostler/Transcripts"
+    mkdir -p "${t}/nocap/hm/Ostler/Transcripts"
     _case nocap CANNOT-RUN
-    mkdir -p "${t}/clean/tmp/RemoteCapture" "${t}/clean/hm/Documents/Ostler/Transcripts/2026/10"
-    : > "${t}/clean/hm/Documents/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
+    mkdir -p "${t}/clean/tmp/RemoteCapture" "${t}/clean/hm/Ostler/Transcripts/2026/10"
+    : > "${t}/clean/hm/Ostler/Transcripts/2026/10/2026-10-19-1200-zoom-call.md"
     _case clean PASS
     rm -rf "${t}"
     probe_examined 4 "synthetic trees (live temp audio, retained audio, no capture, clean)"

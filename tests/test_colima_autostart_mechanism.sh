@@ -34,7 +34,7 @@
 # LaunchAgent that runs `colima start`. That is the repair that re-breaks
 # the wiki. A LaunchAgent-spawned process has no Full Disk Access, Colima
 # then cannot mount ~/Documents, and the compose stack binds
-#   ${OSTLER_WIKI_DIR:-${HOME}/Documents/Ostler/Wiki}
+#   ${OSTLER_WIKI_DIR:-${HOME}/Ostler/Wiki}
 # into wiki-site and wiki-compiler. That is the Group C failure the agent
 # was deleted for (6723acc). The FDA-signed daemon is the correct owner, so
 # this guard pins BOTH halves: the daemon agent must exist, and a bare
@@ -236,14 +236,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. The FDA dependency is real, which is what makes 4 an assertion and not
-#    a style preference. If the wiki binds ever stop touching ~/Documents,
-#    this reasoning needs revisiting rather than silently rotting.
+# 7. WAS: the wiki binds touch ~/Documents, so Colima needs FDA. Since the root
+#    moved to ~/Ostler (iCloud fix, 2026-11-11) the wiki bind is NOT under
+#    ~/Documents. The FDA argument behind check 4 is NOT RE-DERIVED here (no
+#    sync-ON/FDA-less box was run); this check now pins what the stack mounts, so
+#    a future change to the bind is a visible edit rather than silent rot.
 # ---------------------------------------------------------------------------
-if grep -qE 'OSTLER_WIKI_DIR:-\$\{HOME\}/Documents' "$COMPOSE_OWNER"; then
-    pass "the compose stack still bind-mounts ~/Documents (so Colima still needs FDA)"
+if grep -qE 'OSTLER_WIKI_DIR:-\$\{HOME\}/Ostler' "$COMPOSE_OWNER" && ! grep -qE 'OSTLER_WIKI_DIR:-\$\{HOME\}/Documents' "$COMPOSE_OWNER"; then
+    pass "the compose stack bind-mounts the wiki from \${HOME}/Ostler, not ~/Documents (FDA need for Colima: NOT RE-DERIVED, see header of this check)"
 else
-    fail "no ~/Documents bind-mount found in the compose stack. The whole 'Colima must be a child of the FDA-signed daemon' argument rests on it; re-derive it before trusting check 4."
+    fail "the wiki bind is neither \${HOME}/Ostler nor the old ~/Documents default; re-derive whether Colima needs FDA before trusting check 4."
 fi
 
 echo

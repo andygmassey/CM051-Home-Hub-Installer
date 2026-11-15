@@ -267,6 +267,25 @@ upstream release page or a bundled tarball.
 | Ollama (local LLM runtime) | latest pinned at install | MIT | Bundled binary |
 | Whisper STT (server-side) | latest pinned | MIT | Optional Docker image (CM042 prefers WhisperKit on-device) |
 | Google Workspace CLI (`gws`) | v0.22.5 (SHA256-pinned per arch) | Apache-2.0 | Downloaded at install time from github.com/googleworkspace/cli releases; placed at /usr/local/bin/gws. Used by CM041 ical-server.py for Gmail + Google Calendar bridges. |
+| Vane (local AI search front-end) | v1.12.2, `ghcr.io/ostler-ai/vane` (mirror of `itzcrazykns1337/vane:v1.12.2`) | MIT (Copyright (c) 2026 ItzCrazyKns) | Docker image; licence text at `LICENSES/NOTICES/vane/LICENSE`. Source: https://github.com/ItzCrazyKns/Vane/tree/v1.12.2 |
+| SearXNG (web search engine, runs inside the Vane container) | commit `67af4894d4449d2343b1f690bcaa9832ff031335` | AGPL-3.0 | Inside the Vane Docker image, unmodified apart from configuration. See "SearXNG source offer" below. |
+
+
+### SearXNG source offer (AGPL-3.0)
+
+Ostler's web search runs SearXNG, licensed under the GNU Affero General
+Public License, version 3. Full licence text: `LICENSES/AGPL-3.0.txt`
+(installed at `~/.ostler/LICENSES/AGPL-3.0.txt`).
+
+- **Version shipped:** commit `67af4894d4449d2343b1f690bcaa9832ff031335`
+- **Source:** https://github.com/searxng/searxng/tree/67af4894d4449d2343b1f690bcaa9832ff031335
+- **Modifications:** none. Unmodified apart from configuration.
+- **Where it runs:** inside the Vane container, `ghcr.io/ostler-ai/vane`.
+- **Written offer:** to receive the corresponding source on a physical
+  medium or by other means, write to legal@ostler.ai.
+
+Vane itself is MIT: see `LICENSES/NOTICES/vane/LICENSE` (Copyright (c)
+2026 ItzCrazyKns, https://github.com/ItzCrazyKns/Vane, v1.12.2).
 
 ---
 

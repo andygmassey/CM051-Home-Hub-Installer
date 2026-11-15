@@ -252,6 +252,198 @@ print("UNAVAILABLE")
 ' 2>/dev/null || printf 'UNAVAILABLE'
 }
 
+# ── WHICH PEOPLE MAKE THE GAP (instr119) ─────────────────────────────────
+#
+# v1.0.118 walk 3: oxigraph=8905 doctor=8247, and nothing said who the 658 were.
+# The doctor number is the Qdrant `people` points_count (ical-server.py
+# _wiki_people_count), and the only writer of that collection,
+# ostler_fda.pwg_ingest._load_people_from_oxigraph, selects
+# "?uri a pwg:Person ; pwg:displayName ?d" with NO pwg:mergedInto. So split the
+# oxigraph Person count into the three populations that query treats
+# differently: named (indexable), unnamed stub (no displayName, never indexed)
+# and merged (has mergedInto, pruned by design). OUTPUT ONLY: no verdict reads
+# it, and an unreadable breakdown says NOT MEASURED rather than zero.
+_Q_BREAKDOWN='PREFIX p: <https://schema.ostler.ai/ontology#>
+SELECT (COUNT(DISTINCT ?n) AS ?named) (COUNT(DISTINCT ?u) AS ?unnamed) (COUNT(DISTINCT ?m) AS ?merged) WHERE {
+  { ?n a p:Person ; p:displayName ?d . FILTER NOT EXISTS { ?n p:mergedInto ?x } }
+  UNION { ?u a p:Person . FILTER NOT EXISTS { ?u p:displayName ?d2 } FILTER NOT EXISTS { ?u p:mergedInto ?x2 } }
+  UNION { ?m a p:Person ; p:mergedInto ?x3 }
+}'
+count_oxigraph_breakdown() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_OXI_BREAKDOWN:-UNAVAILABLE}"; return; fi
+    _ox_curl "$_Q_BREAKDOWN" | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+try:
+    b=json.loads(raw)["results"]["bindings"][0]
+    print(int(b["named"]["value"]), int(b["unnamed"]["value"]), int(b["merged"]["value"]))
+except Exception:
+    print("UNAVAILABLE")
+' 2>/dev/null || printf 'UNAVAILABLE'
+}
+
+# note_breakdown "<named> <unnamed> <merged>" <oxi> <doc>: pure, prints only.
+note_breakdown() {
+    local bd="$1" oxi="$2" doc="$3" nm un mg
+    set -- $bd
+    nm="${1:-}"; un="${2:-}"; mg="${3:-}"
+    case "${nm}${un}${mg}" in
+        ''|*[!0-9]*) probe_note "breakdown by category : NOT MEASURED (oxigraph answered '${bd}')"; return 0 ;;
+    esac
+    probe_note "breakdown by category (oxigraph pwg:Person ${oxi} vs doctor ${doc} = Qdrant people points):"
+    probe_note "  named, not merged (what the vector writer indexes): ${nm}"
+    probe_note "  unnamed stub (no pwg:displayName, never indexed)  : ${un}"
+    probe_note "  merged (pwg:mergedInto, pruned by design)         : ${mg}"
+    case "$doc" in
+        ''|*[!0-9]*) probe_note "  doctor minus indexable named                       : NOT MEASURED (doctor ${doc})" ;;
+        *)           probe_note "  doctor minus indexable named                       : $((doc - nm))  (0 = the gap is exactly the unindexed categories)" ;;
+    esac
+    case "$oxi" in
+        ''|*[!0-9]*) : ;;
+        *) [ "$((nm + un + mg))" -ne "$oxi" ] && probe_note "  categories sum to $((nm + un + mg)), not ${oxi}: the remainder is typed foaf:Person only, or the graph moved between reads" ;;
+    esac
+    return 0
+}
+
+# ── THE VERDICT COMPARES WHAT A CUSTOMER CAN SEE, ON BOTH SIDES (#3202) ──
+#
+# v1.0.118 box: oxigraph 8273 vs doctor 8260, a gap of exactly 13 unnamed stubs.
+# Stubs MAY exist: they are join anchors that a later name overwrites upward.
+# The raw oxigraph count includes them; the doctor number (Qdrant `people`
+# points) cannot, because the vector writer selects only named persons. So the
+# two raw numbers were never the same population, and that difference, not a
+# store defect, was being graded.
+#
+# Both sides now go through the ONE locked predicate, IMPORTED from the shipped
+# people_rules.py (install.sh lays it in ~/.ostler/services/shared/; Ref #664
+# locks it across surfaces) -- never copied here. Per node and per point:
+# _best_display_name (SHARED RULE B) then _is_nameless_name (SHARED RULE A,
+# has_card from the Contacts-card uid, handles from phones and emails). The
+# verdict compares the two VISIBLE counts; the stubs are printed beside them.
+# If the rules cannot be imported, nothing is compared: CANNOT-RUN, never a
+# fallback to the raw numbers.
+PEOPLE_RULES_DIR="${OSTLER_PEOPLE_RULES_DIR:-\$HOME/.ostler/services/shared}"
+QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
+QDRANT_COLLECTION="${OSTLER_QDRANT_PEOPLE_COLLECTION:-people}"
+read -r -d '' VISIBLE_PY <<'PYVISIBLE'
+import json, os, sys
+OXI, QD, COLL, CONF, RULES = sys.argv[1:6]
+try:
+    sys.path.insert(0, RULES)
+    from people_rules import is_countable_person
+except Exception as exc:
+    print("NORULES could not import is_countable_person from people_rules.py in " + RULES + ": " + type(exc).__name__)
+    sys.exit(0)
+import urllib.request, urllib.error
+H = {}
+try:
+    for line in open(CONF, encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("header") and "=" in line:
+            val = line.split("=", 1)[1].strip().strip('"')
+            if ":" in val:
+                k, v = val.split(":", 1)
+                H[k.strip()] = v.strip()
+except Exception:
+    pass
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
+def post(url, data, ctype):
+    h = {"Content-Type": ctype, "Accept": "application/sparql-results+json"}
+    h.update(H)
+    return json.load(urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h), timeout=120))
+P = "https://schema.ostler.ai/ontology#"
+Q = ("SELECT ?p ?m ?dn ?gn ?fn ?t ?v WHERE { ?p a <" + P + "Person> . "
+     "OPTIONAL { ?p <" + P + "mergedInto> ?m } "
+     "OPTIONAL { ?p <" + P + "displayName> ?dn } OPTIONAL { ?p <" + P + "givenName> ?gn } "
+     "OPTIONAL { ?p <" + P + "familyName> ?fn } "
+     "OPTIONAL { ?p <" + P + "hasIdentifier> ?i . ?i <" + P + "identifierType> ?t ; <" + P + "identifierValue> ?v } }")
+def judge(dn, gn, fn, phones, emails, card, merged=False):
+    # people_rules.is_countable_person: the ONE definition of a person for
+    # counting, also applied by the Doctor to Qdrant (ical-server
+    # _wiki_people_count). Returns (hidden, stub).
+    ok = is_countable_person(dn, gn, fn, list(emails), list(phones), has_card=bool(card), merged=merged)
+    return (not ok), not (dn or gn or fn)
+try:
+    nodes = {}
+    for b in post(OXI, Q.encode(), "application/sparql-query")["results"]["bindings"]:
+        n = nodes.setdefault(b["p"]["value"], {"dn": "", "gn": "", "fn": "", "ph": set(), "em": set(), "card": False, "m": False})
+        if "m" in b: n["m"] = True
+        for k in ("dn", "gn", "fn"):
+            if k in b and not n[k]:
+                n[k] = b[k]["value"]
+        t = b.get("t", {}).get("value"); v = b.get("v", {}).get("value", "")
+        if t == "phone": n["ph"].add(v)
+        elif t == "email": n["em"].add(v)
+        elif t == "icloud_contact_uid" and v.strip(): n["card"] = True
+    vo = so = ho = 0
+    merged_nodes = sum(1 for n in nodes.values() if n["m"])
+    countable_uris = set()
+    for u, n in nodes.items():
+        if n["m"]:
+            continue
+        hidden, stub = judge(n["dn"], n["gn"], n["fn"], n["ph"], n["em"], n["card"])
+        if not hidden:
+            vo += 1; countable_uris.add(u)
+        elif stub: so += 1
+        else: ho += 1
+    vq = hq = tq = 0; nxt = None; qd_uris = set(); with_uri = 0
+    while True:
+        body = {"limit": 1000, "with_payload": ["display_name", "given_name", "family_name", "emails", "phones", "icloud_uid", "person_uri"], "with_vector": False}
+        if nxt is not None:
+            body["offset"] = nxt
+        h = {"Content-Type": "application/json"}; h.update(H)
+        r = json.load(urllib.request.urlopen(urllib.request.Request(QD + "/collections/" + COLL + "/points/scroll",
+                      data=json.dumps(body).encode(), headers=h), timeout=60))["result"]
+        for pt in r["points"]:
+            pl = pt.get("payload") or {}
+            tq += 1
+            if pl.get("person_uri"):
+                qd_uris.add(pl["person_uri"]); with_uri += 1
+            hidden, _ = judge(pl.get("display_name"), pl.get("given_name"), pl.get("family_name"),
+                              pl.get("phones") or [], pl.get("emails") or [], (pl.get("icloud_uid") or "").strip())
+            if hidden: hq += 1
+            else: vq += 1
+        nxt = r.get("next_page_offset")
+        if nxt is None:
+            break
+    # THE EMBED QUEUE, observed rather than inferred: the customer-visible graph
+    # people with no vector point yet. Nameless and merged-away people are not in
+    # it (they never get a vector by design). "-" when the vector points carry no
+    # person_uri at all, because then nothing can be joined and "0 waiting" would
+    # be a manufactured clean answer.
+    if tq and not with_uri:
+        aw = "-"
+    else:
+        aw = str(len(countable_uris - qd_uris))
+    # The people_index writer own completion marker, and the box clock it is
+    # compared with (the marker is stamped on the box, so skew is impossible).
+    ist, iep = "-", "-"
+    try:
+        import calendar, time as _t
+        kv = {}
+        for line in open(os.path.expanduser("~/.ostler/state/source_activity/people_index.tsv"), encoding="utf-8"):
+            if "=" in line:
+                k, v = line.rstrip("\n").split("=", 1); kv[k] = v
+        ist = kv.get("last_status", "-") or "-"
+        ls = kv.get("last_success_at", "")
+        iep = str(calendar.timegm(_t.strptime(ls, "%Y-%m-%dT%H:%M:%SZ"))) if ls else "-"
+    except Exception:
+        pass
+    import time as _t2
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %d" % (vo, so, ho, len(nodes) - merged_nodes, vq, hq, tq, merged_nodes, aw, ist, iep, int(_t2.time())))
+except urllib.error.HTTPError as exc:
+    print("CANNOTRUN HTTP %d from %s" % (exc.code, exc.geturl() if hasattr(exc, "geturl") else "a store"))
+except Exception as exc:
+    print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
+PYVISIBLE
+
+read_visible() {
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_VISIBLE:-CANNOTRUN self-test-unset}"; return; fi
+    box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' \"${PEOPLE_RULES_DIR}\" <<'PYVISIBLE'
+${VISIBLE_PY}
+PYVISIBLE"
+}
+
 # adjudicate <a> <b> <tolerance_pct> -> "AGREE|DISAGREE|INSUFFICIENT <detail>"
 adjudicate_counts() {
     local a="$1" b="$2" tol="$3"
@@ -344,6 +536,15 @@ STABILITY_STEP_S="${OSTLER_PEOPLE_STABILITY_STEP_S:-20}"
 STABILITY_RUNS="${OSTLER_PEOPLE_STABILITY_RUNS:-3}"
 CONVERGE_STATE_DIR="${OSTLER_PROBE_STATE_DIR:-\$HOME/.ostler/state}"
 
+# _indexer_staleness <index_success_epoch> <box_now_epoch>
+# echoes STALE (older than 2 intervals) | FRESH | UNKNOWN (either side unreadable).
+_indexer_staleness() {
+    case "$1$2" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    case "$1" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    case "$2" in ''|*[!0-9]*) printf 'UNKNOWN'; return ;; esac
+    if [ $(( $2 - $1 )) -gt $(( 2 * FDA_RERUN_INTERVAL_S )) ]; then printf 'STALE'; else printf 'FRESH'; fi
+}
+
 # THE CLASSIFIER IS A PURE FUNCTION so the self-test can drive the REAL
 # decision instead of a fixture that just echoes the answer it wants. It takes
 # the two markers' MTIMES in epoch seconds, 0 meaning absent, and echoes
@@ -433,6 +634,145 @@ _await_converge() {
     _CONVERGE_RESULT="EXPIRED ${_waited}"
 }
 
+# ── DO NOT READ WHILE THE EMBED QUEUE IS NON-EMPTY (v1.0.121 trial) ─────────
+#
+# MEASURED on the v1.0.121 trial: oxigraph 8937 vs Doctor 8837, a gap of 100.
+# One Person reached oxigraph at 15:35:15Z and Qdrant at 15:45:18Z, TEN MINUTES
+# later. That was embed lag during live ingest, not a lost vector. The
+# stability check above cannot see it: it asks whether the counts have stopped
+# MOVING for a minute or so, and a queue that drains in ten minutes looks
+# perfectly still for the first nine.
+#
+# So ask the queue, do not sample the numbers. There is no embed-queue length in
+# the product (searched: no spool, backlog or pending-embed counter anywhere in
+# vendor/ or install.sh), so the queue is OBSERVED, and the signal is NAMED:
+#
+#   PEOPLE_INDEX_DRAINED  =  the customer-visible graph people that have no
+#                            vector point yet (the "awaiting-embed set", from
+#                            VISIBLE_PY, counted by the same people_rules
+#                            predicate on the graph side) is EMPTY,
+#       or, when it is not empty,
+#   PEOPLE_INDEX_RAN      =  the vector writer's OWN completion marker
+#                            (~/.ostler/state/source_activity/people_index.tsv,
+#                            last_status=ok and last_success_at STRICTLY LATER
+#                            than the moment this probe first saw those people
+#                            waiting, with the hourly tick idle at that moment)
+#                            says a run that began after they were seen has
+#                            finished and they are STILL without a vector.
+#                            That is not lag. It is a drop, and it is graded.
+#
+# Anything else is WAIT, bounded by OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S (default
+# ONE fda-rerun interval plus a margin: 3600 + 600 = 4200 s, 70 minutes. The
+# old 2700 s was SHORTER than the hourly tick, so a bound could expire before
+# the writer had one chance to run). At expiry:
+#   people_index's last success OLDER than 2 intervals (or the box clock and
+#   marker both readable and that far apart)  -> FAIL: the indexer is dead,
+#                                                a product defect, not lag;
+#   last success within cadence               -> CANNOT-RUN: the writer is
+#                                                alive, it just had not got
+#                                                to these people;
+#   marker or box clock unreadable            -> CANNOT-RUN (could not look).
+# Never PASS. The tolerance and the cap are NOT touched; this
+# changes WHEN the stores are read, never what counts as agreement.
+#
+# People with no name never get a vector by design. They are outside the
+# awaiting-embed set (the predicate hides them) and outside both counts: the
+# graph side counts with people_rules.is_countable_person, and the Doctor
+# counts Qdrant points with the same function (ical-server _wiki_people_count,
+# #3245), so the two sides exclude the same people and neither can lag on one.
+# The hourly com.ostler.fda-rerun StartInterval (install.sh writes 3600).
+FDA_RERUN_INTERVAL_S="${OSTLER_PEOPLE_FDA_INTERVAL_S:-3600}"
+EMBED_DRAIN_MARGIN_S="${OSTLER_PEOPLE_EMBED_DRAIN_MARGIN_S:-600}"
+EMBED_DRAIN_WAIT_S="${OSTLER_PEOPLE_EMBED_DRAIN_WAIT_S:-$((FDA_RERUN_INTERVAL_S + EMBED_DRAIN_MARGIN_S))}"
+EMBED_DRAIN_STEP_S="${OSTLER_PEOPLE_EMBED_DRAIN_STEP_S:-30}"
+
+# THE CLASSIFIER IS A PURE FUNCTION so the self-test drives the real decision.
+# _embed_drain_classify <awaiting> <index_status> <index_success_epoch> <first_seen_epoch>
+# echoes DRAINED_EMPTY | DRAINED_BY_RUN | WAIT | UNMEASURED.
+_embed_drain_classify() {
+    local aw="$1" ist="$2" iep="$3" t0="$4"
+    # "-" or junk is "could not look", never "nothing waiting".
+    case "$aw" in ''|*[!0-9]*) printf 'UNMEASURED'; return ;; esac
+    if [ "$aw" -eq 0 ]; then printf 'DRAINED_EMPTY'; return; fi
+    case "$iep$t0" in ''|*[!0-9]*) printf 'WAIT'; return ;; esac
+    if [ "$ist" = "ok" ] && [ "$iep" -gt "$t0" ]; then printf 'DRAINED_BY_RUN'; return; fi
+    printf 'WAIT'
+}
+
+# Sets _DRAIN_RESULT to one of
+#   DRAINED_EMPTY <waited> | DRAINED_BY_RUN <waited> <awaiting> <index_epoch>
+#   EXPIRED <waited> <awaiting> <status> <index_epoch> <first_seen> tick=<state> <box_now_epoch>
+#   UNREADABLE <detail>
+# It does not echo (see _await_converge: probe_note writes to stdout).
+_await_embed_drain() {
+    _DRAIN_RESULT=""
+    local waited=0 t0="" prev_aw="" vis aw ist iep nowe cls tick label
+    label="${OSTLER_INGEST_TICK_LABEL:-com.ostler.fda-rerun}"
+    while :; do
+        tick="$(_probe_tick_state "$label")"
+        _PROBE_TICK_FAKE_CURSOR=$((_PROBE_TICK_FAKE_CURSOR + 1))
+        case "$tick" in
+            UNREADABLE*) _DRAIN_RESULT="UNREADABLE the state of ${label} could not be read (${tick#UNREADABLE })"; return ;;
+        esac
+        if [ "$tick" = "running" ]; then
+            # The writer is mid-run: nothing seen now is a sighting.
+            t0=""; prev_aw=""
+        else
+            vis="$(read_visible)"
+            case "$vis" in
+                OK\ *) : ;;
+                *) _DRAIN_RESULT="UNREADABLE the customer-visible read did not complete: ${vis:-<empty answer>}"; return ;;
+            esac
+            set -- ${vis#OK }
+            aw="${9:-}"; ist="${10:-}"; iep="${11:-}"; nowe="${12:-}"
+            # Seen waiting for the first time, or MORE people waiting than at
+            # the last look: the clock restarts, because a run that began
+            # before the newcomers existed cannot have embedded them.
+            if [ -n "$aw" ] && [ "$aw" != "-" ] && [ "$aw" -gt 0 ] 2>/dev/null; then
+                if [ -z "$t0" ] || { [ -n "$prev_aw" ] && [ "$aw" -gt "$prev_aw" ]; }; then t0="$nowe"; fi
+            fi
+            prev_aw="$aw"
+            cls="$(_embed_drain_classify "$aw" "$ist" "$iep" "$t0")"
+            case "$cls" in
+                DRAINED_EMPTY)  _DRAIN_RESULT="DRAINED_EMPTY ${waited}"; return ;;
+                DRAINED_BY_RUN) _DRAIN_RESULT="DRAINED_BY_RUN ${waited} ${aw} ${iep}"; return ;;
+                UNMEASURED)     _DRAIN_RESULT="UNREADABLE the awaiting-embed set could not be measured (the vector points carry no person_uri, or the read answered '${aw:-<empty>}')"; return ;;
+            esac
+        fi
+        if [ "$waited" -ge "$EMBED_DRAIN_WAIT_S" ]; then
+            _DRAIN_RESULT="EXPIRED ${waited} ${aw:--} ${ist:--} ${iep:--} ${t0:--} tick=${tick%% *} ${nowe:--}"
+            return
+        fi
+        [ "$waited" -eq 0 ] && probe_note "embed queue: ${aw:-?} customer-visible graph people have no vector yet (hourly tick: ${tick%% *}); holding the reads until people_index has run or the queue is empty (budget ${EMBED_DRAIN_WAIT_S}s)"
+        sleep "$EMBED_DRAIN_STEP_S"
+        waited=$((waited + EMBED_DRAIN_STEP_S))
+    done
+}
+
+# Re-read both surfaces until a full pair repeats STABILITY_RUNS times, bounded
+# by STABILITY_WAIT_S. Sets oxi doc _pair _prev_pair _runs _stable _swaited and
+# _STABILITY_WINDOW in the caller (run_probe declares them local).
+_await_stable_pair() {
+    _prev_pair=""; _runs=0; _stable=0; _swaited=0
+    while :; do
+        oxi="$(count_oxigraph)"
+        doc="$(count_doctor)"
+        _pair="${oxi}/${doc}"
+        if [ "$_pair" = "$_prev_pair" ]; then
+            _runs=$((_runs + 1))
+            [ "$_runs" -ge "$STABILITY_RUNS" ] && { _stable=1; break; }
+        else
+            [ -n "$_prev_pair" ] && probe_note "counts moved ${_prev_pair} -> ${_pair} after ${_swaited}s; the graph is still being written"
+            _runs=0
+        fi
+        [ "$_swaited" -ge "$STABILITY_WAIT_S" ] && break
+        _prev_pair="$_pair"
+        sleep "$STABILITY_STEP_S"
+        _swaited=$((_swaited + STABILITY_STEP_S))
+    done
+    _STABILITY_WINDOW="$(( _runs * STABILITY_STEP_S ))"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; no counts read"
@@ -507,23 +847,7 @@ run_probe() {
     esac
 
     local oxi doc _prev_pair="" _pair _runs=0 _stable=0 _swaited=0
-    while :; do
-        oxi="$(count_oxigraph)"
-        doc="$(count_doctor)"
-        _pair="${oxi}/${doc}"
-        if [ "$_pair" = "$_prev_pair" ]; then
-            _runs=$((_runs + 1))
-            [ "$_runs" -ge "$STABILITY_RUNS" ] && { _stable=1; break; }
-        else
-            [ -n "$_prev_pair" ] && probe_note "counts moved ${_prev_pair} -> ${_pair} after ${_swaited}s; the graph is still being written"
-            _runs=0
-        fi
-        [ "$_swaited" -ge "$STABILITY_WAIT_S" ] && break
-        _prev_pair="$_pair"
-        sleep "$STABILITY_STEP_S"
-        _swaited=$((_swaited + STABILITY_STEP_S))
-    done
-    _STABILITY_WINDOW="$(( _runs * STABILITY_STEP_S ))"
+    _await_stable_pair
     if [ "$_stable" -ne 1 ]; then
         probe_examined 0 "people-count surfaces"
         probe_cannot_run "the two counts never stopped moving within ${_swaited}s (last two readings ${_prev_pair} then ${_pair}). A verdict computed while the graph is still being written describes an instant, not the box -- dedupe-converge.done had already fired, which is why this probe waits for STABILITY and not for that marker."
@@ -534,8 +858,38 @@ run_probe() {
     # keyless 401 reads as "enforced, no key, not measured" and not as a vague
     # "1 of 2 surfaces readable". Exits on 000/401.
     _ox_adjudicate "oxigraph people count"
+    # The embed queue must be drained before ANY customer-visible read. Held
+    # AFTER the auth/transport adjudication above, so a refused store still
+    # reports its own reason and not a wait.
+    local _dr _dr_token
+    _await_embed_drain; _dr="$_DRAIN_RESULT"; _dr_token="${_dr%% *}"
+    case "$_dr_token" in
+        DRAINED_EMPTY)  probe_note "embed queue: EMPTY (every customer-visible graph person has a vector) after ${_dr#* }s of waiting; reading now" ;;
+        DRAINED_BY_RUN) set -- ${_dr#* }
+                        probe_note "embed queue: ${2} customer-visible graph people STILL have no vector although people_index completed a run (last_success_at epoch ${3}) that began after they were first seen. That is not embed lag; it is read and graded as measured." ;;
+        EXPIRED)        set -- ${_dr#* }
+                        case "$(_indexer_staleness "$4" "${7:-}")" in
+                            STALE)
+                                probe_examined "$2" "customer-visible graph people with no vector after a ${1}s wait"
+                                probe_fail "the vector indexer is not running: ${2} customer-visible graph people still had no vector after ${1}s, and people_index.tsv last succeeded at epoch ${4} against a box clock of ${7}, more than 2 fda-rerun intervals (2 x ${FDA_RERUN_INTERVAL_S}s) ago. That is a dead indexer, a product defect, not embed lag. last_status=${3}, first seen waiting at epoch ${5}, hourly tick ${6#tick=}." ;;
+                        esac
+                        probe_examined 0 "people-count surfaces"
+                        probe_cannot_run "the embed queue never drained within ${1}s: ${2} customer-visible graph people still had no vector, people_index.tsv said last_status=${3} last_success_at(epoch)=${4}, first seen waiting at epoch ${5}, hourly tick ${6#tick=}. NO DRAIN SIGNAL ARRIVED, so the graph and the vector store were never comparable. Embed lag (a Person reached the graph ten minutes before its vector on the v1.0.121 trial) is not a disagreement and must not be recorded as one. The tolerance and the cap were not touched." ;;
+        *)              probe_examined 0 "people-count surfaces"
+                        probe_cannot_run "the embed queue could not be observed: ${_dr#* }. Without a drain signal the stores cannot be compared; nothing was measured." ;;
+    esac
+    # The drain can take minutes: the pair read before it is stale. Re-establish
+    # a stable pair, and say if it moved.
+    local _pre_pair="$_pair"
+    _await_stable_pair
+    if [ "$_stable" -ne 1 ]; then
+        probe_examined 0 "people-count surfaces"
+        probe_cannot_run "the embed queue drained but the two counts then never stopped moving within ${_swaited}s (last two readings ${_prev_pair} then ${_pair}). A verdict computed while the graph is still being written describes an instant, not the box."
+    fi
+    [ "$_pair" = "$_pre_pair" ] || probe_note "counts moved ${_pre_pair} -> ${_pair} while the embed queue drained; the later, stable pair is the one graded"
     probe_note "oxigraph SPARQL count : $oxi"
     probe_note "doctor api count      : $doc"
+    case "$oxi" in ''|*[!0-9]*) : ;; *) note_breakdown "$(count_oxigraph_breakdown)" "$oxi" "$doc" ;; esac
 
     local readable=0
     for v in "$oxi" "$doc"; do [ "$v" != "UNAVAILABLE" ] && readable=$((readable + 1)); done
@@ -569,9 +923,28 @@ run_probe() {
     fi
     probe_note "merge-consistency repair:${_MCR_SUFFIX}"
 
+    # The verdict: CUSTOMER-VISIBLE counts, both sides through the one imported
+    # predicate (see VISIBLE_PY). The raw pair above is the stability
+    # instrument and stays printed; it is no longer what is graded.
+    local vis vo so ho no vq hq tq mo
+    vis="$(read_visible)"
+    case "$vis" in
+        OK\ *) : ;;
+        NORULES\ *) probe_cannot_run "${vis#NORULES } -- the customer-visible counts cannot be taken without the shipped predicate, and the raw counts are not the same population (stubs), so nothing is compared" ;;
+        *) probe_cannot_run "the customer-visible count read did not complete: ${vis:-<empty answer>}" ;;
+    esac
+    set -- ${vis#OK }
+    vo="$1"; so="$2"; ho="$3"; no="$4"; vq="$5"; hq="$6"; tq="$7"; mo="${8:-0}"
+    probe_note "customer-visible (people_rules.is_countable_person, imported; named and not merged away): oxigraph ${vo} of ${no} unmerged nodes (${mo} merged-away Person nodes excluded), qdrant ${vq} of ${tq} points; stubs=${so} (unnamed join anchors, allowed), hidden by the predicate: oxigraph ${ho}, qdrant ${hq}"
+
+    # v1.0.121: the GRAPH side (counted here) against the DOCTOR's number,
+    # which now applies the same definition to Qdrant (ical-server
+    # _wiki_people_count). Each store is counted by its own reader; the
+    # probe's own Qdrant scroll (${vq}) is printed as a cross-check only.
+    [ "$vq" = "$doc" ] || probe_note "  note: the probe's own Qdrant count (${vq}) differs from the doctor api count (${doc})"
     local r token detail
-    r="$(adjudicate_counts "$oxi" "$doc" "$TOLERANCE_PCT")"
-    token="${r%% *}"; detail="${r#* }"
+    r="$(adjudicate_counts "$vo" "$doc" "$TOLERANCE_PCT")"
+    token="${r%% *}"; detail="${r#* }; customer-visible, stubs=${so}"
 
     case "$token" in
         DISAGREE)     probe_fail "people counts disagree: $detail (task #273).${_MCR_SUFFIX} A count is the simplest claim the product makes. STABILITY: the pair held for ${_STABILITY_WINDOW}s across ${STABILITY_RUNS} reads -- that BOUNDS the motion, it does not prove writing stopped, and a plateau of exactly this shape once produced a disagreement that vanished minutes later." ;;
@@ -582,7 +955,7 @@ run_probe() {
 
 self_test() {
     SELF_TEST_LOCAL=1
-    probe_examined 18 "synthetic count pairs and converge-marker mtime combinations (negative control)"
+    probe_examined 25 "synthetic count pairs, converge-marker mtime combinations and embed-drain classifications (negative control)"
     local r
 
     # 1. The #273 spread: 6376 vs 6755 is ~5.6%, must exceed a 2% tolerance.
@@ -661,6 +1034,28 @@ self_test() {
         [ "$(_converge_classify $pair)" = "INFLIGHT" ] && _inflight=$((_inflight + 1))
     done
     [ "$_inflight" -eq 2 ] || probe_pass "CONVERGE CONTROL: ${_inflight} of 8 mtime combinations classified INFLIGHT, want exactly 2. A classifier that answers the same thing everywhere proves nothing."
+
+    # THE EMBED-DRAIN CLASSIFIER (v1.0.121 trial: a Person reached the graph ten
+    # minutes before its vector). Driving the real function, not an echo.
+    local d
+    d="$(_embed_drain_classify 0 ok 100 "")";   [ "$d" = "DRAINED_EMPTY" ]  || probe_pass "DRAIN CONTROL: an empty awaiting set classified '${d}', not DRAINED_EMPTY."
+    d="$(_embed_drain_classify 3 ok 100 200)";  [ "$d" = "WAIT" ]           || probe_pass "DRAIN CONTROL: people waiting and the last index run OLDER than the sighting classified '${d}', not WAIT. A stale marker would be read as a drain, and the probe would grade embed lag as a disagreement."
+    d="$(_embed_drain_classify 3 ok 200 200)";  [ "$d" = "WAIT" ]           || probe_pass "DRAIN CONTROL: a marker EQUAL to the sighting second classified '${d}', not WAIT (strictly later is required)."
+    d="$(_embed_drain_classify 3 ok 300 200)";  [ "$d" = "DRAINED_BY_RUN" ] || probe_pass "DRAIN CONTROL: people waiting and an ok index run AFTER the sighting classified '${d}', not DRAINED_BY_RUN. A dropped vector would wait out the bound instead of failing."
+    d="$(_embed_drain_classify 3 error 300 200)"; [ "$d" = "WAIT" ]         || probe_pass "DRAIN CONTROL: a FAILED index run classified '${d}', not WAIT. A run that errored drained nothing."
+    d="$(_embed_drain_classify - ok 300 200)";  [ "$d" = "UNMEASURED" ]     || probe_pass "DRAIN CONTROL: an unmeasurable awaiting set ('-') classified '${d}', not UNMEASURED. Could-not-look must never read as nothing-waiting."
+    d="$(_embed_drain_classify 3 ok - 200)";    [ "$d" = "WAIT" ]           || probe_pass "DRAIN CONTROL: people waiting and NO marker classified '${d}', not WAIT."
+
+    # instr119: the category breakdown is printed with the doctor gap, and an
+    # unreadable one says NOT MEASURED. Output only, no verdict reads it.
+    local _bd
+    _bd="$(note_breakdown "8247 645 13" 8905 8247)"
+    case "$_bd" in *"named, not merged (what the vector writer indexes): 8247"*"unnamed stub"*": 645"*"merged (pwg:mergedInto, pruned by design)         : 13"*"doctor minus indexable named                       : 0 "*) ;;
+        *) probe_pass "BREAKDOWN CONTROL: the category split did not print as expected: ${_bd}" ;; esac
+    _bd="$(note_breakdown "UNAVAILABLE" 8905 8247)"
+    case "$_bd" in *"NOT MEASURED"*) ;; *) probe_pass "BREAKDOWN CONTROL: an unreadable breakdown did not say NOT MEASURED: ${_bd}" ;; esac
+    _bd="$(note_breakdown "8000 600 13" 8905 8247)"
+    case "$_bd" in *"categories sum to 8613, not 8905"*) ;; *) probe_pass "BREAKDOWN CONTROL: a split that does not sum to the total was not flagged: ${_bd}" ;; esac
 
     probe_fail "negative control behaved correctly on all 8 pairs and all 8 converge-marker mtime combinations (exactly 2 of 8 are the in-flight window, including a STALE .done that an existence test cannot see) (real spread caught, drift allowed, double-zero and single-surface both refused, the cap catches 25 orphans a percentage hides, 1 vs 0 says its allowance is 0 and why, the v1.0.74 pair carries the cap-provenance sentence, and a gap the old rule also failed does not)"
 }

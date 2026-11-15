@@ -31,6 +31,21 @@ import SwiftUI
 /// `stop()` is idempotent, so overlapping with the subprocess handler
 /// is harmless.
 final class InstallerAppDelegate: NSObject, NSApplicationDelegate {
+    /// The installer is drawn in the light brand palette only. Without this
+    /// pin, a Mac in dark mode draws system controls dark-mode style on our
+    /// cream background: typed text in every field came out white on cream,
+    /// invisible (tester report, 2 Nov 2026). The consent screen's Continue
+    /// stays disabled until the typed word matches, so with the field
+    /// unreadable its Cancel was the only working button. Set before any
+    /// window exists so sheets and alerts are pinned too.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        InstallerAppDelegate.pinLightAppearance(NSApplication.shared)
+    }
+
+    static func pinLightAppearance(_ app: NSApplication) {
+        app.appearance = NSAppearance(named: .aqua)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             CaffeinateManager.shared.stop()
@@ -54,11 +69,22 @@ struct OstlerInstallerApp: App {
         Window("Ostler Installer", id: "main") {
             ContentView()
                 .environmentObject(coordinator)
+                // The installer's copy comes from ViewCopy/HintCopy JSON, not an
+                // .lproj, so AppKit never learns the UI is Arabic and would lay
+                // it out left-to-right. Set the direction from the same choice.
+                .environment(\.layoutDirection, InstallerLanguage.isRightToLeft ? .rightToLeft : .leftToRight)
                 .frame(
                     minWidth: 880, idealWidth: 880, maxWidth: 880,
                     minHeight: 620, idealHeight: 620, maxHeight: 620
                 )
                 .onAppear {
+                    // F006: the hardware floor (16 GB, Apple Silicon,
+                    // macOS 14) is checked FIRST. On a Mac below it,
+                    // startFromFirstScreen returns before the relocator
+                    // and before the FDA gate, and ContentView shows the
+                    // requirements screen with a Quit button. Otherwise
+                    // it runs the two calls described below, in order.
+                    //
                     // First-launch self-relocator. If we're running
                     // from inside a mounted DMG or anywhere else
                     // outside /Applications, prompt the user to move
@@ -69,7 +95,6 @@ struct OstlerInstallerApp: App {
                     // /Applications copy, not the about-to-be-deleted
                     // DMG copy. (DMG brief explicitly requires this
                     // ordering; see CM051 PR #71.)
-                    SelfRelocator.checkAndRelocate()
 
                     // CX-14 Section E1 (2026-05-23) + CX-17 (2026-05-23).
                     // Mid-install auth pre-warm. Surfaces the intro
@@ -95,7 +120,7 @@ struct OstlerInstallerApp: App {
                     // path finds FDA present and proceeds. Only once FDA
                     // is in place do permissions/licence/install run --
                     // so the whole flow happens once, never mid-install.
-                    coordinator.gateFullDiskAccessThenStart()
+                    coordinator.startFromFirstScreen()
                 }
         }
         .windowResizability(.contentSize)

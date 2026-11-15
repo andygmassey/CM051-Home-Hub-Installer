@@ -464,7 +464,11 @@ def finish_pending_first_windows(fda_dir, busy=None) -> dict:
     sources = sorted({p.read_text().strip() for p in pending if p.read_text().strip()})
     from .extract_all import run_all
     from .pwg_ingest import ingest_all
-    run_all(Path(fda_dir), enabled_sources=sources)
+    # apple_music belongs to music-refresh (it alone holds the Media & Apple
+    # Music grant): re-running its arm here without the helper would overwrite
+    # apple_music.json and the summary entry with 0 tracks.
+    run_all(Path(fda_dir), enabled_sources=sources,
+            skip_sources={"apple_music"}, writer="backfill-ladder")
     results = ingest_all(Path(fda_dir)) or {}
     logger.info("[first-window] finished %d pending source(s)", len(sources))
     return {"status": "ok", "sources": sources, "ingest": sorted(results) if isinstance(results, dict) else []}

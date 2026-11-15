@@ -68,7 +68,7 @@ jobs:
       # transitively through the same package. Without these the test dies at
       # import with ModuleNotFoundError, which is CANNOT-RUN, not a pass.
       - name: install the vendored resolver's import-time dependencies
-        run: python3 -m pip install --quiet rapidfuzz httpx phonenumbers nameparser
+        run: python3 -m pip install --quiet rapidfuzz httpx phonenumbers "nameparser>=2.1.0,<3.0"
 
       # Fail loudly if a dependency is missing, rather than letting the guard
       # below report an import error as a test failure and send the reader to

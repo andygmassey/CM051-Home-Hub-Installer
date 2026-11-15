@@ -729,6 +729,14 @@ def _running(governor: dict, settling: Optional[dict]) -> list[str]:
     return running
 
 
+def _privacy_guard() -> dict[str, Any]:
+    try:
+        from loopback_guard_status import box_status_field
+        return box_status_field()
+    except Exception as exc:  # noqa: BLE001 -- a field must never sink the payload
+        return {"status": "could-not-check", "reason": f"reader failed ({type(exc).__name__})", "checked_at": None}
+
+
 def box_status() -> dict[str, Any]:
     """Assemble the full box-status payload. Never raises; every field
     degrades independently to ``None`` / idle on failure."""
@@ -762,6 +770,9 @@ def box_status() -> dict[str, Any]:
         "settling": settling,
         "running": _running(governor, settling),
         "attribution": attribution,
+        # v1.0.126 loopback guard (loopback_guard_status.py): the Hub reads
+        # this through its /api/v1/box-status proxy. Never raises.
+        "privacy_guard": _privacy_guard(),
     }
 
 

@@ -1,0 +1,17 @@
+pulling manifest
+pulling aaaa00000001: 0% ▕                ▏    0 B/5.6 GB
+pulling bbbb00000002: 0% ▕                ▏    0 B/921 MB
+pulling cccc00000003: 100% ▕████████████████▏ 1.1 KB
+pulling aaaa00000001: 4% ▕                ▏ 224 MB/5.6 GB  1.8 MB/s  49m10s
+pulling bbbb00000002: 40% ▕                ▏ 368 MB/921 MB  1.8 MB/s  5m2s
+pulling bbbb00000002: 100% ▕████████████████▏ 921 MB/921 MB  671 KB/s  0s
+pulling aaaa00000001: 26% ▕                ▏ 1.5 GB/5.6 GB  1.8 MB/s  39m34s
+pulling aaaa00000001: 26% ▕                ▏ 1.5 GB/5.6 GB  1.8 MB/s  39m33s
+pulling aaaa00000001: 60% ▕                ▏ 3.4 GB/5.6 GB  50 MB/s  0m44s
+pulling dddd00000004: 0% ▕                ▏    0 B/2.0 GB
+pulling aaaa00000001: 100% ▕████████████████▏ 5.6 GB/5.6 GB  50 MB/s  0s
+pulling aaaa00000001: 100% ▕████████████████▏ 5.6 GB
+pulling dddd00000004: 100% ▕████████████████▏ 2.0 GB/2.0 GB  50 MB/s  0s
+verifying sha256 digest
+writing manifest
+success
