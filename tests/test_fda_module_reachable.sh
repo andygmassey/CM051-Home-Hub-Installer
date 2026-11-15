@@ -276,10 +276,13 @@ fi
 # HR015 Notion/Linear/GitHub entry points) so they all depend on ONE copy.
 # Bumped 4 -> 5 for first_import (2026-10-19): the free-first-export-import
 # rule, vendored with the gate before its first caller, same reason.
-if grep -qE "^DORMANT \(acknowledged, unwired\)   5" <<< "$out"; then
-    ok "this repo reports 5 dormant modules, visible as five"
+# Dropped 5 -> 4 (2026-10-30, Archie): repair_overmerged_contact_cards DELETED.
+# Andy ratified the exact-identifier exception to RULE 2 that day, and that
+# module splits every 2-card node, so wired it would undo ratified merges.
+if grep -qE "^DORMANT \(acknowledged, unwired\)   4" <<< "$out"; then
+    ok "this repo reports 4 dormant modules, visible as four"
 else
-    bad "the five dormant modules were absorbed into another count"
+    bad "the four dormant modules were absorbed into another count"
 fi
 # The whole point of the row is that the next person to ship the household
 # split finds it. If that string ever drops out, the handoff is gone.

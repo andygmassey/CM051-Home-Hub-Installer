@@ -63,6 +63,10 @@ on:
       - 'tests/test_the_converge_veto_actually_runs.py'
       - 'vendor/cm041/identity_resolver/models.py'
       - 'tests/test_a_second_contact_card_cannot_be_written_onto_one_person.py'
+      - 'tests/test_two_card_person_is_not_reminted_every_sync.py'
+      - 'tests/test_an_installed_box_with_a_two_card_pile_heals.py'
+      - 'vendor/cm041/identity_resolver/merge_journal.py'
+      - 'tests/_fake_oxigraph.py'
       - '.github/workflows/rule-2-holds-on-the-write.yml'
   push:
     branches: [main]
@@ -128,3 +132,40 @@ jobs:
         # result reads as a clean one.
         if: always()
         run: python3 tests/test_the_converge_veto_actually_runs.py
+
+      # v1.0.121: the write guard must not refuse a node for its OWN card. A
+      # survivor holding both of one person's cards (the converge path's
+      # ratified exception) was refused for each of them on every sync, and a
+      # node was minted per card per tick (v1.0.120 walk: one person, 8 live
+      # nodes). Real resolver, real syncer write path, real SPARQL engine;
+      # both syncer twins; negative arms prove RULE 2 still refuses a
+      # different card. if: always() for the same reason as the step above.
+      - name: One person with two Contacts cards stays one node across syncs
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages pytest pyoxigraph==0.5.12 qdrant-client vobject pyyaml \
+          || python3 -m pip install --quiet pytest pyoxigraph==0.5.12 qdrant-client vobject pyyaml
+          n="$(python3 -m pytest tests/test_two_card_person_is_not_reminted_every_sync.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_two_card_person_is_not_reminted_every_sync.py -v
+
+      # v1.0.121 (Archie, #3240): an INSTALLED box with the v1.0.120 pile
+      # (one person, 8 nodes, 2 cards) heals: the upgrade's converge leaves
+      # ONE node, every fold journalled; two more resyncs mint nothing; every
+      # fold undoes back to the seeded graph. Real converge, syncer, journal.
+      - name: An installed box with a two-card pile heals and stays healed
+        if: always()
+        run: |
+          python3 -m pip install --quiet --break-system-packages pytest pyoxigraph==0.5.12 qdrant-client vobject pyyaml \
+          || python3 -m pip install --quiet pytest pyoxigraph==0.5.12 qdrant-client vobject pyyaml
+          n="$(python3 -m pytest tests/test_an_installed_box_with_a_two_card_pile_heals.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 2 ]; then
+            echo "REFUSING: expected at least 2 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python3 -m pytest tests/test_an_installed_box_with_a_two_card_pile_heals.py -v

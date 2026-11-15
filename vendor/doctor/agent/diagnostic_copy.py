@@ -226,6 +226,71 @@ WIKI_REFRESH_STALLED_FIX_COMMAND = (
     "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 )
 
+# ── a wiki compile that was KILLED (v1.0.126, from the 125 walk) ─────
+#
+# The compiler was killed inside the container VM for lack of memory and the
+# wiki silently stopped updating. {time} is the customer's local time.
+WIKI_COMPILE_KILLED_TITLE_FMT = {
+    "oom": "Your wiki stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki stopped updating at {time}: the update took too long",
+    "killed": "Your wiki stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki stopped updating at {time}",
+}
+WIKI_SUMMARIES_KILLED_TITLE_FMT = {
+    "oom": "Your wiki's summaries stopped updating at {time}: not enough memory",
+    "timeout": "Your wiki's summaries stopped updating at {time}: the update took too long",
+    "killed": "Your wiki's summaries stopped updating at {time}: the update was stopped before it finished",
+    "unknown": "Your wiki's summaries stopped updating at {time}",
+}
+WIKI_COMPILE_KILLED_DETAIL = (
+    "Your wiki still opens, but it shows what it had at that time, and "
+    "nothing newer will appear until an update finishes. Your data is not "
+    "affected."
+)
+WIKI_COMPILE_KILLED_OOM_DETAIL = (
+    "The space your wiki is built in ran out of memory and the update was "
+    "stopped. Your wiki still opens, but it shows what it had at that time, "
+    "and nothing newer will appear until an update finishes. Your data is "
+    "not affected."
+)
+WIKI_COMPILE_KILLED_FIX = (
+    "Close apps you are not using, then start the wiki update again. If "
+    "this keeps happening, contact Ostler support."
+)
+WIKI_COMPILE_KILLED_FIX_COMMAND = (
+    "launchctl kickstart gui/$(id -u)/com.creativemachines.ostler.wiki-recompile"
+)
+WIKI_COMPILE_KILL_UNREADABLE_TITLE = "Ostler could not check when your wiki last updated"
+WIKI_COMPILE_KILL_UNREADABLE_DETAIL = (
+    "A record of a stopped wiki update exists but could not be read, so "
+    "your wiki may be out of date. Starting the update again replaces it."
+)
+WIKI_COMPILE_KILL_TIME_FMT = "%H:%M on %-d %b"
+
+# ── a data store that was KILLED and restarted (v1.0.126, from the 125 box)
+STORE_RESTARTED_OOM_TITLE_FMT = "Your memory store restarted at {time}: not enough memory"
+STORE_RESTARTED_TITLE_FMT = "Your memory store restarted at {time}"
+STORE_RESTARTED_DETAIL_FMT = (
+    "Part of what Ostler remembers ({store}) stopped and started again. "
+    "While it was down, nothing could be saved to it or read from it. It is "
+    "running again now and your data is kept on this Mac."
+)
+STORE_RESTARTED_FIX = (
+    "Close apps you are not using. If this happens again, contact Ostler "
+    "support."
+)
+STORE_RESTARTED_FIX_COMMAND = "/opt/homebrew/bin/docker ps --filter name=ostler-"
+STORE_RESTART_UNCHECKED_TITLE = "Ostler could not check whether your memory store restarted"
+STORE_RESTART_UNCHECKED_DETAIL_FMT = (
+    "The container runtime could not be asked ({reason}), so a restart of "
+    "your memory store would not show here."
+)
+STORE_LABELS = {
+    "ostler-qdrant": "the search index",
+    "ostler-oxigraph": "the knowledge graph",
+    "ostler-redis": "the short-term cache",
+}
+
 # ── the container-engine supervisor's own report ─────────────────────
 #
 # Measured 2026-08-23 on the walk box: the engine was INSTALLED and STOPPED,
@@ -562,18 +627,8 @@ MEMORY_UNREADABLE_FIX_COMMAND = "vm_stat | head -10"
 
 
 # ── check_gdpr_export_age ────────────────────────────────────────────
-
-
-STALE_IMPORT_TITLE_FMT = "Last import was {days} days ago"
-STALE_IMPORT_DETAIL = (
-    "Your knowledge graph has not been updated with new GDPR exports "
-    "in over 3 months. Your contacts and connections may be stale. "
-    "Consider requesting fresh exports from LinkedIn, Facebook, etc."
-)
-STALE_IMPORT_FIX = "Re-run the import with updated exports"
-STALE_IMPORT_FIX_COMMAND = (
-    "ostler-import --exports-dir ~/gdpr-exports/ --verbose"
-)
+# The copy and the per-platform findings live in export_status.py
+# ("Your data exports"), which names each request link.
 
 
 # ── check_docker_resources ───────────────────────────────────────────
@@ -676,9 +731,11 @@ OLLAMA_NOT_PINNED_TITLE = "Ollama is not on Ostler's pinned version"
 OLLAMA_NOT_PINNED_DETAIL_FMT = (
     "The last installer run could not install Ostler's tested copy of "
     "Ollama ({version}) because {reason}, so the copy that was already "
-    "running was kept. Your assistant keeps working. Until this is fixed "
-    "Ostler downloads no new AI models, because a different Ollama could "
-    "fetch the wrong build."
+    "running was kept. Your assistant keeps working."
+)
+OLLAMA_MODELS_UNVERIFIED_FMT = (
+    " AI models downloaded in this state were not checked against Ostler's "
+    "recorded fingerprints: {models}."
 )
 OLLAMA_NOT_PINNED_FIX = (
     "Run the Ostler installer again while you are online. It tries the "
@@ -1050,8 +1107,31 @@ TM_NOT_EXCLUDED_FIX = (
 TM_NOT_EXCLUDED_FIX_COMMAND_FMT = "tmutil addexclusion {folder}"
 TM_CANNOT_CHECK_TITLE = "Could not check whether Ostler's folders are kept out of Time Machine"
 TM_CANNOT_CHECK_DETAIL_FMT = (
-    "The Time Machine tool did not answer ({reason}), so this check did not "
-    "run. It is not a pass."
+    "Ostler has no current answer from Time Machine ({reason}), so this "
+    "check did not run. It is not a pass."
 )
 TM_CANNOT_CHECK_FIX = "Run the command below in Terminal and look for [Excluded]."
 TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
+
+
+# ── check_minors_registry ────────────────────────────────────────────
+# the owner 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
+# the ingest on every import. A list that is present but cannot be read makes
+# the ingest stop (it fails closed rather than read "unknown" as "nobody").
+# This row says so. It must never print a name from the file.
+
+MINORS_UNREADABLE_TITLE = (
+    "Your under-18 list can't be read, so imports are paused until it's fixed"
+)
+MINORS_UNREADABLE_DETAIL_FMT = (
+    "The file that records who you have marked as under 18 is damaged or "
+    "cannot be opened ({path}). While Ostler cannot tell who is under 18 it "
+    "will not import anything new, so nothing about a child can slip through. "
+    "Nothing already stored has been lost."
+)
+MINORS_UNREADABLE_FIX = (
+    "Repair the file if you can. Otherwise run the command below to move it "
+    "aside: imports then restart, with nobody marked as under 18 until you "
+    "mark them again from their page."
+)
+MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"

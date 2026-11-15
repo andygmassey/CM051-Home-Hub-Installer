@@ -306,9 +306,14 @@ PY
 # program the lib generated; PS_FORGET=1 also calls the forget step.
 run_apply() { # $1 = lib, rest = env assignments
     local lib="$1"; shift
-    local home_override="" kv
+    local home_override="" fixture_override="" kv
     for kv in "$@"; do
         case "$kv" in
+            # The lib now takes its fixture from the harness's own tree
+            # (fixtures/preference_seed); these arms are about WIRING, so
+            # they hand it the stub fixture beside the stub loader.
+            OSTLER_SEED_DIR=*)
+                fixture_override="${kv#OSTLER_SEED_DIR=}" ;;
             OSTLER_DIR=*)
                 home_override="${kv#OSTLER_DIR=}/boxhome"
                 printf '%s/preferences/interest_profile.json\n' "${kv#OSTLER_DIR=}" > "$API_POINTER" ;;
@@ -320,7 +325,8 @@ run_apply() { # $1 = lib, rest = env assignments
         OSTLER_PREF_SEED_VOLUMES_DIR="${EMPTY_VOLUMES:-/nonexistent-volumes}" \
         OSTLER_PREF_LAUNCHCTL="$WORK/bin/launchctl" OSTLER_PREF_API_BASE="$API_BASE" \
         OSTLER_PREF_COMPILE_BUDGET_S="${BUDGET:-10}" OSTLER_PREF_COMPILE_POLL_S=1 \
-        ${home_override:+HOME="$home_override"} "$@" \
+        ${home_override:+HOME="$home_override"} \
+        ${fixture_override:+OSTLER_PREF_SEED_FIXTURE_DIR="$fixture_override"} "$@" \
         bash -c '
             . "$1"
             if [ -n "${PS_CAPTURE:-}" ]; then
@@ -480,7 +486,7 @@ arm "and the source string travels with it, so a mismatch can say which side" $?
 # whether the machine running the test happens to have a DMG mounted.
 D4c="$WORK/seed-nobundle"; make_seed_dir "$D4c" 0
 out4c="$(env -u OSTLER_CM019_BUNDLE -u OSTLER_ALLOW_INSTALLED_APP_BUNDLE \
-    OSTLER_BOX_HOST= OSTLER_SEED_DIR="$D4c" OSTLER_DIR="$R5x" \
+    OSTLER_BOX_HOST= OSTLER_SEED_DIR="$D4c" OSTLER_PREF_SEED_FIXTURE_DIR="$D4c" OSTLER_DIR="$R5x" \
     OSTLER_PREF_SEED_VOLUMES_DIR="$WORK/empty-volumes" \
     bash -c '. "$1"; preference_seed_apply; printf "RC=%s\n" "$?"; printf "STATE=%s\n" "${PREFERENCE_SEED_STATE}"' _ "$LIB" 2>&1)"
 grep -q 'STATE=absent' <<< "$out4c" && grep -q 'OSTLER_CM019_BUNDLE' <<< "$out4c"
@@ -723,7 +729,7 @@ mkdir -p "$HB/Library/LaunchAgents"; : > "$HB/Library/LaunchAgents/$LABEL.plist"
 printf '%s/.ostler/preferences/interest_profile.json\n' "$HB" > "$API_POINTER"
 D22="$WORK/seed-homebox"; make_seed_dir "$D22" 0
 out22="$(env -u OSTLER_DIR -u OSTLER_PREF_SEED_SKIP -u OSTLER_PREF_COMPILE_SKIP -u OSTLER_ALLOW_INSTALLED_APP_BUNDLE \
-    HOME="$HB" OSTLER_BOX_HOST= OSTLER_SEED_DIR="$D22" OSTLER_CM019_BUNDLE="$BUNDLE" \
+    HOME="$HB" OSTLER_BOX_HOST= OSTLER_SEED_DIR="$D22" OSTLER_PREF_SEED_FIXTURE_DIR="$D22" OSTLER_CM019_BUNDLE="$BUNDLE" \
     OSTLER_PREF_SEED_VOLUMES_DIR="$WORK/empty-volumes" \
     OSTLER_PREF_LAUNCHCTL="$WORK/bin/launchctl" OSTLER_PREF_API_BASE="$API_BASE" \
     OSTLER_PREF_COMPILE_BUDGET_S=10 OSTLER_PREF_COMPILE_POLL_S=1 \

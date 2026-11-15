@@ -310,8 +310,8 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
 
     def test_short_codes_and_alphanumeric_senders_are_explained_exclusions(self) -> None:
         """The ONLY legitimate exclusions, by shape: a short code (6 digits or
-        fewer) and an alphanumeric sender ID. A first name in mixed case is
-        NOT one, and a 7-digit number is not one."""
+        fewer, or 7 to 8 with no leading "+", CM051 P13 #3143) and an
+        alphanumeric sender ID. A first name in mixed case is NOT one."""
         points = [
             _point("p1", "Alice Example", organization="Example Corp"),
             _point("p2", "".join(["8", "7", "0", "9", "9"])),
@@ -334,7 +334,8 @@ class TestPeopleListMatchesTheLockedNamelessFilter(unittest.TestCase):
         self.assertNotIn("AMAZON", names)
         self.assertNotIn("NHS-ALERT", names)
         self.assertIn("Marta", names)
-        self.assertIn("".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9)), names)
+        # P13 (CM051 #3143): 7 to 8 digits with no leading "+" is a short code.
+        self.assertNotIn("".join(str(d) for d in (4, 4, 7, 7, 0, 0, 9)), names)
 
     def test_an_empty_name_is_still_excluded(self) -> None:
         """CONTROL: the pre-existing empty-name behaviour is not lost by

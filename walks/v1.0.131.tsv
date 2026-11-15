@@ -1,0 +1,179 @@
+# Ostler walk record -- written by scripts/post_walk_qa.sh
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+# The box is recorded as a hash: this repo is public.
+# version_source says how the version was obtained. Anything other than
+# measured(...) means the version is an assertion, not an observation.
+#
+# artefact_sha256 is the build this box was walked with. A version does
+# NOT identify a build -- "1.0.50" named eleven distinct assemblies -- so
+# this is the field the publish gate binds on. artefact_sha256_source
+# reads measured(...) only when the DMG was found on the box and hashed
+# there; that establishes WHICH BUILD, not that it was the one mounted.
+#
+# counts_scope says WHICH population pass/fail/cannot_run/broken describe.
+# They are phase 1 ONLY -- parsed from run_box_walk.sh. Phase 2 (the cut
+# manifest runtime proofs) contributes to verdict and qa_exit but emits no
+# counts, so it is deliberately absent from these four numbers.
+# failed_probe_names_recorded and the failed_probe/not_measured_probe rows
+# below are the EXCEPTION: those DO cover both phases, because a phase-2-
+# only failure still has to reach scripts/verify_walk_record.sh by name or
+# its promote gate cannot scope its decision and refuses unscoped.
+# READ verdict AND qa_exit FOR THE WHOLE-SUITE RESULT. The four counts are
+# a subset and summing them will not reconcile against the console tally --
+# 2026-08-24 that mismatch (13 here vs 33 on console) was carried for hours
+# as an unexplained discrepancy in a v1.0.44 verdict that was correct all
+# along, because these keys were unqualified.
+version	v1.0.131
+version_source	measured(CFBundleShortVersionString, matches argument)
+artefact_sha256	9ef28411e16c0691dc6544416908db84ea5de2642225cfd399b43f33c8fa1750
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.131.dmg on the walked box, the DMG the walk staged per its walk-dmg marker; re-hash equals the staged sha)
+walked_at	2026-11-14T07:52:18Z
+box_fp	71ebc47b7c4ab63f
+tier	full
+tier_note	full: everything; required before any console walk and any public tag
+walk_kind	thin
+walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
+wait_changes	wiki-summaries: waited once before usage_journal_producers (kickstart early, no early wait), budget 2700s, same predicate; was a blocking early wait of 900s plus a second wait of 2700s on cannot-run. early pass: off by default (full pass makes every assertion it makes). CONVERGE predicate and budget unchanged.
+walk_notes	guard root half driven by harness replica of AuthorizationHelper, NOT the dialog (install-root rc=0)
+#
+# instrument_rev answers the question this record has never
+# answered: WHICH PROBES graded that artefact. The subject is
+# named six ways above -- version, version_source,
+# artefact_sha256, artefact_sha256_source, box_fp, walked_at --
+# and the instrument was named nowhere.
+#
+# It matters because the probes do NOT come from the artefact. In
+# --from-dmg mode ttywalk.sh copies the .app Resources verbatim,
+# and gui/project.yml bundles box_walk_probes ZERO times, so the
+# suite that runs is the one in THIS checkout. A walk is therefore
+# artefact X judged by instrument Y, and only X was recorded.
+#
+# The case that forced it: no_person_holds_two_contact_cards
+# gained a collision-opportunity measure in #1549. Before it, a
+# clean graph printed a bare pass; after it, the same graph prints
+# EARNED or UNEXERCISED. BOTH WRITE THE SAME `pass` HERE. Reading
+# this file later, nobody could tell an earned zero from a vacuous
+# one -- which is the exact distinction that probe exists to make.
+#
+# instrument_source says HOW the value was obtained, same idiom as
+# version_source. A sha that does not describe the probes that ran
+# is worse than no sha, so local edits under box_walk_probes are
+# named rather than hidden behind a clean-looking commit id.
+#
+# 🔴 A CLEAN SHA DOES NOT MEAN main. It means the probes are EXACTLY
+# that commit, which may be a branch, a tag or a detached head. The
+# v1.0.71 walk ran from a harness branch that was main plus five
+# reset fixes: a correct, clean, committed sha that was nonetheless
+# not main. Resolve the sha before assuming the lineage -- this
+# field answers WHICH probes ran, never WHERE they came from.
+instrument_rev	30e82f4c5a93cdc510b10422fc2f054ac2a4dc7f
+instrument_source	measured(git rev-parse HEAD, scripts/box_walk_probes clean)
+#
+# stores_provenance answers the question every store-reading probe
+# begs and none of them state: was the graph this walk measured
+# CREATED by this artefact, or CARRIED OVER from a previous install?
+# A red from no_person_holds_two_contact_cards, people_stores_reconcile
+# or people_count_agreement means something different in each case. A
+# reset does NOT wipe: ttywalk.sh runs the shipped uninstaller if it can
+# find one and says so when it cannot.
+stores_provenance	wiped-by-shipped-uninstaller(~/.ostler/bin/ostler-uninstall;colimadelete--data,datadiskabsent)
+#
+# cold answers whether the box held NO Ostler state before the install:
+# PROVEN(...) carries the per-root file counts before and after the wipe;
+# NOT_COLD(...) means carried-over state may sit under every count in this
+# record. verify_walk_record.sh refuses verdict CLEAN without cold PROVEN.
+cold	PROVEN(files outside the allowlist, before->after per root: .ostler:132594->0 Ostler:0->0 Ostler:87991->0 Ostler:25->0 )
+#
+# grounding_seed answers the one question assistant_answers_grounded
+# begs and has never stated: was this box SEEDED before the probe
+# asked? An unseeded box and a broken product produce the SAME red.
+# That probe is red on 17 of the 21 committed records, and not one
+# of them says which kind of red it was. Five states: seeded,
+# skipped, absent, failed, unrun -- plus not-recorded when the
+# marker could not be read, which is NOT the same as unrun.
+grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
+counts_scope	box_walk_probes_only(phase1); verdict+qa_exit+failed_probe_names_recorded+failed_probe+not_measured_probe cover all phases
+pass	58
+fail	4
+cannot_run	15
+broken	0
+advisory	3
+advisory_probe	install_log_error_lines
+advisory_probe	settling_json_refreshes
+advisory_probe	owner_knowledge_score
+measured	80 of 80 (pass+fail+cannot_run+advisory; a broken probe is SKIPPED in phase 2 and measures nothing) -- buckets partition the suite
+timing_phase2_probe	data_conservation	1412
+timing_phase2_probe	settling_json_refreshes	1001
+timing_phase2_probe	assistant_grounds_the_opening_turn	558
+timing_phase2_probe	hub_screens_customer_read	352
+timing_phase2_probe	people_count_agreement	314
+timing_phase2_probe	derived_preferences_reach_digest_and_tool	303
+timing_phase2_probe	core_memory_holds_no_prefetch_block	302
+timing_phase2_probe	hub_screens_render_for_a_customer	291
+timing_phase2_probe	todos_reach_reminders	290
+timing_phase2_probe	needs_you_now_birthdays_survive_fallback	271
+timing_phase2_probe	dislike_respected_in_brief	215
+timing_phase2_probe	assistant_answers_grounded	215
+timing_phase2_probe	listener_watchdog_recovers_a_wedged_listener	176
+timing_phase2_probe	owner_digest_knows_the_owner	167
+timing_phase2_probe	cron_run_makes_no_sends	99
+timing_phase2_probes_total	6691
+timing_manifest_row	people_count_agreement	1324.8
+timing_manifest_row	people_count_agreement	1094.5
+timing_manifest_row	data_conservation	639.0
+timing_manifest_row	settling_json_refreshes	600.0
+timing_manifest_row	hub_screens_customer_read	357.2
+timing_manifest_row	core_memory_holds_no_prefetch_block	302.8
+timing_manifest_row	needs_you_now_birthdays_survive_fallback	290.6
+timing_manifest_row	todos_reach_reminders	289.6
+timing_manifest_row	todos_reach_reminders	286.7
+timing_manifest_row	dislike_respected_in_brief	194.7
+timing_manifest_row	morning_brief_catches_me_up	186.7
+timing_manifest_row	assistant_self_description_is_clean	168.8
+timing_manifest_row	listener_watchdog_recovers_a_wedged_listener	155.1
+timing_manifest_row	cron_run_makes_no_sends	99.1
+timing_manifest_row	reply_debt_is_answered	92.0
+timing_manifest_total	6877.9
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	5 of 5
+failed_probe	data_conservation
+failed_probe	hub_screens_customer_read
+failed_probe	morning_brief_catches_me_up
+failed_probe	reply_debt_is_answered
+failed_probe	todos_reach_reminders
+failed_probe_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "WHAT EACH FAILURE FOUND"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+not_measured_reasons	withheld(public repo); phase 1 -- run_box_walk.sh prints them under "PREREQUISITES THAT WERE ABSENT"; phase 2 -- the cut-manifest gate's own log on the walked box, and any full_output=... path it names
+failed_row	data_conservation
+failed_row	hub_screens_customer_read
+failed_row	reply_debt_is_answered
+failed_row	todos_reach_reminders
+failed_row	hub_screens_customer_read
+failed_row	todos_reach_reminders
+failed_row	morning_brief_catches_me_up
+failed_row	data_conservation
+failed_row	todos_reach_reminders
+not_measured_probe	apple_music_library_reaches_preferences
+not_measured_probe	apple_music_refresh_runs_under_the_grant
+not_measured_probe	assistant_sends_over_whatsapp_and_email
+not_measured_probe	call_audio_never_retained
+not_measured_probe	core_memory_holds_no_prefetch_block
+not_measured_probe	db_key_reaches_every_service
+not_measured_probe	derived_preferences_breadth
+not_measured_probe	derived_preferences_dislike
+not_measured_probe	derived_preferences_not_others
+not_measured_probe	derived_preferences_reach_digest_and_tool
+not_measured_probe	dislike_respected_in_brief
+not_measured_probe	fda_rerun_second_tick_lands_a_new_row
+not_measured_probe	followup_keys_match_chat_threads
+not_measured_probe	hub_screens_render_for_a_customer
+not_measured_probe	owner_digest_knows_the_owner
+not_measured_probe	owner_knowledge_score
+not_measured_probe	pair_state_agreement
+not_measured_probe	scheduled_brief_reaches_messages
+not_measured_probe	settling_json_refreshes
+regression_of	data_conservation	v1.0.106
+regression_of	hub_screens_customer_read	v1.0.106
+regression_of	morning_brief_catches_me_up	v1.0.123
+regression_of	reply_debt_is_answered	v1.0.130
+regression_of	todos_reach_reminders	v1.0.106

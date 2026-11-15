@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 # Ported from HR015 ostler_fda/tests/test_staging_cleanup.py at a3242193 (#1171), grafted
-# into vendor/ostler_fda for v1.0.111: runs against the VENDORED copy.
+# into vendor/ostler_fda for v1.0.111, then carried by the fd10f28 re-vendor (adds the Instagram route): runs against the VENDORED copy.
 REPO_ROOT = Path(__file__).resolve().parents[1] / "vendor"
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -122,12 +122,7 @@ def test_every_conversation_route_uses_the_shared_helper():
     # by a pwg-convo persist: they must all go through _stage_then_persist.
     src = (REPO_ROOT / "ostler_fda" / "universal_import.py").read_text()
     assert src.count("= _persist_conversations(") == 1  # the only caller is the helper
-    # VENDORED DIFFERENCE: the Instagram DM route (igd.OUTPUT_FILENAME) arrived
-    # upstream with f60b97ea (#1164), a feature HELD for v1.0.111, so the vendored
-    # tree has no Instagram dispatcher and the #1171 Instagram hunk was not grafted.
-    # Assert that absence too, so the graft cannot half-arrive.
-    assert "_dispatch_instagram" not in src and "igd.OUTPUT_FILENAME" not in src
-    for name in ('"facebook_messenger_conversations.json"', '"email_conversations.json"'):
+    for name in ("igd.OUTPUT_FILENAME", '"facebook_messenger_conversations.json"', '"email_conversations.json"'):
         assert name in src
     assert '"facebook_messenger_conversations.json").write_text' not in src
     assert '"email_conversations.json").write_text' not in src

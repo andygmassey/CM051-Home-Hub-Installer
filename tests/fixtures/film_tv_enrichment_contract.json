@@ -125,7 +125,7 @@
         ],
         "entities": [
           [
-            "Alison Patel",
+            "Margaret Andersen",
             "actor"
           ]
         ],
@@ -171,7 +171,7 @@
         ],
         "director": "",
         "actors": [
-          "Alison Patel"
+          "Margaret Andersen"
         ],
         "overview": "A ferry crew keeps a small island running.",
         "poster_url": "",
@@ -189,10 +189,10 @@
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasGenre <pwg:genre_comedy> .",
         "<pwg:genre_comedy> rdfs:label \"Comedy\" .",
         "<pwg:genre_comedy> a pwg:Genre .",
-        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasEntity <pwg:entity_alison_patel> .",
-        "<pwg:entity_alison_patel> rdfs:label \"Alison Patel\" .",
-        "<pwg:entity_alison_patel> pwg:entityType \"actor\" .",
-        "<pwg:entity_alison_patel> a pwg:Entity .",
+        "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:hasEntity <pwg:entity_margaret_andersen> .",
+        "<pwg:entity_margaret_andersen> rdfs:label \"Margaret Andersen\" .",
+        "<pwg:entity_margaret_andersen> pwg:entityType \"actor\" .",
+        "<pwg:entity_margaret_andersen> a pwg:Entity .",
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:overview \"A ferry crew keeps a small island running.\" .",
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:runtimeMinutes \"42\"^^xsd:integer .",
         "<urn:ostler:preference:00000000-0000-4000-8000-0000000007f2> pwg:seasonCount \"3\"^^xsd:integer .",

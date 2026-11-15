@@ -6,13 +6,36 @@ import logging
 import zipfile
 from pathlib import Path
 from typing import AsyncIterator, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 import aiofiles
 
 from .base import BaseParser, ParsedPreference
 
 logger = logging.getLogger(__name__)
+
+
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """A naive Uber local timestamp as an aware datetime.
+
+    INGEST CONTRACT (2026-10-22): the trip/order time is the REAL event time
+    and belongs in ParsedPreference.observed_at, which is what decay reads.
+    It used to be written only as a display string in extra["timestamp"], so
+    every Uber point reached the store with observed_at empty. The export
+    carries local wall-clock time with no zone; it is stamped UTC here, which
+    is exact to the day and good enough for a half-life of months.
+    """
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _later_dt(a: Optional[datetime], b: Optional[datetime]) -> Optional[datetime]:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return b if b > a else a
 
 
 class UberParser(BaseParser):
@@ -333,6 +356,7 @@ class UberParser(BaseParser):
                 preference_type="Experience",
                 category="transportation",
                 strength=0.25,  # V2: Trip/order
+                observed_at=_as_utc(trip['request_dt']),
                 source=self.source_name,
                 compartment_level=default_compartment,
                 size="Micro",
@@ -499,8 +523,9 @@ class UberParser(BaseParser):
         reader = csv.DictReader(io.StringIO(content))
 
         # Aggregate tracking
-        restaurant_orders = defaultdict(lambda: {'count': 0, 'city': '', 'items': []})
+        restaurant_orders = defaultdict(lambda: {'count': 0, 'city': '', 'items': [], 'last': None})
         food_items = defaultdict(int)
+        food_item_last = {}
         order_count = 0
         orders = []
 
@@ -534,9 +559,12 @@ class UberParser(BaseParser):
                     order_price = 0.0
 
                 order_count += 1
+                ordered_at = _as_utc(self._parse_timestamp(request_time))
 
                 # Track restaurant orders
                 if restaurant:
+                    restaurant_orders[restaurant]['last'] = _later_dt(
+                        restaurant_orders[restaurant]['last'], ordered_at)
                     restaurant_orders[restaurant]['count'] += 1
                     restaurant_orders[restaurant]['city'] = city
                     if item_name:
@@ -547,6 +575,8 @@ class UberParser(BaseParser):
                     # Clean up item name (remove quantity indicators)
                     clean_name = item_name.split(' - ')[0].strip()
                     food_items[clean_name] += quantity
+                    food_item_last[clean_name] = _later_dt(
+                        food_item_last.get(clean_name), ordered_at)
 
                 # Store individual order
                 orders.append({
@@ -598,6 +628,7 @@ class UberParser(BaseParser):
                 preference_type="Experience",
                 category="food",
                 strength=0.25,  # V2: Trip/order
+                observed_at=_as_utc(self._parse_timestamp(order['request_time'])),
                 source=self.source_name,
                 compartment_level=default_compartment,
                 size="Micro",
@@ -616,6 +647,7 @@ class UberParser(BaseParser):
                     preference_type="Like",
                     category="food",
                     strength=strength,
+                    observed_at=data['last'],
                     source=self.source_name,
                     compartment_level=default_compartment,
                     size="Small",
@@ -638,6 +670,7 @@ class UberParser(BaseParser):
                     preference_type="Like",
                     category="food",
                     strength=strength,
+                    observed_at=food_item_last.get(item),
                     source=self.source_name,
                     compartment_level=default_compartment,
                     size="Micro",

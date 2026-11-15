@@ -80,12 +80,12 @@ MSG_INFO_CLONED="  Cloned to %s."
 MSG_INFO_CM042_INTEL_NOT_SUPPORTED_SKIPPING="Ostler RemoteCapture is Apple Silicon only. Skipping install on this machine."
 MSG_INFO_CM042_LOGS_AT="RemoteCapture logs: %s/ostler-remotecapture.log (and .err)"
 MSG_INFO_CM042_PRIOR_LAUNCHAGENT_REMOVED="An earlier install had Ostler RemoteCapture starting at login. It has been stopped and will not start again."
-MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF="Ostler RemoteCapture was not installed: you chose to keep spoken transcription off. Turn it on in Settings and run the installer again if you change your mind."
+MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF="Ostler RemoteCapture stays off until you turn spoken transcription on: you chose to keep it off for now. You can turn it on at any time in Ostler's Settings or in RemoteCapture. No reinstall is needed."
 MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask macOS for Screen Recording and Microphone permission. Grant both so calls and meetings can be transcribed locally. No purple recording indicator appears in your menu bar – audio capture is silent by design."
 # Shown during setup to pre-explain the macOS Documents (Files and Folders)
 # consent prompt. macOS gates that prompt per RESPONSIBLE PROCESS, so the
 # customer may meet it more than once and not always during setup: the
-# installer's own first write under ~/Documents/Ostler can prompt now, and the
+# installer's own first write under ~/Ostler can prompt now, and the
 # bundled python3.11 that organises the wiki writes here later from its own
 # launchd jobs, prompting separately and possibly the next day. The copy is
 # therefore honest about timing rather than promising an immediate prompt, and
@@ -93,7 +93,12 @@ MSG_INFO_CM042_TCC_PRE_PROMPT="On first launch, Ostler RemoteCapture will ask ma
 # live Documents-access tile in the dashboard
 # (vendor/doctor/agent/documents_access_posture.py), which surfaces a denial
 # whenever it happens.
-MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records under Documents/Ostler, on this Mac. They are yours and they stay on this machine. To write them, Ostler needs access to your Documents folder, so macOS may ask for it during setup, and again later today when Ostler first organises your wiki. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please click Allow whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders, and your wiki and conversation records will be written from then on."
+MSG_INFO_DOCUMENTS_TCC_PRE_PROMPT="Ostler saves your personal wiki and your conversation records in the Ostler folder in your home folder (~/Ostler), on this Mac. They are yours and they stay on this machine. The folder is deliberately outside Documents, so iCloud Drive does not upload it. Ostler may still need access to your Documents folder, for example to look for data exports you have saved there, so macOS may ask for it during setup, and again later today. The request can read as coming from python3.11, the bundled helper Ostler uses to write your files. Please choose OK whenever it appears. If you miss it or decline, you can switch it on any time in System Settings, under Privacy and Security, then Files and Folders."
+# Re-run on an install that kept its root in the Documents folder (iCloud exposure fix, 2026-11-11):
+# moved / iCloud-copies warning / could-not-move. %s args are the old then the new path.
+MSG_INFO_USER_ROOT_MOVED="Moved your Ostler folder from %s to %s, so iCloud Drive's Desktop and Documents sync no longer reaches it."
+MSG_WARN_USER_ROOT_ICLOUD_COPIES="iCloud Drive's Desktop and Documents sync is on for this Mac, so earlier copies of your Ostler files may already be in iCloud Drive. Ostler has not deleted them. To remove them, open iCloud Drive in Finder, open Documents, and delete the Ostler folder there."
+MSG_WARN_USER_ROOT_NOT_MOVED="Your earlier Ostler folder %s was left in place, because it could not be moved to %s. Either that folder already exists or the move failed. Nothing was deleted. Ostler now uses the new folder: move your files across yourself if you want them there."
 MSG_INFO_CM048_PIPELINE_INSTALLED_VENV="  Conversation memory engine installed in venv."
 MSG_INFO_HUB_APP_VERIFYING="Verifying Ostler.app at %s"
 MSG_INFO_HUB_APP_STAGING="Staging Ostler.app into /Applications from %s"
@@ -138,9 +143,9 @@ MSG_INFO_GDPR_EXPORTS_DETECTED_BUT_IMPORT_PIPELINE="GDPR exports detected but im
 MSG_INFO_GDPR_EXPORT_IMPORT_WILL_AVAILABLE_WHEN="GDPR-export import will be available when the pipeline ships."
 MSG_INFO_GDPR_SCAN_PROMPTS_INCOMING="About to scan Downloads, Desktop, and Documents for AI exports (Google Takeout, Meta downloads, LinkedIn, etc.) you may have saved. macOS will show three folder-access prompts – please allow each one. It takes about 5-10 seconds in total. Nothing is moved or copied during the scan; we only check what is there."
 MSG_INFO_CALENDAR_PERMISSION_PREWARM="macOS may ask permission to read your Calendar. Allow it so Ostler can build the meetings + events part of your knowledge graph. (Calendar data stays on this machine.)"
-MSG_INFO_FOLDER_PREWARM_DOWNLOADS="macOS is asking permission for Downloads. Click OK."
-MSG_INFO_FOLDER_PREWARM_DESKTOP="macOS is asking permission for Desktop. Click OK."
-MSG_INFO_FOLDER_PREWARM_DOCUMENTS="macOS is asking permission for Documents. Click OK."
+MSG_INFO_FOLDER_PREWARM_DOWNLOADS="Checking access to your Downloads folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DESKTOP="Checking access to your Desktop folder. If macOS asks, choose OK."
+MSG_INFO_FOLDER_PREWARM_DOCUMENTS="Checking access to your Documents folder. If macOS asks, choose OK."
 MSG_INFO_IMESSAGE_AUTOMATION_TRANSITION="Full Disk Access granted. Preparing the next macOS prompt (Messages automation)..."
 # #664: the Automation prompt went unanswered and we stopped waiting. Says what
 # was missed, what it costs, and that it is recoverable -- the install carries on
@@ -153,6 +158,7 @@ MSG_INFO_GIT_CLONE_TMP_HUB_POWER_SRC="  git clone %s /tmp/hub-power-src"
 MSG_INFO_GIT_CLONE_TMP_HUB_SRC="  git clone %s /tmp/hub-src"
 MSG_INFO_GIT_NOT_FOUND_INSTALLING_XCODE_COMMAND="Xcode Command Line Tools needed. macOS will ask for permission to install – look for a small grey dialog (if you don't see it, press Cmd+Tab or check your Dock). Click Install. The tools download in the background while you answer the questions below."
 MSG_INFO_CLT_STILL_INSTALLING_ELAPSED="  Still setting up Command Line Tools (%ss). If a small grey macOS dialog is asking to install developer tools, click Install on it – this step is waiting for that. (Cmd+Tab or check the Dock if you can't see it.)"
+MSG_WARN_CLT_STILL_WAITING_AFTER_TIMEOUT="Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog."
 MSG_INFO_WAITING_FOR_CLT_TO_FINISH="Waiting for Command Line Tools to finish installing (almost there)..."
 MSG_INFO_HOURLY_TICK_FIRST_RUN_CLAMPED_LAST="Hourly tick. First run pulls the last 5 years of mail."
 MSG_INFO_IMESSAGE_BRIDGE_STARTED="Disabling legacy iMessage bridge LaunchAgent (single-machine v1.0)"
@@ -295,7 +301,7 @@ MSG_INFO_REGION_UNITED_STATES_SOURCE="Region: United States (source: %s)"
 MSG_INFO_REPO_URL="Repo URL: %s"
 MSG_INFO_REPO_URL_2="Repo URL: %s"
 MSG_INFO_REPO_URL_3="Repo URL: %s"
-MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose the passphrase that will unlock your Hub. You'll type this each time you start the Hub UI."
+MSG_INFO_RECOVERY_PASSPHRASE_INTRO="Now choose a passphrase. Ostler uses it to set up the key for some of its internal records."
 MSG_INFO_RECOVERY_PASSPHRASE_SKIPPED_BIP39_ONLY="Recovery passphrase skipped. (Deprecated: v1.0 always requires a passphrase.)"
 MSG_INFO_REUSING_EXISTING_DOCTOR_AGENT_INSTALL="Reusing existing Doctor agent install at %s"
 MSG_INFO_REUSING_EXISTING_EMAIL_INGEST_INSTALL="Reusing existing email-ingest install at %s"
@@ -321,7 +327,7 @@ MSG_INFO_SAFARI_EXTENSION_ENABLE_GUIDANCE="One manual step left: open Safari, ch
 MSG_INFO_SCANNING_GDPR_DATA_EXPORTS="Scanning for GDPR data exports..."
 MSG_INFO_SET_PWG_DOCTOR_REPO_URL_RE="Set PWG_DOCTOR_REPO=<url> and re-run to install."
 MSG_INFO_SET_PWG_HUB_POWER_REPO_HR015="Set PWG_HUB_POWER_REPO=<HR015 url> and re-run to install."
-MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: ollama pull %s"
+MSG_INFO_SKIPPED_CONVERSATION_MODEL_PULL_LATER_OLLAMA="Skipped conversation model. Pull later: %s pull %s"
 MSG_INFO_STARTING_COLIMA_LIGHTWEIGHT_DOCKER_RUNTIME="Starting Colima (lightweight Docker runtime)..."
 MSG_INFO_STARTING_DOCKER_DESKTOP="Starting Docker Desktop..."
 MSG_INFO_STARTING_OLLAMA="Starting Ollama..."
@@ -432,13 +438,13 @@ MSG_WARN_ENRICHMENT_DECISION_NOT_PERSISTED="Could not save your background-enric
 # has ever asked for the passphrase at startup, so nothing was required
 # at any startup. The key ID is left alone: renaming it would churn every
 # translation catalogue for a copy fix.
-MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Databases encrypted. The Hub services read the key from a protected file in your home folder, so they start without prompting you."
-MSG_OK_DB_KEY_DELIVERED="Database key delivered to the Hub services (%s, readable only by you)."
+MSG_OK_DATABASES_ENCRYPTED_PASSPHRASE_REQUIRED_EACH_STARTUP="Internal records key set up. The Hub services read the key from your login Keychain, so they start without prompting you."
+MSG_OK_DB_KEY_DELIVERED="Database key handed to the Hub services."
 MSG_WARN_DB_KEY_NOT_DELIVERED="Could not hand the database key to the Hub services. They will open databases unencrypted until this is fixed."
 MSG_INFO_DB_KEY_RECOVER_HINT="Run this to recover it and hand it over: %s/.venv/bin/ostler-unlock --install-key-file"
 MSG_INFO_DB_MIGRATION_RUNNING="Encrypting any databases left over from an earlier install"
 MSG_WARN_DB_MIGRATION_FAILED="Some existing databases could not be encrypted. They remain readable on disk."
-MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key file, so the Hub services are opening databases unencrypted."
+MSG_WARN_DB_KEY_MISSING_ON_RERUN="This install has no database key, so the Hub services will not open their keyed databases."
 MSG_WARN_DB_PLAINTEXT_COUNT="%s database(s) on this Mac are readable on disk right now."
 MSG_INFO_DB_MIGRATE_HINT="Then encrypt what is already there: %s/.venv/bin/ostler-migrate-dbs"
 MSG_OK_DEFERRED_DEVICE_REGISTRATION_RETRY_INSTALLED_RUNS="Deferred device-registration retry installed (runs hourly until queue clears)"
@@ -548,7 +554,7 @@ MSG_OK_OLLAMA_HEALTHY="Ollama healthy"
 MSG_OK_OLLAMA_INSTALLED="Ollama installed"
 MSG_WARN_OLLAMA_CUSTOMER_APP_PRESENT="An Ollama app is already installed in Applications. Ostler leaves it exactly as it is and runs its own copy of Ollama %s alongside it. If that app is open in the menu bar, quit it so Ostler can start its own."
 MSG_WARN_OLLAMA_PIN_DEFERRED="Could not update Ollama to %s this time, so Ostler is keeping the copy it already runs (%s). Your assistant keeps working. The update will be tried again the next time the installer runs. Details: %s"
-MSG_WARN_MODEL_PULL_HELD_OLLAMA_UNPINNED="Not downloading %s this time: Ostler's tested copy of Ollama (%s) is not installed yet, and a different Ollama could fetch the wrong build. The next installer run downloads it."
+MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED="Downloading %s without the usual build check, because Ostler's tested copy of Ollama (%s) is not installed yet. The Doctor will show it as not verified."
 MSG_OK_OLLAMA_INSTALLED_CLI_ONLY_MAY_NEED="Ollama installed (CLI only – may need manual start after reboot)"
 MSG_OK_OLLAMA_INSTALLED_DESKTOP_APP="Ollama installed (desktop app)"
 MSG_OK_OLLAMA_RUNNING="Ollama running"
@@ -700,6 +706,7 @@ MSG_WARN_CM042_DOWNLOAD_FAILED="Could not download Ostler RemoteCapture v%s from
 MSG_WARN_CM042_DOWNLOAD_NEXT_STEPS="Common causes: release tag not yet published, network offline, or upstream notarisation still in flight. Re-run the installer once the release is live."
 MSG_WARN_CM042_EXTRACT_FAILED="Could not extract Ostler RemoteCapture tarball; skipping LaunchAgent."
 MSG_WARN_CM042_LAUNCHAGENT_LOAD_FAILED="Ostler RemoteCapture LaunchAgent load failed. See output above and ~/Library/LaunchAgents/."
+MSG_WARN_CM042_TRANSCRIPTION_SCRIPT_NOT_INSTALLED="Could not install the spoken-transcription script; Hub Settings cannot turn transcription on."
 MSG_WARN_CM048_PIPELINE_CONVERSATION_ENRICHMENT_UNAVAILABLE="  Conversation enrichment will not be available. The rest of Ostler installs normally; re-run without --allow-plaintext to wire the conversation memory engine in."
 MSG_WARN_CM048_PIPELINE_INSTALL_FAILED_CLONE="Conversation memory engine install failed (clone)."
 MSG_WARN_CM048_PIPELINE_LOOKED_FOR_PATH="  Looked for: %s/cm048_pipeline/pyproject.toml"
@@ -715,6 +722,7 @@ MSG_WARN_COREUTILS_GTIMEOUT_NOT_AVAILABLE="GNU coreutils could not be installed;
 MSG_WARN_COLIMA_START_RETRY="Colima did not come up cleanly (the Docker socket was not ready). Retrying in %ss..."
 MSG_WARN_COMMON_CAUSES_TAG_V_NOT_YET="Common causes: tag v%s not yet published, network offline,"
 MSG_WARN_CONSENT_CLI_STDERR_FIRST_400_CHARS="  consent_cli stderr (first 400 chars):"
+MSG_WARN_CONSENT_DISPLAY_LANGUAGE_NOT_RECORDED="Your consent was saved, but not which language it was shown in (details in ~/.ostler/posture/consent-cli-failures.log)."
 MSG_WARN_CONSOLE_SCRIPT_NOT_CREATED_PYPROJECT_TOML="  Console script not created at %s; pyproject.toml may be missing the [project.scripts] entry."
 MSG_WARN_CONTINUING_BECAUSE_ALLOW_PLAINTEXT_WAS_PASSED="Continuing because --allow-plaintext was passed."
 MSG_WARN_CONTINUING_INSTALL_RE_RUN_OSTLER_FDA="Continuing install. Re-run \`ostler-fda\` after diagnosing the error above."
@@ -785,7 +793,7 @@ MSG_WARN_FDA_DEPENDENCIES_CONTINUING_PLAINTEXT="Continuing because --allow-plain
 MSG_WARN_FILEVAULT_NOT_ENABLED="FileVault is NOT enabled."
 MSG_WARN_FIRST_MONTH_FREE_FAILED_NONFATAL="Could not activate the first month free at this time; install will continue. Open the Ostler app on your iPhone once paired to resolve."
 MSG_WARN_FULL_DISK_ACCESS_NOT_GRANTED_TERMINAL="Full Disk Access not granted to Terminal."
-MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (gemma4:e2b) – reliable, accurate, sub-second on short questions, with tool calls and an honest 'I don't know' when it doesn't. For richer answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
+MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS="%s GB RAM detected. You'll get the compact assistant (qwen3.5:4b), which looks things up with tool calls and gives an honest 'I don't know' when it finds nothing. For richer, faster answers on longer questions, 24 GB or more unlocks the standard assistant (qwen3.5:9b). You can change Macs later by reinstalling."
 MSG_WARN_GDPR_IMPORT_HAD_ERRORS_YOU_CAN="GDPR import had errors. You can re-run with:"
 MSG_WARN_GRAPH_DB_PULL_RETRY="Database download did not finish (attempt %s of %s). Retrying in %ss..."
 MSG_WARN_GRAPH_DB_UP_RETRY="The knowledge-graph databases did not start (attempt %s of %s). Retrying..."
@@ -842,7 +850,7 @@ MSG_WARN_RECOVERY_KEY_NEVER_DELIVERED_LINE_3="Contact support to have security s
 MSG_WARN_RECOVERY_PASSPHRASES_DON_T_MATCH_TRY_AGAIN="Passphrases don't match. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_SETUP_FAILED="Passphrase setup failed. Output:"
 MSG_WARN_RECOVERY_PASSPHRASE_SKIPPED="Empty input. Passphrase skipped."
-MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 12 characters. Try again."
+MSG_WARN_RECOVERY_PASSPHRASE_TOO_SHORT="Passphrase must be at least 16 characters. Try again."
 MSG_WARN_RECOVERY_PASSPHRASE_REQUIRED="A passphrase is required to encrypt your data."
 MSG_WARN_NUMBER_MUST_START_WITH_TRY_AGAIN="That is not an international number. Use a leading + then the country code and the rest of the number, e.g. +447700900123. Try again."
 MSG_WARN_OLLAMA_NOT_RESPONDING="Ollama not responding"
@@ -1034,7 +1042,6 @@ MSG_FAIL_OSTLER_SECURITY_INSTALL_FAILED_RE_RUN="ostler_security install failed. 
 MSG_FAIL_PASSKEY_SETUP_FAILED_RE_RUN_WITH="Passkey setup failed. Re-run with --allow-plaintext for dev/CI, or fix the error above and retry."
 MSG_FAIL_PYSQLCIPHER3_REQUIRED_ENCRYPTED_DATABASES_RE_RUN="sqlcipher3 is required for encrypted databases. Re-run with --allow-plaintext for dev/CI, or fix the pip error above and retry."
 MSG_FAIL_THIS_INSTALLER_MACOS_ONLY_LINUX_SUPPORT="This installer is for macOS only."
-MSG_FAIL_XCODE_COMMAND_LINE_TOOLS_INSTALL_DID="Xcode Command Line Tools install did not complete in 15 minutes. Open Terminal and run 'xcode-select --install', click Install on the macOS dialog and wait for it to finish, then re-run this installer."
 
 # ── DMG #48 (2026-05-27) silent-bail hardening (PR 2 of TNM brief
 #    `launch/TNM_BRIEF_dmg48_three_blockers_2026-05-27.md` in the
@@ -1080,6 +1087,10 @@ MSG_PROMPT_USER_NAME_FALLBACK_TITLE="Full name (e.g. Tom Harrison)"
 
 MSG_PROMPT_USER_ID_TITLE="What should your assistant call you?"
 MSG_PROMPT_USER_ID_HELP="A short name your assistant will use to address you (e.g. 'Andy', 'Andrew', 'Mrs Smith'). This is what appears in your morning briefs and chat replies. Different from your full name above."
+MSG_WARN_OWNER_NAME_EMPTY="Your name cannot be empty. Please type your name."
+MSG_WARN_OWNER_ID_EMPTY="This cannot be empty. Please type what your assistant should call you."
+MSG_FAIL_OWNER_NAME_EMPTY="No name was entered, and there is no way to ask again here. Run the installer again and type your name when asked."
+MSG_FAIL_OWNER_ID_EMPTY="No answer was given for what your assistant should call you, and there is no way to ask again here. Run the installer again and type a name when asked."
 
 # ── End-of-install confirmation (calendars + identity) ──
 #
@@ -1107,8 +1118,8 @@ MSG_CONFIRM_CALENDAR_KIND_BIRTHDAY="birthdays"
 MSG_CONFIRM_CALENDAR_KIND_SUGGESTION="Siri suggestions"
 MSG_CONFIRM_CALENDAR_KIND_SUBSCRIBED="a calendar you subscribe to"
 MSG_CONFIRM_CALENDAR_KIND_REMINDERS="reminders"
-MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Use \"%s\" for your brief?"
-MSG_CONFIRM_CALENDAR_INCLUDE_HELP="We set this one aside because it looks like %s. Say yes if it is really someone's diary."
+MSG_CONFIRM_CALENDAR_INCLUDE_TITLE="Include \"%s\" in your brief?"
+MSG_CONFIRM_CALENDAR_INCLUDE_HELP="This looks like %s rather than appointments, so we left it out. Switch on if it holds real plans."
 MSG_CONFIRM_CALENDAR_HELP="%s, e.g. %s"
 MSG_CONFIRM_CALENDAR_OWNER_TITLE="Whose calendar is \"%s\"?"
 MSG_CONFIRM_CALENDAR_TYPE_TITLE="What kind of calendar is \"%s\"?"
@@ -1242,8 +1253,6 @@ MSG_PROMPT_EMAIL_APPLE_MAIL_HELP="Reads any email account you have added to Appl
 MSG_PROMPT_MAIL_NOT_CONNECTED_TITLE="Add a mail account to Apple Mail?"
 MSG_PROMPT_MAIL_NOT_CONNECTED_HELP="Apple Mail has no accounts connected on this Mac yet, so Ostler will not have any email to read. Pick Yes to open System Settings > Internet Accounts now (you can add iCloud, Gmail, or Outlook there). Pick No to skip; you can add an account later and Doctor will surface a follow-up if no mail arrives within 24 hours."
 
-MSG_PROMPT_MAIL_EXTEND_HISTORY_TITLE="Pull your full Apple Mail history?"
-MSG_PROMPT_MAIL_EXTEND_HISTORY_HELP="By default Ostler reads the last five years of your Apple Mail. If you keep more than that on this Mac and want all of it in your knowledge graph, pick Yes to pull the full local history now (this can take a little longer for a large mailbox). Pick No to keep the five-year window; you can always extend it later from Doctor."
 
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_TITLE="Also configure a custom IMAP+SMTP server?"
 MSG_PROMPT_EMAIL_CUSTOM_IMAP_HELP="For self-hosted mailboxes only. Keep as NO if your accounts are with Gmail, iCloud, or Outlook – those work better via Apple Mail above."
@@ -1271,16 +1280,19 @@ MSG_PROMPT_EMAIL_INBOX_CONFIRM_TITLE="Type INBOX again to confirm, or press Cont
 MSG_PROMPT_EMAIL_INBOX_CONFIRM_HELP="INBOX means the assistant will read every email you receive. We strongly recommend a dedicated label/folder instead."
 
 MSG_PROMPT_EXPORTS_ACK_TITLE="Have you requested your data exports?"
-MSG_PROMPT_EXPORTS_ACK_HELP="Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at docs.ostler.ai/data-exports.
+MSG_PROMPT_EXPORTS_ACK_HELP="Services like Google, Meta, Spotify and LinkedIn let you request a copy of your own data, and Ostler can import it. If you have not asked for yours yet, you can skip this and add them any time later.
+
+Ostler imports 18 platform exports. The full list, with direct links to each provider's request page, is at https://ostler.ai/docs/getting-started/data-exports/.
 
 Most archives take 1 to 3 days to arrive by email. When the ZIPs land, drop them in your Downloads folder and Ostler will find them automatically.
 
 Skip any you do not use; you can always import more later."
 
 MSG_PROMPT_FILEVAULT_SKIP_TITLE="Continue with your disk UNENCRYPTED at rest?"
+MSG_PROMPT_FILEVAULT_CONFIRM_TITLE="Are you sure? This is a security risk."
 MSG_PROMPT_FILEVAULT_SKIP_HELP="FileVault is OFF on this Mac, so your disk is not encrypted at rest.
 
-What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Documents/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler encrypts its most sensitive databases with a passphrase regardless, but the rest of your data is only as protected as the disk itself.
+What this means if you continue: everything Ostler stores -- your whole personal graph (wiki, conversations, knowledge notes) under ~/Ostler, plus service secrets and databases under ~/.ostler -- is written to disk UNENCRYPTED. Anyone who can boot from this drive, pull it out, or reach an unlocked session can read all of it. Ostler's database encryption key is kept on this same disk, so with FileVault off it does not protect your data from anyone who has the disk.
 
 FileVault is strongly recommended. You can turn it on any time in System Settings > Privacy & Security > FileVault -- it encrypts in the background without reinstalling.
 
@@ -1288,11 +1300,11 @@ Choose Yes to continue now with the disk unencrypted at rest (this is a delibera
 Choose No to stop here so you can turn FileVault on first, then re-run the installer. Nothing has gone wrong either way."
 
 MSG_PROMPT_PASSKEY_ACK_TITLE="Ready to set up disk encryption"
-MSG_PROMPT_PASSKEY_ACK_HELP="Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
+MSG_PROMPT_PASSKEY_ACK_HELP="Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
 
 MSG_PROMPT_RECOVERY_PASSPHRASE_OPT_IN_TITLE="Set a recovery passphrase too? (recommended)"
 MSG_PROMPT_RECOVERY_PASSPHRASE_TITLE="Choose your passphrase"
-MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+MSG_PROMPT_RECOVERY_PASSPHRASE_HELP="Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_TITLE="Confirm your passphrase"
 MSG_PROMPT_RECOVERY_PASSPHRASE_CONFIRM_HELP="Re-enter the same passphrase to confirm."
 
@@ -1305,7 +1317,7 @@ MSG_PROMPT_DISNEY_XLSX_PASSWORD_HELP="Disney+ ships its GDPR export as a passwor
 MSG_PROMPT_MANUAL_EXPORTS_PATH_TITLE="Do you have data exports ready?"
 MSG_PROMPT_MANUAL_EXPORTS_PATH_HELP="Ostler can import social media and platform archives – your full history with friends, family, places, opinions – right from the start. The more Ostler knows on day one, the more useful it is on day one. You can also add this later; no rush.
 
-Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, WhatsApp, etc.), download the ZIP files, and drop them in your Downloads folder.
+Request your data export from each platform (Twitter / X, Facebook, Instagram, LinkedIn, etc.), download the ZIP files, and drop them in your Downloads folder. WhatsApp needs no export: Ostler reads your history from WhatsApp Desktop on this Mac.
 
 Ostler will look in ~/Downloads by default. Want a different folder? Pick one below. Otherwise, skip and import later."
 
@@ -1374,6 +1386,10 @@ MSG_TERMS_PERSONAL_USE_ASK_1="Do not record children without a parent or guardia
 MSG_TERMS_PERSONAL_USE_ASK_2="Do not record in places where people expect real privacy: a doctor's appointment, a solicitor's meeting, a therapy session, a religious confession, a bathroom or changing room."
 MSG_TERMS_PERSONAL_USE_ASK_3="Do not use Ostler to record anyone covertly where the law where you are does not allow it."
 MSG_TERMS_PERSONAL_USE_LEGAL="Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+# Legal: the "English version prevails" line (owner ruling 2026-10-24). install.sh prints it
+# before every legal/consent prompt, but ONLY when this line is itself translated
+# for OSTLER_LANG, i.e. a native reviewer has passed it (l10n/legal_reviews.tsv).
+MSG_LEGAL_ENGLISH_PREVAILS="This is a translation. If it differs from the English version, the English version prevails."
 # English prevails over any translation. Legal text stays English in every locale.
 MSG_TERMS_LANGUAGE="Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails."
 MSG_PROMPT_TERMS_PERSONAL_USE_TITLE="Ostler is for personal use"
@@ -1384,7 +1400,7 @@ MSG_INFO_TERMS_PERSONAL_USE_DECLINED="No problem. Nothing has been installed."
 
 MSG_CONSENT_SPOKEN_CAPTURE_HEADING="Turning spoken conversations into text"
 MSG_CONSENT_SPOKEN_CAPTURE_INTRO="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility, not ours. Typing and messaging are not affected."
-MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+MSG_CONSENT_SPOKEN_CAPTURE_LAW="Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe."
 MSG_CONSENT_SPOKEN_CAPTURE_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it."
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_HEADING="What we ask of you:"
 MSG_CONSENT_SPOKEN_CAPTURE_ASK_1="Obtain whatever consent your local law requires before you capture a spoken conversation."
@@ -1393,7 +1409,37 @@ MSG_CONSENT_SPOKEN_CAPTURE_ASK_3="If in doubt, leave spoken transcription off. Y
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_LABEL="Your decision:"
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_Y="[Y] I understand, and I will obtain any consent my local law requires."
 MSG_CONSENT_SPOKEN_CAPTURE_DECISION_N="[N] Not now – keep spoken transcription off. (You can turn it on later in Settings.)"
-MSG_CONSENT_SPOKEN_CAPTURE_LEGAL="Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+# ── Spoken-capture legal note, chosen by the Mac's REGION (not its language) ──
+# Composed by _ostler_spoken_capture_legal_note in install.sh as
+#   "Legal note: " + CORE + LOCAL + the region line(s) + RESPONSIBILITY,
+# byte for byte the note the GUI renders, and the note the consent record pins.
+# CORE, LOCAL and RESPONSIBILITY show in every region. The region is the country part
+# of AppleLocale (zh-Hant_GB is GB), read the same way by the GUI
+# (LegalRegion in gui/OstlerInstaller/Steps/ViewCopy.swift), which renders the
+# same text from ViewCopy.json consent_spoken_capture.legal_*.
+# These are consent / legal keys (l10n legal gate: key carries CONSENT): a
+# translation needs human legal review, and English prevails.
+# Each REGION line is a BEST-EFFORT DRAFT, NOT LEGAL ADVICE, and NEEDS LOCAL
+# PROFESSIONAL SIGN-OFF before it is relied on. Statute numbers appear only
+# where the wording predates this change (UK GDPR, StGB 201, French Penal Code
+# 226-1) or is certain (PDPO Cap. 486). Any region not listed: CORE only.
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX="Legal note:"
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE="Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere."
+# Shown in every region; the GUI twin is consent_spoken_capture.legal_local.
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL="Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac."
+# Region GB. Best-effort draft, needs local professional sign-off (UK).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB="UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+# Region EU-27 and EEA. Best-effort draft, needs local professional sign-off (EU).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU="The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+# Region DE, shown after the EU line. Best-effort draft, needs local professional sign-off (DE).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE="In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes)."
+# Region FR, shown after the EU line. Best-effort draft, needs local professional sign-off (FR).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR="In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code."
+# Region HK. Best-effort draft, needs local professional sign-off (HK).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK="In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful."
+# Region US. Best-effort draft, needs local professional sign-off (US).
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US="In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
+MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY="As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
 
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_TITLE="Turn spoken conversations into text?"
 MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP="In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.
@@ -1403,9 +1449,9 @@ Ostler can turn spoken conversations you capture – calls and meetings – into
 What we ask of you:
 • Get whatever consent your local law requires before you capture audio.
 • Make it clear audio is being captured – say so, or keep a visible indicator on.
-• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.
-
-Legal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings."
+# install.sh appends the region-chosen legal note (_ostler_spoken_capture_legal_note)
+# to this help text at the gui_read call, so the help carries no legal note itself.
 MSG_INFO_SPOKEN_CAPTURE_WILL_STAY_OFF="Spoken transcription will stay off. You can enable it later in Settings."
 
 MSG_PROMPT_CONSENT_INSTALL_TITLE="Ready to install?"
@@ -1543,6 +1589,25 @@ MSG_HYDRATE_WHATSAPP_STARTED="Reading your WhatsApp history – your messages st
 MSG_HYDRATE_WHATSAPP_DONE="Found %s people in your WhatsApp chats"
 MSG_HYDRATE_WHATSAPP_GRAPH_WRITE_FAILED="WhatsApp chats were read but not written to your people graph (exit %s). Ostler will retry. Details: %s"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_CHATS="No WhatsApp chats to read. You can re-run later from Settings."
+# The graph write in the WhatsApp leg runs every FDA source, not only WhatsApp,
+# so a failure names the sources that failed (v1.0.120 walk: a food timeout was
+# reported as WhatsApp). One label per pwg_ingest dispatch key, upper-cased;
+# tests/test_hydrate_graph_food_deferred.sh enumerates the dispatch against these.
+MSG_HYDRATE_INGEST_SOURCES_FAILED="Some of your data was read but not added to your graph yet: %s. Ostler will retry in the background. Details: %s"
+MSG_HYDRATE_FOOD_DEFERRED="Your food and restaurant preferences will be added in the background after setup."
+MSG_HYDRATE_SOURCE_LABEL_IMESSAGE="iMessage"
+MSG_HYDRATE_SOURCE_LABEL_WHATSAPP="WhatsApp"
+MSG_HYDRATE_SOURCE_LABEL_CALENDAR="Calendar"
+MSG_HYDRATE_SOURCE_LABEL_PHOTOS="Photos"
+MSG_HYDRATE_SOURCE_LABEL_APPLE_MAIL="Mail contacts"
+MSG_HYDRATE_SOURCE_LABEL_BROWSER_HISTORY="browsing history"
+MSG_HYDRATE_SOURCE_LABEL_BOOKMARKS="bookmarks"
+MSG_HYDRATE_SOURCE_LABEL_FOOD="food and restaurant preferences"
+MSG_HYDRATE_SOURCE_LABEL_SOCIAL="who you message most"
+MSG_HYDRATE_SOURCE_LABEL_PEOPLE_INDEX="people search"
+MSG_HYDRATE_SOURCE_LABEL_INGEST_ALL="everything (the import folder could not be read)"
+MSG_HYDRATE_SOURCE_LABEL_UNMEASURED="one or more sources (Ostler could not tell which)"
+MSG_HYDRATE_SOURCE_LABEL_UNKNOWN="another source (%s)"
 MSG_HYDRATE_WHATSAPP_SKIPPED_NO_APP="WhatsApp Desktop is not installed. Install it from the Mac App Store and re-run from Settings."
 MSG_HYDRATE_WHATSAPP_SKIPPED_FDA_PENDING="WhatsApp reader not ready yet. You can re-run later from Settings."
 MSG_HYDRATE_WHATSAPP_BACKGROUND_CONTINUES="WhatsApp is still loading in the background. Your wiki fills in as it goes, and shows you where it is up to."
@@ -1891,3 +1956,4 @@ MSG_OK_MODEL_DIGEST_VERIFIED="%s verified against its pinned digest (%s)"
 MSG_FAIL_MODEL_DIGEST_MISMATCH="The installed %s is not the model this installer ships: found %s, expected %s (%s). The download source may have changed, so the install has stopped before using it. Contact support with this message."
 MSG_FAIL_MODEL_UNPINNED="%s has no pinned digest in this installer, so it cannot be verified and will not be used. This is an installer defect. Contact support with this message."
 MSG_FAIL_MODEL_DIGEST_UNREADABLE="Could not verify the downloaded %s against its pinned digest (%s). The model will not be used unverified. Re-run the installer; if this repeats, contact support with this message."
+MSG_FAIL_LOOPBACK_GUARD_NOT_ACTIVE="Ostler could not switch on the guard that keeps the local AI engine private to your account (%s). Other accounts on this Mac could reach it, so the install has stopped. Re-run the installer and approve the administrator prompt; if this repeats, contact support. Details: %s"

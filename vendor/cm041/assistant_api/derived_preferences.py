@@ -23,7 +23,7 @@ returns degraded=false.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple
 
@@ -32,6 +32,15 @@ CONTRACT_VERSION = "derived-preferences.v1"
 # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
 PWG_NS = "https://schema.ostler.ai/ontology#"
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
+# The levels a derived node may carry and still be served. L3 is never served and
+# neither is a level that is present but not one of these (pwg_privacy doctrine:
+# an unparseable level fails closed). A node with NO level is served: it is
+# behavioural evidence, or a graph written before CM019 #423.
+SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
+# A stated dislike is rare and decisive ("never serve me coriander"), but the
+# round-robin cap ranks it by confidence among hundreds of likes. Negatives are
+# therefore read in their own pass, bounded here and NOT counted against `limit`.
+NEGATIVES_LIMIT = 100
 # Dedicated, fully-regenerable named graph for derived nodes.
 DERIVED_GRAPH = "https://schema.ostler.ai/derived/graph/preferences"
 _MATCHED_TITLE = ENRICH_NS + "matchedTitle"
@@ -47,6 +56,40 @@ class AffinityView:
     confidence: float
     intensity: str = "casual"
     because: Tuple[str, ...] = ()
+    category: str = ""   # films / tv / music / ...; "" when the store did not say
+    node: str = ""       # the derived node's URI, to resolve "because" later
+    tier: str = ""       # "broad" | "specific"; "" for graphs written before tiers
+    privacy: str = ""    # highest privacy level of the evidence (CM019 #423); "" = none stated
+
+
+def interleave_by_category(views, limit: int) -> list:
+    """Round-robin a ranked list by category, so one category cannot own the top-N.
+
+    Round 1 takes each category's best item, round 2 each category's second, and
+    so on. Inside a round the items are ordered by confidence then strength;
+    within a category the input order is kept (the input is already ranked). A
+    category that runs out drops out of later rounds, so when the others are
+    empty the one left still fills the list. Same function as CM019
+    derive/consume.py (personal-world-graph #422).
+    """
+    by_cat: dict = {}
+    for v in views:
+        by_cat.setdefault(v.category, []).append(v)
+    # Inside a category a broad item leads a specific one (stable: confidence
+    # order is kept within each tier).
+    for items in by_cat.values():
+        items.sort(key=lambda v: v.tier != "broad")
+    out: list = []
+    rnd = 0
+    while len(out) < limit:
+        this_round = [items[rnd] for items in by_cat.values() if len(items) > rnd]
+        if not this_round:
+            break
+        # Types before things: inside a round a broad item leads a specific one.
+        this_round.sort(key=lambda v: (v.tier != "broad", -v.confidence, -v.strength))
+        out.extend(this_round[: limit - len(out)])
+        rnd += 1
+    return out
 
 
 class DerivedGraphReader:
@@ -69,11 +112,13 @@ class DerivedGraphReader:
         min_confidence: float = 0.4,
         limit: int = 8,
         with_evidence: bool = True,
+        negative_only: bool = False,
         **_kw,
     ) -> List[AffinityView]:
+        served = ", ".join(f'"{lvl}"' for lvl in SERVED_PRIVACY_LEVELS)
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -81,13 +126,27 @@ class DerivedGraphReader:
             "       pwg:preferenceStrength ?strength ;\n"
             "       pwg:confidence ?confidence .\n"
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
+            "    OPTIONAL { ?s pwg:category ?category }\n"
+            "    OPTIONAL { ?s pwg:tier ?tier }\n"
+            "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            f"    FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
-            "  }\n"
-            "} ORDER BY DESC(?confidence) DESC(?strength)\n"
+            + ("    FILTER(?strength < 0)\n" if negative_only else "")
+            + "  }\n"
+            + (
+                # Strongest dislike first: most negative strength x confidence.
+                "} ORDER BY ASC(?strength * ?confidence)\n"
+                if negative_only
+                else "} ORDER BY DESC(?confidence) DESC(?strength)\n"
+            ) +
             f"LIMIT {int(limit)}"
         )
         views: List[AffinityView] = []
         for b in self._sparql(q):
+            privacy = (b.get("privacy") or "").strip().upper()
+            if privacy and privacy not in SERVED_PRIVACY_LEVELS:
+                # Belt to the query's braces: never serve an L3 or unparseable row.
+                continue
             subj_uri = b.get("s")
             because = (
                 self._evidence_titles(subj_uri)
@@ -102,13 +161,77 @@ class DerivedGraphReader:
                     confidence=float(b.get("confidence", 0.0)),
                     intensity=b.get("intensity") or "casual",
                     because=because,
+                    category=b.get("category") or "",
+                    node=subj_uri or "",
+                    tier=b.get("tier") or "",
+                    privacy=privacy,
                 )
             )
         return views
 
+    def get_mixed_preferences(
+        self,
+        user_id: str,
+        min_confidence: float = 0.4,
+        limit: int = 8,
+        pool: int = 600,
+        tier: str = "all",
+    ) -> List[AffinityView]:
+        """The top ``limit`` interleaved round-robin by category.
+
+        Ranked by confidence alone, one wide category (every TV series, every
+        site) owns the whole list. Reads a candidate pool WITHOUT evidence,
+        interleaves it, then resolves the "because" titles for the few kept.
+        """
+        ranked = self.get_derived_preferences(
+            user_id, min_confidence=min_confidence, limit=max(pool, limit),
+            with_evidence=False,
+        )
+        if tier != "all":
+            # A node with no tier (a graph written before tiers) is "specific":
+            # never a type; the next derive run restamps it.
+            ranked = [v for v in ranked if (v.tier or "specific") == tier]
+        picked = interleave_by_category(ranked, limit)
+        return [replace(v, because=self._evidence_titles(v.node)) for v in picked]
+
+    def get_negative_preferences(
+        self,
+        user_id: str,
+        min_confidence: float = 0.4,
+        limit: int = NEGATIVES_LIMIT,
+        exclude=frozenset(),
+    ) -> List[AffinityView]:
+        """Every negative-strength item above ``min_confidence``, strongest first.
+
+        Same query, privacy filters (no L3, unparseable level fails closed) and
+        row guard as get_derived_preferences, so a negative is held to every
+        gate a like is. Ignores the tier and the category round-robin. Rows whose
+        key is in ``exclude`` (already served in the capped list) are dropped
+        before their evidence is resolved; the bound applies to what is returned.
+        """
+        rows = self.get_derived_preferences(
+            user_id, min_confidence=min_confidence, limit=int(limit) + len(exclude),
+            with_evidence=False, negative_only=True,
+        )
+        keep = [v for v in rows if v.strength < 0 and _view_key(v) not in exclude][: int(limit)]
+        return [replace(v, because=self._evidence_titles(v.node)) for v in keep]
+
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
-        """Resolve derivedFrom evidence to human titles (matchedTitle),
-        best-effort. Empty tuple when none."""
+        """Titles behind a node: its own pwg:evidenceTitle first (written by the
+        CM019 engine, works for every source), else the overlay's matchedTitle for
+        the derivedFrom evidence, best-effort. Empty tuple when none."""
+        own = (
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?title WHERE {\n"
+            f"  GRAPH <{self._graph}> {{ <{node_uri}> pwg:evidenceTitle ?title . }}\n"
+            f"}} ORDER BY ?title LIMIT {int(limit)}"
+        )
+        try:
+            own_titles = [b["title"] for b in self._sparql(own) if b.get("title")]
+        except Exception:
+            own_titles = []
+        if own_titles:
+            return tuple(own_titles)
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
             "SELECT ?title WHERE {\n"
@@ -127,7 +250,7 @@ class DerivedGraphReader:
         return tuple(titles)
 
 
-# --- Response builder: VERBATIM from CM019 derive/endpoint.py (PR #410) ------
+# --- Response builder: from CM019 derive/endpoint.py (PR #410 + #422 mix) ----
 
 
 def _now_iso(now: Optional[datetime]) -> str:
@@ -137,8 +260,13 @@ def _now_iso(now: Optional[datetime]) -> str:
     return now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _view_key(view) -> tuple:
+    """Identity for de-duplication: the node URI, else dimension + subject."""
+    return (view.node,) if getattr(view, "node", "") else (view.dimension, view.subject)
+
+
 def _item(view) -> dict:
-    return {
+    d = {
         "dimension": view.dimension,
         "label": view.subject,
         "strength": round(float(view.strength), 4),
@@ -146,6 +274,11 @@ def _item(view) -> dict:
         "intensity": view.intensity,
         "because": list(view.because),
     }
+    # Only when the evidence carried a level: consumers apply their L2 handling
+    # (same shape as CM019 derive/endpoint.py, PWG #423).
+    if getattr(view, "privacy", ""):
+        d["privacy_level"] = view.privacy
+    return d
 
 
 def build_derived_preferences_response(
@@ -154,13 +287,47 @@ def build_derived_preferences_response(
     limit: int = 8,
     min_confidence: float = 0.4,
     now: Optional[datetime] = None,
+    tier: Optional[str] = None,
 ) -> dict:
-    """Build the endpoint payload. Never raises; degrades loudly instead."""
+    """Build the endpoint payload. Never raises; degrades loudly instead.
+
+    ``tier``: ``broad`` (types of things: genres, cuisines, topics), ``specific``
+    (single things) or ``all`` (every tier, broad first). The round-robin by
+    category applies within the tier. A reader without ``get_mixed_preferences``
+    ignores the tier and serves the plain ranked read.
+
+    ``None`` means the caller did not ask: it reads ``broad``, and if that is
+    EMPTY it serves ``all`` and says so (``"tier": "all", "tier_fallback": true``).
+    An upgraded box holds a graph written before tiers until the next derive run;
+    without the fallback the first look after an update would be empty. An
+    EXPLICIT ``broad`` stays strict.
+    """
+    defaulted = tier is None
+    tier = tier or "broad"
     ts = _now_iso(now)
     try:
-        views = reader.get_derived_preferences(
-            user_id, min_confidence=min_confidence, limit=limit
-        )
+        # Prefer the category-interleaved read: ranked by confidence alone, one
+        # wide category (every TV series, every site) owns the whole list.
+        mixed = getattr(reader, "get_mixed_preferences", None)
+        if mixed is not None:
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier=tier)
+        else:
+            views = reader.get_derived_preferences(
+                user_id, min_confidence=min_confidence, limit=limit
+            )
+        fell_back = False
+        if not views and defaulted and mixed is not None and tier == "broad":
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier="all")
+            fell_back = bool(views)
+        # Dislikes ride ALONGSIDE the capped list whatever the tier, so a low
+        # ranked one cannot fall off the cap. Bounded on their own, not counted
+        # against `limit`; one already in the capped list is not repeated.
+        negs = getattr(reader, "get_negative_preferences", None)
+        if negs is not None:
+            have = {_view_key(v) for v in views}
+            views = list(views) + negs(
+                user_id, min_confidence=min_confidence, limit=NEGATIVES_LIMIT, exclude=have
+            )
     except Exception as exc:  # dependency down: degrade, do not 200 []
         return {
             "generated_at": ts,
@@ -170,15 +337,24 @@ def build_derived_preferences_response(
         }
 
     if not views:  # empty graph is NOT a healthy empty result
+        reason = (
+            "no derived preferences materialized yet"
+            if tier == "all"
+            else f"no derived preferences materialized yet in the {tier} tier (tier=all shows every tier)"
+        )
         return {
             "generated_at": ts,
             "items": [],
             "degraded": True,
-            "cannot_check": "no derived preferences materialized yet",
+            "cannot_check": reason,
         }
 
-    return {
+    out = {
         "generated_at": ts,
         "items": [_item(v) for v in views],
         "degraded": False,
     }
+    if fell_back:
+        out["tier"] = "all"
+        out["tier_fallback"] = True
+    return out

@@ -299,7 +299,7 @@ def main():
     print("arm 3: the route is wired and declared")
     srv = (AAPI / "ical-server.py").read_text()
     check('if parsed.path == "/api/v1/preferences/derived":' in srv
-          and "result = api_preferences_derived(limit=limit, min_confidence=min_conf)" in srv,
+          and "result = api_preferences_derived(limit=limit, min_confidence=min_conf" in srv,
           "do_GET routes the path to api_preferences_derived")
     check(dp.DERIVED_GRAPH == DERIVED_GRAPH and dp.ENRICH_NS == ENRICH_NS,
           "the route reads the graph and overlay namespace the writer uses")
