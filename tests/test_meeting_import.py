@@ -205,6 +205,7 @@ def test_reimport_is_idempotent_even_after_a_person_appears(drop, tmp_path):
 
 def test_flag_off_by_default(drop, tmp_path, monkeypatch):
     monkeypatch.delenv(importer.FLAG, raising=False)
+    assert not importer.enabled()                      # default OFF: the flag is unset, so the importer is off
     r = importer.import_all(root=drop, out_root=tmp_path / "o")
     assert r["status"] == "disabled" and not (tmp_path / "o").exists()
     monkeypatch.setenv(importer.FLAG, "1")
