@@ -1659,6 +1659,10 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  # v1.0.132, ORM 2026-11-15 on Archie's ruling (via Aesop), verbatim: check-orphans RED at candidate 3 (run 43680287196).
+  - ref: "CM051:fix/forget-writer-scrub-dir"
+    reason: "DEFERRED until_cut v1.0.133 (Archie 2026-11-15): fix/forget-writer-scrub-dir (49ef60f8) is held 133 forget work, pushed so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.133"
   # v1.0.132, ORM 2026-11-15 on Archie's ruling (via Aesop), verbatim: check-orphans RED at candidate 2 (run 43674351720).
   - ref: "CM051:feat/cm051-doctor-passkey-133"
     reason: "DEFERRED until_cut v1.0.133 (Archie 2026-11-15): feat/cm051-doctor-passkey-133 (013cbadd) and feat/forget-sweep-doctor-row (986bdafa) are held 133 work, pushed on purpose so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Each becomes a PR or is deleted by the v1.0.133 cut."
