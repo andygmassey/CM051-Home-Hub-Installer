@@ -158,7 +158,7 @@ jobs:
         # Its control is the pre-fix block, which must NOT refuse on 13.
         run: bash tests/test_install_refuses_below_the_macos_floor.sh
 
-      # HR015 #943. Andy walked v1.0.98 and met a browser password box for a
+      # HR015 #943. The owner walked v1.0.98 and met a browser password box for a
       # credential he had never been shown. The whole handover -- address,
       # username, password, clipboard copy -- sat inside
       # `if WIKI_FIRST_COMPILE_OK`, and that flag goes false for three reasons

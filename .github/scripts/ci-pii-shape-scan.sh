@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS
 #
-# `operator-pii-scan.sh` is a DENYLIST. It reads Andy's real inventory from
+# `operator-pii-scan.sh` is a DENYLIST. It reads the owner's real inventory from
 # ${HOME}/.ostler-operator-pii.toml and greps for those exact values. That is
 # the right control on a developer machine and the wrong one in CI, because CI
 # cannot have that file: the values ARE the PII, and the committed fallback at

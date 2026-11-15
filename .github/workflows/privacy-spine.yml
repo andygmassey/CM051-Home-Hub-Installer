@@ -125,7 +125,7 @@ jobs:
           python3 -m pip install --quiet beautifulsoup4
           python3 tests/test_automated_senders_are_not_people.py
 
-      # Andy #30 console walk: a notification SUBJECT ("~~\"Unusual sign-in
+      # The owner #30 console walk: a notification SUBJECT ("~~\"Unusual sign-in
       # on your iCloud.") and gibberish strings became People. Exercises the
       # shipped vendor/cm021/src/cli.py name-validity predicate.
       - name: Notification subjects and gibberish strings do not become people

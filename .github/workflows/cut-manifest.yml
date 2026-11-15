@@ -140,7 +140,7 @@ jobs:
       # the escaped quotes become literal characters: a CLEAN tree tested the
       # 2-char string "" and reported dirty=true, and a DIRTY tree became
       # multiple words, errored with "too many arguments", and reported
-      # dirty=false. Wrong in both directions, in the register Andy's mandate
+      # dirty=false. Wrong in both directions, in the register the owner's mandate
       # calls canonical. And the row itself is written when guard-local-cut
       # ACCEPTS the invocation, before any gate runs, so it recorded an INTENT
       # in the shape of an EVENT.

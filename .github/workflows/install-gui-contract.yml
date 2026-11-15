@@ -299,7 +299,7 @@ jobs:
 
       - name: Calendar review is one pre-filled screen, system calendars set aside
         if: always()
-        # Andy's walk, 2026-10-15: the calendars were asked about one at a
+        # The owner's walk, 2026-10-15: the calendars were asked about one at a
         # time, two questions each, holidays and Siri suggestions included,
         # and the help read "1 events". The shell test drives install.sh's
         # own block under /bin/bash and counts the prompts; the python test

@@ -1,7 +1,7 @@
 name: The installer sends no Apple Events to Finder
 
 # ============================================================================
-# WALK-361. Andy hit this on the v1.0.57 launch walk, having reported it once
+# WALK-361. The owner hit this on the v1.0.57 launch walk, having reported it once
 # before and seen it come back. That recurrence is the reason this workflow
 # exists rather than just the fix.
 #

@@ -2,7 +2,7 @@ name: install-heredoc-honesty
 
 # PROSE IN AN UNQUOTED HEREDOC IS NOT PROSE. IT IS A COMMAND.
 #
-# Andy's v1.0.43 walk transcript put this in front of a customer:
+# The owner's v1.0.43 walk transcript put this in front of a customer:
 #
 #     install.sh: line 9979: convert: command not found
 #
