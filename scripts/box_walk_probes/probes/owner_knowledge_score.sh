@@ -219,6 +219,18 @@ run_probe() {
         # Marked BEFORE the swap runs: restore is idempotent, and a signal landing
         # between the swap and this assignment must still restore.
         _PERSONA_LOADED=1
+        # Walk 132 (warm MBP): scored 0% while the owner-employer seed was still live in the
+        # graph (removed later in the walk). A score taken while a seed is live measures the
+        # seed, not the product, so refuse. UNKNOWN (no count) refuses too: never a pass.
+        _og_py="$(cd "$(dirname "$0")/.." && pwd)/lib/owner_seed_guard.py"
+        _og_q='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?f) AS ?n) WHERE { ?f pwg:source "linkedin_positions" ; pwg:organization "'"${OSTLER_OWNER_SEED_ORG:-}"'" . }'
+        _og_b64="$(printf '%s' "$_og_q" | base64 | tr -d '\n')"
+        _og_raw="$(box_run "K=\$HOME/.ostler/secrets/store-curl.conf; printf %s '${_og_b64}' | base64 -d | curl -sS --noproxy '*' -m 20 -K \"\$K\" -H 'Content-Type: application/sparql-query' -H 'Accept: application/sparql-results+json' --data-binary @- http://127.0.0.1:7878/query" 2>/dev/null)"
+        _og="$(printf '%s' "$_og_raw" | python3 "$_og_py" decide)"
+        if [ "$_og" != "CLEAR" ]; then
+            _PERSONA_LOADED=0
+            probe_cannot_run "refusing to score: the owner-employer seed is $_og (a linkedin_positions fact for the seeded organisation is in the graph, or the graph did not answer). The score would measure the seed. Let the walk forget it, then score."
+        fi
         # Walk 132: the swap refused because nothing declared the walk box synthetic. Declare it
         # ONLY for a walk account (lib/walk_box_identity.sh); the owner's account is never declared.
         _wbl="$(cd "$(dirname "$0")/.." && pwd)/lib/walk_box_identity.sh"
