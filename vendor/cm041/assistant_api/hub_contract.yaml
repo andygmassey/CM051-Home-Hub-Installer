@@ -1794,7 +1794,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "install.sh"
   },
@@ -4288,7 +4289,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -6355,7 +6357,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

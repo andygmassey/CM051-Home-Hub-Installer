@@ -183,3 +183,21 @@ Upstream is already correct: CM048 #120 (merged 68897402) gates on `_in_push_win
 - Not ported: upstream's `ended_at` as the first activity stamp (the vendored `_source_datetime` reads `started_at` then `date`).
 
 Tests: `tests/test_cm048_undated_bundle_not_pushed.py` (6). RED on the pre-change vendored file: 3 fail (undated, undated with past deadline, age cutoff disabled). Mutant (`return True` restored to `return False`): 3 fail. Existing reminders suites: green on the new code.
+## 2026-11-14: the WhatsApp resolver guard (CM051 #3423)
+
+Edited in `vendor/cm048_pipeline/src/channel_adapter.py`, `_whatsapp_resolve_privacy`:
+after the explicit `privacy_level` override, a missing classification, or one with no
+sensitivity level, returns L3. Before, a classification with no level fell through to
+L2. This is the unavailable-verdict rule: fail toward the higher level.
+
+The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not checked
+out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
+keep it, or a missing verdict falls back to L2 again.
+Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.
+
+## PORT OWED: upstream as CM048 PR #121 (2026-11-14)
+
+The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` PR #121,
+DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
+When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
+`vendor/cm048_pipeline/src/channel_adapter.py`.

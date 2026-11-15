@@ -458,3 +458,15 @@ Not in the patch: this tree has `divergence_patch = ""`, so there is nothing to 
 - `services/enrich/src/derive/stated_messages.py` (1 line): docstring path `~/Documents/Ostler/Conversations/...` becomes `~/Ostler/Conversations/...`.
 
 Upstream: andygmassey/personal-world-graph PR #469, not merged. Tests there: `test_real_home_guard.py` and `test_config.py` pass, 9 of 9 (system python, throwaway HOME). Five `test_representatives_first.py` tests fail on `No module named 'click'` in that environment, not on this change.
+
+## 2026-11-14: RE-PIN 5af9f5b5 -> d9797d88 (personal-world-graph #471 and #472), cm019_preferences
+
+Not in a patch: this tree has `divergence_patch = ""` and `verify = "skip"` (the shared-file reconciliation in `unverifiable_ack_reason` is still owed), so there is no patch to regenerate. Recorded here instead, per file, for every file the range 5af9f5b5..d9797d88 touches that is in this tree's shipped file-set (measured with `git diff --name-only 5af9f5b5 d9797d88` against a fresh PWG clone; 36 paths in range, 6 vendored):
+
+- `services/ingest/src/loaders/oxigraph_loader.py`: byte-identical to upstream@d9797d88 (it was byte-identical to the old pin, so a straight copy loses nothing). Adds `replace_preference_triples`.
+- `services/ingest/src/pipeline.py`: d9797d88's `_process_batch` hunk HAND-PORTED onto this tree's CM051 divergence (the #953 refusal-is-not-absence error entries are kept). Qdrant is written first; the graph mirror runs only when every point landed, and it REPLACES each preference node's owned triples instead of INSERT DATA. The file still differs from upstream by the pre-existing CM051 divergence (163 diff lines vs upstream@d9797d88; 162 vs the old pin before the port).
+- `services/enrich/src/derive/config.py`, `services/enrich/src/derive/stated_messages.py`: already equal to upstream@d9797d88 (PWG #469 mirrors CM051 #3429, ported 2026-11-11 above). That section retires here.
+- `services/enrich/src/clients/geocoder.py`, `services/enrich/src/geo/geocoder.py`: unchanged by this re-pin; still differ from upstream by the User-Agent string only (2 lines each), the CM051 divergence from the S8 geocoder graft.
+- PWG #472 (f292561b, speakers_identify slug) and #470 (9145e3b5, AGENTS.md): NOT in this tree's file-set (no `services/gateway/`, no `AGENTS.md`), so they ship nothing here.
+
+Proof: `tests/test_cm019_pref_graph_qdrant_parity_vendored.py` (wired in `misclassified-things.yml`): 4 pass here; on the pre-port tree 2 FAIL (re-ingest keeps two subjects on one node; a refused Qdrant write leaves a typed node). Mutants: graph write back to `insert_triples` -> 1 red; early return removed -> 1 red. Four existing CM051 tests stubbed `insert_triples` and now also stub `replace_preference_triples`; `tests/test_a_store_refusal_is_not_an_empty_batch.py` arm 4 now asserts the #471 order (vectors refused -> graph not attempted, one error) and arm 3b asserts no graph write after a vector refusal.
