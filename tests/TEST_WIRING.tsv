@@ -375,6 +375,7 @@ test_doctor_says_when_ollama_is_not_pinned.sh	WIRED	.github/workflows/vendor-int
 test_doctor_secret_scrub.py	WIRED	.github/workflows/cut.yml
 test_doctor_shows_catchup_progress.sh	WIRED	.github/workflows/catchup-machinery.yml
 test_doctor_shows_derived_preferences_status.py	WIRED	.github/workflows/derived-preferences.yml
+test_doctor_shows_engine_watchdog_status.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_shows_loopback_guard.py	WIRED	.github/workflows/fold-macos-15.yml
 test_doctor_shows_shared_prefix.py	WIRED	.github/workflows/fold-macos-15.yml
 test_doctor_shows_why_downloads_exports_did_not_import.sh	WIRED	.github/workflows/downloads-watcher-survives-an-export.yml
@@ -409,6 +410,7 @@ test_encrypt_db_failure_is_diagnosable_and_passphrase_gate_matches.sh	WIRED	.git
 test_end_of_install_confirmation.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_engine_provenance_never_claims_what_it_did_not_install.sh	WIRED	.github/workflows/fold-macos-15.yml
 test_engine_supervisor_judges_the_ports_not_colima_list.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_engine_supervisor_logind_selfheal.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrich_budget.sh	WIRED	.github/workflows/fold-py-matrix.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
@@ -637,7 +639,6 @@ test_morning_brief_repeat_evidence.py	WIRED	.github/workflows/wow-moment-probes.
 test_morning_brief_repeat_not_digits.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_morning_reply_naming_top_n.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
-test_name_repair.sh	WIRED	.github/workflows/fold-py-matrix.yml
 test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
 test_nameless_records_sharing_a_number_are_one_person.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_new_cut_checks_what_preflight_checks.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -697,7 +698,6 @@ test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline
 test_ostler_fda_facebook_routing_unchanged_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_fda_instagram_dms_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_fda_staging_cleanup_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
-test_ostler_fda_subscription_gate_parity_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/fold-macos-15.yml

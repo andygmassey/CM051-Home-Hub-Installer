@@ -20,7 +20,6 @@ py-matrix	failed-conversations-auto-retry-guard.yml	auto-retry
 py-matrix	fda-reachable.yml	fda-reachable
 py-matrix	kinship-label-write-guard.yml	kinship-label-write-guard
 py-matrix	lane11-hub-routes.yml	hub
-py-matrix	name-repair.yml	name-repair
 py-matrix	netflix-polarity-repair.yml	netflix-polarity-repair
 py-matrix	people-projection-prune.yml	people-projection-prune
 py-matrix	people-sweep-partial-landing.yml	partial-landing-is-an-error

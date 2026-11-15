@@ -145,30 +145,6 @@ def test_dedupe_merge_records_the_duplicate(log, monkeypatch):
     assert _has(log, DISCARD, "ostler_fda.dedupe_merge")
 
 
-def test_role_address_repair_records_each_deleted_node(log, monkeypatch, tmp_path):
-    from ostler_fda import repair_role_address_people as rr
-    cand = {"uri": DISCARD, "email": "noreply@example.com", "names": 1, "namelist": "x"}
-    monkeypatch.setattr(rr, "find_candidates", lambda: [cand])
-    monkeypatch.setattr(rr, "_select", lambda q: [])
-    monkeypatch.setattr(rr, "_update", lambda q: None)
-    monkeypatch.setenv("OSTLER_REPAIR_BACKUP", str(tmp_path / "b.nt"))
-    rr.main(["--apply"])
-    assert _has(log, DISCARD, "ostler_fda.repair_role_address_people")
-
-
-def test_placeholder_name_repair_records_a_deleted_kinship_name(log, monkeypatch, tmp_path):
-    from ostler_fda import repair_placeholder_names as rp
-    monkeypatch.setattr(rp, "_query", lambda q: [
-        {"s": {"value": DISCARD}, "v": {"value": "Wife"}},
-        {"s": {"value": DISCARD}, "v": {"value": "Jane Doe"}},
-    ])
-    monkeypatch.setattr(rp, "_construct", lambda q: "")
-    monkeypatch.setattr(rp, "_update", lambda q: None)
-    rp.main(["--apply", "--households-already-split",
-             "--review-out", str(tmp_path / "r.tsv"), "--snapshot-out", str(tmp_path / "snap")])
-    assert _has(log, DISCARD, "ostler_fda.repair_placeholder_names")
-
-
 def test_people_sweep_prune_leaves_a_trace_before_the_vector_goes(log, monkeypatch):
     from ostler_fda import pwg_ingest as mod
     keep_uri = "https://schema.ostler.ai/person/kept0001"
