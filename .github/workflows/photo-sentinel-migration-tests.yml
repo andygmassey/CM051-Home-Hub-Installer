@@ -60,8 +60,7 @@ jobs:
 
       - name: Run the sentinel migration tests (JUnit)
         run: |
-          python -m pytest scripts/test_repair_photo_sentinel_coordinates.py \
-            tests/test_photo_uri_stability.py -q \
+          python -m pytest scripts/test_repair_photo_sentinel_coordinates.py tests/test_photo_uri_stability.py -q \
             -p no:cacheprovider --junitxml=photo-sentinel-junit.xml
 
       - name: Refuse a run that executed fewer than MIN_TESTS, or any skip

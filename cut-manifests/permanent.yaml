@@ -483,6 +483,17 @@ entries:
       probe: "the_recovery_key_reached_the_customer"
 
   # ==========================================================================
+  # ==========================================================================
+  - id: box-walk-photo-sentinel-gone
+    title: after install, no -180 photo coordinate is left in the graph, and the repair marker records its before-count
+    incident: >-
+      13,432 of 45,890 PhotoEvents on the Mini16 graph carried -180 ("no location")
+      as a real coordinate (Archie, 2026-11-15). The upgrade repair deletes them and
+      writes a marker; this probe reads the marker and the live store.
+    proof:
+      kind: box_walk_probe
+      probe: "photo_sentinel_gone_after_install"
+
   - id: box-walk-setup-progress-advancing
     title: every source in the Setting-up denominator is terminal or still advancing over the settle window
     incident: >-
