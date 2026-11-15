@@ -1,0 +1,5 @@
+# probe	version	why it is not a baseline
+# A PASS that examined nothing. Walk records store no per-probe denominator, so the triage reads this list.
+# Measured by the reviewer on the Studio walks: 1 icloud_contact_uid, 0 merge chances (nothing could have been over-merged). The defect entered at v1.0.107.
+no_person_holds_two_contact_cards	v1.0.111	1 icloud_contact_uid, 0 merge chances
+no_person_holds_two_contact_cards	v1.0.112	1 icloud_contact_uid, 0 merge chances

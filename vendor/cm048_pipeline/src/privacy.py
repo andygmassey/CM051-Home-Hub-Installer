@@ -62,6 +62,13 @@ _CHANNEL_DEFAULTS: dict[str, str] = {
     # Qdrant / surfaced to the wiki or assistant (silent drop).
     "sms": "L2",
     "whatsapp": "L2",
+    # Owner-dropped chat exports (HR015 ostler_fda): personal DMs, same
+    # class as whatsapp/im. The importers also set privacy_level explicitly
+    # (Telegram Saved Messages arrive as L3); this row only stops a payload
+    # without one falling to the L3 fallback and vanishing from search.
+    "facebook_messenger": "L2",
+    "instagram": "L2",
+    "telegram": "L2",
     "email": "L2",
     "manual": "L2",
 }

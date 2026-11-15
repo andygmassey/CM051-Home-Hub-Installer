@@ -98,7 +98,14 @@ LOCK_FILENAME = "import-evernote.lock"
 LOG_FILENAME_PREFIX = "import-evernote-"
 STATE_FILENAME_PREFIX = "import-evernote-"
 
-DEFAULT_OSTLER_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+def _owner_side_or(name, fallback):
+    """${OSTLER_DIR}/bin/<name> when it exists (a GUI install links there), else the /usr/local/bin fallback."""
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    owner = os.path.join(base, "bin", name)
+    return owner if os.path.exists(owner) else fallback
+
+
+DEFAULT_OSTLER_KNOWLEDGE_BIN = _owner_side_or("ostler-knowledge", "/usr/local/bin/ostler-knowledge")
 
 # The knowledge source this import handles. ``evernote`` for now; the
 # Notion/Obsidian sources reuse this same convert+embed path with a
@@ -117,9 +124,30 @@ def _embed_model() -> str:
     return os.environ.get("OSTLER_KNOWLEDGE_EMBED_MODEL", DEFAULT_EMBED_MODEL)
 
 
+# 🔴 THIS ONE WAS RIGHT BY COINCIDENCE AND IS FIXED FOR THE SAME REASON AS ITS
+# TWO SIBLINGS. With DEFAULT_SOURCE == "evernote" the old expression produced
+# evernote_knowledge, which IS what the reader queries, so nothing here ever
+# broke. `source` is a parameter, and the moment it is anything else this
+# function names a collection the installer never creates and the reader never
+# queries. Board row 961 item 7, and the two sibling importers were shipping
+# that today rather than latently.
+#
+# The shipped reader, at the tag CM051 pins:
+#   crates/zeroclaw-tools/src/pwg_knowledge_search.rs:56
+#   KNOWLEDGE_COLLECTIONS = ["evernote_knowledge", "apple_notes_knowledge"]
+# and install.sh creates exactly one knowledge collection,
+# _OSTLER_REQUIRED_QDRANT_COLLECTIONS=(... evernote_knowledge).
+KNOWLEDGE_COLLECTION_DEFAULT = "evernote_knowledge"
+
+
 def _collection_for_source(source: str) -> str:
-    """The Qdrant collection the wiki + MCP read for a given source."""
-    return f"{source}_knowledge"
+    """The Qdrant collection the SHIPPED READER actually queries.
+
+    Takes the source for signature compatibility and deliberately ignores it.
+    A per-source collection is the right end state and is not reachable today.
+    """
+    return os.environ.get(
+        "OSTLER_KNOWLEDGE_COLLECTION", KNOWLEDGE_COLLECTION_DEFAULT)
 
 
 # Privacy cap: the highest compartment level (sensitivity) that may be

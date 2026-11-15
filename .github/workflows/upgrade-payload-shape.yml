@@ -71,3 +71,111 @@ jobs:
         run: |
           /bin/bash -n tests/test_upgrade_payload_shape_contract.sh
           /bin/bash -n tests/test_upgrade_mode_invariants.sh
+
+  # THE BEHAVIOURAL UPGRADE SUITE HAD NEVER RUN IN CI. It was UNWIRED in
+  # tests/TEST_WIRING.tsv, so 31 assertions about data-loss prevention during a
+  # customer upgrade were sitting in the repo executing nowhere. It is hermetic
+  # (mocks launchctl and codesign through PATH shims, no network, no pip) but
+  # asserts with plutil, so it needs macOS rather than ubuntu.
+  behaviour:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    # shell: bash makes Actions run `bash --noprofile --norc -eo pipefail {0}`. The default (no
+    # shell:) is `bash -e {0}` with NO pipefail, so `bounded_step.sh ... | tee file` took tee's
+    # exit code (always 0) and a RED test, a wrapper timeout or a surviving mutant all showed
+    # GREEN. Do not remove this. upload-artifact keeps `if: always()`, so it still runs after a RED.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
+        run: /bin/bash tests/test_upgrade_mode_invariants.sh
+
+      # macOS only: the REAL install.sh upgrade block calls BSD /usr/bin/stat -f, which exits 24 on
+      # ubuntu (found when this ran in vendor-integrity, 2026-10-31).
+      # The watchdog marker test is ~3x slower on the macos runner than on a laptop (14 cases ~330 s,
+      # and each of the 3 recursive mutant runs another ~330 s: ~1300 s, past the old 15 min job
+      # timeout, which is what lost the log twice: jobs 124442706438, 124456994095). So each phase is
+      # its own step under its own bounded wrapper. Timeouts nest: wrapper 600 s < step 12 min <
+      # job 75 min. Job budget: 4 x 12 (these) + 4 (wrapper self-test) + 2 (upload) + 10 (checkout,
+      # invariants, fda venv, which are unbounded and took a few minutes) = 64, plus 11 margin.
+      # On expiry the wrapper dumps ps + sample + the progress file, kills the group, exits 1.
+      # macOS only: the REAL install.sh upgrade block calls BSD /usr/bin/stat -f, which exits 24 on
+      # ubuntu (found when this ran in vendor-integrity, 2026-10-31).
+      - name: The listener watchdog defers to the installer's marker, not to a stray /install.sh argv (14 cases)
+        if: always()
+        timeout-minutes: 12
+        env:
+          LWD_PHASE: cases
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lwd"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/cases.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/cases.out"
+
+      - name: Listener watchdog marker test, mutant - pgrep restored must go red on case 1
+        if: always()
+        timeout-minutes: 12
+        env:
+          LWD_PHASE: mutant-pgrep
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lwd"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-pgrep.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-pgrep.out"
+
+      - name: Listener watchdog marker test, mutant - upgrade marker write removed must go red on case 5
+        if: always()
+        timeout-minutes: 12
+        env:
+          LWD_PHASE: mutant-write
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lwd"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-write.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-write.out"
+
+      - name: Listener watchdog marker test, mutant - upgrade marker trap removed must go red on case 6
+        if: always()
+        timeout-minutes: 12
+        env:
+          LWD_PHASE: mutant-trap
+        run: |
+          mkdir -p "${RUNNER_TEMP}/lwd"
+          /bin/bash scripts/bounded_step.sh 600 "${RUNNER_TEMP}/lwd/mutant-trap.progress" -- /bin/bash tests/test_listener_watchdog_install_marker.sh 2>&1 | tee "${RUNNER_TEMP}/lwd/mutant-trap.out"
+
+      # The bounded wrapper itself: a planted hang (before case 1) must dump and exit 1 within the
+      # bound, and the wrapper with its kill removed must outlive it.
+      - name: The bounded-step wrapper turns a planted hang into a red with a dump
+        if: always()
+        timeout-minutes: 4
+        run: /bin/bash tests/test_bounded_step.sh
+
+      # The dump and progress files survive even when the step log is lost.
+      - name: Upload the watchdog test dumps and progress files
+        if: always()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: lwd-install-marker-diagnostics
+          path: ${{ runner.temp }}/lwd/
+          if-no-files-found: warn
+
+      # The upgrade path must REPAIR the fda venv, not just swap the daemon.
+      #
+      # CM051 #939 fixed a missing ostler_fda in the PROMOTED venv. The upgrade
+      # block exits ~3000 lines before the promote, so #939 reached new
+      # installs only and every already-installed box kept a frozen graph
+      # permanently, updates included (HR015 #595).
+      #
+      # Behavioural: extracts the real function and runs it against a real venv
+      # and a package laid out the way the shipped one is. Needs python3.11+
+      # for PEP 660 editables and reports CANNOT-RUN (exit 2) rather than
+      # passing if it cannot find one.
+      - name: the upgrade repairs the fda venv (HR015 #595)
+        if: always()
+        run: /bin/bash tests/test_upgrade_repairs_the_fda_venv.sh
+
+      # The container VM is sized from host RAM at install (v1.0.126 a1), and
+      # the upgrade block still never touches colima. On the 125 walk the wiki
+      # compile was OOM-killed inside the fixed 4 GiB VM. Behavioural against
+      # stub colima/docker, with a mutant that must go red.
+      - name: the VM is sized from host RAM and the upgrade leaves colima alone (126 a1)
+        if: always()
+        run: /bin/bash tests/test_vm_size_from_host_ram.sh

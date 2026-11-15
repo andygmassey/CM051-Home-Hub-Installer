@@ -3,7 +3,7 @@
 # =====================================================
 #
 # The launch-blocker this guards: Ostler's bundled python3.11 writes the
-# customer's wiki + conversation records under ~/Documents/Ostler, which
+# customer's wiki + conversation records under ~/Ostler, which
 # trips the macOS Files-and-Folders consent prompt. A customer who declines
 # an unexplained prompt silently loses those writes.
 #
@@ -22,7 +22,7 @@
 #      BINDS under `set -u` (a name that does not bind aborts the install).
 #   2. install.sh REFERENCES it.
 #   3. the reference is emitted BEFORE the installer's own first write under
-#      ~/Documents/Ostler (`mkdir -p "$USER_FACING_ROOT"`).
+#      ~/Ostler (`mkdir -p "$USER_FACING_ROOT"`).
 #   4. the COPY matches the shipped mechanism: it names python3.11 (the
 #      responsible process the customer actually sees), says the prompt may
 #      come later (not an immediate-only promise), and carries the Files and
@@ -84,7 +84,7 @@ else
 fi
 
 # ---- 3. reference is BEFORE the installer's own first Documents write -----
-# The installer's own first write under ~/Documents/Ostler is
+# The installer's own first write under ~/Ostler is
 # `mkdir -p "$USER_FACING_ROOT"`. This is NOT the python3.11 prompt (that is a
 # separate, later, per-process event, covered by the copy check below); it is
 # the installer's own Documents access, which the note must still precede.

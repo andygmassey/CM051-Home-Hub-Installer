@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "comment": "THE fixed channel set the Setting-up bar is averaged over. Read by tests/test_settling_denominator_terminal_writes.sh (CM051) and by hydration.settling_channels() (CM044 compiler). Installed to ~/.ostler/state/settling_channels.json. A channel with no writer here cannot hold the bar, so notes (no writer in any reachable repo, docs/setup_progress_terminal_map.md B5) is NOT listed. Add a channel here only together with its writer row in the gate's MANIFEST.",
+  "channels": ["contacts", "calendar", "messages", "emails"]
+}

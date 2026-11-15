@@ -7,7 +7,9 @@
 # #2963's first runs; they replace the pre-fold job medians for those jobs.
 # hub-screens-and-106c.yml::owner-employer-seed is 3 + 7 s: main added a step
 # measured at 7 s on main's own run of that job (2026-10-18).
-# fold-macos-14.yml blocks (2026-10-19): the median of three full runs on
+# fold-macos-15.yml blocks (the family was fold-macos-14.yml until main moved
+# every macos-14 job to macos-15, #3261). Measured 2026-10-19 on macos-14:
+# the median of three full runs on
 # #2962 (949bf2c, 37d1104, f26589f), isolate step included. This
 # replaces the first-run figure and owner-employer-seed's 3 + 7 s above.
 appcast-fail-closed.yml::fail-closed	5	8

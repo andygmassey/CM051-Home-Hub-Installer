@@ -12,7 +12,7 @@
 # the same Apple Mail store, threads it into conversation threads,
 # and hands each new/updated thread to CM048's pwg-convo processor,
 # which emits the four artefacts under
-# ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+# ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
 #
 # Chain:
 #   1. email_source.reader reads Apple Mail's .emlx tree (reusing
@@ -48,6 +48,23 @@ SOURCE_DIR="${OSTLER_SOURCE_DIR:-OSTLER_SOURCE_DIR_PLACEHOLDER}"
 SINCE_DAYS="${OSTLER_EMAIL_SINCE_DAYS:-30}"
 USER_NAME="${OSTLER_USER_DISPLAY_NAME:-You}"
 USER_EMAIL="${OSTLER_USER_EMAIL:-}"
+
+# --- Settling terminal state (emails shard) ---------------------------
+# This tick is the only emails producer. The Setting-up bar reads done/total
+# per channel, so the feed must say when it is FINISHED or cannot run;
+# otherwise the bar holds below 100% for good (Mini16, 2026-11-11: 71%).
+#   complete  a successful FULL-window run with nothing pending
+#   skip      mail_absent | mail_unreadable | no_messages (plain reason)
+# A daytime clamped window is not terminal: it has not seen the backlog.
+_ostler_settle_lib="${OSTLER_SETTLING_LIB:-${HOME}/.ostler/lib/settling_progress.sh}"
+_ostler_settle_clamped=0
+if [ -f "$_ostler_settle_lib" ]; then
+    . "$_ostler_settle_lib"
+else
+    echo "bundle tick: settling lib not found at ${_ostler_settle_lib}; the emails bar cannot reach a terminal state." >&2
+fi
+_ostler_settle() { command -v "$1" >/dev/null 2>&1 && "$@" || true; }
+# -----------------------------------------------------------------------
 
 # --- Interactive-chat priority yield (v1.0.3 chat-saturation fix) ----
 # Live chat (the Hub app's /ws/chat AND iMessage / WhatsApp / email
@@ -185,6 +202,7 @@ if [ "${OSTLER_INGEST_OFFPEAK_ONLY:-1}" = "1" ]; then
         _ostler_daytime_days="${OSTLER_INGEST_DAYTIME_SINCE_DAYS:-2}"
         if [ "$SINCE_DAYS" -gt "$_ostler_daytime_days" ]; then
             SINCE_DAYS="$_ostler_daytime_days"
+            _ostler_settle_clamped=1
         fi
     fi
 fi
@@ -206,6 +224,7 @@ fi
 MAIL_DIR="${OSTLER_MAIL_DIR:-$HOME/Library/Mail}"
 if [ ! -d "$MAIL_DIR" ]; then
     echo "email-bundle tick: no Apple Mail store at $MAIL_DIR; nothing to do."
+    _ostler_settle settling_skip emails mail_absent
     exit 0
 fi
 
@@ -321,4 +340,40 @@ cd "$SOURCE_DIR"
 # is the parent of both the email_source/ package and the ostler_fda/
 # package it imports for the Apple Mail primitives.
 # (No exec -- we keep the shell alive so the EXIT trap releases the lock.)
-_ostler_run "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}"
+# The summary is captured to read threads_* and to settle the emails shard,
+# then replayed to stdout so the log is unchanged.
+_ostler_summary="${OSTLER_STATE_DIR:-$HOME/.ostler/workspace}/email-bundle-summary.$$.json"
+set +e
+_ostler_run "$PYTHON_BIN" -m email_source.pipeline "${ARGS[@]}" > "$_ostler_summary"
+_ostler_rc=$?
+set -e
+cat "$_ostler_summary"
+
+# _ostler_json_int <key> <file>: the integer for a top-level summary key, or fail.
+_ostler_json_int() {
+    local v
+    v="$(sed -n -E "s/^  \"$1\": ([0-9]+),?\$/\1/p" "$2" | head -n 1)"
+    case "$v" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$v"
+}
+
+# Pipeline rc 1 = FileNotFoundError, rc 2 = PermissionError (run() in pipeline.py).
+case "$_ostler_rc" in
+    1) _ostler_settle settling_skip emails mail_absent ;;
+    2) _ostler_settle settling_skip emails mail_unreadable ;;
+    0)
+        if [ "$_ostler_settle_clamped" != 1 ] \
+            && _ostler_s="$(_ostler_json_int threads_scanned "$_ostler_summary")" \
+            && _ostler_d="$(_ostler_json_int threads_dispatched "$_ostler_summary")" \
+            && _ostler_k="$(_ostler_json_int threads_seeded "$_ostler_summary")" \
+            && _ostler_f="$(_ostler_json_int threads_failed "$_ostler_summary")"; then
+            if [ "$_ostler_s" -eq 0 ]; then
+                _ostler_settle settling_skip emails no_messages
+            elif [ $(( _ostler_d + _ostler_k + _ostler_f )) -eq 0 ]; then
+                _ostler_settle settling_complete emails
+            fi
+        fi
+        ;;
+esac
+rm -f "$_ostler_summary"
+exit "$_ostler_rc"

@@ -1,0 +1,4 @@
+# English on purpose, with the reason. l10n/test_translation_complete.py exempts these rows.
+lang	catalogue	key	reason
+*	hintcopy	graph_db_start/subtitle	three product names (Qdrant + Oxigraph + Redis), not prose
+*	viewcopy	assistant_name_suggestions/comma_separated	example assistant names, kept as written in every language (glossary.yaml)

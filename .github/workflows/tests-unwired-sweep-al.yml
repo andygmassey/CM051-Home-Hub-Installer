@@ -68,7 +68,7 @@ jobs:
       - name: Install python deps for the vendored-module tests
         # cm019 ingest parsers (aiofiles/bs4/lxml/pydantic*), ostler_fda pwg_ingest
         # (httpx/nameparser) and cm041 identity_resolver (rapidfuzz/httpx/phonenumbers).
-        run: python3 -m pip install --quiet aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers nameparser pyyaml
+        run: python3 -m pip install --quiet aiofiles pydantic pydantic-settings beautifulsoup4 lxml rapidfuzz httpx phonenumbers "nameparser>=2.1.0,<3.0" pyyaml
 
       - name: Shell tests (a..l)
         run: |
@@ -92,6 +92,7 @@ jobs:
             test_conversation_bundle_user_id_wired.sh \
             test_conversations_ingest_wiring.sh \
             test_cx100_mail_accounts_detection.sh \
+            test_background_pause_gates_contact_and_email.sh \
             test_cx101_prelaunch_gate_population.sh \
             test_cx130_mail_populate_phase2.sh \
             test_cx18_q7_channel_choice_labels_match_install_sh.sh \
@@ -132,9 +133,25 @@ jobs:
       - name: The manual Homebrew tarball install targets a pinned release tag
         if: always()
         run: bash tests/test_a_manual_brew_tarball_must_target_a_branch_that_still_exists.sh
+      - name: The care rules walk probe goes PASS, FAIL and CANNOT-RUN on fixtures
+        if: always()
+        run: bash tests/test_care_rules_probe.sh
       - name: The Homebrew bootstrap is pinned and sha256-verified (red team DMG #27 F3-1)
         if: always()
         run: bash tests/test_homebrew_bootstrap_is_pinned.sh
+
+      # INDIVIDUAL STEP, same reason as the one above: new-tests-wired needs the
+      # test's path and an execution verb on one line. Pause gates on the contact
+      # re-index and the hourly email import (the tester scenario, 2026-11-13).
+      - name: Paused means no contact re-index and no email import; unpaused means work
+        if: always()
+        run: bash tests/test_background_pause_gates_contact_and_email.sh
+
+      # INDIVIDUAL STEP for the same reason as the one above: the care rules
+      # (AGENTS.md + local helpline) are written into the daemon workspace.
+      - name: The care rules and the local helpline are written into the assistant workspace
+        if: always()
+        run: bash tests/test_care_agents_md.sh
 
       # INDIVIDUAL STEP for the same reason as the one above (#2520): chat
       # history survived a box_pristine reset AND a reinstall because it

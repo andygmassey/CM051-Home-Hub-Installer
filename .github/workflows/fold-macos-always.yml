@@ -12,19 +12,18 @@
 # block, so one block failing cannot skip another block's tests. The source
 # workflows' own header comments are carried verbatim above each block.
 #
-# Folded jobs (11):
-#   (shards, measured seconds per leg: 226, 233)
+# Folded jobs (10):
+#   (shards, measured seconds per leg: 214, 221)
 #   b01  appcast-ship-wiring.yml :: appcast-ship-wiring  shard 2
 #   b02  dry-run-ledger.yml :: dry-run-ledger  shard 2
-#   b03  memory-embeddings.yml :: memory-embeddings  shard 1
+#   b03  memory-embeddings.yml :: memory-embeddings  shard 2
 #   b04  model-download-honesty.yml :: model-download-honesty  shard 2
-#   b05  test-wiring.yml :: test-wiring  shard 2
+#   b05  test-wiring.yml :: test-wiring  shard 1
 #   b06  tests-unwired-sweep-al.yml :: sweep-macos  shard 2
 #   b07  tests-unwired-sweep-mz.yml :: shell-macos  shard 2
-#   b08  the-trial-must-actually-end.yml :: subscription-spine  shard 1
+#   b08  the-trial-must-actually-end.yml :: subscription-spine  shard 2
 #   b09  unreachable-not-absence.yml :: denied-read  shard 1
 #   b10  unreachable-not-absence.yml :: driver-not-box  shard 1
-#   b11  upgrade-payload-shape.yml :: behaviour  shard 2
 name: fold-macos-always
 
 on:
@@ -47,7 +46,7 @@ permissions:
 jobs:
   macos-always:
     runs-on: macos-latest
-    # Sum of the folded jobs' own timeouts (195 min), capped at 70 so the
+    # Sum of the folded jobs' own timeouts (200 min), capped at 70 so the
     # CI Required Gate (75 min hard cap) still sees a verdict. Every step below
     # keeps its old job's timeout, so a hang is bounded where it always was.
     timeout-minutes: 70
@@ -613,7 +612,7 @@ jobs:
       # ========================================================================
       - id: b03_isolate
         name: "[b03] memory-embeddings.yml :: memory-embeddings -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b03 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b03 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b03
@@ -656,12 +655,12 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b03_s01
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && !cancelled() && steps.b03_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && !cancelled() && steps.b03_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: install.sh still wires the assistant's memory
         run: /bin/bash tests/test_memory_embeddings_wired.sh
       - id: b03_s02
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The gate discriminates (1 positive + 5 negative controls)
         # A gate with only a positive control cannot be told apart from one
@@ -671,7 +670,7 @@ jobs:
         # report clean.
         run: /bin/bash tests/test_memory_embeddings_wired.sh --selftest
       - id: b03_s03
-        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Parses under /bin/bash 3.2 (the cut host's shell)
         run: |
@@ -753,7 +752,7 @@ jobs:
       # ========================================================================
       - id: b05_isolate
         name: "[b05] test-wiring.yml :: test-wiring -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b05 != 'false' && matrix.shard == 2 }}
+        if: ${{ !cancelled() && steps.select.outputs.b05 != 'false' && matrix.shard == 1 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b05
@@ -796,17 +795,17 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b05_s01
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && !cancelled() && steps.b05_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && !cancelled() && steps.b05_isolate.conclusion != 'failure' }}
         timeout-minutes: 30
         name: The wiring gate discriminates (10 controls, incl. 4 x exit 2)
         run: /bin/bash tests/test_verify_test_wiring.sh
       - id: b05_s02
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 30
         name: No test file is newly unwired
         run: /bin/bash scripts/verify_test_wiring.sh
       - id: b05_s03
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 30
         name: Manifest is in sync with the tree
         run: |
@@ -824,7 +823,7 @@ jobs:
           fi
           echo "OK: manifest matches the tree"
       - id: b05_s04
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 30
         name: No patch(1) or merge backup file is tracked (*.orig, *.rej)
         # CM051 #2937 committed a 843-line enrichment.py.orig in this PUBLIC
@@ -832,7 +831,7 @@ jobs:
         # negative controls; exit 2 is CANNOT-RUN and fails the step.
         run: /bin/bash tests/test_no_patch_backup_files_tracked.sh
       - id: b05_s05
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 30
         name: Both files parse under /bin/bash 3.2 (the cut host's shell)
         run: |
@@ -851,7 +850,7 @@ jobs:
       # a gate that does not report is indistinguishable from one that passed.
       # It shares no state with the steps above.
       - id: b05_s06
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 1 && (always()) }}
         timeout-minutes: 30
         name: The unwired ceiling may only ever DECREASE
         env:
@@ -1020,14 +1019,44 @@ jobs:
         timeout-minutes: 30
         name: ostler-import hands the owner name to the people graph; unknown format is not a failure
         run: bash tests/test_ostler_import_owner_name_and_exit_code.sh
+      # INDIVIDUAL STEP, macOS: real processes at PPID 1 and BSD ps. The
+      # uninstaller stops every Ostler tick by exact path + uid after the
+      # bootouts, leaves look-alikes alone, and reports any survivor.
+      - id: b07_s03
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: The uninstaller stops orphaned Ostler ticks by exact path and reports survivors
+        run: bash tests/test_uninstall_stops_orphaned_ticks.sh
       # INDIVIDUAL STEP (OS003 #233): every pulled Ollama model is pinned to a
       # config digest and verified after the pull; a moved tag stops the install.
-      - id: b07_s03
+      - id: b07_s04
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Every pulled AI model has a pinned digest and a mismatch stops the install
         run: bash tests/test_model_digest_pins.sh
-      - id: b07_s04
+      - id: b07_s05
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: The installer language reaches config.toml as owner_language
+        run: bash tests/test_owner_language_from_installer.sh
+      # INDIVIDUAL STEP: an empty name or id is re-asked (GUI + terminal) or
+      # refused by name with no TTY; it never reaches _consent_cli_record.
+      - id: b07_s06
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: An empty owner name or id is re-asked or refused at the prompt, never at consent
+        run: bash tests/test_owner_name_id_never_empty.sh
+      - id: b07_s07
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: No mail extend-history prompt; mail, Safari and browser default to all history
+        run: bash tests/test_ingest_all_history_no_mail_prompt.sh
+      - id: b07_s08
+        if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: The 48GB+ tier installs qwen3.5:9b, not 35b-a3b
+        run: bash tests/test_tier48_picks_9b.sh
+      - id: b07_s09
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: install.sh structural + helper regression tests (m..z batch)
@@ -1035,6 +1064,7 @@ jobs:
           set -uo pipefail
           fail=0
           for t in \
+            tests/test_emails_settling_terminal.sh \
             tests/test_mail_content_probe.sh \
             tests/test_mail_onboarding_259_260.sh \
             tests/test_mailbox_ingest_leg_wired.sh \
@@ -1045,13 +1075,22 @@ jobs:
             tests/test_preferences_vendor_wired.sh \
             tests/test_resource_tier_governor.sh \
             tests/test_settling_progress_writer.sh \
+            tests/test_setup_progress_advancing.sh \
+            tests/test_settling_channels_survive_promote.sh \
+            tests/test_settling_refresh_agent.sh \
+            tests/test_settling_denominator_terminal_writes.sh \
+            tests/test_settling_seed_fixture_terminal.sh \
+            tests/test_settling_writers_end_to_end.sh \
+            tests/test_settling_zero_is_discovering.sh \
             tests/test_subscription_activation_path.sh \
             tests/test_sync_vendor_pin_untouched_on_abort.sh \
             tests/test_tailscale_recovery_wrapper.sh \
             tests/test_takeout_split_zip_no_abort.sh \
+            tests/test_uninstall_legacy_documents_root.sh \
             tests/test_uninstaller_keep_prompt.sh \
             tests/test_universal_import_leg_wired.sh \
             tests/test_user_facing_tree.sh \
+            tests/test_user_root_is_home_ostler_not_documents.sh \
             tests/test_usr_local_bin_symlinks_gui_safe.sh \
             tests/test_v1010_at_rest_exclusions.sh \
             tests/test_v1010_ingest_reroute_plists.sh \
@@ -1098,7 +1137,7 @@ jobs:
       # below carries no verb on its own line, so a test wired only there is
       # scored DARK. Measured: adding it to that list left the gate reporting
       # DARK, and this step is what makes it WIRED.
-      - id: b07_s05
+      - id: b07_s10
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The meeting brief guard can tell its own failure from a clean result
@@ -1108,7 +1147,7 @@ jobs:
         # lifts the real block from install.sh by marker and drives all three
         # outcomes, with the pre-fix block as a mutant that must SEND.
         run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
-      - id: b07_s06
+      - id: b07_s11
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: B2 -- a removed Transcripts folder is reported as removed
@@ -1118,14 +1157,14 @@ jobs:
         # exactly the masking scripts/verify_ci_steps_are_maskless.py exists to
         # forbid. It caught this: 1 maskable step of 359, and it was mine.
         run: bash tests/test_spoken_transcripts_absence_discriminated.sh
-      - id: b07_s07
+      - id: b07_s12
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: v1061-D001 -- the region step must not leak a raw traceback (#622)
         # if: always() -- shares the job with the loop above; without it a red in an
         # earlier m..z test would skip this one and mask it (verify_ci_steps_are_maskless).
         run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
-      - id: b07_s08
+      - id: b07_s13
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The installer downloads from the repo we publish to (#1625)
@@ -1145,20 +1184,20 @@ jobs:
       # belongs here rather than in the colima job that owns the runtime arms.
       #
       # if: always() -- same reason as the step above it.
-      - id: b07_s09
+      - id: b07_s14
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the success screen names the wiki credential
         run: bash tests/test_the_success_screen_names_the_wiki_credential.sh
       # The other half of the same credential: the customer is handed it, and
       # install.log is NOT. Its own step with an execution verb.
-      - id: b07_s10
+      - id: b07_s15
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the wiki password never reaches install.log
         run: bash tests/test_wiki_password_never_reaches_install_log.sh
       # #2364: Photos events are read on a default install; faces never are.
-      - id: b07_s11
+      - id: b07_s16
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Photos events are in the default preset
@@ -1168,7 +1207,7 @@ jobs:
       # also carries one, and an entry in the batch list above carries none.
       # Placed last so it can mask nothing; it carries `if: always()` so
       # nothing masks it.
-      - id: b07_s12
+      - id: b07_s17
         if: ${{ steps.select.outputs.b07 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The forward calendar window survives the hourly re-run
@@ -1206,7 +1245,7 @@ jobs:
       # contract where a silent pass costs money on every install.
       - id: b08_isolate
         name: "[b08] the-trial-must-actually-end.yml :: subscription-spine -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b08 != 'false' && matrix.shard == 1 }}
+        if: ${{ !cancelled() && steps.select.outputs.b08 != 'false' && matrix.shard == 2 }}
         env:
           PY: ${{ steps.python.outputs.python-path }}
           BLOCK: ${{ runner.temp }}/ci-fold/b08
@@ -1249,7 +1288,7 @@ jobs:
             echo "VIRTUAL_ENV=$BLOCK/venv"
           } >> "$GITHUB_ENV"
       - id: b08_s01
-        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 1 && !cancelled() && steps.b08_isolate.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 2 && !cancelled() && steps.b08_isolate.conclusion != 'failure' }}
         timeout-minutes: 20
         name: Name the tools, so a verdict can be attributed
         run: |
@@ -1258,7 +1297,7 @@ jobs:
           echo "python3: $(command -v python3) -- $(python3 --version)"
           echo "grep:    /usr/bin/grep (BSD)"
       - id: b08_s02
-        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 1 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 2 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' }}
         timeout-minutes: 20
         name: A customer 31 days in, who never subscribed, loses Ostler Pro
         run: /bin/bash tests/test_the_trial_must_actually_end.sh
@@ -1304,7 +1343,7 @@ jobs:
       # Pinned, because an unpinned install is a third party choosing when
       # this gate changes behaviour.
       - id: b08_s03
-        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 1 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' && steps.b08_s02.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 2 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' && steps.b08_s02.conclusion != 'failure' }}
         timeout-minutes: 20
         name: Install the Doctor rule's transitive dependency
         run: |
@@ -1322,12 +1361,12 @@ jobs:
       # suite nobody asked to move is how a green gate starts measuring a
       # different thing.
       - id: b08_s04
-        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 1 && (always()) }}
+        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: A beta tester is warned before their window closes, and loses no data when it does
         run: PATH="/tmp/doctor-venv/bin:$PATH" /bin/bash tests/test_beta_licence_expiry_warns_before_and_is_read_only.sh
       - id: b08_s05
-        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 1 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' && steps.b08_s02.conclusion != 'failure' && steps.b08_s03.conclusion != 'failure' && steps.b08_s04.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b08 != 'false' && matrix.shard == 2 && !cancelled() && steps.b08_isolate.conclusion != 'failure' && steps.b08_s01.conclusion != 'failure' && steps.b08_s02.conclusion != 'failure' && steps.b08_s03.conclusion != 'failure' && steps.b08_s04.conclusion != 'failure' }}
         timeout-minutes: 20
         name: The gate unit suite also runs under the Linux python matrix
         run: |
@@ -1516,77 +1555,24 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n scripts/box_walk_probes/probes/doctor_page_renders_for_a_customer.sh
           /bin/bash -n tests/test_a_probe_must_measure_the_box_not_the_driver.sh
-
-      # ========================================================================
-      # b11: upgrade-payload-shape.yml :: behaviour
-      # ========================================================================
-      # THE BEHAVIOURAL UPGRADE SUITE HAD NEVER RUN IN CI. It was UNWIRED in
-      # tests/TEST_WIRING.tsv, so 31 assertions about data-loss prevention during a
-      # customer upgrade were sitting in the repo executing nowhere. It is hermetic
-      # (mocks launchctl and codesign through PATH shims, no network, no pip) but
-      # asserts with plutil, so it needs macOS rather than ubuntu.
-      - id: b11_isolate
-        name: "[b11] upgrade-payload-shape.yml :: behaviour -- fresh tree, venv, HOME, TMPDIR"
-        if: ${{ !cancelled() && steps.select.outputs.b11 != 'false' && matrix.shard == 2 }}
-        env:
-          PY: ${{ steps.python.outputs.python-path }}
-          BLOCK: ${{ runner.temp }}/ci-fold/b11
+          /bin/bash -n scripts/box_walk_probes/probes/setup_progress_advancing.sh
+      # The setup-progress probe (v1.0.130 walk) must judge the BOX. Its self-test
+      # runs three arms through a stub ssh with temp homes: a box-only fixture (the
+      # driver HOME is empty, the box HOME holds the manifest, shards and writer
+      # plist) must PASS; an unreachable box must be CANNOT-RUN; a box-local run
+      # must read the local home. The stalled negative control must still FAIL.
+      # Requires exit 1; anything else marks the probe BROKEN.
+      - id: b10_s04
+        if: ${{ steps.select.outputs.b10 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 30
+        name: the setup-progress probe reads the box, never the driver
         run: |
-          set -eu
-          # A fresh machine also had no processes left over from another job.
-          # Every step after an isolate step carries CI_FOLD_BLOCK=<its tag>
-          # (via GITHUB_ENV), and a process inherits it even once orphaned, so
-          # anything an earlier block left running still carries it. Kill exactly
-          # those: nothing else on the machine carries the marker.
-          cf="$RUNNER_TEMP/ci-fold"
-          mkdir -p "$cf"
-          me=$$
-          ps -A -o pid=,ppid= > "$cf/procs" || true
-          # ONE read of every process's environment, not one per process: on
-          # macOS a ps per process cost 2 to 5 s per block (measured, PR #2962).
-          if [ -d /proc/self ]; then
-            grep -lzsa '^CI_FOLD_BLOCK=' /proc/[0-9]*/environ > "$cf/marked.raw" || true
-            sed -n 's|^/proc/\([0-9]*\)/environ$|\1|p' "$cf/marked.raw" > "$cf/marked"
-          else
-            ps eww -A -o pid=,command= > "$cf/marked.raw"
-            awk '/CI_FOLD_BLOCK=/ {print $1}' "$cf/marked.raw" > "$cf/marked"
+          set +e
+          /bin/bash scripts/box_walk_probes/probes/setup_progress_advancing.sh --self-test
+          rc=$?
+          set -e
+          echo "self-test rc=${rc}"
+          if [ "${rc}" -ne 1 ]; then
+            echo "A probe whose box arms do not hold has not earned a PASS." >&2
+            exit 1
           fi
-          marked=" $(tr '\n' ' ' < "$cf/marked") "
-          while read -r pid ppid; do
-            if [ "$pid" = "$me" ] || [ "$ppid" = "$me" ]; then continue; fi
-            case "$marked" in *" $pid "*) ;; *) continue ;; esac
-            kill -KILL "$pid" 2>/dev/null || true
-          done < "$cf/procs"
-          echo "CI_FOLD_BLOCK=b11" >> "$GITHUB_ENV"
-          git -C "$GITHUB_WORKSPACE" reset --hard -q HEAD
-          git -C "$GITHUB_WORKSPACE" clean -ffdxq
-          rm -rf "$BLOCK"
-          mkdir -p "$BLOCK/home" "$BLOCK/tmp"
-          "$PY" -m venv --system-site-packages "$BLOCK/venv"
-          echo "$BLOCK/venv/bin" >> "$GITHUB_PATH"
-          {
-            echo "HOME=$BLOCK/home"
-            echo "TMPDIR=$BLOCK/tmp"
-            echo "VIRTUAL_ENV=$BLOCK/venv"
-          } >> "$GITHUB_ENV"
-      - id: b11_s01
-        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 2 && !cancelled() && steps.b11_isolate.conclusion != 'failure' }}
-        timeout-minutes: 15
-        name: Upgrade-mode invariants (31 assertions, incl. rollback + no-stdin-hang)
-        run: /bin/bash tests/test_upgrade_mode_invariants.sh
-      # The upgrade path must REPAIR the fda venv, not just swap the daemon.
-      #
-      # CM051 #939 fixed a missing ostler_fda in the PROMOTED venv. The upgrade
-      # block exits ~3000 lines before the promote, so #939 reached new
-      # installs only and every already-installed box kept a frozen graph
-      # permanently, updates included (HR015 #595).
-      #
-      # Behavioural: extracts the real function and runs it against a real venv
-      # and a package laid out the way the shipped one is. Needs python3.11+
-      # for PEP 660 editables and reports CANNOT-RUN (exit 2) rather than
-      # passing if it cannot find one.
-      - id: b11_s02
-        if: ${{ steps.select.outputs.b11 != 'false' && matrix.shard == 2 && (always()) }}
-        timeout-minutes: 15
-        name: the upgrade repairs the fda venv (HR015 #595)
-        run: /bin/bash tests/test_upgrade_repairs_the_fda_venv.sh

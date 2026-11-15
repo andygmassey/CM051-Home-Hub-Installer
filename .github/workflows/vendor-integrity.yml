@@ -18,6 +18,8 @@ on:
       # The Time Machine exclusion test runs install.sh's helper AND the
       # Doctor's live rule, so it is watched from both sides.
       - 'tests/test_time_machine_exclusion_is_measured.sh'
+      # NEW-121: Doctor spawns no subprocess on a TCC-protected path.
+      - 'tests/test_doctor_spawns_no_protected_path_subprocess.py'
       - 'install.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'vendor/cm059_editor/compiler/interest_profile.py'
@@ -65,6 +67,8 @@ on:
       - 'tests/test_frontpage_tick_emits_interest_profile.sh'
       - 'tests/test_frontpage_tick_triggers_wiki_recompile_on_change.sh'
       - 'tests/test_digest_refreshes_when_the_interest_profile_lands.sh'
+      - 'tests/test_an_import_reaches_the_digest_straight_away.sh'
+      - 'tests/test_import_kicks_digest_after_frontpage_compile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
       # The two behavioural gates added with the credential-route refusal and
@@ -73,6 +77,7 @@ on:
       # makes the workflow trigger, and a run with no path entry is a gate that
       # never fires on a change to itself.
       - 'tests/test_doctor_credential_routes_refuse_cross_site.sh'
+      - 'tests/test_doctor_credential_routes_owner_only.sh'
       - 'tests/test_every_conversation_produces_all_four_artefacts.py'
       - 'vendor/cm048_pipeline/src/conversation_writer.py'
       - 'tests/test_the_doctor_status_poll_has_a_fork_budget.py'
@@ -81,6 +86,7 @@ on:
       # #2977: the Doctor's "Ollama is not on Ostler's pinned version" row. The
       # test runs install.sh's pin writer (watched above) and these Doctor files.
       - 'tests/test_doctor_says_when_ollama_is_not_pinned.sh'
+      - 'tests/test_deferred_pin_still_pulls_the_model.sh'
       - 'vendor/doctor/agent/diagnostic_rules.py'
       - 'vendor/doctor/agent/diagnostic_copy.py'
       - 'vendor/doctor/agent/web_ui.py'
@@ -91,6 +97,9 @@ on:
       - 'vendor/doctor/agent/pair_status.py'
       - 'tests/test_the_pairing_qr_refuses_an_address_the_phone_cannot_open.py'
       - 'tests/test_editor_feedback_accepts_the_add_verb.sh'
+      - 'tests/test_front_page_not_me_probe_end_to_end.sh'
+      - 'scripts/box_walk_probes/probes/front_page_not_me_is_saved.sh'
+      - 'scripts/box_walk_probes/lib/front_page_not_me.py'
       - 'tests/test_the_doctor_dashboard_actually_renders.sh'
       - 'tests/test_the_doctor_page_is_on_brand.py'
       # The four files that carry the Doctor's palette. The brand gate reads all
@@ -144,6 +153,10 @@ on:
       # matching path entry means editing this file does not trigger
       # the only workflow that checks it.
       - 'tests/test_a_dead_wiki_announces_itself.py'
+      - 'tests/test_a_killed_wiki_compile_is_a_doctor_red.py'
+      - 'tests/test_a_store_oom_restart_is_a_doctor_red.py'
+      - 'wiki-recompile/bin/wiki-recompile-tick.sh'
+      - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_container_engine_liveness_and_recovery.sh'
       - 'tests/test_engine_supervisor_judges_the_ports_not_colima_list.sh'
       - 'bin/ostler-engine-supervisor.sh'
@@ -151,6 +164,7 @@ on:
       # tests are RUN below, so both are watched here.
       - 'tests/test_listener_watchdog_restarts_a_dead_listener.sh'
       - 'tests/test_listener_watchdog_walk_probe.sh'
+      - 'tests/test_listener_watchdog_budget.sh'
       - 'scripts/box_walk_probes/probes/listener_watchdog_recovers_a_wedged_listener.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'tests/test_doctor_silent_failure_grafts.py'
@@ -476,6 +490,18 @@ jobs:
         if: always()
         run: bash tests/test_digest_refreshes_when_the_interest_profile_lands.sh
 
+      # smart-prefs P1: the import itself kicks the compile, so preferences
+      # reach the digest and pwg_preferences now, not at the hourly tick.
+      - name: an import reaches the digest and pwg_preferences straight away
+        if: always()
+        run: bash tests/test_an_import_reaches_the_digest_straight_away.sh
+
+      # The import kicks the owner digest only AFTER the compile it kicked has
+      # rewritten the interest profile (bounded), in its own process group.
+      - name: the import kicks the digest after the front-page compile finishes
+        if: always()
+        run: bash tests/test_import_kicks_digest_after_frontpage_compile.sh
+
       # Imported SYMBOLS resolve, not just modules (D024, second mechanism).
       #
       # WHY THIS STEP EXISTS SEPARATELY FROM THE ONE ABOVE. A module-level check
@@ -592,6 +618,13 @@ jobs:
       - name: Credential routes refuse cross-site, and still serve the real callers
         if: always()
         run: bash tests/test_doctor_credential_routes_refuse_cross_site.sh
+      # S1 (red team v1.0.124): the five credential routes answer only the
+      # Mac's owner. A second account and a tailnet peer relayed by tailscaled
+      # are refused by the kernel's view of the peer process; the owner still
+      # gets every credential. Exit 2 is CANNOT-RUN.
+      - name: Credential routes answer the owner only (second account and tailnet refused)
+        if: always()
+        run: bash tests/test_doctor_credential_routes_owner_only.sh
       # Status-honesty sweep I1 (walk #28, privacy). The installer said three
       # folders were excluded from Time Machine after `tmutil addexclusion ...
       # 2>/dev/null || true`. Runs the real install.sh helper and call site
@@ -601,6 +634,14 @@ jobs:
       - name: A Time Machine exclusion is read back, never assumed
         if: always()
         run: bash tests/test_time_machine_exclusion_is_measured.sh
+      # NEW-121 (v1.0.120 box): Doctor's own python ran `tmutil isexcluded`
+      # on ~/Ostler, so TCC charged a NON-preflight Documents request
+      # to python3.11. CALLS the Doctor rule under an audit hook (no spawn, no
+      # stat under ~/Documents), runs the real fda-rerun writer into the real
+      # reader, and pins every Doctor subprocess call site to the swept table.
+      - name: Doctor spawns no subprocess on a protected path (NEW-121)
+        if: always()
+        run: python3 tests/test_doctor_spawns_no_protected_path_subprocess.py
       # Runs after the requirements install above: it imports the shipped app.
       - name: The Hub reads the Doctor like the app does (#2552, #2538)
         if: always()
@@ -611,6 +652,12 @@ jobs:
       - name: The Doctor says when Ollama is not on Ostler's pinned version
         if: always()
         run: bash tests/test_doctor_says_when_ollama_is_not_pinned.sh
+
+      # A deferred Ollama pin still pulls the tier model (unpinned, loud, recorded for
+      # the Doctor); a failed pull is ERR-13. Mutants must fail; exit 2 is CANNOT-RUN.
+      - name: A deferred Ollama pin still pulls the chat model
+        if: always()
+        run: bash tests/test_deferred_pin_still_pulls_the_model.sh
 
       # #947. The pairing envelope validated hub_addr as a non-empty string and
       # encoded it verbatim into the QR the customer scans. A link-local address
@@ -628,6 +675,14 @@ jobs:
       - name: The Front Page add verb reaches the store and survives a compile
         if: always()
         run: bash tests/test_editor_feedback_accepts_the_add_verb.sh
+
+      # CM051 #2470 (v1.0.105 walk: Not me came back on the next visit). The walk
+      # probe POSTs a Not me from Origin tauri://localhost to the REAL Doctor,
+      # re-reads both stores, and must FAIL against a no-persist server, a server
+      # that refuses the app origin, and a mutant Doctor with that origin removed.
+      - name: The Not me walk probe passes the real route and fails every broken one
+        if: always()
+        run: bash tests/test_front_page_not_me_probe_end_to_end.sh
 
       # v1.0.38 walk, 2026-08-23: the wiki was dead for about a day
       # and NOTHING said so. No alert, no card, no banner -- it was found only
@@ -682,6 +737,19 @@ jobs:
         if: always()
         run: python3 ./tests/test_a_dead_wiki_announces_itself.py
 
+      # v1.0.125 walk: the wiki compile was OOM-killed inside the VM and the
+      # wiki silently stopped updating. The REAL tick (stub docker + colima)
+      # writes the marker and the REAL Doctor rule turns it into a RED.
+      - name: A killed wiki compile is a Doctor RED
+        if: always()
+        run: python3 ./tests/test_a_killed_wiki_compile_is_a_doctor_red.py
+
+      # 125 box: the OOM killer took the oxigraph STORE and Docker restarted it
+      # silently. A store restart (oom event / OOMKilled / RestartCount) is RED.
+      - name: A store OOM-killed and restarted is a Doctor RED
+        if: always()
+        run: python3 ./tests/test_a_store_oom_restart_is_a_doctor_red.py
+
       # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
       #
       # Measured on Andrews-Mac-mini 2026-08-23, left unrepaired so it could
@@ -717,6 +785,10 @@ jobs:
       - name: The listener watchdog walk probe recovers a SIGSTOPped daemon (fake harness)
         if: always()
         run: bash tests/test_listener_watchdog_walk_probe.sh
+
+      - name: The listener watchdog probe budget is derived, and the capture cannot hold the restart
+        if: always()
+        run: bash tests/test_listener_watchdog_budget.sh
 
       # Tests IMPORT, production EXECUTES, and nothing checked the difference.
       #

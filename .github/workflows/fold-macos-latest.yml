@@ -54,9 +54,13 @@ on:
       - 'tests/test_consent_a7_a8.sh'
       - 'tests/test_third_party_data_consent.sh'
       - 'tests/test_autologin_consent_opt_in.sh'
+      - 'tests/test_filevault_default_no_confirm.sh'
       - 'tests/test_recording_consent_fields_have_a_producer_and_a_consumer.py'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'tests/test_recording_consent_gates_the_capture_companion.sh'
+      - 'tests/test_remotecapture_enable_later_no_reinstall.sh'
+      - 'tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh'
+      - 'scripts/remotecapture_transcription.sh'
       - 'lib/progress_emitter.sh'
       - 'tests/test_the_consent_rules_table_is_safe.py'
       - 'lib/transcription_consent_rules.csv'
@@ -75,6 +79,7 @@ on:
       - 'tests/test_cut_dispatch_is_dry.sh'
       - 'scripts/push_cut_tag.sh'
       - 'tests/test_push_cut_tag_refuses_a_red_checklist.sh'
+      - 'tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh'
       - 'tests/test_rehearse_tag_is_the_tag_preflight.sh'
       - 'scripts/verify_daemon_hold_registers_agree.py'
       - 'tests/test_daemon_hold_registers_agree.sh'
@@ -107,6 +112,8 @@ on:
       - 'scripts/walk_dmg.sh'
       - 'tests/test_arm8b_vetoes_on_importable_not_merely_uncovered.sh'
       - 'tests/test_walk_arms_distinguish_cannot_run_from_fail.sh'
+      - 'scripts/verify_seeded_pyc_matches_source.py'
+      - 'tests/test_verify_seeded_pyc_matches_source.py'
       - 'tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh'
       - 'tests/test_marker_grep_is_three_state.sh'
       - 'scripts/cut_markers.manifest'
@@ -188,9 +195,19 @@ on:
       - 'scripts/box_walk_probes/lib/data_conservation.py'
       - 'scripts/box_walk_probes/fixtures/data_conservation/**'
       - 'scripts/tests/test_data_conservation_probe.sh'
+      - 'scripts/tests/test_data_conservation_collect_budget.sh'
+      - 'tests/test_data_conservation_row_evidence.py'
+      - 'tests/test_data_conservation_walk_fixture_is_typed.py'
+      - 'tests/test_data_conservation_people_shown_and_whatsapp_runs.py'
+      - 'tests/test_data_conservation_counted_run_row.sh'
+      - 'tests/test_swap_curve_sampler.sh'
+      - 'scripts/box_walk_probes/lib/smart_prefs.py'
+      - 'scripts/box_walk_probes/lib/counted_run.sh'
+      - 'scripts/box_walk_probes/lib/swap_curve.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_the_downloads_watcher_survives_a_real_export.sh'
       - 'tests/test_a_failed_import_is_not_announced_as_done.sh'
+      - 'tests/test_linkedin_export_imports_once.sh'
       - 'lib/ostler-detect-exports.sh'
       - 'tests/test_loose_exports_in_downloads_are_found_and_said.sh'
       - 'vendor/doctor/agent/web_ui.py'
@@ -205,13 +222,17 @@ on:
       - 'tests/test_fda_dialog_tells_the_truth.sh'
       - 'tests/test_fda_modal_names_a_path_a_human_can_reach.sh'
       - 'tests/test_gdpr_export_detect.sh'
+      - 'tests/test_f010_clt_wait_and_scan_budget.sh'
       - 'tests/test_export_detect_large_zip_behaviour.sh'
       - 'tests/test_unzip_every_archive_is_opened_or_reported.sh'
+      - 'tests/test_chatgpt_export_detect_and_stage.sh'
+      - 'vendor/cm052_ai_conversations/src/cm052/adapters/chatgpt_export.py'
       - 'lib/ostler-ingest-slot.sh'
       - 'tests/test_ingest_slot_fairness.sh'
       - 'tests/test_a_hung_slot_holder_is_stopped.sh'
       - 'tests/test_background_qos_yields_to_chat.sh'
       - 'tests/test_no_heavy_job_bypasses_the_chat_yield.sh'
+      - 'assistant-agent/launchd/com.creativemachines.ostler.assistant.plist'
       - 'tests/test_prelaunch_libs_survive_promote.sh'
       - 'vendor/email_source/bin/email-bundle-tick.sh'
       - 'vendor/imessage_source/bin/imessage-bundle-tick.sh'
@@ -228,6 +249,7 @@ on:
       - 'tests/PROMPT_LOOP_UNBOUNDED_CEILING'
       - 'tests/test_every_detected_export_reaches_the_importer.sh'
       - 'tests/test_the_wiki_backfill_enrols_for_the_slot.sh'
+      - 'tests/test_wiki_compiler_gets_assistant_name.sh'
       - 'tests/test_the_shipped_compose_mounts_ai_conversations.sh'
       - 'tests/test_the_shipped_compose_mounts_conversations.sh'
       - 'tests/test_the_shipped_stores_have_fd_headroom.sh'
@@ -237,18 +259,34 @@ on:
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
       - 'scripts/box_walk_probes/probes/people_stores_reconcile.sh'
       - 'scripts/tests/test_no_person_holds_two_contact_cards_probe.sh'
+      - 'scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh'
       - 'scripts/tests/test_ingest_coverage_probe.sh'
+      - 'scripts/tests/test_walk_safari_seed.sh'
+      - 'scripts/lib_walk_safari_seed.sh'
+      - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
+      - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
+      - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
       - 'scripts/box_walk_probes/probes/**'
       - 'scripts/box_walk_probes/lib/**'
+      - 'tests/test_contact_cards_seed_runs_the_probe.py'
+      - 'tests/test_install_repairs_merge_consistency_after_dedupe.py'
+      - 'vendor/cm041/contact_syncer/**'
+      - 'vendor/cm041/identity_resolver/**'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'vendor/ostler_fda/dedupe_merge.py'
+      - 'tests/test_walk_probes_print_causes.py'
+      - 'tests/test_two_cards_probe_verdict_holes.py'
+      - 'tests/test_rule2_override_is_rechecked_in_the_graph.py'
       - 'tests/test_launchagent_success_requires_verification.sh'
       - 'tests/test_launchagent_refusal_reason_is_recorded.sh'
       - 'tests/test_launchagent_refusal_reaches_the_transcript.sh'
       - 'tests/test_launchagent_bootout_settles_before_bootstrap.sh'
       - 'tests/test_every_launchagent_is_torn_down.sh'
       - 'tests/test_ollama_watchdog_heals_only_a_wedge.sh'
+      - 'tests/test_pause_unloads_model.sh'
       - 'tests/test_promote_keeps_open_logs_linked.sh'
       - 'tests/test_uninstall_removes_every_launchagent_plist.sh'
       - 'tests/test_uninstall_writes_deliberate_stop_marker.sh'
@@ -268,7 +306,6 @@ on:
       - 'vendor/doctor/agent/whatsapp_pair.py'
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/doctor/agent/web_ui_copy.py'
-      - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_people_sweep_partial_landing_is_not_success.py'
       - 'tests/test_people_hydrate_partial_landing_sentinel.sh'
       - 'tests/test_safari_extension_paired_bearer_write.sh'
@@ -507,6 +544,11 @@ jobs:
         timeout-minutes: 30
         name: auto-login consent is opt-in and its copy does not overclaim
         run: /bin/bash tests/test_autologin_consent_opt_in.sh
+      - id: b02_s03
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
+        timeout-minutes: 30
+        name: FileVault-off install needs a second, default-No confirm (bare Enter never continues)
+        run: /bin/bash tests/test_filevault_default_no_confirm.sh
       # SAME JOB, SAME REASON. This one extracts the RemoteCapture phase out of
       # install.sh and EXECUTES it under three consent answers, so it has to run
       # under the shell the artefact ships under.
@@ -516,17 +558,42 @@ jobs:
       # becomes unreachable code -- the class cannot-run-branch-reachable exists
       # to catch. A harness that could not read the phase has measured NOTHING
       # about it, and that is not a pass.
-      - id: b02_s03
+      - id: b02_s04
         if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
-        name: a declined recording consent stops the capture companion being installed
+        name: a declined recording consent stages the capture companion disabled, never live
         run: |
           set -uo pipefail
           rc=0
           /bin/bash tests/test_recording_consent_gates_the_capture_companion.sh || rc=$?
           if [ "$rc" -eq 2 ]; then
-            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent stops it. This is not a pass."
+            echo "::error title=CANNOT-RUN (harness, not product)::The RemoteCapture phase could not be extracted from install.sh, so NOTHING was measured about whether a declined recording consent leaves it disabled. This is not a pass."
           fi
+          exit "$rc"
+      # Turning transcription on later must not need a reinstall. The installer
+      # stages the app and a disabled plist for every answer; the enable script
+      # is the in-place path, and it must refuse without an accepted record.
+      - id: b02_s05
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
+        timeout-minutes: 30
+        name: transcription enabled later in place, no reinstall, refused without consent
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_remotecapture_enable_later_no_reinstall.sh || rc=$?
+          exit "$rc"
+      # The Hub Settings toggle (ostler-assistant #677) runs the installed copy of
+      # this script at ${OSTLER_DIR}/bin, with OSTLER_PYTHON from the assistant
+      # plist. Asserts install.sh lands it there, the rendered plist names it and
+      # a python that imports consent_cli, and status runs through that env.
+      - id: b02_s06
+        if: ${{ steps.select.outputs.b02 != 'false' && matrix.shard == 3 && (always()) }}
+        timeout-minutes: 30
+        name: Hub Settings toggle finds the installed script through the daemon's plist
+        run: |
+          set -uo pipefail
+          rc=0
+          /bin/bash tests/test_remotecapture_transcription_is_wired_for_the_daemon.sh || rc=$?
           exit "$rc"
 
       # ========================================================================
@@ -647,6 +714,14 @@ jobs:
         timeout-minutes: 30
         name: A cut tag is not pushed while the tag-time checklist is red
         run: /bin/bash tests/test_push_cut_tag_refuses_a_red_checklist.sh
+      # v1.0.114 spent its one tag push when CM051 #2993 crossed 48h between the
+      # green candidate and the tag run's check-pr-age. push_cut_tag.sh now
+      # re-asks with a 3h lookahead immediately before the push.
+      - id: b03_s07
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: A cut tag is not pushed while a PR will cross 48h within the lookahead
+        run: /bin/bash tests/test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh
       # THE OTHER HALF OF THE SAME QUESTION, AND IT IS NOT THE SAME TEST.
       # The suite above asks whether a dispatch can SHIP. This one asks whether
       # a dispatch can RUN AT ALL: arm 3 walks the dry-run job's transitive
@@ -672,7 +747,7 @@ jobs:
       # reproduces the same defect one layer up, so the import is proved AFTER
       # the install and the step dies if it is still missing. No `|| true` on
       # the verify.
-      - id: b03_s07
+      - id: b03_s08
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: PyYAML must be present, or the dry-run check cannot parse cut.yml
@@ -687,7 +762,7 @@ jobs:
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
       # After the PyYAML step: this test parses cut.yml. Placed before it, the
       # first run crashed on import and the mutant arms read the crash as caught.
-      - id: b03_s08
+      - id: b03_s09
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A tag rehearsal runs the tag preflight and builds nothing
@@ -695,12 +770,12 @@ jobs:
       # After the PyYAML step (the script parses permanent.yaml).
       # v1.0.110 spent its tag on a daemon hold written in daemon_hold_ack.tsv only:
       # check-manifest reads permanent.yaml, inside the build, after the tag.
-      - id: b03_s09
+      - id: b03_s10
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The daemon hold is in both hold registers (fixtures)
         run: /bin/bash tests/test_daemon_hold_registers_agree.sh
-      - id: b03_s10
+      - id: b03_s11
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The dry run is structurally reachable on a dispatch
@@ -709,21 +784,21 @@ jobs:
       # self-tests that ran nowhere. Each proves its gate REJECTS a violation,
       # not merely that it compiles -- the distinction this repo learned the
       # expensive way.
-      - id: b03_s11
+      - id: b03_s12
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The commit-parity gate FIRES
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_verify_commit_parity_gate.sh
-      - id: b03_s12
+      - id: b03_s13
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The stapling gate FIRES and is not a no-op
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_verify_stapling_gate.sh
-      - id: b03_s13
+      - id: b03_s14
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A bundle name with a space survives the staple loops (v1.0.99)
@@ -736,14 +811,14 @@ jobs:
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash tests/test_a_bundle_name_with_a_space_survives_the_staple_loops.sh
-      - id: b03_s14
+      - id: b03_s15
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The cross-language trust-anchor guard FIRES, on the right axis
         # if: always() -- ci-maskless (#1695): without it a red earlier in the
         # same job SKIPS this step, and a skipped test reports nothing at all.
         run: /bin/bash scripts/tests/test_no_env_trust_anchors.sh
-      - id: b03_s15
+      - id: b03_s16
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: run() cannot report a gate that died as a pass
@@ -771,7 +846,7 @@ jobs:
       # reproduces the same defect one layer up, so the import is proved AFTER
       # the install and the step dies if it is still missing. No `|| true` on
       # the verification.
-      - id: b03_s16
+      - id: b03_s17
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: PyYAML must be present, or the wiring assertion cannot run
@@ -784,12 +859,12 @@ jobs:
               || true
           fi
           python3 -c 'import yaml, sys; sys.stdout.write("PyYAML %s on %s\n" % (yaml.__version__, sys.version.split()[0]))'
-      - id: b03_s17
+      - id: b03_s18
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The run-at-commit gate is wired into the cut and can answer
         run: /bin/bash tests/test_the_run_at_commit_gate_is_wired_into_the_cut.sh
-      - id: b03_s18
+      - id: b03_s19
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Test parses under /bin/bash 3.2 (the cut host's shell)
@@ -812,7 +887,7 @@ jobs:
       #
       # if: always() because this is not the first step -- a failure above must
       # not skip it. A skipped check reads as no objection.
-      - id: b03_s19
+      - id: b03_s20
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The PR-age gate declares the repos it could NOT check
@@ -820,12 +895,12 @@ jobs:
       # An inline YAML comment on a review_by line was read as part of the
       # date: BSD date called it valid, GNU date called it undated (the
       # CM051#1818 row, 2026-10-18). This pins the parsed value.
-      - id: b03_s20
+      - id: b03_s21
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: The PR-age gate reads review_by without its inline comment
         run: /bin/bash tests/test_pr_age_review_by_ignores_an_inline_comment.sh
-      - id: b03_s21
+      - id: b03_s22
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: Every wrapper still HAS a cannot-run branch
@@ -858,7 +933,7 @@ jobs:
       # script with a stubbed codesign through four modes and asserts the
       # reason reaches the log, that a real fault is not retried, and that a
       # persistent timestamp failure is bounded and still fails closed.
-      - id: b03_s22
+      - id: b03_s23
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: sign-python-bundle reports WHY it failed
@@ -869,7 +944,7 @@ jobs:
       # -- the bundle audit refuses to sign -- but the cut stops with an error
       # describing the symptom in a different compartment from the cause.
       # This reads the regex OUT of the script, so it cannot drift.
-      - id: b03_s23
+      - id: b03_s24
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the product seed actually seeds the product tree
@@ -878,7 +953,7 @@ jobs:
       # named cpython-314 is invisible to the 3.11 that ships, so it would be
       # regenerated INTO the seal while compileall, the file count and the exit
       # code all reported success. Shim tarballs, so this costs nothing in CI.
-      - id: b03_s24
+      - id: b03_s25
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the hub payload seed refuses a wrong interpreter
@@ -903,17 +978,17 @@ jobs:
       # bytes at two paths emits two different .pyc. Without it the next reader
       # takes the interpreter caveat at face value, pins the interpreter,
       # measures no difference, and deletes the exclusion.
-      - id: b03_s25
+      - id: b03_s26
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the pyc seed leaves the sealed nested Ostler.app byte-identical
         run: bash tests/test_pyc_seed_excludes_nested_ostler_app.sh
-      - id: b03_s26
+      - id: b03_s27
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: pyc bytes depend on the compile path (the reason for the above)
         run: bash tests/test_pyc_bytes_depend_on_compile_path.sh
-      - id: b03_s27
+      - id: b03_s28
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the assembled payload is .pyc-free before seeding (#644)
@@ -930,7 +1005,7 @@ jobs:
       # are cannot-run, while a genuine non-ancestor and a genuinely missing
       # marker are still RED. The teeth cases pass against the pre-fix gate too,
       # which is what proves the fix narrowed nothing.
-      - id: b03_s28
+      - id: b03_s29
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance gate -- cannot-run is never reported as stale
@@ -945,7 +1020,7 @@ jobs:
       # never inspected. This drives the real gate over a genuine one-row
       # manifest and proves a filter that matches nothing refuses (CANNOT-RUN),
       # never GREEN, while a filter that matches something is untouched.
-      - id: b03_s29
+      - id: b03_s30
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance gate refuses when it examined nothing
@@ -958,7 +1033,7 @@ jobs:
       # pipeline. Reproduced on a 679,963-byte daemon source file with the
       # marker on line 1. This test builds its own git repo and proves the
       # fixture races BEFORE asserting anything, so it cannot pass vacuously.
-      - id: b03_s30
+      - id: b03_s31
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: provenance marker read is not piped into grep -q
@@ -969,7 +1044,7 @@ jobs:
       # forgives only what provably cannot write a .pyc, and mutates every
       # clause of that exemption -- diffing each mutation first, because a
       # mutation that did not apply is a broken apparatus, not a pass.
-      - id: b03_s31
+      - id: b03_s32
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: arm 8b vetoes on importable, not merely uncovered
@@ -979,12 +1054,22 @@ jobs:
       # stapled / none found: three confident wrong verdicts about a DMG that
       # was never measured. A false cut-blocker is this estate's expensive
       # failure. Runs on macos-latest, where codesign, xcrun and spctl exist.
-      - id: b03_s32
+      - id: b03_s33
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: walk arms say CANNOT-RUN when they could not measure
         run: /bin/bash tests/test_walk_arms_distinguish_cannot_run_from_fail.sh
-      - id: b03_s33
+      - id: b03_s34
+        if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 30
+        name: ARM 9 catches a .py edited after its unchecked-hash .pyc was seeded
+        run: |
+          # A venv, never the runner's system Python (PEP 668:
+          # "externally-managed-environment" on macos-latest).
+          python3 -m venv "$RUNNER_TEMP/arm9-venv"
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pip install --quiet pytest
+          "$RUNNER_TEMP/arm9-venv/bin/python" -m pytest -q tests/test_verify_seeded_pyc_matches_source.py
+      - id: b03_s35
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: CANNOT-RUN is not a missing fix (manifest gate + its caller)
@@ -996,7 +1081,7 @@ jobs:
           python3 -m pip install --user --quiet pyyaml 2>/dev/null \
             || python3 -m pip install --break-system-packages --ignore-installed --quiet pyyaml 2>/dev/null || true
           /bin/bash tests/test_manifest_gate_cannot_run_is_not_a_missing_fix.sh
-      - id: b03_s34
+      - id: b03_s36
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: A marker pattern that cannot run is CANNOT-RUN, not 'absent'
@@ -1006,7 +1091,7 @@ jobs:
       # nothing says so. -E also makes alternation natural to write, and this
       # pipe-delimited manifest cannot carry it -- `foo|bar` parses as pattern
       # `foo`. Both limbs print their denominator and carry a must-fail control.
-      - id: b03_s35
+      - id: b03_s37
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: every marker pattern compiles, and none is a truncated alternation
@@ -1018,7 +1103,7 @@ jobs:
       # that neither incident looked at. Both times the right grep was run and
       # then scoped to one file while a verdict was reported about the repo.
       # This asks the whole tree every run and prints what it examined.
-      - id: b03_s36
+      - id: b03_s38
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: no gate execs a pinned image to read it (repo-wide)
@@ -1044,7 +1129,7 @@ jobs:
       # Needs no docker and no network -- it asserts WIRING and CANNOT-RUN
       # behaviour, which is why it can block every PR while the gate it guards
       # cannot. Carries its own DEMONSTRATED RED against origin/main.
-      - id: b03_s37
+      - id: b03_s39
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the wiki content gate is invoked, and cannot-run is not a pass
@@ -1085,7 +1170,7 @@ jobs:
       # PR or to its base -- fell through and the row PASSED. A human acting on
       # an UNKNOWN has a backstop: the merge API 405s a real conflict. A cut
       # gate has none; nothing downstream re-asks.
-      - id: b03_s38
+      - id: b03_s40
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: UNKNOWN mergeability is not clean (#888)
@@ -1110,7 +1195,7 @@ jobs:
       # pinned manifests return HTTP 200 to an ANONYMOUS ghcr.io token, and a
       # bogus digest on the same path returns 404 -- so the probe discriminates
       # and no registry credential is required on the runner.
-      - id: b03_s39
+      - id: b03_s41
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: pinned wiki images are arm64-only
@@ -1123,7 +1208,7 @@ jobs:
       # if: always() -- many test steps precede this one in the same job, and a
       # step that only runs when everything before it passed cannot report on a
       # red run, which is exactly when a cut-tooling guard matters.
-      - id: b03_s40
+      - id: b03_s42
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh -- a SCOPED cut is not a STARTED cut
@@ -1144,7 +1229,7 @@ jobs:
       #
       # Its mutation control is not synthetic: it runs against the REAL
       # pre-fix new_cut.sh from origin/main, and fails naming both refusals.
-      - id: b03_s41
+      - id: b03_s43
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh gates on everything the cut preflight gates on
@@ -1156,7 +1241,7 @@ jobs:
       # gates and requires new_cut.sh to invoke each one. Its mutation control
       # is the REAL pre-fix new_cut.sh from origin/main, on which it fails and
       # names verify_bom_rows_are_in_the_pin.sh -- the gate that killed v1.0.77.
-      - id: b03_s42
+      - id: b03_s44
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: new_cut.sh covers every pre-tag gate cut.yml runs
@@ -1167,7 +1252,7 @@ jobs:
       # that writes the credential it checks for, so ERR-06-PORTS-HELD refused
       # the installer's own just-started runtime. Mutation control is the REAL
       # pre-fix install.sh from origin/main, on which this fails 2 of 5.
-      - id: b03_s43
+      - id: b03_s45
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: a first install can claim its own colima port (#567 signal 2)
@@ -1187,7 +1272,7 @@ jobs:
       # if: always() -- see the note on the step above. Many test steps precede
       # this one in the same job, and a step that runs only when everything
       # before it passed cannot report on a red run.
-      - id: b03_s44
+      - id: b03_s46
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the vendored rollforward gate matches its OS003 pin (PR-side)
@@ -1195,7 +1280,7 @@ jobs:
       # #1485: one script said "OS003 has no BOM for v1.0.67 -- write it there
       # first" seconds after another had read that exact file. It had looked in
       # a different checkout, and that checkout was iCloud-evicted and stale.
-      - id: b03_s45
+      - id: b03_s47
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: the OS003 sync scripts agree on which checkout they read
@@ -1204,7 +1289,7 @@ jobs:
       # itself a thing that rots: add a fifth file to the pin and the trigger
       # silently stops covering it. This derives the list FROM the pin and
       # goes red on any file the pin covers that paths: does not.
-      - id: b03_s46
+      - id: b03_s48
         if: ${{ steps.select.outputs.b03 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 30
         name: every file the rollforward pin covers triggers this workflow
@@ -1512,7 +1597,32 @@ jobs:
         name: probe contract, scope row and exit codes
         run: /bin/bash scripts/tests/test_data_conservation_probe.sh
       - id: b05_s03
-        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && !cancelled() && steps.b05_isolate.conclusion != 'failure' && steps.b05_s01.conclusion != 'failure' && steps.b05_s02.conclusion != 'failure' }}
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 15
+        name: per-row salted-hash evidence is written on the box, never a plaintext fixture name, and counts are unchanged
+        run: python3 tests/test_data_conservation_row_evidence.py
+      - id: b05_s04
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 15
+        name: the walk's preference fixture is seeded as typed preferences the graph counter reads
+        run: python3 tests/test_data_conservation_walk_fixture_is_typed.py
+      - id: b05_s05
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 15
+        name: people SHOWN is summed over every source, and a cross-run row is CANNOT-RUN, never LOST
+        run: python3 tests/test_data_conservation_people_shown_and_whatsapp_runs.py
+      - id: b05_s06
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 15
+        name: the walk record names the data_conservation run that counts (the manifest replay)
+        run: /bin/bash tests/test_data_conservation_counted_run_row.sh
+      - id: b05_s07
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 15
+        name: the swap and pageout curve reads the box, writes NA never 0, brackets only the chat battery, and stops itself
+        run: /bin/bash tests/test_swap_curve_sampler.sh
+      - id: b05_s08
+        if: ${{ steps.select.outputs.b05 != 'false' && matrix.shard == 2 && !cancelled() && steps.b05_isolate.conclusion != 'failure' && steps.b05_s01.conclusion != 'failure' && steps.b05_s02.conclusion != 'failure' && steps.b05_s03.conclusion != 'failure' && steps.b05_s04.conclusion != 'failure' && steps.b05_s05.conclusion != 'failure' && steps.b05_s06.conclusion != 'failure' && steps.b05_s07.conclusion != 'failure' }}
         timeout-minutes: 15
         name: probe --self-test must come back FAIL (its negative control fired)
         run: |
@@ -1600,6 +1710,13 @@ jobs:
         timeout-minutes: 20
         name: a failed import is not announced as done (#1571)
         run: bash tests/test_a_failed_import_is_not_announced_as_done.sh
+      # One LinkedIn export imports and is announced once, across a restart,
+      # and a changed export still imports. Red on the pre-fix install.sh.
+      - id: b06_s03
+        if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 20
+        name: a LinkedIn export is imported once and announced once
+        run: bash tests/test_linkedin_export_imports_once.sh
       # #30. A loose calendar.ics, emails.mbox or contacts.vcf in Downloads
       # matched nothing in the watcher, which returned 0 before writing a
       # byte, while the install-time scan called the same files exports.
@@ -1609,7 +1726,7 @@ jobs:
       # nothing imports, the two detectors agreeing file by file, catch-up
       # still running first, and the closing text free of Terminal commands
       # and raw escape codes. Red on the base (17 of 23 fail), green here.
-      - id: b06_s03
+      - id: b06_s04
         if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: a loose export in Downloads is found, imported once, and said (#30)
@@ -1619,7 +1736,7 @@ jobs:
       # "Downloads folder" row with "found, not imported", the reason, and
       # "1 found, 0 imported"; a failed import with its exit code; and
       # "not run yet" with no invented count when there is no record.
-      - id: b06_s04
+      - id: b06_s05
         if: ${{ steps.select.outputs.b06 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 20
         name: the Doctor says why a Downloads export did not import (#30)
@@ -2270,10 +2387,10 @@ jobs:
         name: the shipped compose mounts the AI Conversations tree
         run: /bin/bash tests/test_the_shipped_compose_mounts_ai_conversations.sh
       # 9. AND THE SAME DEFECT A FOURTH TIME, ON THE HUMAN CONVERSATIONS TREE
-      #    (#979 again). The step above guards ~/Documents/Ostler/AI
+      #    (#979 again). The step above guards ~/Ostler/AI
       #    Conversations. It could never have caught this one: the four-artefact
       #    bundles from iMessage, WhatsApp, email and calls live in the SIBLING
-      #    tree ~/Documents/Ostler/Conversations, which the shipping heredoc
+      #    tree ~/Ostler/Conversations, which the shipping heredoc
       #    did not mount and did not name. Three readers walk it, all three are
       #    called from compile.py, and all three resolved it through
       #    expanduser("~") inside an image whose HOME is /root, so each wrote an
@@ -2283,6 +2400,16 @@ jobs:
         timeout-minutes: 10
         name: the shipped compose mounts the human Conversations tree
         run: /bin/bash tests/test_the_shipped_compose_mounts_conversations.sh
+      # S16b. THE CUSTOMER'S ASSISTANT NAME NEVER REACHED THE WIKI COMPILER.
+      #    install.sh wrote ASSISTANT_NAME only to config/.env; the compiler's
+      #    env is interpolated from the compose .env, so CM044 could only use
+      #    the neutral chat wing. This runs the shipped writer block and
+      #    resolves the real wiki-compiler env block against its output.
+      - id: b12_s07
+        if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
+        timeout-minutes: 10
+        name: the wiki compiler gets the customer's assistant name
+        run: /bin/bash tests/test_wiki_compiler_gets_assistant_name.sh
       # 8. A GUARD THAT SILENCED ITS OWN FAILURE (#950). The store-auth .pth
       #    is written only for the bundled interpreter, correctly, but the
       #    warn sat INSIDE the same `if`, so on any of six ordinary values of
@@ -2290,7 +2417,7 @@ jobs:
       #    of the #550 store-auth work was inert and silent. The existing test
       #    is STATIC and asserts the CALL EXISTS: a call inside a false guard
       #    still exists. This one EXECUTES the shipped block.
-      - id: b12_s07
+      - id: b12_s08
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the store-auth guard says when it skips
@@ -2304,7 +2431,7 @@ jobs:
       #    install.sh, refuses with CANNOT-RUN if it cannot find it, and
       #    carries its own mutant so a green run means the predicate still
       #    discriminates.
-      - id: b12_s08
+      - id: b12_s09
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: every detected export root reaches the importer, not just the first
@@ -2312,7 +2439,7 @@ jobs:
       # F5 / walk #16: the Qdrant container ran at ulimit -n 1024, RocksDB hit
       # EMFILE and every write after it failed. The shipped compose must give
       # qdrant and oxigraph nofile >= 65535; the test's mutants prove it can go RED.
-      - id: b12_s09
+      - id: b12_s10
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the shipped stores have fd headroom (nofile >= 65535)
@@ -2325,7 +2452,7 @@ jobs:
       #    wanted the slot, kept it correctly for 25+ minutes, and the backfill
       #    waited for ever while writing a 0-byte log. Found by walking a box,
       #    three times. The test's mutant reproduces both measured symptoms.
-      - id: b12_s10
+      - id: b12_s11
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the wiki backfill enrols for the slot instead of spinning on mkdir
@@ -2334,12 +2461,12 @@ jobs:
       # question from a wait; the gate then reports the real count in install.sh.
       # Running only the second would leave a silently-broken predicate printing
       # a clean sheet, which is the failure its own vacuity arm exists to stop.
-      - id: b12_s11
+      - id: b12_s12
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the prompt-loop gate can still tell a question from a wait
         run: /bin/bash tests/test_prompt_loops_gate.sh
-      - id: b12_s12
+      - id: b12_s13
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: no NEW re-prompt loop that cannot give up
@@ -2347,7 +2474,7 @@ jobs:
       # A test that no longer parses cannot fail honestly -- it fails for the
       # wrong reason, or worse, a sourcing error reads as a pass. Parse all
       # eight under the same 3.2 that runs them.
-      - id: b12_s13
+      - id: b12_s14
         if: ${{ steps.select.outputs.b12 != 'false' && matrix.shard == 2 && (always()) }}
         timeout-minutes: 10
         name: the gates themselves parse under bash 3.2
@@ -2428,28 +2555,103 @@ jobs:
           } >> "$GITHUB_ENV"
       - id: b13_s01
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
+        timeout-minutes: 90
         name: no_person_holds_two_contact_cards credential + 401/000 adjudication
         run: /bin/bash scripts/tests/test_no_person_holds_two_contact_cards_probe.sh
+      # A graph with 1 icloud_contact_uid or 0 candidate merge pairs examined
+      # nothing; the probe must say CANNOT-RUN with the denominator, and a real
+      # 2+ uid fixture with 0 violations must still PASS.
       - id: b13_s02
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
-        name: ingest_coverage credential + 401/000 adjudication
-        run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
+        timeout-minutes: 90
+        name: two-cards probe is CANNOT-RUN on a vacuous graph, PASS on a real one
+        run: /bin/bash scripts/tests/test_two_cards_probe_refuses_a_vacuous_pass.sh
+      # instr119: the people and screens probes print CAUSES (join key, C split,
+      # category breakdown, launchctl exit + install.sh fda-rerun line, 5xx body,
+      # Needs-you-now keys) against synthetic stores, with exit codes unchanged.
       - id: b13_s03
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
-        name: people_count_agreement oxigraph credential + 401/000 adjudication
-        run: /bin/bash scripts/tests/test_people_count_agreement_probe.sh
+        timeout-minutes: 90
+        name: walk probes print causes, masked, exit codes unchanged (instr119)
+        run: python3 tests/test_walk_probes_print_causes.py
+      # Archie's three holes on #3231: unmeasured denominators are CANNOT-RUN (no
+      # substitute value), and journal-excused merges count as candidate pairs.
       - id: b13_s04
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
+        timeout-minutes: 90
+        name: two-cards probe verdict holes (unmeasured denominators, excused merges)
+        run: python3 tests/test_two_cards_probe_verdict_holes.py
+      # v1.0.115: the BLOCKING probe was CANNOT-RUN on a cold walk account (zero
+      # icloud_contact_uid identifiers). The walk now seeds synthetic Contacts
+      # through the SHIPPED paths (contact_syncer --vcf, pwg_ingest, dedupe_merge,
+      # the people-to-Qdrant reconcile). This runs the seed script itself and the
+      # three shipping probes (no_person_holds_two_contact_cards,
+      # people_stores_reconcile, people_count_agreement) over rdflib + REST
+      # stand-ins for Oxigraph, Ollama and Qdrant. A skip (importorskip) is NOT a
+      # pass, so -rs output is checked for "SKIPPED".
+      - id: b13_s05
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: contact cards seed runs the shipped paths and the probes read it (rdflib store)
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/ccs-venv"
+          "${RUNNER_TEMP}/ccs-venv/bin/python" -m pip install --quiet pytest rdflib \
+            -r vendor/cm041/contact_syncer/requirements.txt \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          out="$("${RUNNER_TEMP}/ccs-venv/bin/python" -m pytest tests/test_contact_cards_seed_runs_the_probe.py tests/test_install_repairs_merge_consistency_after_dedupe.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+      # v1.0.121, RULE 2 exception (Andy 2026-10-30): the REAL BatchResolver
+      # writes the graph, journal and snapshots; the REAL probe re-checks every
+      # journalled override in the graph (same full name with suffixes kept,
+      # shared key, 3+ names guard). A skip (importorskip) is NOT a pass.
+      - id: b13_s06
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: RULE 2 override is re-checked in the graph, never taken on the journal's word
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/rule2-venv"
+          "${RUNNER_TEMP}/rule2-venv/bin/python" -m pip install --quiet pytest rdflib qdrant-client pyoxigraph \
+            -r vendor/cm041/identity_resolver/requirements.txt
+          out="$("${RUNNER_TEMP}/rule2-venv/bin/python" -m pytest tests/test_rule2_override_is_rechecked_in_the_graph.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | /usr/bin/grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+      - id: b13_s07
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: ingest_coverage credential + 401/000 adjudication
+        run: /bin/bash scripts/tests/test_ingest_coverage_probe.sh
+      # The walk plants a synthetic Safari History.db before install, and
+      # ingest_coverage grades a source-absent safari_history CANNOT-RUN.
+      - id: b13_s08
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: walk Safari seed (synthetic History.db, never overwrites a real one)
+        run: /bin/bash scripts/tests/test_walk_safari_seed.sh
+      - id: b13_s09
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: people_count_agreement oxigraph credential + 401/000 adjudication
+        run: /bin/bash scripts/tests/test_people_count_agreement_probe.sh
+      - id: b13_s10
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
         name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
       # #2362: a self-test is fixtures only; it must not reach the box.
-      - id: b13_s05
+      - id: b13_s11
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
+        timeout-minutes: 90
+        name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants
+        run: /bin/bash scripts/tests/test_walk_probes_l3_and_maps.sh
+      - id: b13_s12
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
+        name: Core memory holds no prefetch block (#2436) probe, RED/GREEN/blind + mutant
+        run: /bin/bash scripts/tests/test_walk_probe_core_memory_prefetch.sh
+      - id: b13_s13
+        if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
+        timeout-minutes: 90
         name: Probe self-tests never reach the box
         run: /bin/bash scripts/tests/test_probe_self_tests_never_reach_the_box.sh
       # THE PROBE'S OWN NEGATIVE CONTROL, RUN WHERE A PR CAN SEE IT.
@@ -2465,9 +2667,9 @@ jobs:
       # probe BROKEN on anything else. Exit 0 here means a negative control did
       # NOT fire. GitHub runs `run:` under `bash -eo pipefail`, so the non-zero
       # exit is captured rather than allowed to end the step.
-      - id: b13_s06
+      - id: b13_s14
         if: ${{ steps.select.outputs.b13 != 'false' && matrix.shard == 1 && (always()) }}
-        timeout-minutes: 60
+        timeout-minutes: 90
         name: people_stores_reconcile negative control (--self-test must exit 1)
         run: |
           rc=0
@@ -2772,19 +2974,24 @@ jobs:
       - id: b16_s03
         if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
+        name: Pause unloads the chat model, and resume restores it (F&F 2026-11-13)
+        run: bash tests/test_pause_unloads_model.sh
+      - id: b16_s04
+        if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
+        timeout-minutes: 30
         name: The promote merges logs/ so a running service's log keeps its path (#2434)
         run: bash tests/test_promote_keeps_open_logs_linked.sh
-      - id: b16_s04
+      - id: b16_s05
         if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: Every plist install.sh renders parses with plistlib
         run: /bin/bash tests/test_every_installer_plist_parses.sh
-      - id: b16_s05
+      - id: b16_s06
         if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The Doctor's tokenless loopback fallback is off on every install
         run: /bin/bash tests/test_doctor_oracle_fallback_is_off.sh
-      - id: b16_s06
+      - id: b16_s07
         if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The existing LaunchAgent guards must still hold
@@ -2837,7 +3044,7 @@ jobs:
       #
       # `if: always()` for the reason recorded above: a red in an earlier step
       # would otherwise SKIP this one, and a skipped test reports nothing.
-      - id: b16_s07
+      - id: b16_s08
         if: ${{ steps.select.outputs.b16 != 'false' && matrix.shard == 3 && (always()) }}
         timeout-minutes: 30
         name: The WhatsApp keepalive must repair, refuse, and never exit 0 on a failure

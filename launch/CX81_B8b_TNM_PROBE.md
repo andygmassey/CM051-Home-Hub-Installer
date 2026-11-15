@@ -6,7 +6,7 @@ Branch: feat/cx81-b8b-dialog-icon-2026-05-26 (off B8's pushed branch)
 ## Premise being verified
 
 B8 wired the FDA dialog to render with AppIcon.icns (the OstlerInstaller
-app icon) instead of the generic `with icon note` system note. Andy ran
+app icon) instead of the generic `with icon note` system note. The owner ran
 that DMG and reported a visible **bounding-box / "feint square outline"**
 around the marque in the dialog. Hypothesis: AppIcon was designed with
 internal padding so macOS can apply its squircle mask on Dock /
@@ -17,7 +17,7 @@ Confirmed by visual inspection of the existing AppIcon source PNG
 (`gui/OstlerInstaller/Assets.xcassets/AppIcon.appiconset/icon_1024.png`):
 the asset is a **black globe motif** inside a **cream-coloured squircle
 background** with internal padding. The cream squircle is the
-bounding-box Andy reported.
+bounding-box the owner reported.
 
 ## Source-asset search
 
@@ -33,7 +33,7 @@ matching the brief (oxblood circle + white "O" letter, edge-to-edge):
 | CM044 wiki extra.css | Border-radius:50% Gravatar avatars + oxblood `#7A1F1F` accent | Conceptual reference for circular avatar treatment |
 
 **Finding: no existing brand asset matches the brief.** The "Ostler O
-brand mark (oxblood circle + white O letter)" Andy describes is a
+brand mark (oxblood circle + white O letter)" the owner describes is a
 **conceptual treatment** consistent with the wiki's oxblood pill chips
 and the assistant-avatar look-and-feel, not a delivered PNG/SVG in the
 brand kit.
@@ -56,7 +56,7 @@ PIL renders a 1024x1024 PNG:
    bounding-box padding to expose.
 2. Letter "O" geometrically centred, scaled so the glyph bounding box
    spans 58% of canvas width (~592 px). The 58% ratio matches the
-   visual weight Andy described in the wiki avatar treatment.
+   visual weight the owner described in the wiki avatar treatment.
 3. Outfit-Bold's "O" glyph has visibly thicker side strokes than
    top/bottom strokes -- this is the typographic tell that distinguishes
    it from a 0 (zero) or a Q (no descender, no whitespace at descender
