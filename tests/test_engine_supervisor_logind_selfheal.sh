@@ -64,7 +64,7 @@ reset() { rm -rf "${WORK}/state" "${WORK}/logs" "${WORK}/restarts" "${WORK}/sup.
 restarts() { [ -f "${WORK}/restarts" ] && wc -l < "${WORK}/restarts" | tr -d ' ' || echo 0; }
 record()   { cat "${WORK}/state/engine-supervisor/logind_health.json" 2>/dev/null; }
 verdict()  { record | sed -n 's/.*"verdict": "\([A-Z-]*\)".*/\1/p' | head -1; }
-escalated(){ record | grep -q '"escalated": true'; }
+escalated(){ [ "$(record | grep -c '"escalated": true')" -gt 0 ]; }
 
 # doctor_row <record_path> [module_dir]: the Doctor row rendered by the real module.
 doctor_row() {
@@ -88,12 +88,12 @@ if [ "$(restarts)" = 1 ]; then pass "arm 1: injected wedge takes exactly one hea
 ROW="$(doctor_row "$STATE_JSON")"
 HEAL_AT="$(record | sed -n 's/.*"heal_epochs": "\([0-9]*\).*/\1/p')"
 WANT_TIME="$(python3 -c "import time,sys; print(time.strftime('%H:%M', time.localtime(int(sys.argv[1]))))" "$HEAL_AT")"
-if printf '%s' "$ROW" | grep -q "restarted a stuck background service at ${WANT_TIME}"; then
+if [ "$(printf '%s' "$ROW" | grep -c "restarted a stuck background service at ${WANT_TIME}")" -gt 0 ]; then
     pass "arm 1: Doctor says 'restarted a stuck background service at ${WANT_TIME}' (local time of the heal)"
 else
     failure "arm 1: Doctor row wrong: ${ROW}"
 fi
-if printf '%s' "$ROW" | grep -qiE 'logind|systemd|colima|VM|supervisor|probe|tick|ssh'; then
+if [ "$(printf '%s' "$ROW" | grep -ciE 'logind|systemd|colima|VM|supervisor|probe|tick|ssh')" -gt 0 ]; then
     failure "arm 1: internals leaked into customer copy: ${ROW}"
 else
     pass "arm 1: customer copy names no internals"
@@ -102,7 +102,7 @@ fi
 # ---- Arm 2: healthy control, no heal --------------------------------------
 reset
 run_sup "$SUP" "$HEALTHY_PROBE"
-if [ "$(restarts)" = 0 ] && printf '%s' "$(doctor_row "$STATE_JSON")" | grep -q 'running normally'; then
+if [ "$(restarts)" = 0 ] && [ "$(printf '%s' "$(doctor_row "$STATE_JSON")" | grep -c 'running normally')" -gt 0 ]; then
     pass "arm 2 (control): healthy reading takes no heal and the Doctor says running normally"
 else
     failure "arm 2: healthy reading acted or was misreported (restarts=$(restarts))"
@@ -113,7 +113,7 @@ reset
 for _ in 1 2 3 4 5 6; do run_sup "$SUP" "$WEDGED_PROBE"; done
 if [ "$(restarts)" = 3 ]; then pass "arm 3: wedge that never clears gets exactly 3 heals over 6 ticks, then none"; else failure "arm 3: expected exactly 3 heals, got $(restarts)"; fi
 if escalated; then pass "arm 3: budget spent, the record is escalated"; else failure "arm 3: not escalated after the budget was spent"; fi
-if printf '%s' "$(doctor_row "$STATE_JSON")" | grep -q 'needs attention'; then pass "arm 3: Doctor row says needs attention"; else failure "arm 3: Doctor row does not escalate"; fi
+if [ "$(printf '%s' "$(doctor_row "$STATE_JSON")" | grep -c 'needs attention')" -gt 0 ]; then pass "arm 3: Doctor row says needs attention"; else failure "arm 3: Doctor row does not escalate"; fi
 
 # ---- Arm 4: cooldown. A second wedge inside the cooldown is not healed ----
 reset
@@ -124,7 +124,7 @@ if [ "$(restarts)" = 1 ]; then pass "arm 4: second wedge inside the 900 s cooldo
 # ---- Arm 5: a probe that could not run is never healed and never "running" -
 reset
 run_sup "$SUP" "$CANNOT_PROBE"
-if [ "$(restarts)" = 0 ] && printf '%s' "$(doctor_row "$STATE_JSON")" | grep -q "couldn't check"; then
+if [ "$(restarts)" = 0 ] && [ "$(printf '%s' "$(doctor_row "$STATE_JSON")" | grep -c "couldn't check")" -gt 0 ]; then
     pass "arm 5: unparseable probe: no heal, Doctor says couldn't check"
 else
     failure "arm 5: a probe that could not run acted or was shown as running"
@@ -178,7 +178,7 @@ assert s2 != s, "escalation anchor not found"
 open(p, "w").write(s2)
 PY
 reset; for _ in 1 2 3 4 5 6; do run_sup "$SUP" "$WEDGED_PROBE"; done
-if printf '%s' "$(doctor_row "$STATE_JSON" "$MD")" | grep -q 'needs attention'; then failure "mutant M4 still escalates: arm 3 cannot see escalation"; else pass "mutant M4 (escalation removed): arm 3 row goes red"; fi
+if [ "$(printf '%s' "$(doctor_row "$STATE_JSON" "$MD")" | grep -c 'needs attention')" -gt 0 ]; then failure "mutant M4 still escalates: arm 3 cannot see escalation"; else pass "mutant M4 (escalation removed): arm 3 row goes red"; fi
 
 # M5: a customer-copy leak. The no-internals check must catch "logind" in the row.
 MC="${WORK}/mut-copy"; mkdir -p "$MC"; cp "${DOC}/engine_watchdog_status.py" "$MC/"
@@ -190,7 +190,7 @@ assert s.count(old) == 1
 open(p, "w").write(s.replace(old, 'restarted logind at %s%s.'))
 PY
 reset; run_sup "$SUP" "$WEDGED_PROBE"
-if printf '%s' "$(doctor_row "$STATE_JSON" "$MC")" | grep -qiE 'logind|systemd|colima|VM|supervisor|probe|tick|ssh'; then pass "mutant M5 (internals in copy): the no-internals check goes red"; else failure "mutant M5 leak not caught"; fi
+if [ "$(printf '%s' "$(doctor_row "$STATE_JSON" "$MC")" | grep -ciE 'logind|systemd|colima|VM|supervisor|probe|tick|ssh')" -gt 0 ]; then pass "mutant M5 (internals in copy): the no-internals check goes red"; else failure "mutant M5 leak not caught"; fi
 
 echo "logind selfheal: ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
