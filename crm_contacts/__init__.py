@@ -133,7 +133,7 @@ def read_csv(path: Path) -> tuple[str, list[Person]]:
 
 def _esc(v: str) -> str:
     return (v.replace("\\", "\\\\").replace("\r\n", "\n").replace("\n", "\\n")
-            .replace(",", "\\,").replace(";", "\;"))
+            .replace(",", "\\,").replace(";", "\\;"))
 
 
 def _fold(line: str) -> str:
