@@ -478,7 +478,19 @@ def _get_outstanding_todos(oxigraph_url, person_uri):
     return todos
 
 
-def pre_meeting_brief(days=1, events_provider=None):
+def _owner_declined(attendees, owner_emails):
+    """True when an owner address is listed on the event with PARTSTAT /
+    responseStatus DECLINED. Both calendar paths expose that as ``status``
+    (ical-server.py _parse_attendee, query_google_calendar)."""
+    owners = {e.lower() for e in owner_emails}
+    return any(
+        (a.get("email") or "").lower() in owners
+        and str(a.get("status") or "").upper() == "DECLINED"
+        for a in attendees
+    )
+
+
+def pre_meeting_brief(days=1, events_provider=None, report=None):
     """Generate pre-meeting briefs for upcoming meetings with attendees.
 
     See ``SCHEMA.md`` for the wire shape this function returns. The
@@ -487,16 +499,26 @@ def pre_meeting_brief(days=1, events_provider=None):
     ``attendees`` top-level shape, where each attendee has
     ``name`` / ``wiki_url`` / ``facts`` / ``times_met`` /
     ``last_met`` / ``last_discussion_url`` / ``outstanding_todos``.
+
+    A timed event with no attendees is kept with ``attendees: []``: the
+    sender sends it as a one-line nudge. An all-day event with no attendees
+    is dropped (it has no time to nudge about), and so is a solo event the
+    owner DECLINED. Free/transparent is not dropped: no calendar path exposes it. ``report``, when given, is
+    filled with ``considered`` (events read) and ``filtered`` (``{uid,
+    reason}`` for each event dropped here), so the sender can log why.
     """
     owner_emails = set(config.OWNER_EMAILS)
     oxigraph_url = config.OXIGRAPH_URL
 
     if events_provider is None:
-        events = fetch_events(config.CALENDAR_API_URL, days)
+        events = fetch_events(config.CALENDAR_API_URL, days, require_attendees=False)
     else:
         events = fetch_events(
-            config.CALENDAR_API_URL, days, events_provider=events_provider
+            config.CALENDAR_API_URL, days, events_provider=events_provider,
+            require_attendees=False,
         )
+    if report is not None:
+        report.update(considered=len(events or []), filtered=[])
     if not events:
         return []
 
@@ -507,7 +529,18 @@ def pre_meeting_brief(days=1, events_provider=None):
             a for a in attendees
             if a.get("email", "").lower() not in owner_emails
         ]
-        if not other_attendees:
+        if not other_attendees and (
+            event.get("all_day") or not event.get("start")
+            or _owner_declined(attendees, owner_emails)
+        ):
+            if report is not None:
+                if event.get("all_day"):
+                    reason = "all_day_no_attendees"
+                elif not event.get("start"):
+                    reason = "no_start"
+                else:
+                    reason = "declined"
+                report["filtered"].append({"uid": event.get("uid", ""), "reason": reason})
             continue
 
         location = event.get("location", "")

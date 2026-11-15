@@ -1,0 +1,1 @@
+.ostler/license/	the licence the walk needs to install (ERR-02-LICENCE-REQUIRED without it); the shipped uninstaller keeps this directory (install.sh:29322) and the #1828 reset saves and restores license.json

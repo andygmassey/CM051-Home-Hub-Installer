@@ -604,8 +604,20 @@ wiki_summaries_wait() {
     [ "$step" -lt 1 ] && step=1
     local start waited=0 iter=0 elapsed=0
     start="$(_ww_now)"
+    # OSTLER_WIKI_WAIT_MODE (default "full" = the original behaviour, unchanged):
+    #   kick  steps 1-3 only: read the box, count the journal, kickstart the
+    #         recompile, remember the baseline in _WW_K_*; NO waiting.
+    #   wait  steps 4a-4b and the count only, from the baseline the kick saved,
+    #         so the SAME predicate is evaluated once, later, after the probes
+    #         that do not need the backfill have run. Refuses (CANNOT-RUN) if
+    #         there was no successful kick in this walk.
+    local mode="${OSTLER_WIKI_WAIT_MODE:-full}"
 
-    printf -- '--- WIKI SUMMARIES: kickstart the recompile and wait for its backfill, before the journal is read ---\n'
+    if [ "$mode" = "wait" ]; then
+        printf -- '--- WIKI SUMMARIES: wait for the backfill kicked off earlier in this walk, before the journal is read ---\n'
+    else
+        printf -- '--- WIKI SUMMARIES: kickstart the recompile and wait for its backfill, before the journal is read ---\n'
+    fi
     printf '  cm044_wiki_compiler writes a cm044-compile- row only from the summary pass, which\n'
     printf '  the tick runs as a DETACHED backfill (wiki-recompile-tick.sh:410-531). On the wiped\n'
     printf '  v1.0.82 box that backfill had launched 3 minutes before the probe read the journal,\n'
@@ -627,8 +639,24 @@ wiki_summaries_wait() {
         printf '  target: %s\n' "${OSTLER_BOX_HOST}"
     fi
 
+    local st0 rc0 tick0 tick_last0 pid0 pid0_state sum0 before_raw brc before_n ks krc how
+    if [ "$mode" = "wait" ]; then
+        if [ "${_WW_K_STATE:-unrun}" != "kicked" ]; then
+            local kick_state="${WIKI_WAIT_STATE:-unrun}" kick_detail="${WIKI_WAIT_DETAIL:-no detail}"
+            WIKI_WAIT_STATE="cannot-run"
+            WIKI_WAIT_ELAPSED=0
+            WIKI_WAIT_DETAIL="no successful kickstart earlier in this walk (early step: ${kick_state}: ${kick_detail}); nothing to wait for"
+            printf '  CANNOT-RUN: %s\n\n' "$WIKI_WAIT_DETAIL"
+            return 1
+        fi
+        tick0="$_WW_K_TICK0"; pid0="$_WW_K_PID0"; sum0="$_WW_K_SUM0"
+        before_n="$_WW_K_BEFORE_N"; how="$_WW_K_HOW"; WIKI_WAIT_BEFORE="$_WW_K_BEFORE"
+        WIKI_WAIT_JOURNAL="$_WW_K_JOURNAL"
+        printf '  using the baseline taken at the kickstart: tick log %s lines, backfill pid %s, summaries log %s bytes, journal %s row(s)\n' \
+            "$tick0" "$pid0" "$sum0" "$before_n"
+        printf '  budget: %ss (OSTLER_WIKI_WAIT_BUDGET_S), reading every %ss\n' "$budget" "$gap"
+    else
     # -- 1. the box, before acting -------------------------------------------
-    local st0 rc0
     st0="$(_ww_read_state 2>&1)"
     rc0=$?
     if [ "$rc0" -ne 0 ] || [ -z "$(_ww_field "$st0" TICKLOG)" ]; then
@@ -743,6 +771,18 @@ wiki_summaries_wait() {
             ;;
     esac
     printf '  started via    : %s\n' "$how"
+    fi   # end of steps 1-3 (skipped in wait mode)
+
+    if [ "$mode" = "kick" ]; then
+        _WW_K_STATE="kicked"; _WW_K_TICK0="$tick0"; _WW_K_PID0="$pid0"; _WW_K_SUM0="$sum0"
+        _WW_K_BEFORE_N="$before_n"; _WW_K_HOW="$how"; _WW_K_BEFORE="$WIKI_WAIT_BEFORE"
+        _WW_K_JOURNAL="$WIKI_WAIT_JOURNAL"
+        WIKI_WAIT_STATE="kicked"
+        WIKI_WAIT_ELAPSED=$(( $(_ww_now) - start ))
+        WIKI_WAIT_DETAIL="the recompile was kickstarted ($how); the wait for its backfill is deferred to the late wait in this walk"
+        printf '  kicked: the wait for the backfill is deferred (OSTLER_WIKI_WAIT_MODE=kick); the walk goes on.\n\n'
+        return 0
+    fi
 
     # -- 4a. wait for the tick to hand over a backfill pid ---------------------
     local pid="" reading prc last_tick="" said_mutex=0 tick_lines launched_new=1

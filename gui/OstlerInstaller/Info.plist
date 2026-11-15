@@ -37,7 +37,7 @@
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Ostler scans your Desktop for social-platform data exports during install. Files stay on this Mac.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Ostler stores your knowledge graph under Documents/Ostler so it appears alongside your other documents. Files stay on this Mac.</string>
+	<string>Ostler looks in your Documents folder for data exports you have saved there, such as a Google Takeout or LinkedIn export. Files stay on this Mac.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Ostler scans your Downloads folder for social-platform data exports during install. Files stay on this Mac.</string>
 	<key>NSHighResolutionCapable</key>

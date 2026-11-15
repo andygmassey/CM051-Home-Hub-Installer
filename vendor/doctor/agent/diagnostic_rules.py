@@ -191,6 +191,7 @@ from diagnostic_copy import (
     OLLAMA_NOT_PINNED_FIX,
     OLLAMA_NOT_PINNED_REASON_UNKNOWN,
     OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_MODELS_UNVERIFIED_FMT,
     OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
@@ -244,10 +245,6 @@ from diagnostic_copy import (
     REDIS_UNREACHABLE_FIX,
     REDIS_UNREACHABLE_FIX_COMMAND_FMT,
     REDIS_UNREACHABLE_TITLE,
-    STALE_IMPORT_DETAIL,
-    STALE_IMPORT_FIX,
-    STALE_IMPORT_FIX_COMMAND,
-    STALE_IMPORT_TITLE_FMT,
     WIKI_CONTAINER_STOPPED_DETAIL_FMT,
     WIKI_CONTAINER_STOPPED_FIX,
     WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT,
@@ -1454,23 +1451,19 @@ def check_memory_pressure(snapshot: Any) -> list[dict]:
 
 
 def check_gdpr_export_age(snapshot: Any) -> list[dict]:
-    """Warn if GDPR exports might be stale."""
-    findings = []
+    """Per-platform export age, from the watcher's high-water store.
 
-    if snapshot.last_import_date and snapshot.current_date:
-        days_since = (snapshot.current_date - snapshot.last_import_date).days
-        if days_since > 90:
-            findings.append({
-                "severity": "info",
-                "title": STALE_IMPORT_TITLE_FMT.format(days=days_since),
-                "detail": STALE_IMPORT_DETAIL,
-                "fix": STALE_IMPORT_FIX,
-                "fix_command": STALE_IMPORT_FIX_COMMAND,
-                "risk": "low",
-                "category": "configuration",
-            })
+    Reads ``snapshot.export_imports`` (collected by status_collector from
+    state/export-scan/high_water.tsv). ``None`` means the store was not
+    collected at all, which is silence by construction, so it is not a finding.
+    An unreadable store is a finding ("couldn't check"), never a clean pass.
+    """
+    import export_status
 
-    return findings
+    state = getattr(snapshot, "export_imports", None)
+    if state is None:
+        return []
+    return export_status.stale_findings(state)
 
 
 def check_docker_resources(snapshot: Any) -> list[dict]:
@@ -1892,10 +1885,13 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
     except OSError:
         return []
     kv = {}
+    unverified = []  # install.sh appends model_unverified=<model> per model pulled while deferred
     for line in text.splitlines():
         if "=" in line:
             k, _, v = line.partition("=")
             kv[k.strip()] = v.strip()
+            if k.strip() == "model_unverified" and v.strip():
+                unverified.append(v.strip())
     if kv.get("ollama_pin") != "deferred":
         return []
     rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
@@ -1904,7 +1900,8 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
         "severity": "warning",
         "title": OLLAMA_NOT_PINNED_TITLE,
         "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
-            version=kv.get("ollama_pin_version") or "?", reason=reason),
+            version=kv.get("ollama_pin_version") or "?", reason=reason)
+        + (OLLAMA_MODELS_UNVERIFIED_FMT.format(models=", ".join(unverified)) if unverified else ""),
         "fix": OLLAMA_NOT_PINNED_FIX,
         "risk": "low",
         "category": "installation",
@@ -2855,12 +2852,12 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
 #
 # v1.0.121 (NEW-121, measured on the v1.0.120 box): this rule used to run
 # `tmutil isexcluded <folder>` from Doctor's own python, for ~/.ostler,
-# ~/Documents/Ostler and ~/.colima. Doctor is a launchd job whose program is
+# ~/Ostler and ~/.colima. Doctor is a launchd job whose program is
 # the bundled python, so TCC charged tmutil's reads to python3.11: two
 # preflights (SystemPolicyAllFiles, SystemPolicyDocumentsFolder) and one
 # NON-preflight SystemPolicyDocumentsFolder request, which is the shape that
 # shows a customer "python3 would like to access files in your Documents
-# folder". The Documents request comes from the ~/Documents/Ostler argv (and
+# folder". The Documents request comes from the ~/Ostler argv (and
 # the os.path.isdir() on it that gated the call); ~/.ostler and ~/.colima are
 # outside every TCC-protected folder.
 #
@@ -2944,9 +2941,9 @@ def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
         return []
     home = os.path.expanduser("~")
     secrets_dir = os.path.join(home, ".ostler")
-    # Path STRINGS only. Doctor must not stat ~/Documents/Ostler: the writer
+    # Path STRINGS only. Doctor must not stat ~/Ostler: the writer
     # records "absent" for a folder that does not exist.
-    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+    folders = [secrets_dir, os.path.join(home, "Ostler"),
                os.path.join(home, ".colima")]
     rows, reason = _tm_read_status()
     findings: list[dict] = []

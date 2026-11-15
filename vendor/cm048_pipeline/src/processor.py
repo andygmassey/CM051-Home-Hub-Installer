@@ -788,7 +788,7 @@ UPDATE_MARKER_FILE = "update_pending.json"
 # Where step 09 wrote this version's bundle. Moved to _superseded/ by an
 # update like any step output; its value is first copied into the update
 # marker, so the re-run knows the exact folder to clean up without
-# listing ~/Documents/Ostler/Conversations (an opendir there can block
+# listing ~/Ostler/Conversations (an opendir there can block
 # forever under launchd, see _remove_stale_bundle_folders).
 BUNDLE_LOCATION_FILE = "bundle_location.json"
 SUPERSEDED_DIR = "_superseded"
@@ -1640,7 +1640,7 @@ def _stamp_capture_truth(
     solo: bool,
 ) -> str:
     """Last edit before 02_enrichment.md is written (and copied verbatim
-    to ~/Documents/Ostler/Conversations/<id>.md). See capture_truth."""
+    to ~/Ostler/Conversations/<id>.md). See capture_truth."""
     if solo:
         rendered = _capture_truth.scrub_solo_body(
             rendered, _capture_truth.speaker_labels(transcript, metadata), metadata,
@@ -2872,7 +2872,7 @@ def _step_bundle(
     2. Channel-adapter dispatch + write_conversation -- builds
        the ``ConversationBundle`` and writes the three markdown
        artefacts atomically under
-       ``~/Documents/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``.
+       ``~/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``.
 
     The writer's gist callback is intentionally NOT supplied: the
     gist arm is step 07 (already run, or skipped for L3); step 09
@@ -2976,7 +2976,7 @@ def _step_bundle(
     if _is_gist_only(metadata):
         # Declared, not an unimplemented adapter: an AI conversation's
         # durable readable copy is CM052's own artefact under
-        # ~/Documents/Ostler/AI Conversations/, so a CM048 bundle under
+        # ~/Ostler/AI Conversations/, so a CM048 bundle under
         # Conversations/ would put the same chat in two folders (and on two
         # wiki pages). The extraction above still feeds the topic bridge.
         logger.info(

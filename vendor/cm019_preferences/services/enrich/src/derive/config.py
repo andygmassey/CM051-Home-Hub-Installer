@@ -142,7 +142,7 @@ def build_readers(gateway: StoreGateway, path: Path = READERS_YAML, stated_model
             # The owner's own lines in the transcripts CM048 already wrote. Never
             # a message database: that would be a new TCC surface.
             root = Path(r.get("root") or os.environ.get("OSTLER_CONVERSATIONS_DIR")
-                        or Path.home() / "Documents" / "Ostler" / "Conversations")
+                        or Path.home() / "Ostler" / "Conversations")
             readers.append(
                 StatedTranscriptReader(
                     gateway=gateway,

@@ -30,10 +30,10 @@
 #           running the customer's self-updating /Applications/Ollama.app
 #           FAILS ERR-07-OLLAMA-AGENT-NOT-PINNED; the same plist under a
 #           DEFERRED pin is recorded (ollama_server=... pinned=no), not failed
-#   case N  NO MODEL PULLS WHILE UNPINNED: the installer's real embed-model
+#   case N  A DEFERRED PIN STILL PULLS (unpinned): the installer's real embed-model
 #           block and pull wrapper run with a stub `ollama` that logs pulls.
-#           Deferred pin + model absent -> ZERO pulls, the install does not
-#           stop, the hold is warned and logged (model_pull=held). Control:
+#           Deferred pin + model absent -> ONE pull, warned and logged
+#           (model_pull=unpinned_engine); see test_deferred_pin_still_pulls_the_model.sh. Control:
 #           the same block with the pin installed DOES pull. Run with the
 #           guard removed (bash $0 with a mutated install.sh) it goes RED.
 #   case R  the next run RETRIES: after a deferral, a run whose download
@@ -258,7 +258,7 @@ if [ "$(wc -l < "$post" | tr -d ' ')" -ge 5 ] && grep -q 'ERR-07-OLLAMA-AGENT-NO
     else bad "L: pinned=[$r_pin] app=[$r_app] deferred=[$r_def]"; fi
 else bad "L: install.sh has no 'agent must run the PINNED binary' block ending at 3.3b"; fi
 
-# N: no model pulls while the pin is deferred, through the REAL pull path
+# N: a deferred pin still pulls (unpinned, logged), through the REAL pull path
 PULLFN="$W/pullfn.sh"
 awk '/^_gui_ollama_pull\(\) \{/{f=1} f{print} f && /^}$/{f=0; n++} n==2{exit}' "$INSTALL_SH" > "$PULLFN"
 awk '/^ollama_pull_with_retry\(\) \{/{f=1} f{print} f && /^}$/{exit}' "$INSTALL_SH" >> "$PULLFN"
@@ -283,7 +283,7 @@ run_embed() {  # run_embed <outcome> ; prints "pulls|reached|code|held_log"
              ostler_require_model_digest(){ echo "$1" >> "${PULL_LOG}.digest"; }
              . "$1"; . "$2"; . "$3"; echo REACHED' _ "$FN" "$PULLFN" "$EMBED" > "$d/out" 2>&1
     printf '%s|%s|%s|%s|%s\n' "$(grep -c . "$d/pulls")" "$(grep -c '^REACHED$' "$d/out")" \
-        "$(sed -n 's/^CODE //p' "$d/out")" "$(grep -c '^model_pull=held model=nomic-embed-text reason=ollama_unpinned$' "$d/install.log" 2>/dev/null)" \
+        "$(sed -n 's/^CODE //p' "$d/out")" "$(grep -c '^model_pull=unpinned_engine model=nomic-embed-text reason=ollama_unpinned$' "$d/install.log" 2>/dev/null)" \
         "$( [ -f "$d/pulls.digest" ] && grep -c . "$d/pulls.digest" || echo 0 )"
 }
 if [ -s "$PULLFN" ] && [ -s "$EMBED" ] && grep -q 'ollama_pull_with_retry nomic-embed-text' "$EMBED"; then
@@ -291,9 +291,9 @@ if [ -s "$PULLFN" ] && [ -s "$EMBED" ] && grep -q 'ollama_pull_with_retry nomic-
     # pulls|reached|code|held|digest-checks: a held pull downloads nothing and is
     # never digest-checked; a real pull is digest-checked once (when the
     # installer carries the model pins).
-    if [ "${n_def%|*}" = "0|1||1" ] && [ "${n_def##*|}" = 0 ] && [ "${n_ok%%|*}" = 1 ] && [ "$(cut -d'|' -f2 <<<"$n_ok")" = 1 ]; then
-        pass "N: deferred pin -> 0 model pulls, 0 digest checks, install continues, model_pull=held logged; control: pin installed -> 1 pull, $(cut -d'|' -f5 <<<"$n_ok") digest check(s)"
-    else bad "N: deferred=[pulls|reached|code|held|digest]=$n_def installed=$n_ok (want 0|1||1|0 and 1|1|...)"; fi
+    if [ "${n_def%|*}" = "1|1||1" ] && [ "${n_def##*|}" = 1 ] && [ "${n_ok%%|*}" = 1 ] && [ "$(cut -d'|' -f2 <<<"$n_ok")" = 1 ]; then
+        pass "N: deferred pin -> the model is still pulled (unpinned, logged model_pull=unpinned_engine) and goes through the digest gate; control: pin installed -> 1 pull, $(cut -d'|' -f5 <<<"$n_ok") digest check(s)"
+    else bad "N: deferred=[pulls|reached|code|held|digest]=$n_def installed=$n_ok (want 1|1||1|1 and 1|1|...)"; fi
 else bad "N: could not lift the pull wrapper or the embed-model block from install.sh"; fi
 
 # R: the next run retries the pin and clears the deferral
@@ -310,4 +310,4 @@ if [ "$fails" -gt 0 ] || [ "$ran" -ne 14 ]; then
     echo "FAIL: ollama pin install: ${fails} of ${ran} cases failed (expected 14 run)" >&2
     exit 1
 fi
-echo "PASS: ollama pin install: 14/14 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched, agent must run the pinned binary, no pulls while unpinned, next run retries"
+echo "PASS: ollama pin install: 14/14 -- sha256 enforced, updater refused, fresh failure loud, existing install deferred untouched, agent must run the pinned binary, pulls proceed unpinned and loud, next run retries"

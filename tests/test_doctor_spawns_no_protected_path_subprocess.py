@@ -2,8 +2,8 @@
 """Doctor spawns no subprocess that touches a TCC-protected path (NEW-121).
 
 MEASURED on the v1.0.120 box: com.ostler.doctor (the bundled python, a launchd
-job) ran `tmutil isexcluded` on ~/.ostler, ~/Documents/Ostler and ~/.colima.
-TCC charged the reads to python3.11, and the ~/Documents/Ostler one made a
+job) ran `tmutil isexcluded` on ~/.ostler, ~/Ostler and ~/.colima.
+TCC charged the reads to python3.11, and the ~/Ostler one made a
 NON-preflight SystemPolicyDocumentsFolder request: the shape that can show a
 customer "python3 would like to access your Documents folder".
 
@@ -13,7 +13,7 @@ Three proofs, each with a control:
      that records every process spawn and an os.stat wrapper that records
      every stat. A fake tmutil is on PATH (the real one is never run). It must
      spawn nothing and stat nothing under ~/Documents. RED at origin/main
-     1a9aea59: it spawned tmutil with ~/Documents/Ostler in argv.
+     1a9aea59: it spawned tmutil with ~/Ostler in argv.
      Control: the hook DOES record a spawn the test makes itself.
   2. CONTRACT. The writer (_ostler_tm_status_record, extracted from the
      ostler-fda wrapper in install.sh and run under /bin/bash with the fake
@@ -61,7 +61,7 @@ def check(cond: bool, msg: str) -> None:
 WORK = Path(tempfile.mkdtemp(prefix="doctor-tcc-"))
 HOME = WORK / "home"
 (HOME / ".ostler").mkdir(parents=True)
-(HOME / "Documents" / "Ostler").mkdir(parents=True)
+(HOME / "Ostler").mkdir(parents=True)
 (HOME / ".colima").mkdir(parents=True)
 BIN = WORK / "bin"
 BIN.mkdir()
@@ -192,11 +192,11 @@ if fn:
     out, spawns, _ = run_rule()
     check(out == [] and spawns == [], f"excluded on all three: no finding, no spawn ({titles(out)})")
 
-    run_writer("included", str(HOME / "Documents" / "Ostler"))
+    run_writer("included", str(HOME / "Ostler"))
     out, _, _ = run_rule()
-    check(any("Documents/Ostler is NOT excluded" in t for _, t in titles(out))
+    check(any("/Ostler is NOT excluded" in t for _, t in titles(out))
           and not any("secrets folder" in t for _, t in titles(out)),
-          f"included ~/Documents/Ostler is named, the others are not ({titles(out)})")
+          f"included ~/Ostler is named, the others are not ({titles(out)})")
     run_writer("included", str(HOME / ".ostler"))
     out, _, _ = run_rule()
     check(any(t == "Ostler's secrets folder is NOT excluded from Time Machine" for _, t in titles(out)),
@@ -228,14 +228,14 @@ if fn:
     check(out == [], f"absent folder is skipped, not 'could not check' ({titles(out)})")
     (HOME / ".colima").mkdir()
 
-# ── 2b. the Documents tile: a render with ~/Documents/Ostler unreadable ───
+# ── 2b. the Documents tile: a render with ~/Ostler unreadable ───
 # Archie's condition for the Documents-access tile (same NEW-121 class): a
 # /doctor render must make 0 writes, 0 opens, 0 stats and 0 spawns under
 # ~/Documents. RED at 1a9aea59, where the tile O_EXCL-created a probe file in
-# ~/Documents/Ostler from Doctor's python on every render.
+# ~/Ostler from Doctor's python on every render.
 import documents_access_posture as dap  # noqa: E402
 
-docs_root = HOME / "Documents" / "Ostler"
+docs_root = HOME / "Ostler"
 for p in docs_root.glob(".ostler*"):
     p.unlink()
 os.chmod(docs_root, 0)
@@ -253,12 +253,13 @@ doc_stats = [p for p in STATS if p.startswith(DOCS)]
 check(doc_opens == [], f"Documents tile render opens/writes nothing under ~/Documents (got {doc_opens[:3]})")
 check(doc_stats == [], f"Documents tile render stats nothing under ~/Documents (got {doc_stats[:3]})")
 check(SPAWNS == [], f"Documents tile render spawns no process (got {SPAWNS[:3]})")
-check(list(docs_root.iterdir()) == [], "no probe file was left in ~/Documents/Ostler")
+check(list(docs_root.iterdir()) == [], "no probe file was left in ~/Ostler")
 # Control: the open recorder sees an open under ~/Documents this test makes.
 OPENS.clear()
-(docs_root / "control.txt").write_text("x")
+(HOME / "Documents").mkdir(exist_ok=True)
+(HOME / "Documents" / "control.txt").write_text("x")
 check(any(p.startswith(DOCS) for p in OPENS), "control: the open recorder sees a write under ~/Documents")
-(docs_root / "control.txt").unlink()
+(HOME / "Documents" / "control.txt").unlink()
 
 # ── 3. sweep ratchet: every Doctor subprocess call site, pinned ────────────
 # file -> number of spawn call sites. Each row was swept for the path it
